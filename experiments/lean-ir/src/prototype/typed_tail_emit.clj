@@ -237,8 +237,13 @@
                           ~depth (long (prototype.mutable/tail-frame-depth ~machine))]
                       (loop [~tag (long ~initial)
                              ~@(mapcat (fn [i [b c]]
-                                         [b `(.longValue ^Number ~(initial-value i))
-                                          c `(long (if (= Long (class ~(initial-value i))) 0 1))]) (range width) lanes)
+                                         ;; Hint a local: metadata on the `case`
+                                         ;; receiver is lost during macroexpansion.
+                                         ;; Number.longValue preserves UInt64 bits
+                                         ;; for BigInt inputs above Long/MAX_VALUE.
+                                         (let [value (with-meta (gensym "entry_scalar") {:tag 'java.lang.Number})]
+                                           [b `(let [~value ~(initial-value i)] (.longValue ~value))
+                                            c `(long (if (= Long (class ~(initial-value i))) 0 1))])) (range width) lanes)
                              ~remaining (long ~safe) ~completed (long 0) ~peak (long ~depth) ~chunks (long 0)]
                         (case ~tag
                           ~@(mapcat (fn [[i name]] [i (arm i name)]) (map-indexed vector names))

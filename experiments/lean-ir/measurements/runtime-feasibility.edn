@@ -1,0 +1,2919 @@
+{:rbmap
+ {:scope
+  "Preparation excluded; fresh state per trial; eight n100 warmups; paired complete-World parity outside timed interval. Platform trees are different implementations, not Lean speed ratios.",
+  :runs
+  [{:cpu-ns 2492990,
+    :wall-ns 2488313,
+    :allocated-bytes 3512640,
+    :gc-collections 0,
+    :n 11,
+    :trial 0,
+    :backend :reference,
+    :steps 1818}
+   {:cpu-ns 1326207,
+    :wall-ns 1324218,
+    :allocated-bytes 913672,
+    :gc-collections 0,
+    :n 11,
+    :trial 0,
+    :backend :mutable,
+    :steps 1818}
+   {:cpu-ns 1236286,
+    :wall-ns 1233938,
+    :allocated-bytes 663400,
+    :gc-collections 0,
+    :n 11,
+    :trial 0,
+    :backend :jvm,
+    :steps 1818}
+   {:cpu-ns 1166513,
+    :wall-ns 1164883,
+    :allocated-bytes 887120,
+    :gc-collections 0,
+    :n 11,
+    :trial 0,
+    :backend :mutable-private,
+    :steps 1818}
+   {:cpu-ns 1074179,
+    :wall-ns 1072176,
+    :allocated-bytes 636984,
+    :gc-collections 0,
+    :n 11,
+    :trial 0,
+    :backend :jvm-private,
+    :steps 1818}
+   {:cpu-ns 42986,
+    :wall-ns 41918,
+    :allocated-bytes 2840,
+    :gc-collections 0,
+    :n 11,
+    :trial 0,
+    :backend :clojure-tree,
+    :steps nil}
+   {:cpu-ns 17657,
+    :wall-ns 16820,
+    :allocated-bytes 552,
+    :gc-collections 0,
+    :n 11,
+    :trial 0,
+    :backend :java-tree,
+    :steps nil}
+   {:cpu-ns 7340,
+    :wall-ns 6656,
+    :allocated-bytes 552,
+    :gc-collections 0,
+    :n 11,
+    :trial 1,
+    :backend :java-tree,
+    :steps nil}
+   {:cpu-ns 11423,
+    :wall-ns 10478,
+    :allocated-bytes 2840,
+    :gc-collections 0,
+    :n 11,
+    :trial 1,
+    :backend :clojure-tree,
+    :steps nil}
+   {:cpu-ns 1133885,
+    :wall-ns 1131311,
+    :allocated-bytes 636984,
+    :gc-collections 0,
+    :n 11,
+    :trial 1,
+    :backend :jvm-private,
+    :steps 1818}
+   {:cpu-ns 1193491,
+    :wall-ns 1191903,
+    :allocated-bytes 887120,
+    :gc-collections 0,
+    :n 11,
+    :trial 1,
+    :backend :mutable-private,
+    :steps 1818}
+   {:cpu-ns 1150654,
+    :wall-ns 1148775,
+    :allocated-bytes 663400,
+    :gc-collections 0,
+    :n 11,
+    :trial 1,
+    :backend :jvm,
+    :steps 1818}
+   {:cpu-ns 1201179,
+    :wall-ns 1199668,
+    :allocated-bytes 913544,
+    :gc-collections 0,
+    :n 11,
+    :trial 1,
+    :backend :mutable,
+    :steps 1818}
+   {:cpu-ns 2669770,
+    :wall-ns 2667366,
+    :allocated-bytes 3721464,
+    :gc-collections 0,
+    :n 11,
+    :trial 1,
+    :backend :reference,
+    :steps 1818}
+   {:cpu-ns 2438943,
+    :wall-ns 2437286,
+    :allocated-bytes 3512640,
+    :gc-collections 0,
+    :n 11,
+    :trial 2,
+    :backend :reference,
+    :steps 1818}
+   {:cpu-ns 1259415,
+    :wall-ns 1258121,
+    :allocated-bytes 913672,
+    :gc-collections 0,
+    :n 11,
+    :trial 2,
+    :backend :mutable,
+    :steps 1818}
+   {:cpu-ns 1230238,
+    :wall-ns 1227830,
+    :allocated-bytes 663400,
+    :gc-collections 0,
+    :n 11,
+    :trial 2,
+    :backend :jvm,
+    :steps 1818}
+   {:cpu-ns 1171138,
+    :wall-ns 1169393,
+    :allocated-bytes 887120,
+    :gc-collections 0,
+    :n 11,
+    :trial 2,
+    :backend :mutable-private,
+    :steps 1818}
+   {:cpu-ns 1089465,
+    :wall-ns 1087778,
+    :allocated-bytes 636984,
+    :gc-collections 0,
+    :n 11,
+    :trial 2,
+    :backend :jvm-private,
+    :steps 1818}
+   {:cpu-ns 26786,
+    :wall-ns 25699,
+    :allocated-bytes 2840,
+    :gc-collections 0,
+    :n 11,
+    :trial 2,
+    :backend :clojure-tree,
+    :steps nil}
+   {:cpu-ns 17188,
+    :wall-ns 16195,
+    :allocated-bytes 552,
+    :gc-collections 0,
+    :n 11,
+    :trial 2,
+    :backend :java-tree,
+    :steps nil}
+   {:cpu-ns 7222,
+    :wall-ns 6480,
+    :allocated-bytes 552,
+    :gc-collections 0,
+    :n 11,
+    :trial 3,
+    :backend :java-tree,
+    :steps nil}
+   {:cpu-ns 9425,
+    :wall-ns 8647,
+    :allocated-bytes 2840,
+    :gc-collections 0,
+    :n 11,
+    :trial 3,
+    :backend :clojure-tree,
+    :steps nil}
+   {:cpu-ns 1093436,
+    :wall-ns 1091545,
+    :allocated-bytes 636984,
+    :gc-collections 0,
+    :n 11,
+    :trial 3,
+    :backend :jvm-private,
+    :steps 1818}
+   {:cpu-ns 1169138,
+    :wall-ns 1167519,
+    :allocated-bytes 887120,
+    :gc-collections 0,
+    :n 11,
+    :trial 3,
+    :backend :mutable-private,
+    :steps 1818}
+   {:cpu-ns 1129929,
+    :wall-ns 1127858,
+    :allocated-bytes 663400,
+    :gc-collections 0,
+    :n 11,
+    :trial 3,
+    :backend :jvm,
+    :steps 1818}
+   {:cpu-ns 1190891,
+    :wall-ns 1189496,
+    :allocated-bytes 913544,
+    :gc-collections 0,
+    :n 11,
+    :trial 3,
+    :backend :mutable,
+    :steps 1818}
+   {:cpu-ns 2664181,
+    :wall-ns 2662436,
+    :allocated-bytes 3722400,
+    :gc-collections 0,
+    :n 11,
+    :trial 3,
+    :backend :reference,
+    :steps 1818}
+   {:cpu-ns 2443423,
+    :wall-ns 2441538,
+    :allocated-bytes 3512640,
+    :gc-collections 0,
+    :n 11,
+    :trial 4,
+    :backend :reference,
+    :steps 1818}
+   {:cpu-ns 1252292,
+    :wall-ns 1250733,
+    :allocated-bytes 913744,
+    :gc-collections 0,
+    :n 11,
+    :trial 4,
+    :backend :mutable,
+    :steps 1818}
+   {:cpu-ns 1201714,
+    :wall-ns 1199664,
+    :allocated-bytes 663448,
+    :gc-collections 0,
+    :n 11,
+    :trial 4,
+    :backend :jvm,
+    :steps 1818}
+   {:cpu-ns 1161964,
+    :wall-ns 1160268,
+    :allocated-bytes 887120,
+    :gc-collections 0,
+    :n 11,
+    :trial 4,
+    :backend :mutable-private,
+    :steps 1818}
+   {:cpu-ns 1086136,
+    :wall-ns 1084088,
+    :allocated-bytes 636984,
+    :gc-collections 0,
+    :n 11,
+    :trial 4,
+    :backend :jvm-private,
+    :steps 1818}
+   {:cpu-ns 26259,
+    :wall-ns 25384,
+    :allocated-bytes 2840,
+    :gc-collections 0,
+    :n 11,
+    :trial 4,
+    :backend :clojure-tree,
+    :steps nil}
+   {:cpu-ns 17896,
+    :wall-ns 17186,
+    :allocated-bytes 552,
+    :gc-collections 0,
+    :n 11,
+    :trial 4,
+    :backend :java-tree,
+    :steps nil}
+   {:cpu-ns 43406956,
+    :wall-ns 44240104,
+    :allocated-bytes 59773712,
+    :gc-collections 0,
+    :n 100,
+    :trial 0,
+    :backend :reference,
+    :steps 30973}
+   {:cpu-ns 18679783,
+    :wall-ns 18673386,
+    :allocated-bytes 15147480,
+    :gc-collections 0,
+    :n 100,
+    :trial 0,
+    :backend :mutable,
+    :steps 30973}
+   {:cpu-ns 16189484,
+    :wall-ns 20705007,
+    :allocated-bytes 10633048,
+    :gc-collections 1,
+    :n 100,
+    :trial 0,
+    :backend :jvm,
+    :steps 30973}
+   {:cpu-ns 18616527,
+    :wall-ns 18718071,
+    :allocated-bytes 15082992,
+    :gc-collections 0,
+    :n 100,
+    :trial 0,
+    :backend :mutable-private,
+    :steps 30973}
+   {:cpu-ns 15696936,
+    :wall-ns 15690187,
+    :allocated-bytes 10568696,
+    :gc-collections 0,
+    :n 100,
+    :trial 0,
+    :backend :jvm-private,
+    :steps 30973}
+   {:cpu-ns 63135,
+    :wall-ns 62086,
+    :allocated-bytes 43528,
+    :gc-collections 0,
+    :n 100,
+    :trial 0,
+    :backend :clojure-tree,
+    :steps nil}
+   {:cpu-ns 54065,
+    :wall-ns 53336,
+    :allocated-bytes 4112,
+    :gc-collections 0,
+    :n 100,
+    :trial 0,
+    :backend :java-tree,
+    :steps nil}
+   {:cpu-ns 32646,
+    :wall-ns 31839,
+    :allocated-bytes 4112,
+    :gc-collections 0,
+    :n 100,
+    :trial 1,
+    :backend :java-tree,
+    :steps nil}
+   {:cpu-ns 42464,
+    :wall-ns 41530,
+    :allocated-bytes 43528,
+    :gc-collections 0,
+    :n 100,
+    :trial 1,
+    :backend :clojure-tree,
+    :steps nil}
+   {:cpu-ns 15537105,
+    :wall-ns 15531777,
+    :allocated-bytes 10568696,
+    :gc-collections 0,
+    :n 100,
+    :trial 1,
+    :backend :jvm-private,
+    :steps 30973}
+   {:cpu-ns 18450373,
+    :wall-ns 18445873,
+    :allocated-bytes 15082992,
+    :gc-collections 0,
+    :n 100,
+    :trial 1,
+    :backend :mutable-private,
+    :steps 30973}
+   {:cpu-ns 15727458,
+    :wall-ns 15721139,
+    :allocated-bytes 10633048,
+    :gc-collections 0,
+    :n 100,
+    :trial 1,
+    :backend :jvm,
+    :steps 30973}
+   {:cpu-ns 18489616,
+    :wall-ns 18485136,
+    :allocated-bytes 15147352,
+    :gc-collections 0,
+    :n 100,
+    :trial 1,
+    :backend :mutable,
+    :steps 30973}
+   {:cpu-ns 43581576,
+    :wall-ns 48239269,
+    :allocated-bytes 63407008,
+    :gc-collections 1,
+    :n 100,
+    :trial 1,
+    :backend :reference,
+    :steps 30973}
+   {:cpu-ns 41172672,
+    :wall-ns 41284277,
+    :allocated-bytes 59773712,
+    :gc-collections 0,
+    :n 100,
+    :trial 2,
+    :backend :reference,
+    :steps 30973}
+   {:cpu-ns 18945421,
+    :wall-ns 23611537,
+    :allocated-bytes 15147552,
+    :gc-collections 1,
+    :n 100,
+    :trial 2,
+    :backend :mutable,
+    :steps 30973}
+   {:cpu-ns 15807046,
+    :wall-ns 15798897,
+    :allocated-bytes 10633096,
+    :gc-collections 0,
+    :n 100,
+    :trial 2,
+    :backend :jvm,
+    :steps 30973}
+   {:cpu-ns 18432460,
+    :wall-ns 18425828,
+    :allocated-bytes 15082992,
+    :gc-collections 0,
+    :n 100,
+    :trial 2,
+    :backend :mutable-private,
+    :steps 30973}
+   {:cpu-ns 15887794,
+    :wall-ns 16282008,
+    :allocated-bytes 10568696,
+    :gc-collections 0,
+    :n 100,
+    :trial 2,
+    :backend :jvm-private,
+    :steps 30973}
+   {:cpu-ns 67018,
+    :wall-ns 65761,
+    :allocated-bytes 43528,
+    :gc-collections 0,
+    :n 100,
+    :trial 2,
+    :backend :clojure-tree,
+    :steps nil}
+   {:cpu-ns 85148,
+    :wall-ns 84310,
+    :allocated-bytes 4112,
+    :gc-collections 0,
+    :n 100,
+    :trial 2,
+    :backend :java-tree,
+    :steps nil}
+   {:cpu-ns 28733,
+    :wall-ns 28087,
+    :allocated-bytes 4112,
+    :gc-collections 0,
+    :n 100,
+    :trial 3,
+    :backend :java-tree,
+    :steps nil}
+   {:cpu-ns 43128,
+    :wall-ns 42294,
+    :allocated-bytes 43528,
+    :gc-collections 0,
+    :n 100,
+    :trial 3,
+    :backend :clojure-tree,
+    :steps nil}
+   {:cpu-ns 15712627,
+    :wall-ns 15767187,
+    :allocated-bytes 10568696,
+    :gc-collections 0,
+    :n 100,
+    :trial 3,
+    :backend :jvm-private,
+    :steps 30973}
+   {:cpu-ns 18545617,
+    :wall-ns 18538862,
+    :allocated-bytes 15082992,
+    :gc-collections 0,
+    :n 100,
+    :trial 3,
+    :backend :mutable-private,
+    :steps 30973}
+   {:cpu-ns 15973898,
+    :wall-ns 15968167,
+    :allocated-bytes 10633096,
+    :gc-collections 0,
+    :n 100,
+    :trial 3,
+    :backend :jvm,
+    :steps 30973}
+   {:cpu-ns 18629818,
+    :wall-ns 18624268,
+    :allocated-bytes 15147400,
+    :gc-collections 0,
+    :n 100,
+    :trial 3,
+    :backend :mutable,
+    :steps 30973}
+   {:cpu-ns 43972274,
+    :wall-ns 48900617,
+    :allocated-bytes 63405088,
+    :gc-collections 1,
+    :n 100,
+    :trial 3,
+    :backend :reference,
+    :steps 30973}
+   {:cpu-ns 41822008,
+    :wall-ns 48046534,
+    :allocated-bytes 59773712,
+    :gc-collections 1,
+    :n 100,
+    :trial 4,
+    :backend :reference,
+    :steps 30973}
+   {:cpu-ns 18755263,
+    :wall-ns 18793866,
+    :allocated-bytes 15147552,
+    :gc-collections 0,
+    :n 100,
+    :trial 4,
+    :backend :mutable,
+    :steps 30973}
+   {:cpu-ns 15838037,
+    :wall-ns 15831027,
+    :allocated-bytes 10633096,
+    :gc-collections 0,
+    :n 100,
+    :trial 4,
+    :backend :jvm,
+    :steps 30973}
+   {:cpu-ns 18484174,
+    :wall-ns 18486887,
+    :allocated-bytes 15082992,
+    :gc-collections 0,
+    :n 100,
+    :trial 4,
+    :backend :mutable-private,
+    :steps 30973}
+   {:cpu-ns 15474443,
+    :wall-ns 15467539,
+    :allocated-bytes 10568696,
+    :gc-collections 0,
+    :n 100,
+    :trial 4,
+    :backend :jvm-private,
+    :steps 30973}
+   {:cpu-ns 95748,
+    :wall-ns 94572,
+    :allocated-bytes 43528,
+    :gc-collections 0,
+    :n 100,
+    :trial 4,
+    :backend :clojure-tree,
+    :steps nil}
+   {:cpu-ns 60059,
+    :wall-ns 59323,
+    :allocated-bytes 4112,
+    :gc-collections 0,
+    :n 100,
+    :trial 4,
+    :backend :java-tree,
+    :steps nil}
+   {:cpu-ns 152706048,
+    :wall-ns 157346059,
+    :allocated-bytes 224933736,
+    :gc-collections 2,
+    :n 300,
+    :trial 0,
+    :backend :reference,
+    :steps 116872}
+   {:cpu-ns 66282471,
+    :wall-ns 68682221,
+    :allocated-bytes 57075112,
+    :gc-collections 1,
+    :n 300,
+    :trial 0,
+    :backend :mutable,
+    :steps 116872}
+   {:cpu-ns 55888994,
+    :wall-ns 55881230,
+    :allocated-bytes 39755696,
+    :gc-collections 0,
+    :n 300,
+    :trial 0,
+    :backend :jvm,
+    :steps 116872}
+   {:cpu-ns 67438484,
+    :wall-ns 69789331,
+    :allocated-bytes 56932304,
+    :gc-collections 1,
+    :n 300,
+    :trial 0,
+    :backend :mutable-private,
+    :steps 116872}
+   {:cpu-ns 52156498,
+    :wall-ns 52259618,
+    :allocated-bytes 39613048,
+    :gc-collections 0,
+    :n 300,
+    :trial 0,
+    :backend :jvm-private,
+    :steps 116872}
+   {:cpu-ns 179829,
+    :wall-ns 178159,
+    :allocated-bytes 162816,
+    :gc-collections 0,
+    :n 300,
+    :trial 0,
+    :backend :clojure-tree,
+    :steps nil}
+   {:cpu-ns 69851,
+    :wall-ns 69076,
+    :allocated-bytes 20392,
+    :gc-collections 0,
+    :n 300,
+    :trial 0,
+    :backend :java-tree,
+    :steps nil}
+   {:cpu-ns 56364,
+    :wall-ns 55788,
+    :allocated-bytes 20392,
+    :gc-collections 0,
+    :n 300,
+    :trial 1,
+    :backend :java-tree,
+    :steps nil}
+   {:cpu-ns 147037,
+    :wall-ns 146204,
+    :allocated-bytes 162816,
+    :gc-collections 0,
+    :n 300,
+    :trial 1,
+    :backend :clojure-tree,
+    :steps nil}
+   {:cpu-ns 52387537,
+    :wall-ns 52381014,
+    :allocated-bytes 39613048,
+    :gc-collections 0,
+    :n 300,
+    :trial 1,
+    :backend :jvm-private,
+    :steps 116872}
+   {:cpu-ns 67621126,
+    :wall-ns 69839725,
+    :allocated-bytes 56932304,
+    :gc-collections 1,
+    :n 300,
+    :trial 1,
+    :backend :mutable-private,
+    :steps 116872}
+   {:cpu-ns 53582737,
+    :wall-ns 53574214,
+    :allocated-bytes 39755696,
+    :gc-collections 0,
+    :n 300,
+    :trial 1,
+    :backend :jvm,
+    :steps 116872}
+   {:cpu-ns 65566165,
+    :wall-ns 67605749,
+    :allocated-bytes 57074960,
+    :gc-collections 1,
+    :n 300,
+    :trial 1,
+    :backend :mutable,
+    :steps 116872}
+   {:cpu-ns 157612312,
+    :wall-ns 162233261,
+    :allocated-bytes 238427168,
+    :gc-collections 2,
+    :n 300,
+    :trial 1,
+    :backend :reference,
+    :steps 116872}
+   {:cpu-ns 147181120,
+    :wall-ns 151429434,
+    :allocated-bytes 224933736,
+    :gc-collections 2,
+    :n 300,
+    :trial 2,
+    :backend :reference,
+    :steps 116872}
+   {:cpu-ns 67454484,
+    :wall-ns 69786404,
+    :allocated-bytes 57075112,
+    :gc-collections 1,
+    :n 300,
+    :trial 2,
+    :backend :mutable,
+    :steps 116872}
+   {:cpu-ns 53763531,
+    :wall-ns 53754806,
+    :allocated-bytes 39755696,
+    :gc-collections 0,
+    :n 300,
+    :trial 2,
+    :backend :jvm,
+    :steps 116872}
+   {:cpu-ns 65295766,
+    :wall-ns 67439391,
+    :allocated-bytes 56932304,
+    :gc-collections 1,
+    :n 300,
+    :trial 2,
+    :backend :mutable-private,
+    :steps 116872}
+   {:cpu-ns 51834186,
+    :wall-ns 51827284,
+    :allocated-bytes 39613048,
+    :gc-collections 0,
+    :n 300,
+    :trial 2,
+    :backend :jvm-private,
+    :steps 116872}
+   {:cpu-ns 121241,
+    :wall-ns 120097,
+    :allocated-bytes 162816,
+    :gc-collections 0,
+    :n 300,
+    :trial 2,
+    :backend :clojure-tree,
+    :steps nil}
+   {:cpu-ns 70791,
+    :wall-ns 70017,
+    :allocated-bytes 20392,
+    :gc-collections 0,
+    :n 300,
+    :trial 2,
+    :backend :java-tree,
+    :steps nil}
+   {:cpu-ns 60692,
+    :wall-ns 60100,
+    :allocated-bytes 20392,
+    :gc-collections 0,
+    :n 300,
+    :trial 3,
+    :backend :java-tree,
+    :steps nil}
+   {:cpu-ns 101469,
+    :wall-ns 100719,
+    :allocated-bytes 162816,
+    :gc-collections 0,
+    :n 300,
+    :trial 3,
+    :backend :clojure-tree,
+    :steps nil}
+   {:cpu-ns 52496218,
+    :wall-ns 52488941,
+    :allocated-bytes 39613048,
+    :gc-collections 0,
+    :n 300,
+    :trial 3,
+    :backend :jvm-private,
+    :steps 116872}
+   {:cpu-ns 68242961,
+    :wall-ns 70444923,
+    :allocated-bytes 56932304,
+    :gc-collections 1,
+    :n 300,
+    :trial 3,
+    :backend :mutable-private,
+    :steps 116872}
+   {:cpu-ns 54058068,
+    :wall-ns 54049861,
+    :allocated-bytes 39755696,
+    :gc-collections 0,
+    :n 300,
+    :trial 3,
+    :backend :jvm,
+    :steps 116872}
+   {:cpu-ns 65392719,
+    :wall-ns 67461247,
+    :allocated-bytes 57074960,
+    :gc-collections 1,
+    :n 300,
+    :trial 3,
+    :backend :mutable,
+    :steps 116872}
+   {:cpu-ns 158536526,
+    :wall-ns 163862696,
+    :allocated-bytes 238427168,
+    :gc-collections 2,
+    :n 300,
+    :trial 3,
+    :backend :reference,
+    :steps 116872}
+   {:cpu-ns 148258142,
+    :wall-ns 152499675,
+    :allocated-bytes 224933792,
+    :gc-collections 2,
+    :n 300,
+    :trial 4,
+    :backend :reference,
+    :steps 116872}
+   {:cpu-ns 68220378,
+    :wall-ns 70513082,
+    :allocated-bytes 57075112,
+    :gc-collections 1,
+    :n 300,
+    :trial 4,
+    :backend :mutable,
+    :steps 116872}
+   {:cpu-ns 52288027,
+    :wall-ns 52279522,
+    :allocated-bytes 39755696,
+    :gc-collections 0,
+    :n 300,
+    :trial 4,
+    :backend :jvm,
+    :steps 116872}
+   {:cpu-ns 68679279,
+    :wall-ns 70991904,
+    :allocated-bytes 56932304,
+    :gc-collections 1,
+    :n 300,
+    :trial 4,
+    :backend :mutable-private,
+    :steps 116872}
+   {:cpu-ns 59176214,
+    :wall-ns 59233071,
+    :allocated-bytes 39598768,
+    :gc-collections 0,
+    :n 300,
+    :trial 4,
+    :backend :jvm-private,
+    :steps 116872}
+   {:cpu-ns 129130,
+    :wall-ns 127293,
+    :allocated-bytes 162816,
+    :gc-collections 0,
+    :n 300,
+    :trial 4,
+    :backend :clojure-tree,
+    :steps nil}
+   {:cpu-ns 73703,
+    :wall-ns 72833,
+    :allocated-bytes 20392,
+    :gc-collections 0,
+    :n 300,
+    :trial 4,
+    :backend :java-tree,
+    :steps nil}],
+  :compiled
+  {:compiled 35,
+   :cache-hits 0,
+   :dispatch-blocks 35,
+   :cached-blocks 35}},
+ :clojure "1.12.4",
+ :tests {:test 91, :pass 23794, :fail 0, :error 0, :type :summary},
+ :typed-scaling-after
+ {:scope
+  "One retained typed program, preparation excluded; entry checks, initial state, thaw/run/freeze included. Fixed cost distinguished from loop scaling. Small positive longs only.",
+  :runs
+  [{:cpu-ns 54906,
+    :wall-ns 52780,
+    :allocated-bytes 35384,
+    :gc-collections 0,
+    :n 0,
+    :trial 0,
+    :backend :typed}
+   {:cpu-ns 1077,
+    :wall-ns 638,
+    :allocated-bytes 0,
+    :gc-collections 0,
+    :n 0,
+    :trial 0,
+    :backend :clojure}
+   {:cpu-ns 53097,
+    :wall-ns 52528,
+    :allocated-bytes 35384,
+    :gc-collections 0,
+    :n 0,
+    :trial 1,
+    :backend :typed}
+   {:cpu-ns 831,
+    :wall-ns 357,
+    :allocated-bytes 0,
+    :gc-collections 0,
+    :n 0,
+    :trial 1,
+    :backend :clojure}
+   {:cpu-ns 44765,
+    :wall-ns 44159,
+    :allocated-bytes 35384,
+    :gc-collections 0,
+    :n 0,
+    :trial 2,
+    :backend :typed}
+   {:cpu-ns 805,
+    :wall-ns 358,
+    :allocated-bytes 0,
+    :gc-collections 0,
+    :n 0,
+    :trial 2,
+    :backend :clojure}
+   {:cpu-ns 41133,
+    :wall-ns 40610,
+    :allocated-bytes 35384,
+    :gc-collections 0,
+    :n 0,
+    :trial 3,
+    :backend :typed}
+   {:cpu-ns 715,
+    :wall-ns 331,
+    :allocated-bytes 0,
+    :gc-collections 0,
+    :n 0,
+    :trial 3,
+    :backend :clojure}
+   {:cpu-ns 40600,
+    :wall-ns 39979,
+    :allocated-bytes 35384,
+    :gc-collections 0,
+    :n 0,
+    :trial 4,
+    :backend :typed}
+   {:cpu-ns 666,
+    :wall-ns 272,
+    :allocated-bytes 0,
+    :gc-collections 0,
+    :n 0,
+    :trial 4,
+    :backend :clojure}
+   {:cpu-ns 37829,
+    :wall-ns 37147,
+    :allocated-bytes 35384,
+    :gc-collections 0,
+    :n 0,
+    :trial 5,
+    :backend :typed}
+   {:cpu-ns 767,
+    :wall-ns 280,
+    :allocated-bytes 0,
+    :gc-collections 0,
+    :n 0,
+    :trial 5,
+    :backend :clojure}
+   {:cpu-ns 38895,
+    :wall-ns 38333,
+    :allocated-bytes 35384,
+    :gc-collections 0,
+    :n 0,
+    :trial 6,
+    :backend :typed}
+   {:cpu-ns 782,
+    :wall-ns 323,
+    :allocated-bytes 0,
+    :gc-collections 0,
+    :n 0,
+    :trial 6,
+    :backend :clojure}
+   {:cpu-ns 44621,
+    :wall-ns 44046,
+    :allocated-bytes 35624,
+    :gc-collections 0,
+    :n 10,
+    :trial 0,
+    :backend :typed}
+   {:cpu-ns 786,
+    :wall-ns 468,
+    :allocated-bytes 0,
+    :gc-collections 0,
+    :n 10,
+    :trial 0,
+    :backend :clojure}
+   {:cpu-ns 45303,
+    :wall-ns 44681,
+    :allocated-bytes 35624,
+    :gc-collections 0,
+    :n 10,
+    :trial 1,
+    :backend :typed}
+   {:cpu-ns 651,
+    :wall-ns 306,
+    :allocated-bytes 0,
+    :gc-collections 0,
+    :n 10,
+    :trial 1,
+    :backend :clojure}
+   {:cpu-ns 41690,
+    :wall-ns 41157,
+    :allocated-bytes 35624,
+    :gc-collections 0,
+    :n 10,
+    :trial 2,
+    :backend :typed}
+   {:cpu-ns 666,
+    :wall-ns 321,
+    :allocated-bytes 0,
+    :gc-collections 0,
+    :n 10,
+    :trial 2,
+    :backend :clojure}
+   {:cpu-ns 40619,
+    :wall-ns 40068,
+    :allocated-bytes 35624,
+    :gc-collections 0,
+    :n 10,
+    :trial 3,
+    :backend :typed}
+   {:cpu-ns 747,
+    :wall-ns 388,
+    :allocated-bytes 0,
+    :gc-collections 0,
+    :n 10,
+    :trial 3,
+    :backend :clojure}
+   {:cpu-ns 40609,
+    :wall-ns 40103,
+    :allocated-bytes 35624,
+    :gc-collections 0,
+    :n 10,
+    :trial 4,
+    :backend :typed}
+   {:cpu-ns 777,
+    :wall-ns 389,
+    :allocated-bytes 0,
+    :gc-collections 0,
+    :n 10,
+    :trial 4,
+    :backend :clojure}
+   {:cpu-ns 44651,
+    :wall-ns 44036,
+    :allocated-bytes 35624,
+    :gc-collections 0,
+    :n 10,
+    :trial 5,
+    :backend :typed}
+   {:cpu-ns 902,
+    :wall-ns 364,
+    :allocated-bytes 0,
+    :gc-collections 0,
+    :n 10,
+    :trial 5,
+    :backend :clojure}
+   {:cpu-ns 39693,
+    :wall-ns 39251,
+    :allocated-bytes 35624,
+    :gc-collections 0,
+    :n 10,
+    :trial 6,
+    :backend :typed}
+   {:cpu-ns 620,
+    :wall-ns 289,
+    :allocated-bytes 0,
+    :gc-collections 0,
+    :n 10,
+    :trial 6,
+    :backend :clojure}
+   {:cpu-ns 52591,
+    :wall-ns 52100,
+    :allocated-bytes 35760,
+    :gc-collections 0,
+    :n 100,
+    :trial 0,
+    :backend :typed}
+   {:cpu-ns 1017,
+    :wall-ns 667,
+    :allocated-bytes 24,
+    :gc-collections 0,
+    :n 100,
+    :trial 0,
+    :backend :clojure}
+   {:cpu-ns 53811,
+    :wall-ns 53228,
+    :allocated-bytes 35760,
+    :gc-collections 0,
+    :n 100,
+    :trial 1,
+    :backend :typed}
+   {:cpu-ns 896,
+    :wall-ns 556,
+    :allocated-bytes 24,
+    :gc-collections 0,
+    :n 100,
+    :trial 1,
+    :backend :clojure}
+   {:cpu-ns 53393,
+    :wall-ns 52933,
+    :allocated-bytes 35760,
+    :gc-collections 0,
+    :n 100,
+    :trial 2,
+    :backend :typed}
+   {:cpu-ns 1038,
+    :wall-ns 611,
+    :allocated-bytes 24,
+    :gc-collections 0,
+    :n 100,
+    :trial 2,
+    :backend :clojure}
+   {:cpu-ns 54199,
+    :wall-ns 53644,
+    :allocated-bytes 35760,
+    :gc-collections 0,
+    :n 100,
+    :trial 3,
+    :backend :typed}
+   {:cpu-ns 986,
+    :wall-ns 563,
+    :allocated-bytes 24,
+    :gc-collections 0,
+    :n 100,
+    :trial 3,
+    :backend :clojure}
+   {:cpu-ns 52231,
+    :wall-ns 51653,
+    :allocated-bytes 35760,
+    :gc-collections 0,
+    :n 100,
+    :trial 4,
+    :backend :typed}
+   {:cpu-ns 1029,
+    :wall-ns 655,
+    :allocated-bytes 24,
+    :gc-collections 0,
+    :n 100,
+    :trial 4,
+    :backend :clojure}
+   {:cpu-ns 51510,
+    :wall-ns 50950,
+    :allocated-bytes 35760,
+    :gc-collections 0,
+    :n 100,
+    :trial 5,
+    :backend :typed}
+   {:cpu-ns 928,
+    :wall-ns 549,
+    :allocated-bytes 24,
+    :gc-collections 0,
+    :n 100,
+    :trial 5,
+    :backend :clojure}
+   {:cpu-ns 53296,
+    :wall-ns 52728,
+    :allocated-bytes 35760,
+    :gc-collections 0,
+    :n 100,
+    :trial 6,
+    :backend :typed}
+   {:cpu-ns 998,
+    :wall-ns 605,
+    :allocated-bytes 24,
+    :gc-collections 0,
+    :n 100,
+    :trial 6,
+    :backend :clojure}
+   {:cpu-ns 168086,
+    :wall-ns 167567,
+    :allocated-bytes 35760,
+    :gc-collections 0,
+    :n 1000,
+    :trial 0,
+    :backend :typed}
+   {:cpu-ns 3607,
+    :wall-ns 3231,
+    :allocated-bytes 24,
+    :gc-collections 0,
+    :n 1000,
+    :trial 0,
+    :backend :clojure}
+   {:cpu-ns 165548,
+    :wall-ns 165099,
+    :allocated-bytes 35760,
+    :gc-collections 0,
+    :n 1000,
+    :trial 1,
+    :backend :typed}
+   {:cpu-ns 25967,
+    :wall-ns 25515,
+    :allocated-bytes 24,
+    :gc-collections 0,
+    :n 1000,
+    :trial 1,
+    :backend :clojure}
+   {:cpu-ns 177414,
+    :wall-ns 176802,
+    :allocated-bytes 35760,
+    :gc-collections 0,
+    :n 1000,
+    :trial 2,
+    :backend :typed}
+   {:cpu-ns 3266,
+    :wall-ns 2902,
+    :allocated-bytes 24,
+    :gc-collections 0,
+    :n 1000,
+    :trial 2,
+    :backend :clojure}
+   {:cpu-ns 168022,
+    :wall-ns 167577,
+    :allocated-bytes 35760,
+    :gc-collections 0,
+    :n 1000,
+    :trial 3,
+    :backend :typed}
+   {:cpu-ns 3089,
+    :wall-ns 2742,
+    :allocated-bytes 24,
+    :gc-collections 0,
+    :n 1000,
+    :trial 3,
+    :backend :clojure}
+   {:cpu-ns 174362,
+    :wall-ns 173818,
+    :allocated-bytes 35760,
+    :gc-collections 0,
+    :n 1000,
+    :trial 4,
+    :backend :typed}
+   {:cpu-ns 3144,
+    :wall-ns 2811,
+    :allocated-bytes 24,
+    :gc-collections 0,
+    :n 1000,
+    :trial 4,
+    :backend :clojure}
+   {:cpu-ns 171606,
+    :wall-ns 171064,
+    :allocated-bytes 35760,
+    :gc-collections 0,
+    :n 1000,
+    :trial 5,
+    :backend :typed}
+   {:cpu-ns 3134,
+    :wall-ns 2805,
+    :allocated-bytes 24,
+    :gc-collections 0,
+    :n 1000,
+    :trial 5,
+    :backend :clojure}
+   {:cpu-ns 167187,
+    :wall-ns 166539,
+    :allocated-bytes 35760,
+    :gc-collections 0,
+    :n 1000,
+    :trial 6,
+    :backend :typed}
+   {:cpu-ns 3404,
+    :wall-ns 3028,
+    :allocated-bytes 24,
+    :gc-collections 0,
+    :n 1000,
+    :trial 6,
+    :backend :clojure}
+   {:cpu-ns 1407094,
+    :wall-ns 1406059,
+    :allocated-bytes 63432,
+    :gc-collections 0,
+    :n 10000,
+    :trial 0,
+    :backend :typed}
+   {:cpu-ns 39745,
+    :wall-ns 39186,
+    :allocated-bytes 24,
+    :gc-collections 0,
+    :n 10000,
+    :trial 0,
+    :backend :clojure}
+   {:cpu-ns 1373708,
+    :wall-ns 1372738,
+    :allocated-bytes 63408,
+    :gc-collections 0,
+    :n 10000,
+    :trial 1,
+    :backend :typed}
+   {:cpu-ns 2361,
+    :wall-ns 1883,
+    :allocated-bytes 24,
+    :gc-collections 0,
+    :n 10000,
+    :trial 1,
+    :backend :clojure}
+   {:cpu-ns 1417374,
+    :wall-ns 1416714,
+    :allocated-bytes 63408,
+    :gc-collections 0,
+    :n 10000,
+    :trial 2,
+    :backend :typed}
+   {:cpu-ns 1769,
+    :wall-ns 1415,
+    :allocated-bytes 24,
+    :gc-collections 0,
+    :n 10000,
+    :trial 2,
+    :backend :clojure}
+   {:cpu-ns 1414652,
+    :wall-ns 1413777,
+    :allocated-bytes 63408,
+    :gc-collections 0,
+    :n 10000,
+    :trial 3,
+    :backend :typed}
+   {:cpu-ns 1801,
+    :wall-ns 1462,
+    :allocated-bytes 24,
+    :gc-collections 0,
+    :n 10000,
+    :trial 3,
+    :backend :clojure}
+   {:cpu-ns 1303017,
+    :wall-ns 1302203,
+    :allocated-bytes 63408,
+    :gc-collections 0,
+    :n 10000,
+    :trial 4,
+    :backend :typed}
+   {:cpu-ns 1865,
+    :wall-ns 1496,
+    :allocated-bytes 24,
+    :gc-collections 0,
+    :n 10000,
+    :trial 4,
+    :backend :clojure}
+   {:cpu-ns 1290613,
+    :wall-ns 1289667,
+    :allocated-bytes 63408,
+    :gc-collections 0,
+    :n 10000,
+    :trial 5,
+    :backend :typed}
+   {:cpu-ns 1748,
+    :wall-ns 1406,
+    :allocated-bytes 24,
+    :gc-collections 0,
+    :n 10000,
+    :trial 5,
+    :backend :clojure}
+   {:cpu-ns 1298278,
+    :wall-ns 1297542,
+    :allocated-bytes 63408,
+    :gc-collections 0,
+    :n 10000,
+    :trial 6,
+    :backend :typed}
+   {:cpu-ns 1955,
+    :wall-ns 1566,
+    :allocated-bytes 24,
+    :gc-collections 0,
+    :n 10000,
+    :trial 6,
+    :backend :clojure}
+   {:cpu-ns 6390609,
+    :wall-ns 6389499,
+    :allocated-bytes 201648,
+    :gc-collections 0,
+    :n 50000,
+    :trial 0,
+    :backend :typed}
+   {:cpu-ns 6254,
+    :wall-ns 5783,
+    :allocated-bytes 24,
+    :gc-collections 0,
+    :n 50000,
+    :trial 0,
+    :backend :clojure}
+   {:cpu-ns 2715316,
+    :wall-ns 2714124,
+    :allocated-bytes 201648,
+    :gc-collections 0,
+    :n 50000,
+    :trial 1,
+    :backend :typed}
+   {:cpu-ns 6082,
+    :wall-ns 5723,
+    :allocated-bytes 24,
+    :gc-collections 0,
+    :n 50000,
+    :trial 1,
+    :backend :clojure}
+   {:cpu-ns 2289377,
+    :wall-ns 2288132,
+    :allocated-bytes 201648,
+    :gc-collections 0,
+    :n 50000,
+    :trial 2,
+    :backend :typed}
+   {:cpu-ns 6193,
+    :wall-ns 5826,
+    :allocated-bytes 24,
+    :gc-collections 0,
+    :n 50000,
+    :trial 2,
+    :backend :clojure}
+   {:cpu-ns 1069217,
+    :wall-ns 1068432,
+    :allocated-bytes 201648,
+    :gc-collections 0,
+    :n 50000,
+    :trial 3,
+    :backend :typed}
+   {:cpu-ns 5917,
+    :wall-ns 5576,
+    :allocated-bytes 24,
+    :gc-collections 0,
+    :n 50000,
+    :trial 3,
+    :backend :clojure}
+   {:cpu-ns 1319935,
+    :wall-ns 1319004,
+    :allocated-bytes 201648,
+    :gc-collections 0,
+    :n 50000,
+    :trial 4,
+    :backend :typed}
+   {:cpu-ns 5613,
+    :wall-ns 5295,
+    :allocated-bytes 24,
+    :gc-collections 0,
+    :n 50000,
+    :trial 4,
+    :backend :clojure}
+   {:cpu-ns 1565245,
+    :wall-ns 1564344,
+    :allocated-bytes 201648,
+    :gc-collections 0,
+    :n 50000,
+    :trial 5,
+    :backend :typed}
+   {:cpu-ns 5866,
+    :wall-ns 5524,
+    :allocated-bytes 24,
+    :gc-collections 0,
+    :n 50000,
+    :trial 5,
+    :backend :clojure}
+   {:cpu-ns 1793942,
+    :wall-ns 1793153,
+    :allocated-bytes 201648,
+    :gc-collections 0,
+    :n 50000,
+    :trial 6,
+    :backend :typed}
+   {:cpu-ns 9579,
+    :wall-ns 8312,
+    :allocated-bytes 24,
+    :gc-collections 0,
+    :n 50000,
+    :trial 6,
+    :backend :clojure}]},
+ :typed-scaling-before
+ {:scope
+  "One retained typed program, preparation excluded; entry checks, initial state, thaw/run/freeze included. Fixed cost distinguished from loop scaling. Small positive longs only.",
+  :runs
+  [{:cpu-ns 409858,
+    :wall-ns 402934,
+    :allocated-bytes 46744,
+    :gc-collections 0,
+    :n 0,
+    :trial 0,
+    :backend :typed}
+   {:cpu-ns 3016,
+    :wall-ns 1778,
+    :allocated-bytes 0,
+    :gc-collections 0,
+    :n 0,
+    :trial 0,
+    :backend :clojure}
+   {:cpu-ns 225423,
+    :wall-ns 222824,
+    :allocated-bytes 46744,
+    :gc-collections 0,
+    :n 0,
+    :trial 1,
+    :backend :typed}
+   {:cpu-ns 2176,
+    :wall-ns 1235,
+    :allocated-bytes 0,
+    :gc-collections 0,
+    :n 0,
+    :trial 1,
+    :backend :clojure}
+   {:cpu-ns 137295,
+    :wall-ns 135877,
+    :allocated-bytes 46744,
+    :gc-collections 0,
+    :n 0,
+    :trial 2,
+    :backend :typed}
+   {:cpu-ns 1441,
+    :wall-ns 744,
+    :allocated-bytes 0,
+    :gc-collections 0,
+    :n 0,
+    :trial 2,
+    :backend :clojure}
+   {:cpu-ns 108210,
+    :wall-ns 106668,
+    :allocated-bytes 46744,
+    :gc-collections 0,
+    :n 0,
+    :trial 3,
+    :backend :typed}
+   {:cpu-ns 1577,
+    :wall-ns 778,
+    :allocated-bytes 0,
+    :gc-collections 0,
+    :n 0,
+    :trial 3,
+    :backend :clojure}
+   {:cpu-ns 103486,
+    :wall-ns 101737,
+    :allocated-bytes 46744,
+    :gc-collections 0,
+    :n 0,
+    :trial 4,
+    :backend :typed}
+   {:cpu-ns 1782,
+    :wall-ns 869,
+    :allocated-bytes 0,
+    :gc-collections 0,
+    :n 0,
+    :trial 4,
+    :backend :clojure}
+   {:cpu-ns 124468,
+    :wall-ns 122567,
+    :allocated-bytes 46744,
+    :gc-collections 0,
+    :n 0,
+    :trial 5,
+    :backend :typed}
+   {:cpu-ns 1636,
+    :wall-ns 1043,
+    :allocated-bytes 0,
+    :gc-collections 0,
+    :n 0,
+    :trial 5,
+    :backend :clojure}
+   {:cpu-ns 149744,
+    :wall-ns 147337,
+    :allocated-bytes 46744,
+    :gc-collections 0,
+    :n 0,
+    :trial 6,
+    :backend :typed}
+   {:cpu-ns 1917,
+    :wall-ns 871,
+    :allocated-bytes 0,
+    :gc-collections 0,
+    :n 0,
+    :trial 6,
+    :backend :clojure}
+   {:cpu-ns 211985,
+    :wall-ns 208968,
+    :allocated-bytes 46984,
+    :gc-collections 0,
+    :n 10,
+    :trial 0,
+    :backend :typed}
+   {:cpu-ns 2374,
+    :wall-ns 1328,
+    :allocated-bytes 0,
+    :gc-collections 0,
+    :n 10,
+    :trial 0,
+    :backend :clojure}
+   {:cpu-ns 265763,
+    :wall-ns 262243,
+    :allocated-bytes 46984,
+    :gc-collections 0,
+    :n 10,
+    :trial 1,
+    :backend :typed}
+   {:cpu-ns 2656,
+    :wall-ns 1820,
+    :allocated-bytes 0,
+    :gc-collections 0,
+    :n 10,
+    :trial 1,
+    :backend :clojure}
+   {:cpu-ns 265898,
+    :wall-ns 262461,
+    :allocated-bytes 46984,
+    :gc-collections 0,
+    :n 10,
+    :trial 2,
+    :backend :typed}
+   {:cpu-ns 2635,
+    :wall-ns 1398,
+    :allocated-bytes 0,
+    :gc-collections 0,
+    :n 10,
+    :trial 2,
+    :backend :clojure}
+   {:cpu-ns 244331,
+    :wall-ns 240573,
+    :allocated-bytes 46984,
+    :gc-collections 0,
+    :n 10,
+    :trial 3,
+    :backend :typed}
+   {:cpu-ns 2486,
+    :wall-ns 1390,
+    :allocated-bytes 0,
+    :gc-collections 0,
+    :n 10,
+    :trial 3,
+    :backend :clojure}
+   {:cpu-ns 249455,
+    :wall-ns 246386,
+    :allocated-bytes 46984,
+    :gc-collections 0,
+    :n 10,
+    :trial 4,
+    :backend :typed}
+   {:cpu-ns 2467,
+    :wall-ns 1326,
+    :allocated-bytes 0,
+    :gc-collections 0,
+    :n 10,
+    :trial 4,
+    :backend :clojure}
+   {:cpu-ns 216823,
+    :wall-ns 213498,
+    :allocated-bytes 46984,
+    :gc-collections 0,
+    :n 10,
+    :trial 5,
+    :backend :typed}
+   {:cpu-ns 2640,
+    :wall-ns 1188,
+    :allocated-bytes 0,
+    :gc-collections 0,
+    :n 10,
+    :trial 5,
+    :backend :clojure}
+   {:cpu-ns 232340,
+    :wall-ns 228899,
+    :allocated-bytes 46984,
+    :gc-collections 0,
+    :n 10,
+    :trial 6,
+    :backend :typed}
+   {:cpu-ns 2679,
+    :wall-ns 1295,
+    :allocated-bytes 0,
+    :gc-collections 0,
+    :n 10,
+    :trial 6,
+    :backend :clojure}
+   {:cpu-ns 282075,
+    :wall-ns 278659,
+    :allocated-bytes 49424,
+    :gc-collections 0,
+    :n 100,
+    :trial 0,
+    :backend :typed}
+   {:cpu-ns 3714,
+    :wall-ns 2380,
+    :allocated-bytes 24,
+    :gc-collections 0,
+    :n 100,
+    :trial 0,
+    :backend :clojure}
+   {:cpu-ns 271133,
+    :wall-ns 268149,
+    :allocated-bytes 49424,
+    :gc-collections 0,
+    :n 100,
+    :trial 1,
+    :backend :typed}
+   {:cpu-ns 2901,
+    :wall-ns 2178,
+    :allocated-bytes 24,
+    :gc-collections 0,
+    :n 100,
+    :trial 1,
+    :backend :clojure}
+   {:cpu-ns 295812,
+    :wall-ns 291632,
+    :allocated-bytes 49424,
+    :gc-collections 0,
+    :n 100,
+    :trial 2,
+    :backend :typed}
+   {:cpu-ns 2939,
+    :wall-ns 1971,
+    :allocated-bytes 24,
+    :gc-collections 0,
+    :n 100,
+    :trial 2,
+    :backend :clojure}
+   {:cpu-ns 294563,
+    :wall-ns 290614,
+    :allocated-bytes 49424,
+    :gc-collections 0,
+    :n 100,
+    :trial 3,
+    :backend :typed}
+   {:cpu-ns 5721,
+    :wall-ns 4475,
+    :allocated-bytes 24,
+    :gc-collections 0,
+    :n 100,
+    :trial 3,
+    :backend :clojure}
+   {:cpu-ns 275809,
+    :wall-ns 273392,
+    :allocated-bytes 49424,
+    :gc-collections 0,
+    :n 100,
+    :trial 4,
+    :backend :typed}
+   {:cpu-ns 3442,
+    :wall-ns 2521,
+    :allocated-bytes 24,
+    :gc-collections 0,
+    :n 100,
+    :trial 4,
+    :backend :clojure}
+   {:cpu-ns 256830,
+    :wall-ns 254114,
+    :allocated-bytes 49424,
+    :gc-collections 0,
+    :n 100,
+    :trial 5,
+    :backend :typed}
+   {:cpu-ns 3472,
+    :wall-ns 2234,
+    :allocated-bytes 24,
+    :gc-collections 0,
+    :n 100,
+    :trial 5,
+    :backend :clojure}
+   {:cpu-ns 238041,
+    :wall-ns 234992,
+    :allocated-bytes 49424,
+    :gc-collections 0,
+    :n 100,
+    :trial 6,
+    :backend :typed}
+   {:cpu-ns 3632,
+    :wall-ns 2462,
+    :allocated-bytes 24,
+    :gc-collections 0,
+    :n 100,
+    :trial 6,
+    :backend :clojure}
+   {:cpu-ns 1259649,
+    :wall-ns 1252093,
+    :allocated-bytes 125632,
+    :gc-collections 0,
+    :n 1000,
+    :trial 0,
+    :backend :typed}
+   {:cpu-ns 16610,
+    :wall-ns 15386,
+    :allocated-bytes 24,
+    :gc-collections 0,
+    :n 1000,
+    :trial 0,
+    :backend :clojure}
+   {:cpu-ns 696493,
+    :wall-ns 692427,
+    :allocated-bytes 92000,
+    :gc-collections 0,
+    :n 1000,
+    :trial 1,
+    :backend :typed}
+   {:cpu-ns 16540,
+    :wall-ns 15068,
+    :allocated-bytes 24,
+    :gc-collections 0,
+    :n 1000,
+    :trial 1,
+    :backend :clojure}
+   {:cpu-ns 580427,
+    :wall-ns 575988,
+    :allocated-bytes 92000,
+    :gc-collections 0,
+    :n 1000,
+    :trial 2,
+    :backend :typed}
+   {:cpu-ns 16648,
+    :wall-ns 15553,
+    :allocated-bytes 24,
+    :gc-collections 0,
+    :n 1000,
+    :trial 2,
+    :backend :clojure}
+   {:cpu-ns 537343,
+    :wall-ns 533847,
+    :allocated-bytes 92000,
+    :gc-collections 0,
+    :n 1000,
+    :trial 3,
+    :backend :typed}
+   {:cpu-ns 16133,
+    :wall-ns 14740,
+    :allocated-bytes 24,
+    :gc-collections 0,
+    :n 1000,
+    :trial 3,
+    :backend :clojure}
+   {:cpu-ns 540337,
+    :wall-ns 536899,
+    :allocated-bytes 92000,
+    :gc-collections 0,
+    :n 1000,
+    :trial 4,
+    :backend :typed}
+   {:cpu-ns 15231,
+    :wall-ns 14268,
+    :allocated-bytes 24,
+    :gc-collections 0,
+    :n 1000,
+    :trial 4,
+    :backend :clojure}
+   {:cpu-ns 549281,
+    :wall-ns 546651,
+    :allocated-bytes 92000,
+    :gc-collections 0,
+    :n 1000,
+    :trial 5,
+    :backend :typed}
+   {:cpu-ns 15754,
+    :wall-ns 14595,
+    :allocated-bytes 24,
+    :gc-collections 0,
+    :n 1000,
+    :trial 5,
+    :backend :clojure}
+   {:cpu-ns 576263,
+    :wall-ns 572983,
+    :allocated-bytes 92000,
+    :gc-collections 0,
+    :n 1000,
+    :trial 6,
+    :backend :typed}
+   {:cpu-ns 15214,
+    :wall-ns 14249,
+    :allocated-bytes 24,
+    :gc-collections 0,
+    :n 1000,
+    :trial 6,
+    :backend :clojure}
+   {:cpu-ns 3239306,
+    :wall-ns 3233403,
+    :allocated-bytes 562264,
+    :gc-collections 0,
+    :n 10000,
+    :trial 0,
+    :backend :typed}
+   {:cpu-ns 114131,
+    :wall-ns 112744,
+    :allocated-bytes 24,
+    :gc-collections 0,
+    :n 10000,
+    :trial 0,
+    :backend :clojure}
+   {:cpu-ns 3191879,
+    :wall-ns 3186493,
+    :allocated-bytes 562240,
+    :gc-collections 0,
+    :n 10000,
+    :trial 1,
+    :backend :typed}
+   {:cpu-ns 128445,
+    :wall-ns 126785,
+    :allocated-bytes 24,
+    :gc-collections 0,
+    :n 10000,
+    :trial 1,
+    :backend :clojure}
+   {:cpu-ns 3173884,
+    :wall-ns 3168288,
+    :allocated-bytes 562240,
+    :gc-collections 0,
+    :n 10000,
+    :trial 2,
+    :backend :typed}
+   {:cpu-ns 111961,
+    :wall-ns 110351,
+    :allocated-bytes 24,
+    :gc-collections 0,
+    :n 10000,
+    :trial 2,
+    :backend :clojure}
+   {:cpu-ns 3207180,
+    :wall-ns 3201755,
+    :allocated-bytes 562240,
+    :gc-collections 0,
+    :n 10000,
+    :trial 3,
+    :backend :typed}
+   {:cpu-ns 135511,
+    :wall-ns 133215,
+    :allocated-bytes 24,
+    :gc-collections 0,
+    :n 10000,
+    :trial 3,
+    :backend :clojure}
+   {:cpu-ns 3197007,
+    :wall-ns 3190660,
+    :allocated-bytes 562240,
+    :gc-collections 0,
+    :n 10000,
+    :trial 4,
+    :backend :typed}
+   {:cpu-ns 115008,
+    :wall-ns 112932,
+    :allocated-bytes 24,
+    :gc-collections 0,
+    :n 10000,
+    :trial 4,
+    :backend :clojure}
+   {:cpu-ns 3198225,
+    :wall-ns 3191801,
+    :allocated-bytes 562240,
+    :gc-collections 0,
+    :n 10000,
+    :trial 5,
+    :backend :typed}
+   {:cpu-ns 116722,
+    :wall-ns 115212,
+    :allocated-bytes 24,
+    :gc-collections 0,
+    :n 10000,
+    :trial 5,
+    :backend :clojure}
+   {:cpu-ns 3198184,
+    :wall-ns 3192719,
+    :allocated-bytes 562240,
+    :gc-collections 0,
+    :n 10000,
+    :trial 6,
+    :backend :typed}
+   {:cpu-ns 115384,
+    :wall-ns 114295,
+    :allocated-bytes 24,
+    :gc-collections 0,
+    :n 10000,
+    :trial 6,
+    :backend :clojure}
+   {:cpu-ns 8453222,
+    :wall-ns 8815865,
+    :allocated-bytes 2673440,
+    :gc-collections 0,
+    :n 50000,
+    :trial 0,
+    :backend :typed}
+   {:cpu-ns 159557,
+    :wall-ns 158248,
+    :allocated-bytes 24,
+    :gc-collections 0,
+    :n 50000,
+    :trial 0,
+    :backend :clojure}
+   {:cpu-ns 4960700,
+    :wall-ns 4955114,
+    :allocated-bytes 2673440,
+    :gc-collections 0,
+    :n 50000,
+    :trial 1,
+    :backend :typed}
+   {:cpu-ns 126821,
+    :wall-ns 124961,
+    :allocated-bytes 24,
+    :gc-collections 0,
+    :n 50000,
+    :trial 1,
+    :backend :clojure}
+   {:cpu-ns 6324605,
+    :wall-ns 6313400,
+    :allocated-bytes 2707072,
+    :gc-collections 0,
+    :n 50000,
+    :trial 2,
+    :backend :typed}
+   {:cpu-ns 132668,
+    :wall-ns 130888,
+    :allocated-bytes 24,
+    :gc-collections 0,
+    :n 50000,
+    :trial 2,
+    :backend :clojure}
+   {:cpu-ns 6079395,
+    :wall-ns 6072316,
+    :allocated-bytes 2673440,
+    :gc-collections 1,
+    :n 50000,
+    :trial 3,
+    :backend :typed}
+   {:cpu-ns 145713,
+    :wall-ns 138022,
+    :allocated-bytes 24,
+    :gc-collections 0,
+    :n 50000,
+    :trial 3,
+    :backend :clojure}
+   {:cpu-ns 5209051,
+    :wall-ns 11196455,
+    :allocated-bytes 2674904,
+    :gc-collections 0,
+    :n 50000,
+    :trial 4,
+    :backend :typed}
+   {:cpu-ns 231279,
+    :wall-ns 227422,
+    :allocated-bytes 96,
+    :gc-collections 0,
+    :n 50000,
+    :trial 4,
+    :backend :clojure}
+   {:cpu-ns 3726369,
+    :wall-ns 3718501,
+    :allocated-bytes 2673416,
+    :gc-collections 0,
+    :n 50000,
+    :trial 5,
+    :backend :typed}
+   {:cpu-ns 124063,
+    :wall-ns 121839,
+    :allocated-bytes 24,
+    :gc-collections 0,
+    :n 50000,
+    :trial 5,
+    :backend :clojure}
+   {:cpu-ns 3746441,
+    :wall-ns 3829557,
+    :allocated-bytes 2673416,
+    :gc-collections 0,
+    :n 50000,
+    :trial 6,
+    :backend :typed}
+   {:cpu-ns 131646,
+    :wall-ns 129769,
+    :allocated-bytes 24,
+    :gc-collections 0,
+    :n 50000,
+    :trial 6,
+    :backend :clojure}]},
+ :scope :small-resident-repl-no-source-or-init,
+ :typed-comparison
+ {:schema "typed-tail-experiment/1",
+  :heap-limit 389283840,
+  :limitations
+  ["Small warmed trials, not sustained host-JIT throughput."
+   "No Source/Init restore or hosted-frontend acceptance."],
+  :heap-used 159741736,
+  :measurement
+  {:prepare
+   "fresh lazy programs; already loaded compiler and Pattern classes",
+   :emit
+   "typed-tail shared group factory forced separately, before warm execution",
+   :scalar-promotion
+   "first scalar tier lazy compilation through n=10 both functions",
+   :execute "paired warmed actual imports, alternating backend order",
+   :setup
+   "initial World construction excluded; thaw/run/freeze included",
+   :warmup-rounds 8,
+   :warmup-iterations 1000,
+   :host-jit-steady-state-established false},
+  :iterations 10000,
+  :runs
+  [{:wall-ns 122410843,
+    :steps 130006,
+    :logical-allocations 0,
+    :function "sum64",
+    :thread-cpu-ns 115007171,
+    :thread-allocated-bytes 37239232,
+    :result 50005000N,
+    :trial 0,
+    :backend :jvm-scalar}
+   {:wall-ns 4019025,
+    :steps 130006,
+    :logical-allocations 0,
+    :function "sum64",
+    :thread-cpu-ns 3650541,
+    :thread-allocated-bytes 566080,
+    :result 50005000N,
+    :trial 0,
+    :backend :jvm-typed-tail}
+   {:wall-ns 98460136,
+    :steps 130006,
+    :logical-allocations 0,
+    :function "sumSize",
+    :thread-cpu-ns 84810910,
+    :thread-allocated-bytes 37268032,
+    :result 50005000N,
+    :trial 0,
+    :backend :jvm-scalar}
+   {:wall-ns 2334181,
+    :steps 130006,
+    :logical-allocations 0,
+    :function "sumSize",
+    :thread-cpu-ns 2337234,
+    :thread-allocated-bytes 559024,
+    :result 50005000N,
+    :trial 0,
+    :backend :jvm-typed-tail}
+   {:wall-ns 2128424,
+    :steps 130006,
+    :logical-allocations 0,
+    :function "sum64",
+    :thread-cpu-ns 2130878,
+    :thread-allocated-bytes 559000,
+    :result 50005000N,
+    :trial 1,
+    :backend :jvm-typed-tail}
+   {:wall-ns 91385809,
+    :steps 130006,
+    :logical-allocations 0,
+    :function "sum64",
+    :thread-cpu-ns 91345647,
+    :thread-allocated-bytes 36804328,
+    :result 50005000N,
+    :trial 1,
+    :backend :jvm-scalar}
+   {:wall-ns 2284833,
+    :steps 130006,
+    :logical-allocations 0,
+    :function "sumSize",
+    :thread-cpu-ns 2287542,
+    :thread-allocated-bytes 559000,
+    :result 50005000N,
+    :trial 1,
+    :backend :jvm-typed-tail}
+   {:wall-ns 97074303,
+    :steps 130006,
+    :logical-allocations 0,
+    :function "sumSize",
+    :thread-cpu-ns 92731585,
+    :thread-allocated-bytes 36804328,
+    :result 50005000N,
+    :trial 1,
+    :backend :jvm-scalar}
+   {:wall-ns 122148680,
+    :steps 130006,
+    :logical-allocations 0,
+    :function "sum64",
+    :thread-cpu-ns 121602731,
+    :thread-allocated-bytes 36804328,
+    :result 50005000N,
+    :trial 2,
+    :backend :jvm-scalar}
+   {:wall-ns 2311667,
+    :steps 130006,
+    :logical-allocations 0,
+    :function "sum64",
+    :thread-cpu-ns 2314965,
+    :thread-allocated-bytes 559000,
+    :result 50005000N,
+    :trial 2,
+    :backend :jvm-typed-tail}
+   {:wall-ns 75471031,
+    :steps 130006,
+    :logical-allocations 0,
+    :function "sumSize",
+    :thread-cpu-ns 75477841,
+    :thread-allocated-bytes 36804328,
+    :result 50005000N,
+    :trial 2,
+    :backend :jvm-scalar}
+   {:wall-ns 1494214,
+    :steps 130006,
+    :logical-allocations 0,
+    :function "sumSize",
+    :thread-cpu-ns 1497683,
+    :thread-allocated-bytes 559000,
+    :result 50005000N,
+    :trial 2,
+    :backend :jvm-typed-tail}
+   {:wall-ns 914828,
+    :steps 130006,
+    :logical-allocations 0,
+    :function "sum64",
+    :thread-cpu-ns 917168,
+    :thread-allocated-bytes 559000,
+    :result 50005000N,
+    :trial 3,
+    :backend :jvm-typed-tail}
+   {:wall-ns 114389110,
+    :steps 130006,
+    :logical-allocations 0,
+    :function "sum64",
+    :thread-cpu-ns 107386681,
+    :thread-allocated-bytes 36804328,
+    :result 50005000N,
+    :trial 3,
+    :backend :jvm-scalar}
+   {:wall-ns 1179728,
+    :steps 130006,
+    :logical-allocations 0,
+    :function "sumSize",
+    :thread-cpu-ns 1182643,
+    :thread-allocated-bytes 559000,
+    :result 50005000N,
+    :trial 3,
+    :backend :jvm-typed-tail}
+   {:wall-ns 75619978,
+    :steps 130006,
+    :logical-allocations 0,
+    :function "sumSize",
+    :thread-cpu-ns 75551345,
+    :thread-allocated-bytes 36804328,
+    :result 50005000N,
+    :trial 3,
+    :backend :jvm-scalar}
+   {:wall-ns 91261137,
+    :steps 130006,
+    :logical-allocations 0,
+    :function "sum64",
+    :thread-cpu-ns 91257017,
+    :thread-allocated-bytes 36804328,
+    :result 50005000N,
+    :trial 4,
+    :backend :jvm-scalar}
+   {:wall-ns 1012880,
+    :steps 130006,
+    :logical-allocations 0,
+    :function "sum64",
+    :thread-cpu-ns 1015432,
+    :thread-allocated-bytes 559000,
+    :result 50005000N,
+    :trial 4,
+    :backend :jvm-typed-tail}
+   {:wall-ns 79841254,
+    :steps 130006,
+    :logical-allocations 0,
+    :function "sumSize",
+    :thread-cpu-ns 75908823,
+    :thread-allocated-bytes 36804328,
+    :result 50005000N,
+    :trial 4,
+    :backend :jvm-scalar}
+   {:wall-ns 793220,
+    :steps 130006,
+    :logical-allocations 0,
+    :function "sumSize",
+    :thread-cpu-ns 796010,
+    :thread-allocated-bytes 559000,
+    :result 50005000N,
+    :trial 4,
+    :backend :jvm-typed-tail}],
+  :trials 5,
+  :compilation
+  {:scalar-prepare
+   {:thread-cpu-ns 948124,
+    :wall-ns 921006,
+    :thread-allocated-bytes 76528},
+   :typed-tail-prepare
+   {:thread-cpu-ns 55273185,
+    :wall-ns 56167086,
+    :thread-allocated-bytes 9656112},
+   :typed-tail-emission
+   {:thread-cpu-ns 9450803,
+    :wall-ns 9433269,
+    :thread-allocated-bytes 6064872},
+   :scalar-first-promotion
+   {:thread-cpu-ns 40795453,
+    :wall-ns 40954307,
+    :thread-allocated-bytes 13778240}}},
+ :heap-cap-bytes 389283840,
+ :java "25.0.1",
+ :notes
+ ["Native-exported RBMap source; no hosted project loading"
+  "Platform trees are different implementations and guarantees; no exact language/runtime speed ratio"
+  "Thread CPU and allocated bytes are exact measured-window counters, not retained heap"
+  "JFR weighted samples are diagnostic; oversized pre-window attribution retained separately"
+  "Failed max-helper and receiver-form-hint experiments were not retained"],
+ :rbmap-counts-n100
+ {:call 3091,
+  "lean_nat_dec_eq" 201,
+  "lean_nat_sub" 100,
+  :release 893,
+  "lean_nat_mod" 100,
+  :retain 863,
+  "lean_nat_dec_lt" 699,
+  "lean_nat_add" 10},
+ :profiles
+ {:rbmap
+  {:allocation-samples 182,
+   :execution-samples 471,
+   :exact-profiled-window
+   {:cpu-ns 1092714014,
+    :wall-ns 1165228642,
+    :allocated-bytes 396065440,
+    :gc-collections 3},
+   :allocation-weight-outliers
+   [{:weight 44416164912,
+     :class "clojure.lang.PersistentVector$ChunkedSeq",
+     :stack
+     ["clojure.lang.PersistentVector/chunkedSeq"
+      "clojure.lang.PersistentVector/seq"
+      "clojure.lang.RT/seqFrom"
+      "clojure.lang.RT/seq"
+      "clojure.core$seq__5488/invokeStatic"
+      "clojure.core$reduce1/invokeStatic"
+      "clojure.core$get_in/invokeStatic"
+      "clojure.core$get_in/invoke"
+      "prototype.machine$native_reference_QMARK_/invokeStatic"
+      "prototype.machine$native_reference_QMARK_/invoke"
+      "prototype.mutable$node/invokeStatic"
+      "prototype.mutable$node/invoke"]}],
+   :allocation-classes
+   [["[Ljava.lang.Object;" 122382336]
+    ["clojure.lang.PersistentVector$ChunkedSeq" 102802880]
+    ["java.lang.Long" 47395304]
+    ["clojure.lang.ArrayChunk" 19287032]
+    ["java.math.BigInteger" 14997256]
+    ["clojure.lang.PersistentVector" 12858760]
+    ["java.util.concurrent.locks.ReentrantLock$NonfairSync" 10716096]
+    ["java.util.HashMap$Node" 8963016]
+    ["clojure.lang.ArraySeq" 8568976]
+    ["clojure.core$take$fn__5999" 6430712]
+    ["clojure.lang.PersistentArrayMap" 6427744]
+    ["[I" 4287280]],
+   :allocation-stacks
+   [[["clojure.lang.PersistentVector/chunkedSeq"
+      "clojure.lang.PersistentVector/seq"
+      "clojure.lang.RT/seqFrom"
+      "clojure.lang.RT/seq"
+      "clojure.core$seq__5488/invokeStatic"
+      "clojure.core$reduce1/invokeStatic"
+      "clojure.core$get_in/invokeStatic"
+      "clojure.core$get_in/invoke"
+      "prototype.machine$native_reference_QMARK_/invokeStatic"
+      "prototype.machine$native_reference_QMARK_/invoke"
+      "prototype.mutable$node/invokeStatic"
+      "prototype.mutable$node/invoke"]
+     29990560]
+    [["prototype.mutable$capture_join_BANG_/invoke"
+      "user$eval155654$fn__155655/invoke"
+      "prototype.block_compile$emit_block$fn__5413/invoke"
+      "prototype.lazy_runtime$run_BANG_/invokeStatic"
+      "prototype.lazy_runtime$run_BANG_/invoke"
+      "runtime_feasibility$setup$private_run__155405$fn__155406/invoke"
+      "runtime_feasibility$setup$private_run__155405/invoke"
+      "runtime_feasibility$setup$fn__155419/invoke"
+      "runtime_feasibility$profile_BANG_$fn__157017$fn__157018$fn__157019/invoke"
+      "prototype.unchanged_program_benchmark$measure/invokeStatic"
+      "prototype.unchanged_program_benchmark$measure/invoke"
+      "runtime_feasibility$profile_BANG_$fn__157017$fn__157018/invoke"]
+     17145584]
+    [["prototype.mutable$set_body_BANG_/invoke"
+      "user$eval155654$fn__155655/invoke"
+      "prototype.block_compile$emit_block$fn__5413/invoke"
+      "prototype.lazy_runtime$run_BANG_/invokeStatic"
+      "prototype.lazy_runtime$run_BANG_/invoke"
+      "runtime_feasibility$setup$private_run__155405$fn__155406/invoke"
+      "runtime_feasibility$setup$private_run__155405/invoke"
+      "runtime_feasibility$setup$fn__155419/invoke"
+      "runtime_feasibility$profile_BANG_$fn__157017$fn__157018$fn__157019/invoke"
+      "prototype.unchanged_program_benchmark$measure/invokeStatic"
+      "prototype.unchanged_program_benchmark$measure/invoke"
+      "runtime_feasibility$profile_BANG_$fn__157017$fn__157018/invoke"]
+     14990872]
+    [["clojure.lang.PersistentVector$ChunkedSeq/<init>"
+      "clojure.lang.PersistentVector/chunkedSeq"
+      "clojure.lang.PersistentVector/seq"
+      "clojure.lang.RT/seqFrom"
+      "clojure.lang.RT/seq"
+      "clojure.lang.RT/first"
+      "clojure.core$first__5470/invokeStatic"
+      "clojure.core$every_QMARK_/invokeStatic"
+      "clojure.core$every_QMARK_/invoke"
+      "prototype.scalar$layout_BANG_/invokeStatic"
+      "prototype.scalar$layout_BANG_/invoke"
+      "prototype.scalar$address_BANG_/invokeStatic"]
+     12854264]
+    [["prototype.mutable$steps/invokeStatic"
+      "prototype.mutable$steps/invoke"
+      "prototype.lazy_runtime$run_BANG_/invokeStatic"
+      "prototype.lazy_runtime$run_BANG_/invoke"
+      "runtime_feasibility$setup$private_run__155405$fn__155406/invoke"
+      "runtime_feasibility$setup$private_run__155405/invoke"
+      "runtime_feasibility$setup$fn__155419/invoke"
+      "runtime_feasibility$profile_BANG_$fn__157017$fn__157018$fn__157019/invoke"
+      "prototype.unchanged_program_benchmark$measure/invokeStatic"
+      "prototype.unchanged_program_benchmark$measure/invoke"
+      "runtime_feasibility$profile_BANG_$fn__157017$fn__157018/invoke"
+      "runtime_feasibility$profile_BANG_$fn__157017/invoke"]
+     10708512]
+    [["java.lang.Object/clone"
+      "clojure.lang.RT/aclone"
+      "user$eval155654$fn__155655/invoke"
+      "prototype.block_compile$emit_block$fn__5413/invoke"
+      "prototype.lazy_runtime$run_BANG_/invokeStatic"
+      "prototype.lazy_runtime$run_BANG_/invoke"
+      "runtime_feasibility$setup$private_run__155405$fn__155406/invoke"
+      "runtime_feasibility$setup$private_run__155405/invoke"
+      "runtime_feasibility$setup$fn__155419/invoke"
+      "runtime_feasibility$profile_BANG_$fn__157017$fn__157018$fn__157019/invoke"
+      "prototype.unchanged_program_benchmark$measure/invokeStatic"
+      "prototype.unchanged_program_benchmark$measure/invoke"]
+     10694608]
+    [["java.util.HashMap/putVal"
+      "java.util.HashMap/put"
+      "prototype.mutable$capture_join_BANG_/invokeStatic"
+      "prototype.mutable$capture_join_BANG_/invoke"
+      "user$eval155654$fn__155655/invoke"
+      "prototype.block_compile$emit_block$fn__5413/invoke"
+      "prototype.lazy_runtime$run_BANG_/invokeStatic"
+      "prototype.lazy_runtime$run_BANG_/invoke"
+      "runtime_feasibility$setup$private_run__155405$fn__155406/invoke"
+      "runtime_feasibility$setup$private_run__155405/invoke"
+      "runtime_feasibility$setup$fn__155419/invoke"
+      "runtime_feasibility$profile_BANG_$fn__157017$fn__157018$fn__157019/invoke"]
+     8959056]
+    [["clojure.core$rest__5474/invokeStatic"
+      "clojure.core$take$fn__5999/invoke"
+      "clojure.lang.LazySeq/force"
+      "clojure.lang.LazySeq/realize"
+      "clojure.lang.LazySeq/seq"
+      "clojure.lang.Cons/next"
+      "clojure.lang.RT/next"
+      "clojure.core$next__5472/invokeStatic"
+      "clojure.core.protocols$fn__8279/invokeStatic"
+      "clojure.core.protocols$fn__8279/invoke"
+      "clojure.core.protocols$fn__8233$G__8228__8242/invoke"
+      "clojure.core.protocols$seq_reduce/invokeStatic"]
+     8575104]
+    [["java.math.BigInteger/shiftLeft"
+      "prototype.scalar$integer_BANG_/invokeStatic"
+      "prototype.scalar$integer_BANG_/invoke"
+      "prototype.scalar$value_BANG_/invokeStatic"
+      "prototype.scalar$value_BANG_/invoke"
+      "prototype.scalar$write_bytes/invokeStatic"
+      "prototype.scalar$write_bytes/invoke"
+      "prototype.machine$write_scalar_node/invokeStatic"
+      "prototype.machine$write_scalar_node/invoke"
+      "prototype.mutable$scalar_store_BANG_/invokeStatic"
+      "prototype.mutable$scalar_store_BANG_/invoke"
+      "user$eval156268$fn__156269/invoke"]
+     8573832]
+    [["clojure.core$rest__5474/invokeStatic"
+      "clojure.core$take$fn__5999/invoke"
+      "clojure.lang.LazySeq/force"
+      "clojure.lang.LazySeq/realize"
+      "clojure.lang.LazySeq/seq"
+      "clojure.lang.RT/seq"
+      "clojure.core$seq__5488/invokeStatic"
+      "clojure.core.protocols$seq_reduce/invokeStatic"
+      "clojure.core.protocols$fn__8266/invokeStatic"
+      "clojure.core.protocols$fn__8266/invoke"
+      "clojure.core.protocols$fn__8207$G__8202__8220/invoke"
+      "clojure.core$reduce/invokeStatic"]
+     8570816]
+    [["prototype.mutable$registers/invokeStatic"
+      "prototype.mutable$registers/invoke"
+      "prototype.mutable$call_values_BANG_/invokeStatic"
+      "prototype.mutable$call_values_BANG_/invoke"
+      "user$eval155744$fn__155745/invoke"
+      "prototype.block_compile$emit_block$fn__5413/invoke"
+      "prototype.lazy_runtime$run_BANG_/invokeStatic"
+      "prototype.lazy_runtime$run_BANG_/invoke"
+      "runtime_feasibility$setup$private_run__155405$fn__155406/invoke"
+      "runtime_feasibility$setup$private_run__155405/invoke"
+      "runtime_feasibility$setup$fn__155419/invoke"
+      "runtime_feasibility$profile_BANG_$fn__157017$fn__157018$fn__157019/invoke"]
+     8569824]
+    [["clojure.lang.PersistentVector$ChunkedSeq/<init>"
+      "clojure.lang.PersistentVector/chunkedSeq"
+      "clojure.lang.PersistentVector/seq"
+      "clojure.lang.RT/seqFrom"
+      "clojure.lang.RT/seq"
+      "clojure.core$seq__5488/invokeStatic"
+      "clojure.core$take$fn__5999/invoke"
+      "clojure.lang.LazySeq/force"
+      "clojure.lang.LazySeq/realize"
+      "clojure.lang.LazySeq/seq"
+      "clojure.lang.RT/seq"
+      "clojure.core$seq__5488/invokeStatic"]
+     8565160]],
+   :execution-stacks
+   [[["prototype.runtime_prim$evaluate/invokeStatic"
+      "prototype.runtime_prim$evaluate/invoke"
+      "prototype.mutable$runtime_value_BANG_/invokeStatic"
+      "prototype.mutable$runtime_value_BANG_/invoke"
+      "user$eval155669$fn__155670/invoke"
+      "prototype.block_compile$emit_block$fn__5413/invoke"
+      "prototype.lazy_runtime$run_BANG_/invokeStatic"
+      "prototype.lazy_runtime$run_BANG_/invoke"
+      "runtime_feasibility$setup$private_run__155405$fn__155406/invoke"
+      "runtime_feasibility$setup$private_run__155405/invoke"
+      "runtime_feasibility$setup$fn__155419/invoke"
+      "runtime_feasibility$profile_BANG_$fn__157017$fn__157018$fn__157019/invoke"]
+     59]
+    [["prototype.runtime_prim$evaluate/invokeStatic"
+      "prototype.runtime_prim$evaluate/invoke"
+      "prototype.mutable$runtime_value_BANG_/invokeStatic"
+      "prototype.mutable$runtime_value_BANG_/invoke"
+      "user$eval155544$fn__155545/invoke"
+      "prototype.block_compile$emit_block$fn__5413/invoke"
+      "prototype.lazy_runtime$run_BANG_/invokeStatic"
+      "prototype.lazy_runtime$run_BANG_/invoke"
+      "runtime_feasibility$setup$private_run__155405$fn__155406/invoke"
+      "runtime_feasibility$setup$private_run__155405/invoke"
+      "runtime_feasibility$setup$fn__155419/invoke"
+      "runtime_feasibility$profile_BANG_$fn__157017$fn__157018$fn__157019/invoke"]
+     13]
+    [["user$eval155654$fn__155655/invoke"
+      "prototype.block_compile$emit_block$fn__5413/invoke"
+      "prototype.lazy_runtime$run_BANG_/invokeStatic"
+      "prototype.lazy_runtime$run_BANG_/invoke"
+      "runtime_feasibility$setup$private_run__155405$fn__155406/invoke"
+      "runtime_feasibility$setup$private_run__155405/invoke"
+      "runtime_feasibility$setup$fn__155419/invoke"
+      "runtime_feasibility$profile_BANG_$fn__157017$fn__157018$fn__157019/invoke"
+      "prototype.unchanged_program_benchmark$measure/invokeStatic"
+      "prototype.unchanged_program_benchmark$measure/invoke"
+      "runtime_feasibility$profile_BANG_$fn__157017$fn__157018/invoke"
+      "runtime_feasibility$profile_BANG_$fn__157017/invoke"]
+     9]
+    [["clojure.core$every_QMARK_/invokeStatic"
+      "clojure.core$every_QMARK_/invoke"
+      "prototype.scalar$layout_BANG_/invokeStatic"
+      "prototype.scalar$layout_BANG_/invoke"
+      "prototype.scalar$address_BANG_/invokeStatic"
+      "prototype.scalar$address_BANG_/invoke"
+      "prototype.scalar$read_bytes/invokeStatic"
+      "prototype.scalar$read_bytes/invoke"
+      "prototype.machine$read_scalar_node/invokeStatic"
+      "prototype.machine$read_scalar_node/invoke"
+      "prototype.mutable$scalar_get/invokeStatic"
+      "prototype.mutable$scalar_get/invoke"]
+     8]
+    [["clojure.lang.PersistentArrayMap/indexOfObject"
+      "clojure.lang.PersistentArrayMap/indexOf"
+      "clojure.lang.PersistentArrayMap/containsKey"
+      "clojure.lang.RT/contains"
+      "clojure.core$contains_QMARK_/invokeStatic"
+      "clojure.core$contains_QMARK_/invoke"
+      "prototype.runtime_prim$evaluate/invokeStatic"
+      "prototype.runtime_prim$evaluate/invoke"
+      "prototype.mutable$runtime_value_BANG_/invokeStatic"
+      "prototype.mutable$runtime_value_BANG_/invoke"
+      "user$eval155669$fn__155670/invoke"
+      "prototype.block_compile$emit_block$fn__5413/invoke"]
+     6]
+    [["prototype.lazy_runtime$block_BANG_/invoke"
+      "prototype.lazy_runtime$run_BANG_/invokeStatic"
+      "prototype.lazy_runtime$run_BANG_/invoke"
+      "runtime_feasibility$setup$private_run__155405$fn__155406/invoke"
+      "runtime_feasibility$setup$private_run__155405/invoke"
+      "runtime_feasibility$setup$fn__155419/invoke"
+      "runtime_feasibility$profile_BANG_$fn__157017$fn__157018$fn__157019/invoke"
+      "prototype.unchanged_program_benchmark$measure/invokeStatic"
+      "prototype.unchanged_program_benchmark$measure/invoke"
+      "runtime_feasibility$profile_BANG_$fn__157017$fn__157018/invoke"
+      "runtime_feasibility$profile_BANG_$fn__157017/invoke"
+      "runtime_feasibility$profile_BANG_/invokeStatic"]
+     6]
+    [["prototype.runtime_prim$evaluate/invokeStatic"
+      "prototype.runtime_prim$evaluate/invoke"
+      "prototype.mutable$runtime_value_BANG_/invokeStatic"
+      "prototype.mutable$runtime_value_BANG_/invoke"
+      "user$eval155561$fn__155562/invoke"
+      "prototype.block_compile$emit_block$fn__5413/invoke"
+      "prototype.lazy_runtime$run_BANG_/invokeStatic"
+      "prototype.lazy_runtime$run_BANG_/invoke"
+      "runtime_feasibility$setup$private_run__155405$fn__155406/invoke"
+      "runtime_feasibility$setup$private_run__155405/invoke"
+      "runtime_feasibility$setup$fn__155419/invoke"
+      "runtime_feasibility$profile_BANG_$fn__157017$fn__157018$fn__157019/invoke"]
+     6]
+    [["user$eval155553$fn__155554/invoke"
+      "prototype.block_compile$emit_block$fn__5413/invoke"
+      "prototype.lazy_runtime$run_BANG_/invokeStatic"
+      "prototype.lazy_runtime$run_BANG_/invoke"
+      "runtime_feasibility$setup$private_run__155405$fn__155406/invoke"
+      "runtime_feasibility$setup$private_run__155405/invoke"
+      "runtime_feasibility$setup$fn__155419/invoke"
+      "runtime_feasibility$profile_BANG_$fn__157017$fn__157018$fn__157019/invoke"
+      "prototype.unchanged_program_benchmark$measure/invokeStatic"
+      "prototype.unchanged_program_benchmark$measure/invoke"
+      "runtime_feasibility$profile_BANG_$fn__157017$fn__157018/invoke"
+      "runtime_feasibility$profile_BANG_$fn__157017/invoke"]
+     5]
+    [["prototype.lazy_runtime$run_BANG_/invokeStatic"
+      "prototype.lazy_runtime$run_BANG_/invoke"
+      "runtime_feasibility$setup$private_run__155405$fn__155406/invoke"
+      "runtime_feasibility$setup$private_run__155405/invoke"
+      "runtime_feasibility$setup$fn__155419/invoke"
+      "runtime_feasibility$profile_BANG_$fn__157017$fn__157018$fn__157019/invoke"
+      "prototype.unchanged_program_benchmark$measure/invokeStatic"
+      "prototype.unchanged_program_benchmark$measure/invoke"
+      "runtime_feasibility$profile_BANG_$fn__157017$fn__157018/invoke"
+      "runtime_feasibility$profile_BANG_$fn__157017/invoke"
+      "runtime_feasibility$profile_BANG_/invokeStatic"
+      "runtime_feasibility$profile_BANG_/invoke"]
+     5]
+    [["user$eval156257$fn__156258/invoke"
+      "prototype.block_compile$emit_block$fn__5413/invoke"
+      "prototype.lazy_runtime$run_BANG_/invokeStatic"
+      "prototype.lazy_runtime$run_BANG_/invoke"
+      "runtime_feasibility$setup$private_run__155405$fn__155406/invoke"
+      "runtime_feasibility$setup$private_run__155405/invoke"
+      "runtime_feasibility$setup$fn__155419/invoke"
+      "runtime_feasibility$profile_BANG_$fn__157017$fn__157018$fn__157019/invoke"
+      "prototype.unchanged_program_benchmark$measure/invokeStatic"
+      "prototype.unchanged_program_benchmark$measure/invoke"
+      "runtime_feasibility$profile_BANG_$fn__157017$fn__157018/invoke"
+      "runtime_feasibility$profile_BANG_$fn__157017/invoke"]
+     4]
+    [["clojure.lang.LazySeq/realize"
+      "clojure.lang.LazySeq/seq"
+      "clojure.lang.Cons/next"
+      "clojure.lang.RT/next"
+      "clojure.core$next__5472/invokeStatic"
+      "clojure.core.protocols$fn__8279/invokeStatic"
+      "clojure.core.protocols$fn__8279/invoke"
+      "clojure.core.protocols$fn__8233$G__8228__8242/invoke"
+      "clojure.core.protocols$seq_reduce/invokeStatic"
+      "clojure.core.protocols$fn__8266/invokeStatic"
+      "clojure.core.protocols$fn__8266/invoke"
+      "clojure.core.protocols$fn__8207$G__8202__8220/invoke"]
+     4]
+    [["clojure.lang.RT/vector"
+      "clojure.lang.Tuple/create"
+      "user$eval155654$fn__155655/invoke"
+      "prototype.block_compile$emit_block$fn__5413/invoke"
+      "prototype.lazy_runtime$run_BANG_/invokeStatic"
+      "prototype.lazy_runtime$run_BANG_/invoke"
+      "runtime_feasibility$setup$private_run__155405$fn__155406/invoke"
+      "runtime_feasibility$setup$private_run__155405/invoke"
+      "runtime_feasibility$setup$fn__155419/invoke"
+      "runtime_feasibility$profile_BANG_$fn__157017$fn__157018$fn__157019/invoke"
+      "prototype.unchanged_program_benchmark$measure/invokeStatic"
+      "prototype.unchanged_program_benchmark$measure/invoke"]
+     4]]},
+  :typed-before
+  {:allocation-samples 62,
+   :execution-samples 60,
+   :exact-profiled-window
+   {:cpu-ns 124660869,
+    :wall-ns 128147429,
+    :allocated-bytes 133569072,
+    :gc-collections 1},
+   :allocation-weight-outliers
+   [{:weight 45275374768,
+     :class "java.lang.Long",
+     :stack
+     ["clojure.lang.Numbers$LongOps/unchecked_add"
+      "clojure.lang.Numbers/unchecked_add"
+      "prototype.typed_tail_execution$eval158132$fn__158133/invoke"
+      "prototype.typed_tail_execution$run_entry/invokeStatic"
+      "prototype.typed_tail_execution$run_entry/invoke"
+      "prototype.typed_tail_execution$compile_entry$fn__103415/invoke"
+      "prototype.lazy_runtime$run_BANG_/invokeStatic"
+      "prototype.lazy_runtime$run_BANG_/invoke"
+      "runtime_feasibility$typed_context$fn__157935/invoke"
+      "runtime_feasibility$profile_BANG_$fn__158077$fn__158078$fn__158079/invoke"
+      "prototype.unchanged_program_benchmark$measure/invokeStatic"
+      "prototype.unchanged_program_benchmark$measure/invoke"]}],
+   :allocation-classes
+   [["java.lang.Long" 118133160]
+    ["clojure.lang.MapEntry" 2147464]
+    ["clojure.lang.PersistentVector$ChunkedSeq" 2147464]
+    ["java.math.BigInteger" 2147456]
+    ["clojure.lang.PersistentArrayMap$Seq" 2147408]
+    ["clojure.lang.PersistentVector" 2147400]
+    ["[Ljava.lang.Object;" 2147384]],
+   :allocation-stacks
+   [[["clojure.lang.Numbers$LongOps/unchecked_add"
+      "clojure.lang.Numbers/unchecked_add"
+      "prototype.typed_tail_execution$eval158132$fn__158133/invoke"
+      "prototype.typed_tail_execution$run_entry/invokeStatic"
+      "prototype.typed_tail_execution$run_entry/invoke"
+      "prototype.typed_tail_execution$compile_entry$fn__103415/invoke"
+      "prototype.lazy_runtime$run_BANG_/invokeStatic"
+      "prototype.lazy_runtime$run_BANG_/invoke"
+      "runtime_feasibility$typed_context$fn__157935/invoke"
+      "runtime_feasibility$profile_BANG_$fn__158077$fn__158078$fn__158079/invoke"
+      "prototype.unchanged_program_benchmark$measure/invokeStatic"
+      "prototype.unchanged_program_benchmark$measure/invoke"]
+     60152088]
+    [["clojure.lang.Numbers/unchecked_minus"
+      "clojure.lang.Numbers/unchecked_minus"
+      "prototype.typed_tail_execution$eval158132$fn__158133/invoke"
+      "prototype.typed_tail_execution$run_entry/invokeStatic"
+      "prototype.typed_tail_execution$run_entry/invoke"
+      "prototype.typed_tail_execution$compile_entry$fn__103415/invoke"
+      "prototype.lazy_runtime$run_BANG_/invokeStatic"
+      "prototype.lazy_runtime$run_BANG_/invoke"
+      "runtime_feasibility$typed_context$fn__157935/invoke"
+      "runtime_feasibility$profile_BANG_$fn__158077$fn__158078$fn__158079/invoke"
+      "prototype.unchanged_program_benchmark$measure/invokeStatic"
+      "prototype.unchanged_program_benchmark$measure/invoke"]
+     57981072]
+    [["clojure.lang.APersistentMap/equiv"
+      "clojure.lang.Util/pcequiv"
+      "clojure.lang.Util/equiv"
+      "prototype.runtime_prim$builtin_numeric_route_QMARK_/invokeStatic"
+      "prototype.runtime_prim$builtin_numeric_route_QMARK_/invoke"
+      "prototype.runtime_prim$builtin_scalar_arithmetic_QMARK_/invokeStatic"
+      "prototype.runtime_prim$builtin_scalar_arithmetic_QMARK_/invoke"
+      "prototype.mutable$builtin_scalar_wrapper_QMARK_/invokeStatic"
+      "prototype.mutable$builtin_scalar_wrapper_QMARK_/invoke"
+      "prototype.mutable$current_scalar_wrapper_QMARK_/invokeStatic"
+      "prototype.mutable$current_scalar_wrapper_QMARK_/invoke"
+      "prototype.mutable$current_tail_region_QMARK_$fn__4894/invoke"]
+     2147464]
+    [["clojure.lang.PersistentVector$ChunkedSeq/next"
+      "clojure.lang.RT/next"
+      "clojure.core$next__5472/invokeStatic"
+      "clojure.core$last__5514/invokeStatic"
+      "clojure.core$last__5514/invoke"
+      "prototype.typed_tail_test$target$fn__104443/invoke"
+      "clojure.core$filter$fn__5983/invoke"
+      "clojure.lang.LazySeq/force"
+      "clojure.lang.LazySeq/sval"
+      "clojure.lang.LazySeq/unwrap"
+      "clojure.lang.LazySeq/realize"
+      "clojure.lang.LazySeq/seq"]
+     2147464]
+    [["java.math.BigInteger/<init>"
+      "java.math.BigInteger/valueOf"
+      "clojure.lang.BigInt/toBigInteger"
+      "clojure.lang.Numbers/toBigInteger"
+      "clojure.lang.Numbers$BigIntOps/lte"
+      "clojure.lang.Numbers/lte"
+      "prototype.typed_tail_execution$carrier_QMARK_/invokeStatic"
+      "prototype.typed_tail_execution$carrier_QMARK_/invoke"
+      "prototype.typed_tail_execution$entry_valid_QMARK_$fn__103317/invoke"
+      "clojure.core$every_QMARK_/invokeStatic"
+      "clojure.core$every_QMARK_/invoke"
+      "prototype.typed_tail_execution$entry_valid_QMARK_/invokeStatic"]
+     2147456]
+    [["clojure.lang.PersistentArrayMap/seq"
+      "clojure.lang.RT/seqFrom"
+      "clojure.lang.RT/seq"
+      "clojure.lang.RT/next"
+      "clojure.core$next__5472/invokeStatic"
+      "clojure.core$every_QMARK_/invokeStatic"
+      "clojure.core$every_QMARK_/invoke"
+      "prototype.typed_tail_execution$context_valid_QMARK_/invokeStatic"
+      "prototype.typed_tail_execution$context_valid_QMARK_/invoke"
+      "prototype.typed_tail_execution$run_entry/invokeStatic"
+      "prototype.typed_tail_execution$run_entry/invoke"
+      "prototype.typed_tail_execution$compile_entry$fn__103415/invoke"]
+     2147408]
+    [["clojure.lang.PersistentVector$TransientVector/persistent"
+      "clojure.lang.PersistentVector$TransientVector/persistent"
+      "clojure.core$persistent_BANG_/invokeStatic"
+      "clojure.core$mapv/invokeStatic"
+      "clojure.core$mapv/invoke"
+      "prototype.typed_tail_execution$entry_valid_QMARK_/invokeStatic"
+      "prototype.typed_tail_execution$entry_valid_QMARK_/invoke"
+      "prototype.typed_tail_execution$run_entry/invokeStatic"
+      "prototype.typed_tail_execution$run_entry/invoke"
+      "prototype.typed_tail_execution$compile_entry$fn__103415/invoke"
+      "prototype.lazy_runtime$run_BANG_/invokeStatic"
+      "prototype.lazy_runtime$run_BANG_/invoke"]
+     2147400]
+    [["clojure.lang.RT$4/invoke"
+      "clojure.lang.LazySeq/force"
+      "clojure.lang.LazySeq/realize"
+      "clojure.lang.LazySeq/seq"
+      "clojure.lang.LazySeq/first"
+      "clojure.lang.RT/first"
+      "clojure.core$first__5470/invokeStatic"
+      "clojure.core$some/invokeStatic"
+      "clojure.core$some/invoke"
+      "prototype.slot_count$cached_function_proof/invokeStatic"
+      "prototype.slot_count$cached_function_proof/invoke"
+      "prototype.slot_count$function_slots/invokeStatic"]
+     2147384]],
+   :execution-stacks
+   [[["clojure.lang.Numbers/ops"
+      "clojure.lang.Numbers/equiv"
+      "clojure.lang.Numbers/equiv"
+      "clojure.lang.Numbers/equiv"
+      "prototype.typed_tail_execution$eval158132$fn__158133/invoke"
+      "prototype.typed_tail_execution$run_entry/invokeStatic"
+      "prototype.typed_tail_execution$run_entry/invoke"
+      "prototype.typed_tail_execution$compile_entry$fn__103415/invoke"
+      "prototype.lazy_runtime$run_BANG_/invokeStatic"
+      "prototype.lazy_runtime$run_BANG_/invoke"
+      "runtime_feasibility$typed_context$fn__157935/invoke"
+      "runtime_feasibility$profile_BANG_$fn__158077$fn__158078$fn__158079/invoke"]
+     8]
+    [["clojure.lang.Numbers/unchecked_add"
+      "prototype.typed_tail_execution$eval158132$fn__158133/invoke"
+      "prototype.typed_tail_execution$run_entry/invokeStatic"
+      "prototype.typed_tail_execution$run_entry/invoke"
+      "prototype.typed_tail_execution$compile_entry$fn__103415/invoke"
+      "prototype.lazy_runtime$run_BANG_/invokeStatic"
+      "prototype.lazy_runtime$run_BANG_/invoke"
+      "runtime_feasibility$typed_context$fn__157935/invoke"
+      "runtime_feasibility$profile_BANG_$fn__158077$fn__158078$fn__158079/invoke"
+      "prototype.unchanged_program_benchmark$measure/invokeStatic"
+      "prototype.unchanged_program_benchmark$measure/invoke"
+      "runtime_feasibility$profile_BANG_$fn__158077$fn__158078/invoke"]
+     8]
+    [["clojure.lang.Numbers/equiv"
+      "clojure.lang.Numbers/equiv"
+      "clojure.lang.Numbers/equiv"
+      "prototype.typed_tail_execution$eval158132$fn__158133/invoke"
+      "prototype.typed_tail_execution$run_entry/invokeStatic"
+      "prototype.typed_tail_execution$run_entry/invoke"
+      "prototype.typed_tail_execution$compile_entry$fn__103415/invoke"
+      "prototype.lazy_runtime$run_BANG_/invokeStatic"
+      "prototype.lazy_runtime$run_BANG_/invoke"
+      "runtime_feasibility$typed_context$fn__157935/invoke"
+      "runtime_feasibility$profile_BANG_$fn__158077$fn__158078$fn__158079/invoke"
+      "prototype.unchanged_program_benchmark$measure/invokeStatic"]
+     7]
+    [["prototype.typed_tail_execution$eval158132$fn__158133/invoke"
+      "prototype.typed_tail_execution$run_entry/invokeStatic"
+      "prototype.typed_tail_execution$run_entry/invoke"
+      "prototype.typed_tail_execution$compile_entry$fn__103415/invoke"
+      "prototype.lazy_runtime$run_BANG_/invokeStatic"
+      "prototype.lazy_runtime$run_BANG_/invoke"
+      "runtime_feasibility$typed_context$fn__157935/invoke"
+      "runtime_feasibility$profile_BANG_$fn__158077$fn__158078$fn__158079/invoke"
+      "prototype.unchanged_program_benchmark$measure/invokeStatic"
+      "prototype.unchanged_program_benchmark$measure/invoke"
+      "runtime_feasibility$profile_BANG_$fn__158077$fn__158078/invoke"
+      "runtime_feasibility$profile_BANG_$fn__158077/invoke"]
+     6]
+    [["clojure.lang.Numbers/unchecked_minus"
+      "prototype.typed_tail_execution$eval158132$fn__158133/invoke"
+      "prototype.typed_tail_execution$run_entry/invokeStatic"
+      "prototype.typed_tail_execution$run_entry/invoke"
+      "prototype.typed_tail_execution$compile_entry$fn__103415/invoke"
+      "prototype.lazy_runtime$run_BANG_/invokeStatic"
+      "prototype.lazy_runtime$run_BANG_/invoke"
+      "runtime_feasibility$typed_context$fn__157935/invoke"
+      "runtime_feasibility$profile_BANG_$fn__158077$fn__158078$fn__158079/invoke"
+      "prototype.unchanged_program_benchmark$measure/invokeStatic"
+      "prototype.unchanged_program_benchmark$measure/invoke"
+      "runtime_feasibility$profile_BANG_$fn__158077$fn__158078/invoke"]
+     5]
+    [["clojure.lang.Numbers/equiv"
+      "prototype.typed_tail_execution$eval158132$fn__158133/invoke"
+      "prototype.typed_tail_execution$run_entry/invokeStatic"
+      "prototype.typed_tail_execution$run_entry/invoke"
+      "prototype.typed_tail_execution$compile_entry$fn__103415/invoke"
+      "prototype.lazy_runtime$run_BANG_/invokeStatic"
+      "prototype.lazy_runtime$run_BANG_/invoke"
+      "runtime_feasibility$typed_context$fn__157935/invoke"
+      "runtime_feasibility$profile_BANG_$fn__158077$fn__158078$fn__158079/invoke"
+      "prototype.unchanged_program_benchmark$measure/invokeStatic"
+      "prototype.unchanged_program_benchmark$measure/invoke"
+      "runtime_feasibility$profile_BANG_$fn__158077$fn__158078/invoke"]
+     4]
+    [["clojure.lang.Numbers$LongOps/combine"
+      "clojure.lang.Numbers/equiv"
+      "clojure.lang.Numbers/equiv"
+      "clojure.lang.Numbers/equiv"
+      "prototype.typed_tail_execution$eval158132$fn__158133/invoke"
+      "prototype.typed_tail_execution$run_entry/invokeStatic"
+      "prototype.typed_tail_execution$run_entry/invoke"
+      "prototype.typed_tail_execution$compile_entry$fn__103415/invoke"
+      "prototype.lazy_runtime$run_BANG_/invokeStatic"
+      "prototype.lazy_runtime$run_BANG_/invoke"
+      "runtime_feasibility$typed_context$fn__157935/invoke"
+      "runtime_feasibility$profile_BANG_$fn__158077$fn__158078$fn__158079/invoke"]
+     2]
+    [["clojure.lang.Numbers$LongOps/unchecked_add"
+      "clojure.lang.Numbers/unchecked_add"
+      "prototype.typed_tail_execution$eval158132$fn__158133/invoke"
+      "prototype.typed_tail_execution$run_entry/invokeStatic"
+      "prototype.typed_tail_execution$run_entry/invoke"
+      "prototype.typed_tail_execution$compile_entry$fn__103415/invoke"
+      "prototype.lazy_runtime$run_BANG_/invokeStatic"
+      "prototype.lazy_runtime$run_BANG_/invoke"
+      "runtime_feasibility$typed_context$fn__157935/invoke"
+      "runtime_feasibility$profile_BANG_$fn__158077$fn__158078$fn__158079/invoke"
+      "prototype.unchanged_program_benchmark$measure/invokeStatic"
+      "prototype.unchanged_program_benchmark$measure/invoke"]
+     2]
+    [["prototype.slot_count$builtin_tail_layout_QMARK_/invokeStatic"
+      "prototype.slot_count$builtin_tail_layout_QMARK_/invoke"
+      "prototype.mutable$current_tail_region_QMARK_/invokeStatic"
+      "prototype.mutable$current_tail_region_QMARK_/invoke"
+      "prototype.typed_tail_execution$context_valid_QMARK_/invokeStatic"
+      "prototype.typed_tail_execution$context_valid_QMARK_/invoke"
+      "prototype.typed_tail_execution$run_entry/invokeStatic"
+      "prototype.typed_tail_execution$run_entry/invoke"
+      "prototype.typed_tail_execution$compile_entry$fn__103415/invoke"
+      "prototype.lazy_runtime$run_BANG_/invokeStatic"
+      "prototype.lazy_runtime$run_BANG_/invoke"
+      "runtime_feasibility$typed_context$fn__157935/invoke"]
+     2]
+    [["java.lang.Long/valueOf"
+      "clojure.lang.Numbers/equiv"
+      "prototype.typed_tail_execution$eval158132$fn__158133/invoke"
+      "prototype.typed_tail_execution$run_entry/invokeStatic"
+      "prototype.typed_tail_execution$run_entry/invoke"
+      "prototype.typed_tail_execution$compile_entry$fn__103415/invoke"
+      "prototype.lazy_runtime$run_BANG_/invokeStatic"
+      "prototype.lazy_runtime$run_BANG_/invoke"
+      "runtime_feasibility$typed_context$fn__157935/invoke"
+      "runtime_feasibility$profile_BANG_$fn__158077$fn__158078$fn__158079/invoke"
+      "prototype.unchanged_program_benchmark$measure/invokeStatic"
+      "prototype.unchanged_program_benchmark$measure/invoke"]
+     2]
+    [["clojure.lang.RT/longCast"
+      "prototype.typed_tail_execution$eval158132$fn__158133/invoke"
+      "prototype.typed_tail_execution$run_entry/invokeStatic"
+      "prototype.typed_tail_execution$run_entry/invoke"
+      "prototype.typed_tail_execution$compile_entry$fn__103415/invoke"
+      "prototype.lazy_runtime$run_BANG_/invokeStatic"
+      "prototype.lazy_runtime$run_BANG_/invoke"
+      "runtime_feasibility$typed_context$fn__157935/invoke"
+      "runtime_feasibility$profile_BANG_$fn__158077$fn__158078$fn__158079/invoke"
+      "prototype.unchanged_program_benchmark$measure/invokeStatic"
+      "prototype.unchanged_program_benchmark$measure/invoke"
+      "runtime_feasibility$profile_BANG_$fn__158077$fn__158078/invoke"]
+     2]
+    [["jdk.jfr.internal.util.ValueParser/parseTimespanWithInfinity"
+      "jdk.jfr.internal.util.ValueParser/parseTimespanWithInfinity"
+      "jdk.jfr.internal.settings.CutoffSetting/parseValueSafe"
+      "jdk.jfr.internal.OldObjectSample/emit"
+      "jdk.jfr.internal.PlatformRecorder/stop"
+      "jdk.jfr.internal.PlatformRecording/stop"
+      "jdk.jfr.Recording/stop"
+      "runtime_feasibility$profile_BANG_$fn__158077$fn__158078/invoke"
+      "runtime_feasibility$profile_BANG_$fn__158077/invoke"
+      "runtime_feasibility$profile_BANG_/invokeStatic"
+      "runtime_feasibility$profile_BANG_/invoke"
+      "clojure.lang.AFn/applyToHelper"]
+     1]]}}}

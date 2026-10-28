@@ -21,6 +21,17 @@
    :profile scalar-fixture/profile :budgets fixture/budgets})
 (defn options [input] {:typed-tail (config input)})
 (defn context [input] (execution/prepare-context (:runtime input) (config input) {}))
+
+(deftest primitive-entry-compilation-needs-no-reflective-receiver
+  ;; A reflective longValue receiver makes loop lanes Objects, preserving
+  ;; answers but allocating boxed values on every arithmetic iteration.
+  (let [input (fixture/bundle "scalar-wrapper-programs.jsonl")
+        ctx (context input)
+        warnings (java.io.StringWriter.)
+        compiled (binding [*warn-on-reflection* true *err* warnings]
+                   (execution/force-compilation! ctx))]
+    (is (ifn? (:code compiled)))
+    (is (not (.contains (str warnings) "Reflection warning")) (str warnings))))
 (defn start [input label args]
   (m/start (m/world (:runtime input)) (fixture/target (:typed input) label) args))
 (defn run [backend program initial fuel]

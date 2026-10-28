@@ -1,5 +1,10 @@
 # Lean IR runtime REPL experiment
 
+The [runtime feasibility probe](research/RUNTIME_FEASIBILITY.md) separates
+heap-heavy execution from typed scalar loops before expanding project loading.
+It records the remaining bulk-allocation gap and the generated primitive-entry
+type-inference fix.
+
 The bounded [Klara branching experiment](research/KLARA_BRANCH_CONTRACT.md)
 compares forked guest cells and captured aliases across all three execution
 backends, with a separate synthetic settlement ledger and deferred effects.
