@@ -21,7 +21,7 @@
     (let [inventory (:inventory (entries :rbmap-original-main))]
       (is (= 79 (:declarations inventory)))
       (is (= 26 (count (:externs inventory))))
-      (is (= 18 (:unsupported-extern-count inventory)))
+      (is (= 11 (:unsupported-extern-count inventory)))
       (is (empty? (:missing-static-dependencies inventory)))
       (is (string? (:closure-preparation-error inventory)))
       (is (= 2 (:dynamic-application-sites inventory))))

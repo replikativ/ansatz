@@ -155,6 +155,11 @@ signatures without enabling USize execution. Nat multiplication, division and
 power reduce the original RBMap main's unsupported extern count from 21 to 18.
 The remaining sequence below is still an implementation plan.
 
+The subsequent [U32/USize slice](JAVA_SCALAR_RUNTIME.md) implements those lanes,
+boxing, packed fields and seven original scalar extern declarations. RBMap
+main's remaining unsupported extern count is now 11. Its string/array/IO closure
+still requires implementation; scalar coverage alone does not execute main.
+
 1. Extern registry keyed by symbol and allowed captured signatures, with borrow
    bits, erased slots and return convention. Test RBMap's repeated-symbol case.
 2. Add the U32/USize lanes and data/Nat/string primitives reached by RBMap main.
