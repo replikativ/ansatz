@@ -29,6 +29,16 @@ specialization, is a target requiring benchmarks, not an established result.
 
 ## Evidence already obtained
 
+- The [Java interpreter baseline](java-ir-baseline/README.md) executes original
+  typed exported IR with direct node headers, reusable stacks and lexical joins.
+  On RBMap1000/1001 it measured 6.16 ms wall with ordinary C2 or 2.82 ms with the
+  default JVMCI compiler, versus 4.51 ms for Lean's IR-preferred interpreter.
+  Nine tests / 258 assertions cover intermediate values, guest counters and
+  ownership, including all 81 MCMC data declarations. This bounded research
+  engine is not yet forkable or integrated into the hosted loader. The next
+  structural experiment is explicit continuations, followed by branch-local
+  heap ownership, each measured independently against this baseline.
+
 - [Prepared native call regions](NATIVE_CALL_REGIONS.md) provide an opt-in
   low-level runner without global interpreter replacement. The bounded paired
   RBMap case measured about 18% less CPU and 21% less allocation, with exact
