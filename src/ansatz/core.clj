@@ -1750,8 +1750,14 @@
                               (if (.startsWith nm "@") (subs nm 1) nm)))
         recursive? (some #(= (source-name %) (str fn-name)) source-symbols)
         explicit-ih? (some #(.startsWith (source-name %) "ih_") source-symbols)
-        rec-pos (when (and (seq? body-form) (= 'match (first body-form)))
-                  (let [pos (.indexOf (mapv first pairs) (second body-form))]
+        match-body (loop [form body-form]
+                     (cond
+                       (and (seq? form) (= 'match (first form))) form
+                       (and (seq? form) (= 'let (first form)) (= 3 (count form)))
+                       (recur (nth form 2))
+                       :else nil))
+        rec-pos (when match-body
+                  (let [pos (.indexOf (mapv first pairs) (second match-body))]
                     (when (<= 0 pos) pos)))
         structural-candidate? (and config/*lean-matchers*
                                    config/*lean-structural-matchers*
@@ -2485,7 +2491,8 @@
         ;; becomes a real loop — no more closure cascade / 20k-frame stack bound), named
         ;; self-call otherwise, flat + curried methods. Falls back to the classic path on
         ;; any failure; non-recursive bodies keep the optimizer-seam path below.
-        direct-fn (when (and top-match? (or structural-matcher? (not lean-matchers?)))
+        direct-fn (when (or structural-matcher?
+                            (and top-match? (not lean-matchers?)))
                     (try
                       (let [direct (if structural-matcher?
                                      ;; The pre-encoding matcher body is Lean's `_unsafe_rec`

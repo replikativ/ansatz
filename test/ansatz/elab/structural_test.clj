@@ -51,3 +51,17 @@
                            (let [x (structuralLet k)] (Nat.succ x))]))]
           (is (= 4 (f 4)))))
       (finally (reset! a/ansatz-env saved)))))
+
+(deftest let-wrapped-match-uses-structural-compiler
+  (let [saved @a/ansatz-env]
+    (try
+      (binding [a/*verbose* false] (a/load-init!))
+      (let [f (a/define-verified 'wrappedListProbe '[xs :- (List Nat)] 'Nat
+                '(let [z 0]
+                   (match xs [nil z]
+                          [(cons h t) (Nat.succ (wrappedListProbe t))])))]
+        (is (= 3 (f '(1 2 3))))
+        (is (some? (env/lookup (a/env) (name/from-string "wrappedListProbe.match_1"))))
+        (is (some? (env/lookup (a/env) (name/from-string "wrappedListProbe.eq_2"))))
+        (is (empty? (:errors (:equation-generation (meta f))))))
+      (finally (reset! a/ansatz-env saved)))))
