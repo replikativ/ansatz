@@ -81,10 +81,14 @@
         major (nth xs rec-pos)
         [head ind-args] (e/get-app-fn-args (u/infer-type ctx major))
         ind (env/lookup! environment (e/const-name head))
-        _ (when (pos? (.numIndices ind))
-            (throw (ex-info "Indexed constructor equations need the general Lean proof pass"
-                            {:inductive (.name ind)})))
         params (subvec ind-args 0 (.numParams ind))
+        indices (subvec ind-args (.numParams ind))
+        _ (when-not (and (every? e/fvar? indices)
+                         (= (count indices) (count (distinct indices)))
+                         (every? (set xs) indices))
+            (throw (ex-info "Indexed constructor equations need distinct parameter indices"
+                            {:inductive (.name ind)})))
+        index-positions (mapv #(.indexOf ^java.util.List xs %) indices)
         levels (vec (e/const-levels head))
         fconst (e/const' (name/from-string (str fn-name)) [])
         ;; A leading `let` is zeta-reduced before finding the match auxiliary;
@@ -92,7 +96,11 @@
         matcher-name (e/const-name
                       (e/get-app-fn
                        (red/whnf-no-delta environment source-body (:lctx @ctx))))
-        original-params (vec (keep-indexed (fn [i x] (when (not= i rec-pos) x)) xs))]
+        original-params (vec (keep-indexed
+                              (fn [i x]
+                                (when (and (not= i rec-pos)
+                                           (not (some #{i} index-positions))) x))
+                              xs))]
     (reduce
      (fn [{:keys [env names errors]} [i ctor-name]]
        (try
@@ -101,14 +109,19 @@
                ctor-type (u/instantiate-forall ctx
                                                (u/infer-type ctx (e/const' ctor-name levels))
                                                params)
-               [fields _] (u/forall-telescope ctx ctor-type (.numFields ctor))
+               [fields ctor-result] (u/forall-telescope ctx ctor-type (.numFields ctor))
+               ctor-result-args (e/get-app-args ctor-result)
+               result-indices (subvec ctor-result-args (.numParams ind))
                ctor-app (u/app (e/const' ctor-name levels) (concat params fields))
-               actual-params (assoc xs rec-pos ctor-app)
+               actual-params (reduce (fn [args [pos idx]] (assoc args pos idx))
+                                     (assoc xs rec-pos ctor-app)
+                                     (map vector index-positions result-indices))
                lhs (u/app fconst actual-params)
                rhs (reduce-matcher env (:lctx @ctx)
                                    (u/replace-fvars source-body
-                                                    [[(e/fvar self-id) fconst]
-                                                     [major ctor-app]])
+                                                    (into [[(e/fvar self-id) fconst]
+                                                           [major ctor-app]]
+                                                          (map vector indices result-indices)))
                                    matcher-name (e/const-name head))
                result-type (u/infer-type ctx lhs)
                level (u/get-level ctx result-type)
