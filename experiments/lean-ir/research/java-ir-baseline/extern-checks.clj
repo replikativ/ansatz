@@ -39,9 +39,9 @@
                  (assoc-in (rows "USize.ofNatLT") ["ir" "extern" "xs" 1 "borrow"] true)
                  (assoc-in (rows "USize.ofNat") ["ir" "extern" "xs"] [])]]
       (is (re-find #"Captured extern ABI mismatch" (c/failure #(abi row)))))
-    ;; Known ABI remains distinct from executable machine lane coverage.
+    ;; These two real captured forms now both prepare as executable intrinsics.
     (doseq [label ["USize.ofNat" "USize.ofNatLT"]]
-      (is (re-find #"Unsupported baseline IR type: usize" (c/failure #(prepare [(rows label)])))))))
+      (is (some? (:program (prepare [(rows label)])))))))
 
 (deftest preparation-uses-the-same-registry
   (let [row ((originals) "Nat.mul")]

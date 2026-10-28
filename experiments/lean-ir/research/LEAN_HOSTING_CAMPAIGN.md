@@ -29,6 +29,12 @@ specialization, is a target requiring benchmarks, not an established result.
 
 ## Evidence already obtained
 
+- The [U32/USize slice](JAVA_SCALAR_RUNTIME.md) adds raw word lanes, 64-bit Lean
+  boxing/layout, seven captured scalar declarations and 75 native observations
+  through direct and guest calls. The 384 MiB isolated jar gate passes 54
+  executions / 3,776 assertions. RBMap main has 11 unsupported extern
+  declarations; string/array/IO execution is pending.
+
 - The [captured extern ABI and Nat expansion](JAVA_EXTERN_RUNTIME.md) adds exact
   signature/borrow validation and three Nat operations against 288 pinned native
   observations. Both drivers pass the isolated jar gate, now 42 executions /
@@ -99,6 +105,53 @@ path is improved. Recent REPL allocation reductions must not be applied as
 predicted whole-frontend speedups without measuring actual uptake.
 
 ## Landing sequence
+
+The execution order below refines the earlier experimental landing sequence.
+The published compatibility corpus, rather than arbitrary Lean/Lake compatibility,
+defines the first release boundary. The hosted frontend and eventual rebuilding
+of its own compiler artifacts remain later hosting gates.
+
+1. Finish the bounded Java value/runtime profile: U32/USize, boxing and packed
+   fields; strings/arrays; host boundaries and valid guest streams. Run original
+   RBMap `main` with native observations, errors and pause/ownership checks.
+2. Establish branch-local heap ownership and managed completion/failure cleanup,
+   preserving the mutable closed-execution control. Define external resource
+   sharing/fork behavior explicitly; do not make real IO replay implicit.
+3. Integrate the Java tier under existing admitted loader/provider, kernel,
+   versioned file handles and Java/Clojure APIs. Preserve trusted registry and
+   source/executable association checks. Exercise edits, retained contexts,
+   callbacks, failures and isolated package consumption.
+   A bounded pure-call slice may precede general heap persistence: retain the
+   existing frontend/kernel control plane, select Java code after admission,
+   and use per-call private heaps with value-only codecs. No mutable engine,
+   cache or escaping Java heap node may be shared by context forks. General
+   closures/effects/persistent heaps require their ownership/host-boundary
+   contracts.
+4. Admit bidirectional DSL/Lean composition **after loader integration and before
+   publishing project examples**: load a Lean function/theorem into a DSL
+   definition/proof; publish a checked DSL function/theorem for a subsequent
+   Lean file. Preserve Names, universes, versions, assumptions and required
+   instance/simp metadata. Keep the DSL's existing supported Clojure codegen;
+   imported code can use the Lean IR engine behind the same declaration identity.
+   Different logical types require conversions; runtime representations require
+   codecs as appropriate. This is a pending acceptance gate, not current support.
+5. Complete unchanged-source corpus entries, including actual finite MCMC
+   execution, checked proof-bearing imports and a manageable IO/import example.
+   Publish per-entry versions, observations, unsupported paths and reproduction.
+6. Package the bounded preview with explicit bootstrap/provider setup, public
+   APIs, ownership/version documentation and clean consumer acceptance. It must
+   load and execute the accepted original sources, not only replay raw IR.
+7. Complete an in-process hosted Lean frontend invocation with imports,
+   initialization, syntax registration, elaboration, checking, diagnostics and
+   new callable code. Retire native dependencies for this chosen profile, then
+   validate rebuilding the frontend/compiler artifacts inside the JVM. Full Lake,
+   arbitrary native plugins and general concurrent-server support are separate.
+
+Each runtime feature is validated in the retained small REPL and against pinned
+Lean before a full-image acceptance run. Land independently reviewed, green
+increments without collecting a backlog of ready PRs. The original historical
+sequence below records how the earlier scoped-branching experiments were landed;
+it is not a request to repeat their completed work.
 
 1. Land the branching experiment as one additive, reviewed PR. Include sources,
    generated fixture/provenance, model/proofs, measurements, limitations and the

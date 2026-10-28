@@ -41,9 +41,11 @@ JVM adaptations, not a binary Lean runtime ABI.
 
 ## Bounded profile
 
-Supported value lanes are object/tagged/tobject/erased/void and uint8. The profile
+Supported value lanes are object/tagged/tobject/erased/void, uint8, uint32 and
+64-bit usize. The [scalar extension](../JAVA_SCALAR_RUNTIME.md) specifies host
+unsigned carriers, boxing, packed fields and bounded raw-IR limits. The profile
 covers constructors, object/byte projection and stores, calls, boxed partial and
-closure application, boxing/unboxing uint8, literals, sharing tests, RC operations,
+closure application, boxing/unboxing, literals, sharing tests, RC operations,
 joins, cases, returns and traps. Nat add/sub/mul/div/mod/pow/equality/less-than support
 nonnegative Long and promoted BigInteger values. Subtraction saturates; mod0
 returns the numerator. External uint8 inputs require exact values in 0..255.
@@ -54,8 +56,8 @@ grant kernel checking or source-admission authority. Inputs are trusted exported
 declaration sets, not a public source-file loader. Stack/index preparation remains
 bounded by the prototype's limits; arbitrary deeply nested input is unverified.
 
-Unsupported families include float and wider scalar lanes, struct/union, USize
-fields, reset/reuse, foreign functions other than the eight Nat operations, IO,
+Unsupported families include floats, uint16/uint64, struct/union,
+reset/reuse, foreign functions outside the captured Nat/scalar profile, IO,
 tasks/resources, native globals/initializers and the full string/MPZ object runtime.
 String and large-Nat arithmetic leaves use JVM values without guest RC headers;
 sharing tests and object cases on those families reject. The prototype does not
@@ -94,7 +96,8 @@ tests / 1,369 assertions before the extern expansion. Five further
 42 executions / 2,711 assertions. The
 [extern ABI and Nat report](../JAVA_EXTERN_RUNTIME.md) records native oracles,
 signature validation and remaining gaps. These tests do not execute original
-RBMap `main`.
+RBMap `main`. Six more [scalar tests](scalar-checks.clj) run in both modes,
+bringing the current isolated gate to 54 executions / 3,776 assertions.
 Runtime/compiler defaults and the optional package source inventory are unchanged.
 No Init image, hosted frontend, project loader or full Mathlib campaign is run.
 
