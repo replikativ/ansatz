@@ -146,3 +146,30 @@
         (is (some? (env/lookup (a/env) (name/from-string "dependentIndexLengthExtra.eq_2"))))
         (is (empty? (:errors (:equation-generation (meta f))))))
       (finally (reset! a/ansatz-env saved)))))
+
+(deftest enclosing-forms-can-contain-the-structural-match
+  (let [saved @a/ansatz-env]
+    (try
+      (binding [a/*verbose* false] (a/load-init!))
+      (let [f (a/define-verified 'wrappedIfRec
+                '[flag :- Bool, n :- Nat] 'Nat
+                '(if flag
+                   (match n [0 0]
+                          [(Nat.succ k) (Nat.succ (wrappedIfRec flag k))])
+                   0))]
+        (is (= 3 (f true 3)))
+        (is (= 0 (f false 3)))
+        (is (some? (env/lookup (a/env) (name/from-string "wrappedIfRec.match_1"))))
+        (is (some? (env/lookup (a/env) (name/from-string "wrappedIfRec.eq_1"))))
+        (is (empty? (:errors (:equation-generation (meta f))))))
+      (let [f (a/define-verified 'outerMatchRec
+                '[flag :- Bool, n :- Nat] 'Nat
+                '(match flag
+                   [true (match n [0 0]
+                                [(Nat.succ k) (Nat.succ (outerMatchRec flag k))])]
+                   [false 0]))]
+        (is (= 3 (f true 3)))
+        (is (= 0 (f false 3)))
+        (is (some? (env/lookup (a/env) (name/from-string "outerMatchRec.eq_1"))))
+        (is (empty? (:errors (:equation-generation (meta f))))))
+      (finally (reset! a/ansatz-env saved)))))

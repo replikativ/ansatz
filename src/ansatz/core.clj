@@ -1765,12 +1765,32 @@
                               (if (.startsWith nm "@") (subs nm 1) nm)))
         recursive? (some #(= (source-name %) (str fn-name)) source-symbols)
         explicit-ih? (some #(.startsWith (source-name %) "ih_") source-symbols)
-        match-body (loop [form body-form]
-                     (cond
-                       (and (seq? form) (= 'match (first form))) form
-                       (and (seq? form) (= 'let (first form)) (= 3 (count form)))
-                       (recur (nth form 2))
-                       :else nil))
+        leading-match-body (loop [form body-form]
+                             (cond
+                               (and (seq? form) (= 'match (first form))) form
+                               (and (seq? form) (= 'let (first form)) (= 3 (count form)))
+                               (recur (nth form 2))
+                               :else nil))
+        changed-rec-positions
+        (set (mapcat (fn [form]
+                       (when (and (seq? form)
+                                  (symbol? (first form))
+                                  (= (source-name (first form)) (str fn-name))
+                                  (<= n (dec (count form))))
+                         (keep (fn [i]
+                                 (when (not= (nth (vec (rest form)) i)
+                                             (first (nth pairs i)))
+                                   i))
+                               (range n))))
+                     (tree-seq coll? seq body-form)))
+        ;; Lean searches the elaborated predefinition for recursive calls and
+        ;; tries structural arguments independently of the outer body shape.
+        ;; Start by recognizing a matched parameter inside an enclosing form.
+        match-body (first (filter (fn [form]
+                                    (and (seq? form) (= 'match (first form))
+                                         (contains? changed-rec-positions
+                                                    (.indexOf (mapv first pairs) (second form)))))
+                                  (tree-seq coll? seq body-form)))
         rec-pos (when match-body
                   (let [pos (.indexOf (mapv first pairs) (second match-body))]
                     (when (<= 0 pos) pos)))
@@ -2488,14 +2508,17 @@
               (report-equation-error! equation-errors (str fn-name ".eq_1") ex)))
         _ (when structural-matcher?
             (try
-              (let [{:keys [env names errors]}
-                    (structural-eqns/constructor-equations
-                     @ansatz-env fn-name (:expr body-result)
-                     (:self-fvar-id body-result) rec-pos n)]
-                (reset! ansatz-env env)
-                (swap! equation-names into (mapv (fn [eqn] [cname eqn]) names))
-                (doseq [[eqn ex] errors]
-                  (report-equation-error! equation-errors eqn ex)))
+              (if (= match-body leading-match-body)
+                (let [{:keys [env names errors]}
+                      (structural-eqns/constructor-equations
+                       @ansatz-env fn-name (:expr body-result)
+                       (:self-fvar-id body-result) rec-pos n)]
+                  (reset! ansatz-env env)
+                  (swap! equation-names into (mapv (fn [eqn] [cname eqn]) names))
+                  (doseq [[eqn ex] errors]
+                    (report-equation-error! equation-errors eqn ex)))
+                (let [eqn (install-unfold-equation! fn-name body-ansatz)]
+                  (swap! equation-names conj [cname eqn])))
               (catch Exception ex
                 (report-equation-error! equation-errors (str fn-name ".eq_1") ex))))
         ;; Lean Meta/Eqns.lean registerEqnThms/getEqnsFor?: record the names at
