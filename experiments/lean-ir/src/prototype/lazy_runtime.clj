@@ -8,6 +8,7 @@
   (:require [prototype.block-compile :as b]
             [prototype.machine :as m]
             [prototype.fingerprint :as fingerprint]
+            [prototype.code-provenance :as provenance]
             [prototype.mutable :as u])
   (:import [java.util IdentityHashMap HashMap ArrayList]
            [java.lang.ref WeakReference ReferenceQueue]))
@@ -26,6 +27,7 @@
        (m/fail "Invalid lazy compilation threshold" {:compile-threshold (:compile-threshold options)}))
      (b/runtime-block-key-prepared functions [:return [:imm 0]] options)
      {:functions functions :options options :cache cache
+      :source-bodies (provenance/index-functions functions)
       :visits (IdentityHashMap.) :identity-keys (IdentityHashMap.)
       :generation (b/compiler-token) :dispatch (atom {}) :identity-dispatch (IdentityHashMap.)
       :counts (atom {:compiled 0 :cache-hits 0})})))
@@ -116,9 +118,13 @@
 (defn- block! [program body]
   (let [^IdentityHashMap identities (:identity-dispatch program)]
     (locking identities
-      (or (.get identities body)
+      ;; Generated publishers and surplus-argument continuations are runtime
+      ;; state. Do not hash, visit-count or retain them in any code cache.
+      (when (.containsKey ^IdentityHashMap (:source-bodies program) body)
+       (or (.get identities body)
           (when-let [[key block] (matching-hint program body)]
             (swap! (:counts program) update :cache-hits inc)
+            (provenance/admit-body! (:source-bodies program) (:source-body block))
             (.put identities body block)
             (swap! (:dispatch program) assoc (nth key 3) block)
             block)
@@ -145,10 +151,11 @@
                           (swap! cache assoc key compiled)
                           (swap! (:counts program) update :compiled inc)
                           [(clojure.core/key (find @cache key)) compiled])))]
+                (provenance/admit-body! (:source-bodies program) (:source-body block))
                 (remember-hint! body canonical-key)
                 (swap! (:dispatch program) assoc body-key block)
                 (.put identities body block)
-                block)))))))
+                block))))))))
 
 (defn- cold-step! [program machine]
   (u/step! machine)

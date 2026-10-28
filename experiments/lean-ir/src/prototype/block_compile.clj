@@ -377,10 +377,14 @@
 
 (defn compile-runtime-block-prepared [functions body options]
   (runtime-block-key-prepared functions body options)
-  (binding [*compiler-options* (assoc *compiler-options* :direct-linking (boolean (:direct-linking options)))]
-    (or (when-let [provider (get options tail-provider-key)] ((:compile provider) body))
-        (scalar-wrapper/compile-wrapper functions body options)
-        (compile-block body functions (:lexical-joins options) false #{}))))
+  (assoc
+   (binding [*compiler-options* (assoc *compiler-options* :direct-linking (boolean (:direct-linking options)))]
+     (or (when-let [provider (get options tail-provider-key)] ((:compile provider) body))
+         (scalar-wrapper/compile-wrapper functions body options)
+         (compile-block body functions (:lexical-joins options) false #{})))
+   ;; Cached executors can emit their original source continuation identities
+   ;; when reused by an independently parsed equivalent program.
+   :source-body body))
 
 (defn compile-runtime-block [functions body options]
   (compile-runtime-block-prepared functions body (prepare-program-options functions options)))
