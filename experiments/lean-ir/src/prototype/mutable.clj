@@ -924,3 +924,81 @@
                    (if (= :nat domain)
                      (runtime/builtin-nat-arithmetic? symbol runtime-operation)
                      (current-scalar-wrapper? (nth tokens 0) symbol operation))) symbols)))))
+
+(defn call-step-with!
+  "Internal prepared-runner bridge for a canonical call PC. Charge and resolve
+   operands in ordinary call order. DISPATCH receives the selected ordinary
+   call function, so a decline never rereads operands or picks a later root."
+  [s dispatch]
+  (when-not (= :running (ctl s 4)) (m/fail "Machine is not running" {:status (ctl s 4)}))
+  (bump! s 2 1)
+  (let [[op dest target operands continuation] (ctl s 0)]
+    (when-not (= :call op) (m/fail "Prepared call bridge requires a call" {:op op}))
+    (let [ordinary call-values!]
+      (dispatch ordinary s
+                (if (= :closure (first target)) [:closure (value s (second target))] target)
+                (mapv #(value s %) operands) dest continuation))))
+
+(declare ^:private prepared-driver-roots)
+
+(defn run-prepared!
+  "Internal primitive-budget driver. DISPATCH is an IFn$OLL returning the
+   number of instructions consumed (one ordinary step or one guarded region).
+   Budget is independent of guest counters, including nested native work."
+  [s fuel sites dispatch]
+  (if-not (and (instance? Long fuel) (not (neg? (long fuel))))
+    (run! s fuel)
+    (let [^objects roots prepared-driver-roots]
+     (loop [remaining (long fuel)]
+      (cond
+        ;; Site preselection adds a PC read. Withdraw before doing that read
+        ;; if core instruction/control behavior has been redefined.
+        (not (and (identical? (aget roots 0) step!) (identical? (aget roots 1) ctl)
+                  (identical? (aget roots 2) put!) (identical? (aget roots 3) bump!)))
+        (run! s remaining)
+        (not= :running (ctl s 4)) s
+        (zero? remaining) (do (put! s 4 :paused) s)
+        (or (< remaining 3) (not (.containsKey ^java.util.IdentityHashMap sites (ctl s 0))))
+        (do (step! s) (recur (dec remaining)))
+        :else
+        (let [used (.invokePrim ^clojure.lang.IFn$OLL dispatch s remaining)]
+          ;; Binary comparisons inline primitive longs; the variadic <= form
+          ;; boxes the remaining budget on every guest instruction.
+          (when-not (and (<= 1 used) (<= used remaining))
+            (m/fail "Invalid prepared instruction cost" {:cost used :remaining remaining}))
+          (recur (- remaining used))))))))
+
+(def ^:private prepared-driver-roots (object-array [step! ctl put! bump!]))
+
+(def ^:private call-step-token-state (atom nil))
+(def ^:private call-step-roots
+  [call-step-with! run-prepared! call! call-values! step! expr! value read-local ctl put! bump!
+   callee-slots registers bind-params! deliver! push-frame! function-slots add-steps! set-body! m/fail mapv prepared-driver-roots call-step-token-state])
+
+(defn call-step-token
+  "Internal definition-owner witness. Missing/stale helper or layout rules
+   withdraw prepared call execution; this is not kernel admission authority."
+  []
+  (let [[bridge driver call values step expr operand read control put bump layout regs bind deliver push slots-root steps-root body-root fail map-root driver-roots token-state]
+        call-step-roots]
+    (when (and (identical? bridge call-step-with!) (identical? driver run-prepared!) (identical? call call!)
+               (identical? values call-values!) (identical? step step!) (identical? expr expr!)
+               (identical? operand value) (identical? read read-local)
+               (identical? control ctl) (identical? put put!) (identical? bump bump!)
+               (identical? layout callee-slots) (identical? regs registers)
+               (identical? bind bind-params!) (identical? deliver deliver!)
+               (identical? push push-frame!) (identical? slots-root function-slots)
+               (identical? steps-root add-steps!) (identical? body-root set-body!)
+               (identical? fail m/fail) (identical? map-root mapv)
+               (identical? driver-roots prepared-driver-roots) (identical? token-state call-step-token-state))
+      (when-let [layout-token (slots/program-layout-token)]
+        (let [pair @call-step-token-state]
+          (if (identical? layout-token (nth pair 0 nil)) (nth pair 1)
+            ;; Cache only scalar version witnesses, never code or guest state.
+            ;; A layout namespace reload invalidates previously prepared calls.
+            (locking call-step-token-state
+              (let [pair @call-step-token-state]
+                (if (identical? layout-token (nth pair 0 nil)) (nth pair 1)
+                  (let [token (Object.)]
+                    (reset! call-step-token-state [layout-token token])
+                    token))))))))))

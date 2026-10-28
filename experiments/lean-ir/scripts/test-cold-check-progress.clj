@@ -2,7 +2,7 @@
 (require '[clojure.test :as t]
          'prototype.compact-import-check-test 'prototype.coherent-campaign-phase-test
          'prototype.module-store-test 'prototype.module-data-test 'prototype.typed-ir-test 'prototype.typed-blocks-test 'prototype.scalar-wrapper-test 'prototype.nat-preparation-test
-         'prototype.lazy-runtime-test)
+         'prototype.lazy-runtime-test 'prototype.native-call-test)
 (def seen (atom #{}))
 (defmethod t/report :begin-test-var [event] (swap! seen conj (:var event)))
 (defmethod t/report :fail [event]
@@ -13,7 +13,7 @@
   (println "BOUNDED_TEST_ERROR" (.getName (class (:actual event)))))
 (let [nss ['prototype.compact-import-check-test 'prototype.coherent-campaign-phase-test
            'prototype.module-store-test 'prototype.typed-ir-test 'prototype.typed-blocks-test 'prototype.scalar-wrapper-test 'prototype.nat-preparation-test
-           'prototype.lazy-runtime-test]
+           'prototype.lazy-runtime-test 'prototype.native-call-test]
       targeted [#'prototype.module-data-test/hexadecimal-decoding-preserves-values-carriers-and-errors]
       expected (into (set (for [n nss [_ v] (ns-publics n) :when (:test (meta v))] v)) targeted)
       result (apply t/run-tests nss)
@@ -22,5 +22,5 @@
                         (t/do-report (assoc @t/*report-counters* :type :summary))
                         @t/*report-counters*)]
   (shutdown-agents)
-  (System/exit (if (and (= 80 (count expected) (+ (:test result) (:test targeted-result))) (= expected @seen)
+  (System/exit (if (and (= 89 (count expected) (+ (:test result) (:test targeted-result))) (= expected @seen)
                        (zero? (+ (:fail result) (:error result) (:fail targeted-result) (:error targeted-result)))) 0 1)))

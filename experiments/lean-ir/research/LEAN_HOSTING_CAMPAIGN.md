@@ -29,6 +29,12 @@ specialization, is a target requiring benchmarks, not an established result.
 
 ## Evidence already obtained
 
+- [Prepared native call regions](NATIVE_CALL_REGIONS.md) provide an opt-in
+  low-level runner without global interpreter replacement. The bounded paired
+  RBMap case measured about 18% less CPU and 21% less allocation, with exact
+  checkpoint/fork checks and isolated jar consumption. File-loader defaults and
+  current-head full-frontend acceptance remain separate campaign work.
+
 - [Register capture probes](REGISTER_CAPTURE_PROBES.md) retain exact fork and
   checkpoint state with copy-on-write pages. The bounded final RBMap comparison
   saved about 17% cumulative allocation at about 2% more CPU; dense registers
