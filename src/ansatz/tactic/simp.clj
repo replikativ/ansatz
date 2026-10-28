@@ -2050,18 +2050,28 @@
                                                        args results)))]
                   (if-not (some (fn [r] (some? (:proof? r))) results)
                     deq-only
-                    (let [[folded _]
-                          (reduce (fn [[facc orig-f] [orig-arg r]]
-                                    [(mk-congr st facc r orig-f orig-arg)
-                                     (e/app orig-f orig-arg)])
-                                  [(mk-result head) head]
-                                  (map vector args results))
+                    (let [folded
+                          (try
+                            (first (reduce (fn [[facc orig-f] [orig-arg r]]
+                                             [(mk-congr st facc r orig-f orig-arg)
+                                              (e/app orig-f orig-arg)])
+                                           [(mk-result head) head]
+                                           (map vector args results)))
+                            (catch clojure.lang.ExceptionInfo ex
+                              (if (= :type-error (:kind (ex-data ex)))
+                                nil
+                                (throw ex))))
                           ok (and (:proof? folded)
-                                  (let [pt (safe-infer st (:proof? folded))
-                                        ptw (when pt (safe-whnf st pt))
-                                        [h as] (when ptw (e/get-app-fn-args ptw))]
-                                    (and h (e/const? h) (= (e/const-name h) eq-name) (= 3 (count as))
-                                         (tc/is-def-eq st (nth as 1) expr))))]
+                                  (try
+                                    (let [pt (safe-infer st (:proof? folded))
+                                          ptw (safe-whnf st pt)
+                                          [h as] (e/get-app-fn-args ptw)]
+                                      (and h (e/const? h) (= (e/const-name h) eq-name) (= 3 (count as))
+                                           (tc/is-def-eq st (nth as 1) expr)))
+                                    (catch clojure.lang.ExceptionInfo ex
+                                      (if (= :type-error (:kind (ex-data ex)))
+                                        false
+                                        (throw ex)))))]
                       (if ok folded deq-only)))))))))
       (try-ground-eval st (:env st) expr)
       (try-simp-using-decide st expr config)
@@ -2517,12 +2527,19 @@
                                      (if (and atw (e/sort? atw)
                                               (not= (e/sort-level atw) lvl/zero))
                                        :fixed :eq)))
+                        fn-type (safe-whnf st (safe-infer st orig-f))
+                        dependent-arg? (and (e/forall? fn-type)
+                                            (e/has-loose-bvars? (e/forall-body fn-type) 0))
                        ;; Override :fixed → :eq for recursor discriminants with constant motive.
                        ;; When the motive doesn't depend on its bound variable (e.g.,
                        ;; Bool.rec (fun _ => Bool) ...), the result type is non-dependent,
                        ;; so congrArg works and full simp on the discriminant is safe.
                        ;; Lean 4 handles this via auto-generated congr theorems.
                         arg-kind (cond
+                                  ;; Lean's congruence analysis marks arguments fixed when
+                                  ;; the result type depends on them. Ordinary congrArg
+                                  ;; cannot transport the codomain across such a rewrite.
+                                   dependent-arg? :fixed
                                   ;; Override 1: recursor discriminant with constant motive → :eq
                                    (and (= raw-kind :fixed)
                                         (e/const? app-fn)
@@ -2571,7 +2588,16 @@
                     (if (and (identical? (:expr f-result) orig-f)
                              (identical? (:expr a-result) orig-a))
                       (mk-result expr)
-                      (mk-congr st f-result a-result orig-f orig-a)))))))
+                      ;; A propositional rewrite in a dependent argument can make
+                      ;; ordinary congrArg/congrFun ill typed. Lean's congruence
+                      ;; traversal keeps such arguments fixed; discard this
+                      ;; speculative rewrite when our constructor cannot type it.
+                      (try
+                        (mk-congr st f-result a-result orig-f orig-a)
+                        (catch clojure.lang.ExceptionInfo ex
+                          (if (= :type-error (:kind (ex-data ex)))
+                            (mk-result expr)
+                            (throw ex))))))))))
 
         ;; Lambda — Lean 4: simpLambda (Main.lean:328) via lambdaTelescopeDSimp.
         ;; CRITICAL: open the binder with a FRESH FVAR before simplifying the body

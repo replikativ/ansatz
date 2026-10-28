@@ -1,24 +1,22 @@
 (ns ansatz.tactic.match-eqns
-  "Faithful port of Lean's `Match.getEquationsFor` (MatchEqs.lean) for NON-OVERLAPPING matchers —
-   the matchers we have (all casesOn-based, no overlapping patterns). For those Lean's splitter IS
-   the matcher itself (a transparent alias, MatchEqs.lean:231-243), and each equation
-     match_N params motive patternsᵢ alts = altᵢ rhsArgs
-   is proved by `rfl` (the matcher applied to a concrete constructor pattern reduces, via casesOn,
-   to the alternative). We GENERATE these on demand (they are not in the kernel export) and memoize.
-
-   Returns a MatchEqns map {:eqn-names [..] :splitter-name <str> :info <MatcherInfo>} (the Lean
-   MatchEqns struct, MatchEqsExt.lean:17-24). Overlapping matchers (mkMatcher/process) are deferred
-   behind this same interface."
+  "On-demand matcher equations, following Lean's MatchEqs.lean. Equations for later overlapping
+   alternatives carry precedence hypotheses. Splitter construction for overlapping matchers is
+   still pending."
   (:require [ansatz.kernel.expr :as e]
             [ansatz.kernel.name :as name]
             [ansatz.kernel.env :as env]
             [ansatz.kernel.level :as lvl]
             [ansatz.kernel.reduce :as red]
             [ansatz.kernel.tc :as tc]
+            [ansatz.meta.constructions.util :as u]
+            [ansatz.meta.match.matcher-info :as mi]
+            [ansatz.eqns :as eqns]
             [ansatz.matchers :as mtch]
             [ansatz.state :as state]
             [ansatz.simp-sources :as simp-sources]
-            [ansatz.tactic.proof :as proof]))
+            [ansatz.tactic.proof :as proof]
+            [ansatz.tactic.basic :as basic]
+            [ansatz.tactic.extract :as extract]))
 
 (def ^:private fresh-counter (atom 70000000))
 (defn- fresh-id [] (swap! fresh-counter inc))
@@ -37,6 +35,225 @@
 
 (defn- count-foralls [ty]
   (loop [ty ty, n 0] (if (e/forall? ty) (recur (e/forall-body ty) (inc n)) n)))
+
+(defn- close-foralls [body binders]
+  (reduce (fn [b [fid _ bt]]
+            (e/forall' "x" bt (e/abstract1 b fid) :default))
+          body (reverse binders)))
+
+(defn- close-lambdas [body binders]
+  (reduce (fn [b [fid _ bt]]
+            (e/lam "x" bt (e/abstract1 b fid) :default))
+          body (reverse binders)))
+
+(defn- constructor-app [environment expr]
+  (let [[h args] (e/get-app-fn-args expr)
+        ci (when (e/const? h) (env/lookup environment (e/const-name h)))
+        nat-value (cond
+                    (e/lit-nat? expr) (e/lit-nat-val expr)
+                    (and (e/const? h) (= "OfNat.ofNat" (name/->string (e/const-name h)))
+                         (= 3 (count args))
+                         (e/const? (first args))
+                         (= "Nat" (name/->string (e/const-name (first args))))
+                         (e/lit-nat? (nth args 1)))
+                    (e/lit-nat-val (nth args 1)))]
+    (cond
+      (some? nat-value)
+      (if (zero? nat-value)
+        {:name (name/from-string "Nat.zero") :fields []}
+        {:name (name/from-string "Nat.succ")
+         :fields [(e/lit-nat (dec nat-value))]})
+      (and ci (.isCtor ci))
+      {:name (e/const-name h)
+       :fields (subvec (vec args) (.numParams ci))})))
+
+(defn- pattern-equalities
+  "Reduce constructor equality to equalities of its fields, as Lean's simpH?
+   does for the precedence hypotheses. nil means distinct constructors."
+  [environment lhs rhs]
+  (let [a (constructor-app environment lhs)
+        b (constructor-app environment rhs)]
+    (cond
+      (and a b (not= (:name a) (:name b))) nil
+      (and a b (= (:name a) (:name b))
+           (= (count (:fields a)) (count (:fields b))))
+      (reduce (fn [acc [x y]]
+                (when acc (when-let [more (pattern-equalities environment x y)]
+                            (into acc more))))
+              [] (map vector (:fields a) (:fields b)))
+      :else [[lhs rhs]])))
+
+(defn- precedence-guard
+  "Lean MatchEqs.mkNotAlt, instantiated at the later arm's patterns. A guard says
+   that no choice of the earlier arm's fields can make all discriminants equal."
+  [environment scope current-patterns prior-alt prior-info]
+  (let [[_ _ prior-type] prior-alt
+        n (if (:unit-thunk prior-info) 1 (:num-fields prior-info))
+        [opened result] (open-foralls prior-type n)
+        fields (if (:unit-thunk prior-info) [] opened)
+        [_ prior-patterns] (e/get-app-fn-args result)
+        lctx (reduce (fn [lctx [id _ type]]
+                       (red/lctx-add-local lctx id "x" type))
+                     {} (concat scope opened))
+        ctx (atom (tc/attach-lctx (tc/mk-tc-state environment) lctx))
+        pairs (reduce (fn [acc [x y]]
+                        (when acc (when-let [more (pattern-equalities environment x y)]
+                                    (into acc more))))
+                      [] (map vector current-patterns prior-patterns))]
+    (when pairs
+      (let [equalities (mapv #(u/mk-eq-heq ctx (first %) (second %)) pairs)
+            impossible (reduce (fn [body eq] (e/arrow eq body))
+                               (e/const' (name/from-string "False") []) (reverse equalities))]
+        (close-foralls impossible fields)))))
+
+(defn- split-candidate [ps]
+  (let [goal (proof/current-goal ps)
+        [h args] (e/get-app-fn-args (:type goal))
+        target (if (and (e/const? h)
+                        (= "Eq" (name/->string (e/const-name h)))
+                        (= 3 (count args)))
+                 (nth args 1)
+                 (:type goal))
+        lctx (:lctx goal)]
+    (some (fn [[id d]]
+            (when (and (= :local (:tag d))
+                       (not= target (e/abstract1 target id)))
+              (let [ty (red/whnf (:env ps) (:type d) lctx)
+                    h (e/get-app-fn ty)
+                    ci (when (e/const? h) (env/lookup (:env ps) (e/const-name h)))]
+                (when (and ci (.isInduct ci)) id))))
+          (sort-by (comp - key) lctx))))
+
+(defn- guard-eq-args [ty]
+  (let [[h args] (e/get-app-fn-args ty)]
+    (when (and (e/const? h) (= "Eq" (name/->string (e/const-name h)))
+               (= 3 (count args)))
+      args)))
+
+(defn- match-guard-pattern [st field-ids pattern actual subst]
+  (cond
+    (and (e/fvar? pattern) (contains? field-ids (e/fvar-id pattern)))
+    (let [id (e/fvar-id pattern)]
+      (if-let [old (get subst id)]
+        (when (tc/is-def-eq st old actual) subst)
+        (assoc subst id actual)))
+    :else
+    (let [[ph pa] (e/get-app-fn-args pattern)
+          [ah aa] (e/get-app-fn-args actual)]
+      (if (and (e/const? ph) (e/const? ah)
+               (= (e/const-name ph) (e/const-name ah))
+               (= (count pa) (count aa)))
+        (reduce (fn [s [p a]] (when s (match-guard-pattern st field-ids p a s)))
+                subst (map vector pa aa))
+        (when (tc/is-def-eq st pattern actual) subst)))))
+
+(defn- close-by-guard [ps]
+  ;; Solve the branch where an earlier arm would have matched. This is the
+  ;; simple constructor-injection case of Lean Match.SolveOverlap: instantiate
+  ;; the earlier arm's fields from the current constructor and apply its
+  ;; precedence hypothesis to reflexive equalities.
+  (let [goal (proof/current-goal ps)
+        lctx (:lctx goal)
+        st (tc/attach-lctx (tc/mk-tc-state (:env ps)) lctx)
+        ctx (atom st)]
+    (some
+     (fn [[id d]]
+       (try
+         (let [[fields body]
+               (loop [ty (:type d) fields []]
+                 (if (and (e/forall? ty) (= "x" (e/forall-name ty)))
+                   (let [fid (fresh-id) fv (e/fvar fid)]
+                     (recur (e/instantiate1 (e/forall-body ty) fv)
+                            (conj fields [fid fv])))
+                   [fields ty]))
+               field-ids (set (map first fields))
+               equations
+               (loop [ty body acc []]
+                 (if (e/forall? ty)
+                   (if-let [args (guard-eq-args (e/forall-type ty))]
+                     (recur (e/instantiate1 (e/forall-body ty) (e/fvar (fresh-id)))
+                            (conj acc args))
+                     nil)
+                   (when (and (e/const? ty)
+                              (= "False" (name/->string (e/const-name ty))))
+                     acc)))
+               subst (when (seq equations)
+                       (reduce (fn [s [_ lhs rhs]]
+                                 (when s (match-guard-pattern st field-ids rhs lhs s)))
+                               {} equations))]
+           (when (and subst (every? #(contains? subst (first %)) fields))
+             (let [values (mapv #(get subst (first %)) fields)
+                   guard-term (apply e/app* (e/fvar id) values)
+                   false-term
+                   (reduce (fn [term _]
+                             (let [ty (tc/infer-type st term)
+                                   [alpha lhs rhs] (guard-eq-args (e/forall-type ty))]
+                               (when-not (tc/is-def-eq st lhs rhs)
+                                 (throw (ex-info "guard equality is not reflexive" {})))
+                               (e/app term (u/mk-eq-refl ctx lhs))))
+                           guard-term equations)
+                   target (:type goal)
+                   proof-term (e/app* (e/const' (name/from-string "False.elim")
+                                                [(u/get-level ctx target)])
+                                      target false-term)]
+               (basic/exact ps proof-term))))
+         (catch Exception _ nil)))
+     (sort-by (comp - key) lctx))))
+
+(defn- prove-by-stuck-cases [type names guard-names higher-guard?]
+  ;; Lean MatchEqs.proveCondEqThm repeatedly tries refl/contradiction, then
+  ;; casesOnStuckLHS. This fallback follows that loop on the inductive locals
+  ;; still present in the equality target; simp handles the resulting iota and
+  ;; precedence-hypothesis reductions. Each proof is checked by the kernel.
+  (let [[ps _] (proof/start-proof @state/ansatz-env type)
+        ps (basic/intros ps names)
+        run (requiring-resolve 'ansatz.core/run-tactic)
+        steps (atom 0)
+        close-guard (when (seq guard-names)
+                      (cons 'first
+                            (map #(list 'and_then '(exfalso) (list 'apply %) '(rfl))
+                                 guard-names)))]
+    (letfn [(try-step [ps f]
+              (try (f ps) (catch clojure.lang.ExceptionInfo _ ps)))
+            (solve [ps depth]
+              (when (> (swap! steps inc) 32)
+                (throw (ex-info "match-eqns: cases search exceeded 32 goals"
+                                {:kind :match-eqns-search-limit})))
+              (let [ps (try-step ps basic/rfl)
+                    ps (if (seq (:goals ps)) (try-step ps basic/contradiction) ps)
+                    ps (if (seq (:goals ps)) (or (close-by-guard ps) ps) ps)
+                    ps (if (and (seq (:goals ps)) close-guard)
+                         (try-step ps #(run % close-guard)) ps)
+                    ps (if (and (seq (:goals ps))
+                                (or (pos? depth) (not higher-guard?)))
+                         (try-step ps #(run % '(simp_all))) ps)]
+                (if (empty? (:goals ps))
+                  ps
+                  (if (>= depth 4)
+                    ps
+                    (if-let [fid (split-candidate ps)]
+                      (basic/all-goals (basic/cases ps fid) #(solve % (inc depth)))
+                      ps)))))]
+      (let [ps (solve ps 0)]
+        (when-not (proof/solved? ps)
+          (throw (ex-info (str "Stuck after cases\n" (proof/format-goals ps))
+                          {:kind :match-eqns-stuck-cases})))
+        (extract/verify ps)
+        (extract/extract ps)))))
+
+(defn- prove-conditional-equation [type binders guards]
+  ;; Lean MatchEqs.proveCondEqThm tries reflexivity and contradiction, then
+  ;; repeatedly splits stuck discriminants. The proof driver above follows
+  ;; that shape and checks the extracted term with the kernel.
+  (let [names (mapv #(str "x" %) (range (+ (count binders) (count guards))))
+        guard-names (mapv #(symbol (nth names %))
+                          (range (count binders) (+ (count binders) (count guards))))
+        higher-guard? (some #(and (e/forall? %) (= "x" (e/forall-name %))) guards)]
+    (try (prove-by-stuck-cases type names guard-names higher-guard?)
+         (catch Exception e
+           (throw (ex-info "match-eqns: could not prove conditional equation"
+                           {:kind :match-eqns-proof-failure :type type}
+                           e))))))
 
 (defn matcher-alt-data
   "Telescope analysis of matcher `match-name` for the split tactic. Returns
@@ -77,98 +294,104 @@
      :alts alt-data}))
 
 (defn get-equations-for
-  "Generate (idempotently) the match equations + splitter for matcher `match-name`, add them to the
-   GLOBAL env, and return the MatchEqns map. Non-overlapping only (asserts)."
+  "Generate matcher equations on demand. Non-overlapping matchers also receive the
+   transparent splitter alias; an overlapping splitter is not yet available."
   [match-name]
-  (let [env0 @state/ansatz-env
-        info (mtch/matcher-info env0 match-name)
-        _ (when-not info (throw (ex-info "match-eqns: no MatcherInfo for matcher" {:name match-name})))
-        _ (when-not (mtch/non-overlapping? info)
-            (throw (ex-info "match-eqns: overlapping matcher not yet supported (deferred)" {:name match-name})))
-        ci (env/lookup! env0 (name/from-string match-name))
-        lvls (vec (.levelParams ci))
-        us (mapv #(lvl/param %) lvls)
-        mconst (e/const' (name/from-string match-name) us)
-        mtype (.type ci)
-        {:keys [num-params num-discrs alts]} info
-        num-alts (count alts)
+  (if-let [cached (get (env/get-extension @state/ansatz-env :match-eqns {}) match-name)]
+    cached
+    (let [env0 @state/ansatz-env
+          info (mtch/matcher-info env0 match-name)
+          _ (when-not info (throw (ex-info "match-eqns: no MatcherInfo for matcher" {:name match-name})))
+          ci (env/lookup! env0 (name/from-string match-name))
+          lvls (vec (.levelParams ci))
+          us (mapv #(lvl/param %) lvls)
+          mconst (e/const' (name/from-string match-name) us)
+          mtype (.type ci)
+          {:keys [num-params num-discrs alts]} info
+          num-alts (count alts)
         ;; Open the matcher telescope: params, motive, discrs, alts.
-        [tele _] (open-foralls mtype (+ num-params 1 num-discrs num-alts))
-        params (subvec tele 0 num-params)
-        motive (nth tele num-params)
-        discrs (subvec tele (+ num-params 1) (+ num-params 1 num-discrs))
-        altfvs (subvec tele (+ num-params 1 num-discrs) (+ num-params 1 num-discrs num-alts))
-        [_ motive-fv _] motive
+          [tele _] (open-foralls mtype (+ num-params 1 num-discrs num-alts))
+          params (subvec tele 0 num-params)
+          motive (nth tele num-params)
+          discrs (subvec tele (+ num-params 1) (+ num-params 1 num-discrs))
+          altfvs (subvec tele (+ num-params 1 num-discrs) (+ num-params 1 num-discrs num-alts))
+          [_ motive-fv _] motive
         ;; Elimination universe: uElimPos picks which level param is the elim level (Prop if null).
-        elim-lvl (if-let [p (:u-elim-pos info)] (lvl/param (nth lvls p)) lvl/zero)
-        eq-base (str match-name ".eq_")
+          elim-lvl (if-let [p (:u-elim-pos info)] (lvl/param (nth lvls p)) lvl/zero)
+          eq-base (str match-name ".eq_")
         ;; Build one equation per alt.
-        results
-        (map-indexed
-         (fn [i [_ alt-fv alt-ty]]
-           (let [{:keys [num-fields unit-thunk]} (nth alts i)
+          results
+          (map-indexed
+           (fn [i [_ alt-fv alt-ty]]
+             (let [{:keys [num-fields unit-thunk]} (nth alts i)
                  ;; Open the alt's own binders (ys): for a unit thunk that's the single Unit param.
-                 n-alt-binders (if unit-thunk 1 num-fields)
-                 [ys alt-body] (open-foralls alt-ty n-alt-binders)
+                   n-alt-binders (if unit-thunk 1 num-fields)
+                   [ys alt-body] (open-foralls alt-ty n-alt-binders)
                  ;; alt conclusion = motive-fv patterns…  → extract the discriminant patterns.
-                 [head pat-args] (e/get-app-fn-args alt-body)
-                 patterns (vec pat-args)
+                   [head pat-args] (e/get-app-fn-args alt-body)
+                   patterns (vec pat-args)
                  ;; rhsArgs: a unit thunk is applied to Unit.unit; otherwise the field fvars.
-                 unit-unit (e/const' (name/from-string "Unit.unit") [])
-                 rhs-args (if unit-thunk [unit-unit] (mapv second ys))
+                   unit-unit (e/const' (name/from-string "Unit.unit") [])
+                   rhs-args (if unit-thunk [unit-unit] (mapv second ys))
                  ;; eq binders: params ++ motive ++ (ys, only for non-thunk) ++ alts.
-                 ys-binders (if unit-thunk [] ys)
-                 binders (vec (concat params [motive] ys-binders altfvs))
-                 binder-ids (mapv first binders)
+                   ys-binders (if unit-thunk [] ys)
+                   binders (vec (concat params [motive] ys-binders altfvs))
+                   binder-ids (mapv first binders)
                  ;; LHS: matcher params motive patterns alts   (discrs := patterns)
-                 lhs (apply e/app* mconst
-                            (concat (mapv second params) [motive-fv] patterns (mapv second altfvs)))
+                   lhs (apply e/app* mconst
+                              (concat (mapv second params) [motive-fv] patterns (mapv second altfvs)))
                  ;; RHS: alt rhsArgs
-                 rhs (apply e/app* alt-fv rhs-args)
+                   rhs (apply e/app* alt-fv rhs-args)
                  ;; result type = motive patterns (the matcher's conclusion at this pattern)
-                 res-ty (apply e/app* motive-fv patterns)
-                 eq-ty-open (e/app* (e/const' (name/from-string "Eq") [elim-lvl]) res-ty lhs rhs)
+                   res-ty (apply e/app* motive-fv patterns)
+                   eq-ty-open (e/app* (e/const' (name/from-string "Eq") [elim-lvl]) res-ty lhs rhs)
+                   guards (vec (keep (fn [j]
+                                       (precedence-guard env0
+                                                         (concat params [motive] discrs altfvs ys)
+                                                         patterns (nth altfvs j) (nth alts j)))
+                                     (mi/overlaps-overlapping (:overlaps info) i)))
+                   eq-ty-open (reduce (fn [body guard] (e/arrow guard body))
+                                      eq-ty-open (reverse guards))
                  ;; proof: Eq.refl res-ty rhs  (lhs ≡ rhs by iota on the concrete pattern)
-                 proof-open (e/app* (e/const' (name/from-string "Eq.refl") [elim-lvl]) res-ty rhs)
-                 ;; close over binder fvars (outermost first → abstract in reverse)
-                 close (fn [body]
-                         (reduce (fn [b [fid _ bt]]
-                                   (e/forall' "x" bt (e/abstract1 b fid) :default))
-                                 body (reverse binders)))
-                 close-lam (fn [body]
-                             (reduce (fn [b [fid _ bt]]
-                                       (e/lam "x" bt (e/abstract1 b fid) :default))
-                                     body (reverse binders)))
-                 eq-ty (close eq-ty-open)
-                 eq-val (close-lam proof-open)
-                 eq-name (str eq-base (inc i))]
-             {:name eq-name :type eq-ty :value eq-val}))
-         altfvs)
+                   proof-open (e/app* (e/const' (name/from-string "Eq.refl") [elim-lvl]) res-ty rhs)
+                   eq-ty (close-foralls eq-ty-open binders)
+                   eq-val (if (seq guards)
+                            (prove-conditional-equation eq-ty binders guards)
+                            (close-lambdas proof-open binders))
+                   eq-name (str eq-base (inc i))]
+               {:name eq-name :type eq-ty :value eq-val}))
+           altfvs)
         ;; Splitter alias: match_N.splitter := match_N  (abbrev = reducible alias; Lean
         ;; MatchEqs.lean:235-243 makes the non-overlapping splitter an @[inline] abbrev of the matcher).
-        splitter-name (str match-name ".splitter")
-        results (vec results)]
+          splitter-name (when (mi/non-overlapping? info) (str match-name ".splitter"))
+          results (vec results)]
     ;; Install (idempotent): add the splitter def + each eq_i theorem to the GLOBAL env.
-    (swap! state/ansatz-env
-           (fn [env]
-             (let [env (if (env/lookup env (name/from-string splitter-name))
-                         env
-                         (env/add-constant env (env/mk-def (name/from-string splitter-name)
-                                                           lvls mtype mconst :hints :abbrev)))]
-               (let [env (reduce (fn [env {:keys [name type value]}]
-                                   (if (env/lookup env (ansatz.kernel.name/from-string name))
-                                     env
-                                     (env/add-constant env (env/mk-thm (ansatz.kernel.name/from-string name)
-                                                                       lvls type value))))
-                                 env results)]
+      (swap! state/ansatz-env
+             (fn [env]
+               (let [env (if (or (nil? splitter-name)
+                                 (env/lookup env (name/from-string splitter-name)))
+                           env
+                           (env/check-constant env (env/mk-def (name/from-string splitter-name)
+                                                               lvls mtype mconst :hints :abbrev)))]
+                 (let [env (reduce (fn [env {:keys [name type value]}]
+                                     (if (env/lookup env (ansatz.kernel.name/from-string name))
+                                       env
+                                       (env/check-constant env (env/mk-thm (ansatz.kernel.name/from-string name)
+                                                                           lvls type value))))
+                                   env results)]
                  ;; Make the equations available to simp by default (the matcher reduces in each
                  ;; split branch via eqᵢ — Lean's simpMatchTargetCore; we route it through simp's set).
-                 (reduce (fn [env {:keys [name]}]
-                           (-> env
-                               (env/update-extension :simp-lemmas #{} conj name)
-                               (simp-sources/mark-local-registration name)))
-                         env results)))))
-    {:eqn-names (mapv :name results) :splitter-name splitter-name :info info :levels lvls}))
+                   (let [env (reduce (fn [env {:keys [name]}]
+                                       (-> env
+                                           (env/update-extension :simp-lemmas #{} conj name)
+                                           (simp-sources/mark-local-registration name)))
+                                     env results)
+                         names (mapv (comp name/from-string :name) results)
+                         env (eqns/register-eqn-thms env match-name names [])]
+                     (env/update-extension env :match-eqns {} assoc match-name
+                                           {:eqn-names (mapv :name results)
+                                            :splitter-name splitter-name :info info :levels lvls}))))))
+      {:eqn-names (mapv :name results) :splitter-name splitter-name :info info :levels lvls})))
 
 ;; ── split-matcher: faithful applyMatchSplitter for non-overlapping single-discriminant matchers ──
 ;; The matcher IS the eliminator (Lean's non-overlapping splitter = the matcher). We do `by-cases`

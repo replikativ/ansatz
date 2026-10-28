@@ -11,7 +11,9 @@
             [ansatz.kernel.name :as name]
             [ansatz.kernel.level :as lvl]
             [ansatz.kernel.tc :as tc]
+            [ansatz.eqns :as eqns]
             [ansatz.meta.match.matcher-info :as mi]
+            [ansatz.tactic.match-eqns :as match-eqns]
             [ansatz.tactic.instance :as instance]))
 
 (def base (delay (binding [a/*verbose* false] (a/load-init!))))
@@ -89,7 +91,8 @@
             '(match n [0 10] [1 20] [k (+ k 2)]))]
     (is (= 10 (f 0)))
     (is (= 20 (f 1)))
-    (is (= 7 (f 5)))))
+    (is (= 7 (f 5)))
+    (is (= 3 (count (:eqn-names (match-eqns/get-equations-for "matcher-literal.match_1")))))))
 
 (deftest string-values-use-decidable-equality-and-a-wildcard-fallback
   ;; String.decEq is not in the medium bundle; use its checked Lean-exported closure.
@@ -134,6 +137,58 @@
     (is (= 10 (f 1)))
     (is (= 3 (f 4)))
     (is (= [[0 1]] (:overlaps (mi/get-matcher-info-core? (a/env) "matcher-overlap.match_1"))))))
+
+(deftest overlapping-matcher-equations-carry-precedence-hypotheses
+  (a/define-verified 'matcher-overlap-eq '[^Nat n] 'Nat
+    '(match n [(Nat.succ Nat.zero) 10] [(Nat.succ k) k] [Nat.zero 20]))
+  ;; This used to throw a type error while simp speculatively built an invalid
+  ;; congruence proof for the dependent matcher application.
+  (is (some? (second
+              (a/prove-law
+               '[k :- Nat, h :- (Not (= (Nat.succ k) (Nat.succ Nat.zero)))]
+               '(= Nat
+                   (matcher-overlap-eq.match_1 (fn [x :- Nat] Nat) (Nat.succ k)
+                                               (fn [u :- Unit] 10) (fn [z :- Nat] z) (fn [u :- Unit] 20))
+                   k)
+               '[(cases k) (all_goals (simp_all))]))))
+  (let [matcher "matcher-overlap-eq.match_1"
+        before (a/env)
+        {:keys [eqn-names]} (match-eqns/get-equations-for matcher)
+        [first-eqn second-eqn third-eqn] (map decl eqn-names)]
+    (is (= 3 (count eqn-names)))
+    (is (every? some? [first-eqn second-eqn third-eqn]))
+    (is (every? #(= :thm (env/ci-tag %)) [first-eqn second-eqn third-eqn]))
+    (is (= (mapv name/from-string eqn-names) (eqns/eqns-for (a/env) matcher)))
+    (is (not (identical? before (a/env))))
+    (let [installed (a/env)]
+      (is (= eqn-names (:eqn-names (match-eqns/get-equations-for matcher))))
+      (is (identical? installed (a/env))))
+    ;; The second arm must not claim to run at 1: its equation has an extra premise.
+    (let [count-binders (fn [ty]
+                          (loop [ty ty n 0]
+                            (if (e/forall? ty)
+                              (recur (e/forall-body ty) (inc n))
+                              n)))]
+      (is (= (+ 2 (count-binders (.type first-eqn)))
+             (count-binders (.type second-eqn)))))
+    ;; Lean's simpH? reduces succ k = succ 0 to k = 0.
+    (let [guard (e/forall-type (nth (iterate e/forall-body (.type second-eqn)) 5))
+          [_ eq-args] (e/get-app-fn-args (e/forall-type guard))]
+      (is (= "Nat.zero" (str (e/const-name (nth eq-args 2))))))))
+
+(deftest catchall-equation-instantiates-earlier-pattern-fields
+  (a/define-verified 'matcher-catchall-eq '[^Nat n] 'Nat
+    '(match n [(Nat.succ k) 10] [m m]))
+  (let [eqs (:eqn-names (match-eqns/get-equations-for "matcher-catchall-eq.match_1"))]
+    (is (= 2 (count eqs)))
+    (is (every? #(= :thm (env/ci-tag (decl %))) eqs))))
+
+(deftest literal-overlap-simplifies-like-constructor-overlap
+  (a/define-verified 'matcher-literal-overlap '[^Nat n] 'Nat
+    '(match n [1 10] [(Nat.succ k) k] [0 20]))
+  (let [eqs (:eqn-names (match-eqns/get-equations-for "matcher-literal-overlap.match_1"))]
+    (is (= 3 (count eqs)))
+    (is (every? #(= :thm (env/ci-tag (decl %))) eqs))))
 
 (deftest enum-cases-and-catchalls-use-the-generated-cases-on
   (reset! a/ansatz-env (ind/define-inductive (a/env) "MatcherEnum" []
@@ -188,6 +243,7 @@
   (let [ci (decl "matcher-dependent-nat")
         nat (e/const' (name/from-string "Nat") [])]
     (is (= 2 (:num-discrs (mi/get-matcher-info-core? (a/env) "matcher-dependent-nat.match_1"))))
+    (is (= 2 (count (:eqn-names (match-eqns/get-equations-for "matcher-dependent-nat.match_1")))))
     (doseq [n [0 7]]
       (let [n (e/lit-nat n)
             h (e/app* (e/const' (name/from-string "Eq.refl") [(lvl/succ lvl/zero)]) nat n)]
