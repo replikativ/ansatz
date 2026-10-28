@@ -43,7 +43,7 @@
 (clojure.core/defn- tagged-inductive?
   "Tagged vectors distinguish fielded constructors that the native nil/vector rep cannot."
   [env ind-name-str]
-  (and (not (#{"List" "Nat"} ind-name-str))
+  (and (not (#{"List" "Nat" "Int"} ind-name-str))
        (not (get @structure-registry ind-name-str))
        (when-let [ind-ci (env/lookup env (name/from-string ind-name-str))]
          (let [ctors (.ctors ^ConstantInfo ind-ci)
@@ -144,7 +144,8 @@
 
 (def ^:private decidable-comparisons
   {"Nat.decEq" '== "Nat.decLt" '< "Nat.decLe" '<=
-   "Int.decEq" '== "String.decEq" '= "Bool.decEq" '=})
+   "Int.decEq" '== "Int.decLt" '< "Int.decLe" '<=
+   "String.decEq" '= "Bool.decEq" '=})
 
 (clojure.core/defn- decidable-head [env expr]
   ;; Generated value matchers use synthesized Decidable instances. Unfold
@@ -197,6 +198,8 @@
     "Bool.and" (bi-nary2 (fn [x y] (list 'and x y)))
     "Float.pow" (bi-nary2 (fn [x y] (list 'Math/pow x y)))
     "Nat.decEq" decidable-equality "Int.decEq" decidable-equality
+    "Int.decLt" (bi-nary2 (fn [x y] (list 'if (list '< x y) [1 nil] [0 nil])))
+    "Int.decLe" (bi-nary2 (fn [x y] (list 'if (list '<= x y) [1 nil] [0 nil])))
     "String.decEq" decidable-equality
     ;; heterogeneous H* ops carry [α β γ inst …] — drop the 4-arg type/instance prefix
     "HAdd.hAdd" (hop) "HMul.hMul" (hop) "HSub.hSub" (hop)
@@ -207,6 +210,7 @@
    ;; small structural lowerings + control flow + refinement erasure (bespoke handlers)
    {"Nat.succ"      (fn [_ _ _ ca _] (list 'inc' (nth ca 0)))
     "Int.ofNat"     (fn [_ _ _ ca _] (nth ca 0))
+    "Int.negSucc"   (fn [_ _ _ ca _] (list 'ansatz.codegen.numeric/neg-succ (nth ca 0)))
     "Int.neg"       (fn [_ _ _ ca _] (list '-' (nth ca 0)))
     "Int.natAbs"    (fn [_ _ _ ca _] (list 'ansatz.codegen.numeric/nat-abs (nth ca 0)))
     "Bool.not"      (fn [_ _ _ ca _] (list 'not (nth ca 0)))
@@ -319,11 +323,15 @@
   (merge
    {"Nat.zero" 0 "Bool.true" true "Bool.false" false
     "Nat.succ" 'inc' "Int.ofNat" 'identity
+    "Int.negSucc" 'ansatz.codegen.numeric/neg-succ
     "Float.pow" (nary-op2 (fn [x y] (list 'Math/pow x y)) [])
     "Int.neg" '-' "Int.natAbs" 'ansatz.codegen.numeric/nat-abs
     ;; Unit/PUnit's single value → nil (the unit thunks a match auxiliary applies branches to).
     "Unit.unit" nil "PUnit.unit" nil}
    nat-decisions
+   (into {} (map (fn [[n op]]
+                   [n (nary-op2 (fn [x y] (list 'if (list op x y) [1 nil] [0 nil])) [])])
+                 {"Int.decEq" '== "Int.decLt" '< "Int.decLe" '<=}))
    (into {} (map (fn [[n op]] [n (nary-op2 (fn [x y] (list op x y)) [])])
                  (merge {"Nat.add" '+' "Nat.mul" '*'
                          "Nat.min" 'min "Nat.max" 'max
@@ -1048,6 +1056,18 @@
                                   (list 'if (list 'zero? t-sym)
                                         (apply-minor (first clauses))
                                         (list 'let [pred-sym (list 'dec t-sym)] (apply-minor node-c))))
+
+                          ;; Lean Compiler/LCNF/ToMono.lean casesIntToMono: Int is a signed
+                          ;; number, with negSucc n represented as -(n+1).
+                                (and (= ind-name-str "Int") (= 2 (count clauses)))
+                                (let [positive (first clauses)
+                                      negative (second clauses)]
+                                  (list 'if (list 'neg? t-sym)
+                                        (list 'let [(first (:field-syms negative))
+                                                    (list 'dec' (list 'ansatz.codegen.numeric/nat-abs t-sym))]
+                                              (apply-minor negative))
+                                        (list 'let [(first (:field-syms positive)) t-sym]
+                                              (apply-minor positive))))
 
                           ;; Leaf + node: first ctor 0 fields, others have fields
                                 (and (= 2 (count clauses))

@@ -4,6 +4,7 @@
   (:require [ansatz.test-env :as test-env]
             [clojure.test :refer [deftest testing is use-fixtures]]
             [ansatz.core :as a]
+            [ansatz.codegen.decl :as decl]
             [ansatz.inductive :as ind]
             [ansatz.export.storage :as storage]
             [ansatz.kernel.expr :as e]
@@ -58,6 +59,22 @@
         (is (env/verifies? (a/env) (env/ci-type theorem) (env/ci-value theorem))))
       (finally
         (reset! a/ansatz-env before)))))
+
+(deftest failed-codegen-does-not-admit-definition
+  (let [before @a/ansatz-env
+        before-arities @a/arity-registry]
+    (try
+      (is (thrown-with-msg?
+           Exception #"forced codegen failure"
+           (with-redefs [decl/emit-classic! (fn [& _]
+                                              (throw (ex-info "forced codegen failure" {})))]
+             (a/define-verified 'retry-after-codegen '[n :- Nat] 'Nat '(+ n 1)))))
+      (is (not (a/has-constant? "retry-after-codegen")))
+      (is (= before-arities @a/arity-registry))
+      (is (= 3 ((a/define-verified 'retry-after-codegen '[n :- Nat] 'Nat '(+ n 1)) 2)))
+      (finally
+        (reset! a/ansatz-env before)
+        (reset! a/arity-registry before-arities)))))
 
 (deftest test-defn-identity
   (testing "Define identity function on Nat"

@@ -208,6 +208,41 @@
           term (e/app* (e/const' (name/from-string "Decidable.decide") []) proposition decision)]
       (compare-kernel! term :boolean))))
 
+(deftest native-int-decisions-and-matches-agree-with-kernel
+  (doseq [native '[Int.decEq Int.decLe Int.decLt]
+          [x y] [[-3 -3] [-3 0] [0 -3] [2 4] [4 2]]]
+    (let [as-int (fn [n] (if (neg? n) (list 'Int.negSucc (dec (- n)))
+                             (list 'Int.ofNat n)))
+          decision (elab/elaborate (a/env) (list native (as-int x) (as-int y)))
+          tc (TypeChecker. (a/env))
+          decision-type (.whnf (.getReducer tc) (.inferType tc decision))
+          proposition (first (second (e/get-app-fn-args decision-type)))
+          term (e/app* (e/const' (name/from-string "Decidable.decide") []) proposition decision)]
+      (compare-kernel! term :boolean)))
+  (let [lt (a/define-verified 'int-lt-regression '[x :- Int, y :- Int] 'Bool '(< x y))
+        le (a/define-verified 'int-le-regression '[x :- Int, y :- Int] 'Bool '(<= x y))]
+    (is (true? (lt -2 1)))
+    (is (false? (lt 1 -2)))
+    (is (true? (le -2 -2)))
+    (is (false? (le 1 -2))))
+  (let [magnitude (a/define-verified 'int-match-magnitude '[i :- Int] 'Nat
+                    '(match i [(ofNat n) n] [(negSucc n) n]))]
+    (doseq [[value expected] [[-4 3] [-1 0] [0 0] [3 3]]]
+      (is (= expected (magnitude value)))
+      (let [arg (elab/elaborate (a/env)
+                                (if (neg? value) (list 'Int.negSucc expected)
+                                    (list 'Int.ofNat expected)))
+            term (e/app (e/const' (name/from-string "int-match-magnitude") []) arg)
+            tc (TypeChecker. (a/env))]
+        (is (= expected (#'am/decode-val #(.whnf (.getReducer tc) %) :int term)))))))
+
+(deftest computational-bool-equality-uses-bool-instance
+  (let [same? (a/define-verified 'bool-equality-regression '[x :- Bool, y :- Bool]
+                'Bool '(== x y))]
+    (is (true? (same? true true)))
+    (is (false? (same? true false)))
+    (is (true? (same? false false)))))
+
 (deftest partially-applied-constructors-agree-with-kernel
   (let [constructor (e/const' (name/from-string "Prod.mk") [level/zero level/zero])
         nat (e/const' (name/from-string "Nat") [])

@@ -68,3 +68,4 @@
 
 (defn nat-sub [x y] (max 0 (-' x y)))
 (defn nat-abs [x] (if (neg? x) (-' x) x))
+(defn neg-succ [n] (-' (inc' n)))
