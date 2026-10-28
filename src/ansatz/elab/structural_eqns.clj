@@ -4,7 +4,9 @@
    the matcher has one unindexed structural discriminant."
   (:require [ansatz.kernel.env :as env]
             [ansatz.kernel.expr :as e]
+            [ansatz.kernel.level :as lvl]
             [ansatz.kernel.name :as name]
+            [ansatz.kernel.tc :as tc]
             [ansatz.meta.constructions.util :as u]
             [ansatz.meta.match.matcher-app :as matcher-app])
   (:import [ansatz.kernel TypeChecker]))
@@ -20,6 +22,52 @@
     (doseq [[fid decl] lctx]
       (.addLocal checker (long fid) (str (:name decl)) (:type decl)))
     (.whnf (.getReducer checker) expr)))
+
+(defn- prove-by-splitting [ctx lhs rhs candidates depth]
+  (let [result-type (u/infer-type ctx lhs)
+        level (u/get-level ctx result-type)
+        refl (u/app (u/const' "Eq.refl" [level]) [result-type lhs])]
+    (if (tc/is-def-eq @ctx lhs rhs)
+      refl
+      (when (pos? depth)
+        (some
+         (fn [x]
+           (try
+             (let [[head args] (e/get-app-fn-args (u/whnf ctx (u/infer-type ctx x)))
+                   ind (when (e/const? head)
+                         (env/lookup (:env @ctx) (e/const-name head)))]
+               (when (and ind (.isInduct ind) (zero? (.numIndices ind)))
+                 (let [levels (vec (e/const-levels head))
+                       params (subvec args 0 (.numParams ind))
+                       cases-name (name/mk-str (.name ind) "casesOn")
+                       cases-info (env/lookup! (:env @ctx) cases-name)
+                       cases-levels (if (> (count (.levelParams cases-info)) (count levels))
+                                      (into [lvl/zero] levels) levels)
+                       goal (u/app (u/const' "Eq" [level]) [result-type lhs rhs])
+                       motive (u/mk-lambda-fvars ctx [x] goal)
+                       other-candidates (vec (remove #{x} candidates))
+                       minors
+                       (mapv
+                        (fn [ctor-name]
+                          (let [ctor (env/lookup! (:env @ctx) ctor-name)
+                                ctor-type (u/instantiate-forall ctx
+                                                                (u/infer-type ctx
+                                                                              (e/const' ctor-name levels))
+                                                                params)
+                                [fields _] (u/forall-telescope ctx ctor-type (.numFields ctor))
+                                ctor-app (u/app (e/const' ctor-name levels) (concat params fields))
+                                lhs' (u/replace-fvars lhs [[x ctor-app]])
+                                rhs' (u/replace-fvars rhs [[x ctor-app]])
+                                proof (prove-by-splitting ctx lhs' rhs'
+                                                          (into other-candidates fields)
+                                                          (dec depth))]
+                            (when proof (u/mk-lambda-fvars ctx fields proof))))
+                        (.ctors ind))]
+                   (when (every? some? minors)
+                     (u/app (e/const' cases-name cases-levels)
+                            (concat params [motive x] minors))))))
+             (catch Exception _ nil)))
+         candidates)))))
 
 (defn constructor-equations
   "Kernel check constructor equations for a structurally recursive matcher.
@@ -60,10 +108,12 @@
                result-type (u/infer-type ctx lhs)
                level (u/get-level ctx result-type)
                eq-type (u/app (u/const' "Eq" [level]) [result-type lhs rhs])
-               refl (u/app (u/const' "Eq.refl" [level]) [result-type lhs])
                binders (into original-params fields)
                theorem-type (u/mk-forall-fvars ctx binders eq-type)
-               theorem-value (u/mk-lambda-fvars ctx binders refl)
+               proof (or (prove-by-splitting ctx lhs rhs binders 2)
+                         (throw (ex-info "Structural equation needs Lean's general proof pass"
+                                         {:equation (str fn-name ".eq_" (inc i))})))
+               theorem-value (u/mk-lambda-fvars ctx binders proof)
                eq-name (name/from-string (str fn-name ".eq_" (inc i)))
                env (env/check-constant env (env/mk-thm eq-name [] theorem-type theorem-value))]
            {:env env :names (conj names eq-name) :errors errors})

@@ -27,7 +27,9 @@
                   '(match n [0 0]
                           [(Nat.succ k)
                            (match k [0 1] [(Nat.succ j) (structuralNested j)])]))]
-          (is (= 1 (f 5))))
+          (is (= 1 (f 5)))
+          (is (some? (env/lookup (a/env) (name/from-string "structuralNested.eq_2"))))
+          (is (empty? (:errors (:equation-generation (meta f))))))
         (let [f (a/define-verified 'structuralChanging '[^Nat m ^Nat n] 'Nat
                   '(match n [0 m]
                           [(Nat.succ k) (structuralChanging (Nat.succ m) k)]))]
