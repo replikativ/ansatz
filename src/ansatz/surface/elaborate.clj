@@ -534,12 +534,25 @@
   [est T tn x]
   (if (e/lit-nat? x)
     (case tn
-      ("Nat" nil) x
+      "Nat" x
       "Float" (e/app (e/const' (name/from-string "Float.ofNat") []) x)
       (let [u (type-sort-level est T)
             goal (e/app* (e/const' (name/from-string "OfNat") [u]) T x)]
         (e/app* (e/const' (name/from-string "OfNat.ofNat") [u]) T x (inst-mvar! est goal))))
     x))
+
+(defn- elab-arith-operand
+  "Propagate the selected carrier into arithmetic subtrees, as Lean's binop%
+   toExpr does. An all-numeral subtree must not independently default to Nat."
+  [est T tn form]
+  (if (and (seq? form) (contains? #{'+ '- '*} (first form))
+           (<= 3 (count form)))
+    (let [form (if (> (count form) 3)
+                 (reduce (fn [a b] (list (first form) a b)) (rest form))
+                 form)]
+      (elab-arith-at-type* est (case (str (first form)) "+" "add" "-" "sub" "*" "mul")
+                           T (rest form)))
+    (num-lit-at-type est T tn (elab-term est form))))
 
 (defn- concrete-arith
   "The concrete kernel op for a carrier `ingest/arith-lift` names (`Int.add`, `Nat.mul`, …).
@@ -551,7 +564,7 @@
   [est const T tn args pow?]
   (if (= tn "Nat")
     (elab-app est (symbol const) args)
-    (let [coerce (fn [x] (num-lit-at-type est T tn (elab-term est x)))
+    (let [coerce (fn [x] (elab-arith-operand est T tn x))
           [a b] args]
       (e/app* (e/const' (name/from-string const) [])
               (coerce a)
@@ -576,7 +589,7 @@
   [sexpr]
   (if (and (seq? sexpr) (symbol? (first sexpr))
            (contains? hop-table (str (first sexpr)))
-           (= 3 (count sexpr)))
+           (<= 3 (count sexpr)))
     (mapcat arith-leaves (rest sexpr))
     [sexpr]))
 
@@ -589,7 +602,9 @@
   (some (fn [leaf]
           (when-not (integer? leaf)
             (try (let [ty (zonk est (infer-with-mvars est (elab-term est leaf)))]
-                   (when-let [tn (type-head-name est ty)] [ty tn]))
+                   ;; A local carrier is a free variable, so it has no constant
+                   ;; head name. It still determines the arithmetic type.
+                   (when-not (e/mvar? ty) [ty (type-head-name est ty)]))
                  (catch Exception _ nil))))
         (arith-leaves sexpr)))
 
@@ -648,15 +663,13 @@
                   ;; (Elab/Extra.lean): where no leaf carries one — `(+ 2 2)`, all numerals —
                   ;; the expected type decides the carrier. Without this the tree defaulted to
                   ;; Nat and `(= Int (+ 2 2) 4)` built `Eq Int (Nat.add 2 2) (4 : Int)`.
-                  at-expected (when (and (seq? arg-sexpr) (= 3 (count arg-sexpr))
+                  at-expected (when (and (seq? arg-sexpr) (<= 3 (count arg-sexpr))
                                          (symbol? (first arg-sexpr))
                                          (contains? #{"+" "-" "*"} (str (first arg-sexpr)))
                                          (nil? (arith-type est arg-sexpr)))
                                 (let [d (zonk est dom-type)]
-                                  (when (and (not (e/mvar? d)) (type-head-name est d))
-                                    (elab-arith-at-type* est (case (str (first arg-sexpr))
-                                                               "+" "add" "-" "sub" "*" "mul")
-                                                         d (rest arg-sexpr)))))
+                                  (when (not (e/mvar? d))
+                                    (elab-arith-operand est d (type-head-name est d) arg-sexpr))))
                   ;; Lean propagates the expected type into the argument; here only the part a
                   ;; comparison needs: a parameter of type Prop (or a predicate α → Prop, as
                   ;; for Exists) takes a proposition, any other parameter takes a value.
@@ -697,7 +710,7 @@
   (let [tn (type-head-name est T)]
     (if (= hs "neg")
       (let [u (type-sort-level est T)
-            a (num-lit-at-type est T tn (elab-term est (first args)))]
+            a (elab-arith-operand est T tn (first args))]
         (e/app* (e/const' (name/from-string "Neg.neg") [u]) T
                 (inst-mvar! est (e/app (e/const' (name/from-string "Neg") [u]) T))
                 a))
@@ -705,12 +718,12 @@
         (if-let [const (get-in ingest/arith-lift [op tn])]
           (concrete-arith est const T tn args (= hs "pow"))
           (let [[cls method] (hop-table op)
-                a (num-lit-at-type est T tn (elab-term est (first args)))
-                b (elab-term est (second args))
+                a (elab-arith-operand est T tn (first args))
+                b (if (= hs "pow") (elab-term est (second args))
+                      (elab-arith-operand est T tn (second args)))
                 ;; `pow` is heterogeneous in its exponent: B is the exponent's own type (Nat
                 ;; for the monoid power), and only there is a literal exponent already a Nat.
-                B (if (= hs "pow") (zonk est (infer-with-mvars est b)) T)
-                b (if (= hs "pow") b (num-lit-at-type est T tn b))]
+                B (if (= hs "pow") (zonk est (infer-with-mvars est b)) T)]
             (elab-hop est cls method T B T a b)))))))
 
 (defn- elab-forall
@@ -1331,8 +1344,8 @@
                       (concrete-arith est const T tn args false)
                       (let [[cls method] (hop-table op)]
                         (elab-hop est cls method T T T
-                                  (num-lit-at-type est T tn (elab-term est (first args)))
-                                  (num-lit-at-type est T tn (elab-term est (second args)))))))))
+                                  (elab-arith-operand est T tn (first args))
+                                  (elab-arith-operand est T tn (second args))))))))
 
         ;; Explicit-type arithmetic — `(mul T a b)`, `(add/sub/div T a b)`, `(pow T a n)`,
         ;; `(neg T a)`: the spelling a theorem statement needs when the type cannot be read
@@ -1590,6 +1603,16 @@
                 (try (unify! est (infer-with-mvars est sol) goal)
                      (catch Throwable _ nil))
                 (reset! solved-any true)))))
+        (when-not @solved-any
+          ;; Lean.Elab.SyntheticMVars applies default instances only after
+          ;; ordinary synthesis stalls. OfNat's Nat default must not discard a
+          ;; known local carrier, nor commit before later arguments determine it.
+          (doseq [[id _] (reverse pending)]
+            (let [[head args] (e/get-app-fn-args (zonk est (surface-mvar-type est id)))]
+              (when (and (e/const? head) (= "OfNat" (str (e/const-name head)))
+                         (= 2 (count args)) (e/mvar? (first args)))
+                (when (unify! est (first args) (e/const' (name/from-string "Nat") []))
+                  (reset! solved-any true))))))
         (when @solved-any (recur))))))
 
 ;; ============================================================

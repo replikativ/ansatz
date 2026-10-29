@@ -2841,3 +2841,8 @@ true_iff
 true_implies
 true_or
 wfParam
+Lean.Grind.CommRing.eq_normS
+Lean.Grind.CommRing.Expr.eq_of_toPoly_eq
+Lean.Grind.instCommSemiringNat
+Lean.Grind.instCommRingInt
+eq_false_of_decide

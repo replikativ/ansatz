@@ -10,6 +10,7 @@
   (:require [clojure.test :refer [deftest testing is use-fixtures]]
             [ansatz.core :as a]
             [ansatz.kernel.expr :as e]
+            [ansatz.kernel.level :as lvl]
             [ansatz.surface.elaborate :as el]
             [ansatz.kernel.env]
             [ansatz.kernel.name]))
@@ -64,3 +65,42 @@
                        '[(apply Nat.le_add_right)])
       (is (some? (ansatz.kernel.env/lookup (a/env)
                                            (ansatz.kernel.name/from-string "le-add-one")))))))
+
+(deftest generic-carriers-determine-arithmetic-and-numeral-types
+  (let [saved @a/ansatz-env]
+    (try
+      (binding [a/*verbose* false]
+        (doseq [[n goal]
+                [['genericDistribute '(= R (* x (+ y z)) (+ (* x y) (* x z)))]
+                 ['genericNumeral '(= R (+ x 2) (+ 2 x))]
+                 ['genericExpected '(= R (+ 2 2) 4)]
+                 ['genericExpectedNary '(= R (+ 1 2 3) 6)]
+                 ['genericNested '(= R (* (+ 2 3) x) (* 5 x))]
+                 ['genericNary '(= R (* (+ 1 2 3) x) (* 6 x))]
+                 ['genericExplicit '(= R (mul R (+ 2 3) x) (* 5 x))]]]
+          (a/prove-theorem n
+                           '[R :- Type, s :- (Lean.Grind.CommSemiring R) :inst,
+                             x :- R, y :- R, z :- R]
+                           goal '[(ring)])
+          (let [ci (ansatz.kernel.env/lookup! (a/env)
+                                              (ansatz.kernel.name/from-string (str n)))]
+            (is (ansatz.kernel.env/verifies? (a/env) (.type ci) (.value ci))
+                (str n))))
+        (a/prove-theorem 'genericSubtract
+                         '[R :- Type, s :- (Lean.Grind.CommRing R) :inst, x :- R, y :- R]
+                         '(= R (- (+ x y) y) x) '[(ring)])
+        (let [ci (ansatz.kernel.env/lookup! (a/env)
+                                            (ansatz.kernel.name/from-string "genericSubtract"))]
+          (is (ansatz.kernel.env/verifies? (a/env) (.type ci) (.value ci)))))
+      (finally (reset! a/ansatz-env saved)))))
+
+(deftest numeral-defaulting-waits-for-ordinary-inference
+  (doseq [[carrier form] [["Nat" '(List.replicate 3 2)]
+                          ["Int" '(List.cons 2 (List.nil Int))]]]
+    (let [term (el/elaborate (a/env) form)
+          type (e/app (e/const' (ansatz.kernel.name/from-string "List") [lvl/zero])
+                      (e/const' (ansatz.kernel.name/from-string carrier) []))]
+      (is (some? (ansatz.kernel.env/check-constant
+                  (a/env) (ansatz.kernel.env/mk-def
+                           (ansatz.kernel.name/from-string (str "numeralDefault" carrier))
+                           [] type term)))))))
