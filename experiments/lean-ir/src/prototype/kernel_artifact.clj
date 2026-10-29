@@ -1,11 +1,12 @@
 (ns prototype.kernel-artifact
   "Explicit provider-pinned kernel DATA admission, without kernel replay.
    This issuer admits one small reviewed fixture as a trusted assumption. It is
-   not an Init release profile, strict verifier, guest association, runtime
-   companion authentication, or frontend/provider implementation."
+   not an Init release profile, strict verifier, runtime companion authentication,
+   or frontend/provider implementation. Explicit association retains artifact provenance."
   (:require [prototype.module-store :as store]
             [prototype.imported-kernel :as kernel]
-            [prototype.checked-delta :as delta])
+            [prototype.kernel-projection-snapshot :as snapshot]
+            [prototype.helper-authority :as authority])
   (:import [ansatz.kernel Env ConstantInfo]
            [java.util WeakHashMap]))
 
@@ -59,7 +60,10 @@
                     :env environment :source source :roots (:roots loaded)
                     :constants (into {} (map (fn [[name entry]] [name (:guest entry)])) indexed)
                     :projected projected}]
-    {:projection projection :guard (delta/snapshot-projection projection)}))
+    (let [projection (assoc projection :projection-sources [source])
+          guard (snapshot/snapshot-projection projection)
+          segment (select-keys guard [:projected :shapes :expression-arrays])]
+      {:projection (assoc projection :java-guard-segments [segment]) :guard guard})))
 
 (defn load-admitted
   "Open PATH using the provider's fixed SUPPORTED-ID/hash/inventory/Lean pins.
@@ -75,8 +79,8 @@
                                            :max-bytes 1048576 :cache-size 64 :max-row-bytes 65536})
         source (:source loaded)]
     (try
-      (let [record (project loaded supported-id profile)
-            admission (Admission.)
+      (let [admission (Admission.)
+            record (project loaded supported-id profile)
             result {:world (:world loaded) :roots (:roots loaded) :source source :admission admission}]
         (locking issued (.put issued admission record))
         result)
@@ -97,5 +101,25 @@
     (require! record "An issued in-process kernel artifact admission is required" {})
     (let [attached (store/describe-attached world (:source projection))]
       (require! (= (:roots projection) (:roots attached)) "Kernel artifact roots changed" {}))
-    (delta/validate-projection guard)
-    projection))
+    (snapshot/validate-projection guard)
+    ;; Keep the registry value token-free so it cannot retain its own weak key.
+    (assoc projection :kernel-provenance
+           {:base-basis :trusted-artifact :artifact-admission token
+            :base-assumptions (:base-assumptions projection)})))
+
+(defn associate-admitted-progress
+  "Associate actual guest Environment with exactly this issued artifact's CIs.
+   Current independent helper authority is required. Revalidate token/source,
+   original Java witnesses and helper identities across the actual helper
+   boundary before publishing explicit artifact provenance. No strict order or
+   verifier certificate is fabricated; failures retain the core owner packet."
+  [context world environment helpers admission]
+  (let [projection (inspect-for-world world admission)
+        roots (cond-> (mapv helpers [:root :constants :quot-init?])
+                (:constant-map helpers) (conj (:constant-map helpers)))
+        code (authority/capture context world roots)
+        validate (fn [world]
+                   (inspect-for-world world admission)
+                   (authority/check context world roots code)
+                   (snapshot/validate-segments (:env projection) (:java-guard-segments projection)))]
+    (kernel/associate-projection-progress context world environment helpers projection validate)))

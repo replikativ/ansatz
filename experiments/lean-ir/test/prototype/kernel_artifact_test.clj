@@ -45,7 +45,7 @@
         (is (.isQuotEnabled base))
         (is (= roots (:roots projection)))
         (is (identical? source (:source projection)))
-        (is (identical? projection (artifact/inspect-for-world world admission)))
+        (is (= projection (artifact/inspect-for-world world admission)))
         (is (= #{} (set (keys (:heap world)))))
         (is (nil? (:kernel-environments world)))
         (is (not (contains? loaded :certificate)))
@@ -103,7 +103,7 @@
           (is (thrown-with-msg? Exception #"Inherited Java ConstantInfo checking shape changed"
                 (artifact/inspect-for-world world admission)))
           (finally (set! (.value ci) original)))
-        (is (identical? projection (artifact/inspect-for-world world admission))))
+        (is (= projection (artifact/inspect-for-world world admission))))
       (let [projection (artifact/inspect-for-world world admission)
             [levels _] (first (filter #(seq (second %))
                                      (:expression-arrays (delta/snapshot-projection projection))))]

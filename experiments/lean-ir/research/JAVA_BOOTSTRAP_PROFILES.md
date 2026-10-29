@@ -170,8 +170,8 @@ aliases. They must not overwrite each other or be deduplicated. Diagnostic
 pre-operation snapshots do not authorize cleanup against a newer World.
 
 These are bounded integration APIs, not a switch of the resident provider to the
-fast profile. Next: positive admission of a supported artifact cohort, explicit
-provenance through resident/kernel publication, then genuine provider acceptance
+fast profile. Next: a supported full artifact cohort and explicit resident
+adoption, then genuine provider acceptance
 and startup/memory measurements. Fresh strict replay remains the audit path.
 
 ## Kernel-data artifact issuer
@@ -200,5 +200,37 @@ The retained 384 MiB REPL gate passes seven tests and 67 assertions. It covers
 fixed-pin rejection, forged-token rejection, source lifetime/shadowing, mutable
 Java state, failure cleanup and checking a new declaration against the admitted
 base. This is kernel-data admission only. A supported full Init profile, matching
-runtime/frontend companion authentication, guest association and propagation
-through the provider remain release gates; the small fixture is not that release.
+runtime/frontend companion authentication and full resident/provider integration
+remain release gates; the small fixture is not that release.
+
+## Artifact-relative associations and extensions
+
+The issuer now provides `associate-admitted-progress` to establish the exact
+guest association from its actual opaque token, with helper authority and Java
+witnesses revalidated across the boundary. The shared correspondence core does
+not claim a checking history; strict-named wrappers reject artifact lineage.
+
+`checked-delta/capture-artifact-base` captures the current positive descendant
+of that token, including previously checked additions. It validates prior Java
+witnesses before taking a new snapshot, then checks the complete actual guest
+enumeration against that descendant. `verify-artifact-extension` checks only
+additions and preserves the original artifact assumptions. Its result has a
+checked `:new-order`, with no fabricated checked order for the base.
+`delta-import/finish-artifact-finalization` consumes the genuine IO result once
+and returns `:checked-result`, rather than a strict certificate.
+
+Live associations and source receipts preserve `:kernel-provenance` and
+`:java-guard-segments`. Callback publication shares prior segments and snapshots
+only newly checked CIs, including generated inductive families; header-only
+inheritance shares the same witnesses. Full audits run at explicit admission
+and recapture/import boundaries, not on each callback/application. Raw Java
+mutation between boundaries remains prohibited by the trusted-host contract.
+
+Post-check publication errors now retain the actual latest World and remaining
+generated/result/root/map owner credits, separately from the entry snapshot.
+Child owner credits preserve repeated aliases. No automatic replay or guessed
+cleanup is authorized by an error packet.
+
+See [the association contract](ARTIFACT_KERNEL_ASSOCIATION.md) for the remaining
+resident/cohort integration and bounded acceptance requirements. Existing
+resident defaults remain strict; the 17-CI artifact is still kernel data only.
