@@ -10,6 +10,7 @@
   (:require [clojure.test :refer [deftest testing is use-fixtures]]
             [ansatz.core :as a]
             [ansatz.kernel.expr :as e]
+            [ansatz.kernel.level :as lvl]
             [ansatz.surface.elaborate :as el]
             [ansatz.kernel.env]
             [ansatz.kernel.name]))
@@ -92,3 +93,14 @@
                                             (ansatz.kernel.name/from-string "genericSubtract"))]
           (is (ansatz.kernel.env/verifies? (a/env) (.type ci) (.value ci)))))
       (finally (reset! a/ansatz-env saved)))))
+
+(deftest numeral-defaulting-waits-for-ordinary-inference
+  (doseq [[carrier form] [["Nat" '(List.replicate 3 2)]
+                          ["Int" '(List.cons 2 (List.nil Int))]]]
+    (let [term (el/elaborate (a/env) form)
+          type (e/app (e/const' (ansatz.kernel.name/from-string "List") [lvl/zero])
+                      (e/const' (ansatz.kernel.name/from-string carrier) []))]
+      (is (some? (ansatz.kernel.env/check-constant
+                  (a/env) (ansatz.kernel.env/mk-def
+                           (ansatz.kernel.name/from-string (str "numeralDefault" carrier))
+                           [] type term)))))))

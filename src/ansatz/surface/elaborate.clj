@@ -1603,6 +1603,16 @@
                 (try (unify! est (infer-with-mvars est sol) goal)
                      (catch Throwable _ nil))
                 (reset! solved-any true)))))
+        (when-not @solved-any
+          ;; Lean.Elab.SyntheticMVars applies default instances only after
+          ;; ordinary synthesis stalls. OfNat's Nat default must not discard a
+          ;; known local carrier, nor commit before later arguments determine it.
+          (doseq [[id _] (reverse pending)]
+            (let [[head args] (e/get-app-fn-args (zonk est (surface-mvar-type est id)))]
+              (when (and (e/const? head) (= "OfNat" (str (e/const-name head)))
+                         (= 2 (count args)) (e/mvar? (first args)))
+                (when (unify! est (first args) (e/const' (name/from-string "Nat") []))
+                  (reset! solved-any true))))))
         (when @solved-any (recur))))))
 
 ;; ============================================================
