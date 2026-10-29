@@ -29,9 +29,10 @@ the heap is still mutable and neither mode is forkable.
   This follows the pinned producer, whose constant ownership differs from the
   older sibling checkout. Constants are not automatically made immortal.
 - Ordinary calls recurse through the Java interpreter. Self-tail calls move
-  arguments through reusable scratch slots and reset the function PC. Arbitrary
-  continuation capture will require an explicit continuation stack in a later
-  experiment. Class loaders isolate REPL engine generations.
+  arguments through reusable scratch slots and reset the function PC. The
+  explicit driver provides instruction boundaries; the
+  [eager fork oracle](../JAVA_EAGER_FORK.md) copies its control and graph.
+  Class loaders isolate REPL engine generations.
 
 The implementation precomputes frame sizes and resolves function/intrinsic
 identities, whereas upstream grows slots on access and caches symbol lookup.
@@ -65,8 +66,10 @@ enforce upstream RC persistent assertion flags, matching the pinned interpreter'
 ordinary inc/dec behavior. It has a call/self-loop budget and interruption polls,
 not the legacy World's exact instruction-fuel/checkpoint ABI.
 
-It is not forkable, thread safe, reentrant through the external entry, or compatible
-with arbitrary World handlers. `invoke` is an internal typed owned-argument entry,
+The eager fork is an explicit O(capacity + reachable graph) research operation;
+cheap branch versions and managed cancellation remain planned. The engine is
+not thread safe, reentrant through the external entry, or compatible with arbitrary
+World handlers. `invoke` is an internal typed owned-argument entry,
 not Lean's general `call_boxed` or the public Ansatz interop API. Callers release
 owned node results with `dec`; closing an engine releases its cache, not outstanding
 caller ownership. Closures pin their code image and reject another image.
@@ -103,8 +106,11 @@ arrays, virtual captured stdout and iterative release. Its nine tests in both
 modes bring the gate to 72 executions / 4,117 assertions. Panic default behavior
 and several stream operations remain explicit unsupported paths; this is not
 general IO or hosted file-loading acceptance.
+The [closed provider](../JAVA_PURE_PROVIDER.md) and fork checks bring the bounded
+runner to 109 executions / 10,908 assertions. A separate
+[genuine source run](../JAVA_GENUINE_SOURCE_RESULTS.md) uses the hosted frontend;
+the small runner does not restore Init or run full Mathlib.
 Runtime/compiler defaults and the optional package source inventory are unchanged.
-No Init image, hosted frontend, project loader or full Mathlib campaign is run.
 
 ## Measured baseline
 

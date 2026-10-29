@@ -15,6 +15,7 @@
 (load-file "research/java-ir-baseline/pure-region-checks.clj")
 (load-file "research/java-ir-baseline/pure-provider.clj")
 (load-file "research/java-ir-baseline/pure-provider-checks.clj")
+(load-file "research/java-ir-baseline/fork-checks.clj")
 (let [artifact (first *command-line-args*)
       _ (assert artifact "Pass compiled engine directory or jar")
       basis (java-ir-baseline/class-basis artifact)
@@ -36,7 +37,8 @@
                (clojure.test/run-tests 'prototype.closed-call-completion-test)
                (clojure.test/run-tests 'prototype.resident-executor-test)
                (java-ir-pure-region-checks/check! basis)
-               (java-ir-pure-provider-checks/check! basis)]]
+               (java-ir-pure-provider-checks/check! basis)
+               (java-ir-fork-checks/check! basis)]]
   (shutdown-agents)
-  (System/exit (if (and (= [9 9 8 6 5 5 6 6 9 9 4 7 9 4] (mapv :test results))
+  (System/exit (if (and (= [9 9 8 6 5 5 6 6 9 9 4 7 9 4 13] (mapv :test results))
                        (every? #(zero? (+ (:fail %) (:error %))) results)) 0 1)))

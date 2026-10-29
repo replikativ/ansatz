@@ -1,6 +1,8 @@
 # Java execution regions and persistent heap plan
 
-Status: source-grounded research/review plan, not a forkable Java implementation.
+Status: source-grounded research/review plan. An
+[eager fork oracle](JAVA_EAGER_FORK.md) is implemented; the stable-identity branch
+store and managed failure cleanup below remain planned.
 References to Klara below are paths within the sibling `klara` repository as
 audited on 2026-10-28; its design is not treated as shipped Ansatz behavior.
 The current direct engine remains the closed-execution performance control.

@@ -29,10 +29,19 @@ specialization, is a target requiring benchmarks, not an established result.
 
 ## Evidence already obtained
 
+- [Genuine Java application calls](JAVA_GENUINE_SOURCE_RESULTS.md) load the
+  original Nat/String file through the hosted frontend and preserve edited/old
+  versions across five Java-tier calls. Fresh Init checking, the seventeen-stage
+  controller and managed disposal pass in the same retained cohort. This is
+  narrow source support, not isolated public-package or general project acceptance.
+- The [eager fork oracle](JAVA_EAGER_FORK.md) preserves alias graphs/control and
+  private stream owners across instruction-boundary captures. The 384 MiB gate
+  has 109 executions / 10,908 assertions. Cheap branch versions, external-owner
+  accounting and general cancellation remain distinct work.
 - The [closed pure provider seam](JAVA_PURE_PROVIDER.md) resolves the current
   checked Env beneath resident admission and prepares a narrow acyclic no-extern
-  Nat/String tier. Boundary and selector models pass; genuine current-head source
-  loading through this tier is still pending. Ordinary calls retain their default.
+  Nat/String tier. Boundary/selector models and the genuine source slice pass.
+  Ordinary calls retain their default.
 - The [Java API review](JAVA_API_STRATEGY.md) recommends genuine consumption of
   the existing provider-first Java Lean facade in this campaign, with a stable
   kernel/store facade scoped separately. Java source use does not require writing
@@ -52,19 +61,19 @@ specialization, is a target requiring benchmarks, not an established result.
 - The [U32/USize slice](JAVA_SCALAR_RUNTIME.md) adds raw word lanes, 64-bit Lean
   boxing/layout, seven captured scalar declarations and 75 native observations
   through direct and guest calls. The 384 MiB isolated jar gate passes 54
-  executions / 3,776 assertions. RBMap main has 11 unsupported extern
-  declarations; string/array/IO execution is pending.
+  executions / 3,776 assertions. At that stage RBMap main had 11 unsupported
+  extern declarations; the later main slice covers bounded string/array/IO paths.
 
 - The [captured extern ABI and Nat expansion](JAVA_EXTERN_RUNTIME.md) adds exact
   signature/borrow validation and three Nat operations against 288 pinned native
   observations. Both drivers pass the isolated jar gate, now 42 executions /
-  2,711 assertions. RBMap main has 18 unsupported extern declarations remaining;
-  scalar/data/IO execution and loader integration are still pending.
+  2,711 assertions. At that stage RBMap main had 18 unsupported extern declarations;
+  later scalar/main slices extend that coverage.
 
 - The [unchanged-source compatibility corpus](LEAN_COMPATIBILITY_CORPUS.md)
   pins initial application targets and separates raw execution from hosted source
   loading. Its bounded, non-executing inventory covers original RBMap `main`:
-  79 reachable declarations, 26 extern declarations, 21 outside the current
+  79 reachable declarations, 26 extern declarations, initially 21 outside the
   Java preparation profile, and two dynamic application sites. Runtime binding
   coverage and source-loader integration remain explicit acceptance work.
 
@@ -73,7 +82,7 @@ specialization, is a target requiring benchmarks, not an established result.
   guest call frames. Both drivers share the same data/RC model. The isolated jar
   gate passes 26 test executions / 1,331 assertions. Final paired CPU overhead
   was about 25% on default JVMCI and 15–28% across two C2 controls, with equal warm
-  allocation. Recursive execution remains the default; heap forking and managed
+  allocation. Recursive execution remains the default; cheap heap forking and managed
   cancellation are still separate work.
 
 - The [Java interpreter baseline](java-ir-baseline/README.md) executes original
@@ -82,8 +91,9 @@ specialization, is a target requiring benchmarks, not an established result.
   default JVMCI compiler, versus 4.51 ms for Lean's IR-preferred interpreter.
   Nine tests / 258 assertions cover intermediate values, guest counters and
   ownership, including all 81 MCMC data declarations. This bounded research
-  engine is not yet forkable or integrated into the hosted loader. Explicit
-  continuations have since landed; branch-local heap ownership remains the next
+  engine initially had neither forking nor hosted-loader integration. Explicit
+  continuations, eager capture and the narrow provider slice have since landed;
+  stable branch-local heap ownership remains the next
   structural experiment, measured independently against this baseline. Runtime
   IO coverage can advance separately through the compatibility corpus.
 
@@ -120,9 +130,10 @@ specialization, is a target requiring benchmarks, not an established result.
   ledger composition and a small proved pure model with finite runtime checks.
   These are experimental adapters, not shipped production interop contracts.
 
-The large frontend/image experiment remains parked while the bounded execution
-path is improved. Recent REPL allocation reductions must not be applied as
-predicted whole-frontend speedups without measuring actual uptake.
+The large frontend/image experiment runs at acceptance milestones after bounded
+REPL validation. The genuine source cohort above reuses one checked provider.
+Application-tier improvements must not be reported as whole-frontend speedups
+without measuring actual uptake.
 
 ## Landing sequence
 
@@ -147,6 +158,10 @@ of its own compiler artifacts remain later hosting gates.
    cache or escaping Java heap node may be shared by context forks. General
    closures/effects/persistent heaps require their ownership/host-boundary
    contracts.
+   For bounded distribution startup, implement the explicit
+   [trusted-artifact profile](JAVA_BOOTSTRAP_PROFILES.md) and checked-delta imports
+   together. Preserve strictFresh as cohort/audit validation. Existing hashes or
+   precreated stores alone do not establish this constructor or its speed.
 4. Admit bidirectional DSL/Lean composition **after loader integration and before
    publishing project examples**: load a Lean function/theorem into a DSL
    definition/proof; publish a checked DSL function/theorem for a subsequent
