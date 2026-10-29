@@ -1,0 +1,58 @@
+=== Official 4.32.1: packaged standalone reproducer, n=24 ===
+Lean (version 4.32.1, x86_64-unknown-linux-gnu, commit f054605aea4b840552cca2e725580bffd1e1b704, Release)
+f054605aea4b840552cca2e725580bffd1e1b704
+checked n=24 elapsed_ms=0 allocations=448
+
+=== Official 4.32.1: standalone small control, n=4 ===
+checked n=4 elapsed_ms=0 allocations=448
+
+=== Official 4.32.1: exact Foundation target (checked prefix) ===
+TARGET checked name=LO.FirstOrder.Arithmetic.Bootstrapping.IsUTerm.BV.construction._proof_4 ms=31 allocations=30389 checked_packages=8730
+	Command being timed: ".internal/issue111-official/run-4.32.1/replay .internal/issue111-reproduction/foundation-selected.ndjson LO.FirstOrder.Arithmetic.Bootstrapping.IsUTerm.BV.construction._proof_4"
+
+=== Official 4.33.1: packaged standalone reproducer, n=24 ===
+Lean (version 4.33.1, x86_64-unknown-linux-gnu, commit 819816b2e0a3bf405af45ae5c7af2491d8f5bee6, Release)
+819816b2e0a3bf405af45ae5c7af2491d8f5bee6
+failed n=24 elapsed_ms=107 allocations=51090
+(kernel) deterministic timeout
+
+=== Official 4.33.1: standalone small control, n=4 ===
+checked n=4 elapsed_ms=0 allocations=688
+
+=== Official 4.33.1: exact Foundation target (checked prefix) ===
+ERROR name=LO.FirstOrder.Arithmetic.Bootstrapping.IsUTerm.BV.construction._proof_4 ms=1982 allocations=20639109 checked_packages=8729
+(kernel) deterministic timeout
+
+=== Official 4.35.0: packaged standalone reproducer, n=24 ===
+Lean (version 4.35.0, x86_64-unknown-linux-gnu, commit eb6cafb7290e8bd5f2937522d8d804f58f02bafc, Release)
+eb6cafb7290e8bd5f2937522d8d804f58f02bafc
+failed n=24 elapsed_ms=117 allocations=51090
+(kernel) deterministic timeout
+
+=== Official 4.35.0: standalone small control, n=4 ===
+checked n=4 elapsed_ms=0 allocations=688
+
+=== Official 4.35.0: exact Foundation target (checked prefix) ===
+ERROR name=LO.FirstOrder.Arithmetic.Bootstrapping.IsUTerm.BV.construction._proof_4 ms=1763 allocations=20639109 checked_packages=8729
+(kernel) deterministic timeout
+
+=== Official 4.37.0-nightly-2026-10-27: packaged standalone reproducer, n=24 ===
+Lean (version 4.37.0-nightly-2026-10-27, x86_64-unknown-linux-gnu, commit 67bc4fe8130f9b5e1a073c73ed5cda09de6c63fe, Release)
+67bc4fe8130f9b5e1a073c73ed5cda09de6c63fe
+failed n=24 elapsed_ms=116 allocations=51076
+(kernel) deterministic timeout
+
+=== Official 4.37.0-nightly-2026-10-27: standalone small control, n=4 ===
+checked n=4 elapsed_ms=0 allocations=706
+
+=== Official 4.37.0-nightly-2026-10-27: exact Foundation target (checked prefix) ===
+ERROR name=LO.FirstOrder.Arithmetic.Bootstrapping.IsUTerm.BV.construction._proof_4 ms=1214 allocations=16957218 checked_packages=8729
+(kernel) deterministic timeout
+
+=== Exact Foundation target repeated ===
+4.32.1 trial=1 exit=0 TARGET checked name=LO.FirstOrder.Arithmetic.Bootstrapping.IsUTerm.BV.construction._proof_4 ms=26 allocations=30389 checked_packages=8730
+4.32.1 trial=2 exit=0 TARGET checked name=LO.FirstOrder.Arithmetic.Bootstrapping.IsUTerm.BV.construction._proof_4 ms=31 allocations=30389 checked_packages=8730
+4.32.1 trial=3 exit=0 TARGET checked name=LO.FirstOrder.Arithmetic.Bootstrapping.IsUTerm.BV.construction._proof_4 ms=28 allocations=30389 checked_packages=8730
+4.33.1 trial=1 exit=2 ERROR name=LO.FirstOrder.Arithmetic.Bootstrapping.IsUTerm.BV.construction._proof_4 ms=1902 allocations=20639109 checked_packages=8729
+4.33.1 trial=2 exit=2 ERROR name=LO.FirstOrder.Arithmetic.Bootstrapping.IsUTerm.BV.construction._proof_4 ms=1888 allocations=20639109 checked_packages=8729
+4.33.1 trial=3 exit=2 ERROR name=LO.FirstOrder.Arithmetic.Bootstrapping.IsUTerm.BV.construction._proof_4 ms=1948 allocations=20639109 checked_packages=8729

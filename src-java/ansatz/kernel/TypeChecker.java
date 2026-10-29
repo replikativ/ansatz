@@ -39,6 +39,8 @@ public final class TypeChecker {
     private int isDefEqDepth;
     private final byte definitionSafety;
     private final HashSet<Object> allowedLevelParams;
+    private final boolean projectionProbeEnabled;
+    private final int projectionProbeBudget;
     public boolean tracing;
 
     // isDefEq diagnostic counters
@@ -462,14 +464,21 @@ public final class TypeChecker {
     }
 
     public TypeChecker(Env env, byte definitionSafety, Object[] allowedLevelParams) {
+        this(env, definitionSafety, allowedLevelParams, false);
+    }
+
+    private TypeChecker(Env env, byte definitionSafety, Object[] allowedLevelParams, boolean compactCaches) {
         this.env = env;
+        this.projectionProbeEnabled = Boolean.getBoolean("ansatz.kernel.experiment.congruence");
+        this.projectionProbeBudget = Math.max(0, Math.min(4096,
+            Integer.getInteger("ansatz.kernel.experiment.congruenceBudget", 4096)));
         this.definitionSafety = ConstantInfo.validateDefinitionSafety(definitionSafety);
         this.allowedLevelParams = mkAllowedLevelParamSet(allowedLevelParams);
-        this.reducer = new Reducer(env);
-        this.inferCache = new ExprMap<>(1024);
-        this.inferOnlyCache = new ExprMap<>(1024);
-        this.success = new ExprPairSet(256);
-        this.failure = new ExprPairSet(256);
+        this.reducer = new Reducer(env, compactCaches);
+        this.inferCache = new ExprMap<>(compactCaches ? 16 : 1024);
+        this.inferOnlyCache = new ExprMap<>(compactCaches ? 16 : 1024);
+        this.success = new ExprPairSet(compactCaches ? 16 : 256);
+        this.failure = new ExprPairSet(compactCaches ? 16 : 256);
         this.nextId = 0;
         this.lctx = new HashMap<>();
         this.reducer.setLctx(this.lctx);
@@ -526,6 +535,9 @@ public final class TypeChecker {
     public HashMap<String, Long> getReducerStats() {
         HashMap<String, Long> stats = this.reducer.getStats();
         stats.put("isDefEq-calls", isDefEqCalls);
+        stats.put("congruence-probes", congruenceProbes);
+        stats.put("congruence-probe-hits", congruenceProbeHits);
+        stats.put("congruence-probe-aborts", congruenceProbeAborts);
         stats.put("isDefEq-quick-hits", isDefEqQuickHits);
         // Per-step resolution counters at depth >= STEP_DIAG_DEPTH
         if (stepDiagTotal > 0) {
@@ -1119,10 +1131,13 @@ public final class TypeChecker {
     // cache probes and structural comparisons never reaches the reducer's fuel counter, so
     // the interruption a timeout delivers must be observed here too.
     private long systemCheckCount;
+    private boolean congruenceProbeMode;
+    private long congruenceProbes, congruenceProbeHits, congruenceProbeAborts;
     private void checkSystem() {
         if ((++systemCheckCount & 0xFFF) == 0 && Thread.interrupted()) {
             throw new KernelAbort("Type checking interrupted (timeout)");
         }
+        reducer.checkCongruenceProbe();
     }
 
     private boolean isDefEqCore(Expr t, Expr s) {
@@ -1292,6 +1307,17 @@ public final class TypeChecker {
                 if (doStepDiag) stepDiagQuick++;
                 return r;
             }
+        }
+
+        if (congruenceProbeMode) {
+            if (tryCongruence(t, s)) {
+                if (doEmit) emitTrace(lFp, rFp, true, "probe_congruence");
+                return true;
+            }
+        } else if (projectionProbeEnabled
+                && projectionCongruenceCandidate(t, s) && isolatedCongruenceProbe(t, s)) {
+            if (doEmit) emitTrace(lFp, rFp, true, "projection_congruence");
+            return true;
         }
 
         // Step 1b: Bool.true optimization for `decide` tactic (Lean 4 lines 1064-1072)
@@ -2043,6 +2069,75 @@ public final class TypeChecker {
             return args[fieldIdx];
         }
         return null;
+    }
+
+    private boolean isolatedCongruenceProbe(Expr t, Expr s) {
+        if (Thread.currentThread().isInterrupted())
+            throw new KernelAbort("Type checking interrupted (timeout)");
+        long remaining = reducer.remainingFuel();
+        if (remaining == 0) return false;
+        TypeChecker probe = new TypeChecker(env, definitionSafety,
+            allowedLevelParams == null ? null : allowedLevelParams.toArray(), true);
+        probe.lctx = new HashMap<>(lctx);
+        probe.reducer.setLctx(probe.lctx);
+        probe.nextId = nextId;
+        probe.eagerReduce = eagerReduce;
+        reducer.copyReductionModeTo(probe.reducer);
+        probe.setFuel(remaining < 0 ? 0 : remaining);
+        probe.congruenceProbeMode = true;
+        probe.reducer.startCongruenceProbe(projectionProbeBudget);
+        congruenceProbes++;
+        boolean completed = false;
+        try {
+            boolean result = probe.isDefEq(t, s);
+            completed = true;
+            if (result) congruenceProbeHits++;
+            return result;
+        } catch (KernelAbort abort) {
+            if (abort != Reducer.CONGRUENCE_PROBE_EXHAUSTED) throw abort;
+            congruenceProbeAborts++;
+            completed = true;
+            return false;
+        } finally {
+            reducer.accountProbeFuel(probe.getFuelUsed());
+            if (completed) reducer.checkProbeResources();
+        }
+    }
+
+    private Expr boundedAppHead(Expr e) {
+        for (int i = 0; e.tag == Expr.APP; i++, e = (Expr) e.o0)
+            if (i >= 64) return null;
+        return e;
+    }
+
+    private boolean sameProjection(Expr a, Expr b) {
+        return a.tag == Expr.PROJ && b.tag == Expr.PROJ
+            && a.longVal == b.longVal && a.o0.equals(b.o0);
+    }
+
+    private boolean projectionCongruenceCandidate(Expr t, Expr s) {
+        if (sameProjection(t, s)) return true;
+        if (t.tag != Expr.APP || s.tag != Expr.APP) return false;
+        Expr th = boundedAppHead(t), sh = boundedAppHead(s);
+        if (th == null || sh == null) return false;
+        if (sameProjection(th, sh)) return true;
+        if (th.tag != Expr.CONST || !LeanExprKey.exprEquals(th, sh)) return false;
+        ConstantInfo ci = env.lookup((Name) th.o0);
+        if (ci == null || !ci.isDef()) return false;
+        Expr body = ci.value;
+        if (body == null) return false;
+        int binders = 0;
+        while (body.tag == Expr.LAM) {
+            if (++binders > 64) return false;
+            body = (Expr) body.o2;
+        }
+        Expr head = boundedAppHead(body);
+        return head != null && head.tag == Expr.PROJ;
+    }
+
+    private boolean tryCongruence(Expr t, Expr s) {
+        if (sameProjection(t, s)) return isDefEq((Expr) t.o1, (Expr) s.o1);
+        return t.tag == Expr.APP && s.tag == Expr.APP && isDefEqApp(t, s);
     }
 
     /**
