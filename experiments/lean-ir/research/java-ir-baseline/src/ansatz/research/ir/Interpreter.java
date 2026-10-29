@@ -117,6 +117,9 @@ public final class Interpreter implements AutoCloseable {
         Node(int tag, int size, int scalarBytes) {
             this.tag=tag; fields=new Object[size]; scalars=new byte[scalarBytes];
         }
+        private Node(int tag,Object[] fields,int scalarBytes) {
+            this.tag=tag; this.fields=fields; scalars=new byte[scalarBytes];
+        }
     }
     static final class Function {
         final String label;
@@ -162,6 +165,7 @@ public final class Interpreter implements AutoCloseable {
     private final Object[] constants;
     private final boolean[] constantReady;
     private boolean closed;
+    private boolean untrackedFailure;
     private final Object runtimeIdentity=new Object();
     private Node stdoutRoot;
     private final StringBuilder output=new StringBuilder();
@@ -196,6 +200,115 @@ public final class Interpreter implements AutoCloseable {
         if(explicit) continuations=new Continuation[32];
         constants=new Object[program.functions.length];
         constantReady=new boolean[constants.length];
+    }
+
+    /** Eager research fork, O(allocated stack capacity + reachable graph), not
+     * a cheap branch store or an ownership ledger. Engine remains thread-confined.
+     * Caller must exclusively own it and account for ALL external owner credits
+     * and aliases in the copied graph, including objects reached through stale
+     * registers. Completeness cannot be inferred from those registers: omitted
+     * external credits remain in the copied RC count and are the caller's unmet
+     * precondition, not managed ownership. The roots vector remaps identities;
+     * duplicate entries never create credits. Returned roots are child objects;
+     * old references still denote the parent. Object[] bundles are supported;
+     * primitive-array aliases are not roots (supply their owning Node instead).
+     * RC counts are copied, never incremented. Stale stack aliases are copied
+     * too; their presence does not acquire ownership. No host resources exist
+     * in this profile and failed-execution cleanup remains unsupported. */
+    public static final class Fork {
+        public final Interpreter engine;
+        public final Object[] roots;
+        private Fork(Interpreter engine,Object[] roots) { this.engine=engine; this.roots=roots; }
+    }
+    public Fork eagerFork() { return eagerFork(new Object[0]); }
+    public Fork eagerFork(Object[] externalRoots) {
+        if(closed||advancing||phase==FAILED||untrackedFailure||(!explicit&&sp!=0))
+            throw new IllegalStateException("Fork requires an open idle or paused instruction boundary");
+        if(externalRoots==null) throw error("Explicit fork roots required");
+        // phase RUNNING between advance calls is the explicit driver's paused
+        // instruction boundary. No Java call frame is captured in that state.
+        Interpreter child=new Interpreter(program,explicit);
+        ForkCopy copy=new ForkCopy(child);
+        copy.bind(constants,child.constants);
+        child.objects=(Object[])copy.value(objects);
+        child.numbers=numbers.clone(); child.joins=joins.clone();
+        System.arraycopy(constantReady,0,child.constantReady,0,constantReady.length);
+        child.bp=bp; child.sp=sp; child.jbp=jbp; child.jsp=jsp;
+        child.result=copy.value(result); child.scalarResult=scalarResult;
+        child.stdoutRoot=(Node)copy.value(stdoutRoot);
+        child.output.append(output);
+        String key=utf8Key==null?null:utf8Key.get();
+        child.utf8Key=key==null?null:new WeakReference<>(key);
+        child.utf8Bytes=utf8Bytes==null?null:utf8Bytes.clone();
+        child.releaseWork=(Object[])copy.value(releaseWork);
+        child.callsLeft=callsLeft; child.phase=phase; child.continuationDepth=continuationDepth;
+        child.untrackedFailure=untrackedFailure;
+        child.instructions=instructions; child.pendingOwnedResult=pendingOwnedResult;
+        child.active=(Function)copy.value(active); child.entry=(Function)copy.value(entry); child.pc=pc;
+        if(continuations!=null) {
+            child.continuations=new Continuation[continuations.length];
+            copy.bind(continuations,child.continuations);
+        }
+        child.applicationTarget=(Function)copy.value(applicationTarget);
+        child.applicationArgs=(Object[])copy.value(applicationArgs);
+        child.applicationSurplus=(Object[])copy.value(applicationSurplus);
+        child.allocations=allocations; child.stores=stores; child.retains=retains;
+        child.releases=releases; child.shellDeletes=shellDeletes;
+        Object[] roots=(Object[])copy.value(externalRoots);
+        copy.finish();
+        return new Fork(child,roots);
+    }
+    /** One identity map covers mutable arrays, nodes, continuations and private
+     * stream function descriptors. Graph traversal is iterative, including cycles. */
+    private final class ForkCopy {
+        final Interpreter child;
+        final IdentityHashMap<Object,Object> copies=new IdentityHashMap<>();
+        final ArrayDeque<Object[]> pending=new ArrayDeque<>();
+        ForkCopy(Interpreter child) { this.child=child; }
+        void bind(Object[] source,Object[] target) {
+            copies.put(source,target); pending.addLast(new Object[]{source,target});
+        }
+        Object value(Object source) {
+            if(source==null||source instanceof Long||source instanceof BigInteger||source instanceof String) return source;
+            Object prior=copies.get(source); if(prior!=null) return prior;
+            if(source instanceof Node) {
+                Node old=(Node)source;
+                Object[] fields=(Object[])copies.get(old.fields);
+                boolean fresh=fields==null;
+                if(fresh) fields=new Object[old.fields.length];
+                Node out=new Node(old.tag,fields,old.scalars.length);
+                copies.put(source,out); out.rc=old.rc; out.dead=old.dead; out.array=old.array; out.image=old.image;
+                out.closure=(Function)value(old.closure);
+                System.arraycopy(old.scalars,0,out.scalars,0,old.scalars.length);
+                if(fresh) bind(old.fields,out.fields); return out;
+            }
+            if(source instanceof Object[]) {
+                Object[] out=new Object[((Object[])source).length]; bind((Object[])source,out); return out;
+            }
+            if(source instanceof Function) {
+                Function old=(Function)source;
+                if(old.privateOwner!=runtimeIdentity) return old;
+                Function out=new Function(old.label); copies.put(source,out);
+                out.id=old.id; out.width=old.width; out.joinWidth=old.joinWidth;
+                out.resultType=old.resultType; out.intrinsic=old.intrinsic;
+                out.params=old.params; out.paramTypes=old.paramTypes; out.body=old.body;
+                out.privateOwner=child.runtimeIdentity; return out;
+            }
+            if(source instanceof Continuation) {
+                Continuation old=(Continuation)source,out=new Continuation(); copies.put(source,out);
+                out.caller=(Function)value(old.caller); out.next=old.next;
+                out.bp=old.bp; out.sp=old.sp; out.jbp=old.jbp; out.jsp=old.jsp;
+                out.dest=old.dest; out.kind=old.kind; out.surplus=(Object[])value(old.surplus);
+                return out;
+            }
+            throw error("Fork root outside immutable/Node runtime profile: "+source.getClass().getName());
+        }
+        void finish() {
+            while(!pending.isEmpty()) {
+                Object[] task=pending.removeFirst(),source=(Object[])task[0],target=(Object[])task[1];
+                for(int i=0;i<source.length;i++) target[i]=value(source[i]);
+            }
+        }
     }
     private static IllegalArgumentException error(String message) { return new IllegalArgumentException(message); }
     private static int number(Object x) {
@@ -807,7 +920,9 @@ public final class Interpreter implements AutoCloseable {
             }
         }
         if(f.intrinsic!=0) {
-            intrinsicExternal(f,args); callsLeft=10_000_000; instructions=0;
+            try { intrinsicExternal(f,args); }
+            catch(Throwable failure) { untrackedFailure=true; throw failure; }
+            callsLeft=10_000_000; instructions=0;
             entry=f; phase=COMPLETE; pendingOwnedResult=true; return;
         }
         if(f.params.length==0&&constantReady[f.id]) {
@@ -992,9 +1107,11 @@ public final class Interpreter implements AutoCloseable {
         Function f=program.functions[function];
         rootEntry(f);
         if(args.length!=f.params.length) throw error("Arity mismatch: "+f.label);
-        if(f.params.length==0) { load(f); if(f.resultType==OBJ) inc(result,1); }
-        else enter(f,args);
-        return f.resultType==OBJ?result:externalScalar(scalarResult,f.resultType);
+        try {
+            if(f.params.length==0) { load(f); if(f.resultType==OBJ) inc(result,1); }
+            else enter(f,args);
+            return f.resultType==OBJ?result:externalScalar(scalarResult,f.resultType);
+        } catch(Throwable failure) { untrackedFailure=true; throw failure; }
     }
     public long rbmap(int make,int fold,int callback,int n) {
         Object cb=invoke(callback,new Object[0]);

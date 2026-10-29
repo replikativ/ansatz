@@ -1,8 +1,8 @@
 # Closed Java calls beneath resident admission
 
-Status: opt-in research integration, tested with selector and resident boundary
-models. Current-head genuine hosted source loading through this tier has **not**
-been established. No public default or optional-module dependency changes.
+Status: opt-in research integration. Selector/resident boundary models and a
+[genuine current-cohort source run](JAVA_GENUINE_SOURCE_RESULTS.md) pass.
+No public default or optional-module dependency changes.
 
 `resident/call` still uses the ordinary World runtime. The trusted internal
 `resident/call-with-executor` seam selects an executor under the Context lock,
@@ -69,9 +69,9 @@ passes 96 test executions / 4,304 assertions in 384 MiB, including the prior
 runtime checks and 24 new boundary/selector/ownership model tests. Development
 used the retained REPL; one fresh JVM checked final class/namespace isolation.
 
-The next acceptance uses one retained freshly checked provider: load the original
-`GraphChainA.lean` Nat/String definitions, demonstrate Java selection/completion,
-then edited and retained versions. Extend to arithmetic before claiming useful
+The retained freshly checked provider accepted the original `GraphChainA.lean`
+Nat/String definitions, Java selection/completion, edited and retained versions.
+Extend to arithmetic before claiming useful
 project acceleration. The historical full provider needs about 3.7 GiB process
 RSS; allocate a bounded provider JVM only when host headroom can support it.
 Keep all ordinary development in the small REPL. Do not infer a smaller current
