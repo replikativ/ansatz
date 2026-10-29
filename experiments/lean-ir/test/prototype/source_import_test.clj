@@ -192,6 +192,7 @@
         manifest (-> manifest (assoc-in [:input :modules] [mod])
                      (assoc-in [:input :requestedImports] source/init-requests)
                      (assoc-in [:input :transitiveClosure] true))
+        _ (io/make-parents (io/file "target" "hybrid-init-fixture"))
         path (java.io.File/createTempFile "hybrid-init-fixture-" ".jsonl" (io/file "target"))]
     (try
       (spit path (str (json/write-str manifest) "\n" (str/join "\n" (rest lines)) "\n"))
