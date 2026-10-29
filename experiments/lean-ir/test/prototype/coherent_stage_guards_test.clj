@@ -32,6 +32,14 @@
   (doseq [bad [(assoc facts :projected 65993) (assoc facts :constants 65995)
                (update facts :axioms disj "propext") (update facts :axioms conj "injectedAxiom")]]
     (is (thrown? clojure.lang.ExceptionInfo (g/init-facts! bad)))))
+
+(deftest artifact-init-observations-keep-the-admission-basis-explicit
+  (let [admitted (assoc facts :base-basis :trusted-artifact :artifact-admission? true)]
+    (is (identical? admitted (g/admitted-init-facts! admitted)))
+    (doseq [bad [(dissoc admitted :base-basis) (assoc admitted :base-basis :strict-fresh)
+                 (assoc admitted :artifact-admission? false) (assoc admitted :constants 17)
+                 (assoc admitted :single-open-source? false)]]
+      (is (thrown? clojure.lang.ExceptionInfo (g/admitted-init-facts! bad))))))
 (deftest live-source-and-checked-association-origin-cannot-be-substituted
   (doseq [bad [(assoc facts :same-projection-source? false) (assoc facts :single-open-source? false)
                (assoc facts :same-association-env? false) (assoc facts :association-count 2)

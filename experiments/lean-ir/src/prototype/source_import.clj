@@ -8,6 +8,8 @@
             [prototype.import-capabilities :as native-caps] [prototype.runtime-string :as string]
             [prototype.native-scalar :as native] [prototype.module-init-capabilities :as module-init]
             [prototype.module-store :as store]
+            [prototype.kernel-artifact :as artifact]
+            [prototype.helper-authority :as authority]
             [prototype.checked-delta :as delta] [prototype.delta-import :as delta-import])
   (:import [ansatz.kernel Env]
            [java.util WeakHashMap] [java.lang.ref WeakReference]))
@@ -273,6 +275,48 @@
                      (assoc nodes (:id ref) (dissoc node :rc)))))))
       nodes)))
 
+(defn- prepare-init-prefix*
+  [loaded invoke checked projection basis options]
+   (let [world (:world loaded) source (:source loaded)
+         _ (when-not (and (= 1 (count (:native-imports world)))
+                          (identical? source (first (:native-imports world))))
+             (fail "Hybrid Init prefix requires one exact attached native source" {}))
+         actual (store/describe-attached world source)
+         _ (when-not (and (= (:modules loaded) (:modules actual)) (= (:manifest loaded) (:manifest actual)))
+             (fail "Native prefix descriptors differ from the attached verified source" {}))
+         _ (native-init-closure! actual)
+         _ (when-not (and (= :ok (:status checked)) (instance? Env (:env projection))
+                          (= 1 (count (:projection-sources projection)))
+                          (identical? source (first (:projection-sources projection))))
+             (fail "Native Init prefix requires its complete immutable kernel projection" {}))
+         [world root] (invoke world (:root module-import/helpers) [(:environment checked)])
+         anchored (get-in world [:kernel-environments (:id root)])
+         _ (when-not (and (= root (:anchor anchored)) (identical? (:env projection) (:env anchored))
+                          (if (= :trusted-artifact basis)
+                            (and (= (:kernel-provenance projection) (:kernel-provenance anchored))
+                                 (identical? (:java-guard-segments projection) (:java-guard-segments anchored))
+                                 (m/ref? (:constant-map anchored))
+                                 (= (.isQuotEnabled ^Env (:env projection)) (:quot-init? anchored)))
+                            (not= :trusted-artifact (get-in anchored [:kernel-provenance :base-basis]))))
+             (fail "Native Init projection has no protected association in this world" {:checkpoint world
+                                                                                         :temporary-owners [root]}))
+         world (m/release world root 1)
+         assembled (module-import/assemble (assoc actual :world world) invoke
+                                           (assoc options :module-system? false))
+         world (m/release (:world assembled) (:imports assembled) 1)
+         state (:state assembled)
+         prefix (cond-> {:state state :local-nodes (local-prefix-nodes world state)
+                         :source source :checked-anchor root :checked-env (:env projection)
+                         :constants (:constants projection) :modules (:modules assembled)
+                         :producer-imports (:requested assembled)}
+                  (= :trusted-artifact basis)
+                  (assoc :basis basis :kernel-provenance (:kernel-provenance anchored)
+                         :java-guard-segments (:java-guard-segments anchored)
+                         :checked-constant-map (:constant-map anchored) :checked-quot-init? (:quot-init? anchored)))
+         _ (when (get-in world [:source-import-prefixes (:id state)])
+             (fail "Native prefix state is already registered" {:checkpoint world}))]
+     {:world (assoc-in world [:source-import-prefixes (:id state)] prefix) :prefix prefix}))
+
 (defn prepare-init-prefix
   "Reassemble a pinned native Init ImportState from an existing verified Store,
    retaining one registry owner. No source reopening, decoding of the full DAG,
@@ -283,39 +327,50 @@
    Returns an opaque, borrowed :prefix receipt plus the updated :world."
   ([loaded invoke checked] (prepare-init-prefix loaded invoke checked {}))
   ([loaded invoke checked options]
-   (let [world (:world loaded) source (:source loaded)
-         _ (when-not (and (= 1 (count (:native-imports world)))
-                          (identical? source (first (:native-imports world))))
-             (fail "Hybrid Init prefix requires one exact attached native source" {}))
-         ;; Re-derive descriptors from THIS world's exact attached source. Caller
-         ;; maps/Refs alone cannot authenticate a replacement native closure.
-         actual (store/describe-attached world source)
-         _ (when-not (and (= (:modules loaded) (:modules actual)) (= (:manifest loaded) (:manifest actual)))
-             (fail "Native prefix descriptors differ from the attached verified source" {}))
-         _ (native-init-closure! actual)
-         certificate (:certificate checked)
+   (let [certificate (:certificate checked)
          _ (when (= :trusted-artifact (get-in certificate [:kernel-provenance :base-basis]))
-             (fail "Strict Init prefix cannot use an artifact-admitted base" {}))
-         _ (when-not (and (= :ok (:status checked)) (instance? Env (:env certificate))
-                          (= 1 (count (:projection-sources certificate)))
-                          (identical? source (first (:projection-sources certificate))))
-             (fail "Native Init prefix requires its complete immutable checked certificate" {}))
-         [world root] (invoke world (:root module-import/helpers) [(:environment checked)])
-         anchored (get-in world [:kernel-environments (:id root)])
-         _ (when-not (and (= root (:anchor anchored)) (identical? (:env certificate) (:env anchored)))
-             (fail "Native Init certificate has no protected association in this world" {:checkpoint world}))
-         world (m/release world root 1)
-         assembled (module-import/assemble (assoc actual :world world) invoke
-                                           (assoc options :module-system? false))
-         world (m/release (:world assembled) (:imports assembled) 1)
-         state (:state assembled)
-         prefix {:state state :local-nodes (local-prefix-nodes world state)
-                 :source source :checked-anchor root :checked-env (:env certificate)
-                 :constants (:constants certificate) :modules (:modules assembled)
-                 :producer-imports (:requested assembled)}
-         _ (when (get-in world [:source-import-prefixes (:id state)])
-             (fail "Native prefix state is already registered" {:checkpoint world}))]
-     {:world (assoc-in world [:source-import-prefixes (:id state)] prefix) :prefix prefix})))
+             (fail "Strict Init prefix cannot use an artifact-admitted base" {}))]
+     (prepare-init-prefix* loaded invoke checked certificate :strict-fresh options))))
+
+(defn prepare-admitted-init-prefix
+  "Prepare only the native Init scaffold over the actual issued artifact result.
+   CONTEXT supplies independent helper authority and its current invoker. The same
+   native closure/Store checks as strict preparation remain mandatory. No strict
+   certificate is manufactured; source import/reconstruction is unsupported for
+   this lifecycle-only prefix. Store and Environment remain borrowed."
+  ([context loaded admitted] (prepare-admitted-init-prefix context loaded admitted {}))
+  ([context loaded admitted options]
+   (let [world (:world loaded) token (:admission admitted)
+         projection (artifact/inspect-for-world world token)
+         targets (merge module-import/helpers (:helpers options))
+         roots (into (mapv module-import/helpers [:root :constants :constant-map :quot-init?])
+                     (if (= :bulk (get options :assembly :sequential))
+                       [(or (get-in options [:helpers :batch]) module-import/bulk-helper)]
+                       (mapv targets [:part :request :module :state])))
+         code (authority/capture context world roots)
+         _ (when-not (and (= :ok (:status admitted)) (= projection (:checked-result admitted))
+                          (= (:kernel-provenance projection) (:kernel-provenance admitted)))
+             (fail "Native Init prefix requires the actual issued artifact admission result" {}))
+         prepared (prepare-init-prefix* loaded (:invoke context) admitted projection :trusted-artifact options)]
+     (try
+       (artifact/inspect-for-world (:world prepared) token)
+       (authority/check context (:world prepared) roots code)
+       (let [prefix (:prefix prepared)
+             association (get-in prepared [:world :kernel-environments (:id (:checked-anchor prefix))])]
+         (when-not (and (= (:checked-anchor prefix) (:anchor association))
+                        (identical? (:checked-env prefix) (:env association))
+                        (= (:kernel-provenance prefix) (:kernel-provenance association))
+                        (= (:checked-constant-map prefix) (:constant-map association))
+                        (= (:checked-quot-init? prefix) (:quot-init? association))
+                        (identical? (:java-guard-segments prefix) (:java-guard-segments association)))
+           (fail "Admitted Init prefix association changed during preparation" {})))
+       prepared
+       (catch Throwable cause
+         (throw (ex-info "Admitted Init prefix validation failed"
+                         (merge {:checkpoint (:world prepared) :prepared-init-prefix prepared
+                                 :prefix-owner {:checkpoint (:world prepared) :prefix (:prefix prepared)
+                                                :state (get-in prepared [:prefix :state])}}
+                                (ex-data cause)) cause)))))))
 
 (def ^:private delta-prefixes (WeakHashMap.))
 
@@ -360,6 +415,11 @@
     (when-not (and (identical? prefix registered)
                    (= (:checked-anchor prefix) (:anchor anchored))
                    (identical? (:checked-env prefix) (:env anchored))
+                   (or (not= :trusted-artifact (:basis prefix))
+                       (and (= (:kernel-provenance prefix) (:kernel-provenance anchored))
+                            (= (:checked-constant-map prefix) (:constant-map anchored))
+                            (= (:checked-quot-init? prefix) (:quot-init? anchored))
+                            (identical? (:java-guard-segments prefix) (:java-guard-segments anchored))))
                    (= 1 (count (:native-imports world)))
                    (identical? source (first (:native-imports world)))
                    (false? @(:closed source)))
@@ -409,7 +469,9 @@
    pinned guest helper. REQUESTS must be B's actual parsed [Init,meta Init,A] header.
    Prefix owner is retained, so independent compatible branches may reuse it."
   [world invoke prefix module module-name requests]
-  (let [prefix (prefix! world prefix) entry (entry! world module)
+  (let [_ (when (= :trusted-artifact (:basis prefix))
+            (fail "Artifact Init prefix source imports are not implemented" {}))
+        prefix (prefix! world prefix) entry (entry! world module)
         expected (conj init-requests {:module module :importAll false :isExported true :isMeta false})
         _ (when-not (and (= :over-init (:profile entry)) (= expected requests)
                          (= init-requests (get-in entry [:metadata :imports]))
@@ -565,6 +627,8 @@
 
 (defn- hybrid-finalization-input! [assembly world]
   (let [{:keys [requested-imports module prefix]} assembly
+        _ (when (= :trusted-artifact (:basis prefix))
+            (fail "Artifact Init prefix source imports are not implemented" {}))
         prefix (prefix! world prefix)
         original (entry! (:world assembly) module) current (entry! world module)
         _ (when-not (and (= :ok (:status assembly)) (= :over-init (:profile (entry! world module)))

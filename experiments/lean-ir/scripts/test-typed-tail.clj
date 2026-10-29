@@ -14,6 +14,6 @@
       expected (set (for [n namespaces [_ v] (ns-publics n) :when (:test (meta v))] v))
       result (apply t/run-tests namespaces)]
   (shutdown-agents)
-  (System/exit (if (and (= 91 (count expected) (:test result)))
+  (System/exit (if (and (= 94 (count expected) (:test result)))
                 (if (and (= expected @seen) (zero? (+ (:fail result) (:error result)))) 0 1)
                 1)))

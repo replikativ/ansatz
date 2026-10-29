@@ -16,6 +16,28 @@ spec.loader.exec_module(m)
 
 
 class PackMetadataTests(unittest.TestCase):
+    def test_artifact_base_selection_is_explicit_and_does_not_change_strict_controllers(self):
+        source = 'prototype/coherent_source_preparation.clj'
+        old = m.controllers(True)[source]
+        selected = m.controllers(True, artifact=True)[source]
+        self.assertIn('prototype.coherent-source-preparation/check-restored!', old)
+        self.assertIn('prototype.coherent-source-preparation/admit-restored!', selected)
+        self.assertIn('prototype.coherent-source-preparation/prepare-admitted!', selected)
+        self.assertNotIn('prototype.coherent-source-preparation/check-restored!', selected)
+        self.assertEqual(old, m.controllers(True)[source])
+        selected.clear()
+        self.assertTrue(m.controllers(True, artifact=True)[source])
+        self.assertIsNone(m.kernel_base_admission({}, True))
+        mode = {'basis': 'trusted-artifact', 'profile': m.ARTIFACT_BASE_PROFILE}
+        self.assertEqual(mode, m.kernel_base_admission({'kernel-base-admission': mode}, True))
+        for bad in [None, {}, True, {**mode, 'verified': True}, {**mode, 'profile': 'caller-profile'}]:
+            with self.assertRaises(m.Reject):
+                m.kernel_base_admission({'kernel-base-admission': bad}, True)
+        with self.assertRaises(m.Reject):
+            m.kernel_base_admission({'kernel-base-admission': mode}, False)
+        with self.assertRaises(m.Reject):
+            m.controllers(False, artifact=True)
+
     def test_old_and_new_controller_lists_do_not_relabel_project_stages(self):
         self.assertIn('project', m.STAGES)
         self.assertNotIn('project', m.JVM_STAGES)

@@ -51,13 +51,31 @@ CONTROLLERS = {
 }
 
 
-def controllers(jvm=False):
-    result = dict(CONTROLLERS)
+ARTIFACT_BASE_PROFILE = "full-init-lean-4.33.1-producer50f"
+
+
+def controllers(jvm=False, artifact=False):
+    result = {path: list(entries) for path, entries in CONTROLLERS.items()}
     if jvm:
         result.pop("prototype/coherent_campaign.clj")
         result.pop("prototype/coherent_execution.clj")
         result["prototype/coherent_jvm_slice.clj"] = ["prototype.coherent-jvm-slice/construct!", "prototype.coherent-jvm-slice/run!"]
+    if artifact:
+        check(jvm, "artifact base requires the finite JVM provider profile")
+        path = "prototype/coherent_source_preparation.clj"
+        replacements = {"prototype.coherent-source-preparation/check-restored!": "prototype.coherent-source-preparation/admit-restored!",
+                        "prototype.coherent-source-preparation/prepare!": "prototype.coherent-source-preparation/prepare-admitted!"}
+        result[path] = [replacements.get(entry, entry) for entry in result[path]]
     return result
+
+
+def kernel_base_admission(spec, jvm):
+    if "kernel-base-admission" not in spec:
+        return None
+    check(jvm, "artifact base requires the finite JVM provider profile")
+    expected = {"basis": "trusted-artifact", "profile": ARTIFACT_BASE_PROFILE}
+    check(spec["kernel-base-admission"] == expected, "unsupported kernel base admission profile")
+    return expected
 
 
 class Reject(ValueError):
@@ -340,7 +358,9 @@ def main():
     jvm = spec["schema"] == "coherent-pack-inputs/2"
     check(jvm or spec["schema"] == "coherent-pack-inputs/1", "pack input schema")
     check(set(spec) == {"schema", "producer-payload", "producer-store", "helpers", "fixtures", "bootstrap", "provenance", "final-source-approved", "build-evidence", "old-import-provenance"}
-          | ({"application-policy", "dependency-lock"} if jvm else set()), "input specification keys")
+          | ({"application-policy", "dependency-lock"} if jvm else set())
+          | ({"kernel-base-admission"} if "kernel-base-admission" in spec else set()), "input specification keys")
+    admission = kernel_base_admission(spec, jvm)
     basis = None
     application = None
     if jvm:
@@ -370,7 +390,7 @@ def main():
         target = pack.root / dest
         target.parent.mkdir(parents=True, exist_ok=True)
         os.link(source, target) if source.stat().st_dev == pack.root.stat().st_dev else shutil.copyfile(source, target)
-    for resource in controllers(jvm):
+    for resource in controllers(jvm, artifact=admission is not None):
         check(any(r["id"] == resource and r["kind"] == "host-source" for r in inv), "required controller absent")
     dependencies = []
     dependency_names = ([Path(r["path"]).name for r in basis["dependencies"]] if jvm else
@@ -524,9 +544,12 @@ def main():
         contract[key("schema")] = "ansatz-coherent-jvm-application-contract/1"
         contract[key("profile")] = "ansatz-producer50f-coherent-jvm-application-consumer/1"
         composition = contract[key("composition")]
-        composition[key("controllers")] = kws([{"id": k, "entrypoints": v} for k, v in controllers(True).items()])
+        composition[key("controllers")] = kws([{"id": k, "entrypoints": v} for k, v in controllers(True, artifact=admission is not None).items()])
         composition[key("stages")] = [Keyword(x) for x in JVM_STAGES]
         composition[key("application")] = application
+    if admission is not None:
+        contract[key("kernel-base-admission")] = {key("basis"): Keyword(admission["basis"]),
+                                                  key("profile"): Keyword(admission["profile"])}
     for row in contract[key("inventory")]:
         row[key("kind")] = Keyword(row[key("kind")])
     contract_path = pack.root / "contract.edn"

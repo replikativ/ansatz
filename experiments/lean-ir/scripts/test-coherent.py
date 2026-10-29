@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""Fixture-free component checks; no Init/bootstrap restore or full image.
+"""Bounded component checks; no full Init/bootstrap restore or full image.
 
-Build all 24 Java sources into one fresh class directory. Run 73 host/sizing
-models and six namespace definitions, plus 15 explicit small runtime tests and
-25 bounded branching tests in the same component JVM. The latter use checked-in
-Lean IR/model observations, not a native Lean process or large Init image.
+Build all 24 Java sources into one fresh class directory. Run 75 infrastructure
+models, 31 artifact/provider model tests, 15 explicit small runtime tests and
+25 bounded branching tests in the same component JVM. The fixture scope uses
+small 17-CI Stores, synthetic Init transports and captured frontend/helper IR;
+Factory/full-cohort facts are models, not a native Lean process or full Init.
 Run the Python metadata tests, then a separate JVM
 whose copied source tree physically excludes coherent namespaces/AOT outputs.
 This is component CI, not a closed runtime/bootstrap attestation.
@@ -48,8 +49,16 @@ def main():
         if len(list(classes.rglob('*.class'))) != 48:
             raise ValueError('expected complete fresh 48-class cohort')
         normal = os.pathsep.join(map(str, [classes, repo / 'src', repo / 'resources', experiment / 'src', experiment / 'test'] + jars))
-        subprocess.run([args.java, '-Xmx384m', '-Xss8m', '-Dansatz.coherent.test.class-root=' + str(classes),
-                        '-cp', normal, 'clojure.main', 'scripts/test-coherent.clj'], cwd=experiment, check=True)
+        component = subprocess.run(
+            [args.java, '-Xmx384m', '-Xss8m', '-Dansatz.coherent.test.class-root=' + str(classes),
+             '-cp', normal, 'clojure.main', 'scripts/test-coherent.clj'],
+            cwd=experiment, stdout=subprocess.PIPE, text=True)
+        print(component.stdout, end='', flush=True)
+        component.check_returncode()
+        markers = {'COHERENT_INFRASTRUCTURE_75_PASS', 'ARTIFACT_ADMISSION_PROVIDER_MODELS_31_PASS',
+                   'HOST_STORAGE_RUNTIME_15_PASS', 'KLARA_LEAN_BRANCH_25_PASS'}
+        if not markers.issubset(set(component.stdout.splitlines())):
+            raise ValueError('missing bounded component scope success marker')
         subprocess.run([sys.executable, 'scripts/coherent/test-materialize-pack.py'], cwd=experiment, check=True)
         # One physical source root, excluding ALL coherent controller/profile
         # namespaces. No normal repository source/AOT directory is in this JVM.

@@ -114,7 +114,7 @@
                      "Only the approved mutable-to-JVM application transition/cache is supported")
          session (raw/open-functions (get-in before [:world :functions]) (get-in before [:session :bindings])
                                      (assoc execution :cache cache))]
-     (resident/adopt-prepared (assoc before :session session) independent))))
+     (resident/adopt-like context (assoc before :session session) independent))))
 
 (defn- measurement [f]
   (let [bean ^com.sun.management.ThreadMXBean (java.lang.management.ManagementFactory/getThreadMXBean)
@@ -160,6 +160,10 @@
 (defn- restore-and-prepare! []
   (println (json/write-str {:stage :fresh-init :operation :restore :status :running})) (flush)
   (let [{:keys [bootstrap factory options]} @state
+        artifact? (= :trusted-artifact
+                     (get-in @state [:approved-contract :contract :kernel-base-admission :basis]))
+        basis (if artifact? :trusted-artifact :strict-fresh)
+        admission-operation (if artifact? :artifact-admission :strict-admission)
         [restored restore-time]
         (measurement
           #(owned-call! :restore
@@ -175,27 +179,30 @@
         _ (require! (= 1 (get-in restored [:session :compile-threshold])) "Archive session threshold differs from frontend role")
         restored (assoc restored :session (raw/open-functions (get-in restored [:world :functions])
                                                              (:trusted-bindings restored) (:execution bootstrap)))
-        _ (swap! state assoc :restored restored :phase :checking)
-        _ (do (println (json/write-str {:stage :fresh-init :operation :strict-init :status :running})) (flush))
-        [checked check-time]
+        _ (swap! state assoc :restored restored :phase (if artifact? :admitting :checking))
+        _ (do (println (json/write-str {:stage :fresh-init :operation admission-operation :status :running})) (flush))
+        [base admission-time]
         (measurement
           #(let [branch (boundary! :bootstrap-support
                           (fn []
                             (println (json/write-str {:operation :bootstrap-support :status :running})) (flush)
                             (let [branch (source/prepare-bootstrap-support factory restored (:resolve-input bootstrap))]
                               (swap! state assoc :bootstrap-support branch) branch)))
-                 checked (boundary! :strict-admission
+                 base (boundary! admission-operation
                            (fn []
-                             (println (json/write-str {:operation :strict-admission :status :running})) (flush)
-                             (let [checked (source/check-restored! {:factory factory :restored (:candidate branch) :support (:support branch)})]
-                               (swap! state assoc :checked checked) checked)))]
-             checked))]
-    (phase! :fresh-init {:measurement :separate-segments :segments [{:phase :restore :metrics restore-time}
-                                                                  {:phase :strict-init :metrics check-time}]})
+                             (println (json/write-str {:operation admission-operation :status :running})) (flush)
+                             (let [base ((if artifact? source/admit-restored! source/check-restored!)
+                                         {:factory factory :restored (:candidate branch) :support (:support branch)})]
+                               (swap! state assoc :init-result base :kernel-base-basis basis) base)))]
+             base))]
+    (phase! :fresh-init {:measurement :separate-segments :kernel-base-basis basis
+                        :segments [{:phase :restore :metrics restore-time}
+                                   {:phase admission-operation :metrics admission-time}]})
     (println (json/write-str {:stage :graph-helpers :operation :source-preparation :status :running})) (flush)
-    (let [[summary measured] (measurement #(source/prepare! {:factory factory :checked checked
-                                                           :support (get-in @state [:bootstrap-support :support])
-                                                           :resolve-artifact (:resolve-input bootstrap)}))
+    (let [[summary measured] (measurement #((if artifact? source/prepare-admitted! source/prepare!)
+                                           {:factory factory (if artifact? :admitted :checked) base
+                                            :support (get-in @state [:bootstrap-support :support])
+                                            :resolve-artifact (:resolve-input bootstrap)}))
           escrow (source/checkpoint)
           _ (swap! state assoc :preparation escrow)
           disposition (guards/preparation-phase! summary escrow source/pure-value-target)
@@ -215,7 +222,8 @@
            (swap! state assoc :prepared (:prepared escrow) :phase :prepared))))))
 
 (defn- prepare-prefix! []
-  (let [{:keys [prepared checked restored application]} @state
+  (let [{:keys [prepared init-result restored application kernel-base-basis]} @state
+        artifact? (= :trusted-artifact kernel-base-basis)
         original (configuration prepared) callback (:callback application)
         symbol (:symbol callback)
         _ (source/validate-prefix-native-bindings! (get-in prepared [:original-support :session :bindings])
@@ -223,9 +231,11 @@
         _ (require! (and (empty? (:application-extern-symbols original)) (not (contains? (:trusted-bindings original) symbol)))
                     "Callback must be a new explicitly authorized symbol")
         allow (assoc original :application-extern-symbols #{symbol})
-        _ (owners/claim-execution! ownership (:resource-lease restored) checked prepared)
+        _ (owners/claim-execution! ownership (:resource-lease restored) init-result prepared)
         _ (swap! ownership assoc :native-source (get-in prepared [:support :source]))
-        base (owners/adopt! ownership #(preparation/open-checked prepared allow))
+        base (owners/adopt! ownership #(if artifact?
+                                        (preparation/open-admitted prepared allow (:admission init-result))
+                                        (preparation/open-checked prepared allow)))
         _ (own-context! base nil)
         binding (extern/binding
                   (assoc (select-keys callback [:signature :arguments :result])
@@ -237,10 +247,11 @@
         _ (swap! state assoc :callback-binding binding)
         configured (owned-call! :authorize-callback #(resident/with-externs base {symbol binding}) #(own-context! % nil))
         independent (update allow :trusted-bindings assoc symbol binding)
-        authorized (owned-call! :adopt-authorized #(resident/adopt-prepared (resident/snapshot configured) independent) #(own-context! % nil))
+        authorized (owned-call! :adopt-authorized #(resident/adopt-like configured (resident/snapshot configured) independent) #(own-context! % nil))
         result (owned-call! :prepare-init-prefix
-                 #(prefix/prepare-init-prefix authorized checked
-                    {:configuration independent :native-bindings (assoc (:prefix-native-bindings prepared) symbol binding)})
+                 #((if artifact? prefix/prepare-admitted-init-prefix prefix/prepare-init-prefix)
+                   authorized init-result
+                   {:configuration independent :native-bindings (assoc (:prefix-native-bindings prepared) symbol binding)})
                  (fn [result]
                    (swap! state assoc :prefix-result result :independent independent)
                    (own-context! (:context result) (:prefix result))))]

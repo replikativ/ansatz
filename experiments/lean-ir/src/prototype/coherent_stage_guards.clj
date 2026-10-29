@@ -25,13 +25,26 @@
                "Unsupported missing helper values") :helper-value-required)
     (throw (ex-info "Source preparation did not complete" {:phase (:phase escrow)}))))
 
+(defn- init-facts-valid?
+  [facts]
+  (and (= :ok (:status facts)) (= 65994 (:constants facts) (:projected facts))
+       (= expected-axioms (:axioms facts)) (= 1 (:association-count facts) (:projection-source-count facts))
+       (every? true? (map facts [:owned-environment? :java-env? :same-association-env?
+                                :single-open-source? :same-projection-source? :matching-functions? :inactive-init?]))))
+
 (defn init-facts!
   [facts]
-  (check! (and (= :ok (:status facts)) (= 65994 (:constants facts) (:projected facts))
-               (= expected-axioms (:axioms facts)) (= 1 (:association-count facts) (:projection-source-count facts))
-               (every? true? (map facts [:owned-environment? :java-env? :same-association-env?
-                                        :single-open-source? :same-projection-source? :matching-functions? :inactive-init?])))
+  (check! (init-facts-valid? facts)
           "Fresh strict Init did not meet the exact checked/live-source acceptance gate")
+  facts)
+
+(defn admitted-init-facts!
+  "Validate observations of an actual issued admission, not admission authority."
+  [facts]
+  (check! (and (init-facts-valid? facts)
+               (= :trusted-artifact (:base-basis facts))
+               (true? (:artifact-admission? facts)))
+          "Artifact Init did not meet the exact admitted/live-source acceptance gate")
   facts)
 
 (defn helper-value-facts! [facts]

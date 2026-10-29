@@ -1,9 +1,11 @@
 (ns prototype.kernel-artifact
   "Explicit provider-pinned kernel DATA admission, without kernel replay.
-   This issuer admits one small reviewed fixture as a trusted assumption. It is
-   not an Init release profile, strict verifier, runtime companion authentication,
-   or frontend/provider implementation. Explicit association retains artifact provenance."
+   The file loader admits one small reviewed fixture as a trusted assumption.
+   A trusted-host publication hook also serves the separate fixed full Init
+   constructor; this supplies no frontend/provider acceptance or runtime companion
+   authentication. Explicit association retains artifact provenance."
   (:require [prototype.module-store :as store]
+            [prototype.machine :as m]
             [prototype.imported-kernel :as kernel]
             [prototype.kernel-projection-snapshot :as snapshot]
             [prototype.helper-authority :as authority])
@@ -11,8 +13,13 @@
            [java.util WeakHashMap]))
 
 (def native17-profile :native17ci-lean-4.33.1)
+(def full-init-profile :full-init-lean-4.33.1-producer50f)
 (def ^:private profiles
-  {native17-profile
+  {full-init-profile
+   {:sha256 "d3563f566d0eb70b76b4b7d148d7e28ee6f8464ad856288d762ffbb22bdff8d9"
+    :lean-version "4.33.1" :lean-commit "819816b2e0a3bf405af45ae5c7af2491d8f5bee6"
+    :count 65994 :quot-enabled? true}
+   native17-profile
    {:sha256 "e6d3e40d1d1c00a3a4cbe98eb8642d6be5321b16ed18c8fbcdbc69028606c2f3"
     :lean-version "4.33.1" :lean-commit "819816b2e0a3bf405af45ae5c7af2491d8f5bee6"
     :names #{"A" "aliasA" "hiddenA" "identityProof" "unsafeA"
@@ -25,6 +32,43 @@
 (def ^:private issued (WeakHashMap.))
 (defn- require! [condition message data]
   (when-not condition (throw (ex-info message data))))
+
+(defn ^:no-doc issue-admitted-projection
+  "TRUSTED HOST publisher for an actual provider constructor's complete eager
+   projection. This does not authenticate caller maps or establish restore origin.
+   The constructor must first authenticate its fixed producer/profile and actual
+   selected guest map. Fixed source/count/Lean pins reject accidental cohort mixups.
+   Returns the opaque registry token; it acquires or closes no guest/source owner."
+  [world projection]
+  (let [profile (get profiles (:profile projection)) source (:source projection)
+        attached (store/describe-attached world source)
+        expected-count (or (:count profile) (count (:names profile)))
+        constants (:constants projection) projected (:projected projection)]
+    (require! (and profile (= :trusted-artifact (:basis projection))
+                   (not-any? #(contains? projection %) [:certificate :order :kernel-provenance :admission])
+                   (= (:sha256 profile) (:digest source))
+                   (= (:lean-version profile) (get-in attached [:manifest :input :leanVersion]))
+                   (= (:lean-commit profile) (get-in attached [:manifest :input :leanCommit]))
+                   (= (:roots attached) (:roots projection))
+                   (= [source] (:projection-sources projection))
+                   (= expected-count (count constants) (count projected))
+                   (every? #(and (m/ref? %)
+                                 (<= (:base source) (:id %) (dec (+ (:base source) (:size source)))))
+                           (vals constants))
+                   (= (:quot-enabled? profile) (.isQuotEnabled ^Env (:env projection)))
+                   (= :trusted-artifact (get-in projection [:base-assumptions :basis]))
+                   (= (set (keys projected)) (get-in projection [:base-assumptions :declarations])))
+              "Trusted artifact publisher received a different fixed cohort" {})
+    (when (:names profile)
+      (require! (= (:names profile) (set (map str (keys projected))))
+                "Trusted artifact publisher declaration inventory differs" {}))
+    (let [guard (snapshot/snapshot-projection projection)
+          segment (select-keys guard [:projected :shapes :expression-arrays])
+          projection (assoc projection :java-guard-segments [segment])
+          admission (Admission.)]
+      ;; The registry value must never retain its own weak key.
+      (locking issued (.put issued admission {:projection projection :guard guard}))
+      admission)))
 
 (defn- project [loaded profile-id profile]
   (let [world (:world loaded) source (:source loaded)
@@ -74,7 +118,8 @@
    closed on failure; pre-existing caller Stores remain caller-owned."
   [world supported-id path]
   (let [profile (get profiles supported-id)
-        _ (require! profile "Unsupported provider-owned kernel artifact profile" {:profile supported-id})
+        _ (require! (and profile (= native17-profile supported-id))
+                    "Unsupported provider-owned kernel artifact profile" {:profile supported-id})
         loaded (store/load-file world path {:sha256 (:sha256 profile) :max-nodes 516
                                            :max-bytes 1048576 :cache-size 64 :max-row-bytes 65536})
         source (:source loaded)]
