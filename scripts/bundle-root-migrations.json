@@ -528,6 +528,10 @@
     "beq_self_eq_true",
     "eq_comm",
     "String.decEq",
-    "instDecidableEqString"
+    "instDecidableEqString",
+    "Lean.Grind.CommRing.eq_normS",
+    "Lean.Grind.CommRing.Expr.eq_of_toPoly_eq",
+    "Lean.Grind.instCommSemiringNat",
+    "Lean.Grind.instCommRingInt"
   ]
 }

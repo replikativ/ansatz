@@ -1,399 +1,198 @@
-;; Tactic layer — ring: polynomial identity decision procedure.
-;;
-;; Implements polynomial normalization for CommRing/CommSemiring:
-;; 1. Reify: Ansatz ring expression → sparse polynomial
-;; 2. Normalize: expand, collect, sort by grevlex
-;; 3. Check: lhs - rhs = 0 polynomial
-;; 4. Certify: verify via `decide` tactic or `rfl`
-;;
-;; Follows Lean 4's ring tactic semantics (grind ring subsystem).
-
 (ns ansatz.tactic.ring
-  "Polynomial identity decision procedure (ring tactic).
-
-   Supports:
-   - CommRing and CommSemiring goals
-   - Polynomial identities: (a+b)^2 = a^2 + 2ab + b^2
-   - Ground arithmetic on Nat, Int
-   - Distributivity, commutativity, associativity
-   - Power expansion (small exponents)
-
-   Algorithm:
-   1. Reify both sides of an Eq goal into polynomials
-   2. Normalize to canonical form (sorted monomials, collected coefficients)
-   3. Check if lhs - rhs = 0 polynomial
-   4. Certify via decide or rfl"
+  "Checked polynomial reflection following Lean's Grind/Arith/CommRing.
+   Reification uses Lean.Grind.CommRing.Expr, a shared atom context, and the
+   upstream eq_normS / Expr.eq_of_toPoly_eq certificates. The kernel computes
+   polynomial equality and checks its connection to the original goal."
   (:require [ansatz.kernel.expr :as e]
             [ansatz.kernel.env :as env]
+            [ansatz.config :as config]
             [ansatz.kernel.name :as name]
             [ansatz.kernel.level :as lvl]
             [ansatz.kernel.tc :as tc]
-            [ansatz.kernel.reduce :as red]
-            [ansatz.tactic.proof :as proof]
-            [ansatz.tactic.decide :as decide-tac]))
+            [ansatz.tactic.instance :as inst]
+            [ansatz.tactic.proof :as proof])
+  (:import [ansatz.kernel TypeChecker]))
 
-;; ============================================================
-;; Sparse polynomial representation
-;; ============================================================
+(defn- c [n & [us]] (e/const' (name/from-string n) (or us [])))
+(defn- app [n us & args] (apply e/app* (c n us) args))
+(defn- error! [message data]
+  (throw (ex-info (str "ring: " message) (assoc data :kind :tactic-error))))
+(defn- syntax [constructor & args]
+  (apply e/app* (c (str "Lean.Grind.CommRing.Expr." constructor)) args))
+(defn- whnf [st expr] (#'tc/cached-whnf st expr))
+(defn- defeq? [st a b] (tc/is-def-eq st a b))
 
-;; A monomial: sorted vector of [var-idx exponent] pairs
-;; e.g., x^2*y = [[0 2] [1 1]]
-;; The unit monomial is []
-
-;; A polynomial: sorted vector of [coefficient monomial] pairs
-;; e.g., 3x^2 + 2xy - 1 = [[-1 []] [2 [[0 1] [1 1]]] [3 [[0 2]]]]
-;; Sorted by grevlex on monomials, zero coefficients removed
-
-(defn- mon-unit [] [])
-
-(defn- mon-var
-  "Monomial for a single variable."
-  [var-idx]
-  [[var-idx 1]])
-
-(defn- mon-mul
-  "Multiply two monomials."
-  [a b]
-  (let [merged (reduce (fn [m [var exp]]
-                         (update m var (fnil + 0) exp))
-                       (into {} a) b)]
-    (vec (sort-by first (filter (fn [[_ e]] (pos? e)) merged)))))
-
-(defn- mon-degree
-  "Total degree of a monomial."
-  [m]
-  (reduce + 0 (map second m)))
-
-(defn- mon-compare
-  "Graded reverse lexicographic comparison.
-   Returns negative if a < b, 0 if equal, positive if a > b."
-  [a b]
-  (let [da (mon-degree a)
-        db (mon-degree b)]
-    (if (not= da db)
-      (compare da db)
-      ;; Same degree — reverse lex (compare from last variable)
-      (let [a-map (into {} a)
-            b-map (into {} b)
-            all-vars (sort (into #{} (concat (map first a) (map first b))))]
-        (loop [vars (reverse all-vars)]
-          (if (empty? vars)
-            0
-            (let [v (first vars)
-                  ea (get a-map v 0)
-                  eb (get b-map v 0)]
-              (if (not= ea eb)
-                ;; Reverse lex: HIGHER exponent on LAST var = SMALLER
-                (compare eb ea)
-                (recur (rest vars))))))))))
-
-;; Polynomial operations
-
-(defn- poly-const
-  "Polynomial for a constant."
-  [c]
-  (if (zero? c) [] [[c (mon-unit)]]))
-
-(defn- poly-var
-  "Polynomial for a single variable."
-  [var-idx]
-  [[1 (mon-var var-idx)]])
-
-(defn- poly-normalize
-  "Normalize a polynomial: sort monomials, collect like terms, remove zeros."
-  [p]
-  (let [;; Group by monomial
-        grouped (reduce (fn [m [coeff mon]]
-                          (update m mon (fnil + 0) coeff))
-                        {} p)
-        ;; Remove zero coefficients and sort
-        terms (sort-by second mon-compare
-                       (filter (fn [[_ c]] (not (zero? c)))
-                               (map (fn [[mon coeff]] [coeff mon]) grouped)))]
-    (vec terms)))
-
-(defn- poly-add
-  "Add two polynomials."
-  [a b]
-  (poly-normalize (into (vec a) b)))
-
-(defn- poly-sub
-  "Subtract b from a."
-  [a b]
-  (poly-add a (mapv (fn [[c m]] [(- c) m]) b)))
-
-(defn- poly-scale
-  "Multiply polynomial by a scalar."
-  [p k]
-  (if (zero? k) []
-      (poly-normalize (mapv (fn [[c m]] [(* c k) m]) p))))
-
-(defn- poly-mul
-  "Multiply two polynomials."
-  [a b]
-  (poly-normalize
-   (for [[ca ma] a
-         [cb mb] b]
-     [(* ca cb) (mon-mul ma mb)])))
-
-(defn- poly-pow
-  "Raise a polynomial to a non-negative integer power."
-  [p n]
+(defn- dec-level? [level]
+  ;; Lean.Meta.DecLevel.decAux? without metavariable assignment: a carrier may
+  ;; have Sort (max (u+1) (v+1)), not just a syntactic successor universe.
   (cond
-    (zero? n) (poly-const 1)
-    (= 1 n) p
-    :else (let [half (poly-pow p (quot n 2))
-                sq (poly-mul half half)]
-            (if (even? n) sq (poly-mul sq p)))))
+    (lvl/succ? level) (lvl/succ-pred level)
+    (or (lvl/max? level) (lvl/imax? level))
+    (let [imax? (lvl/imax? level)
+          a (dec-level? (if imax? (lvl/imax-lhs level) (lvl/max-lhs level)))
+          b (dec-level? (if imax? (lvl/imax-rhs level) (lvl/max-rhs level)))]
+      (when (and a b) (lvl/level-max a b)))
+    :else nil))
 
-(defn- poly-is-zero?
-  "Check if a polynomial is the zero polynomial."
-  [p]
-  (every? (fn [[c _]] (zero? c)) p))
+(defn- find-instance [st type u class-name]
+  (let [target (app class-name [u] type)]
+    (or (some (fn [[id decl]]
+                (when (defeq? st (:type decl) target) (e/fvar id))) (:lctx st))
+        (inst/synthesize* st (:env st) (inst/index-for (:env st)) target 0))))
 
-;; ============================================================
-;; Reification: Ansatz expressions → polynomials
-;; ============================================================
+(defn- ring-context [st type]
+  (let [sort (whnf st (tc/infer-type st type))
+        level (when (e/sort? sort) (lvl/simplify (e/sort-level sort)))
+        u (when level (dec-level? level))
+        _ (when-not u
+            (error! "expected a ring or semiring carrier in Type" {:type type}))
+        type-name (when (e/const? type) (str (e/const-name type)))
+        ring (if (= type-name "Int") (c "Lean.Grind.instCommRingInt")
+                 (when-not (= type-name "Nat")
+                   (find-instance st type u "Lean.Grind.CommRing")))
+        comm-semi (when-not ring
+                    (if (= type-name "Nat") (c "Lean.Grind.instCommSemiringNat")
+                        (find-instance st type u "Lean.Grind.CommSemiring")))
+        _ (when-not (or ring comm-semi)
+            (error! "no Lean.Grind.CommRing or CommSemiring instance" {:type type}))
+        ring-inst (when ring (app "Lean.Grind.CommRing.toRing" [u] type ring))
+        semiring (if ring
+                   (app "Lean.Grind.Ring.toSemiring" [u] type ring-inst)
+                   (app "Lean.Grind.CommSemiring.toSemiring" [u] type comm-semi))
+        binary (fn [class-name op-name field]
+                 (let [op-inst (app field [u] type semiring)
+                       hop-inst (app class-name [u] type op-inst)]
+                   (app op-name [u u u] type type type hop-inst)))
+        add (binary "instHAdd" "HAdd.hAdd" "Lean.Grind.Semiring.toAdd")
+        mul (binary "instHMul" "HMul.hMul" "Lean.Grind.Semiring.toMul")
+        pow (app "HPow.hPow" [u lvl/zero u] type (c "Nat") type
+                 (app "Lean.Grind.Semiring.npow" [u] type semiring))]
+    {:type type :u u :instance (or ring comm-semi) :ring? (some? ring)
+     :nat? (= type-name "Nat") :int? (= type-name "Int")
+     :semiring semiring :add add :mul mul :pow pow
+     :sub (when ring
+            (app "HSub.hSub" [u u u] type type type
+                 (app "instHSub" [u] type (app "Lean.Grind.Ring.toSub" [u] type ring-inst))))
+     :neg (when ring
+            (app "Neg.neg" [u] type (app "Lean.Grind.Ring.toNeg" [u] type ring-inst)))}))
 
-(defn- tactic-error! [msg data]
-  (throw (ex-info (str "ring: " msg) (merge {:kind :tactic-error} data))))
+(defn- reify-pair [st ctx lhs rhs]
+  (let [atoms (atom [])
+        memo (java.util.IdentityHashMap.)
+        atom! (fn [expr]
+                (let [xs @atoms
+                      i (or (first (keep-indexed #(when (defeq? st %2 expr) %1) xs))
+                            (count xs))]
+                  (when (= i (count xs)) (swap! atoms conj expr))
+                  (syntax "var" (e/lit-nat i))))
+        numeral (fn [n]
+                  (if (:ring? ctx)
+                    (syntax "num" (app "Int.ofNat" [] (e/lit-nat n)))
+                    (syntax "natCast" (e/lit-nat n))))
+        ofnat (fn [n]
+                (app "OfNat.ofNat" [(:u ctx)] (:type ctx) (e/lit-nat n)
+                     (app "Lean.Grind.Semiring.ofNat" [(:u ctx)]
+                          (:type ctx) (:semiring ctx) (e/lit-nat n))))]
+    (letfn [(go [expr]
+                (or (.get memo expr)
+                    (let [[head args] (e/get-app-fn-args expr)
+                          n (count args)
+                          head-name (when (e/const? head) (str (e/const-name head)))
+                          prefix (when (<= 2 n) (apply e/app* head (take (- n 2) args)))
+                          unary (when (pos? n) (apply e/app* head (butlast args)))
+                          literal (cond
+                                    (and (:nat? ctx) (e/lit-nat? expr)) (e/lit-nat-val expr)
+                                    (and (= head-name "OfNat.ofNat") (= n 3))
+                                    (let [k (whnf st (nth args 1))]
+                                      (when (and (e/lit-nat? k)
+                                                 (defeq? st expr (ofnat (e/lit-nat-val k))))
+                                        (e/lit-nat-val k)))
+                                    (and (:int? ctx) (= head-name "Int.ofNat") (= n 1))
+                                    (let [k (whnf st (first args))]
+                                      (when (e/lit-nat? k) (e/lit-nat-val k)))
+                                    (and (:nat? ctx) (= head-name "Nat.zero")) 0)
+                          result
+                          (cond
+                            (e/let? expr)
+                            (go (e/instantiate1 (e/let-body expr) (e/let-value expr)))
+                            (= :mdata (e/tag expr)) (go (e/mdata-expr expr))
+                            (some? literal) (numeral literal)
+                            (and (:nat? ctx) (= head-name "Nat.succ") (= n 1))
+                            (syntax "add" (go (first args)) (numeral 1))
+                            (and (:int? ctx) (= head-name "Int.negSucc") (= n 1)
+                                 (e/lit-nat? (whnf st (first args))))
+                            (syntax "num" (app "Int.negSucc" [] (whnf st (first args))))
+                            (and prefix (defeq? st prefix (:add ctx)))
+                            (syntax "add" (go (nth args (- n 2))) (go (peek args)))
+                            (and prefix (defeq? st prefix (:mul ctx)))
+                            (syntax "mul" (go (nth args (- n 2))) (go (peek args)))
+                            (and prefix (:sub ctx) (defeq? st prefix (:sub ctx)))
+                            (syntax "sub" (go (nth args (- n 2))) (go (peek args)))
+                            (and unary (:neg ctx) (defeq? st unary (:neg ctx)))
+                            (syntax "neg" (go (peek args)))
+                            (and prefix (defeq? st prefix (:pow ctx)))
+                            (let [k (whnf st (peek args))]
+                              (if (e/lit-nat? k)
+                                (syntax "pow" (go (nth args (- n 2))) k)
+                                (atom! expr)))
+                            :else (atom! expr))]
+                      (.put memo expr result)
+                      result)))]
+      (let [a (go lhs) b (go rhs)]
+        {:lhs a :rhs b :atoms @atoms}))))
 
-;; Atom table (same pattern as omega)
-(defn- mk-atom-table []
-  {:expr->idx {} :idx->expr {} :next-idx 0})
+(defn- context-expr [{:keys [type u semiring]} atoms]
+  ;; Lean.Data.RArray.ofFn uses absolute midpoint pivots and balanced branches.
+  (let [atoms (if (seq atoms) atoms
+                  [(app "OfNat.ofNat" [u] type (e/lit-nat 0)
+                        (app "Lean.Grind.Semiring.ofNat" [u] type semiring (e/lit-nat 0)))])]
+    (letfn [(build [lo hi]
+              (if (= (inc lo) hi)
+                (app "Lean.RArray.leaf" [u] type (nth atoms lo))
+                (let [mid (quot (+ lo hi) 2)]
+                  (app "Lean.RArray.branch" [u] type (e/lit-nat mid)
+                       (build lo mid) (build mid hi)))))]
+      (build 0 (count atoms)))))
 
-(defn- intern-atom [table st expr]
-  (let [expr-whnf (#'tc/cached-whnf st expr)]
-    (if-let [idx (get (:expr->idx table) expr-whnf)]
-      [table idx]
-      (let [match (some (fn [[e idx]]
-                          (when (tc/is-def-eq st e expr-whnf) idx))
-                        (:expr->idx table))]
-        (if match
-          [table match]
-          (let [idx (:next-idx table)
-                table' (-> table
-                           (assoc-in [:expr->idx expr-whnf] idx)
-                           (assoc-in [:idx->expr idx] expr-whnf)
-                           (update :next-idx inc))]
-            [table' idx]))))))
-
-(defn- try-match-head [st expr]
-  (let [[head args] (e/get-app-fn-args expr)]
-    (if (e/const? head)
-      [(e/const-name head) (e/const-levels head) (vec args)]
-      (let [w (#'tc/cached-whnf st expr)
-            [whead wargs] (e/get-app-fn-args w)]
-        (when (e/const? whead)
-          [(e/const-name whead) (e/const-levels whead) (vec wargs)])))))
-
-(def ^:private hadd-name (name/from-string "HAdd.hAdd"))
-(def ^:private hsub-name (name/from-string "HSub.hSub"))
-(def ^:private hmul-name (name/from-string "HMul.hMul"))
-(def ^:private hpow-name (name/from-string "HPow.hPow"))
-(def ^:private hneg-name (name/from-string "Neg.neg"))
-(def ^:private nat-add-name (name/from-string "Nat.add"))
-(def ^:private nat-sub-name (name/from-string "Nat.sub"))
-(def ^:private nat-mul-name (name/from-string "Nat.mul"))
-(def ^:private nat-succ-name (name/from-string "Nat.succ"))
-(def ^:private nat-zero-name (name/from-string "Nat.zero"))
-(def ^:private ofnat-name (name/from-string "OfNat.ofNat"))
-(def ^:private nat-pow-name (name/from-string "Nat.pow"))
-
-(declare reify-ring-term)
-
-(defn- reify-ring-term
-  "Reify a Ansatz term into a polynomial.
-   Returns [atom-table polynomial]."
-  [st table expr]
-  (let [expr-whnf (#'tc/cached-whnf st expr)]
-    (cond
-      ;; Nat literal
-      (e/lit-nat? expr-whnf)
-      [table (poly-const (e/lit-nat-val expr-whnf))]
-
-      ;; Nat.zero
-      (and (e/const? expr-whnf)
-           (= (e/const-name expr-whnf) nat-zero-name))
-      [table (poly-const 0)]
-
-      ;; Application
-      (e/app? expr-whnf)
-      (let [matched (try-match-head st expr-whnf)]
-        (if-not matched
-          (let [[table' idx] (intern-atom table st expr-whnf)]
-            [table' (poly-var idx)])
-          (let [[head-name _ args] matched]
-            (cond
-              ;; Nat.sub a b → for ground cases evaluate, else atom
-              (and (= head-name nat-sub-name) (= 2 (count args)))
-              (let [a-whnf (#'tc/cached-whnf st (nth args 0))
-                    b-whnf (#'tc/cached-whnf st (nth args 1))]
-                (if (and (e/lit-nat? a-whnf) (e/lit-nat? b-whnf))
-                  [table (poly-const (max 0 (- (e/lit-nat-val a-whnf) (e/lit-nat-val b-whnf))))]
-                  (let [[table' idx] (intern-atom table st expr-whnf)]
-                    [table' (poly-var idx)])))
-
-              ;; Nat.succ n → n + 1
-              (and (= head-name nat-succ-name) (= 1 (count args)))
-              (let [[table' p] (reify-ring-term st table (nth args 0))]
-                [table' (poly-add p (poly-const 1))])
-
-              ;; HAdd.hAdd _ _ _ _ a b → a + b
-              (and (= head-name hadd-name) (= 6 (count args)))
-              (let [[table' pa] (reify-ring-term st table (nth args 4))
-                    [table'' pb] (reify-ring-term st table' (nth args 5))]
-                [table'' (poly-add pa pb)])
-
-              ;; Nat.add a b → a + b
-              (and (= head-name nat-add-name) (= 2 (count args)))
-              (let [[table' pa] (reify-ring-term st table (nth args 0))
-                    [table'' pb] (reify-ring-term st table' (nth args 1))]
-                [table'' (poly-add pa pb)])
-
-              ;; HSub.hSub _ _ _ _ a b → a - b
-              (and (= head-name hsub-name) (= 6 (count args)))
-              (let [[table' pa] (reify-ring-term st table (nth args 4))
-                    [table'' pb] (reify-ring-term st table' (nth args 5))]
-                [table'' (poly-sub pa pb)])
-
-              ;; HMul.hMul _ _ _ _ a b → a * b
-              (and (= head-name hmul-name) (= 6 (count args)))
-              (let [[table' pa] (reify-ring-term st table (nth args 4))
-                    [table'' pb] (reify-ring-term st table' (nth args 5))]
-                [table'' (poly-mul pa pb)])
-
-              ;; Nat.mul a b → a * b
-              (and (= head-name nat-mul-name) (= 2 (count args)))
-              (let [[table' pa] (reify-ring-term st table (nth args 0))
-                    [table'' pb] (reify-ring-term st table' (nth args 1))]
-                [table'' (poly-mul pa pb)])
-
-              ;; HPow.hPow _ _ _ _ a n → a ^ n (n must be a ground Nat)
-              (and (= head-name hpow-name) (= 6 (count args)))
-              (let [exp-whnf (#'tc/cached-whnf st (nth args 5))]
-                (if (e/lit-nat? exp-whnf)
-                  (let [n (e/lit-nat-val exp-whnf)
-                        [table' pa] (reify-ring-term st table (nth args 4))]
-                    [table' (poly-pow pa n)])
-                  ;; Non-ground exponent — intern as atom
-                  (let [[table' idx] (intern-atom table st expr-whnf)]
-                    [table' (poly-var idx)])))
-
-              ;; Nat.pow a n → a ^ n
-              (and (= head-name nat-pow-name) (= 2 (count args)))
-              (let [exp-whnf (#'tc/cached-whnf st (nth args 1))]
-                (if (e/lit-nat? exp-whnf)
-                  (let [n (e/lit-nat-val exp-whnf)
-                        [table' pa] (reify-ring-term st table (nth args 0))]
-                    [table' (poly-pow pa n)])
-                  (let [[table' idx] (intern-atom table st expr-whnf)]
-                    [table' (poly-var idx)])))
-
-              ;; Neg.neg _ _ a → -a
-              (and (= head-name hneg-name) (= 3 (count args)))
-              (let [[table' pa] (reify-ring-term st table (nth args 2))]
-                [table' (poly-scale pa -1)])
-
-              ;; OfNat.ofNat _ n _ → n
-              (and (= head-name ofnat-name) (>= (count args) 2))
-              (reify-ring-term st table (nth args 1))
-
-              ;; Unknown — intern as atom
-              :else
-              (let [[table' idx] (intern-atom table st expr-whnf)]
-                [table' (poly-var idx)])))))
-
-      ;; Free variable
-      (e/fvar? expr-whnf)
-      (let [[table' idx] (intern-atom table st expr-whnf)]
-        [table' (poly-var idx)])
-
-      ;; Constant
-      (e/const? expr-whnf)
-      (if (= (e/const-name expr-whnf) nat-zero-name)
-        [table (poly-const 0)]
-        (let [[table' idx] (intern-atom table st expr-whnf)]
-          [table' (poly-var idx)]))
-
-      ;; Anything else — atom
-      :else
-      (let [[table' idx] (intern-atom table st expr-whnf)]
-        [table' (poly-var idx)]))))
-
-;; ============================================================
-;; Ring check
-;; ============================================================
-
-(def ^:private eq-name (name/from-string "Eq"))
-
-(defn- ring-check
-  "Check if a goal can be solved by polynomial normalization.
-   Returns true if lhs and rhs normalize to the same polynomial."
-  [st goal-type]
-  (let [goal-whnf (#'tc/cached-whnf st goal-type)
-        [head args] (e/get-app-fn-args goal-whnf)]
-    (when (and (e/const? head)
-               (= (e/const-name head) eq-name)
-               (= 3 (count args)))
-      (let [table (mk-atom-table)
-            [table' p-lhs] (reify-ring-term st table (nth args 1))
-            [table'' p-rhs] (reify-ring-term st table' (nth args 2))
-            diff (poly-sub p-lhs p-rhs)]
-        (poly-is-zero? diff)))))
-
-;; ============================================================
-;; Public API
-;; ============================================================
+(defn- checked-close [ps goal term]
+  ;; Check every application argument, including the boolean certificate, before
+  ;; assigning the goal. inferType alone is not a certificate verifier.
+  (let [checker (doto (TypeChecker. (:env ps)) (.setFuel (long config/*default-fuel*)))]
+    (doseq [[id decl] (sort-by key (:lctx goal))]
+      (.addLocal checker (long id) (str (:name decl)) (:type decl)))
+    (let [inferred (.check checker term)]
+      (when-not (.isDefEq checker inferred (:type goal))
+        (error! "normalization certificate does not prove the original goal"
+                {:goal (:type goal) :inferred inferred})))
+    (-> (proof/assign-mvar ps (:id goal) {:kind :exact :term term})
+        (proof/record-tactic :ring [] (:id goal)))))
 
 (defn ring
-  "Close the current goal using polynomial ring normalization.
-
-   Works for Eq goals where both sides are polynomial expressions.
-   Normalizes both sides and checks if they are equal.
-
-   Strategy:
-   1. Try decide first (handles ground cases)
-   2. Try rfl (for def-eq sides)
-   3. Normalize both sides as polynomials and check equality
-   4. If equal, certify via decide or rfl"
+  "Prove polynomial equalities with Lean's checked normalization certificates.
+   Supports Nat, Int, and carriers with Lean.Grind.CommRing/CommSemiring instances.
+   Unsupported operations (including Nat subtraction and nonconstant powers)
+   remain atoms. No host polynomial comparison is trusted as a proof."
   [ps]
-  ;; Try decide first
-  (try
-    (decide-tac/decide ps)
-    (catch Exception _
-      ;; Try rfl
-      (let [goal (proof/current-goal ps)
-            _ (when-not goal (tactic-error! "No goals" {}))
-            env (:env ps)
-            st (tc/mk-tc-state env)
-            st (assoc st :lctx (:lctx goal))
-            goal-type (:type goal)]
-        ;; Try rfl
-        (let [goal-whnf (#'tc/cached-whnf st goal-type)
-              [head args] (e/get-app-fn-args goal-whnf)]
-          (if (and (e/const? head)
-                   (= (e/const-name head) eq-name)
-                   (= 3 (count args)))
-            (let [lhs (nth args 1)
-                  rhs (nth args 2)]
-              (if (tc/is-def-eq st lhs rhs)
-                ;; rfl
-                (let [eq-levels (e/const-levels head)
-                      proof-term (e/app* (e/const' (name/from-string "Eq.refl")
-                                                   eq-levels)
-                                         (nth args 0) lhs)]
-                  (-> (proof/assign-mvar ps (:id goal) {:kind :exact :term proof-term})
-                      (proof/record-tactic :ring [] (:id goal))))
-                ;; Check polynomial equality
-                (if (ring-check st goal-type)
-                  ;; Polynomials match — try decide to certify
-                  (try
-                    (decide-tac/decide ps)
-                    (catch Exception _
-                      (tactic-error!
-                       "ring: polynomials match but cannot certify (non-ground)"
-                       {:goal goal-type})))
-                  (tactic-error! "ring: sides are not equal as polynomials"
-                                 {:goal goal-type}))))
-            (tactic-error! "ring: goal is not an Eq" {:goal goal-type})))))))
+  (let [goal (proof/current-goal ps)
+        _ (when-not goal (error! "no goals" {}))
+        st (tc/attach-lctx (tc/mk-tc-state (:env ps)) (:lctx goal))
+        [head args] (e/get-app-fn-args (whnf st (:type goal)))]
+    (when-not (and (e/const? head) (= "Eq" (str (e/const-name head))) (= 3 (count args)))
+      (error! "goal is not an equality" {:goal (:type goal)}))
+    (let [[type lhs rhs] args]
+      (if (defeq? st lhs rhs)
+        (checked-close ps goal (app "Eq.refl" (e/const-levels head) type lhs))
+        (let [_ (when-not (env/lookup (:env ps) (name/from-string "Lean.Grind.CommRing.eq_normS"))
+                  (error! "checked Lean polynomial normalization declarations are unavailable"
+                          {:required "Lean.Grind.CommRing.eq_normS"}))
+              ctx (ring-context st type)
+              {:keys [lhs rhs atoms]} (reify-pair st ctx lhs rhs)
+              context (context-expr ctx atoms)
+              cert (app "Eq.refl" [(lvl/succ lvl/zero)] (c "Bool") (c "Bool.true"))
+              term (app (if (:ring? ctx) "Lean.Grind.CommRing.Expr.eq_of_toPoly_eq"
+                            "Lean.Grind.CommRing.eq_normS")
+                        [(:u ctx)] type (:instance ctx) context lhs rhs cert)]
+          (try (checked-close ps goal term)
+               (catch Exception ex
+                 (throw (ex-info "ring: polynomial normalization could not certify the equality"
+                                 {:kind :tactic-error :goal (:type goal)} ex)))))))))
