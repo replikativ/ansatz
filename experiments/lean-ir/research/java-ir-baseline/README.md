@@ -57,7 +57,7 @@ declaration sets, not a public source-file loader. Stack/index preparation remai
 bounded by the prototype's limits; arbitrary deeply nested input is unverified.
 
 Unsupported families include floats, uint16/uint64, struct/union,
-reset/reuse, foreign functions outside the captured Nat/scalar profile, IO,
+reset/reuse, foreign functions outside the captured runtime profile, real host IO,
 tasks/resources, native globals/initializers and the full string/MPZ object runtime.
 String and large-Nat arithmetic leaves use JVM values without guest RC headers;
 sharing tests and object cases on those families reject. The prototype does not
@@ -98,6 +98,11 @@ tests / 1,369 assertions before the extern expansion. Five further
 signature validation and remaining gaps. These tests do not execute original
 RBMap `main`. Six more [scalar tests](scalar-checks.clj) run in both modes,
 bringing the current isolated gate to 54 executions / 3,776 assertions.
+The [original main runtime slice](../JAVA_RBMAP_MAIN_RUNTIME.md) adds strings,
+arrays, virtual captured stdout and iterative release. Its nine tests in both
+modes bring the gate to 72 executions / 4,117 assertions. Panic default behavior
+and several stream operations remain explicit unsupported paths; this is not
+general IO or hosted file-loading acceptance.
 Runtime/compiler defaults and the optional package source inventory are unchanged.
 No Init image, hosted frontend, project loader or full Mathlib campaign is run.
 

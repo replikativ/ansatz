@@ -29,6 +29,17 @@ specialization, is a target requiring benchmarks, not an established result.
 
 ## Evidence already obtained
 
+- [Original RBMap main](JAVA_RBMAP_MAIN_RUNTIME.md) executes from unchanged
+  exported IR in both Java drivers, matching seven pinned native observations.
+  String/array ownership and virtual six-method streams are covered; selected
+  stream methods and panic default behavior explicitly reject. Iterative
+  destruction covers deep lists. The 384 MiB isolated gate has 72 executions /
+  4,117 assertions. Source loading and public executor routing are separate.
+- The [persistent heap review](JAVA_PERSISTENT_HEAP_PLAN.md) recommends a closed
+  pure provider adapter first, then stable logical identities/branch versions
+  with owner epochs and separate external authority. Register slots are not an
+  owning-root ledger; general cancellation must not decrement every slot.
+
 - The [U32/USize slice](JAVA_SCALAR_RUNTIME.md) adds raw word lanes, 64-bit Lean
   boxing/layout, seven captured scalar declarations and 75 native observations
   through direct and guest calls. The 384 MiB isolated jar gate passes 54

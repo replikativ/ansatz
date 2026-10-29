@@ -159,6 +159,12 @@ The subsequent [U32/USize slice](JAVA_SCALAR_RUNTIME.md) implements those lanes,
 boxing, packed fields and seven original scalar extern declarations. RBMap
 main's remaining unsupported extern count is now 11. Its string/array/IO closure
 still requires implementation; scalar coverage alone does not execute main.
+The later [main slice](JAVA_RBMAP_MAIN_RUNTIME.md) implements those string/array
+operations and a private captured-output stream, executing original main on its
+valid-argument corpus. Filesystem IO, general host suspension, panic default
+policy and broader stream methods remain explicit work. The
+[heap/region plan](JAVA_PERSISTENT_HEAP_PLAN.md) separates this from persistence
+and external resource authority.
 
 1. Extern registry keyed by symbol and allowed captured signatures, with borrow
    bits, erased slots and return convention. Test RBMap's repeated-symbol case.

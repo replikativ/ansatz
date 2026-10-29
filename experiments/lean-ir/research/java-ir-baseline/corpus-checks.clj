@@ -21,9 +21,9 @@
     (let [inventory (:inventory (entries :rbmap-original-main))]
       (is (= 79 (:declarations inventory)))
       (is (= 26 (count (:externs inventory))))
-      (is (= 11 (:unsupported-extern-count inventory)))
+      (is (= 0 (:unsupported-extern-count inventory)))
       (is (empty? (:missing-static-dependencies inventory)))
-      (is (string? (:closure-preparation-error inventory)))
+      (is (nil? (:closure-preparation-error inventory)))
       (is (= 2 (:dynamic-application-sites inventory))))
     (doseq [id [:mcmc-finite-execution :mcmc-proof-bearing-imports :multi-file-io-example]]
       (is (nil? (:inventory (entries id))))

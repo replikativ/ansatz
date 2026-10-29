@@ -26,7 +26,7 @@ alone satisfies none of the source-loading requirements.
 | Entry | Purpose | Current Java engine evidence | Remaining boundary |
 | --- | --- | --- | --- |
 | Original Lean RBMap computation | Persistent tree construction, recursion, joins, closures, RC | Complete values and counters; recursive and explicit drivers | Hosted source loading and public interop integration |
-| Original RBMap `main` | Arguments, parsing, decimal rendering, stdout | Static inventory only | Wider scalar lanes, strings/arrays/Nat primitives, stream host binding, execution and IO oracle |
+| Original RBMap `main` | Arguments, parsing, decimal rendering, stdout | Both Java drivers match seven native raw-IR observations with captured stdout | Hosted loading/facade routing, wider IO/error profile |
 | MCMC `CompilerIR.lean` | Original sampler-description algebraic data | All 81 nullary declarations, twice, compared to persistent reference | Hosted source loading; independent native observation gate |
 | MCMC `CompilerIRInterpreter.lean` | Actual finite categorical/MH execution | Pending capture and execution | Transitive dependency/runtime audit and finite draw-trace comparison |
 | MCMC `TwoState.lean` | Imported proof-bearing application module | Pending | Mathlib import/tactic/`native_decide` compatibility and checked loading |
@@ -83,6 +83,10 @@ That original receipt records the first five-Nat-operation engine. The subsequen
 [extern expansion](JAVA_EXTERN_RUNTIME.md) implements multiplication, division
 and power, reducing unsupported extern declarations from 21 to 18. The original
 receipt is retained as historical evidence rather than overwritten.
+The [main runtime slice](JAVA_RBMAP_MAIN_RUNTIME.md) subsequently prepares the
+complete capture and executes main for the published valid-argument cases.
+Preparation errors are now zero, but named runtime traps remain; this does not
+promote the entry to hosted-source or general-IO compatibility.
 
 ## Cross-syntax acceptance
 
