@@ -6,7 +6,8 @@
             [prototype.module-import :as module-import] [prototype.module-import-test :as import-model]
             [prototype.kernel-bridge-test :as guest] [prototype.runtime-prim :as prim]
             [prototype.module-store :as store] [prototype.module-init-capabilities :as init-caps]
-            [prototype.import-capabilities :as native-caps])
+            [prototype.import-capabilities :as native-caps]
+            [prototype.imported-kernel :as kernel])
   (:import [ansatz.kernel Env]))
 
 (def module model/module-name)
@@ -191,6 +192,7 @@
         manifest (-> manifest (assoc-in [:input :modules] [mod])
                      (assoc-in [:input :requestedImports] source/init-requests)
                      (assoc-in [:input :transitiveClosure] true))
+        _ (io/make-parents (io/file "target" "hybrid-init-fixture"))
         path (java.io.File/createTempFile "hybrid-init-fixture-" ".jsonl" (io/file "target"))]
     (try
       (spit path (str (json/write-str manifest) "\n" (str/join "\n" (rest lines)) "\n"))
@@ -264,27 +266,10 @@
     (is (= 1 (count @calls)))
     (is (thrown? Exception (source/make-hybrid-bindings (dissoc native "lean_run_mod_init_core"))))))
 
-(deftest hybrid-finalization-checks-whole-map-but-receipts-only-source-subset
-  (with-tiny-init
-    (fn [loaded]
-      (let [native-values (import-model/constants loaded)
-            native-invoke (import-model/helper-model (atom []) native-values)
-            checked (module-import/import-loaded loaded native-invoke
-                      {:kernel-policy {:allow-axioms? true :allow-unsafe? true}})
-            {:keys [world compiled name root]} (ordinary-fixture (:world checked))
-            [world level] (guest/ctor world 1 [guest/nil-tag] 8)
-            [world type] (guest/ctor world 3 [level] 8)
-            [world body] (guest/ctor world 3 [guest/nil-tag] 8)
-            [world answer] (guest/declaration world "answer" type body)
-            compiled (assoc compiled :world world)
-            requests (conj source/init-requests (first requests))
-            final-values (conj native-values answer)
-            selected (atom final-values)
-            finalizer-calls (atom 0)
-            base-invoke (ordinary-invoke root)
-            final-model (final-invoke final-values requests 1)
-            invoke
-            (fn [world target args]
+(defn hybrid-invoke-model
+  "Shared bounded helper model; genuine finalizer compatibility is separate."
+  [compiled root answer selected finalizer-calls base-invoke final-model]
+  (fn [world target args]
               (cond
                 (and (= target (:root module-import/helpers)) (= (:environment compiled) (first args)))
                 [(m/retain world root 1) root]
@@ -309,7 +294,28 @@
                 (let [[state imports] args world (-> world (m/release state 1) (m/release imports 1))]
                   (swap! finalizer-calls inc)
                   (final-result world @selected))
-                :else (final-model world target args)))
+                :else (final-model world target args))))
+
+(deftest hybrid-finalization-checks-whole-map-but-receipts-only-source-subset
+  (with-tiny-init
+    (fn [loaded]
+      (let [native-values (import-model/constants loaded)
+            native-invoke (import-model/helper-model (atom []) native-values)
+            checked (module-import/import-loaded loaded native-invoke
+                      {:kernel-policy {:allow-axioms? true :allow-unsafe? true}})
+            {:keys [world compiled name root]} (ordinary-fixture (:world checked))
+            [world level] (guest/ctor world 1 [guest/nil-tag] 8)
+            [world type] (guest/ctor world 3 [level] 8)
+            [world body] (guest/ctor world 3 [guest/nil-tag] 8)
+            [world answer] (guest/declaration world "answer" type body)
+            compiled (assoc compiled :world world)
+            requests (conj source/init-requests (first requests))
+            final-values (conj native-values answer)
+            selected (atom final-values)
+            finalizer-calls (atom 0)
+            base-invoke (ordinary-invoke root)
+            final-model (final-invoke final-values requests 1)
+            invoke (hybrid-invoke-model compiled root answer selected finalizer-calls base-invoke final-model)
             registered (source/register-compiled-over-init world invoke compiled name)
             prepared (source/prepare-init-prefix
                        (store/describe-attached (:world registered) (:source loaded)) invoke checked)
@@ -364,3 +370,149 @@
           (is (m/ref? (:environment finished)))
           (is (some? (m/node (:world finished) (:environment finished))))
           (is (nil? (get-in finished [:world :source-modules module :imports]))))))))
+
+(defn with-delta-hybrid [f]
+  (with-tiny-init
+    (fn [loaded]
+      (let [native-values (import-model/constants loaded)
+            checked (module-import/import-loaded loaded (import-model/helper-model (atom []) native-values)
+                      {:kernel-policy {:allow-axioms? true :allow-unsafe? true}})
+            {:keys [world compiled name root]} (ordinary-fixture (:world checked))
+            [world level] (guest/ctor world 1 [guest/nil-tag] 8)
+            [world type] (guest/ctor world 3 [level] 8)
+            [world body] (guest/ctor world 3 [guest/nil-tag] 8)
+            [world answer] (guest/declaration world "answer" type body)
+            ;; Independent registry built from reviewed helper objects, never
+            ;; copied from the World at an authorization boundary.
+            admitted (into {} (map (fn [target] [target {:params [1] :body [:return [:var 1]]}]))
+                           (concat (vals module-import/helpers) (vals source/helpers)
+                                   [source/hybrid-assemble-helper]))
+            world (update world :functions merge admitted)
+            compiled (assoc compiled :world world)
+            imports (conj source/init-requests (first requests))
+            selected (atom (conj native-values answer)) finalizer-calls (atom 0)
+            invoke (hybrid-invoke-model compiled root answer selected finalizer-calls
+                     (ordinary-invoke root) (final-invoke @selected imports 1))
+            registered (source/register-compiled-over-init world invoke compiled name)
+            context {:invoke invoke :trusted-functions admitted :bindings {} :trusted-bindings {}}
+            current (store/describe-attached (:world registered) (:source loaded))
+            prepared (source/prepare-init-prefix-delta context current checked)
+            prefix (:prefix prepared)
+            assembly (source/assemble-over-init (:world prepared) invoke prefix module name imports)]
+        (f {:loaded loaded :checked checked :registered registered :context context
+            :current current :prepared prepared :prefix prefix :assembly assembly
+            :selected selected :native-values native-values :answer answer
+            :name name :imports imports :finalizer-calls finalizer-calls})))))
+
+(deftest explicit-source-delta-route-checks-additions-and-receipts-exact-source-subset
+  (with-delta-hybrid
+    (fn [{:keys [assembly context prefix checked answer finalizer-calls]}]
+      (let [finished (with-redefs [kernel/verify-constants
+                                  (fn [& _] (throw (ex-info "Whole Init base rechecked" {})))]
+                       (source/finalize-over-init-delta context assembly 0 {}))
+            receipt (:source-import-receipt finished)]
+        (is (= :ok (:status finished)))
+        (is (= 1 @finalizer-calls))
+        (is (= 18 (count (get-in finished [:certificate :constants]))))
+        (is (= 1 (count (get-in finished [:certificate :new-order]))))
+        (is (= #{"answer"} (set (map str (keys (:constants receipt))))))
+        (is (= #{"answer"} (set (map str (keys (:projected receipt))))))
+        (is (= [answer] (vec (vals (:constants receipt)))))
+        (doseq [[name ci] (get-in checked [:certificate :projected])]
+          (is (identical? ci (.lookup ^Env (get-in finished [:certificate :env]) name))))
+        (is (identical? (get-in finished [:certificate :env]) (:checked-env receipt)))
+        (is (= 1 (:rc (m/node (:world finished) (:state prefix)))))
+        ;; Completing an independently owned IO result invokes no finalizer.
+        (let [[world result] ((:invoke context) (:world assembly) (:finalize source/helpers)
+                             [(:state assembly) (:imports assembly) 0 m/erased])
+              calls @finalizer-calls
+              finished (source/finish-over-init-delta context assembly world result {})]
+          (is (= :ok (:status finished)))
+          (is (= calls @finalizer-calls))
+          (is (= [answer] (vec (vals (get-in finished [:source-import-receipt :constants]))))))))))
+
+(deftest source-delta-rejects-missing-base-refs-helper-changes-and-forged-prefix-capability
+  (with-delta-hybrid
+    (fn [{:keys [assembly context prefix native-values selected finalizer-calls]}]
+      (reset! selected (subvec @selected 1))
+      (let [[world result] ((:invoke context) (:world assembly) (:finalize source/helpers)
+                           [(:state assembly) (:imports assembly) 0 m/erased])
+            calls @finalizer-calls]
+        (is (thrown-with-msg? Exception #"delta kernel association failed"
+              (source/finish-over-init-delta context assembly world result {})))
+        (is (= calls @finalizer-calls))
+        (is (thrown-with-msg? Exception #"helper identity"
+              (source/finish-over-init-delta context assembly
+                (assoc-in world [:functions (:constants module-import/helpers)] {:changed true}) result {})))
+        (let [forged (assoc prefix :checked-base {:fabricated true})
+              world (assoc-in world [:source-import-prefixes (:id (:state forged))] forged)
+              assembly (assoc assembly :prefix forged)]
+          (is (thrown-with-msg? Exception #"issued checked-base prefix"
+                (source/finish-over-init-delta context assembly world result {}))))
+        (is (= calls @finalizer-calls)))
+      ;; A valid Init-only checked map still cannot earn a source receipt.
+      (reset! selected native-values)
+      (let [error (try (source/finalize-over-init-delta context assembly 0 {}) nil
+                       (catch clojure.lang.ExceptionInfo cause cause))
+            finished (:source-finalization-result (ex-data error))]
+        (is (re-find #"published import graph" (.getMessage error)))
+        (is (= :ok (:status finished)))
+        (is (= 17 (count (get-in finished [:certificate :constants]))))
+        (is (nil? (:source-import-receipt finished)))))))
+
+(deftest source-delta-prefix-preflights-authority-and-preserves-prepared-owner-on-capture-failure
+  (with-delta-hybrid
+    (fn [{:keys [context current checked]}]
+      (doseq [target [(:part module-import/helpers) (:constants module-import/helpers)
+                      (:quot-init? module-import/helpers)]]
+        (let [calls (atom 0)
+              context (update context :invoke
+                              (fn [invoke] (fn [& args] (swap! calls inc) (apply invoke args))))
+              bad (update-in current [:world :functions] assoc target {:changed true})]
+          (is (thrown-with-msg? Exception #"helper executable identity"
+                (source/prepare-init-prefix-delta context bad checked)))
+          (is (zero? @calls))))
+      (let [context (update context :invoke
+                            (fn [invoke]
+                              (fn [world target args]
+                                (if (= target (:constants module-import/helpers))
+                                  (throw (ex-info "injected capture enumeration failure"
+                                                  {:checkpoint world :temporary-owners []}))
+                                  (invoke world target args)))))
+            error (try (source/prepare-init-prefix-delta context current checked) nil
+                       (catch clojure.lang.ExceptionInfo cause cause))
+            {:keys [checkpoint prepared-init-prefix prefix-owner temporary-owners]} (ex-data error)
+            prefix (:prefix prepared-init-prefix)]
+        (is (some? error))
+        (is (= prefix (:prefix prefix-owner)))
+        (is (identical? checkpoint (:checkpoint prefix-owner)))
+        (is (= (:state prefix) (:state prefix-owner)))
+        (is (= 1 (:rc (m/node checkpoint (:state prefix)))))
+        (is (seq temporary-owners))
+        (let [world (reduce #(m/release %1 %2 1) checkpoint temporary-owners)
+              world (source/release-init-prefix world prefix)]
+          (is (not (contains? (:heap world) (:id (:state prefix))))))))))
+
+(deftest source-delta-receipt-mismatch-preserves-returned-root-owner
+  (with-delta-hybrid
+    (fn [{:keys [assembly context finalizer-calls]}]
+      (let [roots (atom 0) returned (atom nil)
+            context (update context :invoke
+                            (fn [invoke]
+                              (fn [world target args]
+                                (if (and (= target (:root module-import/helpers))
+                                         (= 3 (swap! roots inc)))
+                                  (let [[world root] (m/allocate world :ctor 0 [])]
+                                    (reset! returned root) [world root])
+                                  (invoke world target args)))))
+            error (try (source/finalize-over-init-delta context assembly 0 {}) nil
+                       (catch clojure.lang.ExceptionInfo cause cause))
+            {:keys [checkpoint source-receipt-temporary-owners temporary-owners source-finalization-result]} (ex-data error)]
+        (is (some? error))
+        (is (re-find #"association differs" (.getMessage error)))
+        (is (= 1 @finalizer-calls))
+        (is (= [@returned] source-receipt-temporary-owners temporary-owners))
+        (is (= 1 (:rc (m/node checkpoint @returned))))
+        (is (= :ok (:status source-finalization-result)))
+        (is (= (:heap (:world source-finalization-result))
+               (:heap (m/release checkpoint @returned 1))))))))

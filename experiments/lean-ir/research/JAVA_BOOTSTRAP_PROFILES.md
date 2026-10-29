@@ -101,8 +101,9 @@ reuse a live provider across source experiments under its lease contract.
 
 ## Checked-delta experiment
 
-`research/checked-delta.clj` now implements the live strict-base portion of this
-plan. It does not implement trusted-artifact admission or change provider defaults.
+`prototype.checked-delta` implements the live strict-base portion of this plan;
+`research/checked-delta.clj` preserves the original REPL entry points. This does
+not implement trusted-artifact admission or change provider defaults.
 
 `capture-base` borrows a guest Environment whose positive kernel association and
 actual strict verifier certificate already exist. The host supplies the current
@@ -145,3 +146,30 @@ guest progress. Failure owners remain the caller's cleanup responsibility. The i
 also includes this gate. No full Init or Mathlib image is loaded for these tests.
 Provider integration and genuine source acceptance under the faster profile
 remain pending.
+
+## Explicit delta finalization
+
+`prototype.delta-import/finish-finalization` consumes an actual completed guest
+finalizer IO.Result. It checks additions against the live strict base, projects
+the genuine header's quotient metadata, and establishes the exact final guest
+association. It never invokes the finalizer again. Selected helper closures and
+raw bindings require independent identity authority before consuming success IO.
+Guest IO errors return unchanged, with no helper execution.
+
+`prototype.source-import` provides explicit `prepare-init-prefix-delta`,
+`finish-over-init-delta` and `finalize-over-init-delta` entry points. A prepared
+prefix retains its issued base capability; completion obtains the capability
+from that authenticated prefix. The source receipt still covers precisely the
+new module and rejects subsumption or changed inherited references. Existing
+strict entry points remain available.
+
+Progress-aware association/header helpers preserve the actual latest World and
+outstanding owners after each returned helper and successful release. Child
+failure owners and enclosing owners are separate credits, including repeated
+aliases. They must not overwrite each other or be deduplicated. Diagnostic
+pre-operation snapshots do not authorize cleanup against a newer World.
+
+These are bounded integration APIs, not a switch of the resident provider to the
+fast profile. Next: positive admission of a supported artifact cohort, explicit
+provenance through resident/kernel publication, then genuine provider acceptance
+and startup/memory measurements. Fresh strict replay remains the audit path.

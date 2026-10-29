@@ -220,27 +220,48 @@
          [world imports] (m/allocate world :array 246 requests)]
      {:world (assoc world :result 0) :state state :imports imports :modules modules :requested requested})))))
 
-(defn- project-finalizer-flag [world environment invoke targets certificate attestation]
+(defn project-finalizer-flag-progress
+  "Project the genuine header's quotient metadata, preserving actual helper
+   progress and :finalizer-temporary-owners on failure. Adds no primitives."
+  [world environment invoke targets certificate attestation]
+  (let [progress (volatile! world) owners (volatile! []) stage (volatile! :header-preflight)
+        call (fn [world target args]
+               (vreset! stage [:header-helper target])
+               (let [[world value] (invoke world target args)]
+                 (vreset! progress world) (vswap! owners conj value) [world value]))
+        release (fn [world value]
+                  (vreset! stage :header-release)
+                  (let [world (m/release world value 1)]
+                    (vreset! progress world) (vswap! owners #(vec (rest %))) world))]
+   (try
   (if-not attestation [world certificate]
     (let [{:keys [requested-imports header-helper]} attestation
           _ (when-not (and (vector? requested-imports) (vector? header-helper))
               (fail "Invalid explicit finalizer attestation" {}))
           _ (doseq [request requested-imports] (import-metadata! request))
-          [world text] (invoke world header-helper [environment])
+          [world text] (call world header-helper [environment])
           header (json/read-str (string/string-value {:ref? m/ref? :node m/node} world text) :key-fn keyword)
-          world (m/release world text 1)
+          world (release world text)
           _ (when-not (and (= "lean-source-import-header/1" (:schema header))
                            (= "SourceModuleImport.finalizerHeader" (:producer header))
                            (= (get prim/pinned-build "lean_get_githash") (:leanCommit header))
                            (false? (:moduleSystem header)) (= requested-imports (:imports header)))
               (fail "Actual finalizer header differs from explicit import attestation" {}))
-          [world flag] (invoke world (:quot-init? targets) [environment])
-          flag (native/nat-value {:ref? m/ref? :node m/node} world flag)
+          [world flag-value] (call world (:quot-init? targets) [environment])
+          flag (native/nat-value {:ref? m/ref? :node m/node} world flag-value)
           _ (when-not (= (if (seq requested-imports) 1 0) flag)
-              (fail "Finalizer quotient flag differs from pinned import-header rule" {}))]
+              (fail "Finalizer quotient flag differs from pinned import-header rule" {}))
+          world (release world flag-value)]
       ;; This projects metadata only. enableQuot adds NO ConstantInfo/primitives;
       ;; canonical Quot CI checking above remains strict and unchanged.
-      [world (if (= 1 flag) (update certificate :env #(.enableQuot ^Env %)) certificate)])))
+      [world (if (= 1 flag) (update certificate :env #(.enableQuot ^Env %)) certificate)]))
+   (catch Throwable cause
+     (throw (ex-info (or (.getMessage cause) "Finalizer header projection failed")
+                     (merge {:checkpoint @progress :finalizer-stage @stage}
+                            (ex-data cause) {:finalizer-temporary-owners @owners}) cause))))))
+
+(defn- project-finalizer-flag [world environment invoke targets certificate attestation]
+  (project-finalizer-flag-progress world environment invoke targets certificate attestation))
 
 (defn finish-finalization
   "Consume the owned IO.Result of an actual guest import finalizer and strictly

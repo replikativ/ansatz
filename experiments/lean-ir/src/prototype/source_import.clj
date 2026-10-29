@@ -7,8 +7,10 @@
             [prototype.kernel-host :as kernel-host]
             [prototype.import-capabilities :as native-caps] [prototype.runtime-string :as string]
             [prototype.native-scalar :as native] [prototype.module-init-capabilities :as module-init]
-            [prototype.module-store :as store])
-  (:import [ansatz.kernel Env]))
+            [prototype.module-store :as store]
+            [prototype.checked-delta :as delta] [prototype.delta-import :as delta-import])
+  (:import [ansatz.kernel Env]
+           [java.util WeakHashMap] [java.lang.ref WeakReference]))
 
 (defn- helper [part] ["str" ["str" ["anonymous"] "SourceModuleImport"] part])
 (def helpers {:part (helper "mkOwnedPart") :assemble (helper "assembleClassic")
@@ -308,6 +310,42 @@
              (fail "Native prefix state is already registered" {:checkpoint world}))]
      {:world (assoc-in world [:source-import-prefixes (:id state)] prefix) :prefix prefix})))
 
+(def ^:private delta-prefixes (WeakHashMap.))
+
+(defn prepare-init-prefix-delta
+  "Explicit strict-base delta prefix, using CONTEXT's current :invoke and
+   independent helper authority. Performs ordinary pinned scaffold preparation,
+   then captures its actual strictly checked Init base. The reissued :prefix is
+   registered by identity and borrows the host's Environment/source owners.
+   Capture failures preserve :prepared-init-prefix and :prefix-owner alongside
+   the latest helper checkpoint; neither authorizes replaying preparation."
+  ([context loaded checked] (prepare-init-prefix-delta context loaded checked {}))
+  ([context loaded checked options]
+   (let [targets (merge module-import/helpers (:helpers options))
+         assembly (get options :assembly :sequential)
+         _ (delta/validate-helper-authority
+            context (:world loaded)
+            (into (mapv module-import/helpers [:root :constants :quot-init?])
+                  (if (= :bulk assembly)
+                    [(or (get-in options [:helpers :batch]) module-import/bulk-helper)]
+                    (mapv targets [:part :request :module :state]))))
+         prepared (prepare-init-prefix loaded (:invoke context) checked options)
+         world (:world prepared) prefix (:prefix prepared)]
+     (try
+       (let [[world capability] (delta/capture-base context world (:environment checked)
+                                                   module-import/helpers (:certificate checked))
+             prefix (assoc prefix :checked-base capability)]
+         (locking delta-prefixes (.put delta-prefixes capability (WeakReference. prefix)))
+         {:world (assoc-in world [:source-import-prefixes (:id (:state prefix))] prefix)
+          :prefix prefix})
+       (catch Throwable cause
+         (let [data (ex-data cause) latest (or (:checkpoint data) world)]
+           (throw (ex-info "Strict checked Init base capture failed"
+                           (cond-> (merge data {:checkpoint latest :prepared-init-prefix prepared
+                                                :prefix-owner {:checkpoint latest :prefix prefix :state (:state prefix)}})
+                             (:checkpoint-session data) (assoc :session (:checkpoint-session data)))
+                           cause))))))))
+
 (defn- prefix! [world prefix]
   (let [registered (get-in world [:source-import-prefixes (:id (:state prefix))])
         anchored (get-in world [:kernel-environments (:id (:checked-anchor prefix))])
@@ -454,7 +492,7 @@
       "lean_compacted_region_read" (route "lean_compacted_region_read" 1)
       "lean_compacted_region_free" (route "lean_compacted_region_free" 0))))
 
-(defn- record-source-receipt* [finished invoke module options base-constants]
+(defn- record-source-receipt* [finished invoke module options base-constants progress]
   (if-not (= :ok (:status finished)) finished
     (let [world (:world finished) entry (entry! world module)
           [names constants] (subvec (:fields (ctor world (:data entry) 0 5 1)) 1 3)
@@ -478,20 +516,30 @@
           ;; A's exact subset, inherited by subsequent protected environments.
           receipt {:anchor root :checked-env (:env certificate) :constants expected
                    :projected (select-keys (:projected certificate) names) :unit-digest (:unit-digest entry)}
-          world (-> world (m/release root 1)
-                    (assoc-in [:source-modules module :imports (:id root)] receipt))]
+          world (m/release world root 1)
+          _ (vreset! (:world progress) world)
+          _ (vreset! (:owners progress) [])
+          world (assoc-in world [:source-modules module :imports (:id root)] receipt)]
       (assoc finished :world world :source-import-receipt receipt))))
 
 (defn- record-source-receipt [finished invoke module options base-constants]
-  (try
-    (record-source-receipt* finished invoke module options base-constants)
-    (catch Throwable cause
-      ;; Receipt validation follows successful whole-map association. Keep its
-      ;; owned Environment/certificate with THEIR world, even if a later helper
-      ;; produced a newer failure checkpoint. No guest effects are replayed.
-      (throw (ex-info (or (.getMessage cause) "Source import receipt failed")
-                     (merge {:checkpoint (:world finished)} (ex-data cause)
-                            {:source-finalization-result finished}) cause)))))
+  (let [progress {:world (volatile! (:world finished)) :owners (volatile! [])}
+        tracked-invoke (fn [world target args]
+                         (let [[world value] (invoke world target args)]
+                           (vreset! (:world progress) world)
+                           (vswap! (:owners progress) conj value)
+                           [world value]))]
+    (try
+      (record-source-receipt* finished tracked-invoke module options base-constants progress)
+      (catch Throwable cause
+        ;; Keep the actual latest helper checkpoint and every returned root
+        ;; owner. The successful finalization packet remains a separate snapshot.
+        (throw (ex-info (or (.getMessage cause) "Source import receipt failed")
+                        (merge {:checkpoint @(:world progress)} (ex-data cause)
+                               {:source-receipt-temporary-owners @(:owners progress)
+                                :temporary-owners (into (vec @(:owners progress))
+                                                        (:temporary-owners (ex-data cause)))
+                                :source-finalization-result finished}) cause))))))
 
 (defn finalize
   "Consume assembled state/imports through genuine finalization, then strict CI
@@ -546,6 +594,44 @@
         _ (hybrid-finalization-input! assembly world)
         [world result] (invoke world (:finalize helpers) [state imports options-ref m/erased])]
     (finish-over-init assembly world result invoke options)))
+
+(defn- delta-prefix-capability! [prefix]
+  (let [capability (:checked-base prefix)
+        issued (locking delta-prefixes (.get delta-prefixes capability))]
+    (when-not (and issued (identical? prefix (.get ^WeakReference issued)))
+      (fail "Hybrid delta completion requires its issued checked-base prefix" {}))
+    capability))
+
+(defn finish-over-init-delta
+  "Explicit delta completion of an ALREADY finished genuine finalizer IO.Result.
+   CONTEXT supplies the current independent authority and :invoke. Uses only the
+   live strict-base capability stored in ASSEMBLY's authenticated prefix; no
+   caller-selected alternative capability, finalizer replay, or whole-base check.
+   Source receipt still requires exact native Init refs plus published source CIs."
+  [context assembly world result options]
+  (let [prefix (hybrid-finalization-input! assembly world)
+        capability (delta-prefix-capability! prefix)
+        finished (delta-import/finish-finalization
+                  context world result capability
+                  (assoc options :finalizer-attestation
+                    {:requested-imports (:requested-imports assembly) :header-helper (:header helpers)}))]
+    (record-source-receipt finished (:invoke context) (:module assembly) options (:constants prefix))))
+
+(defn finalize-over-init-delta
+  "Explicit strict-base delta route: execute genuine finalization once, then
+   finish-over-init-delta. Existing strict/default entry points are unchanged."
+  [context assembly options-ref options]
+  (let [{:keys [world state imports]} assembly
+        prefix (hybrid-finalization-input! assembly world)
+        _ (delta-prefix-capability! prefix)
+        targets (merge module-import/helpers (:helpers options))
+        _ (delta/validate-helper-authority
+            context world
+            (cond-> (into [(:finalize helpers) (:header helpers)]
+                          (mapv targets [:root :constants :quot-init?]))
+              (:constant-map targets) (conj (:constant-map targets))))
+        [world result] ((:invoke context) world (:finalize helpers) [state imports options-ref m/erased])]
+    (finish-over-init-delta context assembly world result options)))
 
 (defn authorize-imported-row
   "Narrow evalConst capability. ROW must carry the actual interpreter witness's
