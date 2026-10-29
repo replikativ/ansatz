@@ -351,17 +351,19 @@
      (assoc (verify-constants world values options) :module-data (vec data)))))
 
 (defn- constant-shape [^ConstantInfo ci]
-  (let [common [(.tag ci) (.name ci) (vec (.levelParams ci)) (.type ci)]]
+  ;; vec may retain a Java array's backing storage. Copy array elements so a
+  ;; previously captured shape cannot change with public ConstantInfo arrays.
+  (let [common [(.tag ci) (.name ci) (mapv identity (.levelParams ci)) (.type ci)]]
     (into common
       (case (.tag ci)
         0 [(.isUnsafe ci)]
-        1 [(.value ci) (.getHintsCode ci) (.safety ci) (vec (.all ci))]
-        2 [(.value ci) (vec (.all ci))]
-        3 [(.value ci) (vec (.all ci)) (.isUnsafe ci)]
+        1 [(.value ci) (.getHintsCode ci) (.safety ci) (mapv identity (.all ci))]
+        2 [(.value ci) (mapv identity (.all ci))]
+        3 [(.value ci) (mapv identity (.all ci)) (.isUnsafe ci)]
         4 [(.quotKind ci)]
-        5 [(.numParams ci) (.numIndices ci) (vec (.all ci)) (vec (.ctors ci)) (.numNested ci) (.isRec ci) (.isReflexive ci) (.isUnsafe ci)]
+        5 [(.numParams ci) (.numIndices ci) (mapv identity (.all ci)) (mapv identity (.ctors ci)) (.numNested ci) (.isRec ci) (.isReflexive ci) (.isUnsafe ci)]
         6 [(.inductName ci) (.cidx ci) (.numParams ci) (.numFields ci) (.isUnsafe ci)]
-        7 [(vec (.all ci)) (.numParams ci) (.numIndices ci) (.numMotives ci) (.numMinors ci)
+        7 [(mapv identity (.all ci)) (.numParams ci) (.numIndices ci) (.numMotives ci) (.numMinors ci)
            (mapv (fn [^ConstantInfo$RecursorRule rule] [(.ctor rule) (.nfields rule) (.rhs rule)]) (.rules ci)) (.isK ci) (.isUnsafe ci)]))))
 
 (defn checking-shape
