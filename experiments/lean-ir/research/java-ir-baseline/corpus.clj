@@ -81,6 +81,7 @@
      :closure-preparation-error (if (seq missing) "Missing static declarations"
                                    (failure #(j/invoke-static (:prepare basis) [(vec selected)])))
      :limits ["Preparation does not execute or establish value parity."
+              "Prepared externs can reject documented runtime domains; preparation is not complete IO support."
               "Dynamic closure targets and host-provided implementations need separate validation."
               "The module initialization plan is reported, not executed or accepted."
               "Java preparation does not implement or validate row initializer/redirect semantics."

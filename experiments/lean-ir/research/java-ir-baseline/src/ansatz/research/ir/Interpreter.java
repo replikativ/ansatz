@@ -5,11 +5,13 @@
  * Author of upstream interpreter: Sebastian Ullrich.
  *
  * Bounded object/uint8/uint32/usize profile (64-bit little-endian), not a public API.
- * No persistence, native ABI, host effects, or arbitrary World conversion.
+ * No persistence, native ABI, real host IO, or arbitrary World conversion.
  */
 package ansatz.research.ir;
 
 import java.math.BigInteger;
+import java.lang.ref.WeakReference;
+import java.nio.charset.StandardCharsets;
 import java.util.*;
 
 public final class Interpreter implements AutoCloseable {
@@ -18,6 +20,9 @@ public final class Interpreter implements AutoCloseable {
     private static final int CTOR=0,PROJ=1,SPROJ=2,FAP=3,PAP=4,AP=5,BOX=6,UNBOX=7,LIT=8,SHARED=9,UPROJ=10;
     private static final int ADD=1,SUB=2,MOD=3,EQ=4,LT=5,MUL=6,DIV=7,POW=8;
     private static final int USIZE_NAT=9,USIZE_REPR=10,U32_NAT=11,U32_EQ=12,U32_LE=13,PLATFORM_BITS=14;
+    private static final int STR_PUSH=15,STR_LIST=16,STR_GET=17,STR_NEXT=18,STR_APPEND=19,STR_SIZE=20,
+                             ARRAY_MK=21,ARRAY_SIZE=22,ARRAY_GET=23,GET_STDOUT=24,PANIC=25;
+    private static final int STREAM_FLUSH=100,STREAM_READ=101,STREAM_WRITE=102,STREAM_LINE=103,STREAM_PUT=104,STREAM_TTY=105;
     private static final BigInteger SMALL_MAX=BigInteger.valueOf(Long.MAX_VALUE);
     private static final Object ERASED=Long.valueOf(0);
 
@@ -57,6 +62,17 @@ public final class Interpreter implements AutoCloseable {
         register(registry,new ExternSpec("lean_uint32_dec_eq",U32_EQ,"uint8",new String[]{"uint32","uint32"},new boolean[]{false,false}));
         register(registry,new ExternSpec("lean_uint32_dec_le",U32_LE,"uint8",new String[]{"uint32","uint32"},new boolean[]{false,false}));
         register(registry,new ExternSpec("lean_system_platform_nbits",PLATFORM_BITS,"tobject",new String[]{"tagged"},new boolean[]{false}));
+        register(registry,new ExternSpec("lean_string_push",STR_PUSH,"object",new String[]{"object","uint32"},new boolean[]{false,false}));
+        register(registry,new ExternSpec("lean_string_mk",STR_LIST,"object",new String[]{"tobject"},new boolean[]{false}));
+        register(registry,new ExternSpec("lean_string_utf8_get_fast",STR_GET,"uint32",new String[]{"object","tobject","erased"},new boolean[]{true,true,false}));
+        register(registry,new ExternSpec("lean_string_utf8_next_fast",STR_NEXT,"tagged",new String[]{"object","tobject","erased"},new boolean[]{true,true,false}));
+        register(registry,new ExternSpec("lean_string_append",STR_APPEND,"object",new String[]{"object","object"},new boolean[]{false,true}));
+        register(registry,new ExternSpec("lean_string_utf8_byte_size",STR_SIZE,"tagged",new String[]{"object"},new boolean[]{true}));
+        register(registry,new ExternSpec("lean_array_mk",ARRAY_MK,"object",new String[]{"erased","tobject"},new boolean[]{false,false}));
+        register(registry,new ExternSpec("lean_array_get_size",ARRAY_SIZE,"tagged",new String[]{"erased","object"},new boolean[]{false,true}));
+        register(registry,new ExternSpec("lean_array_fget_borrowed",ARRAY_GET,"tobject",new String[]{"erased","object","tobject","erased"},new boolean[]{false,true,true,false}));
+        register(registry,new ExternSpec("lean_get_stdout",GET_STDOUT,"object",new String[]{"void"},new boolean[]{false}));
+        register(registry,new ExternSpec("lean_panic_fn_borrowed",PANIC,"tobject",new String[]{"erased","tobject","object"},new boolean[]{false,true,false}));
         registry.replaceAll((symbol,entries)->Collections.unmodifiableList(entries));
         return Collections.unmodifiableMap(registry);
     }
@@ -97,6 +113,7 @@ public final class Interpreter implements AutoCloseable {
         private Function closure;
         private Program image;
         private boolean dead;
+        private boolean array;
         Node(int tag, int size, int scalarBytes) {
             this.tag=tag; fields=new Object[size]; scalars=new byte[scalarBytes];
         }
@@ -107,6 +124,7 @@ public final class Interpreter implements AutoCloseable {
         int[] params;
         int[] paramTypes;
         Body body;
+        Object privateOwner;
         Function(String label) { this.label=label; }
     }
     static final class Expr {
@@ -144,6 +162,12 @@ public final class Interpreter implements AutoCloseable {
     private final Object[] constants;
     private final boolean[] constantReady;
     private boolean closed;
+    private final Object runtimeIdentity=new Object();
+    private Node stdoutRoot;
+    private final StringBuilder output=new StringBuilder();
+    private WeakReference<String> utf8Key;
+    private byte[] utf8Bytes;
+    private Object[] releaseWork=new Object[32];
     private long callsLeft;
     private final boolean explicit;
     private static final int IDLE=0, RUNNING=1, COMPLETE=2, FAILED=3;
@@ -333,7 +357,7 @@ public final class Interpreter implements AutoCloseable {
                     case SPROJ: require((b.type==U8||b.type==U32)&&lane(env,e.a)==OBJ,"Scalar projection lane mismatch"); break;
                     case UPROJ: require(b.type==USIZE&&lane(env,e.a)==OBJ,"USize projection lane mismatch"); break;
                     case FAP: checkArgs(env,e.args,e.target.paramTypes); require(b.type==e.target.resultType,"Call result lane mismatch"); break;
-                    case PAP: require(b.type==OBJ&&e.args.length<e.target.params.length,"Invalid partial application"); for(int i=0;i<e.target.paramTypes.length;i++) require(e.target.paramTypes[i]==OBJ,"Unboxed partial target unsupported; boxed wrapper required"); for(int a:e.args) require(lane(env,a)==OBJ,"Partial argument must be boxed"); break;
+                    case PAP: require(b.type==OBJ&&e.args.length<e.target.params.length,"Invalid partial application"); require(e.target.intrinsic!=ARRAY_SIZE&&e.target.intrinsic!=ARRAY_GET,"Borrowed array primitive requires owned closure wrapper"); for(int i=0;i<e.target.paramTypes.length;i++) require(e.target.paramTypes[i]==OBJ,"Unboxed partial target unsupported; boxed wrapper required"); for(int a:e.args) require(lane(env,a)==OBJ,"Partial argument must be boxed"); break;
                     case AP: require(b.type==OBJ&&lane(env,e.a)==OBJ&&e.args.length>0,"Unsupported closure application"); for(int a:e.args) require(lane(env,a)==OBJ,"Closure argument must be boxed"); break;
                     case BOX: require(b.type==OBJ&&e.b!=OBJ&&lane(env,e.a)==e.b,"Box lane mismatch"); break;
                     case UNBOX: require(b.type!=OBJ&&lane(env,e.a)==OBJ,"Unbox lane mismatch"); break;
@@ -371,15 +395,43 @@ public final class Interpreter implements AutoCloseable {
         if(!(o instanceof Node)||((Node)o).dead) throw error("Expected live object"); return (Node)o;
     }
     public void inc(Object o,int n) {
+        if(n<0) throw error("Negative reference increment");
         if(o instanceof Node) { Node v=node(o); if(v.rc!=0) { v.rc=Math.addExact(v.rc,n); retains+=n; } }
     }
     public void dec(Object o,int n) {
-        if(o instanceof Node) {
-            Node v=node(o); if(v.rc==0) return;
-            if(n>v.rc) throw error("Reference count underflow");
-            v.rc-=n; releases+=n;
-            if(v.rc==0) { v.dead=true; for(int i=0;i<v.fields.length;i++) { Object child=v.fields[i]; v.fields[i]=null; dec(child,1); } }
-        }
+        if(n<0) throw error("Negative reference decrement");
+        if(!(o instanceof Node)) return;
+        Node v=node(o);
+        if(v.rc==0) return;
+        if(n>v.rc) throw error("Reference count underflow");
+        v.rc-=n; releases+=n;
+        if(v.rc==0) destroy(v);
+    }
+    private void destroy(Node current) {
+        int pending=0;
+        try {
+            while(true) {
+                current.dead=true;
+                // Transfer child-edge owners to an explicit private work
+                // stack. No native finalizers run in this profile.
+                for(int i=current.fields.length-1;i>=0;i--) {
+                    Object child=current.fields[i]; current.fields[i]=null;
+                    if(child instanceof Node) {
+                        if(pending==releaseWork.length) releaseWork=Arrays.copyOf(releaseWork,Math.multiplyExact(pending,2));
+                        releaseWork[pending++]=child;
+                    }
+                }
+                Node next=null;
+                while(pending!=0) {
+                    Node child=node(releaseWork[--pending]); releaseWork[pending]=null;
+                    if(child.rc==0) continue;
+                    child.rc--; releases++;
+                    if(child.rc==0) { next=child; break; }
+                }
+                if(next==null) return;
+                current=next;
+            }
+        } finally { Arrays.fill(releaseWork,0,pending,null); }
     }
     private void unique(Node n) { if(n.rc!=1) throw error("Expected exclusive object"); }
     private static BigInteger nat(Object x) {
@@ -451,13 +503,112 @@ public final class Interpreter implements AutoCloseable {
         if(f.intrinsic<=POW) { intrinsic(f,obj(slots[0]),obj(slots[1])); return; }
         Object a=f.paramTypes[0]==OBJ?obj(slots[0]):Long.valueOf(numbers[bp+slots[0]]);
         Object b=slots.length<2?ERASED:f.paramTypes[1]==OBJ?obj(slots[1]):Long.valueOf(numbers[bp+slots[1]]);
-        scalarIntrinsic(f,a,b);
+        if(f.intrinsic>=STR_PUSH) {
+            Object c=slots.length<3?ERASED:f.paramTypes[2]==OBJ?obj(slots[2]):Long.valueOf(numbers[bp+slots[2]]);
+            runtimeIntrinsic(f,a,b,c);
+        } else scalarIntrinsic(f,a,b);
     }
     private void intrinsicExternal(Function f,Object[] args) {
         if(f.intrinsic<=POW) { intrinsic(f,args[0],args[1]); return; }
         Object a=f.paramTypes[0]==OBJ?args[0]:Long.valueOf(inputScalar(args[0],f.paramTypes[0]));
         Object b=args.length<2?ERASED:f.paramTypes[1]==OBJ?args[1]:Long.valueOf(inputScalar(args[1],f.paramTypes[1]));
-        scalarIntrinsic(f,a,b);
+        if(f.intrinsic>=STR_PUSH) {
+            Object c=args.length<3?ERASED:f.paramTypes[2]==OBJ?args[2]:Long.valueOf(inputScalar(args[2],f.paramTypes[2]));
+            runtimeIntrinsic(f,a,b,c);
+        } else scalarIntrinsic(f,a,b);
+    }
+    private String text(Object value) { require(value instanceof String,"Expected immutable String"); return (String)value; }
+    private byte[] utf8(Object value) {
+        String s=text(value);
+        if(utf8Key!=null&&utf8Key.get()==s) return utf8Bytes;
+        for(int i=0;i<s.length();i++) {
+            char ch=s.charAt(i);
+            if(Character.isHighSurrogate(ch)) {
+                require(i+1<s.length()&&Character.isLowSurrogate(s.charAt(i+1)),"Invalid Unicode String"); i++;
+            } else require(!Character.isLowSurrogate(ch),"Invalid Unicode String");
+        }
+        byte[] bytes=s.getBytes(StandardCharsets.UTF_8);
+        if(bytes.length<=1_048_576) { utf8Key=new WeakReference<>(s); utf8Bytes=bytes; }
+        return bytes;
+    }
+    private int codePoint(Object value) {
+        long cp=inputScalar(value,U32);
+        require(cp<=0x10ffff&&(cp<0xd800||cp>0xdfff),"Invalid Unicode scalar");
+        return (int)cp;
+    }
+    private Object[] listElements(Object list) {
+        ArrayList<Object> values=new ArrayList<>();
+        Object cursor=list;
+        while(!(cursor instanceof Long&&(Long)cursor==0)) {
+            Node n=node(cursor);
+            require(!n.array&&n.closure==null&&n.tag==1&&n.fields.length==2&&n.scalars.length==0,"Expected List cons");
+            if(values.size()>=1_000_000) throw error("List traversal limit");
+            values.add(n.fields[0]); cursor=n.fields[1];
+        }
+        return values.toArray();
+    }
+    private Node array(Object value) { Node n=node(value); require(n.array,"Expected Array"); return n; }
+    private Node ioUnit() { Node n=new Node(0,1,0); n.fields[0]=ERASED; allocations++; return n; }
+    private Node stdout() {
+        if(stdoutRoot==null) {
+            Node stream=new Node(0,6,0); allocations++;
+            for(int i=0;i<6;i++) {
+                int arity=i==1||i==2||i==4?2:1;
+                Function f=new Function("<captured-stream."+i+">");
+                f.id=-1; f.intrinsic=STREAM_FLUSH+i; f.params=new int[arity]; f.paramTypes=new int[arity];
+                f.width=arity+1; f.resultType=OBJ; f.privateOwner=runtimeIdentity;
+                for(int p=0;p<arity;p++) f.params[p]=p+1;
+                stream.fields[i]=closure(f,new Object[0]);
+            }
+            stdoutRoot=stream;
+        }
+        inc(stdoutRoot,1); return stdoutRoot;
+    }
+    public String capturedStdout() { return output.toString(); }
+    private void runtimeIntrinsic(Function f,Object a,Object b,Object c) {
+        switch(f.intrinsic) {
+            case STR_PUSH: utf8(a); result=text(a)+new String(Character.toChars(codePoint(b))); break;
+            case STR_APPEND: utf8(a); utf8(b); result=text(a)+text(b); break;
+            case STR_SIZE: result=Long.valueOf(utf8(a).length); break;
+            case STR_GET: case STR_NEXT: {
+                byte[] bytes=utf8(a); BigInteger index=nat(b);
+                require(index.bitLength()<=31,"UTF-8 position outside String");
+                int p=index.intValue();
+                require(p<bytes.length&&(bytes[p]&0xc0)!=0x80,"Expected in-range UTF-8 scalar position");
+                int first=Byte.toUnsignedInt(bytes[p]);
+                int width=first<128?1:first<224?2:first<240?3:4;
+                if(f.intrinsic==STR_NEXT) result=Long.valueOf(p+width);
+                else {
+                    int cp=width==1?first:first&((1<<(7-width))-1);
+                    for(int i=1;i<width;i++) cp=(cp<<6)|(bytes[p+i]&63);
+                    scalarResult=cp;
+                } break;
+            }
+            case STR_LIST: {
+                Object[] chars=listElements(a); StringBuilder builder=new StringBuilder();
+                for(Object ch:chars) builder.appendCodePoint(codePoint(ch));
+                String s=builder.toString(); dec(a,1); result=s; break;
+            }
+            case ARRAY_MK: {
+                Object[] elements=listElements(b); Node n=new Node(246,elements.length,0); n.array=true;
+                for(int i=0;i<elements.length;i++) { inc(elements[i],1); n.fields[i]=elements[i]; }
+                allocations++; dec(b,1); result=n; break;
+            }
+            case ARRAY_SIZE: result=Long.valueOf(array(b).fields.length); break;
+            case ARRAY_GET: {
+                Node n=array(b); BigInteger index=nat(c);
+                require(index.compareTo(BigInteger.valueOf(n.fields.length))<0,"Array index outside bounds");
+                result=n.fields[index.intValue()]; break; // Borrowed: caller IR owns the inc.
+            }
+            case GET_STDOUT: result=stdout(); break;
+            case STREAM_FLUSH: result=ioUnit(); break;
+            case STREAM_PUT: utf8(a); output.append(text(a)); result=ioUnit(); break;
+            case STREAM_TTY: result=ERASED; break;
+            case STREAM_READ: case STREAM_WRITE: case STREAM_LINE:
+                throw new UnsupportedOperationException("Captured-output stream operation not implemented: "+f.label);
+            case PANIC: throw new UnsupportedOperationException("panicCore default-return policy outside captured-output profile: "+text(c));
+            default: throw error("Invalid runtime intrinsic");
+        }
     }
     private void scalarIntrinsic(Function f,Object a,Object b) {
         switch(f.intrinsic) {
@@ -551,6 +702,7 @@ public final class Interpreter implements AutoCloseable {
     private Object apply(Object value,Object[] args) {
         Node closure=node(value); if(closure.closure==null) throw error("Expected closure");
         if(closure.image!=program) throw error("Closure belongs to another code image");
+        if(closure.closure.privateOwner!=null&&closure.closure.privateOwner!=runtimeIdentity) throw error("Host closure belongs to another interpreter");
         Function f=closure.closure; Object[] combined=new Object[closure.fields.length+args.length];
         System.arraycopy(closure.fields,0,combined,0,closure.fields.length);
         // A shared closure keeps ownership of its captured arguments.
@@ -643,6 +795,7 @@ public final class Interpreter implements AutoCloseable {
         explicitOnly();
         if(advancing||phase!=IDLE) throw new IllegalStateException("Take the result or finish the current execution before start");
         Function f=program.functions[function];
+        rootEntry(f);
         if(args.length!=f.params.length) throw error("Arity mismatch: "+f.label);
         // Validate host inputs before publishing state or writing stack slots.
         for(int i=0;i<args.length;i++) {
@@ -650,6 +803,7 @@ public final class Interpreter implements AutoCloseable {
             else if(args[i] instanceof Node) {
                 Node n=node(args[i]);
                 if(n.closure!=null&&n.image!=program) throw error("Closure belongs to another code image");
+                if(n.closure!=null&&n.closure.privateOwner!=null&&n.closure.privateOwner!=runtimeIdentity) throw error("Host closure belongs to another interpreter");
             }
         }
         if(f.intrinsic!=0) {
@@ -695,6 +849,7 @@ public final class Interpreter implements AutoCloseable {
     private boolean prepareExplicitApply(Object value,Object[] args) {
         Node closure=node(value); if(closure.closure==null) throw error("Expected closure");
         if(closure.image!=program) throw error("Closure belongs to another code image");
+        if(closure.closure.privateOwner!=null&&closure.closure.privateOwner!=runtimeIdentity) throw error("Host closure belongs to another interpreter");
         Function f=closure.closure;
         Object[] combined=new Object[closure.fields.length+args.length];
         System.arraycopy(closure.fields,0,combined,0,closure.fields.length);
@@ -823,6 +978,11 @@ public final class Interpreter implements AutoCloseable {
         pendingOwnedResult=false; result=null; entry=null; phase=IDLE;
         return value;
     }
+    /** Internal borrowed array primitives need an owning wrapper at host entry. */
+    private static void rootEntry(Function f) {
+        if(f.intrinsic==ARRAY_SIZE||f.intrinsic==ARRAY_GET)
+            throw new UnsupportedOperationException("Borrowed array primitive requires owned guest wrapper at external entry");
+    }
     /** Internal owned-argument typed entry, not Lean's generic call_boxed ABI. */
     public Object invoke(int function,Object[] args) {
         if(closed) throw error("Interpreter closed");
@@ -830,6 +990,7 @@ public final class Interpreter implements AutoCloseable {
         if(sp!=0) throw error("Reentrant external invocation unsupported");
         callsLeft=10_000_000;
         Function f=program.functions[function];
+        rootEntry(f);
         if(args.length!=f.params.length) throw error("Arity mismatch: "+f.label);
         if(f.params.length==0) { load(f); if(f.resultType==OBJ) inc(result,1); }
         else enter(f,args);
@@ -856,6 +1017,8 @@ public final class Interpreter implements AutoCloseable {
         }
         if(pendingOwnedResult&&entry.resultType==OBJ) dec(result,1);
         pendingOwnedResult=false;
+        if(stdoutRoot!=null) { dec(stdoutRoot,1); stdoutRoot=null; }
+        utf8Key=null; utf8Bytes=null;
         for(int i=0;i<constants.length;i++) if(constantReady[i]&&program.functions[i].resultType==OBJ) dec(constants[i],1);
         Arrays.fill(constants,null); Arrays.fill(objects,null); result=null;
     }

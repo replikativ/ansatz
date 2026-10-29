@@ -1,0 +1,49 @@
+{:schema 1,
+ :producer "819816b2e0a3bf405af45ae5c7af2491d8f5bee6",
+ :source "research/java-ir-baseline/StringOracle.lean",
+ :source-sha256
+ "38cb56f734b82701619123405b972b21637a00d7365a940561ebaf85f7621ed7",
+ :exit 0,
+ :mode
+ "Pinned native Lean --run, interpreter.prefer_native=false; native externs enabled",
+ :strings
+ [{:label "empty", :size 0, :bytes []}
+  {:label "unicode",
+   :size 11,
+   :bytes [65 195 169 226 130 172 240 159 152 128 10]}
+  {:label "nul", :size 3, :bytes [65 0 66]}
+  {:label "push", :size 5, :bytes [65 240 159 152 128]}
+  {:label "append",
+   :size 22,
+   :bytes
+   [65
+    195
+    169
+    226
+    130
+    172
+    240
+    159
+    152
+    128
+    10
+    65
+    195
+    169
+    226
+    130
+    172
+    240
+    159
+    152
+    128
+    10]}
+  {:label "ofList",
+   :size 11,
+   :bytes [65 195 169 226 130 172 240 159 152 128 10]}],
+ :positions
+ [{:position 0, :cp 65, :next 1}
+  {:position 1, :cp 233, :next 3}
+  {:position 3, :cp 8364, :next 6}
+  {:position 6, :cp 128512, :next 10}
+  {:position 10, :cp 10, :next 11}]}
