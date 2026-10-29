@@ -3,7 +3,8 @@
    Optimized consumer: original producer artifacts are authenticated by exact pins.
    This file uses globals-consumer-factory; the legacy factory must remain unloaded.
    Wrappers absent from the lazy original closure are independently linked additions.
-   No guest invocation, initializer, native producer, owner change or source close.
+   Preparation is host-only; explicit check/admission are separate owned guest
+   boundaries. No native producer, initializer replay or source close.
    Borrowed catalogue/Store/lease must outlive this controller and every borrower."
   (:require [clojure.data.json :as json]
             [clojure.string :as str]
@@ -25,6 +26,7 @@
             [prototype.source-inductive-preparation :as ordinary]
             [prototype.cases-on-preparation :as cases]
             [prototype.compact-import-check :as compact]
+            [prototype.full-init-admission :as full-admission]
             [prototype.coherent-stage-guards :as guards]
             [prototype.preparation :as preparation]
             [prototype.runtime-string :as runtime-string])
@@ -43,6 +45,12 @@
                              "prototype.coherent-source-preparation/validate-approved-composition!"
                              "prototype.coherent-source-preparation/assert-initialization-preserved!"
                              "prototype.coherent-source-preparation/validate-prefix-native-bindings!"])
+(def admitted-controller-entrypoints
+  (mapv #(case %
+           "prototype.coherent-source-preparation/check-restored!" "prototype.coherent-source-preparation/admit-restored!"
+           "prototype.coherent-source-preparation/prepare!" "prototype.coherent-source-preparation/prepare-admitted!"
+           %) controller-entrypoints))
+
 (def helper-row-counts {:graph 247 :export 73 :import 56 :visibility 3 :old-import 43})
 (def publication-abi
   {:params [{:ty "object" :borrow false} {:ty "tobject" :borrow true} {:ty "object" :borrow true}]
@@ -69,19 +77,20 @@
 (defonce ^:private check-state (atom nil))
 (defonce ^:private initialization-baseline (atom nil))
 (defn checking-checkpoint
-  "Borrow checking escrow and original resource lease; never serialize this packet." [] @check-state)
+  "Borrow checking/admission escrow and original lease; never serialize this packet." [] @check-state)
 (defn- initialization-snapshot [world]
   (select-keys world [:initialized-modules :initializing? :initialization-scope]))
 (defn assert-initialization-preserved! [world]
   (check! (and (map? @initialization-baseline)
                (= @initialization-baseline (initialization-snapshot world)))
-          "Native initialization state changed during check/preparation")
+          "Native initialization state changed during check/admission/preparation")
   {:preserved true :initialized-modules (count (:initialized-modules world))})
 (defn- approved-contract [factory]
   (let [{:keys [sha256 contract] :as approved} (factory/coherent-contract factory)
         controller (filter #(= controller-resource (:id %)) (get-in contract [:composition :controllers]))]
     (check! (and (= 1 (count controller))
-                 (= controller-entrypoints (:entrypoints (first controller)))
+                 (= (if (:kernel-base-admission contract) admitted-controller-entrypoints controller-entrypoints)
+                    (:entrypoints (first controller)))
                  (= sha256 (:consumer-contract-sha256 (factory/descriptor factory))))
             "Actual Factory does not approve this captured controller/entrypoints")
     approved))
@@ -92,6 +101,8 @@
   [{:keys [factory restored support] :as input}]
   (check! (= #{:factory :restored :support} (set (keys input))) "Exact coherent fresh-check inputs required")
   (let [{:keys [sha256 contract]} (approved-contract factory)
+        _ (check! (nil? (:kernel-base-admission contract))
+                  "Fresh strict Init check rejects artifact admission mode")
         descriptor (factory/descriptor factory)
         policy (:kernel-policy contract)
         configuration {:trusted-functions (get-in support [:session :functions])
@@ -131,6 +142,55 @@
         (assert-initialization-preserved! (:world checked))
         (swap! check-state assoc :phase :checked)
         checked)
+      (catch Throwable failure
+        (swap! check-state assoc :phase :failed :failure failure)
+        (throw failure)))))
+
+(defn admit-restored!
+  "Claim this controller's ACTUAL restore/support once for the fixed full Init
+   artifact constructor. Retain the original restore/lease, actual result and
+   initialization baseline in :admitted escrow. No strict certificate/checking
+   flag, source acquisition, finalizer or initializer replay is manufactured."
+  [{:keys [factory restored support] :as input}]
+  (check! (= #{:factory :restored :support} (set (keys input))) "Exact coherent artifact-admission inputs required")
+  (let [{:keys [sha256 contract]} (approved-contract factory)
+        _ (check! (= {:basis :trusted-artifact :profile full-admission/supported-profile}
+                    (:kernel-base-admission contract))
+                  "Artifact Init admission requires the explicit supported contract mode")]
+    (check! (compare-and-set! check-state nil {:phase :admitting :entry input :contract-sha256 sha256})
+            "Coherent Init admission is one-shot; no retry")
+    (reset! initialization-baseline (initialization-snapshot (:world restored)))
+    (try
+      (let [admitted (full-admission/admit-restored! input)
+            _ (swap! check-state assoc :phase :returned :result admitted)
+            world (:world admitted) projection (:checked-result admitted) env (:environment admitted)
+            source (:source support) associations (:kernel-environments world)
+            association (first (vals associations))
+            node (when (m/ref? env) (m/node world env))
+            provenance (:kernel-provenance projection)]
+        (guards/admitted-init-facts!
+         {:status (:status admitted) :constants (count (:constants projection))
+          :projected (count (:projected projection))
+          :axioms (set (map str (get-in projection [:base-assumptions :axioms])))
+          :owned-environment? (and (m/ref? env) node (integer? (:rc node)) (<= 0 (:rc node)))
+          :java-env? (instance? Env (:env projection)) :association-count (count associations)
+          :same-association-env? (identical? (:env projection) (:env association))
+          :projection-source-count (count (:projection-sources projection))
+          :same-projection-source? (identical? source (first (:projection-sources projection)))
+          :single-open-source? (and (= 1 (count (:native-imports world)))
+                                   (identical? source (first (:native-imports world))) (false? @(:closed source)))
+          :matching-functions? (identical? (:functions world) (get-in admitted [:session :functions]))
+          :inactive-init? (and (= :done (:status world)) (empty? (:frames world)) (nil? (:host-request world))
+                               (not (:initializing? world)) (not (:initialization-scope world))
+                               (= @initialization-baseline (initialization-snapshot world)))
+          :base-basis (:base-basis provenance)
+          :artifact-admission? (and (:admission admitted)
+                                    (identical? (:admission admitted) (:artifact-admission provenance))
+                                    (= provenance (:kernel-provenance admitted) (:kernel-provenance association))
+                                    (not-any? #(contains? admitted %) [:certificate :strictly-checked?]))})
+        (assert-initialization-preserved! world)
+        (swap! check-state assoc :phase :admitted)
+        admitted)
       (catch Throwable failure
         (swap! check-state assoc :phase :failed :failure failure)
         (throw failure)))))
@@ -651,19 +711,28 @@
       (throw (ex-info "EIO builder pre-seal preparation failed"
                       {:eio-preseal-entry candidate :eio-preseal-configuration configuration} cause)))))
 
-(defn prepare!
-  "One-shot HOST-ONLY preparation from original actual checked Init packet and
-   independently retained Name-encoder-derived support. No post-user candidate.
-   Returns scalar summary; full borrowed prepared packet stays in checkpoint.
-   A missing existing UInt32 helper value is explicitly NONRUNNABLE, never seeded
-   or initialized. Any thrown error is terminal; no automatic retry or effects."
-  [{:keys [factory checked support resolve-artifact] :as input}]
-  (check! (and (= #{:factory :checked :support :resolve-artifact} (set (keys input)))
-               (fn? resolve-artifact)
-               (identical? factory (get-in @check-state [:entry :factory]))
-               (identical? support (get-in @check-state [:entry :support]))
-               (= :checked (:phase @check-state)) (identical? checked (:result @check-state)))
-          "Exact actual Factory and this controller's freshly checked Init/support required")
+(defn- retain-base-projection [prepared basis base projection]
+  (cond-> (assoc prepared :kernel-projection projection :base-basis basis)
+    (= :strict-fresh basis) (assoc :certificate projection :original-checked base)
+    (= :trusted-artifact basis) (assoc :checked-result projection :admission (:admission base)
+                                     :kernel-provenance (:kernel-provenance projection)
+                                     :original-admitted base)))
+
+(defn- prepare-base!
+  [basis base {:keys [factory support resolve-artifact] :as input}]
+  (let [artifact? (= :trusted-artifact basis)
+        key (if artifact? :admitted :checked)
+        expected-phase (if artifact? :admitted :checked)
+        {:keys [contract]} (approved-contract factory)]
+    (check! (and (= #{:factory key :support :resolve-artifact} (set (keys input)))
+                 (fn? resolve-artifact)
+                 (identical? factory (get-in @check-state [:entry :factory]))
+                 (identical? support (get-in @check-state [:entry :support]))
+                 (= expected-phase (:phase @check-state)) (identical? base (:result @check-state))
+                 (if artifact?
+                   (= {:basis :trusted-artifact :profile full-admission/supported-profile} (:kernel-base-admission contract))
+                   (nil? (:kernel-base-admission contract))))
+            "Exact actual Factory and this controller's matching Init basis/result/support required"))
   (check! (compare-and-set! state nil {:phase :preparing :entry input})
           "Source-import preparation already claimed; no retry")
   (try
@@ -674,21 +743,21 @@
                                :diagnostic-sink (fn [text]
                                                   (check! (string? text) "Bounded panic report must be String")
                                                   (swap! state update :panic-reports (fnil conj []) text) nil)}
-          world (:world checked) actual (:session checked) trusted-session (:session support)
+          world (:world base) actual (:session base) trusted-session (:session support)
           original (:functions trusted-session) native-bindings (:bindings trusted-session)
           source (:source support) catalogue (:catalogue support)
-          certificate (:certificate checked) helpers (:kernel-helpers support)
+          projection ((if (= :trusted-artifact basis) :checked-result :certificate) base) helpers (:kernel-helpers support)
           init-before (assert-initialization-preserved! world)
-          _ (check! (and (= :ok (:status checked)) (instance? Env (:env certificate))
+          _ (check! (and (= :ok (:status base)) (instance? Env (:env projection))
                          (= :done (:status world)) (empty? (:frames world)) (nil? (:host-request world))
                          (identical? (:functions world) (:functions actual))
                          (= 1 (count (:native-imports world)))
                          (instance? prototype.module_store.Store source) (false? @(:closed source))
                          (identical? source (first (:native-imports world)))
-                         (= 1 (count (:projection-sources certificate)))
-                         (identical? source (first (:projection-sources certificate)))
+                         (= 1 (count (:projection-sources projection)))
+                         (identical? source (first (:projection-sources projection)))
                          (seq original) (seq (:manifests catalogue)))
-                    "Original checked Init/support/source identity invariant failed")
+                    "Original Init/support/source identity invariant failed")
           _ (check! (empty? (get-in world [:eval-const-authorizations :units]))
                     "Source-import preparation requires original pre-user Init world")
           _ (doseq [[name f] original]
@@ -699,8 +768,17 @@
                                   [frontend/compile-target frontend/header-target
                                    factory/exporter factory/shared-linear-target file-witness-target]))
           _ (eval/validate-executables! world original protected-roots)
-          _ (check! (some #(identical? (:env certificate) (:env %)) (vals (:kernel-environments world)))
-                    "Original checked Init association missing")
+          _ (check! (some (fn [association]
+                           (and (identical? (:env projection) (:env association))
+                                (if (= :trusted-artifact basis)
+                                  (and (identical? (:admission base)
+                                                   (get-in association [:kernel-provenance :artifact-admission]))
+                                       (= (:kernel-provenance projection) (:kernel-provenance base)
+                                          (:kernel-provenance association))
+                                       (not (contains? base :certificate)))
+                                  (not= :trusted-artifact (get-in association [:kernel-provenance :base-basis])))))
+                         (vals (:kernel-environments world)))
+                    "Original Init association or basis missing")
           indexes (helper-indexes approved-pins)
           overlaid (-> catalogue (declarations/overlay (:export indexes))
                        (declarations/overlay (:import indexes))
@@ -743,7 +821,7 @@
           _ (doseq [[name f] changes :when (not (some #{name} approved-relinks))]
               (check! (or (not (contains? (:functions world) name))
                            (identical? f (get-in world [:functions name])))
-                      "New independent helper closure collides with original checked code"))
+                      "New independent helper closure collides with original base code"))
           actual-relinks (filterv #(and (contains? original %)
                                         (not (identical? (get original %) (get derived %))))
                                   approved-relinks)
@@ -760,13 +838,13 @@
                       "Host preparation changed guest storage/ownership/authority"))
           ;; Extend ordinary kernel helpers BEFORE any graph evaluator closure
           ;; captures its registry/catalogue. Every packet below still borrows
-          ;; the original checked Environment and Source; no guest call occurs.
+          ;; the original base Environment and Source; no guest call occurs.
           preseal-actual (raw/open-functions functions routed (session-options actual))
           preseal-independent (raw/open-functions derived routed (session-options trusted-session))
           preseal-support (assoc support :catalogue overlaid :session preseal-independent)
           panic-result (prepare-panic
                          {:world prepared-world :session preseal-actual :catalogue overlaid
-                          :environment (:environment checked) :certificate certificate
+                          :environment (:environment base) :kernel-projection projection
                           :trusted-functions derived :support preseal-support}
                          {:catalogue overlaid :trusted-functions derived :trusted-bindings routed
                           :kernel-helpers helpers :kernel-policy (:kernel-policy support)
@@ -819,12 +897,12 @@
           preprofile-inventory {:local-heap-entries (count (:heap extended-world))
                                 :world-functions (count (:functions extended-world))
                                 :independently-trusted-functions (count extended-trusted)
-                                :native-checked-CIs (count (:constants certificate))
+                                (if (= :trusted-artifact basis) :native-admitted-CIs :native-checked-CIs) (count (:constants projection))
                                 :double-baseline-admission-entries
                                 (* 2 (reduce + (count (:functions extended-world))
                                              (map #(count (get-in extended-world [:eval-const-authorizations %]))
                                                   [:units :unit-digests :declarations :functions])))}
-          _ (check! (and (= 65994 (:native-checked-CIs preprofile-inventory))
+          _ (check! (and (= 65994 (get preprofile-inventory (if (= :trusted-artifact basis) :native-admitted-CIs :native-checked-CIs)))
                          (<= (:local-heap-entries preprofile-inventory) 20000000)
                          (<= (:double-baseline-admission-entries preprofile-inventory) 1000000))
                     "Actual pre-profile scalar inventory exceeds fixed genuine draft limits")
@@ -867,19 +945,20 @@
               (check! (= 0 (m/unbox-value world "uint32" (:value global)))
                       "Existing helper UInt32 value is not zero"))
           missing (if ready? [] [pure-value-target])
-          prepared {:profile profile-id :consumer-contract-sha256 contract-sha256
+          prepared (retain-base-projection {:profile profile-id :consumer-contract-sha256 contract-sha256
                     :actual-factory factory :approved-contract contract
                     :prefix-native-bindings prefix-native-bindings
                     :final-configuration extended-configuration :world extended-world :session session
-                    :catalogue extended-catalogue :environment (:environment checked) :certificate certificate
+                    :catalogue extended-catalogue :environment (:environment base)
+                    :kernel-projection projection :base-basis basis
                     :support (assoc extended-support :catalogue extended-catalogue :session independent-session)
-                    :trusted-functions extended-trusted :original-checked checked :original-support support
+                    :trusted-functions extended-trusted :original-support support
                     :graph-profile (:profile profile-result) :graph-eval-binding binding
                     :graph-install-options (:install-options profile-result)
                     :runnable? ready? :missing-helper-values missing
                     :frontend-configuration
-                    {:install-options (:install-options profile-result)}}
-          evidence {:consumer-contract-sha256 contract-sha256 :cases-on-preparation (:profile cases-result)
+                    {:install-options (:install-options profile-result)}} basis base projection)
+          evidence {:consumer-contract-sha256 contract-sha256 :base-basis basis :cases-on-preparation (:profile cases-result)
                     :panic-preparation (:profile panic-result)
                     :ordinary-preparation (:profile ordinary-result)
                     :eio-builder-preparation (when eio-builder-artifact (:profile preseal-result))
@@ -906,3 +985,57 @@
     (catch Throwable failure
       (swap! state assoc :phase :failed :failure failure)
       (summary))))
+
+
+(defn prepare!
+  "One-shot host-only preparation from this controller's actual strict :checked
+   result. Artifact admission uses prepare-admitted! and never the certificate slot."
+  [input]
+  (prepare-base! :strict-fresh (:checked input) input))
+
+(defn prepare-admitted!
+  "One-shot host-only preparation from this controller's actual :admitted result.
+   Exact keys are {:factory :admitted :support :resolve-artifact}; retain actual
+   artifact projection/token under explicit fields, with no strict certificate."
+  [input]
+  (prepare-base! :trusted-artifact (:admitted input) input))
+
+(defn ^:no-doc preparation-projection!
+  "Borrow the projection only from this controller's actual prepared escrow and
+   private strict/admitted result identity. Actual approved composition selects
+   its basis; public prepared flags cannot replace that phase/identity boundary."
+  [prepared]
+  (let [{:keys [contract]} (approved-contract (:actual-factory prepared))
+        artifact? (some? (:kernel-base-admission contract))
+        phase (if artifact? :admitted :checked)
+        base (get prepared (if artifact? :original-admitted :original-checked))
+        projection (get base (if artifact? :checked-result :certificate))
+        world (:world prepared) source (get-in prepared [:support :source])]
+    (check! (and (identical? prepared (:prepared @state))
+                 (= phase (:phase @check-state)) (identical? base (:result @check-state))
+                 (identical? (:actual-factory prepared) (get-in @check-state [:entry :factory]))
+                 (identical? (:original-support prepared) (get-in @check-state [:entry :support]))
+                 (identical? projection (:kernel-projection prepared))
+                 (instance? Env (:env projection))
+                 (= (:environment base) (:environment prepared))
+                 (identical? source (get-in prepared [:original-support :source]))
+                 (= 1 (count (:native-imports world)))
+                 (identical? source (first (:native-imports world))) (false? @(:closed source))
+                 (some (fn [association]
+                         (and (identical? (:env projection) (:env association))
+                              (if artifact?
+                                (= (:kernel-provenance projection) (:kernel-provenance association))
+                                (not= :trusted-artifact (get-in association [:kernel-provenance :base-basis])))))
+                       (vals (:kernel-environments world)))
+                 (if artifact?
+                   (and (= {:basis :trusted-artifact :profile full-admission/supported-profile}
+                           (:kernel-base-admission contract))
+                        (not (contains? prepared :certificate))
+                        (identical? projection (:checked-result prepared))
+                        (identical? (:admission base) (:admission prepared))
+                        (identical? (:admission base)
+                                    (get-in projection [:kernel-provenance :artifact-admission])))
+                   (and (identical? projection (:certificate prepared))
+                        (not= :trusted-artifact (get-in projection [:kernel-provenance :base-basis])))))
+            "Helper preparation does not retain this controller's actual Init basis/result")
+    projection))

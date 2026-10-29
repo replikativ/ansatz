@@ -35,12 +35,20 @@ break if these objects were shared directly.
 5. Keep host effects/resources subject to explicit share/copy/reject policy.
    Include constants, pending applications, result ownership, output and private
    runtime functions in the capture contract, as the current oracle does.
+6. Specify reclamation alongside branch slots. JVM GC can collect unreachable
+   direct object graphs, but a World table that strongly retains every node ID
+   keeps those objects reachable. RC alone will not reclaim mutable cycles in
+   such a table. The forkable representation must provide appropriate tracing
+   or another demonstrated reclamation scheme if those cycles are supported;
+   sharing immutable payloads does not settle that question.
 
 Measure direct execution, slot lookup overhead, capture bytes/time, and sparse
 versus dense post-fork writes against the eager oracle. Test aliasing, repeated
 forks, destruction, RC=0 persistent descendants, partial applications and parent
 close. Consider page-level COW only if copying dense branch records is material;
 RC writes can dirty pages even without logical payload updates.
+Include long-running create/drop-cycle tests with retained and released branch
+roots; do not infer collection behavior merely from running on the JVM.
 
 This is a design candidate, not an implemented cheap-fork backend. The Program,
 IR semantics and test corpus should remain shared rather than creating another

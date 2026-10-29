@@ -23,7 +23,15 @@
          'prototype.artifact-host-test 'prototype.kernel-host-test
          'prototype.source-import-authorization-test 'prototype.resident-artifact-test
          'prototype.resident-frontend-test 'prototype.resident-preparation-test
-         'prototype.resident-binding-dependencies-test)
+         'prototype.resident-binding-dependencies-test
+         'prototype.full-init-admission-test
+         'prototype.coherent-consumer-profile-test
+         'prototype.coherent-stage-guards-test
+         'prototype.coherent-source-preparation-test
+         'prototype.coherent-helper-value-test
+         'prototype.resident-admitted-init-prefix-test
+         'prototype.resident-init-prefix-test
+         'prototype.coherent-jvm-slice-test)
 (let [artifact (first *command-line-args*)
       _ (assert artifact "Pass compiled engine directory or jar")
       basis (java-ir-baseline/class-basis artifact)
@@ -60,7 +68,15 @@
                (clojure.test/run-tests 'prototype.resident-artifact-test)
                (clojure.test/run-tests 'prototype.resident-frontend-test)
                (clojure.test/run-tests 'prototype.resident-preparation-test)
-               (clojure.test/run-tests 'prototype.resident-binding-dependencies-test)]]
+               (clojure.test/run-tests 'prototype.resident-binding-dependencies-test)
+               (clojure.test/run-tests 'prototype.full-init-admission-test)
+               (clojure.test/run-tests 'prototype.coherent-consumer-profile-test)
+               (clojure.test/run-tests 'prototype.coherent-stage-guards-test)
+               (clojure.test/run-tests 'prototype.coherent-source-preparation-test)
+               (clojure.test/run-tests 'prototype.coherent-helper-value-test)
+               (clojure.test/run-tests 'prototype.resident-admitted-init-prefix-test)
+               (clojure.test/run-tests 'prototype.resident-init-prefix-test)
+               (clojure.test/run-tests 'prototype.coherent-jvm-slice-test)]]
   (shutdown-agents)
-  (System/exit (if (and (= [9 9 8 6 5 5 6 6 9 9 4 7 9 4 13 12 9 15 11 11 7 9 4 15 7 10 17 8 4] (mapv :test results))
+  (System/exit (if (and (= [9 9 8 6 5 5 6 6 9 9 4 7 9 4 13 12 9 15 11 11 7 9 4 15 7 10 17 8 4 6 10 9 5 3 4 6 13] (mapv :test results))
                        (every? #(zero? (+ (:fail %) (:error %))) results)) 0 1)))

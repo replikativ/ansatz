@@ -29,6 +29,7 @@
 (def kernel-policy {:allow-axioms? true :allow-unsafe? true :allow-compiler-markers? true})
 (def cases-on-original-row-sha256 "d7a54765268331ebe9afdfa4695a7702b8d53c95cd1a8c51da8ef41d1468e43d")
 (def max-contract-bytes (* 4 1024 1024))
+(def artifact-base-profile-id :full-init-lean-4.33.1-producer50f)
 (def option-keys
   (conj old/option-keys :consumer-contract-source :expected-consumer-contract-sha256))
 (def ^:private required-inputs
@@ -147,8 +148,15 @@
    identity. Callers must authenticate exact contract bytes BEFORE parsing them.
    Returns the same contract; does not resolve files or authorize guest code."
   [contract expected-implementation selected-profile selected-schema selected-stage-rank]
-  (exact! contract #{:schema :profile :producer :lean-commit :target :inventory
-                      :implementation-sha256 :composition :kernel-policy :limits} "contract")
+  (exact! contract (cond-> #{:schema :profile :producer :lean-commit :target :inventory
+                             :implementation-sha256 :composition :kernel-policy :limits}
+                    (contains? contract :kernel-base-admission) (conj :kernel-base-admission)) "contract")
+  (when (contains? contract :kernel-base-admission)
+    (wire/check (= jvm-profile-id selected-profile)
+                "Artifact base admission requires the finite JVM provider profile")
+    (wire/check (= {:basis :trusted-artifact :profile artifact-base-profile-id}
+                   (:kernel-base-admission contract))
+                "Unsupported explicit kernel base admission profile"))
   (exact! (:producer contract) #{:implementation-sha256 :recipe-sha256} "producer identity")
   (exact! (:limits contract) #{:max-helper-bytes :max-helper-declarations :checker-fuel} "limits")
   (wire/check (and (= selected-schema (:schema contract)) (= selected-profile (:profile contract))

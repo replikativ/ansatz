@@ -63,6 +63,7 @@
                          (= ["prototype.coherent-helper-value/initialize!"] (:entrypoints (first controller)))
                          (some #{:helper-value} (get-in approved [:contract :composition :stages])))
                     "Actual Factory does not approve the exact helper-value controller/stage")
+          projection (source/preparation-projection! prepared)
           world (:world prepared) session (:session prepared)
           registry (:trusted-functions prepared) globals (:globals world)
           _ (swap! state assoc :initialization-before (init-preserved! world))
@@ -80,7 +81,7 @@
                          (= 1 (count (:native-imports world)))
                          (identical? source (first (:native-imports world)))
                          (false? @(:closed source))
-                         (instance? Env (get-in prepared [:certificate :env]))
+                         (instance? Env (:env projection))
                          (not (contains? globals pure-value-target)))
                     "Helper stage requires the exact nonrunnable authenticated preparation")
           _ (check! (= {:params [] :body [:global pure-value-target initializer-target]}

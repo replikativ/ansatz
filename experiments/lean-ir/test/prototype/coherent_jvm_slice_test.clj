@@ -9,6 +9,27 @@
             [prototype.resident-frontend-test]
             [prototype.hosted-file-test]))
 
+(deftest application-reopen-preserves-an-actual-artifact-context-basis
+  (require 'prototype.resident-artifact-test)
+  (let [{:keys [prepared configuration admission source]}
+        ((resolve 'prototype.resident-artifact-test/fixture) :mutable)
+        adopt (resolve 'prototype.resident-frontend/adopt-admitted)
+        close (resolve 'prototype.resident-frontend/close!)
+        snapshot (resolve 'prototype.resident-frontend/snapshot)
+        reopen (resolve 'prototype.coherent-jvm-slice/reopen-application)
+        base (adopt prepared configuration admission)]
+    (try
+      (let [next (reopen base configuration (:application profile/execution-roles))
+            p (snapshot next) root (first (:fields (prototype.machine/node (:world p) (:environment p))))]
+        (try
+          (is (= :jvm (get-in p [:session :backend])))
+          (is (identical? admission (get-in p [:world :kernel-environments (:id root)
+                                              :kernel-provenance :artifact-admission])))
+          (is (thrown? clojure.lang.ExceptionInfo
+                       (prototype.resident-frontend/adopt-prepared p configuration)))
+          (finally (close next))))
+      (finally (close base) (.close ^java.io.Closeable source)))))
+
 (defn name-of [s] ["str" ["anonymous"] s])
 (def application
   {:execution-roles profile/execution-roles :transition [:mutable :jvm] :selection-limits profile/selection-limits
@@ -27,12 +48,74 @@
       (assoc-in [:composition :stages] profile/jvm-stages)
       (assoc-in [:composition :application] application)))
 
+(deftest artifact-controller-dispatches-explicit-admission-without-a-strict-replay
+  ;; Protocol MODEL: the operation boundaries are replaced, not authenticated
+  ;; artifacts. This checks dispatch/escrow/stage identity, not Init acceptance.
+  (let [space 'prototype.coherent-jvm-slice
+        controller (atom {:bootstrap {:manifest {:direct-inputs [{:id "checkpoint/manifest" :sha256 old/a}]}
+                                      :resolve-input identity
+                                      :execution {:backend :mutable :fuel 1000000}}
+                          :factory :model-factory :options {:producer-preparation :model-producer}
+                          :approved-contract {:contract {:kernel-base-admission
+                                                         {:basis :trusted-artifact
+                                                          :profile profile/artifact-base-profile-id}}}
+                          :phases []})
+        ownership (atom {:phase :ready}) calls (atom [])
+        restored {:session {:compile-threshold 1} :world {:functions {}}
+                  :trusted-bindings {} :resource-lease :model-lease}
+        base {:status :ok :admission :model-token :checked-result :model-projection}
+        target @(ns-resolve 'prototype.coherent-source-preparation 'pure-value-target)
+        prepared {:runnable? false :missing-helper-values [target]}
+        evidence {:missing-helper-values [target] :panic-preparation {} :ordinary-preparation {}
+                  :eio-builder-preparation {} :cases-on-preparation {}}
+        escrow {:phase :prepared-missing-helper-values :prepared prepared :evidence evidence}
+        summary {:phase :prepared-missing-helper-values}
+        helper-facts {:phase :initialized :runnable? true :guest-invocation-count 1 :result-release-count 1
+                      :guest-steps-delta 5 :result-owner-state :released
+                      :host-value-seeded false :native-initializers-replayed false}
+        forbidden (fn [& _] (throw (ex-info "Strict replay selected for artifact contract" {})))]
+    (with-redefs-fn
+      {(ns-resolve space 'state) controller (ns-resolve space 'ownership) ownership
+       (ns-resolve 'prototype.restore-consumer 'restore!) (fn [& _] restored)
+       (ns-resolve 'prototype.raw-interop 'open-functions) (fn [functions bindings options]
+                                                          (merge options {:functions functions :bindings bindings}))
+       (ns-resolve 'prototype.coherent-source-preparation 'prepare-bootstrap-support)
+       (fn [& _] {:candidate restored :support :model-support})
+       (ns-resolve 'prototype.coherent-source-preparation 'check-restored!) forbidden
+       (ns-resolve 'prototype.coherent-source-preparation 'prepare!) forbidden
+       (ns-resolve 'prototype.coherent-source-preparation 'admit-restored!)
+       (fn [input] (swap! calls conj [:admit input]) base)
+       (ns-resolve 'prototype.coherent-source-preparation 'prepare-admitted!)
+       (fn [input] (swap! calls conj [:prepare input]) summary)
+       (ns-resolve 'prototype.coherent-source-preparation 'checkpoint) (fn [] escrow)
+       (ns-resolve 'prototype.coherent-helper-value 'initialize!) (fn [] helper-facts)
+       (ns-resolve 'prototype.coherent-helper-value 'checkpoint)
+       (fn [] {:phase :initialized :prepared (assoc prepared :runnable? true)})}
+      #(binding [*out* (java.io.StringWriter.)]
+         ((ns-resolve space 'restore-and-prepare!))))
+    (is (= [:admit :prepare] (mapv first @calls)))
+    (is (identical? base (:init-result @controller)))
+    (is (identical? base (get-in @calls [1 1 :admitted])))
+    (is (= :trusted-artifact (:kernel-base-basis @controller)))
+    (is (= :artifact-admission (get-in @controller [:phases 0 :segments 1 :phase])))
+    (is (= (subvec profile/jvm-stages 0 8) (mapv :stage (:phases @controller))))
+    (is (= :prepared (:phase @controller)))
+    (is (false? (:unsafe-partial? @ownership)))))
+
 (deftest explicit-new-profile-retains-legacy-profile-behavior
   (let [new (contract) old (old/contract-for old/inventory)]
     (is (= old (profile/validate-contract! old (:implementation-sha256 old))))
     (is (= new (profile/validate-jvm-contract! new (:implementation-sha256 new))))
     (is (thrown? clojure.lang.ExceptionInfo (profile/validate-contract! new (:implementation-sha256 new))))
-    (is (thrown? clojure.lang.ExceptionInfo (profile/validate-jvm-contract! old (:implementation-sha256 old))))))
+    (is (thrown? clojure.lang.ExceptionInfo (profile/validate-jvm-contract! old (:implementation-sha256 old))))
+    (let [mode {:basis :trusted-artifact :profile profile/artifact-base-profile-id}
+          selected (assoc new :kernel-base-admission mode)]
+      (is (identical? selected (profile/validate-jvm-contract! selected (:implementation-sha256 selected))))
+      (doseq [bad [nil true {} {:basis :strict-fresh} (assoc mode :profile :caller-selected-base)
+                   (assoc mode :sha256 old/a) (assoc mode :verified true) (assoc mode :basis :caller-trust)]]
+        (is (thrown? clojure.lang.ExceptionInfo
+                     (profile/validate-jvm-contract! (assoc new :kernel-base-admission bad)
+                                                     (:implementation-sha256 new))))))))
 
 (deftest exact-stages-never-pretend-a-direct-load-is-project-publication
   (is (= (subvec profile/jvm-stages 0 9)

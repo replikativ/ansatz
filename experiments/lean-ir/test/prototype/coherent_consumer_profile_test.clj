@@ -45,6 +45,21 @@
   (coherent/validate-contract! contract (:implementation-sha256 contract)))
 (defn text-digest [text] (wire/sha256 (.getBytes ^String text java.nio.charset.StandardCharsets/UTF_8)))
 
+(deftest artifact-base-admission-is-explicit-closed-contract-data
+  (let [mode {:basis :trusted-artifact :profile coherent/artifact-base-profile-id}
+        selected (assoc contract :kernel-base-admission mode)]
+    (is (identical? contract (valid! contract)))
+    (is (not (contains? contract :kernel-base-admission)))
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"requires the finite JVM provider profile"
+                         (valid! selected)))
+    (is (not= (text-digest (pr-str contract)) (text-digest (pr-str selected))))
+    (doseq [bad [nil true {} {:basis :strict-fresh}
+                 (assoc mode :profile :caller-selected-base)
+                 (assoc mode :sha256 a) (assoc mode :verified true)
+                 (assoc mode :basis :caller-trust)]]
+      (is (thrown? clojure.lang.ExceptionInfo
+                   (valid! (assoc contract :kernel-base-admission bad)))))))
+
 (deftest reviewed-build-data-has-one-stable-contract-schema
   (is (identical? contract (valid! contract)))
   (let [rows (conj inventory {:id "prototype/new_feature.clj" :kind :host-source :sha256 b})

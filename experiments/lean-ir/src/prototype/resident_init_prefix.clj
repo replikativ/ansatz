@@ -21,6 +21,7 @@
             [prototype.kernel-bridge :as bridge]
             [prototype.constructor-layout :as constructor]
             [prototype.imported-kernel :as imported]
+            [prototype.kernel-artifact :as artifact]
             [prototype.native-scalar :as native]
             [prototype.frontend :as frontend]
             [prototype.guest-encoding :as encoding]
@@ -38,6 +39,15 @@
 (defn- capability! [value]
   (or (locking issued (.get issued value))
       (fail "Expected an issued resident Init prefix" {})))
+
+(defn- strict-capability! [prefix]
+  (let [data (capability! prefix)]
+    (when (= :trusted-artifact (:basis data))
+      (fail "Artifact Init prefix source imports and reconstruction are not implemented" {}))
+    data))
+
+(defn- prefix-projection [data]
+  (if (= :trusted-artifact (:basis data)) (:projection data) (:certificate data)))
 
 (def preparation-roots
   "Fixed sequential native assembly and future hybrid/finalizer/checking roots.
@@ -92,8 +102,8 @@
         (.put issued prefix (assoc current :retirement-code-proofs
                                   {:adoption @adoption :preparation @preparation}))))))
 
-(defn- checked! [entry checked]
-  (let [world (:world entry) original (:world checked) certificate (:certificate checked)
+(defn- checked-projection! [entry checked certificate]
+  (let [world (:world entry) original (:world checked)
         ^Env env (:env certificate) sources (:projection-sources certificate)
         constants (:constants certificate) projected (:projected certificate)]
     (when-not (and (= :ok (:status checked)) (= (:environment entry) (:environment checked))
@@ -117,25 +127,25 @@
         (fail "Init prefix checked guest constant changed" {})))
     certificate))
 
+(defn- checked! [entry checked]
+  (when (= :trusted-artifact (get-in checked [:certificate :kernel-provenance :base-basis]))
+    (fail "Strict Init prefix cannot use an artifact-admitted base" {}))
+  (checked-projection! entry checked (:certificate checked)))
+
+(defn- admitted! [entry admitted]
+  (let [projection (artifact/inspect-for-world (:world entry) (:admission admitted))]
+    (when-not (and (= projection (:checked-result admitted))
+                   (= (:kernel-provenance projection) (:kernel-provenance admitted)))
+      (fail "Init prefix requires the actual issued artifact admission result" {}))
+    (checked-projection! entry admitted projection)))
+
 (defn- packet [entry world session]
   ;; A new Context does not carry a checking certificate in evolving metadata.
   {:world world :session session :environment (:environment entry)
    :options (:options entry) :catalogue (:catalogue entry)})
 
-(defn prepare-init-prefix
-  "Prepare a checked native Init prefix in a NEW persistent resident branch.
-   CHECKED must be the original successful checking result for this Context's
-   Environment, supplied by trusted host code. OPTIONS is exactly
-   {:configuration independent-resident-config :native-bindings original-native}.
-   No source reopening/bootstrap, initializer replay or binding replacement.
-   Return {:context new-context :prefix issued-capability :receipt descriptive-data}.
-
-   The world registry owns the prefix state; the capability borrows it and keeps
-   the original certificate privately. Env/Options ownership follows resident/fork:
-   the new branch inherits its existing owners without retain/drop churn. Input
-   remains unchanged/open. Failure retains terminal exact packets, not a retry or
-   cleanup capability; the borrowed Store/lease must outlive retained branches."
-  [context checked {:keys [configuration native-bindings] :as options}]
+(defn- prepare-prefix*
+  [basis context checked {:keys [configuration native-bindings] :as options}]
   (locking context
     (let [entry (resident/snapshot context) active (atom (:session entry))
           progress (volatile! (:world entry)) phase (volatile! :entry)
@@ -151,29 +161,64 @@
                        (map? configuration) (map? native-bindings))
           (fail "Init prefix requires explicit independent configuration and original native bindings" {}))
         (preparation-readiness! entry configuration native-bindings)
-        (let [certificate (checked! entry checked)
-              loaded (store/describe-attached @progress (first (:projection-sources certificate)))]
+        (let [projection (if (= :trusted-artifact basis) (admitted! entry checked) (checked! entry checked))
+              adopt (resident/adopter context)
+              loaded (store/describe-attached @progress (first (:projection-sources projection)))
+              authority {:invoke invoke :trusted-functions (:trusted-functions configuration)
+                         :bindings (get-in entry [:session :bindings])
+                         :trusted-bindings (:trusted-bindings configuration)}]
           (vreset! phase :prepare-started)
-          (let [result (source/prepare-init-prefix loaded invoke checked)]
+          (let [result (if (= :trusted-artifact basis)
+                         (source/prepare-admitted-init-prefix authority loaded checked)
+                         (source/prepare-init-prefix loaded invoke checked))]
             (vreset! prepared result) (vreset! progress (:world result))
             (vreset! phase :adopt-started)
-            (let [next-context (resident/adopt-prepared (packet entry @progress @active) configuration)
+            (let [next-context (adopt (packet entry @progress @active) configuration)
                   prefix (InitPrefix.)
                   receipt {:module-count (count (get-in result [:prefix :modules]))
-                           :constant-count (count (:constants certificate))
-                           :producer-imports (get-in result [:prefix :producer-imports])}]
-              (locking issued
-                (.put issued prefix {:prefix (:prefix result) :certificate certificate
-                                     :configuration configuration :native-bindings native-bindings
-                                     :receipt receipt}))
+                           :constant-count (count (:constants projection))
+                           :producer-imports (get-in result [:prefix :producer-imports])}
+                  data (cond-> {:prefix (:prefix result) :basis basis :adopter adopt
+                                :configuration configuration :native-bindings native-bindings :receipt receipt}
+                         (= :trusted-artifact basis)
+                         (assoc :projection projection :admission (:admission checked)
+                                :kernel-provenance (:kernel-provenance checked))
+                         (not= :trusted-artifact basis) (assoc :certificate projection))]
+              (locking issued (.put issued prefix data))
               {:context next-context :prefix prefix :receipt receipt})))
         (catch Throwable cause
           (throw (ex-info (or (.getMessage cause) "Resident Init prefix preparation failed")
                           (merge {:checkpoint @progress :checkpoint-session @active} (ex-data cause)
-                                 {:resident-init-prefix-entry entry :resident-init-prefix-checked checked
+                                 {:resident-init-prefix-entry entry
+                                  (if (= :trusted-artifact basis) :resident-init-prefix-admitted :resident-init-prefix-checked) checked
                                   :resident-init-prefix-preparation @prepared :resident-init-prefix-last-call @last-call
                                   :resident-init-prefix-phase @phase :resident-init-prefix-terminal? true
                                   :resident-init-prefix-root-ownership :inherited-in-independent-branch}) cause)))))))
+
+(defn prepare-init-prefix
+  "Prepare a checked native Init prefix in a NEW persistent resident branch.
+   CHECKED must be the original successful checking result for this Context's
+   Environment, supplied by trusted host code. OPTIONS is exactly
+   {:configuration independent-resident-config :native-bindings original-native}.
+   No source reopening/bootstrap, initializer replay or binding replacement.
+   Return {:context new-context :prefix issued-capability :receipt descriptive-data}.
+
+   The world registry owns the prefix state; the capability borrows it and keeps
+   the original certificate privately. Env/Options ownership follows resident/fork:
+   the new branch inherits its existing owners without retain/drop churn. Input
+   remains unchanged/open. Failure retains terminal exact packets, not a retry or
+   cleanup capability; the borrowed Store/lease must outlive retained branches."
+  [context checked options]
+  (prepare-prefix* :strict-fresh context checked options))
+
+(defn prepare-admitted-init-prefix
+  "Prepare/own/retire the native Init scaffold over the actual admission result.
+   Uses the live Context's captured adopter and keeps its token/projection private,
+   never in a strict certificate slot. Native Init closure, independent readiness,
+   Store and root checks remain mandatory. Source import/reconstruction through
+   this prefix is explicitly unsupported; finite resident load-source stays separate."
+  [context admitted options]
+  (prepare-prefix* :trusted-artifact context admitted options))
 
 (defn descriptor
   "Borrow a descriptive receipt; it grants no checking or replay authority."
@@ -189,16 +234,17 @@
     (let [entry (resident/snapshot context) progress (volatile! (:world entry))
           phase (volatile! :entry) released (volatile! nil)]
       (try
-        (let [{raw-prefix :prefix :keys [certificate configuration native-bindings]} (capability! prefix)]
+        (let [{raw-prefix :prefix :keys [adopter configuration native-bindings] :as issued} (capability! prefix)
+              projection (prefix-projection issued)]
           (preparation-readiness! entry configuration native-bindings)
           (when-not (and (identical? raw-prefix (get-in @progress [:source-import-prefixes (:id (:state raw-prefix))]))
-                         (identical? (:env certificate) (:checked-env raw-prefix)))
+                         (identical? (:env projection) (:checked-env raw-prefix)))
             (fail "Issued Init prefix is absent or belongs to another branch" {}))
           (vreset! phase :release-started)
           (vreset! progress (source/release-init-prefix @progress raw-prefix))
           (vreset! released (packet entry @progress (:session entry)))
           (vreset! phase :adopt-started)
-          {:context (resident/adopt-prepared @released configuration) :receipt (:receipt (capability! prefix))})
+          {:context (adopter @released configuration) :receipt (:receipt (capability! prefix))})
         (catch Throwable cause
           (throw (ex-info (or (.getMessage cause) "Resident Init prefix release failed")
                           (merge {:checkpoint @progress :checkpoint-session (:session entry)} (ex-data cause)
@@ -217,11 +263,12 @@
     (let [entry (resident/snapshot context) progress (volatile! (:world entry))
           phase (volatile! :entry)]
       (try
-        (let [{raw-prefix :prefix :keys [certificate configuration native-bindings receipt]} (capability! prefix)]
+        (let [{raw-prefix :prefix :keys [configuration native-bindings receipt] :as issued} (capability! prefix)
+              projection (prefix-projection issued)]
           (resident/owned-roots-readiness! entry)
           (retirement-readiness! entry prefix configuration native-bindings)
           (when-not (and (identical? raw-prefix (get-in @progress [:source-import-prefixes (:id (:state raw-prefix))]))
-                         (identical? (:env certificate) (:checked-env raw-prefix)))
+                         (identical? (:env projection) (:checked-env raw-prefix)))
             (fail "Issued Init prefix is absent or belongs to another branch" {}))
           (vreset! phase :release-started)
           (vreset! progress (source/release-init-prefix @progress raw-prefix))
@@ -356,7 +403,7 @@
         (when-not (and (map? options) (= #{:kernel-policy :budgets} (set (keys options))))
           (fail "Init import requires explicit kernel policy and execution budgets only" {}))
         (import-policy! kernel-policy) (import-budgets! budgets)
-        (let [{raw-prefix :prefix :keys [certificate configuration native-bindings]} (capability! prefix)]
+        (let [{raw-prefix :prefix :keys [certificate configuration native-bindings]} (strict-capability! prefix)]
           (preparation-readiness! entry configuration native-bindings)
           (standalone/import-readiness! entry configuration)
           (when-not (and (identical? raw-prefix (get-in entry [:world :source-import-prefixes (:id (:state raw-prefix))]))
@@ -1023,7 +1070,7 @@
     {:profile profile :eval-binding binding}))
 
 (defn- profile-readiness! [entry prefix profile]
-  (let [p (reconstruction-profile! profile) issued (capability! prefix)
+  (let [issued (strict-capability! prefix) p (reconstruction-profile! profile)
         config (:configuration issued)]
     (preparation-readiness! entry config (:native-bindings issued))
     (when-not (and (identical? (:binding p) (get-in config [:trusted-bindings "lean_eval_const"]))
@@ -1512,9 +1559,9 @@
     true))
 
 (defn- graph-readiness! [entry prefix profile]
-  (let [p (graph-profile! profile)
-        _ (when-not (instance? InitPrefix prefix) (fail "Expected an issued graph Init prefix" {}))
-        issued (capability! prefix)
+  (let [_ (when-not (instance? InitPrefix prefix) (fail "Expected an issued graph Init prefix" {}))
+        issued (strict-capability! prefix)
+        p (graph-profile! profile)
         configuration (:configuration issued)]
     (graph-installer-matches! p configuration)
     (preparation-readiness! entry configuration (:native-bindings issued))
@@ -2611,7 +2658,7 @@
       (swap! state #(-> % (assoc :world world) (assoc-in [:native-owners label :state] :released))))))
 (defn- native-current! [data]
   (let [{:keys [world session configuration prefix-cap profile readiness coverage]} data
-        issued (capability! prefix-cap)
+        issued (strict-capability! prefix-cap)
         _ (continuation-readiness! data)
         _ (when-not (identical? (:profile-data data) (graph-profile! profile))
             (fail "Native base lost its exact graph profile" {}))
