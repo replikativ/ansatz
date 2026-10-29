@@ -3,6 +3,22 @@
 This is an opt-in research experiment, not a default kernel change or a claim
 that #111 is closed. Full Mathlib has not been reverified with the candidate.
 
+## Verified official-release reproduction
+
+The [standalone upstream reproducer](upstream/README.md) now reproduces the
+version contrast using only Lean source and freshly downloaded official SDKs.
+No tracing instrumentation, FFI helper, replacement kernel object, Foundation,
+Mathlib, exporter parser, or Ansatz code is linked into that reproducer.
+
+All official archives match GitHub's published SHA-256 digests. Installed 4.32.1
+and 4.33.1 executables/kernel libraries were also byte-compared with those
+archives, confirming the earlier installed-toolchain baselines. The standalone
+`n=24` declaration checks on 4.32.1 and exhausts the 100,000 cumulative kernel
+heartbeat limit on 4.33.1, 4.35.0, and 4.37.0-nightly-2026-10-27. A small `n=4`
+control checks on all four. A separate review agent approved the reproducer.
+The exact Foundation proof also reproduces on all four official SDKs; three
+repeats of the 4.32.1/4.33.1 contrast have stable outcomes/allocation counts.
+
 ## Exact input and native controls
 
 The input is the 94,993,283-byte Foundation export described in #111, SHA-256
