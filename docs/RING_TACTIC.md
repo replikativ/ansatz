@@ -32,9 +32,9 @@ Relevant Lean sources are
 
 This ports polynomial identity certificates. Integration of equality hypotheses
 into grind's polynomial constraint solver, characteristic-specific reduction,
-noncommutative solving, and ordered-ring reasoning are separate work. A surface
-goal must already elaborate to well-typed operations on its stated carrier;
-the tactic does not repair malformed generic arithmetic elaboration.
+noncommutative solving, and ordered-ring reasoning are separate work. Surface
+arithmetic selects local generic carriers and propagates them into numeral
+subtrees before instance synthesis, following Lean's `binop%` elaboration.
 
 The executable regression corpus is `test/ansatz/tactic/ring_test.clj`, with
 native Lean reference examples in `test/lean/ring_reflection.lean`.
