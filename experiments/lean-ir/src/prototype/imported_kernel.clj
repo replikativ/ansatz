@@ -372,7 +372,7 @@
   [constant]
   (constant-shape constant))
 
-(defn associate-checked
+(defn associate-checked-progress
   "Anchor an already checked import to an EXACT matching guest environment.
    Helpers :root/:constants/:quot-init? borrow guest Environment and return owned
    Kernel.Environment / Array ConstantInfo / Bool respectively. The constants
@@ -380,14 +380,32 @@
    Optional :constant-map returns an owned exact map root and enables later
    header-only associations with the same map identity and quotient flag.
    World-local anchors prevent RC-based unique reuse and survive immutable forks.
-   This function does not admit a root merely because it is nonempty."
+   This function does not admit a root merely because it is nonempty.
+   Failures preserve :checkpoint and :association-temporary-owners (one entry
+   per returned owner still outstanding), plus :association-stage. Unknown
+   partial helper effects remain in the cause packet; never replay helpers."
   [context world environment helpers certificate]
+  (let [progress (volatile! world) owners (volatile! []) stage (volatile! :preflight)
+        invoke (fn [world target args]
+                 (vreset! stage [:helper target])
+                 (let [[world value] ((:invoke context) world target args)]
+                   (vreset! progress world) (vswap! owners conj value)
+                   [world value]))
+        release (fn [world value]
+                  (vreset! stage :helper-release)
+                  (let [world (m/release world value 1)
+                        index (first (keep-indexed #(when (= value %2) %1) @owners))]
+                    (vreset! progress world)
+                    (when (some? index)
+                      (vswap! owners #(into (subvec % 0 index) (subvec % (inc index)))))
+                    world))]
+   (try
   (doseq [key [:root :constants :quot-init?]]
     (when-not (vector? (get helpers key)) (fail "Missing imported kernel guest helper" {:helper key})))
-  (let [[world root] ((:invoke context) world (:root helpers) [environment])
+  (let [[world root] (invoke world (:root helpers) [environment])
         _ (when-not (m/ref? root) (fail "Imported kernel root must be a guest reference" {}))
         _ (when (contains? (:kernel-environments world) (:id root)) (fail "Imported kernel root already anchored" {}))
-        [world values] ((:invoke context) world (:constants helpers) [environment])
+        [world values] (invoke world (:constants helpers) [environment])
         constants (array-values world values)
         reusable-sources (reusable-projection-sources world certificate)
         actual (reduce (fn [out value]
@@ -406,20 +424,33 @@
                            (assoc out name value))) {} constants)
         _ (when-not (= actual (:constants certificate))
             (fail "Guest imported kernel environment differs from checked constants" {:expected (count (:constants certificate)) :actual (count actual)}))
-        [world quot?] ((:invoke context) world (:quot-init? helpers) [environment])
-        quot? (native/nat-value ops world quot?)
+        [world quot-value] (invoke world (:quot-init? helpers) [environment])
+        quot? (native/nat-value ops world quot-value)
         _ (when-not (contains? #{0 1} quot?) (fail "Invalid guest quotient initialization flag" {}))
         _ (when-not (= (= 1 quot?) (.isQuotEnabled ^Env (:env certificate)))
             (fail "Guest imported quotient state differs from checked kernel" {}))
-        world (m/release world values 1)
+        world (release world values)
+        world (release world quot-value)
         [world witness] (if-let [helper (:constant-map helpers)]
                           (do
                             (when-not (vector? helper) (fail "Invalid constant-map helper" {}))
-                            (let [[world constants] ((:invoke context) world helper [environment])]
+                            (let [[world constants] (invoke world helper [environment])]
                               (when-not (m/ref? constants) (fail "Imported constant map must be a guest reference" {}))
                               (m/node world constants)
                               [world {:constant-map constants :quot-init? (= 1 quot?)}]))
                           [world nil])]
     ;; Keep both helper-returned owners when a map witness was requested.
-    (assoc-in world [:kernel-environments (:id root)]
-              (merge {:anchor root :env (:env certificate)} witness))))
+    (let [world (assoc-in world [:kernel-environments (:id root)]
+                         (merge {:anchor root :env (:env certificate)} witness))]
+      (vreset! progress world) (vreset! owners []) world))
+   (catch Throwable cause
+     (throw (ex-info (or (.getMessage cause) "Checked association failed")
+                     (merge {:checkpoint @progress :association-stage @stage}
+                            (ex-data cause)
+                            {:association-temporary-owners @owners}) cause))))))
+
+(defn associate-checked
+  "Associate actual strictly checked constants with the exact guest map.
+   Same ownership and checkpoint contract as associate-checked-progress."
+  [context world environment helpers certificate]
+  (associate-checked-progress context world environment helpers certificate))
