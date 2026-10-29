@@ -24,6 +24,21 @@ measured 24.908 s and 32,967,097,152 caller-allocated bytes. That sample identif
 a prefix investigation target; it cannot attribute the admission time or prove
 that full heap reconstruction dominated either stage.
 
+The [tiny phase probe](admission-phase-probe.clj) was subsequently run four times
+in the retained 384 MiB REPL, using fresh model leases. Its
+[records](../measurements/tiny-admission-phase-probe-2026-10-29.edn) confirm one
+complete-map projection, one publication snapshot, four issuer inspections/four
+projection validations, and two segment validations in every run. Records carry
+parent IDs and inclusive/exclusive timings and allocations, with no guest owner
+or authority retained. This was an already warmed JVM; neither a cold-start
+comparison nor full-Init scaling follows from these tiny measurements.
+
+From `experiments/lean-ir`, load `research/admission-phase-probe.clj` in the small
+test-capable REPL and call `(admission-phase-probe/run!)`. It needs the compiled
+kernel and `TypedLongMemo` classes plus experiment `src`/`test`, and executes
+privately modelled Factory/profile seams. It must not be used to issue or
+authenticate a production full-Init projection.
+
 ## What admission still does
 
 | Work | Current code path |
@@ -115,6 +130,9 @@ over [HeapOverlay.java](../../../src-java/ansatz/runtime/HeapOverlay.java) also
 snapshots keys and creates map entries. Its removal path already removes
 net-zero newly allocated IDs from the dirty set; do not attribute historical
 temporary allocations to that set without observing it.
+The scanned heap is the local guest heap, not the 11-million-node native Store.
+`freeze` shares functions/world context, freezes control/registers, and can also
+rebuild the globals map when its overlay changed; account for that separately.
 
 On bounded heaps, measure unchanged, small-delta and deliberately large-delta
 freeze/thaw cases independently. Use the existing dynamic raw
@@ -162,6 +180,9 @@ This cannot be substituted into the existing eager projection maps:
   is first materialized, before publishing it; validate previously materialized
   witnesses around helper/checker boundaries. Do not take a new baseline after
   a callback and thereby accept mutation. Validation must not force cold CIs.
+  Related branches sharing a materializer must consult the same stable witness
+  owner, including CIs forced later by a sibling. A frozen earlier segment list
+  alone would miss them. Checked local-addition segments remain branch-specific.
 - A bounded first prototype should keep a strong cache and original witnesses
   for a small forced set, rejecting an explicit force budget. Soft/weak eviction
   is a later problem: guards must not accidentally retain every projected DAG,
@@ -172,6 +193,9 @@ This cannot be substituted into the existing eager projection maps:
   exact World identity and closes over it, so retaining it indefinitely is not
   automatically a suitable lazy materializer. Keep source ownership external;
   lookup after closure must reject even if an Env cache could otherwise hit.
+  The filtered lookup predicate runs before external cache hits and can enforce
+  liveness there; local overlay hits bypass it, so operation-boundary lease
+  validation remains necessary.
 
 A bounded lazy prototype can test a handful of synthetic source-backed CIs and
 one checked overlay declaration: zero cold-body projection at construction,
