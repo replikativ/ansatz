@@ -18,7 +18,7 @@ implementation, then check the corresponding Klara proof where one exists.
 | 9 | Transport named discriminant alternative binders during generalization | `Meta/Tactic/Split.lean` `withNewAltEqs` | Merged in PR #243. Imported `Nat.decEq.match_1` splits with a computed discriminant and kernel checks; `HEq.rec` composition is kernel checked. An integrated dependent named-discriminant split remains a coverage gap. |
 | 10 | Separate structural recursion from match expression compilation | `Elab/PreDefinition/{FixedParams,Structural/BRecOn,Structural/Main}.lean` | `MatcherApp.addArg`, `brecOn`, and constructor-equation proofs merged in PRs #245, #246, #248, and #249. PRs #250 and #251 made supported recursion the default and added let-wrapped matches. PR #253 handles distinct parameter-variable indices. Index types depending on other indices and extra dependent parameters now compile with checked constructor equations. A recursive match under an `if` or another match compiles structurally with a checked unfold equation; candidate structural arguments are tried in source order until one compiles. Single-function fixed parameters are inferred from recursive calls and type dependencies. Mutual fixed-parameter permutations, mutual recursion, and general recursive-body equation generation remain open. Computed indices are rejected by Lean structural recursion as well; they are not a required structural parity extension. |
 | 11 | Enable matcher compilation by default for ordinary definitions | `Elab/Match.lean`, `Meta/Match`, `Elab/PreDefinition/Eqns.lean` | Merged in PR #244. All CI checks passed; the unchanged Klara specification kernel checks with 69/69 programs. |
-| 12 | Retire the direct recursor match compiler | `Elab/PreDefinition/Structural/{FixedParams,BRecOn,Main}.lean`, `Meta/Match` | The removal branch deletes `compile-match-term`, its direct recursor construction, and its structural self-call rewriting. All surface match compilation delegates to Meta.Match. The expression-only API inlines generated matcher values; definition elaboration retains named matchers and metadata. Validate recursive equations, runtime codegen, and Klara before merging. |
+| 12 | Retire the direct recursor match compiler | `Elab/PreDefinition/Structural/{FixedParams,BRecOn,Main}.lean`, `Meta/Match` | Merged in PR #267: deleted `compile-match-term`, its direct recursor construction, and its structural self-call rewriting. All surface match compilation delegates to Meta.Match. The expression-only API inlines generated matcher values; definition elaboration retains named matchers and metadata. All five CI checks passed; 109 focused tests/1796 assertions and the unchanged Klara specification (69 programs/0 failed) passed with the sole compiler. |
 
 Lean's current `Eqns.getEqnsFor?` installs one simple unfold equation for a
 nonrecursive definition by default; the matcher's own equations are generated
@@ -55,10 +55,15 @@ Recent retirement steps: PR #261 added lazy matcher equation hints for grind;
 #263 moved well-founded recursive matches to Meta.Match and preserved recursive
 calls in equation right-hand sides; #265 moved partial definitions to the same
 matcher path with atomic rollback. PR #264 fixed the repeatedly observed timing
-flake in the discrimination-tree scaling test. PR #266 supplies the expression-only
+flake in the discrimination-tree scaling test. Merged PR #266 supplies the expression-only
 adapter, including metavariable contexts and hole types in collecting mode.
 
 Lean uses Meta.Match for match expressions and separate structural and well-founded
 recursion transformations. Removing the direct match compiler does not imply full
 Lean recursion parity: mutual predefinitions/inductives, their parameter permutations,
 and broader equation generation still need work.
+
+Structural candidate selection now follows FindRecArg: try eligible function
+parameters, placing arguments used as indices after the corresponding data
+arguments. This removes the source-call argument heuristic, including its
+special handling of omitted implicit arguments.

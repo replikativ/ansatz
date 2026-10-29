@@ -1871,31 +1871,10 @@
                                (and (seq? form) (= 'let (first form)) (= 3 (count form)))
                                (recur (nth form 2))
                                :else nil))
-        changed-rec-positions
-        (set (mapcat (fn [form]
-                       (when (and (seq? form)
-                                  (symbol? (first form))
-                                  (= (source-name (first form)) (str fn-name)))
-                         (let [positions (if (.startsWith (name (first form)) "@")
-                                           (range n)
-                                           (keep-indexed (fn [i [_ _ info]]
-                                                           (when (= :default (or info :default)) i))
-                                                         pairs))
-                               args (vec (rest form))]
-                           (when (<= (count positions) (count args))
-                             (keep-indexed (fn [j i]
-                                             (when (not= (nth args j) (first (nth pairs i))) i))
-                                           positions)))))
-                     (tree-seq coll? seq body-form)))
-        ;; Lean searches the elaborated predefinition for recursive calls and
-        ;; tries structural arguments independently of the outer body shape.
-        ;; Start by recognizing a matched parameter inside an enclosing form.
-        candidate-positions
-        (vec (distinct (keep (fn [form]
-                               (when (and (seq? form) (= 'match (first form)))
-                                 (let [pos (.indexOf (mapv first pairs) (second form))]
-                                   (when (contains? changed-rec-positions pos) pos))))
-                             (tree-seq coll? seq body-form))))
+        ;; Lean FindRecArg.getRecArgInfos tries each function parameter. The
+        ;; elaborated structural compiler checks recursive applications and
+        ;; rejects candidates whose below dictionary cannot justify them.
+        candidate-positions (vec (range n))
         structural-candidate? (and config/*lean-matchers*
                                    config/*lean-structural-matchers*
                                    recursive? (not explicit-ih?)
@@ -1931,21 +1910,11 @@
         ;; the inference pass may have EXTENDED the global env (e.g. select-keys
         ;; synthesizing its projection record) — re-read it for the real elaboration
         env (if (= '_ ret-type-form) @ansatz-env env)
-        ;; Elaborate the body fvar-first (Lean-faithful, metavar-complete) — the SOLE path
-        ;; (the bvar fallback was retired). A tmp self-axiom lets a NATURAL recursive call
-        ;; (isort tl) resolve during elaboration; build-minor-premise rewrites structural
-        ;; self-calls on a bare recursive field to that field's IH (Lean's affordance — no
-        ;; manual ih_<field>). Non-structural leftovers still reference the axiom → check-constant
-        ;; rejects them (the user adds :termination-by / ^:partial). Existing ih_<field> bodies
-        ;; keep working. Elaboration failures otherwise surface honestly.
+        ;; Structural predefinitions elaborate with a local self-reference and
+        ;; replace recursive applications using the below dictionary. The
+        ;; expression-only fallback uses a temporary axiom; surviving calls
+        ;; redirect to well-founded recursion before kernel admission.
         tmp-env (env/add-constant (env/fork env) (env/mk-axiom cname [] type-ansatz))
-        ;; *self-params* = the param fvar-ids build-telescope-fvar uses (1..n), so multi-arg
-        ;; self-calls (add k n) are recognised: recursive field at the matched position, the
-        ;; other args the unchanged params.
-        ;; The structural self-call→IH rewrite is only SOUND when the match is the entire
-        ;; function body (then the recursor's IH is literally `f field`). For any other shape
-        ;; (if-wrapped, let-wrapped, nested) the IH is a different fold — those self-calls stay
-        ;; as the axiom and route to the well-founded path below.
         top-match? (and (seq? body-form) (= 'match (first body-form)))
         ;; Lean FixedParams: a parameter changed by a structural self-call belongs
         ;; in the recursor motive. Keep the ordinary, smaller motive for definitions
@@ -1975,29 +1944,40 @@
                                 acc
                                 (recur (e/instantiate1 (e/forall-body ty) (e/fvar (inc i)))
                                        (inc i) (conj acc (e/forall-type ty)))))]
-            (vec (filter
-                  (fn [rec-pos]
-                    (let [[head ind-args] (e/get-app-fn-args
-                                           (red/whnf env (nth param-types rec-pos) {}))
-                          ind-name (when (e/const? head) (e/const-name head))
-                          ci (when ind-name (env/lookup env ind-name))
-                          ind-params (when ci (subvec ind-args 0 (.numParams ^ConstantInfo ci)))
-                          indices (when ci (subvec ind-args (.numParams ^ConstantInfo ci)))
-                          index-positions (when (every? e/fvar? indices)
-                                            (mapv #(dec (e/fvar-id %)) indices))]
-                      (and ci
-                           (= (count indices) (.numIndices ^ConstantInfo ci))
-                           (= (count indices) (count (distinct indices)))
-                           (every? #(and (<= 0 %) (< % n) (not= % rec-pos)) index-positions)
-                           (every? #(every? (set (map e/fvar-id indices))
-                                            (expr-fvar-ids (nth param-types %)))
-                                   index-positions)
-                           (every? #(or (not (e/has-fvar-flag %))
-                                        (some #{%} (map e/fvar (range 1 (inc n)))))
-                                   ind-params)
-                           (env/lookup env (name/mk-str ind-name "below"))
-                           (env/lookup env (name/mk-str ind-name "brecOn")))))
-                  candidate-positions))))
+            (let [positions (vec (filter
+                                  (fn [rec-pos]
+                                    (let [[head ind-args] (e/get-app-fn-args
+                                                           (red/whnf env (nth param-types rec-pos) {}))
+                                          ind-name (when (e/const? head) (e/const-name head))
+                                          ci (when ind-name (env/lookup env ind-name))
+                                          ind-params (when ci (subvec ind-args 0 (.numParams ^ConstantInfo ci)))
+                                          indices (when ci (subvec ind-args (.numParams ^ConstantInfo ci)))
+                                          index-positions (when (every? e/fvar? indices)
+                                                            (mapv #(dec (e/fvar-id %)) indices))]
+                                      (and ci
+                                           (= (count indices) (.numIndices ^ConstantInfo ci))
+                                           (= (count indices) (count (distinct indices)))
+                                           (every? #(and (<= 0 %) (< % n) (not= % rec-pos)) index-positions)
+                                           (every? #(every? (set (map e/fvar-id indices))
+                                                            (expr-fvar-ids (nth param-types %)))
+                                                   index-positions)
+                                           (every? #(or (not (e/has-fvar-flag %))
+                                                        (some #{%} (map e/fvar (range 1 (inc n)))))
+                                                   ind-params)
+                                           (env/lookup env (name/mk-str ind-name "below"))
+                                           (env/lookup env (name/mk-str ind-name "brecOn")))))
+                                  candidate-positions))
+                  index-positions
+                  (set (mapcat (fn [pos]
+                                 (let [[head args] (e/get-app-fn-args
+                                                    (red/whnf env (nth param-types pos) {}))
+                                       ci (env/lookup env (e/const-name head))]
+                                   (map #(dec (e/fvar-id %))
+                                        (drop (.numParams ^ConstantInfo ci) args))))
+                               positions))]
+              ;; Lean FindRecArg.sortRecArgInfos: prefer data arguments over
+              ;; parameters used as indices of another eligible argument.
+              (vec (sort-by #(if (contains? index-positions %) 1 0) positions)))))
         structural-matcher? (boolean (seq structural-positions))
         lean-matchers? (and matcher-elaboration?
                             (or structural-matcher?
@@ -2031,7 +2011,14 @@
                   (if measure
                     (throw (ex-info "auto-measure WF"
                                     {:kind ::redirect-wf :measure measure} ex))
-                    (throw ex))))))
+                    (if unexpected
+                      (throw ex)
+                      (throw (ex-info
+                              (str "Cannot auto-verify recursive function `" fn-name
+                                   "`: no structural parameter or decreasing measure was found. "
+                                   "Add :termination-by for well-founded recursion, or ^:partial "
+                                   "for trusted recursion.")
+                              {:fn fn-name :kind :non-structural-recursion} ex))))))))
         rec-pos (:pos compiled-structural)
         body-ansatz (if structural-matcher?
                       (:expr compiled-structural)
