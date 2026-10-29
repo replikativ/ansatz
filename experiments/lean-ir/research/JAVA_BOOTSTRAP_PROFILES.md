@@ -234,3 +234,25 @@ cleanup is authorized by an error packet.
 See [the association contract](ARTIFACT_KERNEL_ASSOCIATION.md) for the remaining
 resident/cohort integration and bounded acceptance requirements. Existing
 resident defaults remain strict; the 17-CI artifact is still kernel data only.
+
+## Explicit admitted resident Contexts
+
+`resident-frontend/adopt-admitted` and `resident-preparation/open-admitted`
+require the actual issuer token and a matching positive descendant association.
+They retain the existing independent code, binding, catalogue, compiler and
+ownership readiness checks. Initial adoption audits the issuer/Java witnesses;
+later operations keep private token, Env, witness, source-lifetime and small
+Environment-payload checks without repeating that full audit.
+
+`adopt-like` chooses from an actual live Context's private basis. `adopter`
+captures only its immutable basis/token, so retained operations can adopt after
+the originating wrapper closes without retaining the Context itself. Every
+invocation still performs target admission/readiness checks. Strict adoption
+remains strict, and caller mode flags do not authorize artifact admission.
+
+Modeled load/call, fork, compiler and extern operations are covered by the small
+artifact fixture. A late lineage-helper failure after application completion
+preserves its newer World/session and owner evidence; the completed application
+is diagnostic evidence, not permission to replay it. See
+[the full Init plan](FULL_INIT_ARTIFACT_PROFILE.md) for the pending authenticated
+checkpoint/cohort and controller integration. This is not full-provider acceptance.

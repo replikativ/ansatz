@@ -9,7 +9,7 @@
 (def options-empty
   ["str" ["str" ["str" ["anonymous"] "Lean"] "Options"] "empty"])
 
-(defn open-checked
+(defn- open*
   "Adopt the owned ENVIRONMENT in candidate {:world :session :environment}.
    CONFIGURATION supplies an independent :catalogue, :trusted-functions and
    :trusted-bindings, plus resident :kernel-helpers/:frontend-configuration and
@@ -22,7 +22,7 @@
    exact named entry/associated/options-owned packets and latest helper session
    are preserved in ex-data. No imports, initializer, markers or code linking run;
    the native ResourceLease remains caller-owned and must outlive every borrower."
-  [{:keys [world session environment]} configuration]
+  [basis {:keys [world session environment]} configuration admission]
   (let [entry {:world world :session session :environment environment :catalogue (:catalogue configuration)}
         active (atom session) progress (volatile! world)
         associated-entry (volatile! nil) options-entry (volatile! nil)
@@ -33,7 +33,9 @@
                    [(:state result) (:value result)]))]
     (try
       (let [{:keys [kernel-helpers]} (resident/adoption-readiness! entry configuration)
-            [world checked] (kernel/inherit-checked-association {:invoke invoke} world environment kernel-helpers)
+            [world checked] (if (= :trusted-artifact basis)
+                              (resident/resolve-admitted-association {:invoke invoke} world environment kernel-helpers admission)
+                              (kernel/inherit-checked-association {:invoke invoke} world environment kernel-helpers))
             _ (vreset! progress world)
             _ (when-not checked (throw (ex-info "Resident Environment has no existing checked association" {})))
             associated (assoc entry :world world :session @active)
@@ -47,13 +49,30 @@
             _ (vreset! options-entry prepared)]
         ;; Adoption deliberately rechecks live association; no prechecked boolean
         ;; or caller-provided certificate bypasses its normal authority boundary.
-        (resident/adopt-prepared prepared (dissoc configuration :catalogue)))
+        (if (= :trusted-artifact basis)
+          (resident/adopt-admitted prepared (dissoc configuration :catalogue) admission)
+          (resident/adopt-prepared prepared (dissoc configuration :catalogue))))
       (catch Throwable cause
         (let [data (ex-data cause)]
           (throw (ex-info (or (.getMessage cause) "Resident checked preparation failed")
                           (cond-> (merge {:checkpoint @progress :checkpoint-session @active}
                                          data
                                          {:resident-preparation-entry entry
-                                          :resident-operation :open-checked})
+                                          :resident-operation (if (= :trusted-artifact basis) :open-admitted :open-checked)})
                             @associated-entry (assoc :resident-preparation-associated-entry @associated-entry)
                             @options-entry (assoc :resident-preparation-options-entry @options-entry)) cause)))))))
+
+(defn open-checked
+  "Adopt an owned candidate Environment with initialized Options.empty. Requires
+   the existing independent readiness checks and live STRICT association; options
+   acquisition/checkpoint ownership follow the original preparation contract."
+  [candidate configuration]
+  (open* :strict-fresh candidate configuration nil))
+
+(defn open-admitted
+  "Explicit artifact counterpart. ACTUAL-ARTIFACT-TOKEN must be issued and match
+   the current live descendant. Full readiness/Java auditing precedes Options
+   acquisition and adoption rechecks the association. The Store remains borrowed;
+   named entry/associated/options owner packets preserve failures without replay."
+  [candidate configuration actual-artifact-token]
+  (open* :trusted-artifact candidate configuration actual-artifact-token))

@@ -15,6 +15,8 @@
             [prototype.interop-codec :as codec]
             [prototype.import-ir :as ir]
             [prototype.kernel-host :as kernel]
+            [prototype.kernel-artifact :as artifact]
+            [prototype.kernel-projection-snapshot :as projection]
             [prototype.module-import :as imports]
             [prototype.eval-const :as eval]
             [prototype.runtime-prim :as prim]
@@ -23,7 +25,7 @@
   (:import [ansatz.kernel Name]
            [java.util WeakHashMap]))
 
-(declare close!)
+(declare close! refresh-admitted-lineage)
 (deftype Context [state]
   java.io.Closeable
   (close [this] (close! this)))
@@ -58,13 +60,34 @@
     (when-not (or (zero? rc) (<= owners rc))
       (fail "Insufficient resident root owners" {:owners owners :rc rc})))
   prepared)
+(defn- valid-admitted-lineage! [data]
+  (when (= :trusted-artifact (::basis data))
+    (let [{:keys [world environment]} (:prepared data)
+          expected (::association data)
+          current (get-in world [:kernel-environments (:id (:anchor expected))])
+          provenance (:kernel-provenance current)
+          source (::artifact-source data)]
+      (when-not (and (= environment (::associated-environment data))
+                     (= (::environment-node data) (dissoc (m/node world environment) :rc))
+                     (= (:anchor expected) (:anchor current))
+                     (identical? (:env expected) (:env current))
+                     (= :trusted-artifact (:base-basis provenance))
+                     (identical? (::artifact-admission data) (:artifact-admission provenance))
+                     (= (::base-assumptions data) (:base-assumptions provenance))
+                     (identical? (:java-guard-segments expected) (:java-guard-segments current))
+                     (identical? (::artifact-sources data) (:native-imports world))
+                     (false? @(:closed source)))
+        (fail "Resident artifact kernel lineage or source lease changed" {}))))
+  data)
+
 (defn- valid-context! [data]
   (let [{:keys [world session]} (matching! (:prepared data))]
+    (valid-admitted-lineage! data)
     (assoc data ::code-proof
            (code-validation/validate! (:functions world) (:bindings session)
                                       (:protected-functions data) (:protected-bindings data) (::code-proof data)))))
 (defn- make-context [data]
-  (Context. (atom (valid-context! data))))
+  (Context. (atom (valid-context! (refresh-admitted-lineage data)))))
 
 (defn snapshot
   "Borrow the explicit prepared snapshot for diagnostics/advanced orchestration.
@@ -169,44 +192,142 @@
         nil))
     @next-proof))
 
+(defn ^:no-doc resolve-admitted-association
+  "Explicit adoption-boundary audit of an actual issued artifact token and its
+   current positive descendant. Returns [latest-world association issuer-view].
+   It does not acquire Environment/Options owners; all helper owners follow the
+   resolver's actual checkpoint contract. Full Java auditing stays at adoption."
+  [context world environment helpers admission]
+  (let [progress (volatile! world)]
+    (try
+      (artifact/inspect-for-world world admission)
+      (let [[world association] (kernel/resolve-association context world environment helpers)
+            _ (vreset! progress world)
+            admitted (artifact/inspect-for-world world admission)
+            provenance (:kernel-provenance association)]
+        (when-not (and association (= :trusted-artifact (:base-basis provenance))
+                       (identical? admission (:artifact-admission provenance))
+                       (= (:base-assumptions admitted) (:base-assumptions provenance)))
+          (fail "Resident Environment lacks the same issued artifact association" {}))
+        (projection/validate-segments (:env association) (:java-guard-segments association))
+        [world association admitted])
+      (catch Throwable cause
+        (throw (ex-info (or (.getMessage cause) "Resident artifact association failed")
+                        (merge {:checkpoint @progress} (ex-data cause)) cause))))))
+
+(defn- refresh-admitted-lineage [data]
+  (if-not (= :trusted-artifact (::basis data)) data
+    (let [{:keys [prepared configuration]} data
+          active (atom (:session prepared)) progress (volatile! (:world prepared))
+          invoke (fn [world target args]
+                   (vreset! progress world)
+                   (let [result (raw/call @active world target args)]
+                     (reset! active (:session result)) (vreset! progress (:state result))
+                     [(:state result) (:value result)]))]
+      (try
+        (matching! prepared)
+        (let [code-proof (code-validation/validate! (get-in prepared [:world :functions])
+                                                    (get-in prepared [:session :bindings])
+                                                    (:protected-functions data) (:protected-bindings data) (::code-proof data))]
+        ;; The source view is fixed inside a Context generation. Opening another
+        ;; verified source requires the explicit adoption boundary again.
+        (when-not (and (identical? (::artifact-sources data) (:native-imports (:world prepared)))
+                       (false? @(:closed (::artifact-source data))))
+          (fail "Resident artifact kernel lineage or source lease changed" {}))
+        (let [helpers (or (:kernel-helpers configuration) imports/helpers)
+              [world association] (kernel/resolve-association {:invoke invoke} (:world prepared)
+                                                              (:environment prepared) helpers)
+              _ (vreset! progress world)
+              provenance (:kernel-provenance association)]
+          (when-not (and association (= :trusted-artifact (:base-basis provenance))
+                         (identical? (::artifact-admission data) (:artifact-admission provenance))
+                         (= (::base-assumptions data) (:base-assumptions provenance)))
+            (fail "Resident returned Environment changed artifact kernel lineage" {}))
+          (assoc data :prepared (assoc prepared :world (assoc world :result 0) :session @active)
+                 ::code-proof code-proof
+                 ::association association ::associated-environment (:environment prepared)
+                 ::environment-node (dissoc (m/node world (:environment prepared)) :rc))))
+        (catch Throwable cause
+          (throw (ex-info (or (.getMessage cause) "Resident artifact branch failed")
+                          (merge {:checkpoint @progress :checkpoint-session @active
+                                  :resident-lineage-entry prepared}
+                                 (ex-data cause)) cause)))))))
+
+(defn- adopt* [basis prepared configuration admission operation]
+  (let [active (atom (:session prepared)) progress (volatile! (:world prepared))
+        invoke (fn [world target args]
+                 (vreset! progress world)
+                 (let [result (raw/call @active world target args)]
+                   (reset! active (:session result)) (vreset! progress (:state result))
+                   [(:state result) (:value result)]))]
+    (try
+      (matching! prepared)
+      (let [{:keys [kernel-helpers protected-functions]} (adoption-readiness! prepared configuration)
+            [world association admitted]
+            (if (= :trusted-artifact basis)
+              (resolve-admitted-association {:invoke invoke} (:world prepared) (:environment prepared)
+                                           kernel-helpers admission)
+              (let [[world checked] (kernel/inherit-checked-association
+                                    {:invoke invoke} (:world prepared) (:environment prepared) kernel-helpers)]
+                (when-not checked (fail "Resident Environment has no existing checked association" {}))
+                [world nil nil]))
+            _ (vreset! progress world)
+            data (cond-> {:prepared (assoc prepared :world world :session @active)
+                          :configuration configuration :protected-functions protected-functions
+                          :protected-bindings (get-in prepared [:session :bindings]) ::basis basis}
+                   (= :trusted-artifact basis)
+                   (assoc ::artifact-admission admission ::artifact-source (:source admitted)
+                          ::artifact-sources (:native-imports world) ::base-assumptions (:base-assumptions admitted)
+                          ::association association ::associated-environment (:environment prepared)
+                          ::environment-node (dissoc (m/node world (:environment prepared)) :rc)))]
+        (Context. (atom (valid-context! data))))
+      (catch Throwable cause
+        (let [data (ex-data cause)]
+          (throw (ex-info (or (.getMessage cause) "Resident adoption failed")
+                          (merge {:checkpoint @progress :checkpoint-session @active} data
+                                 {:resident-adoption-entry prepared :resident-operation operation}) cause)))))))
+
 (defn adopt-prepared
-  "Adopt ONE existing owned Environment/Options pair in this branch. No implicit
-   retain/import/bootstrap. The original immutable snapshot remains independent.
-   Configuration requires independently captured trusted functions/bindings and
-   an explicit catalogue. Actual live association and selected compiler/witness/
-   guest Name-encoder closures are checked; certificates/phase flags grant none.
-   Custom host callbacks remain trusted host code. Failures preserve the exact
-   owned entry packet plus latest named helper checkpoint/session alternatives."
+  "Adopt ONE owned Environment/Options pair with a strictly checked base.
+   Independent code/binding/catalogue readiness and live strict association are
+   mandatory. Artifact flags/certificates in caller maps grant no authority."
   ([prepared] (adopt-prepared prepared {}))
   ([prepared configuration]
-   (let [active (atom (:session prepared)) progress (volatile! (:world prepared))
-         invoke (fn [world target args]
-                  (vreset! progress world)
-                  (let [result (raw/call @active world target args)]
-                    (reset! active (:session result)) (vreset! progress (:state result))
-                    [(:state result) (:value result)]))]
-     (try
-       (matching! prepared)
-       (let [{:keys [kernel-helpers protected-functions]} (adoption-readiness! prepared configuration)
-             [world checked] (kernel/inherit-checked-association
-                              {:invoke invoke} (:world prepared) (:environment prepared) kernel-helpers)]
-         (vreset! progress world)
-         (when-not checked (fail "Resident Environment has no existing checked association" {}))
-         (make-context {:prepared (assoc prepared :world world :session @active)
-                        :configuration configuration :protected-functions protected-functions
-                        :protected-bindings (get-in prepared [:session :bindings])}))
-       (catch Throwable cause
-         (let [data (ex-data cause)]
-           (throw (ex-info (or (.getMessage cause) "Resident adoption failed")
-                           (merge {:checkpoint @progress :checkpoint-session @active} data
-                                  {:resident-adoption-entry prepared :resident-operation :adopt-prepared}) cause))))))))
+   (adopt* :strict-fresh prepared configuration nil :adopt-prepared)))
+
+(defn adopt-admitted
+  "Explicitly adopt ONE owned pair over ACTUAL-ARTIFACT-TOKEN's live descendant.
+   All ordinary independent readiness and owner checks remain mandatory. Issuer
+   and complete Java witnesses are audited here; later branch/application checks
+   preserve private token/root/source lineage without a full declaration scan.
+   The caller owns the artifact Store lifetime and prevents concurrent CI mutation."
+  [prepared configuration actual-artifact-token]
+  (adopt* :trusted-artifact prepared configuration actual-artifact-token :adopt-admitted))
+
+(defn ^:no-doc adopter
+  "Capture adoption policy from an actual LIVE Context. The returned trusted host
+   function [prepared configuration] holds only its basis/token, never the Context.
+   It can outlive retirement of that wrapper, but every call still performs full
+   readiness, root ownership, actual live association and token/Java validation."
+  [context]
+  (locking context
+    (let [data (valid-context! (context-data context)) basis (::basis data) admission (::artifact-admission data)]
+      (if (= :trusted-artifact basis)
+        (fn [prepared configuration] (adopt-admitted prepared configuration admission))
+        (fn [prepared configuration] (adopt-prepared prepared configuration))))))
+
+(defn ^:no-doc adopt-like
+  "Reopen using an actual LIVE Context's private adoption mode. Public candidate
+   flags do not select trust. For later retirement, capture adopter beforehand."
+  [origin-context prepared configuration]
+  ((adopter origin-context) prepared configuration))
 
 (defn fork
   "Fork guest state with inherited code authority and shared optimization caches.
    Artifact resources stay borrowed from the caller; external effects are shared."
   [context]
   (locking context
-    (let [data (context-data context)]
+    (let [data (valid-context! (context-data context))]
       (make-context (assoc data ::target-closure-proof (target-proof context data))))))
 
 (defn close!
@@ -417,7 +538,8 @@
                                  (identical? (:functions (:session selected)) (:functions (:session prepared)))
                                  (identical? (:bindings (:session selected)) (:bindings (:session prepared))))
                     (fail "Application executor changed resident authority" {}))
-                  (matching! selected))
+                  (matching! selected)
+                  (valid-admitted-lineage! (assoc data :prepared selected)))
               _ (vreset! progress (:world selected))
               _ (vreset! active (:session selected))
               [world args]
@@ -470,8 +592,10 @@
                                    (ex-data cause)
                                    {:resident-input context :resident-operation :call}
                                    (when @reply {:resident-executor-reply @reply})
-                                   (when invoked {:checkpoint @progress :checkpoint-session @active
-                                                  :resident-completed-invocation invoked})
+                                   ;; Completed application evidence is a separate
+                                   ;; snapshot. A later lineage helper may own a
+                                   ;; newer World/session and diagnostic results.
+                                   (when invoked {:resident-completed-invocation invoked})
                                    (when (some? @result-owner) {:resident-owned-result @result-owner})) cause))))))))
 
 (defn call
