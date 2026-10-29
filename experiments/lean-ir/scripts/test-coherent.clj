@@ -1,4 +1,5 @@
-;; Fixture-free coherent models plus an explicit small host-storage runtime gate.
+;; Coherent protocol models, bounded 17-CI admission fixtures and small runtimes.
+;; No full Init image, genuine frontend/provider run or bootstrap restore.
 ;; Run from experiments/lean-ir with src, test,
 ;; main-library sources, coherent Java classes and dependencies on the classpath.
 (require '[clojure.test :as t] '[clojure.java.io :as io])
@@ -31,16 +32,42 @@
     (require n))
   (assert (nil? ((ns-resolve 'prototype.coherent-campaign 'checkpoint))))
   (let [vars (set (filter #(-> % meta :test) (mapcat #(vals (ns-publics %)) '[prototype.coherent-stage-guards-test prototype.coherent-owner-ledger-test prototype.coherent-consumer-profile-test prototype.coherent-boundary-test prototype.coherent-jvm-lifecycle-test prototype.resident-code-validation-test prototype.executable-closure-proof-test prototype.continuation-layout-test prototype.resident-branch-retirement-test prototype.coherent-prefix-retirement-test])))
-        _ (assert (= 73 (count vars)))
+        _ (assert (= 75 (count vars)))
         counters (binding [t/*report-counters* (ref t/*initial-report-counters*)]
                    (t/test-vars (sort-by #(str (:name (meta %))) vars))
                    @t/*report-counters*)]
     (assert (= vars @observed))
     (assert (zero? (+ (:fail counters) (:error counters))))
-    (assert (= 73 (:test counters)))
+    (assert (= 75 (:test counters)))
     (assert (nil? ((ns-resolve 'prototype.coherent-campaign 'checkpoint))))
     (println (assoc counters :scope "definitions-contract-and-protocol-models-only"))
-    (println "COHERENT_INFRASTRUCTURE_73_PASS")
+    (println "COHERENT_INFRASTRUCTURE_75_PASS")
+    ;; Separate bounded fixture scope: actual tiny Store/getter/helper execution,
+    ;; privately modelled Factory/escrow facts and captured frontend IR. These are
+    ;; not full Init admission, native finalization or genuine provider evidence.
+    ;; Tiny synthetic Init transports use temporary files under this directory.
+    (.mkdirs (io/file "target"))
+    (let [nss '[prototype.full-init-admission-test
+                prototype.coherent-source-preparation-test prototype.coherent-helper-value-test
+                prototype.resident-admitted-init-prefix-test prototype.coherent-jvm-slice-test]
+          _ (doseq [n nss] (require n))
+          fixture-vars (set (filter #(-> % meta :test)
+                                   (mapcat #(vals (ns-publics %)) nss)))
+          _ (assert (= 31 (count fixture-vars)))
+          _ (reset! observed #{})
+          counters (binding [t/*report-counters* (ref t/*initial-report-counters*)]
+                     (t/test-vars (sort-by #(str (:name (meta %))) fixture-vars))
+                     @t/*report-counters*)]
+      (assert (= fixture-vars @observed))
+      (assert (= 31 (:test counters)))
+      (assert (zero? (+ (:fail counters) (:error counters))))
+      (assert (nil? ((ns-resolve 'prototype.coherent-campaign 'checkpoint))))
+      (assert (nil? ((ns-resolve 'prototype.coherent-source-preparation 'checkpoint))))
+      (assert (nil? ((ns-resolve 'prototype.coherent-source-preparation 'checking-checkpoint))))
+      (assert (nil? ((ns-resolve 'prototype.coherent-helper-value 'checkpoint))))
+      (assert (nil? (:controller ((ns-resolve 'prototype.coherent-jvm-slice 'checkpoint)))))
+      (println (assoc counters :scope "bounded-artifact-admission-and-resident-provider-models"))
+      (println "ARTIFACT_ADMISSION_PROVIDER_MODELS_31_PASS"))
     ;; Distinct scope: these explicit small programs execute guest instructions,
     ;; but never load Init, a Source, bootstrap or the genuine frontend.
     (require 'prototype.unchanged-host-resume-test)

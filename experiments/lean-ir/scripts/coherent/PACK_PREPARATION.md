@@ -165,6 +165,14 @@ strict certificate. New checked declarations retain that base assumption.
 The resident admitted prefix currently supports preparation, release and
 retirement. Legacy prefix import/reconstruction/graph entrypoints reject it;
 the application campaign uses `resident/load-source` directly. Bounded model
-tests establish this wiring, not acceptance of the full Init image. A new
-committed source/class cohort and genuine guarded campaign run are required
-before claiming the artifact-mode provider works end to end.
+tests establish this wiring separately from full-image acceptance.
+
+The committed `f0a96f0` cohort passed the seventeen-stage retained-provider
+campaign with the full 65,994-CI base, A/B/A source loading, compiled calls,
+callback and managed disposal. See [the measurement](../../measurements/genuine-full-init-artifact-provider-2026-10-29.edn).
+This uses authenticated bootstrap verification followed by developer staging;
+it is not a receipt from the bootstrap terminal entrypoint. The 3 GiB-heap run
+peaked at approximately 3.44 GiB process-group RSS. It establishes functionality,
+not a startup improvement: restore took 91.6 seconds and admission 196.0 seconds,
+with 187 GB cumulative caller-thread allocation during admission. Eager CI
+projection, guard audits and whole-heap boundaries remain optimization targets.
