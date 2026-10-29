@@ -144,6 +144,8 @@
             [prototype.restore-normalization-test]
             [prototype.hosted-file-test]
             [prototype.resident-frontend-test]
+            [prototype.closed-call-completion-test]
+            [prototype.resident-executor-test]
             [prototype.resident-code-validation-test]
             [prototype.resident-code-validation-boundary-test]
             [prototype.resident-target-validation-test]
@@ -170,7 +172,9 @@
             [prototype.persistent-snapshot-test]))
 
 (defn -main [& _]
-  (let [result (t/run-tests 'prototype.branch-lab-test
+  (let [result (t/run-tests 'prototype.closed-call-completion-test
+                            'prototype.resident-executor-test
+                            'prototype.branch-lab-test
                             'prototype.host-cells-lab-test 'prototype.klara-branch-generated-test
                             'prototype.klara-branch-bridge-test 'prototype.klara-branch-model-test
                             'prototype.preparation-test 'prototype.source-inductive-preparation-test 'prototype.cases-on-preparation-test 'prototype.kernel-cases-on-raw-test 'prototype.lean-ir-test 'prototype.typed-ir-test 'prototype.typed-blocks-test 'prototype.scalar-wrapper-test 'prototype.import-ir-dag-test 'prototype.continuation-readiness-test 'prototype.mutable-test 'prototype.runtime-ops-table-test 'prototype.source-graph-plan-test

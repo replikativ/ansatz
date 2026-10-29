@@ -265,6 +265,41 @@
                  :locals (assoc (:locals frame) (:dest frame) result) :joins (:joins frame)))
     (assoc s :status :done :result result)))
 
+(defn complete-closed-call
+  "Publish a completed private root call using its actual legacy ownership World.
+   ENTRY and OWNED must be idle packets with unchanged controls and the exact
+   EXPECTED-FUNCTIONS map. TARGET must exist in that map. The trusted executor
+   separately validates admission, arguments, effects and completion, discharges
+   transferred argument owners, and supplies one owned legacy RESULT. This helper
+   neither runs guest code nor verifies those obligations.
+
+   Terminal controls are canonical, not an instruction-exact guest checkpoint.
+   Heap, resource/authority state and statistics come unchanged from OWNED; no
+   legacy instruction count is inferred from another engine's execution budget."
+  [entry owned expected-functions target result]
+  (let [controls [:body :locals :joins :frames :status :result :resume-var :host-request]
+        idle? (fn [s]
+                (and (map? s) (contains? #{nil :done} (:status s))
+                     (or (nil? (:frames s)) (= [] (:frames s)))
+                     (nil? (:host-request s)) (nil? (:resume-var s))))]
+    (when-not (and (map? expected-functions)
+                   (identical? expected-functions (:functions entry))
+                   (identical? expected-functions (:functions owned))
+                   (map? (get expected-functions target)))
+      (fail "Closed call requires exact executable identity and an existing target" {}))
+    (when-not (and (idle? entry) (idle? owned)
+                   (= (select-keys entry controls) (select-keys owned controls)))
+      (fail "Closed call requires unchanged idle guest controls" {}))
+    (cond
+      (ref? result) (node owned result)
+      (or (= erased result) (string? result)
+          (and (integer? result) (<= 0 result))
+          (native/native-scalar? result) (instance? Tag result)) nil
+      :else (fail "Closed call result must be a legacy guest value" {}))
+    (-> owned
+        (dissoc :resume-var :host-request)
+        (assoc :body nil :locals {} :joins {} :frames [] :status :done :result result))))
+
 (defn erased-callee? [v]
   ;; lean_apply_n accepts scalar erased proofs and drops all supplied owners.
   (or (= erased v) (native/native-scalar? v) (instance? Tag v)

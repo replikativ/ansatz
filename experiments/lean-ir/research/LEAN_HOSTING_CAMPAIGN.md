@@ -29,6 +29,15 @@ specialization, is a target requiring benchmarks, not an established result.
 
 ## Evidence already obtained
 
+- The [closed pure provider seam](JAVA_PURE_PROVIDER.md) resolves the current
+  checked Env beneath resident admission and prepares a narrow acyclic no-extern
+  Nat/String tier. Boundary and selector models pass; genuine current-head source
+  loading through this tier is still pending. Ordinary calls retain their default.
+- The [Java API review](JAVA_API_STRATEGY.md) recommends genuine consumption of
+  the existing provider-first Java Lean facade in this campaign, with a stable
+  kernel/store facade scoped separately. Java source use does not require writing
+  Clojure; current implementations retain Clojure/storage dependencies.
+
 - [Original RBMap main](JAVA_RBMAP_MAIN_RUNTIME.md) executes from unchanged
   exported IR in both Java drivers, matching seven pinned native observations.
   String/array ownership and virtual six-method streams are covered; selected
