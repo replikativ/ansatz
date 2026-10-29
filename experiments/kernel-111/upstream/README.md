@@ -1,5 +1,8 @@
 # Official Lean kernel performance reproducer
 
+Reported upstream as [leanprover/lean4#16088](https://github.com/leanprover/lean4/issues/16088).
+`issue.md` preserves the published report.
+
 `Regression.lean` is standalone: its declarations require only Init, and it
 imports Lean for the expression/environment API. It links no tracing code, FFI
 helper, replacement kernel object, Ansatz implementation, or third-party library.

@@ -3,7 +3,7 @@ open Lean
 
 -- Build raw kernel expressions so elaboration cannot normalize away 24 + 0.
 -- The Fin binder comparison precedes the computed-projection comparison.
--- The beta redex makes the old post-whnf recursive cache lookup applicable.
+-- The beta redex exercises post-whnf comparison.
 def projectionModel (n : Nat) : Declaration × Declaration := Id.run do
   let nat := mkConst ``Nat
   let u := Level.zero

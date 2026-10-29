@@ -32,6 +32,7 @@
  {:archive-digests :verified-against-github
   :installed-32-33-executables-and-kernel-libraries :byte-identical-to-official
   :standalone-source "upstream/Regression.lean"
+  :upstream-issue "https://github.com/leanprover/lean4/issues/16088"
   :external-kernel-objects false :ffi false :tracing false
   :kernel-heartbeat-limit 100000 :budget-scope :fresh-process-cumulative
   :n 24

@@ -5,6 +5,8 @@ that #111 is closed. Full Mathlib has not been reverified with the candidate.
 
 ## Verified official-release reproduction
 
+Published as [Lean issue #16088](https://github.com/leanprover/lean4/issues/16088).
+
 The [standalone upstream reproducer](upstream/README.md) now reproduces the
 version contrast using only Lean source and freshly downloaded official SDKs.
 No tracing instrumentation, FFI helper, replacement kernel object, Foundation,
