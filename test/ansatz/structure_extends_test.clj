@@ -130,6 +130,9 @@
     (try
       (a/load-init! :verify? true)
       (is (contains? (env/get-extension (a/env) :classes #{}) "Ord"))
+      ;; Construct the class-only metadata case explicitly: bundle dependencies
+      ;; may include concrete Ord instances as the selected roots grow.
+      (swap! a/ansatz-env env/update-extension :instances {} dissoc (nm/from-string "Ord"))
       (is (empty? (get (env/get-extension (a/env) :instances {}) (nm/from-string "Ord"))))
       (a/class ExtraOrd [S Type] :extends (Ord S) (extra S))
       (is (some #(= (nm/from-string "ExtraOrd.toOrd") (:name %))
