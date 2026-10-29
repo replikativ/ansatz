@@ -368,12 +368,19 @@
           (fail "Resident calls require an admitted boxed entrypoint ABI" {:target target}))
         [target function signature @next-proof]))))
 
-(defn call
+(defn call-with-executor
   "Call an admitted boxed entrypoint with explicit :arguments vector/:result codec.
    Erased polymorphic arguments use :erased with nil; use call-io for the IO world.
    Returns decoded :value and matching :context. Decode borrows, then the result
-   owner is released once. On failure retain the exact completed result evidence."
-  [context file name values {:keys [arguments result] :as signature}]
+   owner is released once. On failure retain the exact completed result evidence.
+
+   SELECT is trusted internal host code, called under the Context lock after
+   admission and before argument encoding. It returns nil to select raw/call,
+   or {:prepared matching-prepared :invoke (fn [session world target args] ...)}.
+   It must preserve root/code authority and report its actual checkpoint on
+   failure. Invocation has the raw owned-entry contract; errors NEVER retry.
+   This is an advanced integration seam, not an execution/checking certificate."
+  [context file name values {:keys [arguments result] :as signature} select]
   (locking context
     (let [{:keys [prepared] :as data} (context-data context)
           _ (valid-context! data)
@@ -392,39 +399,85 @@
           _ (codec/validate-descriptor! result :decode)
           _ (remember-target-proof! context proof)
           progress (volatile! (:world prepared))
+          active (volatile! (:session prepared))
           owned (volatile! [])
-          completed (volatile! nil)]
+          completed (volatile! nil)
+          reply (volatile! nil)
+          result-owner (volatile! nil)]
       (try
-        (let [[world args]
+        (let [selection (when select
+                          (select {:prepared prepared :configuration (:configuration data)
+                                   :target target :source-name (structured-name name)
+                                   :function function :abi abi :signature signature}))
+              selected (if (some? selection) (:prepared selection) prepared)
+              _ (when (some? selection)
+                  (when-not (and (map? selection) (fn? (:invoke selection))
+                                 (= (dissoc selected :world :session) (dissoc prepared :world :session))
+                                 (identical? (:functions (:world selected)) (:functions (:world prepared)))
+                                 (identical? (:functions (:session selected)) (:functions (:session prepared)))
+                                 (identical? (:bindings (:session selected)) (:bindings (:session prepared))))
+                    (fail "Application executor changed resident authority" {}))
+                  (matching! selected))
+              _ (vreset! progress (:world selected))
+              _ (vreset! active (:session selected))
+              [world args]
               (reduce (fn [[world args] [descriptor value]]
                         (when (= :world descriptor)
                           (fail "Use call-io for the IO world argument" {}))
                         (let [[world encoded] (codec/encode-boxed world descriptor value)]
                           (vreset! progress world) (vswap! owned conj encoded)
                           [world (conj args encoded)]))
-                      [(:world prepared) []] (map vector arguments values))
+                      [(:world selected) []] (map vector arguments values))
               ;; Borrowed ABI parameters keep their facade owner while the guest
               ;; runs. Owned parameters transfer at invocation start.
               borrowed (into [] (keep (fn [[param value]] (when (:borrow param) value)))
                              (map vector (:params abi) args))
               _ (vreset! owned borrowed)
-              invoked (raw/call (:session prepared) world target args)
-              _ (vreset! completed invoked)
+              invoked ((if (some? selection) (:invoke selection) raw/call) (:session selected) world target args)
+              _ (vreset! reply invoked)
+              _ (when (some? selection)
+                  (when-not (and (map? invoked) (contains? invoked :value)
+                                 (= :done (get-in invoked [:state :status]))
+                                 (= (:value invoked) (get-in invoked [:state :result]))
+                                 (nil? (get-in invoked [:state :resume-var]))
+                                 (identical? (:functions world) (get-in invoked [:state :functions]))
+                                 (identical? (:bindings (:session selected)) (get-in invoked [:session :bindings])))
+                    (fail "Application executor returned inconsistent completion evidence" {})))
               _ (matching! (assoc prepared :world (:state invoked) :session (:session invoked)))
+              _ (vreset! completed invoked)
+              _ (vreset! progress (:state invoked))
+              _ (vreset! active (:session invoked))
+              _ (vreset! result-owner (:value invoked))
               value (codec/decode-boxed (:state invoked) result (:value invoked))
-              world (reduce #(m/release %1 %2 1) (:state invoked) borrowed)
-              world (assoc (m/release world (:value invoked) 1) :result 0)]
+              world (reduce (fn [world borrowed-value]
+                              (let [next-world (m/release world borrowed-value 1)]
+                                (vreset! progress next-world)
+                                (vswap! owned #(vec (rest %)))
+                                next-world))
+                            (:state invoked) borrowed)
+              world (m/release world (:value invoked) 1)
+              _ (vreset! progress world)
+              _ (vreset! result-owner nil)
+              world (assoc world :result 0)
+              _ (vreset! progress world)]
           {:context (make-context (assoc data :prepared (assoc prepared :world world :session (:session invoked))))
            :value value})
         (catch Throwable cause
           (let [invoked @completed]
             (throw (ex-info (or (.getMessage cause) "Resident guest call failed")
-                            (merge {:checkpoint @progress :checkpoint-session (:session prepared)
+                            (merge {:checkpoint @progress :checkpoint-session @active
                                     :resident-temporary-owners @owned}
                                    (ex-data cause)
                                    {:resident-input context :resident-operation :call}
-                                   (when invoked {:checkpoint (:state invoked) :checkpoint-session (:session invoked)
-                                                  :resident-owned-result (:value invoked)})) cause))))))))
+                                   (when @reply {:resident-executor-reply @reply})
+                                   (when invoked {:checkpoint @progress :checkpoint-session @active
+                                                  :resident-completed-invocation invoked})
+                                   (when (some? @result-owner) {:resident-owned-result @result-owner})) cause))))))))
+
+(defn call
+  "Call an admitted entrypoint with explicit codecs through the ordinary runtime."
+  [context file name values signature]
+  (call-with-executor context file name values signature nil))
 
 (defn call-io
   "Explicit IO call; append the erased world token and decode the owned IO wrapper.
