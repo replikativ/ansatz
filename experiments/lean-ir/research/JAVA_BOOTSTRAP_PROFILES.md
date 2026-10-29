@@ -173,3 +173,32 @@ These are bounded integration APIs, not a switch of the resident provider to the
 fast profile. Next: positive admission of a supported artifact cohort, explicit
 provenance through resident/kernel publication, then genuine provider acceptance
 and startup/memory measurements. Fresh strict replay remains the audit path.
+
+## Kernel-data artifact issuer
+
+`prototype.kernel-artifact/load-admitted` implements the first positive
+construction component. Its initial supported profile is the small native
+17-declaration fixture, pinned by provider-owned SHA-256, exact declaration
+inventory, Lean producer identity and quotient state. The caller supplies a
+supported profile ID and file location, not replacement expected hashes.
+
+The operation authenticates and opens its own immutable Store, projects the
+complete kernel data and installs the existing ConstantInfos in an eager Java
+Env without replaying checking. Its opaque admission token is explicitly
+`:trusted-artifact`; it records the whole base as admitted assumptions and lists
+axioms and unsafe/partial declarations separately. It creates neither a strict
+verifier certificate nor a guest association. On construction failure it closes
+only its newly opened Store, preserving the original exception.
+
+`inspect-for-world` borrows that projection only while the exact source remains
+attached, open, unshadowed and disjoint. It validates captured Java CI containers
+and nested expression universe arrays. The shared snapshot helpers grant no
+admission authority; caller-created maps cannot recreate the issuer's token.
+The host retains the Store lease and prohibits concurrent Java mutation.
+
+The retained 384 MiB REPL gate passes seven tests and 67 assertions. It covers
+fixed-pin rejection, forged-token rejection, source lifetime/shadowing, mutable
+Java state, failure cleanup and checking a new declaration against the admitted
+base. This is kernel-data admission only. A supported full Init profile, matching
+runtime/frontend companion authentication, guest association and propagation
+through the provider remain release gates; the small fixture is not that release.
