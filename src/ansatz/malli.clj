@@ -376,8 +376,14 @@
             [props more] (if (map? (first more)) [(first more) (rest more)] [nil more])]
         (case tag
           (:sequential :vector) [:sequential {:max 6} (gen-schema (first more))]
-          :int [:int {:min (max 0 (or (:min props) 0)) :max (min 25 (or (:max props) 25))}]
-          :string [:string {:min (or (:min props) 0) :max (min 6 (or (:max props) 6))}]
+          :int (if (or (some? (:max props)) (pos? (or (:min props) 0)))
+                 (throw (ex-info "differential lane: bounded :int requires a Subtype value codec"
+                                 {:form f :kind :unsupported-refinement-codec}))
+                 [:int {:min 0 :max 25}])
+          :string (if (or (some? (:min props)) (some? (:max props)))
+                    (throw (ex-info "differential lane: bounded :string requires a Subtype value codec"
+                                    {:form f :kind :unsupported-refinement-codec}))
+                    [:string {:max 6}])
           :maybe [:maybe (gen-schema (first more))]
           ;; [:tuple A B …] rides a right-nested Prod; each component clamps on its own.
           :tuple (into [:tuple] (map gen-schema) more)

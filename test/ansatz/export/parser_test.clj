@@ -9,6 +9,31 @@
 
 (def example-file "test-data/Nat.add_succ.ndjson")
 
+(deftest declared-format-version-is-checked-before-records-or-callbacks
+  (let [file (java.io.File/createTempFile "ansatz-format-version-" ".ndjson")
+        called? (atom false)]
+    (try
+      (doseq [version ["9.0.0" "3.1.1" nil]]
+        (let [header (str "{\"meta\":{\"format\":{\"version\":"
+                          (if version (str "\"" version "\"") "null") "}}}\n")]
+          (spit file (str header "not-json\n"))
+          (doseq [parse [#(parser/parse-ndjson-string (slurp file))
+                         #(parser/parse-ndjson-file (.getPath file))
+                         #(parser/parse-ndjson-file-streaming
+                           (.getPath file) nil (fn [& _] (reset! called? true)))
+                         #(parser/parse-ndjson-file-streaming-raw
+                           (.getPath file) nil (fn [& _] (reset! called? true)))]]
+            (let [data (try (parse) nil (catch clojure.lang.ExceptionInfo ex (ex-data ex)))]
+              (is (= :unsupported-export-format (:kind data)))
+              (is (= version (:version data)))))))
+      (is (false? @called?))
+      (doseq [version ["3.0.0" "3.1.0"]]
+        (let [state (parser/parse-ndjson-string
+                     (str "{\"meta\":{\"format\":{\"version\":\"" version "\"}}}\n"))]
+          (try (is (= version (get-in state [:meta "format" "version"])))
+               (finally (.close ^ExprStore (:exprs state))))))
+      (finally (.delete file)))))
+
 (deftest parse-ndjson-file-test
   (testing "Parse Nat.add_succ.ndjson example"
     (let [st (parser/parse-ndjson-file example-file)]
