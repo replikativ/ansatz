@@ -11,6 +11,14 @@ are implemented. Parsed declarations still require kernel admission: parsing is
 not proof checking. A recognized format version does not promise compatibility
 with every Lean release using that format.
 
+Generated equation lemmas also require kernel admission. If equation generation
+fails and reports a skipped lemma, that lemma is not added to the environment;
+the consequence is missing rewrite support for `simp`/`grind`, not admission of
+an unproved equation. Failures are recorded in the definition's
+`:equation-generation` metadata and environment equation inventory. Matcher
+equations can be generated on demand, so an initially empty inventory alone
+does not indicate a failure.
+
 The reproducible bundled generation profile in `ansatz.bundle` pins Lean
 `4.33.1` and exporter format `3.1.0`, with producer identities and artifact hashes.
 Its policy is stronger than the general parser's format check. Historical
