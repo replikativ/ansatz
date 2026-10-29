@@ -218,6 +218,14 @@
             names the gap — not later, where an ill-typed term reads as a divergence"
     @booted
     (let [gen (deref (requiring-resolve 'ansatz.malli/gen-schema))]
+      (doseq [schema [[:int {:min 3}] [:int {:max 5}] [:int {:min 0 :max 0}]
+                      [:string {:min 1}] [:string {:max 4}] [:string {:min 0}]
+                      [:tuple :int [:maybe [:int {:min 2}]]]
+                      [:map [:name [:string {:max 5}]]]]]
+        (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Subtype value codec" (gen schema))
+            (str "bounded scalar is rejected before generation: " schema)))
+      (is (= [:int {:min 0 :max 25}] (gen [:int {:min 0}]))
+          "a zero lower bound still has the plain Nat carrier")
       (is (thrown? clojure.lang.ExceptionInfo (gen [:map]))
           "a fieldless [:map] is the Opaque carrier and has no values to generate")
       (is (thrown? clojure.lang.ExceptionInfo (gen :uuid)))

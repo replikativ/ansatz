@@ -357,9 +357,19 @@
 ;; Line dispatch
 ;; ============================================================
 
+(def supported-format-versions #{"3.0.0" "3.1.0"})
+
+(defn- parse-meta [st metadata]
+  (let [version (get-in metadata ["format" "version"])]
+    (when-not (contains? supported-format-versions version)
+      (throw (ex-info "Unsupported lean4export format version"
+                      {:kind :unsupported-export-format :version version
+                       :supported supported-format-versions})))
+    (assoc st :meta metadata)))
+
 (defn- parse-line [st obj]
   (cond
-    (contains? obj "meta") (assoc st :meta (get obj "meta"))
+    (contains? obj "meta") (parse-meta st (get obj "meta"))
     (contains? obj "in")   (parse-name-line st obj)
     (contains? obj "il")   (parse-level-line st obj)
     (contains? obj "ie")   (parse-expr-line st obj)
@@ -502,7 +512,7 @@
 
 (defn- parse-line-raw [st obj]
   (cond
-    (contains? obj "meta") (assoc st :meta (get obj "meta"))
+    (contains? obj "meta") (parse-meta st (get obj "meta"))
     (contains? obj "in")   (parse-name-line st obj)
     (contains? obj "il")   (parse-level-line st obj)
     (contains? obj "ie")   (parse-expr-line st obj)
