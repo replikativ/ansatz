@@ -190,6 +190,24 @@
     (require! (= captured (mapv identity levels))
               "Inherited Java expression universe array changed" {})))
 
+(defn ^:no-doc snapshot-projection
+  "Capture mutable Java containers in a complete eager projection.
+   This is correspondence evidence only: it grants no checking or artifact
+   admission authority. The owning host prevents concurrent mutation."
+  [projection]
+  (eager-domain! projection)
+  (assoc projection
+         :shapes (into {} (map (fn [[name ci]] [name (imported/checking-shape ci)]))
+                       (:projected projection))
+         :expression-arrays (expression-array-witnesses projection)))
+
+(defn ^:no-doc validate-projection
+  "Compare actual eager Java objects with captured container snapshots.
+   Does not authenticate the projection or establish checking history."
+  [snapshot]
+  (current-java-base! snapshot)
+  snapshot)
+
 (defn- capture-base*
   "Issue [latest-world opaque-live-capability] from an EXISTING positive anchor.
    CERTIFICATE must be the actual trusted in-process strict-verifier result;
@@ -212,9 +230,7 @@
         _ (require! (= quot? (.isQuotEnabled ^Env checked)) "Checked base quotient correspondence changed" {})
         _ (stage! :capture-projection)
         indexed (indexed! (entries world values certificate))
-        base (assoc certificate
-                    :shapes (into {} (map (fn [[name ci]] [name (imported/checking-shape ci)])) (:projected certificate))
-                    :expression-arrays (expression-array-witnesses certificate))
+        base (snapshot-projection certificate)
         _ (require! (= (set (keys indexed)) (set (keys (:constants certificate))))
                     "Guest enumeration differs from complete checked base" {})
         _ (same-base! base indexed)
