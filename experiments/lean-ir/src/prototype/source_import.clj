@@ -63,7 +63,9 @@
 (defn- protected-compilation-root [world invoke original environment root]
   (let [old (get-in original [:kernel-environments (:id root)])
         current (get-in world [:kernel-environments (:id root)])]
-    (if (and old current (= root (:anchor old) (:anchor current)) (identical? (:env old) (:env current))) world
+    (if (and old current (= root (:anchor old) (:anchor current)) (identical? (:env old) (:env current))
+             (= (:kernel-provenance old) (:kernel-provenance current))
+             (identical? (:java-guard-segments old) (:java-guard-segments current))) world
       (let [[world constants] (invoke world (:constant-map module-import/helpers) [environment])
             [world flag] (invoke world (:quot-init? module-import/helpers) [environment])
             flag (native/nat-value ops world flag)
@@ -74,7 +76,9 @@
                       (when (and (= constants (:constant-map entry) (:constant-map current))
                                  (= (= 1 flag) (:quot-init? entry) (:quot-init? current))
                                  (= (:anchor entry) (:anchor current))
-                                 (identical? (:env entry) (:env current))) entry)))
+                                 (identical? (:env entry) (:env current))
+                                 (= (:kernel-provenance entry) (:kernel-provenance current))
+                                 (identical? (:java-guard-segments entry) (:java-guard-segments current))) entry)))
                   (vals (:kernel-environments original)))]
         (when-not (and matched (m/ref? root) (m/ref? constants))
           (fail "Source checked environment lacks the original protected association" {:checkpoint world :root root}))
@@ -85,7 +89,8 @@
         (-> world (m/release constants 1)
             (cond-> (nil? current) (m/retain root 1))
             (assoc-in [:kernel-environments (:id root)]
-              {:anchor root :env (:env matched) :constant-map constants :quot-init? (= 1 flag)}))))))
+              (merge {:anchor root :env (:env matched) :constant-map constants :quot-init? (= 1 flag)}
+                     (select-keys matched [:kernel-provenance :java-guard-segments]))))))))
 
 (defn- register-profile [world invoke compilation module-name expected-imports profile]
   (let [{:keys [module digest environment original]} (validate-unit world compilation expected-imports)
@@ -289,6 +294,8 @@
              (fail "Native prefix descriptors differ from the attached verified source" {}))
          _ (native-init-closure! actual)
          certificate (:certificate checked)
+         _ (when (= :trusted-artifact (get-in certificate [:kernel-provenance :base-basis]))
+             (fail "Strict Init prefix cannot use an artifact-admitted base" {}))
          _ (when-not (and (= :ok (:status checked)) (instance? Env (:env certificate))
                           (= 1 (count (:projection-sources certificate)))
                           (identical? source (first (:projection-sources certificate))))
@@ -514,8 +521,9 @@
               (fail "Finalized source kernel association differs from the checked certificate" {:checkpoint world}))
           ;; The full certificate checked Init+A; source authorization needs only
           ;; A's exact subset, inherited by subsequent protected environments.
-          receipt {:anchor root :checked-env (:env certificate) :constants expected
-                   :projected (select-keys (:projected certificate) names) :unit-digest (:unit-digest entry)}
+          receipt (merge {:anchor root :checked-env (:env certificate) :constants expected
+                          :projected (select-keys (:projected certificate) names) :unit-digest (:unit-digest entry)}
+                         (select-keys anchor [:kernel-provenance :java-guard-segments]))
           world (m/release world root 1)
           _ (vreset! (:world progress) world)
           _ (vreset! (:owners progress) [])
@@ -650,8 +658,8 @@
       (let [checker (:check-trusted-functions! context)
             _ (when-not (fn? checker) (fail "Source import authorization requires trusted helper closure checking" {}))
             _ (checker world (mapv module-import/helpers [:root :constant-map :quot-init?]))
-            [world current] (kernel-host/inherit-checked-association context world environment module-import/helpers)
-            ^Env current current
+            [world current-entry] (kernel-host/resolve-association context world environment module-import/helpers)
+            ^Env current (:env current-entry)
             accepted
             (and current
                  (some (fn [receipt]
@@ -659,6 +667,9 @@
                            (and (= (:unit-digest entry) (:unit-digest receipt))
                                 (= (:anchor receipt) (:anchor anchored))
                                 (identical? (:checked-env receipt) (:env anchored))
+                                (= (kernel-host/association-provenance receipt)
+                                   (kernel-host/association-provenance anchored)
+                                   (kernel-host/association-provenance current-entry))
                                 (every? (fn [[name ci]] (identical? ci (.lookup current name)))
                                         (:projected receipt)))))
                        (vals (:imports entry))))]

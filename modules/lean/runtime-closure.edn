@@ -23,6 +23,7 @@
   "prototype/kernel_bridge.clj"
   "prototype/kernel_declaration.clj"
   "prototype/kernel_host.clj"
+  "prototype/kernel_projection_snapshot.clj"
   "prototype/lazy_runtime.clj"
   "prototype/leaf_compile.clj"
   "prototype/machine.cljc"

@@ -5,7 +5,10 @@
   (:require [prototype.machine :as m]
             [prototype.checked-delta :as delta]
             [prototype.module-import :as import]
-            [prototype.imported-kernel :as kernel]))
+            [prototype.imported-kernel :as kernel]
+            [prototype.kernel-artifact :as artifact]
+            [prototype.kernel-projection-snapshot :as snapshot]
+            [prototype.helper-authority :as authority]))
 
 (defn- fail [message data] (throw (ex-info message data)))
 (defn- array-values [world value]
@@ -14,7 +17,7 @@
       (fail "Expected final checked ConstantInfo array" {}))
     (:fields node)))
 
-(defn finish-finalization
+(defn- finish-finalization*
   "Consume actual owned finalizer IO.Result, check only additions to CAPABILITY,
    then associate the exact final guest map with the strict-compatible result.
    CONTEXT is the current independently authorized checked-delta helper context;
@@ -27,10 +30,12 @@
    never permission to replay finalizer effects. :finalization-owners pairs this
    layer's still-owned Environment/constants with the actual latest checkpoint.
    This API accepts only a previously strictly checked live base."
-  ([context world result capability]
-   (finish-finalization context world result capability {}))
-  ([context world result capability options]
+  [basis context world result capability options]
    (let [targets (merge import/helpers (:helpers options))
+         roots (cond-> (mapv targets [:root :constants :quot-init?])
+                 (:constant-map targets) (conj (:constant-map targets))
+                 (:finalizer-attestation options) (conj (get-in options [:finalizer-attestation :header-helper])))
+         helper-code (volatile! nil)
          snapshot {:checkpoint world :io-result result}
          node (when (m/ref? result) (m/node world result))]
      (when-not (and (= :ctor (:kind node)) (contains? #{0 1} (:tag node))
@@ -44,11 +49,7 @@
            (fail "Guest import did not return an Environment reference"
                  {:checkpoint world :io-result result :finalizer-result snapshot}))
          (try
-           (delta/validate-helper-authority
-            context world
-            (cond-> (mapv targets [:root :constants :quot-init?])
-              (:constant-map targets) (conj (:constant-map targets))
-              (:finalizer-attestation options) (conj (get-in options [:finalizer-attestation :header-helper]))))
+           (vreset! helper-code (authority/capture context world roots))
            (catch Throwable cause
              (throw (ex-info "Final guest helpers lack current independent authority"
                              (merge (ex-data cause)
@@ -64,7 +65,9 @@
                    _ (vreset! constants-owner constants)
                    values (array-values world constants)
                    _ (vreset! stage :delta-check)
-                   certificate (delta/verify-extension context world values capability (:kernel-policy options))
+                   certificate ((if (= :trusted-artifact basis)
+                                  delta/verify-artifact-extension delta/verify-extension)
+                                context world values capability (:kernel-policy options))
                    world (:world certificate)
                    _ (vreset! checkpoint world)
                    _ (vreset! stage :final-constants-release)
@@ -77,9 +80,20 @@
                                         (:finalizer-attestation options))
                    _ (vreset! checkpoint world)
                    _ (vreset! stage :final-association)
-                   world (kernel/associate-checked-progress context world environment targets certificate)]
+                   world (if (= :trusted-artifact basis)
+                           (kernel/associate-projection-progress
+                            context world environment targets certificate
+                            (fn [world]
+                              (let [admission (get-in certificate [:kernel-provenance :artifact-admission])
+                                    admitted (artifact/inspect-for-world world admission)]
+                                (when-not (= (:kernel-provenance admitted) (:kernel-provenance certificate))
+                                  (fail "Artifact extension provenance differs from issued base" {}))
+                                (authority/check context world roots @helper-code)
+                                (snapshot/validate-segments (:env certificate) (:java-guard-segments certificate)))))
+                           (kernel/associate-checked-progress context world environment targets certificate))]
                {:status :ok :world (assoc world :result 0) :environment environment
-                :certificate (dissoc certificate :world)})
+                :kernel-provenance (:kernel-provenance certificate) :new-order (:new-order certificate)
+                (if (= :trusted-artifact basis) :checked-result :certificate) (dissoc certificate :world)})
              (catch Throwable cause
                (let [data (ex-data cause)
                      latest (or (:checkpoint data) @checkpoint)
@@ -97,4 +111,21 @@
                                                                      @constants-owner (conj @constants-owner))})
                                    (nil? (:checkpoint data)) (assoc :environment environment)
                                    (:checkpoint-session data) (assoc :session (:checkpoint-session data)))
-                                 cause)))))))))))
+                                 cause))))))))))
+
+(defn finish-finalization
+  "Consume actual finalizer IO.Result and check only additions to a strictly
+   checked live base. Returns :certificate; artifact capabilities are rejected.
+   Latest-world/owner/session packets and IO-error ownership are preserved."
+  ([context world result capability] (finish-finalization context world result capability {}))
+  ([context world result capability options]
+   (finish-finalization* :strict-fresh context world result capability options)))
+
+(defn finish-artifact-finalization
+  "Explicit artifact-relative counterpart consuming the actual finalizer IO once.
+   Returns :checked-result, original :kernel-provenance and checked :new-order;
+   no strict certificate or base order is invented. Final guest association is
+   exact and all prior/new Java guard segments are revalidated across helpers."
+  ([context world result capability] (finish-artifact-finalization context world result capability {}))
+  ([context world result capability options]
+   (finish-finalization* :trusted-artifact context world result capability options)))

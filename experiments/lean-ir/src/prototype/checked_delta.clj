@@ -1,5 +1,6 @@
 (ns prototype.checked-delta
-  "Live checked-base experiment. No serialized/trusted-artifact issuer.
+  "Live checked-base and explicitly artifact-relative delta checking.
+   Artifact authority comes only from the separate pinned issuer.
    Capture has the same TRUSTED in-process verifier-certificate and authorized
    helper-invoker contract as imported/associate-checked. Data equality alone
    never manufactures a capability. Strict verification remains unchanged."
@@ -10,10 +11,13 @@
             [prototype.module-store]
             [prototype.kernel-bridge :as bridge]
             [prototype.imported-kernel :as imported]
-            [prototype.eval-const :as eval]
+            [prototype.helper-authority :as authority]
+            [prototype.kernel-projection-snapshot :as snapshot]
+            [prototype.kernel-artifact :as artifact]
+            [prototype.kernel-host :as kernel-host]
             [ansatz.kernel.env :as env])
-  (:import [ansatz.kernel Env ConstantInfo ConstantInfo$RecursorRule Expr TypeChecker]
-           [java.util WeakHashMap IdentityHashMap]))
+  (:import [ansatz.kernel Env ConstantInfo TypeChecker]
+           [java.util WeakHashMap]))
 
 (deftype CheckedBase [])
 (def ^:private issued (WeakHashMap.))
@@ -51,45 +55,10 @@
     sources))
 
 (defn- eager-domain! [certificate]
-  (let [^Env checked (:env certificate) constants (:constants certificate) projected (:projected certificate)]
-    (require! (and (instance? Env checked) (map? constants) (map? projected))
-              "Actual strict verifier certificate required" {})
-    (require! (.sameExternalView checked (Env.)) "Lazy/external checked bases are unsupported" {})
-    (let [actual (into {} (map #(vector (.name ^ConstantInfo %) %) (.allConstants checked)))]
-      (require! (= (set (keys constants)) (set (keys projected)) (set (keys actual)))
-                "Checked base has incomplete Java ConstantInfo domain" {})
-      (doseq [[name ^ConstantInfo ci] projected]
-        (require! (and (instance? ConstantInfo ci) (= name (.name ci))
-                       (identical? ci (get actual name)) (identical? ci (.lookup checked name)))
-                  "Certificate projection differs from actual checked Env" {:name name})))
-    certificate))
+  (snapshot/validate-eager-domain certificate))
 
 (defn- authority-code! [context world roots expected]
-  (require! (and (fn? (:invoke context)) (map? (:trusted-functions context)))
-            "Current authorized helper invoker and independent registry required" {})
-  (require! (and (vector? roots) (every? vector? roots)) "Explicit guest helper targets required" {})
-  (loop [pending roots functions {} bindings {}]
-    (if (empty? pending)
-      (let [actual {:functions functions :bindings bindings}]
-        (when expected
-          (require! (and (= (set (keys functions)) (set (keys (:functions expected))))
-                         (= (set (keys bindings)) (set (keys (:bindings expected))))
-                         (every? (fn [[name value]] (identical? value (get-in expected [:functions name]))) functions)
-                         (every? (fn [[name value]] (identical? value (get-in expected [:bindings name]))) bindings))
-                    "Checked base protected helper closure changed" {}))
-        actual)
-      (let [name (peek pending) pending (pop pending)]
-        (if (contains? functions name) (recur pending functions bindings)
-          (let [function (get-in world [:functions name])
-                _ (require! (and (map? function) (identical? function (get (:trusted-functions context) name)))
-                            "Checked base helper executable identity changed" {:name name})
-                symbol (get-in function [:raw-extern :symbol])
-                binding (when symbol (get (:bindings context) symbol))]
-            (when symbol
-              (require! (and binding (identical? binding (get (:trusted-bindings context) symbol)))
-                        "Checked helper binding lacks independent identity authority" {:symbol symbol}))
-            (recur (into pending (eval/executable-dependencies function))
-                   (assoc functions name function) (cond-> bindings symbol (assoc symbol binding)))))))))
+  (authority/check context world roots expected))
 
 (defn- helper-code! [context world helpers expected]
   (doseq [key [:root :constants :quot-init?]]
@@ -151,62 +120,24 @@
                 "Inherited ConstantInfo checking shape changed" {:name name}))))
 
 (defn- expression-array-witnesses [certificate]
-  ;; Typed bridge Expr fields are final, but CONST universe arguments may be
-  ;; Java arrays. Keep only those mutable-container witnesses; share the DAG.
-  (let [seen (IdentityHashMap.) arrays (IdentityHashMap.)
-        roots (mapcat (fn [^ConstantInfo ci]
-                        (concat [(.type ci) (.value ci)]
-                                (when (.isRecursor ci)
-                                  (map #(.rhs ^ConstantInfo$RecursorRule %) (.rules ci)))))
-                      (vals (:projected certificate)))]
-    (loop [pending (vec (remove nil? roots)) witnesses []]
-      (if (empty? pending) witnesses
-        (let [^Expr e (peek pending) pending (pop pending)]
-          (if (.containsKey seen e) (recur pending witnesses)
-            (do
-              (.put seen e true)
-              (let [levels (when (= Expr/CONST (.tag e)) (.o1 e))
-                    array? (instance? (class (object-array 0)) levels)
-                    fresh? (and array? (not (.containsKey arrays levels)))
-                    _ (when fresh? (.put arrays levels true))
-                    children (case (.tag e)
-                               3 [(.o0 e) (.o1 e)]
-                               (4 5) [(.o1 e) (.o2 e)]
-                               6 [(.o1 e) (.o2 e) (.o3 e)]
-                               (9 10) [(.o1 e)]
-                               [])]
-                (recur (into pending children)
-                       (cond-> witnesses fresh? (conj [levels (mapv identity levels)])))))))))))
+  (snapshot/expression-array-witnesses certificate))
 
 (defn- current-java-base! [certificate]
-  ;; Env maps are persistent, but ConstantInfo exposes mutable Java fields.
-  ;; Validate the objects actually used by the checker as well as guest data.
-  ;; The owning host must still prohibit concurrent mutation during an operation.
-  (eager-domain! certificate)
-  (doseq [[name ^ConstantInfo ci] (:projected certificate)]
-    (require! (= (get (:shapes certificate) name) (imported/checking-shape ci))
-              "Inherited Java ConstantInfo checking shape changed" {:name name}))
-  (doseq [[levels captured] (:expression-arrays certificate)]
-    (require! (= captured (mapv identity levels))
-              "Inherited Java expression universe array changed" {})))
+  (snapshot/validate-projection certificate)
+  nil)
 
 (defn ^:no-doc snapshot-projection
   "Capture mutable Java containers in a complete eager projection.
    This is correspondence evidence only: it grants no checking or artifact
    admission authority. The owning host prevents concurrent mutation."
   [projection]
-  (eager-domain! projection)
-  (assoc projection
-         :shapes (into {} (map (fn [[name ci]] [name (imported/checking-shape ci)]))
-                       (:projected projection))
-         :expression-arrays (expression-array-witnesses projection)))
+  (snapshot/snapshot-projection projection))
 
 (defn ^:no-doc validate-projection
   "Compare actual eager Java objects with captured container snapshots.
    Does not authenticate the projection or establish checking history."
-  [snapshot]
-  (current-java-base! snapshot)
-  snapshot)
+  [projection]
+  (snapshot/validate-projection projection))
 
 (defn- capture-base*
   "Issue [latest-world opaque-live-capability] from an EXISTING positive anchor.
@@ -218,6 +149,9 @@
    The host retains all guest roots/source leases; this capability borrows them."
   [context world environment helpers certificate]
   (stage! :capture-certificate)
+  (require! (not (or (= :trusted-artifact (:basis certificate))
+                     (= :trusted-artifact (get-in certificate [:kernel-provenance :base-basis]))))
+            "Strict base capture rejects artifact kernel provenance" {})
   (eager-domain! certificate)
   (require! (fn? (:invoke context)) "Authorized helper invoker required" {})
   (let [sources (sources! world nil) code (helper-code! context world helpers nil)
@@ -225,21 +159,24 @@
         _ (stage! :capture-association)
         anchor (get-in world [:kernel-environments (:id root)])
         checked (:env certificate)
+        _ (require! (not= :trusted-artifact (get-in anchor [:kernel-provenance :base-basis]))
+                    "Strict base capture rejects artifact kernel provenance" {})
         _ (require! (and (= root (:anchor anchor)) (identical? checked (:env anchor)))
                     "Existing positive checked association required" {})
         _ (require! (= quot? (.isQuotEnabled ^Env checked)) "Checked base quotient correspondence changed" {})
         _ (stage! :capture-projection)
         indexed (indexed! (entries world values certificate))
-        base (snapshot-projection certificate)
+        base (snapshot-projection (assoc certificate :kernel-provenance {:base-basis :strict-fresh}))
+        base (assoc base :java-guard-segments [(select-keys base [:projected :shapes :expression-arrays])])
         _ (require! (= (set (keys indexed)) (set (keys (:constants certificate))))
                     "Guest enumeration differs from complete checked base" {})
         _ (same-base! base indexed)
         _ (sources! world sources) _ (helper-code! context world helpers code)
         cap (CheckedBase.)]
     (locking issued
-      (.put issued cap {:certificate base :sources sources :environment environment
+      (.put issued cap {:basis :strict-fresh :certificate base :sources sources :environment environment
                         :helpers helpers :helper-code code :root root :quot? quot?
-                        :anchor (select-keys anchor [:anchor :env :constant-map :quot-init?])}))
+                        :anchor (select-keys anchor [:anchor :env :constant-map :quot-init? :kernel-provenance :java-guard-segments])}))
     [world cap]))
 
 (defn- policy! [world entries {:keys [allow-axioms? allow-compiler-markers? allow-unsafe?]}]
@@ -259,10 +196,15 @@
    work and :new-order. It does not publish or associate the final guest Env.
    Base assumptions retain their original admission; POLICY applies to additions.
    No serialized capability, lazy domain, subsumption or source replacement."
-  [context world values capability {:keys [fuel] :or {fuel 20000000} :as policy}]
+  [expected-basis context world values capability {:keys [fuel] :or {fuel 20000000} :as policy}]
   (let [{:keys [certificate sources environment helpers helper-code root quot? anchor] :as base}
         (locking issued (.get issued capability))]
     (require! base "An issued live checked-base capability is required" {})
+    (require! (= expected-basis (:basis base))
+              "Delta checking route rejects a different base provenance" {})
+    (when (= :trusted-artifact expected-basis)
+      (artifact/inspect-for-world world (get-in certificate [:kernel-provenance :artifact-admission]))
+      (snapshot/validate-segments (:env certificate) (:java-guard-segments certificate)))
     (require! (and (vector? values) (integer? fuel) (<= 1 fuel Long/MAX_VALUE))
               "Explicit final refs and positive checker fuel required" {})
     (stage! :java-base)
@@ -273,10 +215,13 @@
           _ (stage! :base-association)
           current-anchor (get-in world [:kernel-environments (:id root)])]
       (require! (and (= root actual-root) (= quot? actual-quot)
-                     (= anchor (select-keys current-anchor [:anchor :env :constant-map :quot-init?]))
+                     (= anchor (select-keys current-anchor [:anchor :env :constant-map :quot-init? :kernel-provenance :java-guard-segments]))
                      (identical? (:env certificate) (:env current-anchor)))
                 "Checked base association or quotient state changed" {})
       (sources! world sources) (helper-code! context world helpers helper-code)
+      (when (= :trusted-artifact expected-basis)
+        (artifact/inspect-for-world world (get-in certificate [:kernel-provenance :artifact-admission]))
+        (snapshot/validate-segments (:env certificate) (:java-guard-segments certificate)))
       (stage! :java-base)
       (current-java-base! certificate)
       (stage! :delta-projection)
@@ -304,12 +249,19 @@
               (require! (= group-count cursor) "Unsupported recursive delta dependency group" {})
               (require! (= (set (keys indexed)) (set (map #(.name ^ConstantInfo %) (.allConstants checked))))
                         "Delta checker domain differs from complete final enumeration" {})
-              {:world world :env checked :projection-sources sources
-               :constants (into {} (map (fn [[name entry]] [name (:guest entry)])) indexed)
-               :projected (into {} (map (fn [[name _]] [name (.lookup checked name)])) indexed)
-               :order (into (vec (:order certificate)) order) :new-order order
-               :axioms (set/union (:axioms certificate)
-                                 (set (map #(.name ^ConstantInfo (:constant %)) (filter #(.isAxiom ^ConstantInfo (:constant %)) added))))})
+              (let [projected (into {} (map (fn [[name _]] [name (.lookup checked name)])) indexed)
+                    new-projected (select-keys projected new-names)
+                    segments (cond-> (vec (:java-guard-segments certificate))
+                               (seq new-projected) (conj (snapshot/snapshot-segment new-projected)))]
+                (cond-> {:world world :env checked :projection-sources sources
+                         :constants (into {} (map (fn [[name entry]] [name (:guest entry)])) indexed)
+                         :projected projected :new-order order
+                         :kernel-provenance (:kernel-provenance certificate)
+                         :java-guard-segments segments
+                         :axioms (set/union (:axioms certificate)
+                                           (set (map #(.name ^ConstantInfo (:constant %))
+                                                     (filter #(.isAxiom ^ConstantInfo (:constant %)) added))))}
+                  (= :strict-fresh expected-basis) (assoc :order (into (vec (:order certificate)) order)))))
             (let [key (nth queue cursor) members (get members-by-key key)
                   _ (stage! [:check key])
                   checked (case (first key)
@@ -345,4 +297,75 @@
    Errors preserve latest World, stage and outstanding helper-owner evidence.
    The host serializes operations and prohibits concurrent Java CI mutation."
   [context world values capability policy]
-  (operation world #(verify-extension* context world values capability policy)))
+  (operation world #(verify-extension* :strict-fresh context world values capability policy)))
+
+(defn- capture-artifact-base* [context world environment helpers admission]
+  (stage! :artifact-admission)
+  (let [admitted (artifact/inspect-for-world world admission)
+        sources (sources! world nil)
+        roots (cond-> (mapv helpers [:root :constants :quot-init?])
+                (:constant-map helpers) (conj (:constant-map helpers)))
+        code (authority/capture context world roots)
+        [world association] (kernel-host/resolve-association context world environment helpers)
+        _ (publish! world)
+        provenance (:kernel-provenance association)
+        _ (require! (and association (= :trusted-artifact (:base-basis provenance))
+                         (identical? admission (:artifact-admission provenance))
+                         (= (:base-assumptions admitted) (:base-assumptions provenance)))
+                    "Artifact capture requires the same issued artifact lineage" {})
+        ^Env checked (:env association)
+        segments (:java-guard-segments association)
+        _ (require! (seq segments) "Artifact association lacks prior Java guards" {})
+        ;; Validate the ORIGINAL witnesses before taking any new baseline.
+        _ (snapshot/validate-segments checked segments)
+        _ (stage! :artifact-current-enumeration)
+        [world root quot? values] (read-environment context world environment helpers true)
+        _ (require! (and (= root (:anchor association)) (= quot? (.isQuotEnabled checked)))
+                    "Artifact current guest association or quotient state changed" {})
+        seed (assoc admitted :env checked)
+        indexed (indexed! (entries world values seed))
+        projected (into {} (map (fn [^ConstantInfo ci] [(.name ci) ci])) (.allConstants checked))
+        _ (require! (= (set (keys indexed)) (set (keys projected)))
+                    "Current artifact descendant has incomplete guest CI domain" {})
+        _ (doseq [[name {:keys [constant]}] indexed]
+            (require! (= (imported/checking-shape constant)
+                         (imported/checking-shape (get projected name)))
+                      "Current artifact guest CI differs from its checked descendant" {:name name}))
+        _ (doseq [[name guest] (:constants admitted)]
+            (require! (= guest (get-in indexed [name :guest]))
+                      "Missing or replaced inherited artifact reference" {:name name}))
+        _ (artifact/inspect-for-world world admission)
+        _ (snapshot/validate-segments checked segments)
+        _ (sources! world sources)
+        _ (authority/check context world roots code)
+        _ (require! (= association (get-in world [:kernel-environments (:id root)]))
+                    "Artifact association changed during current enumeration" {})
+        projection {:env checked :projection-sources sources
+                    :constants (into {} (map (fn [[name entry]] [name (:guest entry)])) indexed)
+                    :projected projected :kernel-provenance provenance :java-guard-segments segments
+                    :axioms (set (for [[name ^ConstantInfo ci] projected :when (.isAxiom ci)] name))}
+        base (snapshot-projection projection)
+        capability (CheckedBase.)]
+    (locking issued
+      (.put issued capability
+            {:basis :trusted-artifact :certificate base :sources sources :environment environment
+             :helpers helpers :helper-code (helper-code! context world helpers nil)
+             :root root :quot? quot?
+             :anchor (select-keys association [:anchor :env :constant-map :quot-init?
+                                              :kernel-provenance :java-guard-segments])}))
+    [world capability]))
+
+(defn capture-artifact-base
+  "Capture the CURRENT positive artifact descendant, authenticating the actual
+   issued token and validating original/earlier Java guard segments before any
+   replacement snapshot. The same token may cover successive checked additions;
+   this does not require identity with its original artifact Java Env."
+  [context world environment helpers admission]
+  (operation world #(capture-artifact-base* context world environment helpers admission)))
+
+(defn verify-artifact-extension
+  "Check only additions against an issued live ARTIFACT-relative base. Preserve
+   original artifact provenance/assumptions and prior witnesses, with :new-order
+   only for this operation. No strict certificate or base checked order is made."
+  [context world values capability policy]
+  (operation world #(verify-extension* :trusted-artifact context world values capability policy)))

@@ -302,7 +302,8 @@
                (let [actual (set (map #(.name ^ConstantInfo %) (.allConstants checked)))]
                  (when-not (= (set names) actual)
                    (fail "Kernel generated constants absent from imported environment" {:extra (set/difference actual (set names))}))
-                 {:env checked :projection-sources (immutable-projection-sources world)
+                 {:env checked :kernel-provenance {:base-basis :strict-fresh}
+                  :projection-sources (immutable-projection-sources world)
                   :constants (into {} (map (fn [{:keys [guest ^ConstantInfo constant]}] [(.name constant) guest])) entries)
                   :projected (into {} (map (fn [{:keys [^ConstantInfo constant]}] [(.name constant) constant])) entries)
                   :order order :axioms (set (map #(.name ^ConstantInfo (:constant %)) (filter #(.isAxiom ^ConstantInfo (:constant %)) entries)))}))
@@ -372,8 +373,12 @@
   [constant]
   (constant-shape constant))
 
-(defn associate-checked-progress
-  "Anchor an already checked import to an EXACT matching guest environment.
+(defn ^:no-doc associate-projection-progress
+  "Internal exact guest/projection correspondence for trusted producers.
+   This core grants no strict or artifact authority. Optional VALIDATE-BOUNDARY!
+   is a trusted read-only callback inside the ownership operation, before guest
+   helpers and before ledger publication. Provenance/guard metadata is retained.
+   Anchor an already admitted projection to an EXACT matching guest environment.
    Helpers :root/:constants/:quot-init? borrow guest Environment and return owned
    Kernel.Environment / Array ConstantInfo / Bool respectively. The constants
    helper must enumerate the precise checked kernel map, not elaborator extras.
@@ -384,7 +389,9 @@
    Failures preserve :checkpoint and :association-temporary-owners (one entry
    per returned owner still outstanding), plus :association-stage. Unknown
    partial helper effects remain in the cause packet; never replay helpers."
-  [context world environment helpers certificate]
+  ([context world environment helpers projection]
+   (associate-projection-progress context world environment helpers projection nil))
+  ([context world environment helpers certificate validate-boundary!]
   (let [progress (volatile! world) owners (volatile! []) stage (volatile! :preflight)
         invoke (fn [world target args]
                  (vreset! stage [:helper target])
@@ -400,6 +407,7 @@
                       (vswap! owners #(into (subvec % 0 index) (subvec % (inc index)))))
                     world))]
    (try
+  (when validate-boundary! (validate-boundary! world))
   (doseq [key [:root :constants :quot-init?]]
     (when-not (vector? (get helpers key)) (fail "Missing imported kernel guest helper" {:helper key})))
   (let [[world root] (invoke world (:root helpers) [environment])
@@ -440,14 +448,27 @@
                               [world {:constant-map constants :quot-init? (= 1 quot?)}]))
                           [world nil])]
     ;; Keep both helper-returned owners when a map witness was requested.
+    (when validate-boundary! (validate-boundary! world))
     (let [world (assoc-in world [:kernel-environments (:id root)]
-                         (merge {:anchor root :env (:env certificate)} witness))]
+                         (merge {:anchor root :env (:env certificate)} witness
+                                (select-keys certificate [:kernel-provenance :java-guard-segments])))]
       (vreset! progress world) (vreset! owners []) world))
    (catch Throwable cause
      (throw (ex-info (or (.getMessage cause) "Checked association failed")
                      (merge {:checkpoint @progress :association-stage @stage}
                             (ex-data cause)
-                            {:association-temporary-owners @owners}) cause))))))
+                            {:association-temporary-owners @owners}) cause)))))))
+
+(defn associate-checked-progress
+  "Strict-only wrapper over exact guest/projection correspondence. Requires an
+   actual internal fresh verifier result; artifact lineage must use its explicit
+   admission or artifact-relative checking route. Preserves owner checkpoints."
+  [context world environment helpers certificate]
+  (when (or (= :trusted-artifact (:basis certificate))
+            (= :trusted-artifact (get-in certificate [:kernel-provenance :base-basis])))
+    (fail "Strict association rejects artifact kernel provenance" {:checkpoint world}))
+  (associate-projection-progress context world environment helpers
+                                (assoc certificate :kernel-provenance {:base-basis :strict-fresh})))
 
 (defn associate-checked
   "Associate actual strictly checked constants with the exact guest map.
