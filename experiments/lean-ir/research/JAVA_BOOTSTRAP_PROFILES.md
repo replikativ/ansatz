@@ -3,6 +3,12 @@
 Source-grounded Astra review, 2026-10-28. The proposed fast profile is not
 implemented. Current genuine acceptance continues to use fresh Java checking.
 
+This distinction applies to the experimental hosted frontend. Normal Ansatz
+already loads bundled Init in TRUST mode: `core/init!` calls
+`bundled-medium-env false`, and `core/load-init!` defaults to `:verify? false`.
+Prepared stores use `export.storage/load-env` without replaying every declaration.
+The expensive strict replay measured below is not normal Ansatz startup.
+
 ## Distinguish import policy from source hosting
 
 Pinned Lean 4.33.1 `819816b2e0a3bf405af45ae5c7af2491d8f5bee6`,
@@ -92,3 +98,50 @@ reason to wait for signing infrastructure or general checkpoint technology.
 The fast profile is a planned release gate. Existing precreated stores or hashes
 do not make it implemented. Continue ordinary development in the small REPL and
 reuse a live provider across source experiments under its lease contract.
+
+## Checked-delta experiment
+
+`research/checked-delta.clj` now implements the live strict-base portion of this
+plan. It does not implement trusted-artifact admission or change provider defaults.
+
+`capture-base` borrows a guest Environment whose positive kernel association and
+actual strict verifier certificate already exist. The host supplies the current
+authorized helper invoker and an independent admitted helper registry. Capture
+checks the complete eager Java domain, guest enumeration, inherited checking
+shapes, quotient flag, protected helper closure and backing source identities.
+It returns the actual post-helper World and an opaque in-process capability;
+serialized data cannot recreate that capability. Guest roots and source leases
+remain owned by the host.
+
+Java `ConstantInfo` has public mutable fields/arrays, and CONST expressions may
+hold mutable universe arrays. Capture copies the CI array containers and records
+the reachable expression universe arrays once, traversing the shared DAG by
+identity. Extension checks compare the current Java objects and those arrays
+against their snapshots before and after guest helpers. The host must serialize
+operations and prevent concurrent mutation; these guards are not synchronization.
+
+`verify-extension` takes that capability, the current authorized context and the
+complete final guest ConstantInfo enumeration. It checks that inherited names,
+references and checking shapes still match, then checks only new declaration
+groups against the existing immutable Java Env. New assumptions and unsafe
+declarations require explicit policy; inherited assumptions retain their original
+admission. Inductive families and mutual definitions use the existing grouped
+kernel operations. An unchanged import returns the same Java Env. The returned
+certificate must still be associated with the exact final guest Environment;
+this experiment does not publish that association or executable code.
+
+Only eager bases and at most one open immutable module Store are supported.
+Local inherited graphs are reprojected on each operation; immutable Store
+projections can be reused under the existing source identity guards. Thus this
+removes repeated kernel checking, not all inventory/projection costs. Errors
+preserve the actual latest World, stage and outstanding helper owners rather
+than authorizing replay of guest effects.
+
+The retained 384 MiB REPL gate passes 12 tests and 88 assertions, covering new
+definitions/proofs, assumptions, complete inductive and unsafe mutual groups,
+inherited mutation/replacement/omission, source closure/shadowing, helper/binding
+replacement, Java object/array mutation, quotient bootstrap and failures after
+guest progress. Failure owners remain the caller's cleanup responsibility. The isolated Java baseline runner
+also includes this gate. No full Init or Mathlib image is loaded for these tests.
+Provider integration and genuine source acceptance under the faster profile
+remain pending.
