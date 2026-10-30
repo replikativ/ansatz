@@ -87,3 +87,13 @@ and owned result escrow, parked and already-claimed host completion reservations
 preclaim rejections and terminal frame-entry failure ownership. No new JVM was
 launched by this feature worker. Full combined regression testing remains a root
 integration gate.
+
+Combined root integration (2026-10-30) preserves the checked-disabled profiling
+policy across forks and includes the independently reviewed borrowed kernel
+projection. The isolated Java 11 jar exits 0 with a 384 MiB heap: 94 suites /
+931 test executions / 46,727 assertions. This includes all 12 parked-host tests /
+152 assertions and the compact projection/admission regressions after replacing
+its private decoder dependency with an explicit shared reader contract.
+
+This is the control foundation for an adapter. It does not establish checked
+publication of a declaration produced by the hosted frontend.

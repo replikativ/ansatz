@@ -1,0 +1,19 @@
+{:schema 1 :scope :host-guest-and-kernel-projection-foundation
+ :lean-commit "819816b2e0a3bf405af45ae5c7af2491d8f5bee6"
+ :heap-mib 384 :java-release 11
+ :gate {:suites 94 :test-executions 931 :assertions 46727 :exit 0}
+ :focused {:host-guest {:tests 12 :assertions 152}
+           :java-kernel-projection {:tests 9 :assertions 63}
+           :legacy-kernel-bridge {:tests 13 :assertions 114}
+           :compact-projection {:tests 13 :assertions 22272}
+           :full-init-admission-model {:tests 6 :assertions 73}}
+ :jar-sha256 "9da029fc3497bd13de6790a99fe0e77a50e139a88456d02ad58b32693fd68c4d"
+ :source-sha256 {
+  "experiments/lean-ir/research/java-ir-baseline/src/ansatz/research/ir/Interpreter.java" "156da7bd08119a1cbfdc4d2b0c15b75c5ec003b3722ec9e08cbf3cb73fb93034"
+  "experiments/lean-ir/src/prototype/kernel_bridge.clj" "0f5f3e26505a8e18823415d8fdde598d47d2f96a3f5bbd15b761f06616892551"
+  "experiments/lean-ir/src/prototype/compact_kernel_projection.clj" "b894bb473e4209e92c872a846b986669e8d178c53addef8864cf005c8c300f0f"
+  "experiments/lean-ir/research/java-ir-baseline/kernel-projection.clj" "4aaa2d29e778f230814cfbf1037444741cad63b01be9bd5fed79cb43a9a2fae2"
+ }
+ :checked-frontend-declaration-established false
+ :limits [:no-kernel-association-or-publication-claim :no-full-image-restore
+          :no-project-or-self-hosting-claim]}
