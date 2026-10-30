@@ -136,6 +136,19 @@ through OBJ storage. Owned Host arguments remain the adapter's explicit
 consume/transfer obligations; retaining diagnostic argument views adds no owner.
 No arbitrary FFI implementation is supplied by this profile.
 
+Active explicit AP also publishes its current receiver and argument/surplus
+packet before a claim. A scalar result boxed for surplus application remains
+owned in that packet if it is rejected as a nonclosure. Closure capture-prefix
+and successful-retain cursors distinguish partial capture preparation from the
+owned incoming suffix; after closure transfer the combined arguments are owned
+until Frame, CodeActivation, HostCall or native-action publication. Publication
+marks that handoff before a possible entry/fuel failure. Repeated diagnostic
+references denote the same credits, never additional owners. Healthy suspended
+transfers clear the temporary AP packet because their actual request/frame now
+owns it. The inactive fast path retains its legacy failure-cleanup limitations;
+this repair does not claim general inactive failed-AP unwinding.
+
+
 One iterative fork memo copies guest Nodes, action chains, registrations,
 detached batches, scopes, keepalive flags/credits, Host completions and code
 activations, including dead queued shells. RC is copied, never incremented.
@@ -179,13 +192,14 @@ before claims. Close also checks that no private owner roots were recreated.
 
 ## Bounded validation
 
-The enabled focused suite currently has **40 tests / 372 assertions**, run in one
+The enabled focused suite currently has **43 tests / 407 assertions**, run in one
 retained 256 MiB REPL, with no Init/full image. It covers genuine wrappers and
 CancelToken/result! bodies; LIFO/depth-first registration behavior, including queued-zero Task dispatch
 before its deactivation visit; deleting later
 detached entries; keepalive/bind forwarding; scalar and object Host reply
 ownership; missing-code, intrinsic/PAP/overapplication callback receivers;
-release/Ref/Array native suffixes; first/duplicate publication marking; cancellation
+release/Ref/Array native suffixes; Host and guest scalar-box surplus failures,
+bounded AP entry failure and healthy suspended packet handoff; first/duplicate publication marking; cancellation
 scope and running deactivation; cache/stdout disposal; waiting and failure;
 preclaim/foreign/admission fences; a 3000-task propagation fork; 6000-deep quiet
 ready retirement; and 12000-record iterative control-copy models.

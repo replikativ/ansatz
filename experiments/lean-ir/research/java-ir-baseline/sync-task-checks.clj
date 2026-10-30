@@ -391,6 +391,10 @@
           {:keys [engine roots]} (j/fork! ctx parent [p mapped]) child engine [cp cm] roots
           child-request (j/code-request ctx child)]
       (is (= [[7]] (mapv #(vec (order/fields ctx %)) arguments)))
+      (doseq [e [parent child]]
+        (is (nil? (host/private-value e "applicationResult")))
+        (is (nil? (host/private-value e "applicationArgs")))
+        (is (false? (host/private-value e "applicationArgumentsOwned"))))
       (is (g/bad? #(j/resume-code! ctx parent request)))
       (is (identical? request (j/code-request ctx parent)))
       (is (g/bad? #(j/resume-code! ready child request)))
@@ -814,5 +818,64 @@
       (j/resume-host! ctx engine request 0) (is (= 0 (finish! ctx engine)))
       (is (zero? (.size ^java.util.Map (host/private-value engine "taskRecords"))))
       (is (quiescent? ctx engine)) (close! ctx engine))))
+
+(deftest active-scalar-host-overapplication-failure-retains-the-owned-box
+  (let [spec (host/spec "scalar_overapplication" ["object"] [false] "float")
+        over (c/decl "over-scalar" [(c/p 1 "object")] "object"
+                    (c/let-ir 2 "object" {:pap {:c (c/name-ir "scalar-host") :ys []}}
+                      (c/let-ir 3 "object" {:ap {:x {:idx 2} :ys [(c/v 1) (c/v 1)]}} (c/ret 3))))
+        ctx (task-context [(host/ext "scalar-host" spec) over] [spec]) engine (j/machine ctx)]
+    (j/start! ctx engine "over-scalar" [0])
+    (let [request (host/request! ctx engine)]
+      (j/resume-host! ctx engine request 1.5)
+      (is (g/bad? #(j/advance! ctx engine 100)))
+      (is (= "failed" (j/phase ctx engine)))
+      (let [completion (host/private-value engine "hostCompletion")
+            box (host/private-value completion "completionResult")]
+        (is (true? (host/private-value completion "resultOwned")))
+        (is (false? (host/private-value completion "resultTransferStarted")))
+        (is (= 1 (c/rc ctx box))) (is (false? (order/dead? box)))
+        (is (= 8 (alength ^bytes (.get ^java.lang.reflect.Field (:scalars ctx) box))))
+        (is (= (Double/doubleToRawLongBits 1.5) (host/private-value completion "completionScalar")))
+        (is (= [0] (vec (host/private-value completion "surplus"))))
+        (is (g/bad? #(j/start-dispose! ctx engine))) (is (g/bad? #(j/close! ctx engine)))))))
+
+(deftest guest-float-return-with-surplus-retains-owned-ap-receiver-on-failure
+  (let [scalar (c/decl "float-callback" [(c/p 1 "object")] "float"
+                       ["dec" {:idx 1} 1 true false
+                        (c/let-ir 2 "float" (c/lit 1) (c/ret 2))])
+        ctx (task-context [scalar] []) engine (j/machine ctx) p (promise! ctx engine)
+        dependent (io-map! ctx engine (j/make-closure! ctx engine "float-callback" []) (result-task! ctx engine p))]
+    (release! ctx engine dependent)
+    (is (g/bad? #(release! ctx engine p)))
+    (is (= "failed" (j/phase ctx engine)))
+    (let [box (host/private-value engine "applicationResult")]
+      (is (true? (host/private-value engine "applicationResultOwned")))
+      (is (= 1 (c/rc ctx box))) (is (false? (order/dead? box)))
+      (is (= 8 (alength ^bytes (.get ^java.lang.reflect.Field (:scalars ctx) box))))
+      (is (= [0] (vec (host/private-value engine "applicationArgs"))))
+      (is (g/bad? #(j/start-dispose! ctx engine))) (is (g/bad? #(j/close! ctx engine))))))
+
+(deftest modeled-bounded-ap-entry-failure-retains-transferred-argument-packet
+  ;; Counter fault models the existing continuation cap without allocating
+  ;; 65536 guest frames or a large image. The callback AP itself is genuine.
+  (let [ctx (task-context) engine (j/machine ctx) p (promise! ctx engine)
+        callback (j/make-closure! ctx engine "identity" [])
+        _ (map! ctx engine callback (result-task! ctx engine p))]
+    (j/retain! ctx engine p) (j/start! ctx engine "IO.Promise.resolve._boxed" [0 7 p 0])
+    (loop [left 1000]
+      (when (zero? left) (throw (ex-info "No pre-AP boundary" {})))
+      (let [a (action engine)]
+        (when-not (and a (= 7 (host/private-value a "operation")) (= 0 (host/private-value a "stage")))
+          (j/advance! ctx engine 1) (recur (dec left)))))
+    (private-set! engine "continuationDepth" (int 65536))
+    (is (re-find #"Continuation depth limit" (c/failure #(j/advance! ctx engine 1))))
+    (is (= "failed" (j/phase ctx engine)))
+    (is (order/dead? callback))
+    (is (false? (host/private-value engine "applicationResultOwned")))
+    (is (true? (host/private-value engine "applicationArgumentsOwned")))
+    (let [[some] (vec (host/private-value engine "applicationArgs"))]
+      (is (= [7] (vec (order/fields ctx some)))) (is (= 2 (c/rc ctx some))))
+    (is (g/bad? #(j/fork! ctx engine []))) (is (g/bad? #(j/close! ctx engine)))))
 
 (defn check! [basis] (binding [*basis* basis] (run-tests 'java-ir-sync-task-checks)))

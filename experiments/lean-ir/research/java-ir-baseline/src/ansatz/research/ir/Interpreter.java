@@ -1236,6 +1236,17 @@ public final class Interpreter implements AutoCloseable {
     private Continuation[] continuations;
     private Function applicationTarget;
     private Object[] applicationArgs,applicationSurplus;
+    private Object applicationResult;
+    private boolean applicationResultOwned,applicationArgumentsOwned;
+    private int applicationCaptureCount,applicationRetainedCaptures;
+    private void applicationEntry(int kind) {
+        if(taskRuntime!=null&&(kind&APPLY)!=0) applicationArgumentsOwned=false;
+    }
+    private void clearApplication() {
+        applicationTarget=null; applicationArgs=null; applicationSurplus=null;
+        applicationResult=null; applicationResultOwned=false; applicationArgumentsOwned=false;
+        applicationCaptureCount=0; applicationRetainedCaptures=0;
+    }
     private HostRequest hostRequest,failedHostRequest;
     private HostCall hostCompletion;
     private RuntimeAction runtimeAction,failedRuntimeAction;
@@ -1454,7 +1465,7 @@ public final class Interpreter implements AutoCloseable {
     private void enterNative(Function function,Object[] args,Body next,int dest,int kind,Object[] surplus) {
         validateNative(function,args);
         RuntimeAction action=newAction(taskPrimitive(function.intrinsic)||function.intrinsic==TASK_MAP?ACTION_TASK:ACTION_NATIVE,function,next,dest,kind,surplus);
-        action.arguments=args; publishAction(action);
+        action.arguments=args; publishAction(action); applicationEntry(kind);
     }
     private void stepNative(RuntimeAction action) {
         Object[] args=action.arguments; int op=action.function.intrinsic;
@@ -1512,6 +1523,11 @@ public final class Interpreter implements AutoCloseable {
         // nested request then links to the still-waiting outer completion.
         Object answer=call.function.resultType==OBJ?call.completionResult:
                 (call.kind&APPLY)!=0?boxScalar(call.completionScalar,call.function.resultType):null;
+        if((call.kind&APPLY)!=0&&call.function.resultType!=OBJ) {
+            // Boxing acquires an owned result before surplus validation. Keep
+            // that box in the completion packet if delivery later fails.
+            call.completionResult=answer; call.resultOwned=true;
+        }
         require(runtimeAction==action,"Host cleanup action order differs");
         objects[action.slot]=null; sp=action.savedSp; runtimeAction=action.parent;
         hostCompletion=call.previousCompletion;
@@ -1646,6 +1662,9 @@ public final class Interpreter implements AutoCloseable {
         child.applicationTarget=(Function)copy.value(applicationTarget);
         child.applicationArgs=(Object[])copy.value(applicationArgs);
         child.applicationSurplus=(Object[])copy.value(applicationSurplus);
+        child.applicationResult=copy.value(applicationResult); child.applicationResultOwned=applicationResultOwned;
+        child.applicationArgumentsOwned=applicationArgumentsOwned; child.applicationCaptureCount=applicationCaptureCount;
+        child.applicationRetainedCaptures=applicationRetainedCaptures;
         child.hostRequest=(HostRequest)copy.value(hostRequest);
         child.hostCompletion=(HostCall)copy.value(hostCompletion);
         child.runtimeAction=(RuntimeAction)copy.value(runtimeAction);
@@ -3887,7 +3906,7 @@ public final class Interpreter implements AutoCloseable {
             if(f.paramTypes[i]==OBJ) validateHostObject(call.arguments[i]);
             else call.arguments[i]=saveScalar(readSavedScalar(call.arguments[i],f.paramTypes[i]),f.paramTypes[i]);
         }
-        hostRequest=new HostRequest(runtimeIdentity,call); pc=next; phase=HOST_CALL;
+        hostRequest=new HostRequest(runtimeIdentity,call); pc=next; phase=HOST_CALL; applicationEntry(kind);
     }
     /** A pending request is engine identity, not a serializable host capability. */
     public HostRequest pendingHostRequest() { return phase==HOST_CALL?hostRequest:null; }
@@ -4006,7 +4025,7 @@ public final class Interpreter implements AutoCloseable {
             for(int i=0;i<slots.length;i++) activation.arguments[i]=function.paramTypes[i]==OBJ
                     ?obj(slots[i]):saveScalar(numbers[bp+slots[i]],function.paramTypes[i]);
         }
-        codeRequest=new CodeRequest(runtimeIdentity,activation); pc=next; phase=CODE_CALL;
+        codeRequest=new CodeRequest(runtimeIdentity,activation); pc=next; phase=CODE_CALL; applicationEntry(kind);
     }
     public CodeRequest pendingCodeRequest() { return phase==CODE_CALL?codeRequest:null; }
     public CodeRequest failureCodeRequest() { return failedCodeRequest; }
@@ -4184,7 +4203,7 @@ public final class Interpreter implements AutoCloseable {
         k.caller=active; k.callerPrepared=activePrepared; k.next=next; k.bp=bp; k.sp=sp; k.jbp=jbp; k.jsp=jsp;
         k.dest=dest; k.kind=kind; k.surplus=surplus;
         continuationDepth++;
-        bp=sp; sp=newSp; jbp=jsp; jsp=newJsp; active=f; activePrepared=prepared; pc=prepared.body;
+        bp=sp; sp=newSp; jbp=jsp; jsp=newJsp; active=f; activePrepared=prepared; pc=prepared.body; applicationEntry(kind);
         tick();
     }
 
@@ -4207,10 +4226,22 @@ public final class Interpreter implements AutoCloseable {
             if(actionPrimitive(f)) validateNative(f,actual);
             else if(f.intrinsic==TASK_GET||f.intrinsic==TASK_PURE) validateEntryArguments(f,actual,true);
         }
-        if(!exclusive(closure)) for(Object a:closure.fields) inc(a,1);
+        if(taskRuntime!=null) {
+            applicationArgs=combined; applicationCaptureCount=closure.fields.length;
+            applicationRetainedCaptures=0; applicationArgumentsOwned=false;
+        }
+        if(!exclusive(closure)) for(Object capture:closure.fields) {
+            inc(capture,1); if(taskRuntime!=null) applicationRetainedCaptures++;
+        }
+        if(taskRuntime!=null) applicationResultOwned=false;
         if(exclusive(closure)) { closure.dead=true; Arrays.fill(closure.fields,null); shellDeletes++; }
         else releaseQuiet(closure,1);
-        if(combined.length<f.params.length) { result=closure(f,combined); return false; }
+        if(taskRuntime!=null) applicationArgumentsOwned=true;
+        if(combined.length<f.params.length) {
+            result=closure(f,combined);
+            if(taskRuntime!=null) { applicationArgumentsOwned=false; applicationResult=result; applicationResultOwned=true; }
+            return false;
+        }
         applicationTarget=called;
         applicationArgs=combined.length==f.params.length?combined:Arrays.copyOf(combined,f.params.length);
         applicationSurplus=combined.length==f.params.length?null:Arrays.copyOfRange(combined,f.params.length,combined.length);
@@ -4218,16 +4249,29 @@ public final class Interpreter implements AutoCloseable {
     }
     private void applyExplicit(Object value,Object[] args,Body next,int dest) {
         while(true) {
-            if(!prepareExplicitApply(value,args)) { objects[dest]=result; pc=next; return; }
+            if(taskRuntime!=null) {
+                applicationResult=value; applicationResultOwned=true; applicationArgumentsOwned=true;
+                applicationArgs=args; applicationSurplus=null; applicationTarget=null;
+                applicationCaptureCount=0; applicationRetainedCaptures=0;
+            }
+            if(!prepareExplicitApply(value,args)) {
+                objects[dest]=result; pc=next; if(taskRuntime!=null) clearApplication(); return;
+            }
             Function f=applicationTarget; Object[] actual=applicationArgs,rest=applicationSurplus;
-            applicationTarget=null; applicationArgs=null; applicationSurplus=null;
-            if(f.hostExtern!=null) { suspendHost(f,actual,next,dest,APPLY,rest,true); return; }
-            if(actionPrimitive(f)) { enterNative(f,actual,next,dest,APPLY,rest); return; }
+            if(taskRuntime==null) { applicationTarget=null; applicationArgs=null; applicationSurplus=null; }
+            if(f.hostExtern!=null) {
+                suspendHost(f,actual,next,dest,APPLY,rest,true); if(taskRuntime!=null) clearApplication(); return;
+            }
+            if(actionPrimitive(f)) { enterNative(f,actual,next,dest,APPLY,rest); clearApplication(); return; }
             if(f.intrinsic==TASK_MAP) { enterTaskMap(f,null,actual,next,dest,APPLY,rest); return; }
-            if(f.intrinsic==0) { enterExplicit(f,null,actual,next,dest,APPLY,rest); return; }
+            if(f.intrinsic==0) {
+                enterExplicit(f,null,actual,next,dest,APPLY,rest); if(taskRuntime!=null) clearApplication(); return;
+            }
             intrinsicExternal(f,actual);
+            if(taskRuntime!=null) applicationArgumentsOwned=false;
             value=f.resultType==OBJ?result:boxScalar(scalarResult,f.resultType);
-            if(rest==null) { objects[dest]=value; pc=next; return; }
+            if(taskRuntime!=null) { applicationResult=value; applicationResultOwned=true; }
+            if(rest==null) { objects[dest]=value; pc=next; if(taskRuntime!=null) clearApplication(); return; }
             args=rest;
         }
     }
