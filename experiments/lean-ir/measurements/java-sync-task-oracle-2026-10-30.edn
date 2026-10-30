@@ -1,0 +1,84 @@
+{:schema :java-sync-task-native-oracle-parity-v1,
+ :date "2026-10-30",
+ :execution
+ {:request-manifest-sha256
+  "aa139459c72ab37cc7c0ec2141053247db3e823ec00480ac1d16f822fa11480b",
+  :stdout-sha256
+  "483383ffa145d6d409504ce2afd608a9887e8d81a31d2efbb3f4dae9bfd57d46",
+  :unique-requested-names 79,
+  :phase "complete",
+  :main-dispatches 1675,
+  :request-manifest "java-sync-task-oracle-demands-2026-10-30.edn",
+  :code-requests 79,
+  :exact-native-stdout true,
+  :host-requests 0,
+  :stdout
+  "nested=[outer-second-enter, inner-second, inner-first, outer-second-exit, outer-first, after-resolve]\nduplicate=[before-duplicate, losing-token-drop, after-duplicate]\nduplicate-winner=true\nkeepalive=[before-resolve, kept-callback, after-resolve]\npure-drop-pending=true\npure-drop=[before-drop, pure-token-drop, after-drop, after-resolve]\ndetached-pending=true\ndetached=[before-resolve, killer-before, later-token-drop, killer-after, after-resolve]\ncancel-pending=true\ncancel-scope=[pending-canceled=true, ready-inline-canceled=true, pending-after=true, root-after=false, root-inline=false]\n"},
+ :interpreter
+ {:commit "78d80fe73407c107ef5ff3c5fa8fdb38cd5025c1",
+  :source-sha256
+  "0f7e7faf48219ebb03541df1449ff96f3778ba086be9da791974c0de538590b1",
+  :jar-sha256
+  "dbbac5d29e7f514c3eba90e4820fdb6d620ae5c4c313977eb27d60973399d08c",
+  :class-resource-protocol :jar,
+  :profile :explicit-logical-synchronous},
+ :scope
+ "Native official frontend-produced program IR executed by the JVM interpreter; no hosted frontend compilation, kernel adapter, declaration probe, Init replay or full image.",
+ :jvm
+ {:driver :retained-repl,
+  :java-version "25.0.1",
+  :max-heap-bytes 268435456},
+ :catalogue
+ {:manifest-sha256
+  "644323f598096865c3a86be050e092bad9cf52dbecf23804584c7cfef3ca1048",
+  :data-sha256
+  "e7d2aadb70d7f3f4157a952ea05d5b4f857831607f8453a24dc692ed4be4acec",
+  :source-index-sha256
+  "74d833d577923821b982e8a9e872a38b5cad011513eb18870b51417e13397f0e",
+  :closed true},
+ :ownership
+ {:completed-io {:tag 0, :fields [0], :rc 1},
+  :io-release
+  {:unit-result 0, :work-units 2, :dead-after-release true},
+  :private-disposal
+  {:unit-result 0,
+   :work-units 103,
+   :cache-ready 0,
+   :stdout-root nil,
+   :task-records 0,
+   :runtime-quiescent true,
+   :disposed true},
+  :engine-closed true},
+ :limits
+ {:native-executable-proof
+  "Uses separately recorded matching installed native trace and accepted exporter association; no fresh producer binary-to-source or checkpoint-producer proof.",
+  :asTask false,
+  :native-leak-boundary
+  :deactivated-pure-bind-pending-return-rejects-with-owner-preserved,
+  :rss :not-collected,
+  :timing :not-collected,
+  :pending-get false,
+  :queued-contexts false,
+  :allocation :not-collected,
+  :async-scheduling false},
+ :program
+ {:export-receipt-sha256
+  "4b2c698b33f25040d0ef2c3ae8dd9d04ec8f700c2cf0009c1bca749df22d0c1f",
+  :captured-companion false,
+  :static-census-sha256
+  "00bd309765344a6c500ef90f3068d412ba7fc3478c1b223a3e81f359d090b697",
+  :local-stream-sha256
+  "146ede725c74f82ac6a5c82737f432c562eae94514507a9d873da855bd894281",
+  :adapter-sha256
+  "a826b04978ad6161b0f921c6f63664089502df6d62c8afd59cf98b85b6060d54",
+  :source-binding :fresh-composite-code-profile,
+  :local-declarations 78,
+  :source-sha256
+  "62ab02763bb05a61a3b6b1ddebcc2fe91cc3a2e65ed1b3ce33f347575c1192c3",
+  :static-census-declarations 112,
+  :module ["str" ["anonymous"] "SyncOracle"],
+  :local-initialization-actions [],
+  :prepared-graph-installed false,
+  :registered-functions 101,
+  :producer-sha256
+  "0b0344058631b8c3dc18a8a1a600f8100611eaf49c3b4ee5ad18a121651e736e"}}

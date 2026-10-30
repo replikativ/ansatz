@@ -218,3 +218,14 @@ primitives. Source SHA-256 is
 `33d3e24c635dc66f8976bdd74eb049163212d3008b4e4002d003463b9525f73f`.
 This validates the bounded synchronous profile; declaration elaboration and
 queued frontend support remain separate campaign gates.
+
+A separate genuine program probe also passed: the unchanged native-produced
+SyncOracle program executed in the existing 256 MiB REPL with exact ten-line
+native stdout, 79 original code demands and 101 registered functions. No
+captured companion or PreparedGraph was installed. The actual IO result had
+tag0, fields[0], RC1; explicit release/disposal returned Unit and left zero
+Task records/cache owners/stdout root before engine/catalogue close. The
+[bounded receipt](../measurements/java-sync-task-oracle-2026-10-30.edn) records
+source, jar, producer/overlay, native output and demand-manifest hashes. This is
+execution of native-produced IR, not compilation by the hosted frontend. No
+RSS, timing or allocation measurement was collected for that probe.
