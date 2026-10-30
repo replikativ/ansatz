@@ -75,6 +75,10 @@ echo
 echo "Running fixture-free coherent consumer infrastructure tests"
 python3 experiments/lean-ir/scripts/test-coherent.py
 
+echo
+echo "Running compact Java code catalogue producer contracts"
+python3 experiments/lean-ir/scripts/test-java-code-catalogue.py
+
 
 echo
 echo "Running optional Pattern typed tail-region preparation contracts"
