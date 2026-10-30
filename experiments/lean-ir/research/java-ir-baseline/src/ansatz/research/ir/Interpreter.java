@@ -26,6 +26,7 @@ public final class Interpreter implements AutoCloseable {
     private static final int ADD=1,SUB=2,MOD=3,EQ=4,LT=5,MUL=6,DIV=7,POW=8;
     private static final int USIZE_NAT=9,USIZE_REPR=10,U32_NAT=11,U32_EQ=12,U32_LE=13,PLATFORM_BITS=14;
     private static final int STR_POS_SET=260;
+    private static final int EXPR_DATA=400,EXPR_APP_DATA=401,LEVEL_DATA=402;
     private static final int STR_PUSH=15,STR_LIST=16,STR_GET=17,STR_NEXT=18,STR_APPEND=19,STR_SIZE=20,
                              ARRAY_MK=21,ARRAY_SIZE=22,ARRAY_GET=23,GET_STDOUT=24,PANIC=25;
     private static final int REF_MK=26,REF_GET=27,REF_SET=28,REF_SWAP=29,REF_TAKE=30,REF_PTR_EQ=31;
@@ -321,6 +322,13 @@ public final class Interpreter implements AutoCloseable {
                 new String[]{"usize","usize"},new boolean[]{false,false}));
         register(registry,new ExternSpec("lean_string_hash",STR_HASH,"uint64",
                 new String[]{"object"},new boolean[]{true}));
+        register(registry,new ExternSpec("lean_expr_mk_data",EXPR_DATA,"uint64",
+                new String[]{"uint64","tobject","uint32","uint8","uint8","uint8","uint8"},
+                new boolean[]{false,false,false,false,false,false,false}));
+        register(registry,new ExternSpec("lean_expr_mk_app_data",EXPR_APP_DATA,"uint64",
+                new String[]{"uint64","uint64"},new boolean[]{false,false}));
+        register(registry,new ExternSpec("lean_level_mk_data",LEVEL_DATA,"uint64",
+                new String[]{"uint64","tobject","uint8","uint8"},new boolean[]{false,false,false,false}));
         register(registry,new ExternSpec("lean_uint64_mix_hash",U64_MIX,"uint64",
                 new String[]{"uint64","uint64"},new boolean[]{false,false}));
         register(registry,new ExternSpec("lean_uint64_of_nat",U64_NAT,"uint64",
@@ -2205,6 +2213,14 @@ public final class Interpreter implements AutoCloseable {
             floatIntrinsic(f,numbers[bp+slots[0]],slots.length<2?0:numbers[bp+slots[1]]); return;
         }
         require(f.intrinsic!=POINTER_IDENTITY,"Pointer identity requires a certified direct FAP site");
+        if(f.intrinsic==EXPR_DATA) {
+            exprData(numbers[bp+slots[0]],obj(slots[1]),numbers[bp+slots[2]],numbers[bp+slots[3]],
+                    numbers[bp+slots[4]],numbers[bp+slots[5]],numbers[bp+slots[6]]); return;
+        }
+        if(f.intrinsic==LEVEL_DATA) {
+            levelData(numbers[bp+slots[0]],obj(slots[1]),numbers[bp+slots[2]],numbers[bp+slots[3]]); return;
+        }
+        if(f.intrinsic==EXPR_APP_DATA) { exprAppData(numbers[bp+slots[0]],numbers[bp+slots[1]]); return; }
         if(f.intrinsic==STR_POS_SET) {
             stringPosSet(obj(slots[0]),obj(slots[1]),Long.valueOf(numbers[bp+slots[2]]),obj(slots[3])); return;
         }
@@ -2236,6 +2252,14 @@ public final class Interpreter implements AutoCloseable {
             floatIntrinsic(f,readSavedScalar(args[0],f.paramTypes[0]),args.length<2?0:readSavedScalar(args[1],f.paramTypes[1])); return;
         }
         require(f.intrinsic!=POINTER_IDENTITY,"Pointer identity requires a certified direct FAP site");
+        if(f.intrinsic==EXPR_DATA) {
+            exprData(inputScalar(args[0],U64),args[1],inputScalar(args[2],U32),inputScalar(args[3],U8),
+                    inputScalar(args[4],U8),inputScalar(args[5],U8),inputScalar(args[6],U8)); return;
+        }
+        if(f.intrinsic==LEVEL_DATA) {
+            levelData(inputScalar(args[0],U64),args[1],inputScalar(args[2],U8),inputScalar(args[3],U8)); return;
+        }
+        if(f.intrinsic==EXPR_APP_DATA) { exprAppData(inputScalar(args[0],U64),inputScalar(args[1],U64)); return; }
         if(f.intrinsic==STR_POS_SET) {
             stringPosSet(args[0],args[1],externalArgument(f,args,2),args[3]); return;
         }
@@ -2929,6 +2953,29 @@ public final class Interpreter implements AutoCloseable {
             case PANIC: throw new UnsupportedOperationException("panicCore default-return policy outside captured-output profile: "+text(c));
             default: throw error("Invalid runtime intrinsic");
         }
+    }
+    /** Native scalar caches only: no Expr/Level object representation is implied.
+     * Successful owning Nat arguments fit native immediate bounds. Their accepted
+     * Long/BigInteger carriers are uncounted, so consumption needs no DEC callback.
+     * All domains are checked before publishing the result. */
+    private void exprData(long hash,Object range,long depth,long a,long b,long c,long d) {
+        BigInteger value=nat(range);
+        require(depth>=0&&depth<=0xffffffffL,"Expr.mkData approximate depth outside UInt32 lane");
+        require(a>=0&&a<=1&&b>=0&&b<=1&&c>=0&&c<=1&&d>=0&&d<=1,
+                "Expr.mkData flags require Bool zero or one");
+        require(value.compareTo(BigInteger.valueOf(1048575))<=0,"Expr.mkData range outside native 20-bit bound");
+        scalarResult=(hash&0xffffffffL)|(Math.min(255,depth)<<32)|(a<<40)|(b<<41)|(c<<42)|(d<<43)|(value.longValue()<<44);
+    }
+    private void levelData(long hash,Object depth,long hasMVar,long hasParam) {
+        BigInteger value=nat(depth);
+        require(hasMVar>=0&&hasMVar<=1&&hasParam>=0&&hasParam<=1,"Level.mkData flags require Bool zero or one");
+        require(value.compareTo(BigInteger.valueOf(16777215))<=0,"Level.mkData depth outside native 24-bit bound");
+        scalarResult=(hash&0xffffffffL)|(hasMVar<<32)|(hasParam<<33)|(value.longValue()<<40);
+    }
+    private void exprAppData(long fData,long aData) {
+        long depth=Math.min(255,Math.max((fData>>>32)&255,(aData>>>32)&255)+1);
+        long range=Math.max(fData>>>44,aData>>>44);
+        scalarResult=((fData|aData)&(15L<<40))|(mixHash(fData,aData)&0xffffffffL)|(depth<<32)|(range<<44);
     }
     private static long mixHash(long hash,long key) {
         long m=0xc6a4a7935bd1e995L;

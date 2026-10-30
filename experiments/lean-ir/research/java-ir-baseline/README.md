@@ -191,3 +191,8 @@ Lean's native runtime. It is not a wholly native-free execution mode.
 The next experiment adds forkable heap ownership over explicit continuations,
 measuring each storage change against the recursive control. Guest RC, JVM storage
 ownership and external resource authority remain separate contracts.
+
+The [Expr/Level scalar data tranche](../JAVA_EXPRESSION_DATA_RUNTIME.md) adds
+exact original computed-data extern tuples and boxed wrappers. Its focused tests
+cover native cache-word packing and U64 pauses/forks; this adds no AST storage
+representation.

@@ -1,0 +1,15 @@
+{:schema 1
+ :lean-version "4.33.1"
+ :lean-commit "819816b2e0a3bf405af45ae5c7af2491d8f5bee6"
+ :source-index-sha256 "74d833d577923821b982e8a9e872a38b5cad011513eb18870b51417e13397f0e"
+ :fixture-sha256 "1535fa70a10a773f6f6ddc9e49ff551a0140e11241a0127fe905f5c295dfb38b"
+ :original-row-count 6
+ :transformation {:remove-top-level-pretty true :original-bodies-unchanged true}
+ :original-blob-identities :per-record-sha256
+ :upstream-source-sha256
+ {"src/Lean/Expr.lean" "b9a91d9d170201c2a3622b9c55d694466f54e0e1b8f6068a2d296ff98650169c"
+  "src/Lean/Level.lean" "560a7b5fde58937f69e9cf85b96d33f0aafcac2a9aec64776347de5e611d1303"
+  "src/kernel/expr.cpp" "cb02c18964aca67289b8c1d64864355bb5c10fc93d55bd3c3c9646776af9c592"
+  "src/kernel/level.cpp" "7cb927c6fabd9fb843f548443494d3673a08074e26fe32b679e80f4664fc7f25"
+  "src/runtime/hash.h" "fe27044afcc40e24c69287cbd7c5b6ac4989221cdfb839dd00c8b3831609155a"
+  "LICENSE" "8b28515ffffc5c0fe2807d8ae3735b00b324d9b7ce807dd63ff6ac8922fbce7e"}}
