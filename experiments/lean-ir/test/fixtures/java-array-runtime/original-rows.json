@@ -1,0 +1,3836 @@
+[
+  {
+    "label": "Array.mkEmpty",
+    "sha256": "22f9c359718d2f722ef0df1bee64be68a857a555fab7324a69560e5552a4b2f8",
+    "row": {
+      "dependencies": [],
+      "ir": {
+        "extern": {
+          "ext": {
+            "entries": [
+              {
+                "standard": {
+                  "backend": [
+                    "str",
+                    [
+                      "anonymous"
+                    ],
+                    "all"
+                  ],
+                  "fn": "lean_mk_empty_array_with_capacity"
+                }
+              }
+            ]
+          },
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Array"
+            ],
+            "mkEmpty"
+          ],
+          "type": "object",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "erased",
+              "x": {
+                "idx": 1
+              }
+            },
+            {
+              "borrow": true,
+              "ty": "tobject",
+              "x": {
+                "idx": 2
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "anonymous"
+          ],
+          "Array"
+        ],
+        "mkEmpty"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "anonymous"
+          ],
+          "Init"
+        ],
+        "Prelude"
+      ]
+    }
+  },
+  {
+    "label": "Array.mkEmpty._boxed",
+    "sha256": "22ca4add723cb889e10c3e04f06e67f746a2b699760c85bc1b9e67f7ae582f8f",
+    "row": {
+      "dependencies": [
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "Array"
+          ],
+          "mkEmpty"
+        ]
+      ],
+      "ir": {
+        "fdecl": {
+          "body": [
+            "vdecl",
+            {
+              "idx": 3
+            },
+            "object",
+            {
+              "fap": {
+                "c": [
+                  "str",
+                  [
+                    "str",
+                    [
+                      "anonymous"
+                    ],
+                    "Array"
+                  ],
+                  "mkEmpty"
+                ],
+                "ys": [
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 1
+                      }
+                    }
+                  },
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 2
+                      }
+                    }
+                  }
+                ]
+              }
+            },
+            [
+              "dec",
+              {
+                "idx": 2
+              },
+              1,
+              true,
+              false,
+              [
+                "ret",
+                {
+                  "var": {
+                    "id": {
+                      "idx": 3
+                    }
+                  }
+                }
+              ]
+            ]
+          ],
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "Array"
+              ],
+              "mkEmpty"
+            ],
+            "_boxed"
+          ],
+          "info": {},
+          "type": "object",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 1
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 2
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "Array"
+          ],
+          "mkEmpty"
+        ],
+        "_boxed"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "anonymous"
+          ],
+          "Init"
+        ],
+        "Prelude"
+      ]
+    }
+  },
+  {
+    "label": "Array.emptyWithCapacity",
+    "sha256": "87631e340e6355b60288707e612c491b9f16f831ae15d5af14963b3518a1a566",
+    "row": {
+      "dependencies": [],
+      "ir": {
+        "extern": {
+          "ext": {
+            "entries": [
+              {
+                "standard": {
+                  "backend": [
+                    "str",
+                    [
+                      "anonymous"
+                    ],
+                    "all"
+                  ],
+                  "fn": "lean_mk_empty_array_with_capacity"
+                }
+              }
+            ]
+          },
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Array"
+            ],
+            "emptyWithCapacity"
+          ],
+          "type": "object",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "erased",
+              "x": {
+                "idx": 1
+              }
+            },
+            {
+              "borrow": true,
+              "ty": "tobject",
+              "x": {
+                "idx": 2
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "anonymous"
+          ],
+          "Array"
+        ],
+        "emptyWithCapacity"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "anonymous"
+          ],
+          "Init"
+        ],
+        "Prelude"
+      ]
+    }
+  },
+  {
+    "label": "Array.emptyWithCapacity._boxed",
+    "sha256": "6f7d821048fdb94c287046add8c8c1e2df7bc8576493de8fe3609c5cd81acacd",
+    "row": {
+      "dependencies": [
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "Array"
+          ],
+          "emptyWithCapacity"
+        ]
+      ],
+      "ir": {
+        "fdecl": {
+          "body": [
+            "vdecl",
+            {
+              "idx": 3
+            },
+            "object",
+            {
+              "fap": {
+                "c": [
+                  "str",
+                  [
+                    "str",
+                    [
+                      "anonymous"
+                    ],
+                    "Array"
+                  ],
+                  "emptyWithCapacity"
+                ],
+                "ys": [
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 1
+                      }
+                    }
+                  },
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 2
+                      }
+                    }
+                  }
+                ]
+              }
+            },
+            [
+              "dec",
+              {
+                "idx": 2
+              },
+              1,
+              true,
+              false,
+              [
+                "ret",
+                {
+                  "var": {
+                    "id": {
+                      "idx": 3
+                    }
+                  }
+                }
+              ]
+            ]
+          ],
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "Array"
+              ],
+              "emptyWithCapacity"
+            ],
+            "_boxed"
+          ],
+          "info": {},
+          "type": "object",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 1
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 2
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "Array"
+          ],
+          "emptyWithCapacity"
+        ],
+        "_boxed"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "anonymous"
+          ],
+          "Init"
+        ],
+        "Prelude"
+      ]
+    }
+  },
+  {
+    "label": "Array.push",
+    "sha256": "61ccc4565125f601fcb3a67821261b63f3380e15ec55fab6e24dcb3bfdc4b15a",
+    "row": {
+      "dependencies": [],
+      "ir": {
+        "extern": {
+          "ext": {
+            "entries": [
+              {
+                "standard": {
+                  "backend": [
+                    "str",
+                    [
+                      "anonymous"
+                    ],
+                    "all"
+                  ],
+                  "fn": "lean_array_push"
+                }
+              }
+            ]
+          },
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Array"
+            ],
+            "push"
+          ],
+          "type": "object",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "erased",
+              "x": {
+                "idx": 1
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "object",
+              "x": {
+                "idx": 2
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 3
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "anonymous"
+          ],
+          "Array"
+        ],
+        "push"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "anonymous"
+          ],
+          "Init"
+        ],
+        "Prelude"
+      ]
+    }
+  },
+  {
+    "label": "Array.push._boxed",
+    "sha256": "e574d7ba3fd5740e2e04f94ddd0c13c81a5ea0e10bad21ab8fb9afb3bd607ed3",
+    "row": {
+      "dependencies": [
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "Array"
+          ],
+          "push"
+        ]
+      ],
+      "ir": {
+        "fdecl": {
+          "body": [
+            "vdecl",
+            {
+              "idx": 4
+            },
+            "object",
+            {
+              "fap": {
+                "c": [
+                  "str",
+                  [
+                    "str",
+                    [
+                      "anonymous"
+                    ],
+                    "Array"
+                  ],
+                  "push"
+                ],
+                "ys": [
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 1
+                      }
+                    }
+                  },
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 2
+                      }
+                    }
+                  },
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 3
+                      }
+                    }
+                  }
+                ]
+              }
+            },
+            [
+              "ret",
+              {
+                "var": {
+                  "id": {
+                    "idx": 4
+                  }
+                }
+              }
+            ]
+          ],
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "Array"
+              ],
+              "push"
+            ],
+            "_boxed"
+          ],
+          "info": {},
+          "type": "object",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 1
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "object",
+              "x": {
+                "idx": 2
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 3
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "Array"
+          ],
+          "push"
+        ],
+        "_boxed"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "anonymous"
+          ],
+          "Init"
+        ],
+        "Prelude"
+      ]
+    }
+  },
+  {
+    "label": "Array.pop",
+    "sha256": "bbb944e5bbe3b9d77f1878a399121ea42961f35bc0c8f6d693c743fdbfa99a86",
+    "row": {
+      "dependencies": [],
+      "ir": {
+        "extern": {
+          "ext": {
+            "entries": [
+              {
+                "standard": {
+                  "backend": [
+                    "str",
+                    [
+                      "anonymous"
+                    ],
+                    "all"
+                  ],
+                  "fn": "lean_array_pop"
+                }
+              }
+            ]
+          },
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Array"
+            ],
+            "pop"
+          ],
+          "type": "object",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "erased",
+              "x": {
+                "idx": 1
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "object",
+              "x": {
+                "idx": 2
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "anonymous"
+          ],
+          "Array"
+        ],
+        "pop"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Init"
+            ],
+            "Data"
+          ],
+          "Array"
+        ],
+        "Basic"
+      ]
+    }
+  },
+  {
+    "label": "Array.pop._boxed",
+    "sha256": "d58ca37eb314d4317488e5ec68666f6be19aab55630f3844ff2d46fff07accc7",
+    "row": {
+      "dependencies": [
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "Array"
+          ],
+          "pop"
+        ]
+      ],
+      "ir": {
+        "fdecl": {
+          "body": [
+            "vdecl",
+            {
+              "idx": 3
+            },
+            "object",
+            {
+              "fap": {
+                "c": [
+                  "str",
+                  [
+                    "str",
+                    [
+                      "anonymous"
+                    ],
+                    "Array"
+                  ],
+                  "pop"
+                ],
+                "ys": [
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 1
+                      }
+                    }
+                  },
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 2
+                      }
+                    }
+                  }
+                ]
+              }
+            },
+            [
+              "ret",
+              {
+                "var": {
+                  "id": {
+                    "idx": 3
+                  }
+                }
+              }
+            ]
+          ],
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "Array"
+              ],
+              "pop"
+            ],
+            "_boxed"
+          ],
+          "info": {},
+          "type": "object",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 1
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "object",
+              "x": {
+                "idx": 2
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "Array"
+          ],
+          "pop"
+        ],
+        "_boxed"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Init"
+            ],
+            "Data"
+          ],
+          "Array"
+        ],
+        "Basic"
+      ]
+    }
+  },
+  {
+    "label": "Array.usize",
+    "sha256": "32c51fbceaa23f895b4ab28b65f2d4d2b88e441424eff779ae8f53d72ad1e4cd",
+    "row": {
+      "dependencies": [],
+      "ir": {
+        "extern": {
+          "ext": {
+            "entries": [
+              {
+                "standard": {
+                  "backend": [
+                    "str",
+                    [
+                      "anonymous"
+                    ],
+                    "all"
+                  ],
+                  "fn": "lean_array_size"
+                }
+              }
+            ]
+          },
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Array"
+            ],
+            "usize"
+          ],
+          "type": "usize",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "erased",
+              "x": {
+                "idx": 1
+              }
+            },
+            {
+              "borrow": true,
+              "ty": "object",
+              "x": {
+                "idx": 2
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "anonymous"
+          ],
+          "Array"
+        ],
+        "usize"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Init"
+            ],
+            "Data"
+          ],
+          "Array"
+        ],
+        "Basic"
+      ]
+    }
+  },
+  {
+    "label": "Array.usize._boxed",
+    "sha256": "026b63cab099f359888834f254c81bbb0e39d2992c1c0fd38e80dd6d514af554",
+    "row": {
+      "dependencies": [
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "Array"
+          ],
+          "usize"
+        ]
+      ],
+      "ir": {
+        "fdecl": {
+          "body": [
+            "vdecl",
+            {
+              "idx": 3
+            },
+            "usize",
+            {
+              "fap": {
+                "c": [
+                  "str",
+                  [
+                    "str",
+                    [
+                      "anonymous"
+                    ],
+                    "Array"
+                  ],
+                  "usize"
+                ],
+                "ys": [
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 1
+                      }
+                    }
+                  },
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 2
+                      }
+                    }
+                  }
+                ]
+              }
+            },
+            [
+              "dec",
+              {
+                "idx": 2
+              },
+              1,
+              false,
+              false,
+              [
+                "vdecl",
+                {
+                  "idx": 4
+                },
+                "tobject",
+                {
+                  "box": {
+                    "ty": "usize",
+                    "x": {
+                      "idx": 3
+                    }
+                  }
+                },
+                [
+                  "ret",
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 4
+                      }
+                    }
+                  }
+                ]
+              ]
+            ]
+          ],
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "Array"
+              ],
+              "usize"
+            ],
+            "_boxed"
+          ],
+          "info": {},
+          "type": "tobject",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 1
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "object",
+              "x": {
+                "idx": 2
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "Array"
+          ],
+          "usize"
+        ],
+        "_boxed"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Init"
+            ],
+            "Data"
+          ],
+          "Array"
+        ],
+        "Basic"
+      ]
+    }
+  },
+  {
+    "label": "Array.uget",
+    "sha256": "a192ceacea9286a482f8502511dc20b3f6355148644c3ca1fc1ec902be2271bb",
+    "row": {
+      "dependencies": [],
+      "ir": {
+        "extern": {
+          "ext": {
+            "entries": [
+              {
+                "standard": {
+                  "backend": [
+                    "str",
+                    [
+                      "anonymous"
+                    ],
+                    "all"
+                  ],
+                  "fn": "lean_array_uget"
+                }
+              }
+            ]
+          },
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Array"
+            ],
+            "uget"
+          ],
+          "type": "tobject",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "erased",
+              "x": {
+                "idx": 1
+              }
+            },
+            {
+              "borrow": true,
+              "ty": "object",
+              "x": {
+                "idx": 2
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "usize",
+              "x": {
+                "idx": 3
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "erased",
+              "x": {
+                "idx": 4
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "anonymous"
+          ],
+          "Array"
+        ],
+        "uget"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Init"
+            ],
+            "Data"
+          ],
+          "Array"
+        ],
+        "Basic"
+      ]
+    }
+  },
+  {
+    "label": "Array.uget._boxed",
+    "sha256": "a5282e5d9cb3bfbcd6e752c3d2ed70161a01228a19be71160e8eff51a4ef7229",
+    "row": {
+      "dependencies": [
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "Array"
+          ],
+          "uget"
+        ]
+      ],
+      "ir": {
+        "fdecl": {
+          "body": [
+            "vdecl",
+            {
+              "idx": 5
+            },
+            "usize",
+            {
+              "unbox": {
+                "x": {
+                  "idx": 3
+                }
+              }
+            },
+            [
+              "dec",
+              {
+                "idx": 3
+              },
+              1,
+              true,
+              false,
+              [
+                "vdecl",
+                {
+                  "idx": 6
+                },
+                "tobject",
+                {
+                  "fap": {
+                    "c": [
+                      "str",
+                      [
+                        "str",
+                        [
+                          "anonymous"
+                        ],
+                        "Array"
+                      ],
+                      "uget"
+                    ],
+                    "ys": [
+                      {
+                        "var": {
+                          "id": {
+                            "idx": 1
+                          }
+                        }
+                      },
+                      {
+                        "var": {
+                          "id": {
+                            "idx": 2
+                          }
+                        }
+                      },
+                      {
+                        "var": {
+                          "id": {
+                            "idx": 5
+                          }
+                        }
+                      },
+                      {
+                        "var": {
+                          "id": {
+                            "idx": 4
+                          }
+                        }
+                      }
+                    ]
+                  }
+                },
+                [
+                  "dec",
+                  {
+                    "idx": 2
+                  },
+                  1,
+                  false,
+                  false,
+                  [
+                    "ret",
+                    {
+                      "var": {
+                        "id": {
+                          "idx": 6
+                        }
+                      }
+                    }
+                  ]
+                ]
+              ]
+            ]
+          ],
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "Array"
+              ],
+              "uget"
+            ],
+            "_boxed"
+          ],
+          "info": {},
+          "type": "tobject",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 1
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "object",
+              "x": {
+                "idx": 2
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 3
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 4
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "Array"
+          ],
+          "uget"
+        ],
+        "_boxed"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Init"
+            ],
+            "Data"
+          ],
+          "Array"
+        ],
+        "Basic"
+      ]
+    }
+  },
+  {
+    "label": "Array.ugetBorrowed",
+    "sha256": "bc5e0d4ffc1e4ecbe5236dca29d5b34c0125e19706b68d3005906c28b002e9f7",
+    "row": {
+      "dependencies": [],
+      "ir": {
+        "extern": {
+          "ext": {
+            "entries": [
+              {
+                "standard": {
+                  "backend": [
+                    "str",
+                    [
+                      "anonymous"
+                    ],
+                    "all"
+                  ],
+                  "fn": "lean_array_uget_borrowed"
+                }
+              }
+            ]
+          },
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Array"
+            ],
+            "ugetBorrowed"
+          ],
+          "type": "tobject",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "erased",
+              "x": {
+                "idx": 1
+              }
+            },
+            {
+              "borrow": true,
+              "ty": "object",
+              "x": {
+                "idx": 2
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "usize",
+              "x": {
+                "idx": 3
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "erased",
+              "x": {
+                "idx": 4
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "anonymous"
+          ],
+          "Array"
+        ],
+        "ugetBorrowed"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Init"
+            ],
+            "Data"
+          ],
+          "Array"
+        ],
+        "Basic"
+      ]
+    }
+  },
+  {
+    "label": "Array.ugetBorrowed._boxed",
+    "sha256": "b0d397933fd8448c307d833b465024466373f2dc5a749e144c59fb516efd03f7",
+    "row": {
+      "dependencies": [
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "Array"
+          ],
+          "ugetBorrowed"
+        ]
+      ],
+      "ir": {
+        "fdecl": {
+          "body": [
+            "vdecl",
+            {
+              "idx": 5
+            },
+            "usize",
+            {
+              "unbox": {
+                "x": {
+                  "idx": 3
+                }
+              }
+            },
+            [
+              "dec",
+              {
+                "idx": 3
+              },
+              1,
+              true,
+              false,
+              [
+                "vdecl",
+                {
+                  "idx": 6
+                },
+                "tobject",
+                {
+                  "fap": {
+                    "c": [
+                      "str",
+                      [
+                        "str",
+                        [
+                          "anonymous"
+                        ],
+                        "Array"
+                      ],
+                      "ugetBorrowed"
+                    ],
+                    "ys": [
+                      {
+                        "var": {
+                          "id": {
+                            "idx": 1
+                          }
+                        }
+                      },
+                      {
+                        "var": {
+                          "id": {
+                            "idx": 2
+                          }
+                        }
+                      },
+                      {
+                        "var": {
+                          "id": {
+                            "idx": 5
+                          }
+                        }
+                      },
+                      {
+                        "var": {
+                          "id": {
+                            "idx": 4
+                          }
+                        }
+                      }
+                    ]
+                  }
+                },
+                [
+                  "dec",
+                  {
+                    "idx": 2
+                  },
+                  1,
+                  false,
+                  false,
+                  [
+                    "ret",
+                    {
+                      "var": {
+                        "id": {
+                          "idx": 6
+                        }
+                      }
+                    }
+                  ]
+                ]
+              ]
+            ]
+          ],
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "Array"
+              ],
+              "ugetBorrowed"
+            ],
+            "_boxed"
+          ],
+          "info": {},
+          "type": "tobject",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 1
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "object",
+              "x": {
+                "idx": 2
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 3
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 4
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "Array"
+          ],
+          "ugetBorrowed"
+        ],
+        "_boxed"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Init"
+            ],
+            "Data"
+          ],
+          "Array"
+        ],
+        "Basic"
+      ]
+    }
+  },
+  {
+    "label": "Array.getInternal",
+    "sha256": "1fbdf199ba7c48e0e32cb0863e4ce1f5d1c468aa30f263dd46600e7d759443dd",
+    "row": {
+      "dependencies": [],
+      "ir": {
+        "extern": {
+          "ext": {
+            "entries": [
+              {
+                "standard": {
+                  "backend": [
+                    "str",
+                    [
+                      "anonymous"
+                    ],
+                    "all"
+                  ],
+                  "fn": "lean_array_fget"
+                }
+              }
+            ]
+          },
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Array"
+            ],
+            "getInternal"
+          ],
+          "type": "tobject",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "erased",
+              "x": {
+                "idx": 1
+              }
+            },
+            {
+              "borrow": true,
+              "ty": "object",
+              "x": {
+                "idx": 2
+              }
+            },
+            {
+              "borrow": true,
+              "ty": "tobject",
+              "x": {
+                "idx": 3
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "erased",
+              "x": {
+                "idx": 4
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "anonymous"
+          ],
+          "Array"
+        ],
+        "getInternal"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "anonymous"
+          ],
+          "Init"
+        ],
+        "Prelude"
+      ]
+    }
+  },
+  {
+    "label": "Array.getInternal._boxed",
+    "sha256": "6a738efe430f340345b8f864056b32022b740d6a4c89b8aa7e1c6a4cfe5880f1",
+    "row": {
+      "dependencies": [
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "Array"
+          ],
+          "getInternal"
+        ]
+      ],
+      "ir": {
+        "fdecl": {
+          "body": [
+            "vdecl",
+            {
+              "idx": 5
+            },
+            "tobject",
+            {
+              "fap": {
+                "c": [
+                  "str",
+                  [
+                    "str",
+                    [
+                      "anonymous"
+                    ],
+                    "Array"
+                  ],
+                  "getInternal"
+                ],
+                "ys": [
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 1
+                      }
+                    }
+                  },
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 2
+                      }
+                    }
+                  },
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 3
+                      }
+                    }
+                  },
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 4
+                      }
+                    }
+                  }
+                ]
+              }
+            },
+            [
+              "dec",
+              {
+                "idx": 3
+              },
+              1,
+              true,
+              false,
+              [
+                "dec",
+                {
+                  "idx": 2
+                },
+                1,
+                false,
+                false,
+                [
+                  "ret",
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 5
+                      }
+                    }
+                  }
+                ]
+              ]
+            ]
+          ],
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "Array"
+              ],
+              "getInternal"
+            ],
+            "_boxed"
+          ],
+          "info": {},
+          "type": "tobject",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 1
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "object",
+              "x": {
+                "idx": 2
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 3
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 4
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "Array"
+          ],
+          "getInternal"
+        ],
+        "_boxed"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "anonymous"
+          ],
+          "Init"
+        ],
+        "Prelude"
+      ]
+    }
+  },
+  {
+    "label": "Array.getInternalBorrowed",
+    "sha256": "356abe61d4857079975b37b7afb7d458f052f690f639a0a6917818e8cf96dba8",
+    "row": {
+      "dependencies": [],
+      "ir": {
+        "extern": {
+          "ext": {
+            "entries": [
+              {
+                "standard": {
+                  "backend": [
+                    "str",
+                    [
+                      "anonymous"
+                    ],
+                    "all"
+                  ],
+                  "fn": "lean_array_fget_borrowed"
+                }
+              }
+            ]
+          },
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Array"
+            ],
+            "getInternalBorrowed"
+          ],
+          "type": "tobject",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "erased",
+              "x": {
+                "idx": 1
+              }
+            },
+            {
+              "borrow": true,
+              "ty": "object",
+              "x": {
+                "idx": 2
+              }
+            },
+            {
+              "borrow": true,
+              "ty": "tobject",
+              "x": {
+                "idx": 3
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "erased",
+              "x": {
+                "idx": 4
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "anonymous"
+          ],
+          "Array"
+        ],
+        "getInternalBorrowed"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "anonymous"
+          ],
+          "Init"
+        ],
+        "Prelude"
+      ]
+    }
+  },
+  {
+    "label": "Array.getInternalBorrowed._boxed",
+    "sha256": "4620666e8102e1a6f2b9f28ffb4c2c653b8b748c9e4eccd3bd76d1a8761eede0",
+    "row": {
+      "dependencies": [
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "Array"
+          ],
+          "getInternalBorrowed"
+        ]
+      ],
+      "ir": {
+        "fdecl": {
+          "body": [
+            "vdecl",
+            {
+              "idx": 5
+            },
+            "tobject",
+            {
+              "fap": {
+                "c": [
+                  "str",
+                  [
+                    "str",
+                    [
+                      "anonymous"
+                    ],
+                    "Array"
+                  ],
+                  "getInternalBorrowed"
+                ],
+                "ys": [
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 1
+                      }
+                    }
+                  },
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 2
+                      }
+                    }
+                  },
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 3
+                      }
+                    }
+                  },
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 4
+                      }
+                    }
+                  }
+                ]
+              }
+            },
+            [
+              "dec",
+              {
+                "idx": 3
+              },
+              1,
+              true,
+              false,
+              [
+                "dec",
+                {
+                  "idx": 2
+                },
+                1,
+                false,
+                false,
+                [
+                  "ret",
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 5
+                      }
+                    }
+                  }
+                ]
+              ]
+            ]
+          ],
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "Array"
+              ],
+              "getInternalBorrowed"
+            ],
+            "_boxed"
+          ],
+          "info": {},
+          "type": "tobject",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 1
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "object",
+              "x": {
+                "idx": 2
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 3
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 4
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "Array"
+          ],
+          "getInternalBorrowed"
+        ],
+        "_boxed"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "anonymous"
+          ],
+          "Init"
+        ],
+        "Prelude"
+      ]
+    }
+  },
+  {
+    "label": "Array.set",
+    "sha256": "c0be29879d4b07778457afd9071802bb5e11d317f5b33fe363309926c9a90d2c",
+    "row": {
+      "dependencies": [],
+      "ir": {
+        "extern": {
+          "ext": {
+            "entries": [
+              {
+                "standard": {
+                  "backend": [
+                    "str",
+                    [
+                      "anonymous"
+                    ],
+                    "all"
+                  ],
+                  "fn": "lean_array_fset"
+                }
+              }
+            ]
+          },
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Array"
+            ],
+            "set"
+          ],
+          "type": "object",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "erased",
+              "x": {
+                "idx": 1
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "object",
+              "x": {
+                "idx": 2
+              }
+            },
+            {
+              "borrow": true,
+              "ty": "tobject",
+              "x": {
+                "idx": 3
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 4
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "erased",
+              "x": {
+                "idx": 5
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "anonymous"
+          ],
+          "Array"
+        ],
+        "set"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Init"
+            ],
+            "Data"
+          ],
+          "Array"
+        ],
+        "Set"
+      ]
+    }
+  },
+  {
+    "label": "Array.set._boxed",
+    "sha256": "8af1e05c9ebd0a9bb98190a77d16e76725716eb8860b47bc44b07113de6b5b49",
+    "row": {
+      "dependencies": [
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "Array"
+          ],
+          "set"
+        ]
+      ],
+      "ir": {
+        "fdecl": {
+          "body": [
+            "vdecl",
+            {
+              "idx": 6
+            },
+            "object",
+            {
+              "fap": {
+                "c": [
+                  "str",
+                  [
+                    "str",
+                    [
+                      "anonymous"
+                    ],
+                    "Array"
+                  ],
+                  "set"
+                ],
+                "ys": [
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 1
+                      }
+                    }
+                  },
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 2
+                      }
+                    }
+                  },
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 3
+                      }
+                    }
+                  },
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 4
+                      }
+                    }
+                  },
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 5
+                      }
+                    }
+                  }
+                ]
+              }
+            },
+            [
+              "dec",
+              {
+                "idx": 3
+              },
+              1,
+              true,
+              false,
+              [
+                "ret",
+                {
+                  "var": {
+                    "id": {
+                      "idx": 6
+                    }
+                  }
+                }
+              ]
+            ]
+          ],
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "Array"
+              ],
+              "set"
+            ],
+            "_boxed"
+          ],
+          "info": {},
+          "type": "object",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 1
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "object",
+              "x": {
+                "idx": 2
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 3
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 4
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 5
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "Array"
+          ],
+          "set"
+        ],
+        "_boxed"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Init"
+            ],
+            "Data"
+          ],
+          "Array"
+        ],
+        "Set"
+      ]
+    }
+  },
+  {
+    "label": "Array.uset",
+    "sha256": "7efbb5f7bcd99ef87c12e12fc0b7a3761d0f18823e56219429c5cc43316437b5",
+    "row": {
+      "dependencies": [],
+      "ir": {
+        "extern": {
+          "ext": {
+            "entries": [
+              {
+                "standard": {
+                  "backend": [
+                    "str",
+                    [
+                      "anonymous"
+                    ],
+                    "all"
+                  ],
+                  "fn": "lean_array_uset"
+                }
+              }
+            ]
+          },
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Array"
+            ],
+            "uset"
+          ],
+          "type": "object",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "erased",
+              "x": {
+                "idx": 1
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "object",
+              "x": {
+                "idx": 2
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "usize",
+              "x": {
+                "idx": 3
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 4
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "erased",
+              "x": {
+                "idx": 5
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "anonymous"
+          ],
+          "Array"
+        ],
+        "uset"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Init"
+            ],
+            "Data"
+          ],
+          "Array"
+        ],
+        "Basic"
+      ]
+    }
+  },
+  {
+    "label": "Array.uset._boxed",
+    "sha256": "db80d51203be10722f6596b8357521ccbaa4a21fc145af13866b2d3fdd6da67d",
+    "row": {
+      "dependencies": [
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "Array"
+          ],
+          "uset"
+        ]
+      ],
+      "ir": {
+        "fdecl": {
+          "body": [
+            "vdecl",
+            {
+              "idx": 6
+            },
+            "usize",
+            {
+              "unbox": {
+                "x": {
+                  "idx": 3
+                }
+              }
+            },
+            [
+              "dec",
+              {
+                "idx": 3
+              },
+              1,
+              true,
+              false,
+              [
+                "vdecl",
+                {
+                  "idx": 7
+                },
+                "object",
+                {
+                  "fap": {
+                    "c": [
+                      "str",
+                      [
+                        "str",
+                        [
+                          "anonymous"
+                        ],
+                        "Array"
+                      ],
+                      "uset"
+                    ],
+                    "ys": [
+                      {
+                        "var": {
+                          "id": {
+                            "idx": 1
+                          }
+                        }
+                      },
+                      {
+                        "var": {
+                          "id": {
+                            "idx": 2
+                          }
+                        }
+                      },
+                      {
+                        "var": {
+                          "id": {
+                            "idx": 6
+                          }
+                        }
+                      },
+                      {
+                        "var": {
+                          "id": {
+                            "idx": 4
+                          }
+                        }
+                      },
+                      {
+                        "var": {
+                          "id": {
+                            "idx": 5
+                          }
+                        }
+                      }
+                    ]
+                  }
+                },
+                [
+                  "ret",
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 7
+                      }
+                    }
+                  }
+                ]
+              ]
+            ]
+          ],
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "Array"
+              ],
+              "uset"
+            ],
+            "_boxed"
+          ],
+          "info": {},
+          "type": "object",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 1
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "object",
+              "x": {
+                "idx": 2
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 3
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 4
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 5
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "Array"
+          ],
+          "uset"
+        ],
+        "_boxed"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Init"
+            ],
+            "Data"
+          ],
+          "Array"
+        ],
+        "Basic"
+      ]
+    }
+  },
+  {
+    "label": "Array.swap",
+    "sha256": "fc5e5ef89ff43e00f54fd5dd959bdabe06db0939f2a4104f2c048fbc582e51d5",
+    "row": {
+      "dependencies": [],
+      "ir": {
+        "extern": {
+          "ext": {
+            "entries": [
+              {
+                "standard": {
+                  "backend": [
+                    "str",
+                    [
+                      "anonymous"
+                    ],
+                    "all"
+                  ],
+                  "fn": "lean_array_fswap"
+                }
+              }
+            ]
+          },
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Array"
+            ],
+            "swap"
+          ],
+          "type": "object",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "erased",
+              "x": {
+                "idx": 1
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "object",
+              "x": {
+                "idx": 2
+              }
+            },
+            {
+              "borrow": true,
+              "ty": "tobject",
+              "x": {
+                "idx": 3
+              }
+            },
+            {
+              "borrow": true,
+              "ty": "tobject",
+              "x": {
+                "idx": 4
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "erased",
+              "x": {
+                "idx": 5
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "erased",
+              "x": {
+                "idx": 6
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "anonymous"
+          ],
+          "Array"
+        ],
+        "swap"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Init"
+            ],
+            "Data"
+          ],
+          "Array"
+        ],
+        "Basic"
+      ]
+    }
+  },
+  {
+    "label": "Array.swap._boxed",
+    "sha256": "6beb9bf313060e3a9047ccb1648781d2aeb17c3164a303ad5702cdc4505382ab",
+    "row": {
+      "dependencies": [
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "Array"
+          ],
+          "swap"
+        ]
+      ],
+      "ir": {
+        "fdecl": {
+          "body": [
+            "vdecl",
+            {
+              "idx": 7
+            },
+            "object",
+            {
+              "fap": {
+                "c": [
+                  "str",
+                  [
+                    "str",
+                    [
+                      "anonymous"
+                    ],
+                    "Array"
+                  ],
+                  "swap"
+                ],
+                "ys": [
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 1
+                      }
+                    }
+                  },
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 2
+                      }
+                    }
+                  },
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 3
+                      }
+                    }
+                  },
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 4
+                      }
+                    }
+                  },
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 5
+                      }
+                    }
+                  },
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 6
+                      }
+                    }
+                  }
+                ]
+              }
+            },
+            [
+              "dec",
+              {
+                "idx": 4
+              },
+              1,
+              true,
+              false,
+              [
+                "dec",
+                {
+                  "idx": 3
+                },
+                1,
+                true,
+                false,
+                [
+                  "ret",
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 7
+                      }
+                    }
+                  }
+                ]
+              ]
+            ]
+          ],
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "Array"
+              ],
+              "swap"
+            ],
+            "_boxed"
+          ],
+          "info": {},
+          "type": "object",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 1
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "object",
+              "x": {
+                "idx": 2
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 3
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 4
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 5
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 6
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "Array"
+          ],
+          "swap"
+        ],
+        "_boxed"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Init"
+            ],
+            "Data"
+          ],
+          "Array"
+        ],
+        "Basic"
+      ]
+    }
+  },
+  {
+    "label": "Array.toList",
+    "sha256": "6419199e2a2cfe5949485a2f654eb49e0a250c58823493ec9e40cd28fb4831ac",
+    "row": {
+      "dependencies": [],
+      "ir": {
+        "extern": {
+          "ext": {
+            "entries": [
+              {
+                "standard": {
+                  "backend": [
+                    "str",
+                    [
+                      "anonymous"
+                    ],
+                    "all"
+                  ],
+                  "fn": "lean_array_to_list"
+                }
+              }
+            ]
+          },
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Array"
+            ],
+            "toList"
+          ],
+          "type": "tobject",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "erased",
+              "x": {
+                "idx": 1
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "object",
+              "x": {
+                "idx": 2
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "anonymous"
+          ],
+          "Array"
+        ],
+        "toList"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "anonymous"
+          ],
+          "Init"
+        ],
+        "Prelude"
+      ]
+    }
+  },
+  {
+    "label": "Array.toList._boxed",
+    "sha256": "d647cb0e08bb50f329d3a00d17990d58ddbff923775b28c15f3d887380389fff",
+    "row": {
+      "dependencies": [
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "Array"
+          ],
+          "toList"
+        ]
+      ],
+      "ir": {
+        "fdecl": {
+          "body": [
+            "vdecl",
+            {
+              "idx": 3
+            },
+            "tobject",
+            {
+              "fap": {
+                "c": [
+                  "str",
+                  [
+                    "str",
+                    [
+                      "anonymous"
+                    ],
+                    "Array"
+                  ],
+                  "toList"
+                ],
+                "ys": [
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 1
+                      }
+                    }
+                  },
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 2
+                      }
+                    }
+                  }
+                ]
+              }
+            },
+            [
+              "ret",
+              {
+                "var": {
+                  "id": {
+                    "idx": 3
+                  }
+                }
+              }
+            ]
+          ],
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "Array"
+              ],
+              "toList"
+            ],
+            "_boxed"
+          ],
+          "info": {},
+          "type": "tobject",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 1
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "object",
+              "x": {
+                "idx": 2
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "Array"
+          ],
+          "toList"
+        ],
+        "_boxed"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "anonymous"
+          ],
+          "Init"
+        ],
+        "Prelude"
+      ]
+    }
+  },
+  {
+    "label": "Array.replicate",
+    "sha256": "c7eeafd8e9435c5231522c1b3f3bbb7de98e853df6cb06b8843a9a8667dd9538",
+    "row": {
+      "dependencies": [],
+      "ir": {
+        "extern": {
+          "ext": {
+            "entries": [
+              {
+                "standard": {
+                  "backend": [
+                    "str",
+                    [
+                      "anonymous"
+                    ],
+                    "all"
+                  ],
+                  "fn": "lean_mk_array"
+                }
+              }
+            ]
+          },
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Array"
+            ],
+            "replicate"
+          ],
+          "type": "object",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "erased",
+              "x": {
+                "idx": 1
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 2
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 3
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "anonymous"
+          ],
+          "Array"
+        ],
+        "replicate"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Init"
+            ],
+            "Data"
+          ],
+          "Array"
+        ],
+        "Basic"
+      ]
+    }
+  },
+  {
+    "label": "Array.replicate._boxed",
+    "sha256": "94f9244050f9538a12896f698ede980b47bf3d0265d342b5ecb492e83437d875",
+    "row": {
+      "dependencies": [
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "Array"
+          ],
+          "replicate"
+        ]
+      ],
+      "ir": {
+        "fdecl": {
+          "body": [
+            "vdecl",
+            {
+              "idx": 4
+            },
+            "object",
+            {
+              "fap": {
+                "c": [
+                  "str",
+                  [
+                    "str",
+                    [
+                      "anonymous"
+                    ],
+                    "Array"
+                  ],
+                  "replicate"
+                ],
+                "ys": [
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 1
+                      }
+                    }
+                  },
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 2
+                      }
+                    }
+                  },
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 3
+                      }
+                    }
+                  }
+                ]
+              }
+            },
+            [
+              "ret",
+              {
+                "var": {
+                  "id": {
+                    "idx": 4
+                  }
+                }
+              }
+            ]
+          ],
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "Array"
+              ],
+              "replicate"
+            ],
+            "_boxed"
+          ],
+          "info": {},
+          "type": "object",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 1
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 2
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 3
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "Array"
+          ],
+          "replicate"
+        ],
+        "_boxed"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Init"
+            ],
+            "Data"
+          ],
+          "Array"
+        ],
+        "Basic"
+      ]
+    }
+  }
+]
