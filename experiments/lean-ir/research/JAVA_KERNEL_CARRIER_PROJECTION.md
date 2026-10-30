@@ -105,3 +105,30 @@ keeps baseline results/cache/world checks. Root's retained REPL passes the full
 compact suite (13 tests / 22,272 assertions) and the previously failing full-init
 admission suite (6 tests / 73 assertions). These bounded tests do not run a full
 Init/image restore. A new combined-gate run remains the integration authority.
+
+## Carrier-parametric theorem checking
+
+The shared functional bridge also projects pinned `TheoremVal` constructor 0
+with three object fields (`ConstantVal`, proof, complete `all` name list) and
+zero scalar bytes, and `Declaration.thmDecl` constructor 2 with one object field.
+The source authority is Lean commit
+`819816b2e0a3bf405af45ae5c7af2491d8f5bee6`, `src/Lean/Declaration.lean:142–153,188`
+and `src/kernel/environment.cpp:192–208`. The `all` list retains order and duplicates;
+it is not restricted to a singleton. `admit-theorem` has the same 3/4/5-argument
+shape as the axiom/definition APIs and calls `TypeChecker.checkConstant` before
+returning a new Java environment. Guest roots and the source environment survive
+unchanged. Existing carrier lifetime and traversal budget hooks still apply.
+
+Root's retained 384 MiB REPL passed 24 tests / 234 assertions across the new
+five-test theorem suite and the existing bridge/declaration suites, with zero
+failures or errors (`theorem-carrier-focused-v2.out` in the root campaign output).
+The theorem tests cover an actual native-produced pinned fixture, constructed
+dependent identity proof, genuinely foreign references, metadata preservation,
+strict negative type/proof/metavariable/layout/list cases, duplicate names,
+checker reduction fuel and carrier budgets including memo hits. Reduction fuel
+counts beta/zeta and other reduction work, not ordinary expression visits; its
+negative test therefore forces four beta redexes in the declared proposition.
+The bounded Java integration runner includes this suite at result index 70,
+bringing its expected totals to 108 result families / 1,057 test executions.
+The full gate remains a separate root verification. These abstract-carrier tests
+do not establish Java HostRequest publication or frontend theorem execution.
