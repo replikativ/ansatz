@@ -27,6 +27,25 @@
 (defn owned-compare [ctx e a b]
   (j/retain! ctx e a) (j/retain! ctx e b)
   (j/call ctx e "Lean.Level.beq._boxed" [a b]))
+(defn failure-packet [ctx e]
+  {:phase (j/phase ctx e) :counters (k/counters ctx e)
+   :slots (vec (host/private-value e "objects"))
+   :numbers (vec (host/private-value e "numbers"))
+   :continuations (vec (host/private-value e "continuations"))
+   :control (mapv #(host/private-value e %)
+              ["bp" "sp" "jbp" "jsp" "continuationDepth" "active" "entry"
+               "failedHostRequest" "failedCodeRequest" "failedRuntimeAction"
+               "untrackedFailure" "pendingOwnedResult" "closed"])})
+(defn finish-probe! [ctx e]
+  (if (= "failed" (j/phase ctx e))
+    ;; Explicit failure retains its activation/owners. The existing engine has
+    ;; no managed cleanup for these pure probes: assert rejection, preserve the
+    ;; packet, then discard this probe. Never reset state or claim a close.
+    (let [before (failure-packet ctx e)]
+      (is (re-find #"requires ownership cleanup" (c/failure #(j/close! ctx e))))
+      (is (= before (failure-packet ctx e)))
+      (is (= "failed" (j/phase ctx e))))
+    (j/close! ctx e)))
 
 (deftest authenticated-raw-boxed-and-complete-Level-extern-family
   (let [p (json/read-str (slurp (str directory "provenance.json")))
@@ -71,7 +90,7 @@
               (is (= 1 (j/call ctx e "level-apply-two" [closure a b]))))
             (when (pos? tag) (is (= 1 (c/rc ctx a) (c/rc ctx b))))
             (finally (j/release! ctx e a) (j/release! ctx e b)))))
-      (finally (j/close! ctx e)))))
+      (finally (finish-probe! ctx e)))))
 
 (deftest models-all-six-tags-ordered-children-and-native-cache-rules
   (let [ctx (model-context) e (:engine ctx) b (eq/model-builder ctx) add (:add b) level (:level b) nm (:name b)
@@ -100,7 +119,7 @@
       (is (= counts (k/counters ctx e)))
       (is (= snapshots (mapv #(when-not (number? %) [(c/rc ctx %) (vec (host/private-value % "fields"))
                          (vec (host/private-value % "scalars")) (host/private-value % "metadata")]) roots)))
-      (finally (j/close! ctx e)))))
+      (finally (finish-probe! ctx e)))))
 
 (deftest borrowed-root-PAP-factory-import-and-host-registration-fences
   (let [ctx (context) e (j/machine ctx)]
@@ -117,7 +136,7 @@
                   (j/prepared-graph next source (Object.) [(j/graph-node next {:kind :closure :id 1 :target h})] [] [] [(j/graph-ref next 1)]))))
           (is (false? (host/private-value engine "graphInstalled")))
           (finally (j/close! next engine))))
-      (finally (j/close! ctx e)))))
+      (finally (finish-probe! ctx e)))))
 
 (deftest authentic-owned-boxed-wrapper-closure-import-and-partial-application
   (let [base (j/prepare-host-program *basis* [] []) source (j/source-binding base (Object.))
@@ -133,10 +152,12 @@
       (is (= 1 (j/call ctx e "level-apply-two" [closure 0 0])))
       (let [partial (j/make-closure! ctx e "Lean.Level.beq._boxed" [0])]
         (is (= 1 (j/call ctx e "level-apply-one" [partial 0]))))
-      (finally (j/close! ctx e)))))
+      (finally (finish-probe! ctx e)))))
 
 (deftest model-forged-raw-closures-reject-at-host-admission-and-reply-boundaries
-  (let [ctx (context [(host/ext "host" host/owned) (first g/common) (second g/common)]) e (j/machine ctx)
+  (let [rows (concat (map #(get % "row") (eq/records)) (map #(get % "row") (records))
+                     (helpers) [(host/ext "host" host/owned) (first g/common) (second g/common)])
+        ctx (j/prepare-host-program *basis* (x/raw rows) [host/owned]) e (j/machine ctx)
         value (eq/forged-raw-closure ctx "Lean.Level.beq")]
     (try
       (is (g/bad? #(j/call ctx e "identity" [value]))) (is (= "idle" (j/phase ctx e)))
@@ -146,13 +167,13 @@
         (is (g/bad? #(j/resume-host! ctx e request value)))
         (is (identical? request (j/host-request ctx e))) (is (= 1 (c/rc ctx value)))
         (j/resume-host! ctx e request 0) (is (= 0 (j/take-result! ctx e))))
-      (finally (j/release! ctx e value) (j/close! ctx e)))))
+      (finally (j/release! ctx e value) (finish-probe! ctx e)))))
 
 (deftest malformed-Level-heads-reject-without-owner-or-counter-effects
   (doseq [descriptor [{:kind :ref :id 1 :fields [0]}
                       {:kind :array :id 1 :fields [0]}
                       {:kind :byte-array :id 1 :bytes [0]}
-                      {:kind :ctor :id 1 :tag 0 :fields [] :scalars []}
+                      {:kind :ctor :id 1 :tag 0 :fields [0] :scalars []}
                       {:kind :ctor :id 1 :tag 6 :fields [0] :scalars (repeat 8 0)}
                       {:kind :ctor :id 1 :tag 1 :fields [0] :scalars (repeat 7 0)}
                       {:kind :ctor :id 1 :tag 2 :fields [0] :scalars (repeat 8 0)}]]
@@ -162,9 +183,9 @@
       (try
         ;; Validate both heads before identity, even the same malformed Node.
         (is (g/bad? #(compare-level ctx value value))) (is (= before (k/counters ctx e)))
-        (finally (j/close! ctx e)))))
+        (finally (finish-probe! ctx e)))))
   (let [ctx (model-context) e (:engine ctx)]
-    (try (is (g/bad? #(compare-level ctx 1 1))) (finally (j/close! ctx e)))))
+    (try (is (g/bad? #(compare-level ctx 1 1))) (finally (finish-probe! ctx e)))))
 
 (deftest models-deep-shared-DAG-and-cycle-have-bounded-local-workspaces
   (let [ctx (model-context) e (:engine ctx) b (eq/model-builder ctx) level (:level b)
@@ -173,7 +194,7 @@
         roots ((:finish b) [(make 4096 false) (make 4096 false) (make 24 true) (make 24 true)]) before (k/counters ctx e)]
     (try (is (= 1 (compare-level ctx (nth roots 0) (nth roots 1))))
          (is (= 1 (compare-level ctx (nth roots 2) (nth roots 3))))
-         (is (= before (k/counters ctx e))) (finally (j/close! ctx e))))
+         (is (= before (k/counters ctx e))) (finally (finish-probe! ctx e))))
   (let [ctx (model-context) e (:engine ctx) source (j/source-binding ctx (Object.))
         [a b] (j/install-graph! ctx e (j/prepared-graph ctx source (Object.)
                   [(j/graph-node ctx {:kind :ctor :id 1 :tag 1 :fields [(j/graph-ref ctx 1)] :scalars (repeat 8 0)})
@@ -181,7 +202,7 @@
                   [] [] [(j/graph-ref ctx 1) (j/graph-ref ctx 2)])) before (k/counters ctx e)]
     (try (is (= 1 (compare-level ctx a a)))
          (is (re-find #"equality cycle outside bounded" (c/failure #(compare-level ctx a b))))
-         (is (= before (k/counters ctx e))) (finally (j/close! ctx e)))))
+         (is (= before (k/counters ctx e))) (finally (finish-probe! ctx e)))))
 
 (deftest model-name-work-and-interruption-preserve-guest-state
   (doseq [[length interrupt? pattern] [[600000 false #"equality work outside bounded"] [2048 true #"equality interrupted"]]]
@@ -195,6 +216,6 @@
             (.start worker) (.join worker 1000) (is (not (.isAlive worker))))
           (run))
         (is (re-find pattern (or @outcome ""))) (is (= before (k/counters ctx e)))
-        (finally (j/close! ctx e))))))
+        (finally (finish-probe! ctx e))))))
 
 (defn check! [basis] (binding [*basis* basis] (clojure.test/run-tests 'java-ir-level-equality-checks)))
