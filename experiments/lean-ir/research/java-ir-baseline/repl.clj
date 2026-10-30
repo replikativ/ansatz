@@ -301,7 +301,7 @@
   (let [cls (Class/forName "ansatz.research.ir.Interpreter$GraphInt" true (:loader basis))]
     (.newInstance (.getConstructor cls (into-array Class [java.math.BigInteger]))
                   (object-array [(biginteger value)]))))
-(defn- graph-recipe [selected? basis source state-token nodes globals global-values owned-roots]
+(defn- graph-recipe [factory basis source state-token nodes globals global-values owned-roots]
   (let [cls (Class/forName "ansatz.research.ir.Interpreter$PreparedGraph" true (:loader basis))
         node-class (Class/forName "ansatz.research.ir.Interpreter$ImportNode" true (:loader basis))
         node-array (java.lang.reflect.Array/newInstance node-class (count nodes))
@@ -311,13 +311,17 @@
                                   (class global-array) objects objects])
           args [source state-token node-array global-array
                 (object-array global-values) (object-array owned-roots)]]
-      (if selected?
-        (invoke-static (.getMethod cls "selectedOwners" types) args)
+      (if factory
+        (invoke-static (.getMethod cls factory types) args)
         (.newInstance (.getConstructor cls types) (object-array args))))))
 (defn prepared-graph [basis source state-token nodes globals global-values owned-roots]
-  (graph-recipe false basis source state-token nodes globals global-values owned-roots))
+  (graph-recipe nil basis source state-token nodes globals global-values owned-roots))
 (defn selected-owner-graph [basis source state-token nodes globals global-values owned-roots]
-  (graph-recipe true basis source state-token nodes globals global-values owned-roots))
+  (graph-recipe "selectedOwners" basis source state-token nodes globals global-values owned-roots))
+(defn selected-owner-ref-payload-mt-graph
+  "Explicit target MT reconstruction for a closed positive region below persistent Refs."
+  [basis source state-token nodes globals global-values owned-roots]
+  (graph-recipe "selectedOwnersWithPersistentRefPayloadSharing" basis source state-token nodes globals global-values owned-roots))
 (defn install-graph! [basis engine graph]
   (vec (.invoke (.getMethod ^Class (:class basis) "installGraph" (into-array Class [(class graph)]))
                 engine (object-array [graph]))))

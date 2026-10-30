@@ -150,3 +150,70 @@ The REPL facade's `lean-name-data` converts nested immutable Java Name lists to
 Clojure vectors before persistent-map lookup. Java collection hash codes and
 Clojure collection hashes differ; preserving exact tags/leaves avoids silently
 missing a valid header during cross-language lookup.
+
+## Opt-in persistent-Ref payload sharing reconstruction
+
+`PreparedGraph.selectedOwnersWithPersistentRefPayloadSharing(binding, token,
+nodes, globals, values, roots)` uses the existing selected-owner ledger and an
+additional explicit target-sharing policy. The research facade exposes it as
+`selected-owner-ref-payload-mt-graph`. Existing RC0 and `selectedOwners` recipes
+remain unmarked; neither silently opts into this policy.
+
+This profile requires every imported Ref to be persistent. Global-cache and
+owned-output roots cannot directly reference a positive node. Every owning edge
+from a persistent non-Ref must target a persistent node or immutable carrier;
+only persistent Ref payload slots may cross from persistent to positive storage.
+Starting at those slots, a bounded identity walk follows all owning fields and
+captures through positive nodes, stops at persistent nodes, and requires every
+positive descriptor to be covered. Duplicate edges and cycles preserve the
+existing selected-owner counts. Source-positive numeric counts remain descriptive
+and are never copied. No extra root, traversal or marking credits are added.
+
+These boundaries are checked before shell creation. After all new shells are
+privately wired, the existing logical-MT walk marks their persistent Ref payloads.
+The resulting marker mask must exactly match the descriptor-derived region before
+any cache, source provenance, allocation counter or one-install marker is
+published. Marking preserves closure Generation, object-array live size and
+ByteArray state; pointer observation and fork continue using their existing
+wrappers. No source-ID table, derived mask or graph recipe is kept by the engine.
+A failed staging operation leaves the engine available for a valid import retry.
+
+The source basis is pinned Lean commit
+`819816b2e0a3bf405af45ae5c7af2491d8f5bee6`:
+[mark_mt](https://github.com/leanprover/lean4/blob/819816b2e0a3bf405af45ae5c7af2491d8f5bee6/src/runtime/object.cpp#L663)
+walks owning children while stopping at persistent/already-MT objects;
+[Ref.set/swap](https://github.com/leanprover/lean4/blob/819816b2e0a3bf405af45ae5c7af2491d8f5bee6/src/runtime/io.cpp#L1495)
+marks an incoming payload before publishing it through a persistent/MT Ref;
+[exclusivity](https://github.com/leanprover/lean4/blob/819816b2e0a3bf405af45ae5c7af2491d8f5bee6/src/include/lean/lean.h#L704)
+requires single-threaded RC1. Consequently an imported marked payload taken from
+its Ref stays nonexclusive even after its count reaches one. Native array and
+ByteArray mutation then copy to fresh ST storage; publishing that new storage
+through the persistent Ref marks it again. Fork preserves MT while copying mutable
+kind state and retaining immutable code Generation identity.
+
+This creates an explicit target logical-MT global-registry template. Source/state
+association still requires the same actual accepted tokens. An RC-only producer
+capture does not supply historical native MT bits; the new profile does not prove
+its initializer trace, allocation/alias parity or native execution history. It
+adds no native carrier kind, Task/Promise import, thread scheduler or finalizer.
+The five-kind grammar, 100k-node/1m-edge/16MiB budgets and one-shot transaction are
+unchanged. Logical RC cycles are still not collected.
+
+Seven focused tests passed 100 assertions in each of recursive and explicit
+configurations in the existing retained 384 MiB REPL, using Java source SHA-256
+`cb634d92c8da5d06eb8f8ac5c10adce31d2073f37ac701dce1d2e00c7f314641`
+and immutable runtime jar SHA-256
+`fd1391656211f135c3bda326a4cbdcfcd731fd5618fa2b342b8eb106ef9f8eca`.
+Independent source review found no blocker. The tests cover old-profile
+compatibility, atomic positive-boundary negatives even when also Ref-covered,
+duplicate owner occurrences, source-token identity, take-to-RC1/COW/Ref.set,
+closure AP and Array/ByteArray/Generation/pointer fork metadata, a positive cycle,
+and a 4,096-node chain. Private field inspection is test-only. Bulk frontend
+capture acceptance remains a separate observation.
+
+The subsequent complete isolated gate passed 105 suites, 1,032 test executions
+and 52,699 assertions at 384 MiB, exit 0, without failures or errors. The combined
+log SHA-256 is
+`ca436e12560ed2dd1668028305f944de9a854272e242f49b571d733ef18078cc`.
+It used the same frozen Java source and immutable runtime jar. No bulk frontend
+image acceptance is claimed by this combined regression result.

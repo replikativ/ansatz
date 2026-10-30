@@ -904,39 +904,49 @@ public final class Interpreter implements AutoCloseable {
             return new ImportNode(id,sourceRC,CLOSURE,245,captures,new byte[0],header);
         }
     }
+    private enum GraphImportProfile { DEFAULT_RC0, SELECTED_OWNERS, PERSISTENT_REF_PAYLOAD_MT }
     /** Trusted adapter's accepted state recipe, not cryptographic admission.
      * Source/state tokens must be lightweight immutable authority/lease tokens.
      * Arrays and byte payloads are copied; no existing runtime Nodes are input.
      * The default constructor accepts only source RC0 and nonnegative carriers.
      * selectedOwners explicitly recomputes positive counts and permits GraphInt.
+     * selectedOwnersWithPersistentRefPayloadSharing additionally derives logical
+     * MT for the closed positive payload region of persistent Refs.
      * Persistence comes from trusted source metadata; it does not make refs
-     * immutable, and neither profile authenticates caller-supplied state facts. */
+     * immutable, and no profile authenticates caller-supplied state facts. */
     public static final class PreparedGraph {
         private final SourceBinding binding;
         private final Object acceptedStateToken;
         private final ImportNode[] nodes;
         private final Header[] globals;
         private final Object[] globalValues,ownedRoots;
-        private final boolean selectedOwners;
+        private final GraphImportProfile profile;
         public PreparedGraph(SourceBinding binding,Object acceptedStateToken,ImportNode[] nodes,
                              Header[] globals,Object[] globalValues,Object[] ownedRoots) {
-            this(binding,acceptedStateToken,nodes,globals,globalValues,ownedRoots,false);
+            this(binding,acceptedStateToken,nodes,globals,globalValues,ownedRoots,GraphImportProfile.DEFAULT_RC0);
         }
         public static PreparedGraph selectedOwners(SourceBinding binding,Object acceptedStateToken,ImportNode[] nodes,
                                                     Header[] globals,Object[] globalValues,Object[] ownedRoots) {
-            return new PreparedGraph(binding,acceptedStateToken,nodes,globals,globalValues,ownedRoots,true);
+            return new PreparedGraph(binding,acceptedStateToken,nodes,globals,globalValues,ownedRoots,GraphImportProfile.SELECTED_OWNERS);
+        }
+        /** Explicit target sharing reconstruction, not evidence of historical native MT state.
+         * Only persistent Ref slots may enter the positive graph; every positive
+         * object must be in their transitive positive owning-field closure. */
+        public static PreparedGraph selectedOwnersWithPersistentRefPayloadSharing(SourceBinding binding,Object acceptedStateToken,
+                              ImportNode[] nodes,Header[] globals,Object[] globalValues,Object[] ownedRoots) {
+            return new PreparedGraph(binding,acceptedStateToken,nodes,globals,globalValues,ownedRoots,GraphImportProfile.PERSISTENT_REF_PAYLOAD_MT);
         }
         private PreparedGraph(SourceBinding binding,Object acceptedStateToken,ImportNode[] nodes,
-                              Header[] globals,Object[] globalValues,Object[] ownedRoots,boolean selectedOwners) {
+                              Header[] globals,Object[] globalValues,Object[] ownedRoots,GraphImportProfile profile) {
             require(binding!=null&&acceptedStateToken!=null,"Actual accepted source/state tokens required");
             require(nodes!=null&&globals!=null&&globalValues!=null&&ownedRoots!=null,
                     "Explicit prepared graph tables and roots required");
             require(nodes.length<=MAX_IMPORT_NODES,"Prepared graph exceeds research node limit");
             require(globals.length<=MAX_IMPORT_ROOTS&&ownedRoots.length<=MAX_IMPORT_ROOTS,"Prepared graph exceeds root/global limit");
             require(globals.length==globalValues.length,"Prepared global table length mismatch");
-            checkGraphProfile(nodes,globalValues,ownedRoots,selectedOwners);
+            checkGraphProfile(nodes,globalValues,ownedRoots,profile!=GraphImportProfile.DEFAULT_RC0);
             checkGraphBudget(nodes,globalValues,ownedRoots);
-            this.selectedOwners=selectedOwners;
+            this.profile=profile;
             this.binding=binding; this.acceptedStateToken=acceptedStateToken;
             this.nodes=nodes.clone(); this.globals=globals.clone();
             this.globalValues=graphValues(globalValues); this.ownedRoots=graphValues(ownedRoots);
@@ -4362,6 +4372,38 @@ public final class Interpreter implements AutoCloseable {
             if(nodes[position].sourceRC>0) owners[position]=Math.addExact(owners[position],1);
         }
     }
+    private static void enqueuePositiveGraphValues(Object[] values,ImportNode[] nodes,Map<Long,Integer> positions,
+                                                   boolean[] marked,ArrayDeque<Integer> pending) {
+        for(Object value:values) if(value instanceof GraphRef) {
+            int position=graphPosition((GraphRef)value,positions);
+            if(nodes[position].sourceRC>0&&!marked[position]) { marked[position]=true; pending.addLast(position); }
+        }
+    }
+    private static void requirePersistentGraphValues(Object[] values,ImportNode[] nodes,Map<Long,Integer> positions,String message) {
+        for(Object value:values) if(value instanceof GraphRef)
+            require(nodes[graphPosition((GraphRef)value,positions)].sourceRC==0,message);
+    }
+    /** Derive the exact target MT region without allocating or mutating runtime Nodes. */
+    private static boolean[] preparedRefPayloadSharing(PreparedGraph graph,Map<Long,Integer> positions) {
+        if(graph.profile!=GraphImportProfile.PERSISTENT_REF_PAYLOAD_MT) return null;
+        boolean[] marked=new boolean[graph.nodes.length]; ArrayDeque<Integer> pending=new ArrayDeque<>();
+        requirePersistentGraphValues(graph.globalValues,graph.nodes,positions,"MT payload profile forbids positive cache roots");
+        requirePersistentGraphValues(graph.ownedRoots,graph.nodes,positions,"MT payload profile forbids positive output roots");
+        for(ImportNode node:graph.nodes) {
+            if(node.kind==ImportNode.REF) {
+                require(node.sourceRC==0,"MT payload profile requires every Ref to be persistent");
+                enqueuePositiveGraphValues(node.fields,graph.nodes,positions,marked,pending);
+            } else if(node.sourceRC==0) {
+                requirePersistentGraphValues(node.fields,graph.nodes,positions,
+                        "Only persistent Ref slots may enter the positive MT payload graph");
+            }
+        }
+        while(!pending.isEmpty())
+            enqueuePositiveGraphValues(graph.nodes[pending.removeFirst()].fields,graph.nodes,positions,marked,pending);
+        for(int i=0;i<graph.nodes.length;i++)
+            require(marked[i]==(graph.nodes[i].sourceRC>0),"Source-positive object is outside persistent Ref payload closure");
+        return marked;
+    }
     /** Transactional default-RC0 or explicit selected-owner import at an open idle boundary. Returned
      * roots are independently OWNED values. Count each graph/cache/output
      * occurrence for source-positive nodes; source RC0 remains persistent.
@@ -4381,7 +4423,7 @@ public final class Interpreter implements AutoCloseable {
         Map<Long,Integer> positions=new HashMap<>();
         for(int i=0;i<graph.nodes.length;i++) {
             ImportNode node=graph.nodes[i];
-            require(node.sourceRC>=0&&(graph.selectedOwners||node.sourceRC==0),
+            require(node.sourceRC>=0&&(graph.profile!=GraphImportProfile.DEFAULT_RC0||node.sourceRC==0),
                     "Prepared graph source count differs from selected profile");
             require(positions.put(node.sourceId,i)==null,"Duplicate prepared graph source ID");
         }
@@ -4428,13 +4470,14 @@ public final class Interpreter implements AutoCloseable {
         while(!pending.isEmpty()) enqueueGraphValues(graph.nodes[pending.removeFirst()].fields,positions,visited,pending);
         for(boolean reachable:visited) require(reachable,"Unreachable object in prepared graph envelope");
         int[] owners=new int[graph.nodes.length];
-        if(graph.selectedOwners) {
+        if(graph.profile!=GraphImportProfile.DEFAULT_RC0) {
             for(ImportNode node:graph.nodes) countGraphOwners(node.fields,graph.nodes,positions,owners);
             countGraphOwners(graph.globalValues,graph.nodes,positions,owners);
             countGraphOwners(graph.ownedRoots,graph.nodes,positions,owners);
             for(int i=0;i<owners.length;i++) if(graph.nodes[i].sourceRC>0)
                 require(owners[i]>0,"Source-positive object has no selected owning occurrence");
         }
+        boolean[] mtPayloads=preparedRefPayloadSharing(graph,positions);
         Node[] shells=new Node[graph.nodes.length];
         for(int i=0;i<shells.length;i++) {
             ImportNode recipe=graph.nodes[i]; Node shell=new Node(recipe.tag,recipe.fields.length,recipe.scalars.length);
@@ -4445,6 +4488,14 @@ public final class Interpreter implements AutoCloseable {
         }
         for(int i=0;i<shells.length;i++) for(int field=0;field<shells[i].fields.length;field++)
             shells[i].fields[field]=importedGraphValue(graph.nodes[i].fields[field],positions,shells);
+        if(mtPayloads!=null) {
+            // Only private, newly wired shells are touched; all owner counts,
+            // cache state and counters remain unpublished if staging fails.
+            for(int i=0;i<shells.length;i++) if(graph.nodes[i].kind==ImportNode.REF)
+                markLogicalMT(shells[i].fields[0]);
+            for(int i=0;i<shells.length;i++)
+                require(logicalMT(shells[i])==mtPayloads[i],"Prepared Ref payload sharing derivation mismatch");
+        }
         Object[] nextConstants=constants.clone(); boolean[] nextReady=constantReady.clone();
         Object[] outputs=new Object[graph.ownedRoots.length];
         for(int i=0;i<outputs.length;i++) outputs[i]=importedGraphValue(graph.ownedRoots[i],positions,shells);
