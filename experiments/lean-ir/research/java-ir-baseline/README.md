@@ -196,3 +196,8 @@ The [Expr/Level scalar data tranche](../JAVA_EXPRESSION_DATA_RUNTIME.md) adds
 exact original computed-data extern tuples and boxed wrappers. Its focused tests
 cover native cache-word packing and U64 pauses/forks; this adds no AST storage
 representation.
+
+The [checked-disabled profiling callback](../JAVA_PROFILE_RUNTIME.md) executes
+the original option getter, retires the native declaration owner before the
+callback, and preserves explicit code/host/fork control. Enabled profiling and
+inactive/recursive execution remain outside that opt-in profile.

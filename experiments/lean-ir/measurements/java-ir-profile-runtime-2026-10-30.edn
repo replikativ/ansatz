@@ -1,0 +1,18 @@
+{:schema 1
+ :scope :checked-disabled-native-profileit
+ :validation-runner :parent-existing-retained-repl
+ :java-release 11 :heap-limit-mib 384
+ :engine-source "research/java-ir-baseline/src/ansatz/research/ir/Interpreter.java"
+ :engine-source-sha256 "1f27ddf07d38c34d2a10e4c8f2ffedef57b0962221f67017493edc7898533ea3"
+ :focused {:driver :active-explicit :tests 11 :assertions 73 :fail 0 :error 0}
+ :source {:lean-commit "819816b2e0a3bf405af45ae5c7af2491d8f5bee6"
+          :index "74d833d577923821b982e8a9e872a38b5cad011513eb18870b51417e13397f0e"
+          :original-rows 43 :captured-option-persistent-nodes 2}
+ :parent-integration-observation
+ {:companion-globals 45 :sequential-setup :prepared
+  :profileit-boundary :passed
+  :next-boundary "UInt64.toUInt32 in Command.withInitQuotContext"
+  :cumulative-instructions 343278 :new-code-bodies 616
+  :checked-declaration-established false}
+ :not-run-by-this-agent [:jvm-launch :native-oracle :full-gate :full-image-restore]
+ :unsupported [:enabled-profiling :inactive-profile :recursive-driver :cumulative-timers]}
