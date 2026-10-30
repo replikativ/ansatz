@@ -1,0 +1,582 @@
+[
+  {
+    "label": "Array.get!Internal",
+    "sha256": "4cd8704f296bce79d6dfddb3dbad3718385d0ddc9f03666144ece31c7854e24b",
+    "row": {
+      "dependencies": [],
+      "ir": {
+        "extern": {
+          "ext": {
+            "entries": [
+              {
+                "standard": {
+                  "backend": [
+                    "str",
+                    [
+                      "anonymous"
+                    ],
+                    "all"
+                  ],
+                  "fn": "lean_array_get"
+                }
+              }
+            ]
+          },
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Array"
+            ],
+            "get!Internal"
+          ],
+          "type": "tobject",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "erased",
+              "x": {
+                "idx": 1
+              }
+            },
+            {
+              "borrow": true,
+              "ty": "tobject",
+              "x": {
+                "idx": 2
+              }
+            },
+            {
+              "borrow": true,
+              "ty": "object",
+              "x": {
+                "idx": 3
+              }
+            },
+            {
+              "borrow": true,
+              "ty": "tobject",
+              "x": {
+                "idx": 4
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "anonymous"
+          ],
+          "Array"
+        ],
+        "get!Internal"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "anonymous"
+          ],
+          "Init"
+        ],
+        "Prelude"
+      ]
+    }
+  },
+  {
+    "label": "Array.get!Internal._boxed",
+    "sha256": "d6c375954fcb162bacf717877833a2fb7cde127d8db182980299d010fb293ec8",
+    "row": {
+      "dependencies": [
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "Array"
+          ],
+          "get!Internal"
+        ]
+      ],
+      "ir": {
+        "fdecl": {
+          "body": [
+            "vdecl",
+            {
+              "idx": 5
+            },
+            "tobject",
+            {
+              "fap": {
+                "c": [
+                  "str",
+                  [
+                    "str",
+                    [
+                      "anonymous"
+                    ],
+                    "Array"
+                  ],
+                  "get!Internal"
+                ],
+                "ys": [
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 1
+                      }
+                    }
+                  },
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 2
+                      }
+                    }
+                  },
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 3
+                      }
+                    }
+                  },
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 4
+                      }
+                    }
+                  }
+                ]
+              }
+            },
+            [
+              "dec",
+              {
+                "idx": 4
+              },
+              1,
+              true,
+              false,
+              [
+                "dec",
+                {
+                  "idx": 3
+                },
+                1,
+                false,
+                false,
+                [
+                  "dec",
+                  {
+                    "idx": 2
+                  },
+                  1,
+                  true,
+                  false,
+                  [
+                    "ret",
+                    {
+                      "var": {
+                        "id": {
+                          "idx": 5
+                        }
+                      }
+                    }
+                  ]
+                ]
+              ]
+            ]
+          ],
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "Array"
+              ],
+              "get!Internal"
+            ],
+            "_boxed"
+          ],
+          "info": {},
+          "type": "tobject",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 1
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 2
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "object",
+              "x": {
+                "idx": 3
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 4
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "Array"
+          ],
+          "get!Internal"
+        ],
+        "_boxed"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "anonymous"
+          ],
+          "Init"
+        ],
+        "Prelude"
+      ]
+    }
+  },
+  {
+    "label": "Array.get!InternalBorrowed",
+    "sha256": "5107174e03f27fd0576f5a593a58d4197fd6563b046730f4c032d162e572d174",
+    "row": {
+      "dependencies": [],
+      "ir": {
+        "extern": {
+          "ext": {
+            "entries": [
+              {
+                "standard": {
+                  "backend": [
+                    "str",
+                    [
+                      "anonymous"
+                    ],
+                    "all"
+                  ],
+                  "fn": "lean_array_get_borrowed"
+                }
+              }
+            ]
+          },
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Array"
+            ],
+            "get!InternalBorrowed"
+          ],
+          "type": "tobject",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "erased",
+              "x": {
+                "idx": 1
+              }
+            },
+            {
+              "borrow": true,
+              "ty": "tobject",
+              "x": {
+                "idx": 2
+              }
+            },
+            {
+              "borrow": true,
+              "ty": "object",
+              "x": {
+                "idx": 3
+              }
+            },
+            {
+              "borrow": true,
+              "ty": "tobject",
+              "x": {
+                "idx": 4
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "anonymous"
+          ],
+          "Array"
+        ],
+        "get!InternalBorrowed"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "anonymous"
+          ],
+          "Init"
+        ],
+        "Prelude"
+      ]
+    }
+  },
+  {
+    "label": "Array.get!InternalBorrowed._boxed",
+    "sha256": "ce20afbbef1333ed6cbeeafc2988264c6b71e57876cdccfd076c7452ea68ac7a",
+    "row": {
+      "dependencies": [
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "Array"
+          ],
+          "get!InternalBorrowed"
+        ]
+      ],
+      "ir": {
+        "fdecl": {
+          "body": [
+            "vdecl",
+            {
+              "idx": 5
+            },
+            "tobject",
+            {
+              "fap": {
+                "c": [
+                  "str",
+                  [
+                    "str",
+                    [
+                      "anonymous"
+                    ],
+                    "Array"
+                  ],
+                  "get!InternalBorrowed"
+                ],
+                "ys": [
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 1
+                      }
+                    }
+                  },
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 2
+                      }
+                    }
+                  },
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 3
+                      }
+                    }
+                  },
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 4
+                      }
+                    }
+                  }
+                ]
+              }
+            },
+            [
+              "dec",
+              {
+                "idx": 4
+              },
+              1,
+              true,
+              false,
+              [
+                "dec",
+                {
+                  "idx": 3
+                },
+                1,
+                false,
+                false,
+                [
+                  "dec",
+                  {
+                    "idx": 2
+                  },
+                  1,
+                  true,
+                  false,
+                  [
+                    "ret",
+                    {
+                      "var": {
+                        "id": {
+                          "idx": 5
+                        }
+                      }
+                    }
+                  ]
+                ]
+              ]
+            ]
+          ],
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "Array"
+              ],
+              "get!InternalBorrowed"
+            ],
+            "_boxed"
+          ],
+          "info": {},
+          "type": "tobject",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 1
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 2
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "object",
+              "x": {
+                "idx": 3
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 4
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "Array"
+          ],
+          "get!InternalBorrowed"
+        ],
+        "_boxed"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "anonymous"
+          ],
+          "Init"
+        ],
+        "Prelude"
+      ]
+    }
+  }
+]

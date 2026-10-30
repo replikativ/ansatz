@@ -1,0 +1,15 @@
+{:schema 1 :date "2026-10-30" :scope :bounded-nat-ready-task-and-checked-array-valid-domain
+ :engine-source-sha256 "a97505a36f8bb8ef4c01fbca42eeba98b3d4d3b225c750d17f8007a999b833c5"
+ :engine-jar-sha256 "d14768a9dd3555e20e7c0571070cba44b0e18294cdabf37f2c9914fa722d0449"
+ :fixtures {:nat "3aef9e23136b9841f30b59d0150f5fd89a190e0c5f9d7856e2247dfd63bfb7e1"
+            :ready-task "2d3fde22ddceefdce02f4cb6f24001f51914ddd1f71a00473a290ff4e236857f"
+            :checked-array "5f1a4964fb74e4881a560d867890acf856ec5a5ed1d5db4745bc6e5fdccb0c49"}
+ :verification {:focused-per-driver {:tests 8 :assertions 184 :fail 0 :error 0}
+                :combined-isolated-jar-gate {:tests 450 :assertions 15076 :suites 53 :exit 0 :heap-mib 384}}
+ :original-header-probe {:original-bodies-loaded 18 :instructions 883 :heap-limit-mib 384
+                         :next-missing-runtime "IO.initializing" :frontend-complete false}
+ :limits ["Nat left-shift result limited to 16777216 bits; huge right shifts and zero left shifts shortcut."
+          "Engine-created ready Tasks only; no scheduler/map/pending/native-task import."
+          "Checked array valid reads only; native panic effects explicitly deferred."
+          "Prepared graph grammar unchanged; no fake module initialization or kernel Environment carrier."
+          "No complete frontend or self-hosting claim."]}
