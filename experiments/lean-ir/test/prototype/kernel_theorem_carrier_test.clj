@@ -6,7 +6,7 @@
             [prototype.imported-kernel :as imported]
             [prototype.machine :as m]
             [ansatz.kernel.name :as name])
-  (:import [ansatz.kernel ConstantInfo Env Expr]))
+  (:import [ansatz.kernel ConstantInfo Env Expr KernelAbort]))
 
 (defn dependent-theorem []
   ;; Constructed layout test, not an original Lean compiler body:
@@ -112,7 +112,7 @@
     (is (nil? (.lookup before (name/from-string "carrierIdentity"))))))
 
 (deftest checking-fuel-and-carrier-budget-are-enforced-including-memo-hits
-  (let [{:keys [world declaration]} (dependent-theorem)
+  (let [{:keys [world declaration constant type prop]} (dependent-theorem)
         before (Env.) alternate (alternate-carrier world)
         remaining (atom 10000)
         ops (assoc (:ops alternate) :check!
@@ -122,7 +122,21 @@
     (doseq [fuel [0 -1 1.5 9223372036854775808N]]
       (is (thrown-with-msg? clojure.lang.ExceptionInfo #"fuel"
             (bridge/admit-theorem world before declaration fuel))))
-    (is (thrown? Exception (bridge/admit-theorem world before declaration 1)))
+    ;; Fuel bounds reductions, not expression visits. The plain identity proof
+    ;; needs no beta reduction; force four in its declared proposition instead:
+    ;; (fun P : Prop => P) (... ((fun P : Prop => P) identityType)).
+    (let [[reduction-world binder] (guest/guest-name world "betaP")
+          [reduction-world bound] (guest/ctor reduction-world 0 [0] 8)
+          [reduction-world identity] (guest/ctor reduction-world 6 [binder prop bound] 9)
+          [reduction-world reduced-type]
+          (loop [n 4 current-world reduction-world current type]
+            (if (zero? n) [current-world current]
+              (let [[next-world next-type] (guest/ctor current-world 5 [identity current] 8)]
+                (recur (dec n) next-world next-type))))
+          reduction-world (assoc-in reduction-world [:heap (:id constant) :fields 2] reduced-type)]
+      (is (some? (:env (bridge/admit-theorem reduction-world before declaration 1000000))))
+      (is (thrown-with-msg? KernelAbort #"fuel exhausted"
+            (bridge/admit-theorem reduction-world before declaration 1))))
     (reset! remaining 2)
     (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Projection budget"
           (bridge/admit-theorem (:world alternate) before root 1000000 projector)))
