@@ -189,15 +189,36 @@ public final class Interpreter implements AutoCloseable {
             this.tag=tag; this.fields=fields; scalars=new byte[scalarBytes];
         }
     }
+    /** Stable callable identity and ABI; executable layout belongs to a Program. */
     static final class Function {
         final String label;
-        int id, width=1, joinWidth=1, resultType, intrinsic;
-        int[] params;
-        int[] paramTypes;
+        final int id, resultType, intrinsic;
+        final int[] params, paramTypes;
+        final Object privateOwner;
+        final HostExtern hostExtern;
+        Function(String label,int id,int[] params,int[] paramTypes,int resultType,
+                 int intrinsic,HostExtern hostExtern,Object privateOwner) {
+            this.label=label; this.id=id; this.params=params.clone(); this.paramTypes=paramTypes.clone();
+            this.resultType=resultType; this.intrinsic=intrinsic;
+            this.hostExtern=hostExtern; this.privateOwner=privateOwner;
+        }
+    }
+    /** Published only after parsing and validation; inherited slots share identity. */
+    private static final class PreparedBody {
+        final Body body;
+        final int width, joinWidth;
+        PreparedBody(Body body,int width,int joinWidth) {
+            this.body=body; this.width=width; this.joinWidth=joinWidth;
+        }
+    }
+    /** Local preparation state, never retained by a published Function or Program. */
+    private static final class BodyBuilder {
+        int width=1, joinWidth=1;
         Body body;
-        Object privateOwner;
-        HostExtern hostExtern;
-        Function(String label) { this.label=label; }
+        BodyBuilder(Function function) {
+            for(int param:function.params) width=Math.max(width,param+1);
+        }
+        PreparedBody finish() { return new PreparedBody(body,width,joinWidth); }
     }
     static final class Expr {
         int op, a,b,tag,size,scalarBytes;
@@ -236,13 +257,14 @@ public final class Interpreter implements AutoCloseable {
     }
     public static final class Program {
         final Function[] functions;
+        final PreparedBody[] preparedBodies;
         final Map<String,Function> labels;
         final Map<Object,Function> typedNames;
         final Map<String,List<HostExtern>> hostRegistry;
         final Generation generation;
-        private Program(Function[] functions,Map<String,Function> labels,Map<Object,Function> typedNames,
+        private Program(Function[] functions,PreparedBody[] preparedBodies,Map<String,Function> labels,Map<Object,Function> typedNames,
                         Map<String,List<HostExtern>> hostRegistry,Generation generation) {
-            this.functions=functions; this.labels=labels; this.typedNames=typedNames;
+            this.functions=functions; this.preparedBodies=preparedBodies; this.labels=labels; this.typedNames=typedNames;
             this.hostRegistry=hostRegistry; this.generation=generation;
         }
         public int functionId(String label) {
@@ -285,6 +307,7 @@ public final class Interpreter implements AutoCloseable {
     private long instructions;
     private boolean advancing, pendingOwnedResult;
     private Function active, entry;
+    private PreparedBody activePrepared;
     private Body pc;
     private Continuation[] continuations;
     private Function applicationTarget;
@@ -294,10 +317,11 @@ public final class Interpreter implements AutoCloseable {
     private Throwable hostFailure;
     private static final class Continuation {
         Function caller;
+        PreparedBody callerPrepared;
         Body next;
         int bp,sp,jbp,jsp,dest,kind;
         Object[] surplus;
-        void clear() { caller=null; next=null; surplus=null; }
+        void clear() { caller=null; callerPrepared=null; next=null; surplus=null; }
     }
     public long allocations,stores,retains,releases,shellDeletes;
 
@@ -352,7 +376,7 @@ public final class Interpreter implements AutoCloseable {
         child.callsLeft=callsLeft; child.phase=phase; child.continuationDepth=continuationDepth;
         child.untrackedFailure=untrackedFailure;
         child.instructions=instructions; child.pendingOwnedResult=pendingOwnedResult;
-        child.active=(Function)copy.value(active); child.entry=(Function)copy.value(entry); child.pc=pc;
+        child.active=(Function)copy.value(active); child.activePrepared=activePrepared; child.entry=(Function)copy.value(entry); child.pc=pc;
         if(continuations!=null) {
             child.continuations=new Continuation[continuations.length];
             copy.bind(continuations,child.continuations);
@@ -398,11 +422,9 @@ public final class Interpreter implements AutoCloseable {
             if(source instanceof Function) {
                 Function old=(Function)source;
                 if(old.privateOwner!=runtimeIdentity) return old;
-                Function out=new Function(old.label); copies.put(source,out);
-                out.id=old.id; out.width=old.width; out.joinWidth=old.joinWidth;
-                out.resultType=old.resultType; out.intrinsic=old.intrinsic; out.hostExtern=old.hostExtern;
-                out.params=old.params; out.paramTypes=old.paramTypes; out.body=old.body;
-                out.privateOwner=child.runtimeIdentity; return out;
+                Function out=new Function(old.label,old.id,old.params,old.paramTypes,
+                        old.resultType,old.intrinsic,old.hostExtern,child.runtimeIdentity);
+                copies.put(source,out); return out;
             }
             if(source instanceof HostRequest) {
                 HostRequest old=(HostRequest)source;
@@ -423,7 +445,7 @@ public final class Interpreter implements AutoCloseable {
             }
             if(source instanceof Continuation) {
                 Continuation old=(Continuation)source,out=new Continuation(); copies.put(source,out);
-                out.caller=(Function)value(old.caller); out.next=old.next;
+                out.caller=(Function)value(old.caller); out.callerPrepared=old.callerPrepared; out.next=old.next;
                 out.bp=old.bp; out.sp=old.sp; out.jbp=old.jbp; out.jsp=old.jsp;
                 out.dest=old.dest; out.kind=old.kind; out.surplus=(Object[])value(old.surplus);
                 return out;
@@ -516,42 +538,48 @@ public final class Interpreter implements AutoCloseable {
             if(!"decl".equals(r.get("kind"))) continue;
             Object key=frozenName(r.get("name")); String label=name(key);
             if(byName.containsKey(key)||labels.containsKey(label)) throw error("Duplicate/ambiguous function name: "+label);
-            Function f=new Function(label); f.id=Math.addExact(inherited,declarations.size());
-            byName.put(key,f); labels.put(label,f); declarations.add(r); additions.add(f);
-        }
-        if(base!=null&&declarations.isEmpty()&&externs.length==0) return base;
-        // Every new target is reserved before any body is parsed/validated.
-        // Row names are not reread to select a mutable inherited Function.
-        for(int rowIndex=0;rowIndex<declarations.size();rowIndex++) {
-            Map<String,Object> row=declarations.get(rowIndex);
-            Function f=additions.get(rowIndex);
-            Map<String,Object> ir=map(row.get("ir")); boolean external=ir.containsKey("extern");
+            Map<String,Object> ir=map(r.get("ir")); boolean external=ir.containsKey("extern");
             Map<String,Object> d=map(ir.get(external?"extern":"fdecl"));
-            f.params=params(d.get("xs")); f.paramTypes=new int[f.params.length];
-            for(int i=0;i<f.params.length;i++) { f.paramTypes[i]=type(map(list(d.get("xs")).get(i)).get("ty")); f.width=Math.max(f.width,f.params[i]+1); }
-            f.resultType=type(d.get("type"));
+            int[] parameters=params(d.get("xs")),paramTypes=new int[parameters.length];
+            for(int i=0;i<parameters.length;i++) paramTypes[i]=type(map(list(d.get("xs")).get(i)).get("ty"));
+            int resultType=type(d.get("type")),intrinsic=0;
+            HostExtern hostExtern=null;
             if(external) {
                 Object symbol=externSymbol(d);
                 if(EXTERNS.containsKey(symbol)||!hostRegistry.containsKey(symbol)) {
                     ExternSpec spec=resolveExtern(d);
                     if(spec.intrinsic==0) throw error("Known extern ABI outside execution profile: "+spec.symbol);
-                    f.intrinsic=spec.intrinsic;
+                    intrinsic=spec.intrinsic;
                 } else {
-                    for(HostExtern descriptor:hostRegistry.get(symbol)) if(descriptor.matches(d)) { f.hostExtern=descriptor; break; }
-                    if(f.hostExtern==null) throw error("Captured host extern ABI mismatch: "+symbol);
+                    for(HostExtern descriptor:hostRegistry.get(symbol)) if(descriptor.matches(d)) { hostExtern=descriptor; break; }
+                    if(hostExtern==null) throw error("Captured host extern ABI mismatch: "+symbol);
                 }
-            } else f.body=body(d.get("body"),f,byName);
+            }
+            Function f=new Function(label,Math.addExact(inherited,declarations.size()),parameters,paramTypes,
+                                    resultType,intrinsic,hostExtern,null);
+            byName.put(key,f); labels.put(label,f); declarations.add(r); additions.add(f);
         }
-        for(Function f:additions) validate(f);
+        if(base!=null&&declarations.isEmpty()&&externs.length==0) return base;
+        // Every immutable new header is reserved before any body is parsed/validated.
+        PreparedBody[] preparedBodies=base==null?new PreparedBody[additions.size()]
+                :Arrays.copyOf(base.preparedBodies,inherited+additions.size());
+        for(int rowIndex=0;rowIndex<declarations.size();rowIndex++) {
+            Function f=additions.get(rowIndex);
+            Map<String,Object> ir=map(declarations.get(rowIndex).get("ir"));
+            BodyBuilder builder=new BodyBuilder(f);
+            if(!ir.containsKey("extern")) builder.body=body(map(ir.get("fdecl")).get("body"),builder,byName);
+            validate(f,builder.body);
+            preparedBodies[f.id]=builder.finish();
+        }
         Function[] prepared=labels.values().toArray(new Function[0]);
         hostRegistry.replaceAll((symbol,entries)->Collections.unmodifiableList(entries));
-        return new Program(prepared,Collections.unmodifiableMap(labels),Collections.unmodifiableMap(byName),
+        return new Program(prepared,preparedBodies,Collections.unmodifiableMap(labels),Collections.unmodifiableMap(byName),
                            Collections.unmodifiableMap(hostRegistry),new Generation(base==null?null:base.generation));
     }
     private static Function target(Map<Object,Function> functions,Object name) {
         Function f=functions.get(frozenName(name)); if(f==null) throw error("Unresolved function: "+name); return f;
     }
-    private static Expr expr(Object input, Function f, Map<Object,Function> functions) {
+    private static Expr expr(Object input, BodyBuilder f, Map<Object,Function> functions) {
         Map<String,Object> e=map(input); if(e.size()!=1) throw error("Invalid expression");
         String op=e.keySet().iterator().next(); Map<String,Object> d=map(e.get(op)); Expr out=new Expr();
         switch(op) {
@@ -581,7 +609,7 @@ public final class Interpreter implements AutoCloseable {
         if(out.args!=null) for(int a:out.args) f.width=Math.max(f.width,a+1);
         return out;
     }
-    private static Body body(Object input,Function f,Map<Object,Function> functions) {
+    private static Body body(Object input,BodyBuilder f,Map<Object,Function> functions) {
         List<Object> b=list(input); String op=(String)b.get(0); Body out=new Body();
         switch(op) {
             case "vdecl": out.op=VDECL; out.a=variable(b.get(1)); out.type=type(b.get(2)); out.expr=expr(b.get(3),f,functions); out.next=body(b.get(4),f,functions); break;
@@ -621,10 +649,10 @@ public final class Interpreter implements AutoCloseable {
         require(args.length==types.length,"Static arity mismatch");
         for(int i=0;i<args.length;i++) require(lane(env,args[i])==types[i],"Argument lane mismatch");
     }
-    private static void validate(Function f) {
+    private static void validate(Function f,Body body) {
         Map<Integer,Integer> env=new HashMap<>(); Set<Integer> seen=new HashSet<>();
         for(int i=0;i<f.params.length;i++) { mark(seen,f.params[i]); env.put(f.params[i],f.paramTypes[i]); }
-        if(f.intrinsic==0&&f.hostExtern==null) validateBody(f.body,f,env,new HashMap<>(),seen);
+        if(f.intrinsic==0&&f.hostExtern==null) validateBody(body,f,env,new HashMap<>(),seen);
     }
     private static void validateBody(Body b,Function f,Map<Integer,Integer> env,Map<Integer,Body> joins,Set<Integer> seen) {
         // Lexical scope, unique binders and physical lanes are preparation facts.
@@ -835,10 +863,10 @@ public final class Interpreter implements AutoCloseable {
             Node stream=new Node(0,6,0); allocations++;
             for(int i=0;i<6;i++) {
                 int arity=i==1||i==2||i==4?2:1;
-                Function f=new Function("<captured-stream."+i+">");
-                f.id=-1; f.intrinsic=STREAM_FLUSH+i; f.params=new int[arity]; f.paramTypes=new int[arity];
-                f.width=arity+1; f.resultType=OBJ; f.privateOwner=runtimeIdentity;
-                for(int p=0;p<arity;p++) f.params[p]=p+1;
+                int[] parameters=new int[arity],paramTypes=new int[arity];
+                for(int p=0;p<arity;p++) parameters[p]=p+1;
+                Function f=new Function("<captured-stream."+i+">",-1,parameters,paramTypes,
+                                        OBJ,STREAM_FLUSH+i,null,runtimeIdentity);
                 stream.fields[i]=closure(f,new Object[0]);
             }
             stdoutRoot=stream;
@@ -956,30 +984,39 @@ public final class Interpreter implements AutoCloseable {
         else constants[f.id]=Long.valueOf(scalarResult);
         constantReady[f.id]=true;
     }
+    private PreparedBody preparedBody(Function function) {
+        require(function.id>=0&&function.id<program.functions.length
+                &&program.functions[function.id]==function,"Function outside current Program");
+        PreparedBody prepared=program.preparedBodies[function.id];
+        if(prepared==null) throw error("Missing eager prepared body: "+function.label);
+        return prepared;
+    }
     private void call(Function f,int[] args) {
         if(f.hostExtern!=null) throw new UnsupportedOperationException("Host extern requires explicit driver: "+f.hostExtern.symbol);
         if(args.length!=f.params.length) throw error("Arity mismatch: "+f.label);
         if(f.intrinsic!=0) { intrinsicSlots(f,args); return; }
+        PreparedBody prepared=preparedBody(f);
         int oldBp=bp,oldSp=sp,oldJbp=jbp,oldJsp=jsp;
-        ensure(sp+f.width,jsp+f.joinWidth);
+        ensure(sp+prepared.width,jsp+prepared.joinWidth);
         for(int i=0;i<args.length;i++) {
             int source=oldBp+args[i],dest=oldSp+f.params[i];
             if(f.paramTypes[i]==OBJ) objects[dest]=obj(args[i]); else numbers[dest]=numbers[source];
         }
-        bp=oldSp; sp+=f.width; jbp=oldJsp; jsp+=f.joinWidth;
-        try { eval(f); }
+        bp=oldSp; sp+=prepared.width; jbp=oldJsp; jsp+=prepared.joinWidth;
+        try { eval(f,prepared); }
         finally { Arrays.fill(objects,oldSp,sp,null); Arrays.fill(joins,oldJsp,jsp,null); bp=oldBp;sp=oldSp;jbp=oldJbp;jsp=oldJsp; }
     }
     private void enter(Function f,Object[] args) {
         if(f.hostExtern!=null) throw new UnsupportedOperationException("Host extern requires explicit driver: "+f.hostExtern.symbol);
         if(args.length!=f.params.length) throw error("Arity mismatch: "+f.label);
         if(f.intrinsic!=0) { intrinsicExternal(f,args); return; }
+        PreparedBody prepared=preparedBody(f);
         int oldBp=bp,oldSp=sp,oldJbp=jbp,oldJsp=jsp;
-        ensure(sp+f.width,jsp+f.joinWidth);
+        ensure(sp+prepared.width,jsp+prepared.joinWidth);
         for(int i=0;i<args.length;i++) if(f.paramTypes[i]!=OBJ) inputScalar(args[i],f.paramTypes[i]);
         for(int i=0;i<args.length;i++) { int dest=sp+f.params[i]; if(f.paramTypes[i]==OBJ) objects[dest]=args[i]; else numbers[dest]=inputScalar(args[i],f.paramTypes[i]); }
-        bp=oldSp;sp+=f.width;jbp=oldJsp;jsp+=f.joinWidth;
-        try { eval(f); }
+        bp=oldSp;sp+=prepared.width;jbp=oldJsp;jsp+=prepared.joinWidth;
+        try { eval(f,prepared); }
         finally { Arrays.fill(objects,oldSp,sp,null); Arrays.fill(joins,oldJsp,jsp,null); bp=oldBp;sp=oldSp;jbp=oldJbp;jsp=oldJsp; }
     }
     private Object apply(Object value,Object[] args) {
@@ -1022,8 +1059,8 @@ public final class Interpreter implements AutoCloseable {
         }
     }
     private void tick() { if(--callsLeft<0) throw error("Call/loop budget exhausted"); if((callsLeft&1023)==0&&Thread.currentThread().isInterrupted()) throw error("Interrupted"); }
-    private void eval(Function f) {
-        tick(); Body b=f.body;
+    private void eval(Function f,PreparedBody prepared) {
+        tick(); Body b=prepared.body;
         while(true) {
             switch(b.op) {
                 case VDECL: {
@@ -1032,7 +1069,7 @@ public final class Interpreter implements AutoCloseable {
                         int scratch=sp; ensure(sp+e.args.length,jsp);
                         for(int i=0;i<e.args.length;i++) { objects[scratch+i]=obj(e.args[i]); numbers[scratch+i]=numbers[bp+e.args[i]]; }
                         for(int i=0;i<e.args.length;i++) { objects[bp+f.params[i]]=objects[scratch+i]; numbers[bp+f.params[i]]=numbers[scratch+i]; objects[scratch+i]=null; }
-                        tick(); b=f.body; break;
+                        tick(); b=prepared.body; break;
                     }
                     expression(e,b.type,bp+b.a); b=b.next; break;
                 }
@@ -1286,7 +1323,8 @@ public final class Interpreter implements AutoCloseable {
 
     private void enterExplicit(Function f,int[] slots,Object[] args,Body next,int dest,int kind,Object[] surplus) {
         if(continuationDepth>=65536) throw error("Continuation depth limit");
-        int newSp=Math.addExact(sp,f.width),newJsp=Math.addExact(jsp,f.joinWidth);
+        PreparedBody prepared=preparedBody(f);
+        int newSp=Math.addExact(sp,prepared.width),newJsp=Math.addExact(jsp,prepared.joinWidth);
         if(newSp>8_000_000||newJsp>2_000_000) throw error("Explicit stack limit");
         ensure(newSp,newJsp);
         if(continuationDepth==continuations.length) continuations=Arrays.copyOf(continuations,continuations.length*2);
@@ -1300,10 +1338,10 @@ public final class Interpreter implements AutoCloseable {
                 if(f.paramTypes[i]==OBJ) objects[target]=args[i]; else numbers[target]=inputScalar(args[i],f.paramTypes[i]);
             }
         }
-        k.caller=active; k.next=next; k.bp=bp; k.sp=sp; k.jbp=jbp; k.jsp=jsp;
+        k.caller=active; k.callerPrepared=activePrepared; k.next=next; k.bp=bp; k.sp=sp; k.jbp=jbp; k.jsp=jsp;
         k.dest=dest; k.kind=kind; k.surplus=surplus;
         continuationDepth++;
-        bp=sp; sp=newSp; jbp=jsp; jsp=newJsp; active=f; pc=f.body;
+        bp=sp; sp=newSp; jbp=jsp; jsp=newJsp; active=f; activePrepared=prepared; pc=prepared.body;
         tick();
     }
 
@@ -1346,7 +1384,7 @@ public final class Interpreter implements AutoCloseable {
             constantReady[completed.id]=true;
         }
         Arrays.fill(objects,k.sp,sp,null); Arrays.fill(joins,k.jsp,jsp,null);
-        bp=k.bp; sp=k.sp; jbp=k.jbp; jsp=k.jsp; active=k.caller; pc=next;
+        bp=k.bp; sp=k.sp; jbp=k.jbp; jsp=k.jsp; active=k.caller; activePrepared=k.callerPrepared; pc=next;
         k.clear();
         if((kind&ROOT)!=0) {
             if(entry.params.length==0&&entry.resultType==OBJ) inc(result,1);
@@ -1390,7 +1428,7 @@ public final class Interpreter implements AutoCloseable {
                                 int scratch=sp; ensure(sp+e.args.length,jsp);
                                 for(int i=0;i<e.args.length;i++) { objects[scratch+i]=obj(e.args[i]); numbers[scratch+i]=numbers[bp+e.args[i]]; }
                                 for(int i=0;i<e.args.length;i++) { objects[bp+f.params[i]]=objects[scratch+i]; numbers[bp+f.params[i]]=numbers[scratch+i]; objects[scratch+i]=null; }
-                                tick(); b=f.body;
+                                tick(); b=activePrepared.body;
                             } else if(f.hostExtern!=null) {
                                 Object[] args=new Object[e.args.length];
                                 for(int i=0;i<args.length;i++) args[i]=f.paramTypes[i]==OBJ?obj(e.args[i]):externalScalar(numbers[bp+e.args[i]],f.paramTypes[i]);

@@ -297,4 +297,55 @@
       (is (= 42 (j/take-result! next engine)))
       (finally (j/close! next engine)))))
 
+(deftest prepared-layouts-belong-to-program-slots-and-inherit-without-relinking
+  (let [base (prepare common)
+        a (extend base [(literal "branch" 10)])
+        b (extend base [(c/decl "branch" [(c/p 7 "object")] "object"
+                               (c/let-ir 100 "object" (c/lit 20) (c/ret 100)))])
+        slots #(field (:program %) "preparedBodies")
+        inherited (slots base) as (slots a) bs (slots b)
+        id (j/function-id a "branch")]
+    (doseq [i (range (count-functions base))]
+      (is (identical? (aget inherited i) (aget as i)))
+      (is (identical? (aget inherited i) (aget bs i))))
+    (is (not (identical? (aget as id) (aget bs id))))
+    (is (= 101 (field (aget bs id) "width")))
+    (let [function (aget (field (:program base) "functions") 0)
+          fields (.getDeclaredFields (class function))]
+      (is (not-any? #{"body" "width" "joinWidth"} (map #(.getName %) fields)))
+      (is (every? #(java.lang.reflect.Modifier/isFinal (.getModifiers %)) fields)))
+    (doseq [explicit? [false true] [ctx answer] [[a 10] [b 20]]
+            :let [ctx (assoc ctx :explicit explicit?) engine (j/machine ctx)]]
+      (try (is (= answer (j/call ctx engine "branch" [0])))
+           (finally (j/close! ctx engine))))))
+
+(deftest active-and-saved-layouts-survive-host-install-and-fork
+  (let [wrap #(h/wrap-static %1 %2 "object" identity)
+        base (j/prepare-host-program *basis*
+               (x/raw [(h/ext "host" h/owned) (wrap "inner" "host") (wrap "outer" "inner")])
+               [h/owned])
+        next (extend base [(literal "later" 99)])
+        parent (j/machine base)]
+    (j/start! base parent "outer" [41])
+    (let [request (h/request! base parent)
+          active (field parent "activePrepared")
+          continuations (field parent "continuations")
+          saved (mapv #(field % "callerPrepared")
+                      (take (j/depth base parent) continuations))
+          child (:engine (j/fork! base parent []))]
+      (try
+        (j/install-program! next parent)
+        (is (identical? active (field parent "activePrepared")))
+        (is (identical? active (field child "activePrepared")))
+        (is (every? true? (map identical? saved
+                           (map #(field % "callerPrepared")
+                             (take (count saved) (field child "continuations"))))))
+        (j/resume-host! next parent request 42)
+        (j/resume-host! base child (j/host-request base child) 43)
+        (is (= 42 (h/finish! next parent)))
+        (is (= 43 (h/finish! base child)))
+        (is (nil? (field parent "activePrepared")))
+        (is (nil? (field child "activePrepared")))
+        (finally (j/close! next parent) (j/close! base child))))))
+
 (defn check! [basis] (binding [*basis* basis] (run-tests 'java-ir-generation-checks)))
