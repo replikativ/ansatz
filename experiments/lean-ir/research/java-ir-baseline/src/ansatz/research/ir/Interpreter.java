@@ -40,6 +40,7 @@ public final class Interpreter implements AutoCloseable {
     private static final int STR_HASH=84,U64_MIX=85,U64_NAT=86,U64_SHR=87,U64_XOR=88,U64_USIZE=89,
                              U64_LT=90,U64_EQ=91,U64_OWNED_NAT=92;
     private static final int BYTE_MK=200,BYTE_GET=201,BYTE_SIZE=202,BYTE_PUSH=203;
+    private static final int INT_OF_NAT=210,INT_NEG_SUCC=211,INT_NEG=212,INT_ABS=213,INT_ADD=214,INT_SUB=215,INT_EQ=216,INT_LT=217,INT_LE=218;
     private static final int MAX_BYTE_CAPACITY=16*1024*1024;
     private static final int POINTER_IDENTITY=93;
     private static final int MAX_SHIFT_RESULT_BITS=16*1024*1024;
@@ -334,6 +335,24 @@ public final class Interpreter implements AutoCloseable {
                 new String[]{"object","uint8"},new boolean[]{false,false}));
         register(registry,new ExternSpec("lean_ptr_addr",POINTER_IDENTITY,"usize",
                 new String[]{"erased","tobject"},new boolean[]{false,true}));
+        register(registry,new ExternSpec("lean_nat_to_int",INT_OF_NAT,"tobject",
+                new String[]{"tobject"},new boolean[]{false}));
+        register(registry,new ExternSpec("lean_int_neg_succ_of_nat",INT_NEG_SUCC,"tobject",
+                new String[]{"tobject"},new boolean[]{false}));
+        register(registry,new ExternSpec("lean_int_neg",INT_NEG,"tobject",
+                new String[]{"tobject"},new boolean[]{true}));
+        register(registry,new ExternSpec("lean_nat_abs",INT_ABS,"tobject",
+                new String[]{"tobject"},new boolean[]{true}));
+        register(registry,new ExternSpec("lean_int_add",INT_ADD,"tobject",
+                new String[]{"tobject","tobject"},new boolean[]{true,true}));
+        register(registry,new ExternSpec("lean_int_sub",INT_SUB,"tobject",
+                new String[]{"tobject","tobject"},new boolean[]{true,true}));
+        register(registry,new ExternSpec("lean_int_dec_eq",INT_EQ,"uint8",
+                new String[]{"tobject","tobject"},new boolean[]{true,true}));
+        register(registry,new ExternSpec("lean_int_dec_lt",INT_LT,"uint8",
+                new String[]{"tobject","tobject"},new boolean[]{true,true}));
+        register(registry,new ExternSpec("lean_int_dec_le",INT_LE,"uint8",
+                new String[]{"tobject","tobject"},new boolean[]{true,true}));
         registry.replaceAll((symbol,entries)->Collections.unmodifiableList(entries));
         return Collections.unmodifiableMap(registry);
     }
@@ -1361,7 +1380,7 @@ public final class Interpreter implements AutoCloseable {
                     case SPROJ: require((b.type==U8||b.type==U32||b.type==U64)&&lane(env,e.a)==OBJ,"Scalar projection lane mismatch"); break;
                     case UPROJ: require(b.type==USIZE&&lane(env,e.a)==OBJ,"USize projection lane mismatch"); break;
                     case FAP: requireExecutableAbi(e.target); checkArgs(env,e.args,e.target.paramTypes); require(b.type==e.target.resultType,"Call result lane mismatch"); break;
-                    case PAP: requireExecutableAbi(e.target); require(b.type==OBJ&&e.args.length<e.target.params.length,"Invalid partial application"); require(!borrowedArrayPrimitive(e.target.intrinsic),"Borrowed array primitive requires owned closure wrapper"); require(!borrowedBytePrimitive(e.target.intrinsic),"Borrowed ByteArray primitive requires owned closure wrapper"); require(e.target.intrinsic!=POINTER_IDENTITY,"Pointer identity requires a certified direct FAP site"); require(!borrowedRefPrimitive(e.target.intrinsic),"Borrowed ref primitive requires owned closure wrapper"); for(int i=0;i<e.target.paramTypes.length;i++) require(e.target.paramTypes[i]==OBJ,"Unboxed partial target unsupported; boxed wrapper required"); for(int a:e.args) require(lane(env,a)==OBJ,"Partial argument must be boxed"); break;
+                    case PAP: requireExecutableAbi(e.target); require(b.type==OBJ&&e.args.length<e.target.params.length,"Invalid partial application"); require(!borrowedArrayPrimitive(e.target.intrinsic),"Borrowed array primitive requires owned closure wrapper"); require(!borrowedIntPrimitive(e.target.intrinsic),"Borrowed Int primitive requires owned closure wrapper"); require(!borrowedBytePrimitive(e.target.intrinsic),"Borrowed ByteArray primitive requires owned closure wrapper"); require(e.target.intrinsic!=POINTER_IDENTITY,"Pointer identity requires a certified direct FAP site"); require(!borrowedRefPrimitive(e.target.intrinsic),"Borrowed ref primitive requires owned closure wrapper"); for(int i=0;i<e.target.paramTypes.length;i++) require(e.target.paramTypes[i]==OBJ,"Unboxed partial target unsupported; boxed wrapper required"); for(int a:e.args) require(lane(env,a)==OBJ,"Partial argument must be boxed"); break;
                     case AP: require(b.type==OBJ&&lane(env,e.a)==OBJ&&e.args.length>0,"Unsupported closure application"); for(int a:e.args) require(lane(env,a)==OBJ,"Closure argument must be boxed"); break;
                     case BOX: require(b.type==OBJ&&e.b!=OBJ&&lane(env,e.a)==e.b,"Box lane mismatch"); break;
                     case UNBOX: require(b.type!=OBJ&&lane(env,e.a)==OBJ,"Unbox lane mismatch"); break;
@@ -1856,6 +1875,56 @@ public final class Interpreter implements AutoCloseable {
         else if(f.intrinsic==STR_LT) scalarResult=cmp<0?1:0;
         else scalarResult=cmp<0?0:cmp==0?1:2;
     }
+    private static boolean borrowedIntPrimitive(int op) { return op>=INT_NEG&&op<=INT_LE; }
+    private static BigInteger signedInteger(Object value) {
+        if(value instanceof Long) return BigInteger.valueOf((Long)value);
+        if(value instanceof BigInteger) return (BigInteger)value;
+        throw error("Expected exact signed Int carrier");
+    }
+    private static Object normalizeSigned(BigInteger value) {
+        return value.bitLength()<=63?Long.valueOf(value.longValue()):value;
+    }
+    private void intIntrinsic(Function f,Object a,Object b) {
+        // Int carriers are mathematical values. Native small-object thresholds and
+        // raw tagged object words are deliberately not part of this profile.
+        if(a instanceof Long) {
+            long x=(Long)a;
+            if(f.intrinsic==INT_OF_NAT||f.intrinsic==INT_NEG_SUCC) {
+                require(x>=0,"Invalid Nat"); result=f.intrinsic==INT_OF_NAT?a:Long.valueOf(-x-1); return;
+            }
+            if(f.intrinsic==INT_NEG||f.intrinsic==INT_ABS) {
+                if(x!=Long.MIN_VALUE) { result=Long.valueOf(f.intrinsic==INT_NEG?-x:Math.abs(x)); return; }
+            } else if(b instanceof Long) {
+                long y=(Long)b;
+                switch(f.intrinsic) {
+                    case INT_EQ: scalarResult=x==y?1:0; return;
+                    case INT_LT: scalarResult=x<y?1:0; return;
+                    case INT_LE: scalarResult=x<=y?1:0; return;
+                    case INT_ADD:
+                        try { result=Long.valueOf(Math.addExact(x,y)); return; }
+                        catch(ArithmeticException overflow) { break; }
+                    case INT_SUB:
+                        try { result=Long.valueOf(Math.subtractExact(x,y)); return; }
+                        catch(ArithmeticException overflow) { break; }
+                    default: throw error("Invalid signed Int intrinsic");
+                }
+            }
+        }
+        if(f.intrinsic==INT_OF_NAT) { result=normalizeSigned(nat(a)); return; }
+        if(f.intrinsic==INT_NEG_SUCC) { result=normalizeSigned(nat(a).add(BigInteger.ONE).negate()); return; }
+        BigInteger x=signedInteger(a);
+        if(f.intrinsic==INT_NEG) { result=normalizeSigned(x.negate()); return; }
+        if(f.intrinsic==INT_ABS) { result=normalize(x.abs()); return; }
+        BigInteger y=signedInteger(b);
+        switch(f.intrinsic) {
+            case INT_ADD: result=normalizeSigned(x.add(y)); return;
+            case INT_SUB: result=normalizeSigned(x.subtract(y)); return;
+            case INT_EQ: scalarResult=x.equals(y)?1:0; return;
+            case INT_LT: scalarResult=x.compareTo(y)<0?1:0; return;
+            case INT_LE: scalarResult=x.compareTo(y)<=0?1:0; return;
+            default: throw error("Invalid signed Int intrinsic");
+        }
+    }
     private static boolean borrowedBytePrimitive(int op) { return op==BYTE_GET||op==BYTE_SIZE; }
     private Node byteArray(Object value) {
         Node n=node(value);
@@ -1947,6 +2016,7 @@ public final class Interpreter implements AutoCloseable {
     }
     public String capturedStdout() { return output.toString(); }
     private void runtimeIntrinsic(Function f,Object a,Object b,Object c) {
+        if(f.intrinsic>=INT_OF_NAT&&f.intrinsic<=INT_LE) { intIntrinsic(f,a,b); return; }
         if(f.intrinsic>=BYTE_MK&&f.intrinsic<=BYTE_PUSH) { byteArrayIntrinsic(f,a,b,c); return; }
         if(f.intrinsic==IO_INITIALIZING) {
             require(ERASED.equals(a),"IO.initializing world parameter requires erased placeholder");
@@ -2379,6 +2449,7 @@ public final class Interpreter implements AutoCloseable {
                 require(recipe.fields.length<target.params.length,"Invalid prepared partial application");
                 require(!borrowedArrayPrimitive(target.intrinsic),
                         "Borrowed array primitive requires owned closure wrapper");
+                require(!borrowedIntPrimitive(target.intrinsic),"Borrowed Int primitive requires owned closure wrapper");
                 require(!borrowedBytePrimitive(target.intrinsic),"Borrowed ByteArray primitive requires owned closure wrapper");
                 require(target.intrinsic!=POINTER_IDENTITY,"Pointer identity requires a certified direct FAP site");
                 require(!borrowedRefPrimitive(target.intrinsic),"Borrowed ref primitive requires owned closure wrapper");
@@ -2447,6 +2518,7 @@ public final class Interpreter implements AutoCloseable {
         require(captures.length<target.params.length,"Invalid partial application");
         require(!borrowedArrayPrimitive(target.intrinsic),
                 "Borrowed array primitive requires owned closure wrapper");
+        require(!borrowedIntPrimitive(target.intrinsic),"Borrowed Int primitive requires owned closure wrapper");
         require(!borrowedBytePrimitive(target.intrinsic),"Borrowed ByteArray primitive requires owned closure wrapper");
         require(target.intrinsic!=POINTER_IDENTITY,"Pointer identity requires a certified direct FAP site");
         require(!borrowedRefPrimitive(target.intrinsic),"Borrowed ref primitive requires owned closure wrapper");
@@ -2891,6 +2963,8 @@ public final class Interpreter implements AutoCloseable {
     }
     /** Internal borrowed array primitives need an owning wrapper at host entry. */
     private static void rootEntry(Function f) {
+        if(borrowedIntPrimitive(f.intrinsic))
+            throw new UnsupportedOperationException("Borrowed Int primitive requires owned guest wrapper at external entry");
         if(borrowedBytePrimitive(f.intrinsic))
             throw new UnsupportedOperationException("Borrowed ByteArray primitive requires owned guest wrapper at external entry");
         require(f.intrinsic!=POINTER_IDENTITY,"Pointer identity requires a certified direct FAP site");
