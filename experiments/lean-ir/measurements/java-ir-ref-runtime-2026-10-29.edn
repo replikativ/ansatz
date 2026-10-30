@@ -1,0 +1,316 @@
+{:schema 1,
+ :date "2026-10-29",
+ :control-limits
+ ["Prior denotes merged prepared-graph artifact; host denotes native-ref artifact."
+  "Control ran after isolated gate exit in retained 384 MiB JVM on shared machine."
+  "Allocation identical; CPU timing varies across prior observations, so no speedup or stable CPU-overhead claim."],
+ :source-sha256
+ "4bbe120267e7fdfe06374655259215eee425962dd7904a9f4f52337d5ba963bf",
+ :positive-RC-source-import false,
+ :verification
+ {:recursive-ref-tests
+  {:test 10, :pass 98, :fail 0, :error 0, :type :summary},
+  :explicit-ref-tests
+  {:test 10, :pass 98, :fail 0, :error 0, :type :summary},
+  :combined-isolated-gate
+  {:tests 386, :assertions 13750, :suites 44, :exit 0, :heap-mib 384},
+  :independent-review
+  :clear-including-invalid-alias-and-placeholder-gates},
+ :scope :native-single-thread-ST-ref-family,
+ :native-concurrency false,
+ :native-ref-ops [:mkRef :get :set :swap :take :ptrEq],
+ :control
+ {:scope :paired-rbmap-computation-only,
+  :limits
+  ["Warmed retained 384 MiB development JVM, shared machine."
+   "Alternating inputs 1000/1001; seven alternating-order batches of 100."
+   "Measures no-host ordinary execution, not host latency, frontend speed or native/JIT performance."
+   "First control attempt rejected an incorrect checksum expectation; this complete rerun uses 10050."],
+  :modes
+  [{:explicit false,
+    :runs
+    [{:trial 0,
+      :artifact :prior,
+      :repetitions 100,
+      :metrics
+      {:cpu-ns 224847729,
+       :wall-ns 228040883,
+       :allocated-bytes 151585952,
+       :gc-collections 2}}
+     {:trial 0,
+      :artifact :host,
+      :repetitions 100,
+      :metrics
+      {:cpu-ns 226350351,
+       :wall-ns 227697832,
+       :allocated-bytes 151585952,
+       :gc-collections 1}}
+     {:trial 1,
+      :artifact :host,
+      :repetitions 100,
+      :metrics
+      {:cpu-ns 229535021,
+       :wall-ns 230942733,
+       :allocated-bytes 151585952,
+       :gc-collections 1}}
+     {:trial 1,
+      :artifact :prior,
+      :repetitions 100,
+      :metrics
+      {:cpu-ns 212493413,
+       :wall-ns 215933171,
+       :allocated-bytes 151585952,
+       :gc-collections 2}}
+     {:trial 2,
+      :artifact :prior,
+      :repetitions 100,
+      :metrics
+      {:cpu-ns 218542590,
+       :wall-ns 220263449,
+       :allocated-bytes 151585952,
+       :gc-collections 1}}
+     {:trial 2,
+      :artifact :host,
+      :repetitions 100,
+      :metrics
+      {:cpu-ns 214895028,
+       :wall-ns 216844157,
+       :allocated-bytes 151585952,
+       :gc-collections 1}}
+     {:trial 3,
+      :artifact :host,
+      :repetitions 100,
+      :metrics
+      {:cpu-ns 225015922,
+       :wall-ns 226959368,
+       :allocated-bytes 151585952,
+       :gc-collections 2}}
+     {:trial 3,
+      :artifact :prior,
+      :repetitions 100,
+      :metrics
+      {:cpu-ns 272163526,
+       :wall-ns 273242190,
+       :allocated-bytes 151585952,
+       :gc-collections 1}}
+     {:trial 4,
+      :artifact :prior,
+      :repetitions 100,
+      :metrics
+      {:cpu-ns 268762652,
+       :wall-ns 269967849,
+       :allocated-bytes 151585952,
+       :gc-collections 1}}
+     {:trial 4,
+      :artifact :host,
+      :repetitions 100,
+      :metrics
+      {:cpu-ns 269121320,
+       :wall-ns 270831698,
+       :allocated-bytes 151585952,
+       :gc-collections 2}}
+     {:trial 5,
+      :artifact :host,
+      :repetitions 100,
+      :metrics
+      {:cpu-ns 269730924,
+       :wall-ns 270622340,
+       :allocated-bytes 151585952,
+       :gc-collections 1}}
+     {:trial 5,
+      :artifact :prior,
+      :repetitions 100,
+      :metrics
+      {:cpu-ns 268665689,
+       :wall-ns 269360314,
+       :allocated-bytes 151585952,
+       :gc-collections 1}}
+     {:trial 6,
+      :artifact :prior,
+      :repetitions 100,
+      :metrics
+      {:cpu-ns 270863916,
+       :wall-ns 271708806,
+       :allocated-bytes 151585952,
+       :gc-collections 1}}
+     {:trial 6,
+      :artifact :host,
+      :repetitions 100,
+      :metrics
+      {:cpu-ns 265585892,
+       :wall-ns 267491791,
+       :allocated-bytes 151585952,
+       :gc-collections 2}}]}
+   {:explicit true,
+    :runs
+    [{:trial 0,
+      :artifact :prior,
+      :repetitions 100,
+      :metrics
+      {:cpu-ns 271046529,
+       :wall-ns 272329540,
+       :allocated-bytes 151585952,
+       :gc-collections 1}}
+     {:trial 0,
+      :artifact :host,
+      :repetitions 100,
+      :metrics
+      {:cpu-ns 262704053,
+       :wall-ns 263870407,
+       :allocated-bytes 151585952,
+       :gc-collections 1}}
+     {:trial 1,
+      :artifact :host,
+      :repetitions 100,
+      :metrics
+      {:cpu-ns 264658622,
+       :wall-ns 267371747,
+       :allocated-bytes 151585952,
+       :gc-collections 2}}
+     {:trial 1,
+      :artifact :prior,
+      :repetitions 100,
+      :metrics
+      {:cpu-ns 271499881,
+       :wall-ns 272754018,
+       :allocated-bytes 151585952,
+       :gc-collections 1}}
+     {:trial 2,
+      :artifact :prior,
+      :repetitions 100,
+      :metrics
+      {:cpu-ns 274534226,
+       :wall-ns 275539155,
+       :allocated-bytes 151585952,
+       :gc-collections 1}}
+     {:trial 2,
+      :artifact :host,
+      :repetitions 100,
+      :metrics
+      {:cpu-ns 266289218,
+       :wall-ns 270495133,
+       :allocated-bytes 151585952,
+       :gc-collections 2}}
+     {:trial 3,
+      :artifact :host,
+      :repetitions 100,
+      :metrics
+      {:cpu-ns 321903743,
+       :wall-ns 323212996,
+       :allocated-bytes 151585952,
+       :gc-collections 1}}
+     {:trial 3,
+      :artifact :prior,
+      :repetitions 100,
+      :metrics
+      {:cpu-ns 660895407,
+       :wall-ns 662144279,
+       :allocated-bytes 151585952,
+       :gc-collections 1}}
+     {:trial 4,
+      :artifact :prior,
+      :repetitions 100,
+      :metrics
+      {:cpu-ns 661211128,
+       :wall-ns 663157270,
+       :allocated-bytes 151585952,
+       :gc-collections 2}}
+     {:trial 4,
+      :artifact :host,
+      :repetitions 100,
+      :metrics
+      {:cpu-ns 424312294,
+       :wall-ns 425039405,
+       :allocated-bytes 151585952,
+       :gc-collections 1}}
+     {:trial 5,
+      :artifact :host,
+      :repetitions 100,
+      :metrics
+      {:cpu-ns 423826891,
+       :wall-ns 424530657,
+       :allocated-bytes 151585952,
+       :gc-collections 1}}
+     {:trial 5,
+      :artifact :prior,
+      :repetitions 100,
+      :metrics
+      {:cpu-ns 682823321,
+       :wall-ns 683861884,
+       :allocated-bytes 151585952,
+       :gc-collections 1}}
+     {:trial 6,
+      :artifact :prior,
+      :repetitions 100,
+      :metrics
+      {:cpu-ns 676460097,
+       :wall-ns 678855518,
+       :allocated-bytes 151585952,
+       :gc-collections 2}}
+     {:trial 6,
+      :artifact :host,
+      :repetitions 100,
+      :metrics
+      {:cpu-ns 426391815,
+       :wall-ns 427474186,
+       :allocated-bytes 151585952,
+       :gc-collections 1}}]}]},
+ :fixture
+ {:original-rows 12,
+  :sha256
+  "6963705e3bf6e47c4afe76fce83aecb2b2d5065ad99a030e72db14ffc879db3d",
+  :lean-commit "819816b2e0a3bf405af45ae5c7af2491d8f5bee6",
+  :transformation :remove-top-level-pretty-only},
+ :jar-sha256
+ "d7215ba84e378444c8e33f43f4dcb450e9b74932de181a0d0b55e16c266e4a16",
+ :genuine-ppExt-native-probe
+ {:result
+  {:child-demand-hashes
+   ["28c6559da7fa0e8a5d0e03458967bebd6aa726cd3a578c85ef0c2d68827df338"
+    "b74cc7bb6a224f8da4826edf0af7e410fb11d7df25a45a48081b58c9e7e5c9ab"],
+   :original-initializer-executed true,
+   :native-ref-get true,
+   :source-headers 10,
+   :graph-nodes 9,
+   :parent-demand-hashes
+   ["28c6559da7fa0e8a5d0e03458967bebd6aa726cd3a578c85ef0c2d68827df338"
+    "b74cc7bb6a224f8da4826edf0af7e410fb11d7df25a45a48081b58c9e7e5c9ab"],
+   :prepared-globals 2,
+   :reflective-node-construction false,
+   :public-graph-api-used true,
+   :forked-ref-identities-isolated true,
+   :callback-and-global-sentinel-bodies-prepared 0,
+   :host-requests 0,
+   :Ref-set-executed false},
+  :metrics
+  {:cpu-ns 8683895,
+   :wall-ns 10159938,
+   :allocated-bytes 4324104,
+   :gc-collections 0},
+  :probe-sha256
+  "f329fd8de7e766e437498c1392d9a414a8ff2d9962e80e666cc0bf8a97b52a37",
+  :limits
+  ["Source artifact authentication/extraction excluded from probe metrics."
+   "Two actual ready globals, nine persistent nodes; five callbacks and global sentinel bodies remain unprepared."
+   "Ref-get executes in engine, zero host requests; whole parser/frontend not yet executed."]},
+ :control-summary
+ [{:explicit false,
+   :artifacts
+   {:prior
+    {:cpu-ms-per-run 2.68665689,
+     :wall-ms-per-run 2.69360314,
+     :allocated-bytes-per-run 1515859.52},
+    :host
+    {:cpu-ms-per-run 2.29535021,
+     :wall-ms-per-run 2.30942733,
+     :allocated-bytes-per-run 1515859.52}}}
+  {:explicit true,
+   :artifacts
+   {:prior
+    {:cpu-ms-per-run 6.60895407,
+     :wall-ms-per-run 6.62144279,
+     :allocated-bytes-per-run 1515859.52},
+    :host
+    {:cpu-ms-per-run 3.21903743,
+     :wall-ms-per-run 3.23212996,
+     :allocated-bytes-per-run 1515859.52}}}]}
