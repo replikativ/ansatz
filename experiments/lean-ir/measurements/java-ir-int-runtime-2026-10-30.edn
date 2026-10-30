@@ -1,0 +1,14 @@
+{:schema 1 :date "2026-10-30" :scope :original-header-signed-int-family
+ :lean-commit "819816b2e0a3bf405af45ae5c7af2491d8f5bee6"
+ :engine-source-sha256 "15ba13cbeb131e9c9a95845d62e644b46774c9ea9e0c165dfa6389d7e56ee366"
+ :engine-jar-sha256 "6cda2c338983633a2fd80cbab105b7a8e874ab2d96fc9b929bdc041482e51c3c"
+ :fixture-sha256 "86c0e88d3dc620484036d83207c728bfeeed53a973204503571d68dee6ebb3fc"
+ :original-extern-roots 9 :genuine-boxed-wrappers 9
+ :verification {:recursive {:tests 8 :assertions 351 :fail 0 :error 0}
+                :explicit {:tests 8 :assertions 360 :fail 0 :error 0}
+                :combined {:tests 568 :assertions 18025 :suites 65 :exit 0 :heap-limit-mib 384}
+                :independent-review :no-functional-blocker}
+ :limits ["Mathematical signed Long/BigInteger carriers, not native tagged Int object words or thresholds."
+          "Nine original inventory roots only; division, multiplication and other Int primitives remain unsupported."
+          "Failed explicit-frame ownership cleanup remains restricted."
+          "No new complete frontend/file-loading, self-hosting or native performance claim."]}
