@@ -59,5 +59,7 @@ The root compiled frozen Java source SHA256
 for Java 11 and ran the focused suite in its retained 384 MiB REPL. Both recursive
 and explicit modes passed six tests / 1,634 assertions each (zero failures/errors).
 The source review found the arithmetic and dispatcher consistent with the pinned
-native evidence. The combined jar regression gate remains a root integration
-step. This feature worker launched no JVM.
+native evidence. The completed isolated jar gate passed 96 suites / 943 tests / 49,995 assertions
+with exit 0 and a 384 MiB heap limit. Its jar SHA256 is
+`e60f3a18be637fa57529e237d3500a6603ac3970f4306180e58a4ac4800c7d45`.
+This feature worker launched no JVM.

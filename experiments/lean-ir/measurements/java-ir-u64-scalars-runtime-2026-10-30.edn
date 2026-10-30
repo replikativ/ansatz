@@ -1,0 +1,24 @@
+{:schema 1 :date "2026-10-30"
+ :scope :pinned-uint64-scalar-arithmetic-family
+ :feature-head "85227ae48366e9470350a0556f8eac8ab28efc37"
+ :engine-source-sha256 "01774fd4a28b6bf00e2ad9dbae8ec61f47d334557421eb80b44ca43868933081"
+ :engine-jar-sha256 "e60f3a18be637fa57529e237d3500a6603ac3970f4306180e58a4ac4800c7d45"
+ :runner-sha256 "edc3ec4fd0b224e3a3d3d421df6a916e1b47fdf9a54c0338456084c780caa4d1"
+ :verification
+ {:java-release 11
+  :focused-per-driver {:tests 6 :assertions 1634 :fail 0 :error 0}
+  :drivers [:recursive :explicit]
+  :host-code-suspension :explicit-driver
+  :combined-isolated-jar {:suites 96 :tests 943 :assertions 49995 :fail 0 :error 0
+                          :exit 0 :heap-limit-mib 384
+                          :output-sha256 "43f364e3c5f3ef7a733f61720fc7ce2bb2b97dd89f4b1013d4d44444607dab3d"}
+  :footer-audit :all-96-observed-suite-counts-match-in-order
+  :compiled-inline-arithmetic-oracle {:functions 13 :vectors 40 :exit 0 :stderr-bytes 0
+                                     :address-space-mib 256 :full-lean-runtime-abi false}
+  :independent-source-review :root-clear}
+ :gate-execution :root-existing-retained-repl-and-completed-combined-job
+ :new-jvm-launched-by-landing-agent false
+ :limits ["Canonical Bool source domain is zero or one; malformed boxed Bool is a guest failure after wrapper entry."
+          "UInt64.pow remains original guest code, not an invented native primitive."
+          "Native inline arithmetic oracle is not complete Lean runtime ABI or checkpoint-producer proof."
+          "No complete frontend, kernel publication or self-hosting claim."]}
