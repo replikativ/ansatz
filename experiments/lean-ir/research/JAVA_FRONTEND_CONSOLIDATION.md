@@ -5,6 +5,13 @@ execution runtime for a usable hosted Lean REPL. The accepted legacy provider
 remains a correctness oracle and source of runtime contracts. Improving its
 eager startup is no longer a separate prerequisite campaign.
 
+The first [typed Java host boundary](JAVA_HOST_BOUNDARY.md) is implemented with
+pending-request forks and bounded ownership/failure tests. Dynamic linking,
+guest kernel carriers, initialization and actual frontend execution remain
+subsequent milestones. The [compilation boundary](JAVA_COMPILATION_BOUNDARY.md)
+records how future Pattern/JVM tiers can share this runtime; it is a design,
+not an implemented JIT.
+
 ## Reuse prepared kernel stores
 
 `ansatz.export.storage/load-env` already opens a lazy persistent-store-backed

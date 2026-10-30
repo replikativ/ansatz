@@ -5,7 +5,8 @@
  * Author of upstream interpreter: Sebastian Ullrich.
  *
  * Bounded object/uint8/uint32/usize profile (64-bit little-endian), not a public API.
- * No persistence, native ABI, real host IO, or arbitrary World conversion.
+ * Research eager graph forks and typed host requests, not a persistent branch
+ * store, native ABI invocation, general host IO, or arbitrary World conversion.
  */
 package ansatz.research.ir;
 
@@ -25,6 +26,70 @@ public final class Interpreter implements AutoCloseable {
     private static final int STREAM_FLUSH=100,STREAM_READ=101,STREAM_WRITE=102,STREAM_LINE=103,STREAM_PUT=104,STREAM_TTY=105;
     private static final BigInteger SMALL_MAX=BigInteger.valueOf(Long.MAX_VALUE);
     private static final Object ERASED=Long.valueOf(0);
+
+    /** Opt-in captured ABI descriptor, not a Java function or host capability.
+     * Strings and array views are immutable/defensive. The driver supplies the
+     * actual host behavior only after receiving an engine-owned request. */
+    public static final class HostExtern {
+        private final String symbol,resultType;
+        private final String[] paramTypes;
+        private final boolean[] borrowed;
+        public HostExtern(String symbol,String[] paramTypes,boolean[] borrowed,String resultType) {
+            require(symbol!=null&&!symbol.isEmpty()&&symbol.length()<=4096&&symbol.indexOf('\0')<0,
+                    "Invalid host extern symbol");
+            require(paramTypes!=null&&borrowed!=null&&paramTypes.length==borrowed.length,
+                    "Invalid host extern parameter ABI");
+            String[] types=paramTypes.clone(); boolean[] borrows=borrowed.clone();
+            type(resultType);
+            for(String parameter:types) type(parameter);
+            this.symbol=symbol; this.resultType=resultType;
+            this.paramTypes=types; this.borrowed=borrows;
+        }
+        public String symbol() { return symbol; }
+        public String[] paramTypes() { return paramTypes.clone(); }
+        public boolean[] borrowed() { return borrowed.clone(); }
+        public String resultType() { return resultType; }
+        private boolean sameAbi(HostExtern other) {
+            return resultType.equals(other.resultType)&&Arrays.equals(paramTypes,other.paramTypes)
+                    &&Arrays.equals(borrowed,other.borrowed);
+        }
+        private boolean matches(Map<String,Object> declaration) {
+            List<Object> params=list(declaration.get("xs"));
+            if(!resultType.equals(declaration.get("type"))||params.size()!=paramTypes.length) return false;
+            for(int i=0;i<params.size();i++) {
+                Map<String,Object> parameter=map(params.get(i));
+                if(!paramTypes[i].equals(parameter.get("ty"))
+                        ||!Boolean.valueOf(borrowed[i]).equals(parameter.get("borrow"))) return false;
+            }
+            return true;
+        }
+    }
+    /** Borrowed diagnostic views acquire NO argument credits. Owned ABI args
+     * remain the handler's consume/transfer obligations. Borrowed args must not
+     * be consumed: root/AP calls hold known owned facade credits until a valid
+     * successful reply; typed FAP calls have no such adapter credits. Returning
+     * a borrowed argument requires an explicit owned retain by the handler. */
+    public static final class HostRequest {
+        private final Object owner;
+        private final HostCall call;
+        private HostRequest(Object owner,HostCall call) { this.owner=owner; this.call=call; }
+        public String symbol() { return call.function.hostExtern.symbol; }
+        public String[] paramTypes() { return call.function.hostExtern.paramTypes(); }
+        public boolean[] borrowed() { return call.function.hostExtern.borrowed(); }
+        public String resultType() { return call.function.hostExtern.resultType; }
+        public Object[] arguments() { return call.arguments.clone(); }
+    }
+    /** Engine-private continuation and ownership disposition. It is copied by
+     * the same fork memo as stack/argument graphs; it never runs a host handler. */
+    private static final class HostCall {
+        Function function;
+        Object[] arguments,surplus;
+        Body next;
+        int dest,kind,borrowedCursor;
+        boolean facade,replyClaimed,adapterReleaseStarted,resultOwned,resultTransferStarted;
+        Object completionResult;
+        long completionScalar;
+    }
 
     /** Exact captured ABI, deliberately distinct from physical JVM lanes. */
     private static final class ExternSpec {
@@ -79,7 +144,7 @@ public final class Interpreter implements AutoCloseable {
     private static void register(Map<String,List<ExternSpec>> registry,ExternSpec spec) {
         registry.computeIfAbsent(spec.symbol,ignored->new ArrayList<>()).add(spec);
     }
-    private static ExternSpec resolveExtern(Map<String,Object> declaration) {
+    private static Object externSymbol(Map<String,Object> declaration) {
         List<Object> entries=list(map(declaration.get("ext")).get("entries"));
         if(entries.isEmpty()) throw error("Missing extern");
         Map<String,Object> entry=null;
@@ -94,7 +159,10 @@ public final class Interpreter implements AutoCloseable {
             }
         }
         if(entry==null) throw error("No supported extern backend");
-        Object symbol=entry.get("fn");
+        return entry.get("fn");
+    }
+    private static ExternSpec resolveExtern(Map<String,Object> declaration) {
+        Object symbol=externSymbol(declaration);
         List<ExternSpec> allowed=EXTERNS.get(symbol);
         if(allowed==null) throw error("Unsupported baseline extern: "+symbol);
         for(ExternSpec spec:allowed) if(spec.matches(declaration)) return spec;
@@ -128,6 +196,7 @@ public final class Interpreter implements AutoCloseable {
         int[] paramTypes;
         Body body;
         Object privateOwner;
+        HostExtern hostExtern;
         Function(String label) { this.label=label; }
     }
     static final class Expr {
@@ -174,7 +243,7 @@ public final class Interpreter implements AutoCloseable {
     private Object[] releaseWork=new Object[32];
     private long callsLeft;
     private final boolean explicit;
-    private static final int IDLE=0, RUNNING=1, COMPLETE=2, FAILED=3;
+    private static final int IDLE=0, RUNNING=1, COMPLETE=2, FAILED=3, HOST_CALL=4;
     private static final int ASSIGN=0, CACHE=1, APPLY=2, ROOT=4;
     private int phase=IDLE, continuationDepth;
     private long instructions;
@@ -184,6 +253,9 @@ public final class Interpreter implements AutoCloseable {
     private Continuation[] continuations;
     private Function applicationTarget;
     private Object[] applicationArgs,applicationSurplus;
+    private HostRequest hostRequest,failedHostRequest;
+    private HostCall hostCompletion;
+    private Throwable hostFailure;
     private static final class Continuation {
         Function caller;
         Body next;
@@ -252,6 +324,8 @@ public final class Interpreter implements AutoCloseable {
         child.applicationTarget=(Function)copy.value(applicationTarget);
         child.applicationArgs=(Object[])copy.value(applicationArgs);
         child.applicationSurplus=(Object[])copy.value(applicationSurplus);
+        child.hostRequest=(HostRequest)copy.value(hostRequest);
+        child.hostCompletion=(HostCall)copy.value(hostCompletion);
         child.allocations=allocations; child.stores=stores; child.retains=retains;
         child.releases=releases; child.shellDeletes=shellDeletes;
         Object[] roots=(Object[])copy.value(externalRoots);
@@ -290,9 +364,26 @@ public final class Interpreter implements AutoCloseable {
                 if(old.privateOwner!=runtimeIdentity) return old;
                 Function out=new Function(old.label); copies.put(source,out);
                 out.id=old.id; out.width=old.width; out.joinWidth=old.joinWidth;
-                out.resultType=old.resultType; out.intrinsic=old.intrinsic;
+                out.resultType=old.resultType; out.intrinsic=old.intrinsic; out.hostExtern=old.hostExtern;
                 out.params=old.params; out.paramTypes=old.paramTypes; out.body=old.body;
                 out.privateOwner=child.runtimeIdentity; return out;
+            }
+            if(source instanceof HostRequest) {
+                HostRequest old=(HostRequest)source;
+                if(old.owner!=runtimeIdentity) throw error("Host request belongs to another interpreter");
+                HostRequest out=new HostRequest(child.runtimeIdentity,(HostCall)value(old.call));
+                copies.put(source,out); return out;
+            }
+            if(source instanceof HostCall) {
+                HostCall old=(HostCall)source,out=new HostCall(); copies.put(source,out);
+                out.function=(Function)value(old.function); out.arguments=(Object[])value(old.arguments);
+                out.surplus=(Object[])value(old.surplus); out.next=old.next;
+                out.dest=old.dest; out.kind=old.kind; out.borrowedCursor=old.borrowedCursor;
+                out.facade=old.facade; out.replyClaimed=old.replyClaimed;
+                out.adapterReleaseStarted=old.adapterReleaseStarted; out.resultOwned=old.resultOwned;
+                out.resultTransferStarted=old.resultTransferStarted;
+                out.completionResult=value(old.completionResult); out.completionScalar=old.completionScalar;
+                return out;
             }
             if(source instanceof Continuation) {
                 Continuation old=(Continuation)source,out=new Continuation(); copies.put(source,out);
@@ -351,7 +442,17 @@ public final class Interpreter implements AutoCloseable {
     private static int[] params(Object x) { List<Object> xs=list(x); int[] out=new int[xs.size()]; for(int i=0;i<out.length;i++) out[i]=variable(map(xs.get(i)).get("x")); return out; }
 
     /** Prepare original exported IR once. All functions must be in the profile. */
-    public static Program prepare(List<?> rows) {
+    public static Program prepare(List<?> rows) { return prepare(rows,new HostExtern[0]); }
+    public static Program prepare(List<?> rows,HostExtern[] externs) {
+        require(externs!=null,"Explicit host extern registry required");
+        Map<String,List<HostExtern>> hostRegistry=new HashMap<>();
+        for(HostExtern descriptor:externs.clone()) {
+            require(descriptor!=null,"Null host extern descriptor");
+            require(!EXTERNS.containsKey(descriptor.symbol),"Host extern cannot shadow builtin: "+descriptor.symbol);
+            List<HostExtern> entries=hostRegistry.computeIfAbsent(descriptor.symbol,ignored->new ArrayList<>());
+            for(HostExtern old:entries) require(!descriptor.sameAbi(old),"Duplicate host extern ABI: "+descriptor.symbol);
+            entries.add(descriptor);
+        }
         Map<Object,Function> byName=new HashMap<>();
         Map<String,Function> labels=new LinkedHashMap<>();
         List<Map<String,Object>> declarations=new ArrayList<>();
@@ -371,9 +472,15 @@ public final class Interpreter implements AutoCloseable {
             for(int i=0;i<f.params.length;i++) { f.paramTypes[i]=type(map(list(d.get("xs")).get(i)).get("ty")); f.width=Math.max(f.width,f.params[i]+1); }
             f.resultType=type(d.get("type"));
             if(external) {
-                ExternSpec spec=resolveExtern(d);
-                if(spec.intrinsic==0) throw error("Known extern ABI outside execution profile: "+spec.symbol);
-                f.intrinsic=spec.intrinsic;
+                Object symbol=externSymbol(d);
+                if(EXTERNS.containsKey(symbol)||!hostRegistry.containsKey(symbol)) {
+                    ExternSpec spec=resolveExtern(d);
+                    if(spec.intrinsic==0) throw error("Known extern ABI outside execution profile: "+spec.symbol);
+                    f.intrinsic=spec.intrinsic;
+                } else {
+                    for(HostExtern descriptor:hostRegistry.get(symbol)) if(descriptor.matches(d)) { f.hostExtern=descriptor; break; }
+                    if(f.hostExtern==null) throw error("Captured host extern ABI mismatch: "+symbol);
+                }
             } else f.body=body(d.get("body"),f,byName);
         }
         Function[] prepared=labels.values().toArray(new Function[0]);
@@ -456,7 +563,7 @@ public final class Interpreter implements AutoCloseable {
     private static void validate(Function f) {
         Map<Integer,Integer> env=new HashMap<>(); Set<Integer> seen=new HashSet<>();
         for(int i=0;i<f.params.length;i++) { mark(seen,f.params[i]); env.put(f.params[i],f.paramTypes[i]); }
-        if(f.intrinsic==0) validateBody(f.body,f,env,new HashMap<>(),seen);
+        if(f.intrinsic==0&&f.hostExtern==null) validateBody(f.body,f,env,new HashMap<>(),seen);
     }
     private static void validateBody(Body b,Function f,Map<Integer,Integer> env,Map<Integer,Body> joins,Set<Integer> seen) {
         // Lexical scope, unique binders and physical lanes are preparation facts.
@@ -789,6 +896,7 @@ public final class Interpreter implements AutoCloseable {
         constantReady[f.id]=true;
     }
     private void call(Function f,int[] args) {
+        if(f.hostExtern!=null) throw new UnsupportedOperationException("Host extern requires explicit driver: "+f.hostExtern.symbol);
         if(args.length!=f.params.length) throw error("Arity mismatch: "+f.label);
         if(f.intrinsic!=0) { intrinsicSlots(f,args); return; }
         int oldBp=bp,oldSp=sp,oldJbp=jbp,oldJsp=jsp;
@@ -802,6 +910,7 @@ public final class Interpreter implements AutoCloseable {
         finally { Arrays.fill(objects,oldSp,sp,null); Arrays.fill(joins,oldJsp,jsp,null); bp=oldBp;sp=oldSp;jbp=oldJbp;jsp=oldJsp; }
     }
     private void enter(Function f,Object[] args) {
+        if(f.hostExtern!=null) throw new UnsupportedOperationException("Host extern requires explicit driver: "+f.hostExtern.symbol);
         if(args.length!=f.params.length) throw error("Arity mismatch: "+f.label);
         if(f.intrinsic!=0) { intrinsicExternal(f,args); return; }
         int oldBp=bp,oldSp=sp,oldJbp=jbp,oldJsp=jsp;
@@ -894,11 +1003,130 @@ public final class Interpreter implements AutoCloseable {
         }
     }
 
+    private void validateHostObject(Object value) {
+        if(value instanceof Node) {
+            Node n=node(value);
+            require(n.rc>=0,"Invalid host object reference count");
+            if(n.closure!=null&&n.image!=program) throw error("Closure belongs to another code image");
+            if(n.closure!=null&&n.closure.privateOwner!=null&&n.closure.privateOwner!=runtimeIdentity)
+                throw error("Host closure belongs to another interpreter");
+        } else require(value instanceof Long||value instanceof BigInteger||value instanceof String,
+                       "Host object outside baseline value profile");
+    }
+    private void suspendHost(Function f,Object[] args,Body next,int dest,int kind,Object[] surplus,boolean facade) {
+        if(!explicit||hostRequest!=null) throw new IllegalStateException("Invalid nested host suspension");
+        HostCall call=new HostCall();
+        call.function=f; call.arguments=args.clone(); call.next=next; call.dest=dest;
+        call.kind=kind; call.surplus=surplus; call.facade=facade;
+        for(int i=0;i<call.arguments.length;i++) {
+            if(f.paramTypes[i]==OBJ) validateHostObject(call.arguments[i]);
+            else call.arguments[i]=externalScalar(inputScalar(call.arguments[i],f.paramTypes[i]),f.paramTypes[i]);
+        }
+        hostRequest=new HostRequest(runtimeIdentity,call); pc=next; phase=HOST_CALL;
+    }
+    /** A pending request is engine identity, not a serializable host capability. */
+    public HostRequest pendingHostRequest() { return phase==HOST_CALL?hostRequest:null; }
+    public HostRequest failureRequest() { return failedHostRequest; }
+    public Throwable hostFailure() { return hostFailure; }
+    /** Bounded text observer; returning the cause itself does not print its graph. */
+    public String hostFailureMessage() {
+        if(hostFailure==null) return null;
+        String message;
+        try { message=hostFailure.getMessage(); }
+        catch(Throwable ignored) { message="Host failure message unavailable"; }
+        if(message==null) message=hostFailure.getClass().getName();
+        return message.substring(0,Math.min(900,message.length()));
+    }
+    private HostCall requireHostRequest(HostRequest request) {
+        explicitOnly();
+        if(advancing) throw new IllegalStateException("Reentrant host completion");
+        if(request==null||request.owner!=runtimeIdentity||phase!=HOST_CALL||hostRequest!=request||request.call.replyClaimed)
+            throw new IllegalStateException("Stale or foreign host request");
+        return request.call;
+    }
+    /** Check only known adapter and reply credits, never infer ownership from
+     * stale registers. Persistent nodes have the existing unlimited-credit rule. */
+    private void preflightHostCompletion(HostCall call,Object reply) {
+        IdentityHashMap<Node,Integer> owners=new IdentityHashMap<>();
+        if(call.facade) for(int i=call.borrowedCursor;i<call.arguments.length;i++)
+            if(call.function.hostExtern.borrowed[i]&&call.arguments[i] instanceof Node) {
+                Node value=node(call.arguments[i]); owners.put(value,owners.getOrDefault(value,0)+1);
+            }
+        if(call.function.resultType==OBJ&&reply instanceof Node) {
+            Node value=node(reply); owners.put(value,owners.getOrDefault(value,0)+1);
+        }
+        for(Map.Entry<Node,Integer> credit:owners.entrySet())
+            require(credit.getKey().rc==0||credit.getKey().rc>=credit.getValue(),
+                    "Insufficient host reply or borrowed-facade owner credits");
+    }
+    private void markHostFailure(HostRequest request,Throwable cause) {
+        hostRequest=null; failedHostRequest=request; hostCompletion=request.call;
+        hostFailure=cause; pendingOwnedResult=false; phase=FAILED;
+    }
+    /** Consume one valid reply. Object replies transfer ONE owned result; an
+     * owned argument may be returned by transfer. No owned argument is released
+     * automatically. Release only the root/AP adapter's known borrowed credits.
+     * Invalid identity/lane/credit replies leave the suspension unchanged. Any
+     * error after claim is terminal with request/result/cursor diagnostics. */
+    public void resumeHost(HostRequest request,Object reply) {
+        HostCall call=requireHostRequest(request);
+        long scalar=0;
+        if(call.function.resultType==OBJ) validateHostObject(reply);
+        else scalar=inputScalar(reply,call.function.resultType);
+        preflightHostCompletion(call,reply);
+        call.replyClaimed=true; call.completionResult=reply; call.completionScalar=scalar;
+        call.resultOwned=call.function.resultType==OBJ;
+        hostRequest=null; hostCompletion=call; advancing=true;
+        try {
+            if(call.facade) while(call.borrowedCursor<call.arguments.length) {
+                int index=call.borrowedCursor;
+                if(call.function.hostExtern.borrowed[index]) {
+                    call.adapterReleaseStarted=true;
+                    dec(call.arguments[index],1);
+                    call.adapterReleaseStarted=false;
+                }
+                call.borrowedCursor++;
+            }
+            phase=RUNNING;
+            if((call.kind&ROOT)!=0) {
+                if(call.function.resultType==OBJ) result=reply; else scalarResult=scalar;
+                call.resultOwned=false; pendingOwnedResult=true; phase=COMPLETE;
+            } else if((call.kind&APPLY)!=0) {
+                Object answer=call.function.resultType==OBJ?reply:boxScalar(scalar,call.function.resultType);
+                call.completionResult=answer; call.resultOwned=true;
+                if(call.surplus==null) { objects[call.dest]=answer; pc=call.next; call.resultOwned=false; }
+                else {
+                    // Validate the AP receiver before beginning its owned transfer.
+                    Node closure=node(answer);
+                    require(closure.closure!=null,"Expected closure");
+                    require(closure.image==program,"Closure belongs to another code image");
+                    require(closure.closure.privateOwner==null||closure.closure.privateOwner==runtimeIdentity,
+                            "Host closure belongs to another interpreter");
+                    call.resultTransferStarted=true; call.resultOwned=false;
+                    applyExplicit(answer,call.surplus,call.next,call.dest);
+                }
+            } else {
+                if(call.function.resultType==OBJ) objects[call.dest]=reply; else numbers[call.dest]=scalar;
+                pc=call.next; call.resultOwned=false;
+            }
+            hostCompletion=null;
+        } catch(Throwable failure) { markHostFailure(request,failure); throw failure; }
+        finally { advancing=false; }
+    }
+    /** Terminal external failure preserves all outstanding argument/facade
+     * obligations and frames. No host effect, argument release, or replay occurs. */
+    public void failHost(HostRequest request,Throwable cause) {
+        requireHostRequest(request);
+        if(cause==null) throw error("Host failure cause required");
+        request.call.replyClaimed=true;
+        markHostFailure(request,cause);
+    }
+
     private void explicitOnly() {
         if(!explicit) throw new IllegalStateException("Explicit mode required");
         if(closed) throw new IllegalStateException("Interpreter closed");
     }
-    public String phase() { return new String[]{"idle","running","complete","failed"}[phase]; }
+    public String phase() { return new String[]{"idle","running","complete","failed","host-call"}[phase]; }
     public int continuationDepth() { return continuationDepth; }
     public long instructionCount() { return instructions; }
     public String activeFunction() { return active==null?null:active.label; }
@@ -918,6 +1146,11 @@ public final class Interpreter implements AutoCloseable {
                 if(n.closure!=null&&n.image!=program) throw error("Closure belongs to another code image");
                 if(n.closure!=null&&n.closure.privateOwner!=null&&n.closure.privateOwner!=runtimeIdentity) throw error("Host closure belongs to another interpreter");
             }
+        }
+        if(f.hostExtern!=null) {
+            for(int i=0;i<args.length;i++) if(f.paramTypes[i]==OBJ) validateHostObject(args[i]);
+            callsLeft=10_000_000; instructions=0; entry=f;
+            suspendHost(f,args,null,0,ROOT,null,true); return;
         }
         if(f.intrinsic!=0) {
             try { intrinsicExternal(f,args); }
@@ -983,6 +1216,7 @@ public final class Interpreter implements AutoCloseable {
             if(!prepareExplicitApply(value,args)) { objects[dest]=result; pc=next; return; }
             Function f=applicationTarget; Object[] actual=applicationArgs,rest=applicationSurplus;
             applicationTarget=null; applicationArgs=null; applicationSurplus=null;
+            if(f.hostExtern!=null) { suspendHost(f,actual,next,dest,APPLY,rest,true); return; }
             if(f.intrinsic==0) { enterExplicit(f,null,actual,next,dest,APPLY,rest); return; }
             intrinsicExternal(f,actual);
             value=f.resultType==OBJ?result:boxScalar(scalarResult,f.resultType);
@@ -1021,6 +1255,7 @@ public final class Interpreter implements AutoCloseable {
         if(budget<0) throw error("Negative instruction budget");
         if(advancing) throw new IllegalStateException("Reentrant advance");
         if(phase==COMPLETE) return true;
+        if(phase==HOST_CALL) return false;
         if(phase!=RUNNING) throw new IllegalStateException("No resumable execution: "+phase());
         advancing=true;
         try { runExplicitLoop(budget); return phase==COMPLETE; }
@@ -1043,6 +1278,10 @@ public final class Interpreter implements AutoCloseable {
                                 for(int i=0;i<e.args.length;i++) { objects[scratch+i]=obj(e.args[i]); numbers[scratch+i]=numbers[bp+e.args[i]]; }
                                 for(int i=0;i<e.args.length;i++) { objects[bp+f.params[i]]=objects[scratch+i]; numbers[bp+f.params[i]]=numbers[scratch+i]; objects[scratch+i]=null; }
                                 tick(); b=f.body;
+                            } else if(f.hostExtern!=null) {
+                                Object[] args=new Object[e.args.length];
+                                for(int i=0;i<args.length;i++) args[i]=f.paramTypes[i]==OBJ?obj(e.args[i]):externalScalar(numbers[bp+e.args[i]],f.paramTypes[i]);
+                                suspendHost(f,args,b.next,dest,ASSIGN,null,false); b=pc;
                             } else if(e.args.length==0&&constantReady[f.id]) {
                                 if(f.resultType==OBJ) objects[dest]=constants[f.id]; else numbers[dest]=(Long)constants[f.id];
                                 b=b.next;
@@ -1101,11 +1340,16 @@ public final class Interpreter implements AutoCloseable {
     /** Internal owned-argument typed entry, not Lean's generic call_boxed ABI. */
     public Object invoke(int function,Object[] args) {
         if(closed) throw error("Interpreter closed");
-        if(explicit) { start(function,args); advance(Long.MAX_VALUE); return takeResult(); }
+        if(explicit) {
+            start(function,args); advance(Long.MAX_VALUE);
+            if(phase==HOST_CALL) throw new IllegalStateException("Invocation suspended for host extern: "+hostRequest.symbol());
+            return takeResult();
+        }
         if(sp!=0) throw error("Reentrant external invocation unsupported");
         callsLeft=10_000_000;
         Function f=program.functions[function];
         rootEntry(f);
+        if(f.hostExtern!=null) throw new UnsupportedOperationException("Host extern requires explicit driver: "+f.hostExtern.symbol);
         if(args.length!=f.params.length) throw error("Arity mismatch: "+f.label);
         try {
             if(f.params.length==0) { load(f); if(f.resultType==OBJ) inc(result,1); }
@@ -1128,7 +1372,7 @@ public final class Interpreter implements AutoCloseable {
     }
     @Override public void close() {
         if(closed) return; closed=true;
-        if(explicit&&(phase==RUNNING||phase==FAILED)) {
+        if(explicit&&(phase==RUNNING||phase==FAILED||phase==HOST_CALL)) {
             closed=false;
             throw new IllegalStateException("Active or failed explicit execution requires ownership cleanup before close");
         }
