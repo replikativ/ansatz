@@ -11,7 +11,8 @@ derived fixture hash have different meanings.
 Selection includes every original-inventory extern with a UInt64 input/result,
 every UInt64-prefixed root, and String.hash/mixHash. It includes Float.ofBits,
 Float.ofModel and UInt64.toFloat as **descriptive deferred Float boundaries**;
-their presence does not authorize Float execution. Lean.Expr.mkData is likewise
+their presence alone does not authorize Float execution. The separate
+[Float fixture and runtime gate](../java-f64-runtime/README.md) now validates them. Lean.Expr.mkData is likewise
 a separate metadata-packing binding, not UInt64 arithmetic. Lean.getGithash is
 a version-string query, so it is not selected by a misleading `hash` substring.
 No absent UInt64 arithmetic/conversion declarations or wrappers were invented.

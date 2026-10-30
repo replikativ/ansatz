@@ -20,8 +20,9 @@ Ten genuine inventory declarations and their ten boxed wrappers execute:
 String.hash, mixHash, UInt64.ofNat/ofNatLT/ofBitVec, shiftRight, xor, toUSize,
 decLt and decEq. Borrowed and owned Nat conversion ABIs remain distinct. Shift
 counts mask modulo64; right shift is logical; comparison is unsigned. Float
-bridges and Expr.mkData packing remain separate. Their authentic rows are retained
-as metadata in the broader28-row fixture, without claiming execution support.
+bridges and Expr.mkData packing were separate gates for this tranche. Their
+authentic rows are retained in the broader28-row fixture; Float execution now has
+its own [F64 runtime gate](JAVA_F64_RUNTIME.md).
 
 String.hash is pinned MurmurHash64A over exact UTF-8 payload bytes with seed11,
 little-endian blocks and64-bit wrapping. mixHash intentionally differs: its
@@ -43,7 +44,8 @@ strict lanes, joins, self-tail calls, AP boxes, mixed packed fields and forked
 stores; host/code-request high-bit arguments/results and invalid-reply retry;
 primitive hashes; and the eleven-row genuine Name.str/num/hash closure including
 seed1723 and the large-numeric-name sentinel17. The previous unsupported-lane
-metadata test now uses still-unsupported Float. Independent source/ABI/transport
+metadata test used Float at that point; it now checks the still-unsupported
+Float32 and UInt16 lanes. Independent source/ABI/transport
 review is clear after strengthening oracle digest checks. The isolated jar gate
 passes494 executions /16,820 assertions across59 suites at384MiB.
 

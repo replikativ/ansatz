@@ -85,17 +85,18 @@
     (is (nil? (aget (slots ctx) 0)))))
 
 (deftest known-unsupported-lanes-remain-metadata-and-cannot-execute
-  (let [base (empty-program) binding (j/source-binding base (Object.))
-        row (c/decl "wide" [(c/p 1 "float")] "float" (c/ret 1))
-        h (header binding row) ctx (j/register-headers base [h])
-        engine (j/machine ctx)]
-    (try
-      (is (nil? (aget (slots ctx) 0)))
-      (is (g/bad? #(j/start! ctx engine "wide" [0])))
-      (is (= "idle" (j/phase ctx engine)))
-      (is (g/bad? #(j/materialize-body ctx h (first (x/raw [row])) [])))
-      (is (g/bad? #(j/make-closure! ctx engine "wide" [])))
-      (finally (j/close! ctx engine)))))
+  (doseq [ty ["float32" "uint16"]]
+    (let [base (empty-program) binding (j/source-binding base (Object.))
+          row (c/decl "wide" [(c/p 1 ty)] ty (c/ret 1))
+          h (header binding row) ctx (j/register-headers base [h])
+          engine (j/machine ctx)]
+      (try
+        (is (nil? (aget (slots ctx) 0)))
+        (is (g/bad? #(j/start! ctx engine "wide" [0])))
+        (is (= "idle" (j/phase ctx engine)))
+        (is (g/bad? #(j/materialize-body ctx h (first (x/raw [row])) [])))
+        (is (g/bad? #(j/make-closure! ctx engine "wide" [])))
+        (finally (j/close! ctx engine))))))
 
 (deftest recursive-root-refuses-unprepared-code-before-taking-owned-input
   (let [base (empty-program) binding (j/source-binding base (Object.))

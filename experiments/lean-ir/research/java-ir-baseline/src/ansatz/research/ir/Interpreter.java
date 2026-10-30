@@ -4,20 +4,22 @@
  * Upstream: Copyright (c) 2019 Microsoft Corporation. Apache-2.0.
  * Author of upstream interpreter: Sebastian Ullrich.
  *
- * Bounded object/uint8/uint32/usize/uint64 profile (64-bit little-endian), not a public API.
+ * Bounded object/uint8/uint32/usize/uint64/float profile (64-bit little-endian), not a public API.
  * Research eager graph forks and typed host requests, not a persistent branch
  * store, native ABI invocation, general host IO, or arbitrary World conversion.
  */
 package ansatz.research.ir;
 
 import java.math.BigInteger;
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.lang.ref.WeakReference;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
 import java.util.concurrent.atomic.AtomicLong;
 
 public final class Interpreter implements AutoCloseable {
-    private static final int OBJ=0, U8=1, U32=2, USIZE=3, U64=4;
+    private static final int OBJ=0, U8=1, U32=2, USIZE=3, U64=4, F64=5;
     private static final int VDECL=0,JDECL=1,SET=2,SSET=3,INC=4,DEC=5,DEL=6,CASE=7,RET=8,JMP=9,UNREACHABLE=10,SETTAG=11,USET=12;
     private static final int CTOR=0,PROJ=1,SPROJ=2,FAP=3,PAP=4,AP=5,BOX=6,UNBOX=7,LIT=8,SHARED=9,UPROJ=10;
     private static final int ADD=1,SUB=2,MOD=3,EQ=4,LT=5,MUL=6,DIV=7,POW=8;
@@ -45,6 +47,7 @@ public final class Interpreter implements AutoCloseable {
     private static final int MAX_STRING_OUTPUT_BYTES=16*1024*1024;
     private static final int MAX_BYTE_CAPACITY=16*1024*1024;
     private static final int POINTER_IDENTITY=93, NAME_EQ=94, BUILD_GITHASH=95, BUILD_TARGET=96;
+    private static final int FLOAT_BITS=240,FLOAT_U64=241,FLOAT_SUB=242,FLOAT_MUL=243,FLOAT_DIV=244,FLOAT_EQ=245,FLOAT_LT=246,FLOAT_STRING=247;
     private static final int MAX_NAME_COMPARISON_STEPS=1_000_000;
     private static final int MAX_SHIFT_RESULT_BITS=16*1024*1024;
     private static final int MAX_ARRAY_CAPACITY=1_000_000;
@@ -104,7 +107,7 @@ public final class Interpreter implements AutoCloseable {
         public String[] paramTypes() { return call.function.hostExtern.paramTypes(); }
         public boolean[] borrowed() { return call.function.hostExtern.borrowed(); }
         public String resultType() { return call.function.hostExtern.resultType; }
-        public Object[] arguments() { return call.arguments.clone(); }
+        public Object[] arguments() { return argumentViews(call.function,call.arguments); }
     }
     /** Engine-private continuation and ownership disposition. It is copied by
      * the same fork memo as stack/argument graphs; it never runs a host handler. */
@@ -133,7 +136,7 @@ public final class Interpreter implements AutoCloseable {
         public String[] paramTypes() { return header().paramTypes(); }
         public boolean[] borrowed() { return header().borrowed(); }
         public String resultType() { return header().resultType(); }
-        public Object[] arguments() { return activation.arguments.clone(); }
+        public Object[] arguments() { return argumentViews(activation.function,activation.arguments); }
     }
     /** Arguments/captures have already transferred according to the caller's
      * ABI. Resume enters this exact activation; it never prepares AP again. */
@@ -372,6 +375,14 @@ public final class Interpreter implements AutoCloseable {
                 new String[]{"object","tobject"},new boolean[]{false,false}));
         register(registry,new ExternSpec("lean_string_pushn",STR_PUSHN,"object",
                 new String[]{"object","uint32","tobject"},new boolean[]{false,false,false}));
+        register(registry,new ExternSpec("lean_float_of_bits",FLOAT_BITS,"float",new String[]{"uint64"},new boolean[]{false}));
+        register(registry,new ExternSpec("lean_uint64_to_float",FLOAT_U64,"float",new String[]{"uint64"},new boolean[]{false}));
+        register(registry,new ExternSpec("lean_float_sub",FLOAT_SUB,"float",new String[]{"float","float"},new boolean[]{false,false}));
+        register(registry,new ExternSpec("lean_float_mul",FLOAT_MUL,"float",new String[]{"float","float"},new boolean[]{false,false}));
+        register(registry,new ExternSpec("lean_float_div",FLOAT_DIV,"float",new String[]{"float","float"},new boolean[]{false,false}));
+        register(registry,new ExternSpec("lean_float_beq",FLOAT_EQ,"uint8",new String[]{"float","float"},new boolean[]{false,false}));
+        register(registry,new ExternSpec("lean_float_decLt",FLOAT_LT,"uint8",new String[]{"float","float"},new boolean[]{false,false}));
+        register(registry,new ExternSpec("lean_float_to_string",FLOAT_STRING,"object",new String[]{"float"},new boolean[]{false}));
         registry.replaceAll((symbol,entries)->Collections.unmodifiableList(entries));
         return Collections.unmodifiableMap(registry);
     }
@@ -608,7 +619,7 @@ public final class Interpreter implements AutoCloseable {
         }
     }
     private static int metadataLane(String raw) {
-        if(raw.equals("uint16")||raw.equals("float")||raw.equals("float32")) return -1;
+        if(raw.equals("uint16")||raw.equals("float32")) return -1;
         return type(raw);
     }
     /** Source-local graph identity, never a native pointer or runtime Node. */
@@ -1138,7 +1149,7 @@ public final class Interpreter implements AutoCloseable {
             copies.put(source,target); pending.addLast(new Object[]{source,target});
         }
         Object value(Object source) {
-            if(source==null||source instanceof Long||source instanceof BigInteger||source instanceof String) return source;
+            if(source==null||source instanceof Long||source instanceof BigInteger||source instanceof String||source instanceof F64Bits||source instanceof Double) return source;
             Object prior=copies.get(source); if(prior!=null) return prior;
             if(source instanceof Node) {
                 Node old=(Node)source;
@@ -1228,6 +1239,7 @@ public final class Interpreter implements AutoCloseable {
         if("uint32".equals(x)) return U32;
         if("usize".equals(x)) return USIZE;
         if("uint64".equals(x)) return U64;
+        if("float".equals(x)) return F64;
         if("object".equals(x)||"tobject".equals(x)||"tagged".equals(x)||"erased".equals(x)||"void".equals(x)) return OBJ;
         throw error("Unsupported baseline IR type: "+x);
     }
@@ -1413,7 +1425,7 @@ public final class Interpreter implements AutoCloseable {
                 switch(e.op) {
                     case CTOR: require(b.type==OBJ,"Constructor requires object result"); for(int a:e.args) require(lane(env,a)==OBJ,"Object constructor argument required"); break;
                     case PROJ: require(b.type==OBJ&&lane(env,e.a)==OBJ,"Projection lane mismatch"); break;
-                    case SPROJ: require((b.type==U8||b.type==U32||b.type==U64)&&lane(env,e.a)==OBJ,"Scalar projection lane mismatch"); break;
+                    case SPROJ: require((b.type==U8||b.type==U32||b.type==U64||b.type==F64)&&lane(env,e.a)==OBJ,"Scalar projection lane mismatch"); break;
                     case UPROJ: require(b.type==USIZE&&lane(env,e.a)==OBJ,"USize projection lane mismatch"); break;
                     case FAP: requireExecutableAbi(e.target); checkArgs(env,e.args,e.target.paramTypes); require(b.type==e.target.resultType,"Call result lane mismatch"); break;
                     case PAP: requireExecutableAbi(e.target); require(b.type==OBJ&&e.args.length<e.target.params.length,"Invalid partial application"); require(!borrowedArrayPrimitive(e.target.intrinsic),"Borrowed array primitive requires owned closure wrapper"); require(!borrowedIntPrimitive(e.target.intrinsic),"Borrowed Int primitive requires owned closure wrapper"); require(!borrowedStringCompletionPrimitive(e.target.intrinsic),"Borrowed String range primitive requires owned closure wrapper"); require(!borrowedBytePrimitive(e.target.intrinsic),"Borrowed ByteArray primitive requires owned closure wrapper"); require(e.target.intrinsic!=NAME_EQ,"Borrowed Name equality requires an owned guest wrapper"); require(e.target.intrinsic!=POINTER_IDENTITY,"Pointer identity requires a certified direct FAP site"); require(!borrowedRefPrimitive(e.target.intrinsic),"Borrowed ref primitive requires owned closure wrapper"); for(int i=0;i<e.target.paramTypes.length;i++) require(e.target.paramTypes[i]==OBJ,"Unboxed partial target unsupported; boxed wrapper required"); for(int a:e.args) require(lane(env,a)==OBJ,"Partial argument must be boxed"); break;
@@ -1421,7 +1433,8 @@ public final class Interpreter implements AutoCloseable {
                     case BOX: require(b.type==OBJ&&e.b!=OBJ&&lane(env,e.a)==e.b,"Box lane mismatch"); break;
                     case UNBOX: require(b.type!=OBJ&&lane(env,e.a)==OBJ,"Unbox lane mismatch"); break;
                     case SHARED: require(b.type==U8&&lane(env,e.a)==OBJ,"Sharing-test lane mismatch"); break;
-                    case LIT: if(b.type==U64) e.literal=Long.valueOf(nat(e.literal).longValue());
+                    case LIT: if(b.type==F64) e.literal=Long.valueOf(Double.doubleToRawLongBits(nat(e.literal).doubleValue()));
+                              else if(b.type==U64) e.literal=Long.valueOf(nat(e.literal).longValue());
                               else if(b.type!=OBJ) e.literal=Long.valueOf(inputScalar(e.literal,b.type)); break;
                     default: throw error("Invalid expression opcode");
                 }
@@ -1436,10 +1449,10 @@ public final class Interpreter implements AutoCloseable {
                 validateBody(b.next,f,env,next,seen); break;
             }
             case JMP: { Body target=joins.get(b.a); require(target!=null,"Unknown lexical join"); checkArgs(env,b.args,target.tags); break; }
-            case CASE: require(lane(env,b.a)==b.type,"Case lane mismatch"); for(Body alt:b.alternatives) validateBody(alt,f,env,joins,seen); break;
+            case CASE: require(b.type!=F64,"Float case outside execution profile"); require(lane(env,b.a)==b.type,"Case lane mismatch"); for(Body alt:b.alternatives) validateBody(alt,f,env,joins,seen); break;
             case RET: require(lane(env,b.a)==f.resultType,"Return lane mismatch"); break;
             case SET: require(lane(env,b.a)==OBJ&&lane(env,b.args[0])==OBJ,"Field store lane mismatch"); validateBody(b.next,f,env,joins,seen); break;
-            case SSET: require(lane(env,b.a)==OBJ&&(b.type==U8||b.type==U32||b.type==U64)&&lane(env,b.args[0])==b.type,"Scalar store lane mismatch"); validateBody(b.next,f,env,joins,seen); break;
+            case SSET: require(lane(env,b.a)==OBJ&&(b.type==U8||b.type==U32||b.type==U64||b.type==F64)&&lane(env,b.args[0])==b.type,"Scalar store lane mismatch"); validateBody(b.next,f,env,joins,seen); break;
             case USET: require(lane(env,b.a)==OBJ&&lane(env,b.args[0])==USIZE,"USize store lane mismatch"); validateBody(b.next,f,env,joins,seen); break;
             case INC: case DEC: case DEL: case SETTAG: require(lane(env,b.a)==OBJ,"Object instruction lane mismatch"); validateBody(b.next,f,env,joins,seen); break;
             case UNREACHABLE: break;
@@ -1584,6 +1597,10 @@ public final class Interpreter implements AutoCloseable {
     }
     private static Object normalize(BigInteger n) { if(n.signum()<0) throw error("Negative Nat"); return n.compareTo(SMALL_MAX)<=0?Long.valueOf(n.longValue()):n; }
     private static long inputScalar(Object value,int type) {
+        if(type==F64) {
+            require(value instanceof Double,"Expected Double Float scalar");
+            return Double.doubleToRawLongBits((Double)value);
+        }
         BigInteger n;
         if(value instanceof BigInteger) n=(BigInteger)value;
         else if(value instanceof Long||value instanceof Integer||value instanceof Short||value instanceof Byte)
@@ -1594,8 +1611,26 @@ public final class Interpreter implements AutoCloseable {
         return n.longValue();
     }
     private static Object externalScalar(long value,int type) {
+        if(type==F64) return Double.valueOf(Double.longBitsToDouble(value));
         if((type==USIZE||type==U64)&&value<0) return BigInteger.valueOf(value&Long.MAX_VALUE).setBit(63);
         return Long.valueOf(value);
+    }
+    /** Typed suspended control state only; never an admitted OBJ carrier. */
+    private static final class F64Bits {
+        final long bits;
+        F64Bits(long bits) { this.bits=bits; }
+    }
+    private static Object saveScalar(long bits,int lane) {
+        return lane==F64?new F64Bits(bits):externalScalar(bits,lane);
+    }
+    private static long readSavedScalar(Object value,int lane) {
+        return lane==F64&&value instanceof F64Bits?((F64Bits)value).bits:inputScalar(value,lane);
+    }
+    private static Object[] argumentViews(Function function,Object[] arguments) {
+        Object[] views=arguments.clone();
+        for(int i=0;i<views.length;i++) if(function.paramTypes[i]==F64)
+            views[i]=externalScalar(readSavedScalar(views[i],F64),F64);
+        return views;
     }
     private static int scalarWidth(int type) { return type==U8?1:type==U32?4:8; }
     private static int rawOffset(Node n,int word,int extra) {
@@ -1616,15 +1651,15 @@ public final class Interpreter implements AutoCloseable {
         for(int i=0;i<width;i++) n.scalars[offset+i]=(byte)(value>>>(8*i));
     }
     private Object boxScalar(long value,int type) {
-        if(type==USIZE||type==U64) {
+        if(type==USIZE||type==U64||type==F64) {
             Node n=new Node(0,0,8); writeScalar(n,0,type,value); allocations++; return n;
         }
         return Long.valueOf(type==U8?value&255:value&0xffffffffL);
     }
     private long unboxScalar(Object value,int type) {
-        if(type==USIZE||type==U64) {
+        if(type==USIZE||type==U64||type==F64) {
             Node n=constructorNode(value);
-            require(n.tag==0&&n.fields.length==0&&n.scalars.length==8&&n.closure==null,type==USIZE?"Expected boxed USize":"Expected boxed UInt64");
+            require(n.tag==0&&n.fields.length==0&&n.scalars.length==8&&n.closure==null,type==USIZE?"Expected boxed USize":type==F64?"Expected boxed Float":"Expected boxed UInt64");
             return readScalar(n,0,type);
         }
         return inputScalar(value,type);
@@ -1644,6 +1679,9 @@ public final class Interpreter implements AutoCloseable {
         return value;
     }
     private void intrinsicSlots(Function f,int[] slots) {
+        if(floatPrimitive(f.intrinsic)) {
+            floatIntrinsic(f,numbers[bp+slots[0]],slots.length<2?0:numbers[bp+slots[1]]); return;
+        }
         require(f.intrinsic!=POINTER_IDENTITY,"Pointer identity requires a certified direct FAP site");
         if(f.intrinsic==STR_MEMCMP) {
             stringMemcmp(obj(slots[0]),obj(slots[1]),obj(slots[2]),obj(slots[3]),obj(slots[4]),obj(slots[5]),obj(slots[6])); return;
@@ -1668,6 +1706,9 @@ public final class Interpreter implements AutoCloseable {
         } else scalarIntrinsic(f,a,b);
     }
     private void intrinsicExternal(Function f,Object[] args) {
+        if(floatPrimitive(f.intrinsic)) {
+            floatIntrinsic(f,readSavedScalar(args[0],f.paramTypes[0]),args.length<2?0:readSavedScalar(args[1],f.paramTypes[1])); return;
+        }
         require(f.intrinsic!=POINTER_IDENTITY,"Pointer identity requires a certified direct FAP site");
         if(f.intrinsic==STR_MEMCMP) {
             stringMemcmp(args[0],args[1],args[2],args[3],args[4],args[5],args[6]); return;
@@ -1690,6 +1731,32 @@ public final class Interpreter implements AutoCloseable {
             Object c=args.length<3?ERASED:f.paramTypes[2]==OBJ?args[2]:Long.valueOf(inputScalar(args[2],f.paramTypes[2]));
             runtimeIntrinsic(f,a,b,c);
         } else scalarIntrinsic(f,a,b);
+    }
+    private static boolean floatPrimitive(int op) { return op>=FLOAT_BITS&&op<=FLOAT_STRING; }
+    private static boolean nanBits(long bits) { return (bits&0x7ff0000000000000L)==0x7ff0000000000000L&&(bits&0x000fffffffffffffL)!=0; }
+    private strictfp void floatIntrinsic(Function f,long a,long b) {
+        if(f.intrinsic==FLOAT_BITS) { scalarResult=nanBits(a)?0x7ff8000000000000L:a; return; }
+        if(f.intrinsic==FLOAT_U64) {
+            BigInteger unsigned=BigInteger.valueOf(a&Long.MAX_VALUE); if(a<0) unsigned=unsigned.setBit(63);
+            scalarResult=Double.doubleToRawLongBits(unsigned.doubleValue()); return;
+        }
+        double x=Double.longBitsToDouble(a),y=Double.longBitsToDouble(b);
+        switch(f.intrinsic) {
+            case FLOAT_SUB: scalarResult=Double.doubleToRawLongBits(x-y); break;
+            case FLOAT_MUL: scalarResult=Double.doubleToRawLongBits(x*y); break;
+            case FLOAT_DIV: scalarResult=Double.doubleToRawLongBits(x/y); break;
+            case FLOAT_EQ: scalarResult=x==y?1:0; break;
+            case FLOAT_LT: scalarResult=x<y?1:0; break;
+            case FLOAT_STRING:
+                if(nanBits(a)) result="NaN";
+                else if(Double.isInfinite(x)) result=x<0?"-inf":"inf";
+                else {
+                    BigDecimal rounded=new BigDecimal(x).setScale(6,RoundingMode.HALF_EVEN);
+                    result=(a<0&&rounded.signum()==0?"-":"")+rounded.toPlainString();
+                }
+                break;
+            default: throw error("Unsupported Float intrinsic");
+        }
     }
     private static boolean advancedArrayPrimitive(int op) { return op>=ARRAY_EMPTY&&op<=ARRAY_REPLICATE||op==ARRAY_CHECKED_GET||op==ARRAY_CHECKED_BORROWED; }
     private static boolean borrowedArrayPrimitive(int op) {
@@ -2424,8 +2491,8 @@ public final class Interpreter implements AutoCloseable {
         PreparedBody prepared=preparedBody(f);
         int oldBp=bp,oldSp=sp,oldJbp=jbp,oldJsp=jsp;
         ensure(sp+prepared.width,jsp+prepared.joinWidth);
-        for(int i=0;i<args.length;i++) if(f.paramTypes[i]!=OBJ) inputScalar(args[i],f.paramTypes[i]);
-        for(int i=0;i<args.length;i++) { int dest=sp+f.params[i]; if(f.paramTypes[i]==OBJ) objects[dest]=args[i]; else numbers[dest]=inputScalar(args[i],f.paramTypes[i]); }
+        for(int i=0;i<args.length;i++) if(f.paramTypes[i]!=OBJ) readSavedScalar(args[i],f.paramTypes[i]);
+        for(int i=0;i<args.length;i++) { int dest=sp+f.params[i]; if(f.paramTypes[i]==OBJ) objects[dest]=args[i]; else numbers[dest]=readSavedScalar(args[i],f.paramTypes[i]); }
         bp=oldSp;sp+=prepared.width;jbp=oldJsp;jsp+=prepared.joinWidth;
         try { eval(f,prepared); }
         finally { Arrays.fill(objects,oldSp,sp,null); Arrays.fill(joins,oldJsp,jsp,null); bp=oldBp;sp=oldSp;jbp=oldJbp;jsp=oldJsp; }
@@ -2722,7 +2789,7 @@ public final class Interpreter implements AutoCloseable {
         call.kind=kind; call.surplus=surplus; call.facade=facade;
         for(int i=0;i<call.arguments.length;i++) {
             if(f.paramTypes[i]==OBJ) validateHostObject(call.arguments[i]);
-            else call.arguments[i]=externalScalar(inputScalar(call.arguments[i],f.paramTypes[i]),f.paramTypes[i]);
+            else call.arguments[i]=saveScalar(readSavedScalar(call.arguments[i],f.paramTypes[i]),f.paramTypes[i]);
         }
         hostRequest=new HostRequest(runtimeIdentity,call); pc=next; phase=HOST_CALL;
     }
@@ -2828,11 +2895,15 @@ public final class Interpreter implements AutoCloseable {
         CodeActivation activation=new CodeActivation();
         activation.function=function; activation.next=next; activation.dest=dest; activation.kind=kind;
         activation.surplus=surplus;
-        if(slots==null) activation.arguments=args.clone();
+        if(slots==null) {
+            activation.arguments=args.clone();
+            for(int i=0;i<args.length;i++) if(function.paramTypes[i]!=OBJ)
+                activation.arguments[i]=saveScalar(readSavedScalar(args[i],function.paramTypes[i]),function.paramTypes[i]);
+        }
         else {
             activation.arguments=new Object[slots.length];
             for(int i=0;i<slots.length;i++) activation.arguments[i]=function.paramTypes[i]==OBJ
-                    ?obj(slots[i]):externalScalar(numbers[bp+slots[i]],function.paramTypes[i]);
+                    ?obj(slots[i]):saveScalar(numbers[bp+slots[i]],function.paramTypes[i]);
         }
         codeRequest=new CodeRequest(runtimeIdentity,activation); pc=next; phase=CODE_CALL;
     }
@@ -2870,7 +2941,7 @@ public final class Interpreter implements AutoCloseable {
         PreparedBody prepared=descendant.preparedBodies[function.id];
         require(prepared!=null&&prepared.body!=null,"Code reply has no requested prepared body");
         requireExecutableAbi(function);
-        validateEntryArguments(function,activation.arguments);
+        validateEntryArguments(function,activation.arguments,true);
         if(continuationDepth>=65536) throw error("Continuation depth limit");
         int newSp=Math.addExact(sp,prepared.width),newJsp=Math.addExact(jsp,prepared.joinWidth);
         if(newSp>8_000_000||newJsp>2_000_000) throw error("Explicit stack limit");
@@ -2919,11 +2990,13 @@ public final class Interpreter implements AutoCloseable {
 
     /** Both drivers reject invalid input closures before publishing frames,
      * taking owned arguments, or running any guest operation. */
-    private void validateEntryArguments(Function function,Object[] args) {
+    private void validateEntryArguments(Function function,Object[] args) { validateEntryArguments(function,args,false); }
+    private void validateEntryArguments(Function function,Object[] args,boolean saved) {
         if(args==null||args.length!=function.params.length) throw error("Arity mismatch: "+function.label);
         if(buildIdentityPrimitive(function.intrinsic)) requireBuildUnit(args[0]);
         for(int i=0;i<args.length;i++) {
-            if(function.paramTypes[i]!=OBJ) inputScalar(args[i],function.paramTypes[i]);
+            if(function.paramTypes[i]!=OBJ) { if(saved) readSavedScalar(args[i],function.paramTypes[i]); else inputScalar(args[i],function.paramTypes[i]); }
+            else if(args[i] instanceof Double||args[i] instanceof F64Bits) throw error("Float scalar is not an OBJ value");
             else if(args[i] instanceof Node) {
                 Node value=node(args[i]);
                 if(value.closure!=null) acceptsClosure(value);
@@ -2980,7 +3053,7 @@ public final class Interpreter implements AutoCloseable {
             if(slots!=null) {
                 if(f.paramTypes[i]==OBJ) objects[target]=obj(slots[i]); else numbers[target]=numbers[bp+slots[i]];
             } else {
-                if(f.paramTypes[i]==OBJ) objects[target]=args[i]; else numbers[target]=inputScalar(args[i],f.paramTypes[i]);
+                if(f.paramTypes[i]==OBJ) objects[target]=args[i]; else numbers[target]=readSavedScalar(args[i],f.paramTypes[i]);
             }
         }
         k.caller=active; k.callerPrepared=activePrepared; k.next=next; k.bp=bp; k.sp=sp; k.jbp=jbp; k.jsp=jsp;
@@ -3086,7 +3159,7 @@ public final class Interpreter implements AutoCloseable {
                                 b=b.next;
                             } else if(f.hostExtern!=null) {
                                 Object[] args=new Object[e.args.length];
-                                for(int i=0;i<args.length;i++) args[i]=f.paramTypes[i]==OBJ?obj(e.args[i]):externalScalar(numbers[bp+e.args[i]],f.paramTypes[i]);
+                                for(int i=0;i<args.length;i++) args[i]=f.paramTypes[i]==OBJ?obj(e.args[i]):saveScalar(numbers[bp+e.args[i]],f.paramTypes[i]);
                                 suspendHost(f,args,b.next,dest,ASSIGN,null,false); b=pc;
                             } else if(f.intrinsic!=0) {
                                 if(f.intrinsic==POINTER_IDENTITY) pointerIdentity(f,e.args,activePrepared,e);
