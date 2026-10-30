@@ -3,8 +3,8 @@
 Implementation plan, 2026-10-29. This document separates the next runtime steps
 from capabilities already implemented in [program generations](JAVA_PROGRAM_GENERATIONS.md).
 Prepared-body separation, header registration and explicit selected-body
-materialization are implemented. Code requests, a public prepared-global importer
-and frontend execution on Java remain subsequent acceptance gates.
+materialization and forkable code requests are implemented. A public prepared-global
+importer and frontend execution on Java remain subsequent acceptance gates.
 
 ## Why separate identity from implementation
 
@@ -63,10 +63,10 @@ already-published unavailable externs cannot be rebound in this tranche.
 
 Known unsupported numeric lanes remain metadata and reject execution explicitly.
 Structured types and inline/other-backend extern descriptions are not covered.
-PAP construction can reference an unforced supported boxed target. Missing code
-rejects explicitly; it does not yet produce a CodeRequest. Root and AP preflight
-preserve owned inputs before missing-code failure. A failed active guest frame
-still has the existing unsupported general-cleanup limitation.
+PAP construction can reference an unforced supported boxed target. The recursive
+driver rejects missing code before taking root/AP inputs; the explicit driver
+commits a CodeRequest activation instead. A failed active guest frame still has
+the existing unsupported general-cleanup limitation.
 
 The [header implementation record](../measurements/java-ir-executable-headers-2026-10-29.edn)
 passes 10 focused tests / 62 assertions and the combined isolated jar gate of
@@ -109,13 +109,22 @@ model.
 
 ## Code demand and control
 
-Use a distinct `CodeRequest`, separate from `HostRequest` and guest extern results.
+The implemented API uses a distinct `CodeRequest`, separate from `HostRequest`
+and guest extern results.
 The explicit driver suspends before entering an unprepared body, with a committed
 activation containing target identity, accepted source identity, arguments,
 return destination/kind, continuation and any AP surplus. No callee instruction
 or initializer has run. `advance` at a code request returns without polling.
 The recursive driver may explicitly reject unprepared execution; it must not
 invoke a hidden loader or fall back to another interpreter.
+
+`pendingCodeRequest()` returns only the active code request. Its defensive
+accessors expose the issued Header/source/Name/digest/ABI and borrowed argument
+views. `resumeCode(request, descendant)` preallocates and validates before
+claiming, then enters the saved activation once. `failCode(request, cause)` marks
+that branch terminal. `failureCodeRequest()`, `codeFailure()` and bounded
+`codeFailureMessage()` retain diagnostics after failure. Convenience `invoke`
+reports suspension; it never polls the loader. No request invokes a callback.
 
 Root arguments transfer once after entry validation. Static FAP borrowed arguments
 do not gain owner credits merely because a request stores their views. AP may
@@ -138,6 +147,23 @@ caller layout; it does not resolve that layout again through a new header.
 Fork requests, activation arguments, AP surplus, heap and constants through the
 same graph memo. Child request identities belong to the child engine. Siblings
 can resolve code independently without sharing mutable control or code slots.
+
+The implemented gates cover root/scalar/nested demands, nullary caching,
+oversaturation across two code requests, shared captured owners and fork aliases,
+host-reply overapplication, wrong/stale replies, independently linked sibling
+callee IDs and injected failure after claim. The actual ppExt experiment now
+forks at its first code pause; each branch demands the two original initializer
+bodies independently, preserves the current saved PPFns record and leaves all
+five callback bodies unprepared. Graph construction remains reflective research
+code, and ref mutation remains a host-side probe.
+
+The [code-request implementation record](../measurements/java-ir-code-requests-2026-10-29.edn)
+passes 10 focused code tests / 59 assertions and the combined isolated jar gate
+of 359 executions / 13,493 assertions with a 384 MiB heap. Header-only recursive
+rejection tests remain covered; explicit missing-code cases now exercise requests.
+Paired warmed RBMap allocation remained 1,515,859.52 bytes per run. CPU medians
+were recursive prior 2.314 ms / requests 2.247 ms and explicit 2.919 / 2.818 ms;
+these shared-machine controls establish no speedup or native-performance claim.
 
 Readiness precedes body forcing. A ready nullary cached value requires no body.
 An explicitly initialized global without an installed ready value raises a
@@ -185,3 +211,7 @@ This is a route to bounded frontend experiments, not evidence of Java frontend
 self-hosting, full Lean runtime coverage, or native-competitive performance.
 Future Pattern/JVM compilation can target the same values, generation identities,
 prepared slots and explicit control boundaries. LLVM is not required.
+
+First-release code/state distribution is described in
+[the pinned frontend bundle plan](JAVA_FRONTEND_BUNDLE.md). A bundle avoids a
+native build for runtime users; it does not supply missing Java runtime behavior.

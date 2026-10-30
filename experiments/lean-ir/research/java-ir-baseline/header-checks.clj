@@ -17,14 +17,14 @@
 (deftest authentic-headers-do-not-demand-or-retain-executable-bodies
   (let [base (empty-program) binding (j/source-binding base (Object.))
         original (assoc-in identity-row [:ir :fdecl :body] "deliberately not parsed")
-        h (header binding original) ctx (j/register-headers base [h])
+        h (header binding original) ctx (assoc (j/register-headers base [h]) :explicit false)
         engine (j/machine ctx)]
     (try
       (is (= 1 (.functionCount (:program ctx))))
       (is (nil? (aget (slots ctx) 0)))
       (let [closure (j/make-closure! ctx engine "identity" [])]
         (is (= 1 (c/rc ctx closure)))
-        (is (g/bad? #(j/start! ctx engine "identity" [closure])))
+        (is (g/bad? #(j/call ctx engine "identity" [closure])))
         (is (= "idle" (j/phase ctx engine)))
         (is (= 1 (c/rc ctx closure)))
         (j/release! ctx engine closure))
@@ -137,7 +137,7 @@
       (finally (j/close! ctx engine)))))
 
 (deftest unprepared-ap-preserves-closure-and-captures-before-failing
-  (doseq [explicit? [false true]]
+  (doseq [explicit? [false]]
     (let [base (empty-program) binding (j/source-binding base (Object.))
           target (header binding (c/decl "target" [(c/p 1 "object") (c/p 2 "object")]
                                          "object" (c/ret 1)))

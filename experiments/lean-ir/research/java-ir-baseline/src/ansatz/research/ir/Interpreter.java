@@ -91,6 +91,33 @@ public final class Interpreter implements AutoCloseable {
         long completionScalar;
     }
 
+    /** Borrowed diagnostic view of a committed code activation. This request
+     * grants no source IO capability and creates no argument owner credits. */
+    public static final class CodeRequest {
+        private final Object owner;
+        private final CodeActivation activation;
+        private CodeRequest(Object owner,CodeActivation activation) { this.owner=owner; this.activation=activation; }
+        public Header header() { return activation.function.header; }
+        public SourceBinding source() { return header().source(); }
+        public Object name() { return header().name(); }
+        public String originalSha256() { return header().originalSha256(); }
+        public int functionId() { return activation.function.id; }
+        public int[] params() { return header().params(); }
+        public String[] paramTypes() { return header().paramTypes(); }
+        public boolean[] borrowed() { return header().borrowed(); }
+        public String resultType() { return header().resultType(); }
+        public Object[] arguments() { return activation.arguments.clone(); }
+    }
+    /** Arguments/captures have already transferred according to the caller's
+     * ABI. Resume enters this exact activation; it never prepares AP again. */
+    private static final class CodeActivation {
+        Function function;
+        Object[] arguments,surplus;
+        Body next;
+        int dest,kind;
+        boolean claimed;
+    }
+
     /** Exact captured ABI, deliberately distinct from physical JVM lanes. */
     private static final class ExternSpec {
         final String symbol,resultType;
@@ -521,7 +548,7 @@ public final class Interpreter implements AutoCloseable {
     private Object[] releaseWork=new Object[32];
     private long callsLeft;
     private final boolean explicit;
-    private static final int IDLE=0, RUNNING=1, COMPLETE=2, FAILED=3, HOST_CALL=4;
+    private static final int IDLE=0, RUNNING=1, COMPLETE=2, FAILED=3, HOST_CALL=4, CODE_CALL=5;
     private static final int ASSIGN=0, CACHE=1, APPLY=2, ROOT=4;
     private int phase=IDLE, continuationDepth;
     private long instructions;
@@ -535,6 +562,8 @@ public final class Interpreter implements AutoCloseable {
     private HostRequest hostRequest,failedHostRequest;
     private HostCall hostCompletion;
     private Throwable hostFailure;
+    private CodeRequest codeRequest,failedCodeRequest;
+    private Throwable codeFailure;
     private static final class Continuation {
         Function caller;
         PreparedBody callerPrepared;
@@ -606,6 +635,7 @@ public final class Interpreter implements AutoCloseable {
         child.applicationSurplus=(Object[])copy.value(applicationSurplus);
         child.hostRequest=(HostRequest)copy.value(hostRequest);
         child.hostCompletion=(HostCall)copy.value(hostCompletion);
+        child.codeRequest=(CodeRequest)copy.value(codeRequest);
         child.allocations=allocations; child.stores=stores; child.retains=retains;
         child.releases=releases; child.shellDeletes=shellDeletes;
         Object[] roots=(Object[])copy.value(externalRoots);
@@ -645,6 +675,19 @@ public final class Interpreter implements AutoCloseable {
                 Function out=new Function(old.label,old.id,old.params,old.paramTypes,
                         old.resultType,old.intrinsic,old.hostExtern,child.runtimeIdentity);
                 copies.put(source,out); return out;
+            }
+            if(source instanceof CodeRequest) {
+                CodeRequest old=(CodeRequest)source;
+                if(old.owner!=runtimeIdentity) throw error("Code request belongs to another interpreter");
+                CodeRequest out=new CodeRequest(child.runtimeIdentity,(CodeActivation)value(old.activation));
+                copies.put(source,out); return out;
+            }
+            if(source instanceof CodeActivation) {
+                CodeActivation old=(CodeActivation)source,out=new CodeActivation(); copies.put(source,out);
+                out.function=(Function)value(old.function); out.arguments=(Object[])value(old.arguments);
+                out.surplus=(Object[])value(old.surplus); out.next=old.next;
+                out.dest=old.dest; out.kind=old.kind; out.claimed=old.claimed;
+                return out;
             }
             if(source instanceof HostRequest) {
                 HostRequest old=(HostRequest)source;
@@ -1211,13 +1254,15 @@ public final class Interpreter implements AutoCloseable {
         for(int i=0;i<function.paramTypes.length;i++) if(function.paramTypes[i]<0)
             throw error("Unsupported execution lane "+header.paramTypes[i]+" in "+function.label+" ["+header.originalSha256+"]");
     }
-    private void preflightCallable(Function function) {
+    private void preflightCallable(Function function) { preflightCallable(function,false); }
+    private void preflightCallable(Function function,boolean allowCodeRequest) {
         requireExecutableAbi(function);
         if(function.params.length==0&&constantReady[function.id]) return;
         Header header=function.header;
         if(header!=null&&header.initialized()) throw error("Initialized global is unavailable: "+function.label);
         if(function.hostExtern!=null||function.intrinsic!=0) return;
         if(header!=null&&header.kind.equals("extern")) throw error("Extern implementation unavailable: "+function.label);
+        if(allowCodeRequest&&header!=null&&program.preparedBodies[function.id]==null) return;
         preparedBody(function);
     }
     private PreparedBody preparedBody(Function function) {
@@ -1353,16 +1398,22 @@ public final class Interpreter implements AutoCloseable {
                        "Closure function identity differs from current code generation");
     }
     private void generationBoundary(String operation) {
-        if(closed||advancing||untrackedFailure||(phase!=IDLE&&phase!=HOST_CALL)||(!explicit&&sp!=0))
-            throw new IllegalStateException(operation+" requires an open idle or host-call boundary");
+        if(closed||advancing||untrackedFailure||(phase!=IDLE&&phase!=HOST_CALL&&phase!=CODE_CALL)||(!explicit&&sp!=0))
+            throw new IllegalStateException(operation+" requires an open idle, host-call or code-call boundary");
     }
     /** Install only an actual descendant. Preserve all initialized cache owners
      * and readiness; new slots start unready. Both arrays are allocated before
      * the thread-confined publication, with no guest calls or initializer replay. */
     public void installProgram(Program descendant) {
         generationBoundary("Program installation");
-        require(descendant!=null,"Actual descendant Program required");
+        validateDescendant(descendant);
         if(descendant==program) return;
+        Object[] nextConstants=Arrays.copyOf(constants,descendant.functions.length);
+        boolean[] nextReady=Arrays.copyOf(constantReady,descendant.functions.length);
+        constants=nextConstants; constantReady=nextReady; program=descendant;
+    }
+    private void validateDescendant(Program descendant) {
+        require(descendant!=null,"Actual descendant Program required");
         require(descendant.generation.accepts(program.generation),"Program is not a descendant of the installed generation");
         require(descendant.functions.length>=program.functions.length,"Descendant function table shrank");
         for(int i=0;i<program.functions.length;i++) {
@@ -1370,9 +1421,6 @@ public final class Interpreter implements AutoCloseable {
             require(program.preparedBodies[i]==null||descendant.preparedBodies[i]==program.preparedBodies[i],
                     "Descendant replaced an inherited prepared body");
         }
-        Object[] nextConstants=Arrays.copyOf(constants,descendant.functions.length);
-        boolean[] nextReady=Arrays.copyOf(constantReady,descendant.functions.length);
-        constants=nextConstants; constantReady=nextReady; program=descendant;
     }
     /** Host-boundary PAP construction, not function execution. The caller
      * transfers capture credits once; array copying never retains the values.
@@ -1514,11 +1562,97 @@ public final class Interpreter implements AutoCloseable {
         markHostFailure(request,cause);
     }
 
+    private void suspendCode(Function function,int[] slots,Object[] args,Body next,int dest,int kind,Object[] surplus) {
+        if(!explicit||codeRequest!=null||hostRequest!=null) throw new IllegalStateException("Invalid nested code suspension");
+        require(function.header!=null&&function.header.kind.equals("fdecl"),"Source fdecl Header required for code demand");
+        CodeActivation activation=new CodeActivation();
+        activation.function=function; activation.next=next; activation.dest=dest; activation.kind=kind;
+        activation.surplus=surplus;
+        if(slots==null) activation.arguments=args.clone();
+        else {
+            activation.arguments=new Object[slots.length];
+            for(int i=0;i<slots.length;i++) activation.arguments[i]=function.paramTypes[i]==OBJ
+                    ?obj(slots[i]):externalScalar(numbers[bp+slots[i]],function.paramTypes[i]);
+        }
+        codeRequest=new CodeRequest(runtimeIdentity,activation); pc=next; phase=CODE_CALL;
+    }
+    public CodeRequest pendingCodeRequest() { return phase==CODE_CALL?codeRequest:null; }
+    public CodeRequest failureCodeRequest() { return failedCodeRequest; }
+    public Throwable codeFailure() { return codeFailure; }
+    public String codeFailureMessage() {
+        if(codeFailure==null) return null;
+        String message;
+        try { message=codeFailure.getMessage(); }
+        catch(Throwable ignored) { message="Code failure message unavailable"; }
+        if(message==null) message=codeFailure.getClass().getName();
+        return message.substring(0,Math.min(900,message.length()));
+    }
+    private CodeActivation requireCodeRequest(CodeRequest request) {
+        explicitOnly();
+        if(advancing) throw new IllegalStateException("Reentrant code completion");
+        if(request==null||request.owner!=runtimeIdentity||phase!=CODE_CALL||codeRequest!=request||request.activation.claimed)
+            throw new IllegalStateException("Stale or foreign code request");
+        return request.activation;
+    }
+    private void markCodeFailure(CodeRequest request,Throwable cause) {
+        codeRequest=null; failedCodeRequest=request; codeFailure=cause;
+        pendingOwnedResult=false; phase=FAILED;
+    }
+    /** Install an actual materialized descendant and enter the saved activation
+     * once. Every rejection before claim preserves Program, request and owners.
+     * Postclaim entry failure is terminal, with activation diagnostics retained. */
+    public void resumeCode(CodeRequest request,Program descendant) {
+        CodeActivation activation=requireCodeRequest(request);
+        validateDescendant(descendant);
+        Function function=activation.function;
+        require(function.id<descendant.functions.length&&descendant.functions[function.id]==function
+                &&function.header==request.header(),"Code reply changed the requested Header");
+        PreparedBody prepared=descendant.preparedBodies[function.id];
+        require(prepared!=null&&prepared.body!=null,"Code reply has no requested prepared body");
+        requireExecutableAbi(function);
+        validateEntryArguments(function,activation.arguments);
+        if(continuationDepth>=65536) throw error("Continuation depth limit");
+        int newSp=Math.addExact(sp,prepared.width),newJsp=Math.addExact(jsp,prepared.joinWidth);
+        if(newSp>8_000_000||newJsp>2_000_000) throw error("Explicit stack limit");
+        Object[] nextConstants=constants; boolean[] nextReady=constantReady;
+        if(descendant!=program) {
+            nextConstants=Arrays.copyOf(constants,descendant.functions.length);
+            nextReady=Arrays.copyOf(constantReady,descendant.functions.length);
+        }
+        Object[] nextObjects=objects; long[] nextNumbers=numbers; Body[] nextJoins=joins;
+        if(newSp>objects.length) {
+            int capacity=Math.max(newSp,objects.length*2);
+            nextObjects=Arrays.copyOf(objects,capacity); nextNumbers=Arrays.copyOf(numbers,capacity);
+        }
+        if(newJsp>joins.length) nextJoins=Arrays.copyOf(joins,Math.max(newJsp,joins.length*2));
+        Continuation[] nextContinuations=continuations;
+        if(continuationDepth==continuations.length)
+            nextContinuations=Arrays.copyOf(continuations,continuations.length*2);
+        if(nextContinuations[continuationDepth]==null) {
+            if(nextContinuations==continuations) nextContinuations=continuations.clone();
+            nextContinuations[continuationDepth]=new Continuation();
+        }
+        activation.claimed=true; codeRequest=null; advancing=true;
+        try {
+            constants=nextConstants; constantReady=nextReady; program=descendant;
+            objects=nextObjects; numbers=nextNumbers; joins=nextJoins; continuations=nextContinuations;
+            phase=RUNNING;
+            enterExplicit(function,null,activation.arguments,activation.next,activation.dest,activation.kind,activation.surplus);
+        } catch(Throwable failure) { markCodeFailure(request,failure); throw failure; }
+        finally { advancing=false; }
+    }
+    /** No replay or blanket cleanup: original argument obligations remain. */
+    public void failCode(CodeRequest request,Throwable cause) {
+        requireCodeRequest(request);
+        if(cause==null) throw error("Code failure cause required");
+        request.activation.claimed=true; markCodeFailure(request,cause);
+    }
+
     private void explicitOnly() {
         if(!explicit) throw new IllegalStateException("Explicit mode required");
         if(closed) throw new IllegalStateException("Interpreter closed");
     }
-    public String phase() { return new String[]{"idle","running","complete","failed","host-call"}[phase]; }
+    public String phase() { return new String[]{"idle","running","complete","failed","host-call","code-call"}[phase]; }
     public int continuationDepth() { return continuationDepth; }
     public long instructionCount() { return instructions; }
     public String activeFunction() { return active==null?null:active.label; }
@@ -1542,7 +1676,7 @@ public final class Interpreter implements AutoCloseable {
         if(advancing||phase!=IDLE) throw new IllegalStateException("Take the result or finish the current execution before start");
         Function f=program.functions[function];
         rootEntry(f);
-        preflightCallable(f);
+        preflightCallable(f,true);
         validateEntryArguments(f,args);
         if(f.params.length==0&&constantReady[f.id]) {
             if(f.resultType==OBJ) { result=constants[f.id]; inc(result,1); }
@@ -1569,7 +1703,10 @@ public final class Interpreter implements AutoCloseable {
 
     private void enterExplicit(Function f,int[] slots,Object[] args,Body next,int dest,int kind,Object[] surplus) {
         if(continuationDepth>=65536) throw error("Continuation depth limit");
-        preflightCallable(f);
+        preflightCallable(f,true);
+        if(program.preparedBodies[f.id]==null) {
+            suspendCode(f,slots,args,next,dest,kind,surplus); return;
+        }
         PreparedBody prepared=preparedBody(f);
         int newSp=Math.addExact(sp,prepared.width),newJsp=Math.addExact(jsp,prepared.joinWidth);
         if(newSp>8_000_000||newJsp>2_000_000) throw error("Explicit stack limit");
@@ -1598,7 +1735,7 @@ public final class Interpreter implements AutoCloseable {
         acceptsClosure(closure);
         Function f=closure.closure;
         requireExecutableAbi(f);
-        if(closure.fields.length+args.length>=f.params.length) preflightCallable(f);
+        if(closure.fields.length+args.length>=f.params.length) preflightCallable(f,true);
         Object[] combined=new Object[closure.fields.length+args.length];
         System.arraycopy(closure.fields,0,combined,0,closure.fields.length);
         if(closure.rc!=1) for(Object a:closure.fields) inc(a,1);
@@ -1655,7 +1792,7 @@ public final class Interpreter implements AutoCloseable {
         if(budget<0) throw error("Negative instruction budget");
         if(advancing) throw new IllegalStateException("Reentrant advance");
         if(phase==COMPLETE) return true;
-        if(phase==HOST_CALL) return false;
+        if(phase==HOST_CALL||phase==CODE_CALL) return false;
         if(phase!=RUNNING) throw new IllegalStateException("No resumable execution: "+phase());
         advancing=true;
         try { runExplicitLoop(budget); return phase==COMPLETE; }
@@ -1673,7 +1810,7 @@ public final class Interpreter implements AutoCloseable {
                         Expr e=b.expr; int dest=bp+b.a;
                         if(e.op==FAP) {
                             Function f=e.target;
-                            if(f!=active) preflightCallable(f);
+                            if(f!=active) preflightCallable(f,true);
                             if(f==active&&b.next.op==RET&&b.next.a==b.a) {
                                 int scratch=sp; ensure(sp+e.args.length,jsp);
                                 for(int i=0;i<e.args.length;i++) { objects[scratch+i]=obj(e.args[i]); numbers[scratch+i]=numbers[bp+e.args[i]]; }
@@ -1744,6 +1881,7 @@ public final class Interpreter implements AutoCloseable {
         if(explicit) {
             start(function,args); advance(Long.MAX_VALUE);
             if(phase==HOST_CALL) throw new IllegalStateException("Invocation suspended for host extern: "+hostRequest.symbol());
+            if(phase==CODE_CALL) throw new IllegalStateException("Invocation suspended for code: "+codeRequest.header().name());
             return takeResult();
         }
         if(sp!=0) throw error("Reentrant external invocation unsupported");
@@ -1774,7 +1912,7 @@ public final class Interpreter implements AutoCloseable {
     }
     @Override public void close() {
         if(closed) return; closed=true;
-        if(explicit&&(phase==RUNNING||phase==FAILED||phase==HOST_CALL)) {
+        if(explicit&&(phase==RUNNING||phase==FAILED||phase==HOST_CALL||phase==CODE_CALL)) {
             closed=false;
             throw new IllegalStateException("Active or failed explicit execution requires ownership cleanup before close");
         }
