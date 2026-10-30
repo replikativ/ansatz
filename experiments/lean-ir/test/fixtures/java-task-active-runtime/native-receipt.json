@@ -1,0 +1,26 @@
+{
+  "schema": "matching-native-task-order-oracle/1",
+  "lean-commit": "819816b2e0a3bf405af45ae5c7af2491d8f5bee6",
+  "version": "Lean (version 4.33.1, x86_64-unknown-linux-gnu, commit 819816b2e0a3bf405af45ae5c7af2491d8f5bee6, Release)",
+  "binary-sha256": "e8baaa71855a616dc351028f3ad2200051b0671f423a1696a100e809302d5550",
+  "runtime-sha256": "23d636cac1cadcba37beac30eff9b9b20d66cee726cf5defb4ae39f1284a3e5a",
+  "script-sha256": "ce155c6ab5dc10a47ab49046f01cf0c88d79b738aa0bfba85dd162e6da7acaf6",
+  "output-sha256": "3034d9486fe7245f31e97639b5e27136ad106742ace04f57f62eb59bf3323b49",
+  "exit": 0,
+  "stderr": "",
+  "environment": {
+    "LC_ALL": "C",
+    "LANG": "C"
+  },
+  "mode": "--run",
+  "scope": "Deterministic promise lifecycle and synchronous callback trace; no async timing or JVM implementation claim.",
+  "provenance-scope": "Matching installed binary/runtime, not proof this executable produced the accepted IR checkpoint.",
+  "aot": {
+    "exit": 0,
+    "stderr": "",
+    "matches-run-trace": true,
+    "leanc-sha256": "cc293b2c81b7bc16d750959c7c82d61f4b95f50c2942d1131d57c078b8245ac1",
+    "generated-c-sha256": "626966dcc1f9159b6ae819b49d2d2e0450ce229b2894252e062a778f1fab516f",
+    "executable-sha256": "3e0326bdb659b6fe53de1c24a9b3d0e7d240de3f53828682505cf014f411e85b"
+  }
+}
