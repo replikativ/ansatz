@@ -35,7 +35,15 @@ UInt32 2^31/2^32−1 and USize 2^63/2^64−1. The bounded native run exited0 wit
 empty stderr under a 256 MiB address-space cap. It is an arithmetic/cast oracle,
 not a full Lean runtime ABI, captured state or frontend-completion proof.
 
-`u64-widen-checks.clj` provides five focused tests for both drivers. The root will
-run them in its retained REPL using the new isolated jar, then retry the genuine
-original frontend boundary and perform integration gates. No additional Clojure
-runtime or frontend image is launched by this feature worker.
+`u64-widen-checks.clj` passed five focused tests / 144 assertions in each driver
+in the root's retained 384 MiB REPL. Java11 compilation passed; the final combined
+isolated jar gate passed 98 suites / 953 tests / 50,283 assertions with exit0.
+The runner footer independently matches all98 observed suite counts in order.
+Source SHA256 is `7f794ef76d8bae393a68eba6f7c61c24e3d76b69d6bdda5c9e8a74914e123416`;
+jar SHA256 is `ec92dec6d690260449c2d7b8b50eea187216197e5112af814c5390ec63ce5c63`.
+
+The genuine original command crossed the UInt32 widening boundary, reaching
+360,530 instructions / 1,175 demanded bodies before the next missing initialized
+global, `Lean.Elab.Term.termElabAttribute`. This does not establish complete
+frontend execution. This feature worker launched only bounded compiler/jar
+processes, no additional live Clojure interpreter or frontend image.
