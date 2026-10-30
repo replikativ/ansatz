@@ -14,23 +14,23 @@
            [java.util HashMap]))
 
 (defn- fail [message data] (throw (ex-info message data)))
-(def ^:private carrier-ops {:ref? m/ref? :node m/node})
-(defn- nat! [world value] (native/nat-value carrier-ops world value))
-(defn- long! [world value]
-  (let [n (nat! world value)]
+(def ^:private default-carrier-ops {:ref? m/ref? :node m/node})
+(defn- nat! [ops world value] (native/nat-value ops world value))
+(defn- long! [ops world value]
+  (let [n (nat! ops world value)]
     (when (> n Long/MAX_VALUE) (fail "Guest Nat exceeds Java long representation" {:value value})) (long n)))
-(defn- scalar-tag [v]
+(defn- scalar-tag [ops v]
   (cond (native/native-scalar? v) (native/payload v)
-        (integer? v) (long! nil v) (instance? prototype.machine.Tag v) (:tag v) :else nil))
+        (integer? v) (long! ops nil v) (instance? prototype.machine.Tag v) (:tag v) :else nil))
 
 (defn constructor-layout?
   "Pinned semantic storage, or validated native/imported raw clone padding.
    Storage witnesses never establish native object or kernel identity."
   [node fields scalar-size]
   (constructor/constructor-layout? node fields scalar-size))
-(defn- ctor! [world value tag fields scalar-size]
-  (when-not (m/ref? value) (fail "Expected guest constructor reference" {:value value}))
-  (let [node (m/node world value)
+(defn- ctor! [ops world value tag fields scalar-size]
+  (when-not ((:ref? ops) value) (fail "Expected guest constructor reference" {:value value}))
+  (let [node ((:node ops) world value)
         layout (:layout node)]
     (when-not (and (= :ctor (:kind node)) (= tag (:tag node)) (vector? (:fields node))
                    (= fields (count (:fields node)))
@@ -46,46 +46,46 @@
     {:index (count (:fields node)) :offset offset :type "uint8" :region :scalar}))
 (defn- leaf [value] {:children [] :build (fn [_] value)})
 
-(defn- specification [world kind value]
+(defn- specification [ops world kind value]
   (case kind
-    :nat (leaf (nat! world value))
-    :string (leaf (string/string-value carrier-ops world value))
+    :nat (leaf (nat! ops world value))
+    :string (leaf (string/string-value ops world value))
     :name
-    (if (= 0 (scalar-tag value)) (leaf Name/ANONYMOUS_NAME)
-      (let [tag (:tag (m/node world value)) node (ctor! world value tag 2 8) [parent payload] (:fields node)]
+    (if (= 0 (scalar-tag ops value)) (leaf Name/ANONYMOUS_NAME)
+      (let [tag (:tag ((:node ops) world value)) node (ctor! ops world value tag 2 8) [parent payload] (:fields node)]
         (case tag
           1 {:children [[:name parent] [:string payload]] :build (fn [[p s]] (Name/mkStr p s))}
-          2 {:children [[:name parent]] :build (fn [[p]] (Name/mkNum p (long! world payload)))}
+          2 {:children [[:name parent]] :build (fn [[p]] (Name/mkNum p (long! ops world payload)))}
           (fail "Invalid guest Name tag" {:tag tag}))))
     :level
-    (if (= 0 (scalar-tag value)) (leaf Level/ZERO_LEVEL)
-      (let [tag (:tag (m/node world value))
+    (if (= 0 (scalar-tag ops value)) (leaf Level/ZERO_LEVEL)
+      (let [tag (:tag ((:node ops) world value))
             _ (when (= 5 tag) (fail "Unresolved guest level metavariable" {}))
             count (case tag 1 1 (2 3) 2 4 1 (fail "Invalid guest Level tag" {:tag tag}))
-            node (ctor! world value tag count 8) [a b] (:fields node)]
+            node (ctor! ops world value tag count 8) [a b] (:fields node)]
         (case tag
           1 {:children [[:level a]] :build (fn [[a]] (Level/succ a))}
           2 {:children [[:level a] [:level b]] :build (fn [[a b]] (Level/max a b))}
           3 {:children [[:level a] [:level b]] :build (fn [[a b]] (Level/imax a b))}
           4 {:children [[:name a]] :build (fn [[a]] (Level/param a))})))
     (:names :levels)
-    (if (= 0 (scalar-tag value)) (leaf '())
-      (let [[head tail] (:fields (ctor! world value 1 2 0))]
+    (if (= 0 (scalar-tag ops value)) (leaf '())
+      (let [[head tail] (:fields (ctor! ops world value 1 2 0))]
         {:children [[(if (= kind :names) :name :level) head] [kind tail]] :build (fn [[head tail]] (cons head tail))}))
     :literal
-    (let [tag (:tag (m/node world value)) [payload] (:fields (ctor! world value tag 1 0))]
+    (let [tag (:tag ((:node ops) world value)) [payload] (:fields (ctor! ops world value tag 1 0))]
       (case tag
         0 {:children [[:nat payload]] :build (fn [[n]] (Expr/litNat n))}
         1 {:children [[:string payload]] :build (fn [[s]] (Expr/litStr s))}
         (fail "Invalid guest Literal tag" {:tag tag})))
     :expr
-    (let [tag (:tag (m/node world value))
+    (let [tag (:tag ((:node ops) world value))
           _ (when (contains? #{1 2} tag) (fail "Unresolved guest free/metavariable" {:tag tag}))
           [fields size] (case tag (0 3 9) [1 8] (4 5 10) [2 8] (6 7) [3 9] 8 [4 9] 11 [3 8]
                          (fail "Invalid guest Expr tag" {:tag tag}))
-          node (ctor! world value tag fields size) [a b c d] (:fields node)]
+          node (ctor! ops world value tag fields size) [a b c d] (:fields node)]
       (case tag
-        0 (let [idx (long! world a)]
+        0 (let [idx (long! ops world a)]
             (when (>= idx 1048575) (fail "Guest bound variable exceeds Java metadata range" {:index idx}))
             (leaf (Expr/bvar idx)))
         3 {:children [[:level a]] :build (fn [[u]] (Expr/sort u (Level/hasParam u)))}
@@ -103,54 +103,54 @@
                :build (fn [[n t v body]] (Expr/mkLet n t v body))})
         9 {:children [[:literal a]] :build first}
         10 {:children [[:expr b]] :build first}
-        11 {:children [[:name a] [:expr c]] :build (fn [[n e]] (Expr/proj n (long! world b) e))}))
+        11 {:children [[:name a] [:expr c]] :build (fn [[n e]] (Expr/proj n (long! ops world b) e))}))
     :constant-val
-    (let [[name params type] (:fields (ctor! world value 0 3 0))]
+    (let [[name params type] (:fields (ctor! ops world value 0 3 0))]
       {:children [[:name name] [:names params] [:expr type]]
        :build (fn [[n p t]] {:name n :params p :type t})})
     :hints
-    (case (scalar-tag value)
+    (case (scalar-tag ops value)
       0 (leaf ConstantInfo/REDUCIBILITY_OPAQUE)
       1 (leaf ConstantInfo/REDUCIBILITY_ABBREV)
-      (let [node (ctor! world value 2 0 4)
+      (let [node (ctor! ops world value 2 0 4)
             height (scalar/read-bytes (:layout node) (:scalar-bytes node)
                      {:index 0 :offset 0 :type "uint32" :region :scalar})]
         ;; Lean's UInt32 regular height includes zero and does not alias abbrev.
         (leaf (long height))))
     :axiom-val
-    (let [node (ctor! world value 0 1 1) [constant] (:fields node)]
+    (let [node (ctor! ops world value 0 1 1) [constant] (:fields node)]
       (when-not (= 0 (byte-at node 0))
         (fail "Only safe axioms are supported" {}))
       {:children [[:constant-val constant]]
        :build (fn [[{:keys [name params type]}]]
                 (ConstantInfo/mkAxiom name (object-array params) type false))})
     :axiom-declaration
-    (let [[axiom] (:fields (ctor! world value 0 1 0))]
+    (let [[axiom] (:fields (ctor! ops world value 0 1 0))]
       {:children [[:axiom-val axiom]] :build first})
     :compiler-marker-constant
-    (let [[name params type] (:fields (ctor! world value 0 3 0))
-          [parent text] (:fields (ctor! world name 1 2 8))
-          [level] (:fields (ctor! world type 3 1 8))
-          [zero] (:fields (ctor! world level 1 1 8))
-          text (string/string-value carrier-ops world text)]
+    (let [[name params type] (:fields (ctor! ops world value 0 3 0))
+          [parent text] (:fields (ctor! ops world name 1 2 8))
+          [level] (:fields (ctor! ops world type 3 1 8))
+          [zero] (:fields (ctor! ops world level 1 1 8))
+          text (string/string-value ops world text)]
       ;; Test the raw guest shape before projection: mdata and normalized
       ;; max/imax universes must not widen this three-declaration capability.
-      (when-not (and (= 0 (scalar-tag parent))
+      (when-not (and (= 0 (scalar-tag ops parent))
                      (string? text) (contains? #{"lcAny" "lcErased" "lcVoid"} text)
-                     (= 0 (scalar-tag params)) (= 0 (scalar-tag zero)))
+                     (= 0 (scalar-tag ops params)) (= 0 (scalar-tag ops zero)))
         (fail "Expected an exact pinned compiler marker" {}))
       {:children [[:name name] [:expr type]]
        :build (fn [[name type]] (ConstantInfo/mkAxiom name (object-array []) type true))})
     :compiler-marker-val
-    (let [node (ctor! world value 0 1 1) [constant] (:fields node)]
+    (let [node (ctor! ops world value 0 1 1) [constant] (:fields node)]
       (when-not (= 1 (byte-at node 0))
         (fail "Compiler marker must preserve isUnsafe=true" {}))
       {:children [[:compiler-marker-constant constant]] :build first})
     :compiler-marker-declaration
-    (let [[axiom] (:fields (ctor! world value 0 1 0))]
+    (let [[axiom] (:fields (ctor! ops world value 0 1 0))]
       {:children [[:compiler-marker-val axiom]] :build first})
     :definition-val
-    (let [node (ctor! world value 0 4 1) [constant value hints all] (:fields node)]
+    (let [node (ctor! ops world value 0 4 1) [constant value hints all] (:fields node)]
       ;; Safe single definitions only; unsafe/partial recursion needs group admission.
       (when-not (= 1 (byte-at node 0)) (fail "Only safe single definitions are supported" {}))
       {:children [[:constant-val constant] [:expr value] [:hints hints] [:names all]]
@@ -158,35 +158,47 @@
                 (when-not (= [name] (vec all)) (fail "Expected one-member definition metadata" {}))
                 (ConstantInfo/mkDefWithHints name (object-array params) type body (long hints) (byte 0) (object-array all)))})
     :declaration
-    (let [[definition] (:fields (ctor! world value 1 1 0))]
+    (let [[definition] (:fields (ctor! ops world value 1 1 0))]
       {:children [[:definition-val definition]] :build first})
     (fail "Unsupported kernel projection kind" {:kind kind})))
 
 (defn make-projector
-  "Capture exactly WORLD and one private typed memo for a bulk projection scope.
-   The returned function accepts [world kind value] and rejects even an equal
-   independent world. No global cache or guest state/ownership changes occur.
-   Keep this context invocation-local; dropping it releases intermediate memo
-   entries while its returned Java values retain their ordinary immutable DAG."
-  [world]
-  (let [^HashMap memo (HashMap.)]
-    (fn [current-world kind value]
-      (when-not (identical? world current-world)
-        (fail "Kernel projector belongs to a different world" {}))
-      (locking memo
-        (let [root [kind value]]
-          (loop [work [[:visit root]] active #{}]
-            (if (empty? work) {:value (.get memo root) :projected-nodes (.size memo)}
-              (let [[op key spec] (peek work) work (pop work)]
-                (case op
-                  :visit (if (.containsKey memo key) (recur work active)
-                           (do (when (contains? active key) (fail "Cyclic guest kernel value" {:kind (first key)}))
-                               (let [spec (specification world (first key) (second key))]
-                                 (recur (into (conj work [:build key spec])
-                                              (map #(vector :visit %) (reverse (:children spec))))
-                                        (conj active key)))))
-                  :build (do (.put memo key ((:build spec) (mapv #(.get memo %) (:children spec))))
-                             (recur work (disj active key))))))))))))
+  "Capture exactly WORLD and one private typed memo for a projection scope.
+   Optional carrier ops have :ref? [value], :node [world value] and optional
+   :check! []. They supply storage views, never semantic projection rules.
+   check! runs even on memo hits and every traversal iteration. The returned
+   function has a :prototype.kernel-bridge/clear-memo! metadata hook which clears
+   the memo under the same lock; carrier lifetime/invalidating ops remain the
+   adapter's responsibility. Default arity preserves m.World behavior."
+  ([world] (make-projector world default-carrier-ops))
+  ([world ops]
+   (when-not (and (map? ops) (fn? (:ref? ops)) (fn? (:node ops))
+                  (every? #{:ref? :node :check!} (keys ops))
+                  (or (nil? (:check! ops)) (fn? (:check! ops))))
+     (fail "Invalid checking projection carrier operations" {}))
+   (let [^HashMap memo (HashMap.) check! (or (:check! ops) (fn [] nil))]
+     (with-meta
+       (fn [current-world kind value]
+         (when-not (identical? world current-world)
+           (fail "Kernel projector belongs to a different world" {}))
+         (locking memo
+           (check!)
+           (let [root [kind value]]
+             (loop [work [[:visit root]] active #{}]
+               (check!)
+               (if (empty? work) {:value (.get memo root) :projected-nodes (.size memo)}
+                 (let [[op key spec] (peek work) work (pop work)]
+                   (case op
+                     :visit (if (.containsKey memo key) (recur work active)
+                              (do (when (contains? active key) (fail "Cyclic guest kernel value" {:kind (first key)}))
+                                  (let [spec (specification ops world (first key) (second key))]
+                                    (recur (into (conj work [:build key spec])
+                                                 (map #(vector :visit %) (reverse (:children spec))))
+                                           (conj active key)))))
+                     :build (do (.put memo key ((:build spec) (mapv #(.get memo %) (:children spec))))
+                                (recur work (disj active key))))))))))
+       {::clear-memo! (fn [] (locking memo (.clear memo)))
+        ::memo-size (fn [] (locking memo (.size memo)))}))))
 
 (defn project-with-stats
   "Project with a fresh memo by default, or an explicit same-world context.
@@ -201,27 +213,28 @@
   "Borrow a validated Name with explicit spine-node and UTF-16 string limits.
    Counts the anonymous terminator as a node. Reject cycles before projection;
    does not inspect a constant's type/body or establish any admission authority."
-  [world value {:keys [max-nodes max-chars] :as limits}]
+  ([world value limits] (project-name-bounded world value limits default-carrier-ops))
+  ([world value {:keys [max-nodes max-chars] :as limits} ops]
   (when-not (and (map? limits) (= #{:max-nodes :max-chars} (set (keys limits)))
                  (every? #(and (integer? %) (<= 1 % Long/MAX_VALUE)) [max-nodes max-chars]))
     (fail "Bounded Name projection requires positive node and character limits" {}))
   (loop [current value seen #{} remaining max-nodes characters 0]
     (when (zero? remaining) (fail "Guest Name exceeds spine-node limit" {:limit max-nodes}))
-    (if (= 0 (scalar-tag current))
-      (project-name world value)
+    (if (= 0 (scalar-tag ops current))
+      (project-name world value (make-projector world ops))
       (do
         (when (contains? seen current) (fail "Cyclic guest Name" {}))
-        (let [tag (:tag (m/node world current))
-              node (ctor! world current tag 2 8)
+        (let [tag (:tag ((:node ops) world current))
+              node (ctor! ops world current tag 2 8)
               [parent payload] (:fields node)
               length (case tag
-                       1 (count (string/string-value carrier-ops world payload))
-                       2 (do (long! world payload) 0)
+                       1 (count (string/string-value ops world payload))
+                       2 (do (long! ops world payload) 0)
                        (fail "Invalid guest Name tag" {:tag tag}))
               characters (+ characters length)]
           (when (> characters max-chars)
             (fail "Guest Name exceeds string-character limit" {:limit max-chars}))
-          (recur parent (conj seen current) (dec remaining) characters))))))
+          (recur parent (conj seen current) (dec remaining) characters)))))))
 
 (defn project-level
   ([world value] (:value (project-with-stats world :level value)))
@@ -237,9 +250,10 @@
   "Strict safe defnDecl admission. Returns a NEW Java Env and original guest root.
    Does not update a Lean guest Environment or install executable code."
   ([world env declaration] (admit-definition world env declaration 1000000))
-  ([world ^Env env declaration fuel]
+  ([world env declaration fuel] (admit-definition world env declaration fuel (make-projector world)))
+  ([world ^Env env declaration fuel projector]
    (when-not (and (integer? fuel) (<= 1 fuel Long/MAX_VALUE)) (fail "Invalid checking fuel" {:fuel fuel}))
-   (let [^ConstantInfo constant (:value (project-with-stats world :declaration declaration))
+   (let [^ConstantInfo constant (:value (project-with-stats world :declaration declaration projector))
          next-env (TypeChecker/checkConstant env constant (long fuel))]
      {:env next-env :constant constant :world world :guest-declaration declaration})))
 
@@ -248,10 +262,11 @@
    its type but introduces an assumption; callers must apply their axiom policy.
    Returns a new Env and preserves the original guest declaration unchanged."
   ([world env declaration] (admit-axiom world env declaration 1000000))
-  ([world ^Env env declaration fuel]
+  ([world env declaration fuel] (admit-axiom world env declaration fuel (make-projector world)))
+  ([world ^Env env declaration fuel projector]
    (when-not (and (integer? fuel) (<= 1 fuel Long/MAX_VALUE))
      (fail "Invalid checking fuel" {:fuel fuel}))
-   (let [^ConstantInfo constant (:value (project-with-stats world :axiom-declaration declaration))
+   (let [^ConstantInfo constant (:value (project-with-stats world :axiom-declaration declaration projector))
          next-env (TypeChecker/checkConstant env constant (long fuel))]
      {:env next-env :constant constant :world world :guest-declaration declaration})))
 
