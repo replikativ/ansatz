@@ -1,0 +1,14 @@
+{:schema 1 :date "2026-10-30" :scope :disabled-callback-logical-control-foundation
+ :lean-commit "819816b2e0a3bf405af45ae5c7af2491d8f5bee6"
+ :engine-source-sha256 "eebf1aea524e50b1b02b4cd0e40f59fccb2753025c4a47b9543b30249f52bbfe"
+ :engine-jar-sha256 "93aed3ad16246c488b09f0c35e31cc783d82ceae9698a43899e3e9b4c690ac77"
+ :verification {:combined {:tests 817 :assertions 22628 :suites 85 :exit 0 :heap-limit-mib 384}
+                :focused {:tests 11 :assertions 90 :fail 0 :error 0 :heap-limit-mib 256}
+                :independent-control-fork-lifetime-review :clear-for-disabled-checkpoint}
+ :features [:explicit-profile :private-action-receivers :native-operation-suffixes
+            :quiet-release-scratch :iterative-action-and-host-completion-fork
+            :explicit-cache-stdout-disposal :retired-cache-tombstones]
+ :limits ["No Promise primitives or pending callback dispatch at this checkpoint."
+          "Actual callback AP/code/host/fork/failure matrix requires the next tranche."
+          "No queued contexts, async scheduling, command elaboration or self-hosting claim."
+          "External owners must be released before private disposal; inventory is a host precondition."]}

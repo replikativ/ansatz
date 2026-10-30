@@ -46,6 +46,14 @@
   (assoc basis :program (invoke-static (:prepare basis) [(rows path)])))
 (defn machine [basis]
   (cond
+    (:task-runtime basis)
+    (let [cls ^Class (:class basis)
+          loader (.getClassLoader cls)
+          identity-class (.loadClass loader "ansatz.research.ir.Interpreter$BuildIdentity")
+          runtime-class (.loadClass loader "ansatz.research.ir.Interpreter$TaskRuntime")]
+      (.newInstance (.getConstructor cls (into-array Class [(class (:program basis)) Boolean/TYPE Boolean/TYPE identity-class runtime-class]))
+                    (object-array [(:program basis) (boolean (:explicit basis)) (boolean (:initializing basis))
+                                   (:build-identity basis) (:task-runtime basis)])))
     (:build-identity basis)
     (let [cls ^Class (:class basis)
           identity-class (.loadClass (.getClassLoader cls) "ansatz.research.ir.Interpreter$BuildIdentity")
@@ -59,6 +67,11 @@
     (:explicit basis)
     (.newInstance ^Constructor (:constructor-explicit basis) (object-array [(:program basis) true]))
     :else (.newInstance ^Constructor (:constructor basis) (object-array [(:program basis)]))))
+(defn logical-sync-task-runtime [basis]
+  (let [cls (.loadClass (.getClassLoader ^Class (:class basis)) "ansatz.research.ir.Interpreter$TaskRuntime")]
+    (invoke-static (.getMethod cls "logicalSynchronous" (make-array Class 0)) [])))
+(defn start-dispose! [basis engine]
+  (.invoke (.getMethod ^Class (:class basis) "startDispose" (make-array Class 0)) engine (object-array 0)))
 (defn supported-build-identity [basis]
   (let [cls (.loadClass (.getClassLoader ^Class (:class basis)) "ansatz.research.ir.Interpreter$BuildIdentity")]
     (invoke-static (.getMethod cls "supportedLean4331" (make-array Class 0)) [])))

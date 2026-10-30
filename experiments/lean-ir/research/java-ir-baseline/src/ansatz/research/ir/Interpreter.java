@@ -121,6 +121,7 @@ public final class Interpreter implements AutoCloseable {
         boolean facade,replyClaimed,adapterReleaseStarted,resultOwned,resultTransferStarted;
         Object completionResult;
         long completionScalar;
+        HostCall previousCompletion;
     }
 
     /** Borrowed diagnostic view of a committed code activation. This request
@@ -1115,6 +1116,15 @@ public final class Interpreter implements AutoCloseable {
         public String githash() { return "819816b2e0a3bf405af45ae5c7af2491d8f5bee6"; }
         public String target() { return "x86_64-unknown-linux-gnu"; }
     }
+    /** Explicit logical synchronous profile; no native manager/thread authority.
+     * Pending values and callbacks are enabled only by its completed control
+     * protocol, never inferred from initialization or SourceBinding metadata. */
+    public static final class TaskRuntime {
+        private static final TaskRuntime SYNC=new TaskRuntime();
+        private TaskRuntime() {}
+        public static TaskRuntime logicalSynchronous() { return SYNC; }
+    }
+    private final TaskRuntime taskRuntime;
     private final BuildIdentity buildIdentity;
     private Program program;
     private Object[] objects=new Object[1024];
@@ -1125,6 +1135,8 @@ public final class Interpreter implements AutoCloseable {
     private long scalarResult;
     private Object[] constants;
     private boolean[] constantReady;
+    private boolean[] constantRetired;
+    private boolean disposed;
     private boolean graphInstalled;
     private boolean initializing;
     private Map<Integer,PreparedGlobalSource> preparedGlobalSources=Collections.emptyMap();
@@ -1137,6 +1149,8 @@ public final class Interpreter implements AutoCloseable {
     private byte[] utf8Bytes;
     private Object[] releaseWork=new Object[32];
     private int releasePending;
+    private Node quietCurrent;
+    private int quietFieldCursor;
     private boolean releaseRoot;
     private ReleaseTransaction releaseTransaction;
     /** Explicit finalizer-free root only. Credits are claimed once; current and
@@ -1161,6 +1175,273 @@ public final class Interpreter implements AutoCloseable {
     private Object[] applicationArgs,applicationSurplus;
     private HostRequest hostRequest,failedHostRequest;
     private HostCall hostCompletion;
+    private RuntimeAction runtimeAction;
+    private static final int ACTION_RELEASE=1,ACTION_DISPOSE=2,ACTION_NATIVE=3,ACTION_HOST=4;
+    private static final Body ACTION_BODY=new Body();
+    /** Typed ownership/control state, separate from NodeMetadata. The output
+     * scratch slot is reserved before callbacks may enter generic AP. */
+    private static final class RuntimeAction {
+        RuntimeAction parent;
+        int operation,stage,savedSp,slot,dest,kind,cursor,limit,pending;
+        Function function;
+        Body next;
+        Object[] surplus,work,arguments;
+        HostCall completion;
+        HostRequest request;
+        Object output,retiring;
+        boolean releaseClaimed;
+        Node current,origin;
+    }
+    private RuntimeAction newAction(int operation,Function function,Body next,int dest,int kind,Object[] surplus) {
+        ensure(Math.addExact(sp,1),jsp);
+        RuntimeAction action=new RuntimeAction();
+        action.operation=operation; action.function=function; action.next=next; action.dest=dest;
+        action.kind=kind; action.surplus=surplus; action.savedSp=sp; action.slot=sp;
+        return action;
+    }
+    private void publishAction(RuntimeAction action) {
+        action.parent=runtimeAction; runtimeAction=action; sp=action.savedSp+1; pc=ACTION_BODY;
+    }
+    private void finishAction(RuntimeAction action,Object value) {
+        require(runtimeAction==action,"Runtime action order differs");
+        objects[action.slot]=null; sp=action.savedSp; runtimeAction=action.parent;
+        if((action.kind&ROOT)!=0) {
+            result=value; pendingOwnedResult=true; phase=COMPLETE; return;
+        }
+        if((action.kind&APPLY)!=0&&action.surplus!=null) {
+            applyExplicit(value,action.surplus,action.next,action.dest); return;
+        }
+        if(action.dest>=0) objects[action.dest]=value;
+        pc=action.next;
+    }
+    /** Claims only the supplied credit. Zero shells/remaining fields are owned
+     * by this action and copied by the normal fork memo, including after error. */
+    private void markReleaseClaim(Object value) {
+        if(runtimeAction!=null&&runtimeAction.retiring==value) runtimeAction.releaseClaimed=true;
+    }
+    private boolean beginRelease(Object value,int count,Body next) { return beginRelease(value,count,next,false); }
+    private boolean beginRelease(Object value,int count,Body next,boolean budgeted) {
+        require(count>=0,"Negative reference decrement");
+        validateHostObject(value);
+        Node root=value instanceof Node?(Node)value:null;
+        if(root==null||root.rc==0||count==0) return false;
+        require(count<=root.rc,"Reference count underflow");
+        if(count<root.rc) { markReleaseClaim(value); root.rc-=count; releases+=count; return false; }
+        int limit=owningFieldCount(root);
+        require(limit>=0&&limit<=root.fields.length,"Release field count outside payload");
+        if(budgeted) {
+            RuntimeAction action=newAction(ACTION_RELEASE,null,next,-1,ASSIGN,null);
+            action.origin=root; action.current=root; action.limit=limit; action.work=new Object[32];
+            publishAction(action); root.rc=0; root.dead=true; releases+=count; return true;
+        }
+        // QUIET_COMPLETE/NEEDS_DISPATCH: ordinary destruction uses reusable
+        // scratch and no heap continuation. Stop BEFORE a kind finalizer; its
+        // caller's exact suffix is already published or remains the IR PC.
+        require(quietCurrent==null&&releasePending==0,"Quiet release scratch is already occupied");
+        quietCurrent=root; quietFieldCursor=0; markReleaseClaim(value); root.rc=0; root.dead=true; releases+=count;
+        while(quietCurrent!=null) {
+            if(quietCurrent.readyTask) {
+                require(quietCurrent.fields.length==1,"Pending Task retirement is not enabled");
+                Object valueToDrop=quietCurrent.fields[0];
+                validateHostObject(valueToDrop);
+                Node child=valueToDrop instanceof Node?node(valueToDrop):null;
+                quietCurrent.fields[0]=null;
+                // A ready Task's nested DEC has no after-suffix. Tail-drain its
+                // last-value retirement before the enclosing zero-shell queue.
+                if(child!=null&&child.rc!=0) {
+                    require(child.rc>0,"Reference count underflow"); child.rc--; releases++;
+                    if(child.rc==0) { child.dead=true; quietCurrent=child; quietFieldCursor=0; continue; }
+                }
+                quietCurrent=releasePending==0?null:takeReleased(); quietFieldCursor=0; continue;
+            }
+            int size=owningFieldCount(quietCurrent);
+            while(quietFieldCursor<size) { releaseField(quietCurrent,quietFieldCursor); quietFieldCursor++; }
+            quietCurrent=releasePending==0?null:takeReleased(); quietFieldCursor=0;
+        }
+        return false;
+    }
+    private void stepRelease(RuntimeAction action) {
+        if(action.stage==0&&action.current.readyTask) {
+            // Native Task retirement is a nested DEC, not an edge in the
+            // enclosing constructor's zero-shell worklist.
+            require(action.current.fields.length==1,"Pending Task retirement is not enabled");
+            Object value=action.current.fields[0]; validateHostObject(value);
+            Node child=value instanceof Node?node(value):null;
+            action.current.fields[0]=null; action.stage=1; action.cursor=action.limit;
+            if(child!=null&&child.rc!=0) {
+                require(child.rc>0,"Reference count underflow"); child.rc--; releases++;
+                if(child.rc==0) {
+                    child.dead=true; action.current=child; action.cursor=0;
+                    action.limit=owningFieldCount(child); action.stage=0;
+                }
+            }
+            return;
+        }
+        action.stage=1;
+        if(action.cursor<action.limit) {
+            Object edge=action.current.fields[action.cursor];
+            if(edge instanceof Node) {
+                Node child=node(edge);
+                if(child.rc!=0) {
+                    require(child.rc>0,"Reference count underflow");
+                    if(child.rc==1&&action.pending==action.work.length)
+                        action.work=Arrays.copyOf(action.work,Math.multiplyExact(action.pending,2));
+                    child.rc--; releases++;
+                    if(child.rc==0) { child.dead=true; action.work[action.pending++]=child; }
+                }
+            }
+            action.current.fields[action.cursor]=null; action.cursor++;
+        } else if(action.pending!=0) {
+            Node child=(Node)action.work[action.pending-1]; int limit=owningFieldCount(child);
+            require(limit>=0&&limit<=child.fields.length,"Release field count outside payload");
+            action.work[--action.pending]=null; action.current=child; action.cursor=0; action.limit=limit; action.stage=0;
+        } else finishAction(action,ERASED);
+    }
+    /** Explicit private-cache owner disposal. External guest owners must be
+     * discharged separately; persistent globals and RC cycles are not collected. */
+    public void startDispose() {
+        explicitOnly(); require(taskRuntime!=null,"Task runtime disposal requires an active profile");
+        if(advancing||phase!=IDLE||pendingOwnedResult||untrackedFailure||sp!=0||continuationDepth!=0
+                ||runtimeAction!=null||quietCurrent!=null||releasePending!=0||releaseRoot||disposed)
+            throw new IllegalStateException("Disposal requires an open idle undisposed runtime");
+        RuntimeAction action=newAction(ACTION_DISPOSE,null,null,0,ROOT,null);
+        releaseRoot=true; entry=null; result=null; instructions=0; callsLeft=10_000_000; phase=RUNNING; publishAction(action);
+    }
+    private void stepDispose(RuntimeAction action) {
+        if(action.cursor==0) {
+            Node old=stdoutRoot; action.retiring=old; action.releaseClaimed=false; stdoutRoot=null; action.cursor++;
+            if(old!=null) { beginRelease(old,1,ACTION_BODY); action.releaseClaimed=true; }
+        } else if(action.cursor<=constants.length) {
+            int index=action.cursor++-1;
+            if(constantReady[index]) {
+                Object old=constants[index]; action.retiring=old; action.releaseClaimed=false; constants[index]=null; constantReady[index]=false; constantRetired[index]=true;
+                if(program.functions[index].resultType==OBJ) { beginRelease(old,1,ACTION_BODY); action.releaseClaimed=true; }
+            }
+        } else {
+            // A finalizer may have initialized a previously untouched closed
+            // constant behind the sweep cursor. Own and retire it in another
+            // pass; retired slots remain tombstoned throughout callbacks.
+            if(stdoutRoot!=null) { action.cursor=0; return; }
+            for(int i=0;i<constantReady.length;i++) if(constantReady[i]) { action.cursor=1; return; }
+            disposed=true; finishAction(action,ERASED);
+        }
+    }
+    private boolean actionPrimitive(Function function) {
+        int op=function.intrinsic;
+        return taskRuntime!=null&&(op==REF_SET||op==ARRAY_POP||op==ARRAY_FSET||op==ARRAY_USET||op==ARRAY_REPLICATE);
+    }
+    private Object[] savedArguments(Function function,int[] slots) {
+        Object[] args=new Object[slots.length];
+        for(int i=0;i<args.length;i++) args[i]=function.paramTypes[i]==OBJ?obj(slots[i]):saveScalar(numbers[bp+slots[i]],function.paramTypes[i]);
+        return args;
+    }
+    private void validateNative(Function function,Object[] args) {
+        if(function.intrinsic==REF_SET) {
+            refPlaceholders(args[0],args[1],args[args.length-1]);
+            Node ref=reference(args[2]); validateHostObject(args[3]);
+            if(ref.fields[0]!=null) { validateHostObject(ref.fields[0]); refIncomingAlias(ref.fields[0],args[3]); }
+        } else {
+            arrayPlaceholders(function,args[0],args.length>3?args[args.length-1]:ERASED,args.length==6?args[4]:ERASED);
+            if(function.intrinsic==ARRAY_REPLICATE) { arrayCapacity(args[1]); validateHostObject(args[2]); }
+            else {
+                Node array=array(args[1]);
+                if(function.intrinsic!=ARRAY_POP) {
+                    int index=arrayIndex(array,externalArgument(function,args,2));
+                    validateHostObject(args[3]); refIncomingAlias(array.fields[index],args[3]);
+                }
+            }
+        }
+    }
+    private void enterNative(Function function,Object[] args,Body next,int dest,int kind,Object[] surplus) {
+        validateNative(function,args);
+        RuntimeAction action=newAction(ACTION_NATIVE,function,next,dest,kind,surplus);
+        action.arguments=args; publishAction(action);
+    }
+    private void stepNative(RuntimeAction action) {
+        Object[] args=action.arguments; int op=action.function.intrinsic;
+        if(action.stage==0) {
+            action.stage=1;
+            Object old=null;
+            if(op==REF_SET) {
+                Node ref=reference(args[2]); old=ref.fields[0]; action.current=ref;
+                if(refMaybeMT(ref)) {
+                    markLogicalMT(args[3]); ref.fields[0]=args[3]; stores++; action.stage=2;
+                }
+                action.output=ERASED;
+            } else if(op==ARRAY_REPLICATE) {
+                int size=arrayCapacity(args[1]); Node out=newArray(size,size); action.output=out;
+                action.stage=2;
+                if(size==0) old=args[2];
+                else { inc(args[2],size-1); Arrays.fill(out.fields,args[2]); }
+            } else {
+                Node out=exclusiveArray(array(args[1]),false); action.output=out;
+                if(op==ARRAY_POP) {
+                    action.stage=2;
+                    if(arrayState(out).size!=0) {
+                        int index=--arrayState(out).size; old=out.fields[index]; out.fields[index]=null; stores++;
+                    }
+                } else { action.cursor=arrayIndex(out,externalArgument(action.function,args,2)); old=out.fields[action.cursor]; }
+            }
+            action.retiring=old; action.releaseClaimed=false;
+            if(old!=null) {
+                boolean dispatch=beginRelease(old,1,ACTION_BODY); action.releaseClaimed=true;
+                if(dispatch) return;
+            }
+        }
+        if(action.stage==1) {
+            if(op==REF_SET) action.current.fields[0]=args[3];
+            else ((Node)action.output).fields[action.cursor]=args[3];
+            stores++; action.stage=2;
+        }
+        finishAction(action,action.output);
+    }
+    private void stepHostCompletion(RuntimeAction action) {
+        HostCall call=action.completion;
+        if(call.facade&&call.borrowedCursor<call.arguments.length) {
+            if(action.stage==1) {
+                call.adapterReleaseStarted=false; call.borrowedCursor++; action.stage=0; return;
+            }
+            int index=call.borrowedCursor;
+            if(call.function.hostExtern.borrowed[index]) {
+                call.adapterReleaseStarted=true; action.stage=1;
+                if(beginRelease(call.arguments[index],1,ACTION_BODY)) return;
+                call.adapterReleaseStarted=false; action.stage=0;
+            }
+            call.borrowedCursor++; return;
+        }
+        // Pop the cleanup frame before delivering/overapplying the reply; a
+        // nested request then links to the still-waiting outer completion.
+        Object answer=call.function.resultType==OBJ?call.completionResult:
+                (call.kind&APPLY)!=0?boxScalar(call.completionScalar,call.function.resultType):null;
+        require(runtimeAction==action,"Host cleanup action order differs");
+        objects[action.slot]=null; sp=action.savedSp; runtimeAction=action.parent;
+        hostCompletion=call.previousCompletion;
+        if((call.kind&ROOT)!=0) {
+            if(call.function.resultType==OBJ) result=answer; else scalarResult=call.completionScalar;
+            call.resultOwned=false; pendingOwnedResult=true; phase=COMPLETE;
+        } else if((call.kind&APPLY)!=0) {
+            if(call.surplus==null) { objects[call.dest]=answer; pc=call.next; call.resultOwned=false; }
+            else {
+                Node closure=node(answer); require(closure.closure!=null,"Expected closure"); acceptsClosure(closure);
+                call.resultTransferStarted=true; call.resultOwned=false; applyExplicit(answer,call.surplus,call.next,call.dest);
+            }
+        } else {
+            if(call.function.resultType==OBJ) objects[call.dest]=answer; else numbers[call.dest]=call.completionScalar;
+            pc=call.next; call.resultOwned=false;
+        }
+    }
+    private void stepAction() {
+        RuntimeAction action=runtimeAction;
+        require(action!=null,"Missing runtime continuation");
+        if(action.operation==ACTION_RELEASE) stepRelease(action);
+        else if(action.operation==ACTION_DISPOSE) stepDispose(action);
+        else if(action.operation==ACTION_NATIVE) stepNative(action);
+        else if(action.operation==ACTION_HOST) {
+            try { stepHostCompletion(action); }
+            catch(Throwable failure) { markHostFailure(action.request,failure); throw failure; }
+        }
+        else throw error("Unknown runtime continuation");
+    }
     private Throwable hostFailure;
     private CodeRequest codeRequest,failedCodeRequest;
     private Throwable codeFailure;
@@ -1185,6 +1466,11 @@ public final class Interpreter implements AutoCloseable {
     /** The caller has independently accepted the selected producer profile.
      * Null keeps build identity unavailable; module initialization is separate. */
     public Interpreter(Program program,boolean explicit,boolean initializing,BuildIdentity buildIdentity) {
+        this(program,explicit,initializing,buildIdentity,null);
+    }
+    public Interpreter(Program program,boolean explicit,boolean initializing,BuildIdentity buildIdentity,TaskRuntime taskRuntime) {
+        require(taskRuntime==null||explicit,"Logical task runtime requires the explicit driver");
+        this.taskRuntime=taskRuntime;
         this.program=program;
         this.buildIdentity=buildIdentity;
         this.initializing=initializing;
@@ -1192,13 +1478,14 @@ public final class Interpreter implements AutoCloseable {
         if(explicit) continuations=new Continuation[32];
         constants=new Object[program.functions.length];
         constantReady=new boolean[constants.length];
+        constantRetired=new boolean[constants.length];
     }
 
     public boolean isInitializing() { return initializing; }
     /** One-way host launch boundary, analogous to native mark_end_initialization.
      * Program/header/graph operations never infer or change this phase. */
     public void finishInitialization() {
-        if(closed||advancing||phase!=IDLE||pendingOwnedResult||sp!=0||untrackedFailure)
+        if(closed||disposed||advancing||phase!=IDLE||pendingOwnedResult||sp!=0||untrackedFailure)
             throw new IllegalStateException("Initialization completion requires an open idle engine");
         initializing=false;
     }
@@ -1223,17 +1510,18 @@ public final class Interpreter implements AutoCloseable {
     }
     public Fork eagerFork() { return eagerFork(new Object[0]); }
     public Fork eagerFork(Object[] externalRoots) {
-        if(closed||advancing||phase==FAILED||untrackedFailure||(!explicit&&sp!=0))
+        if(closed||disposed||advancing||phase==FAILED||untrackedFailure||(!explicit&&sp!=0))
             throw new IllegalStateException("Fork requires an open idle or paused instruction boundary");
         if(externalRoots==null) throw error("Explicit fork roots required");
         // phase RUNNING between advance calls is a paused dispatch/release-work
         // boundary. No Java call frame is captured in that state.
-        Interpreter child=new Interpreter(program,explicit,initializing,buildIdentity);
+        Interpreter child=new Interpreter(program,explicit,initializing,buildIdentity,taskRuntime);
         ForkCopy copy=new ForkCopy(child);
         copy.bind(constants,child.constants);
         child.objects=(Object[])copy.value(objects);
         child.numbers=numbers.clone(); child.joins=joins.clone();
         System.arraycopy(constantReady,0,child.constantReady,0,constantReady.length);
+        child.constantRetired=constantRetired.clone(); child.disposed=disposed;
         child.graphInstalled=graphInstalled; child.preparedGlobalSources=preparedGlobalSources;
         child.bp=bp; child.sp=sp; child.jbp=jbp; child.jsp=jsp;
         child.result=copy.value(result); child.scalarResult=scalarResult;
@@ -1243,6 +1531,7 @@ public final class Interpreter implements AutoCloseable {
         child.utf8Key=key==null?null:new WeakReference<>(key);
         child.utf8Bytes=utf8Bytes==null?null:utf8Bytes.clone();
         child.releaseWork=(Object[])copy.value(releaseWork); child.releasePending=releasePending;
+        child.quietCurrent=(Node)copy.value(quietCurrent); child.quietFieldCursor=quietFieldCursor;
         child.releaseRoot=releaseRoot; child.releaseTransaction=(ReleaseTransaction)copy.value(releaseTransaction);
         child.callsLeft=callsLeft; child.phase=phase; child.continuationDepth=continuationDepth;
         child.untrackedFailure=untrackedFailure;
@@ -1257,6 +1546,7 @@ public final class Interpreter implements AutoCloseable {
         child.applicationSurplus=(Object[])copy.value(applicationSurplus);
         child.hostRequest=(HostRequest)copy.value(hostRequest);
         child.hostCompletion=(HostCall)copy.value(hostCompletion);
+        child.runtimeAction=(RuntimeAction)copy.value(runtimeAction);
         child.codeRequest=(CodeRequest)copy.value(codeRequest);
         child.allocations=allocations; child.stores=stores; child.retains=retains;
         child.releases=releases; child.shellDeletes=shellDeletes;
@@ -1299,6 +1589,10 @@ public final class Interpreter implements AutoCloseable {
                         old.resultType,old.intrinsic,old.hostExtern,child.runtimeIdentity);
                 copies.put(source,out); return out;
             }
+            if(source instanceof RuntimeAction) {
+                RuntimeAction out=new RuntimeAction(); copies.put(source,out);
+                pending.addLast(new Object[]{source,out}); return out;
+            }
             if(source instanceof ReleaseTransaction) {
                 ReleaseTransaction old=(ReleaseTransaction)source,out=new ReleaseTransaction(); copies.put(source,out);
                 out.origin=(Node)value(old.origin); out.current=(Node)value(old.current);
@@ -1325,15 +1619,8 @@ public final class Interpreter implements AutoCloseable {
                 copies.put(source,out); return out;
             }
             if(source instanceof HostCall) {
-                HostCall old=(HostCall)source,out=new HostCall(); copies.put(source,out);
-                out.function=(Function)value(old.function); out.arguments=(Object[])value(old.arguments);
-                out.surplus=(Object[])value(old.surplus); out.next=old.next;
-                out.dest=old.dest; out.kind=old.kind; out.borrowedCursor=old.borrowedCursor;
-                out.facade=old.facade; out.replyClaimed=old.replyClaimed;
-                out.adapterReleaseStarted=old.adapterReleaseStarted; out.resultOwned=old.resultOwned;
-                out.resultTransferStarted=old.resultTransferStarted;
-                out.completionResult=value(old.completionResult); out.completionScalar=old.completionScalar;
-                return out;
+                HostCall out=new HostCall(); copies.put(source,out);
+                pending.addLast(new Object[]{source,out}); return out;
             }
             if(source instanceof Continuation) {
                 Continuation old=(Continuation)source,out=new Continuation(); copies.put(source,out);
@@ -1346,8 +1633,34 @@ public final class Interpreter implements AutoCloseable {
         }
         void finish() {
             while(!pending.isEmpty()) {
-                Object[] task=pending.removeFirst(),source=(Object[])task[0],target=(Object[])task[1];
-                for(int i=0;i<source.length;i++) target[i]=value(source[i]);
+                Object[] task=pending.removeFirst();
+                Object source=task[0],target=task[1];
+                if(source instanceof Object[]) {
+                    Object[] from=(Object[])source,to=(Object[])target;
+                    for(int i=0;i<from.length;i++) to[i]=value(from[i]);
+                } else if(source instanceof RuntimeAction) {
+                    RuntimeAction old=(RuntimeAction)source,out=(RuntimeAction)target;
+                    out.parent=(RuntimeAction)value(old.parent); out.operation=old.operation; out.stage=old.stage;
+                    out.savedSp=old.savedSp; out.slot=old.slot; out.dest=old.dest; out.kind=old.kind;
+                    out.cursor=old.cursor; out.limit=old.limit; out.pending=old.pending;
+                    out.function=(Function)value(old.function); out.next=old.next;
+                    out.surplus=(Object[])value(old.surplus); out.work=(Object[])value(old.work);
+                    out.arguments=(Object[])value(old.arguments); out.completion=(HostCall)value(old.completion);
+                    out.request=(HostRequest)value(old.request);
+                    out.output=value(old.output); out.retiring=value(old.retiring); out.releaseClaimed=old.releaseClaimed; out.current=(Node)value(old.current); out.origin=(Node)value(old.origin);
+
+                } else if(source instanceof HostCall) {
+                    HostCall old=(HostCall)source,out=(HostCall)target;
+                    out.function=(Function)value(old.function); out.arguments=(Object[])value(old.arguments);
+                    out.surplus=(Object[])value(old.surplus); out.next=old.next;
+                    out.dest=old.dest; out.kind=old.kind; out.borrowedCursor=old.borrowedCursor;
+                    out.facade=old.facade; out.replyClaimed=old.replyClaimed;
+                    out.adapterReleaseStarted=old.adapterReleaseStarted; out.resultOwned=old.resultOwned;
+                    out.resultTransferStarted=old.resultTransferStarted;
+                    out.completionResult=value(old.completionResult); out.completionScalar=old.completionScalar;
+                    out.previousCompletion=(HostCall)value(old.previousCompletion);
+
+                } else throw error("Unknown deferred fork record");
             }
         }
     }
@@ -1679,11 +1992,20 @@ public final class Interpreter implements AutoCloseable {
         Node value=(Node)o; checkPointerOwner(value); return value;
     }
     public void inc(Object o,int n) {
+        if(taskRuntime!=null&&(closed||disposed||untrackedFailure||phase==FAILED))
+            throw new IllegalStateException("Active runtime cannot acquire owners after disposal or terminal failure");
         if(n<0) throw error("Negative reference increment");
         if(o instanceof Node) { Node v=node(o); if(v.rc!=0) { v.rc=Math.addExact(v.rc,n); retains+=n; } }
     }
     public void dec(Object o,int n) {
-        if(releaseRoot) throw new IllegalStateException("Synchronous DEC cannot overlap a release transaction");
+        if(taskRuntime!=null) throw new IllegalStateException("Active task runtime requires an explicit release transaction");
+        releaseQuiet(o,n);
+    }
+    /** Finalizer-free/local quiet-proof path. Active arbitrary releases use an
+     * action; this helper must never become a callback dispatcher. */
+    private void releaseQuiet(Object o,int n) {
+        if(releaseTransaction!=null||(releaseRoot&&taskRuntime==null))
+            throw new IllegalStateException("Synchronous DEC cannot overlap a release transaction");
         if(n<0) throw error("Negative reference decrement");
         if(!(o instanceof Node)) return;
         Node v=node(o);
@@ -1736,9 +2058,18 @@ public final class Interpreter implements AutoCloseable {
     public void startRelease(Object value,int count) {
         explicitOnly();
         if(advancing||phase!=IDLE||pendingOwnedResult||untrackedFailure||sp!=0||continuationDepth!=0
-                ||releaseRoot||releasePending!=0)
+                ||releaseRoot||releasePending!=0||disposed||quietCurrent!=null)
             throw new IllegalStateException("Release transaction requires an open idle engine");
         require(count>=0,"Negative release count");
+        if(taskRuntime!=null) {
+            validateHostObject(value);
+            // Preflight and allocate before publishing root ownership/control.
+            boolean suspended=beginRelease(value,count,null,true);
+            releaseRoot=true; entry=null; active=null; activePrepared=null; result=null; instructions=0; callsLeft=10_000_000;
+            if(suspended) { runtimeAction.kind=ROOT; phase=RUNNING; }
+            else completeRelease();
+            return;
+        }
         validateHostObject(value);
         Node root=value instanceof Node?(Node)value:null;
         if(root!=null&&root.rc!=0) require(count<=root.rc,"Reference count underflow");
@@ -2000,7 +2331,7 @@ public final class Interpreter implements AutoCloseable {
             Arrays.fill(a.fields,null); a.dead=true; a.rc=0; shellDeletes++;
         } else {
             for(int i=0;i<arrayState(a).size;i++) { Object v=a.fields[i]; inc(v,1); out.fields[i]=v; }
-            dec(a,1);
+            releaseQuiet(a,1);
         }
         return out;
     }
@@ -2018,7 +2349,7 @@ public final class Interpreter implements AutoCloseable {
         if(f.intrinsic==ARRAY_REPLICATE) {
             int size=arrayCapacity(a); validateHostObject(b);
             Node out=newArray(size,size);
-            if(size==0) dec(b,1); else { inc(b,size-1); Arrays.fill(out.fields,b); }
+            if(size==0) releaseQuiet(b,1); else { inc(b,size-1); Arrays.fill(out.fields,b); }
             result=out; return;
         }
         Node n=array(a);
@@ -2035,14 +2366,14 @@ public final class Interpreter implements AutoCloseable {
             }
             case ARRAY_POP: {
                 Node out=exclusiveArray(n,false);
-                if(arrayState(out).size!=0) { int i=--arrayState(out).size; Object old=out.fields[i]; out.fields[i]=null; stores++; dec(old,1); }
+                if(arrayState(out).size!=0) { int i=--arrayState(out).size; Object old=out.fields[i]; out.fields[i]=null; stores++; releaseQuiet(old,1); }
                 result=out; return;
             }
             case ARRAY_FSET: case ARRAY_USET: {
                 int index=arrayIndex(n,b); validateHostObject(c);
                 refIncomingAlias(n.fields[index],c);
                 Node out=exclusiveArray(n,false); Object old=out.fields[index];
-                out.fields[index]=c; stores++; dec(old,1); result=out; return;
+                out.fields[index]=c; stores++; releaseQuiet(old,1); result=out; return;
             }
             case ARRAY_SWAP: {
                 int i=arrayIndex(n,b),j=arrayIndex(n,c); Node out=exclusiveArray(n,false);
@@ -2055,7 +2386,7 @@ public final class Interpreter implements AutoCloseable {
                     Object v=n.fields[i]; inc(v,1); Node cons=new Node(1,2,0); allocations++;
                     cons.fields[0]=v; cons.fields[1]=list; list=cons;
                 }
-                dec(n,1); result=list; return;
+                releaseQuiet(n,1); result=list; return;
             }
             default: throw error("Invalid array intrinsic");
         }
@@ -2103,10 +2434,10 @@ public final class Interpreter implements AutoCloseable {
             if(old!=null) { validateHostObject(old); refIncomingAlias(old,b); }
             if(refMaybeMT(ref)) {
                 markLogicalMT(b); ref.fields[0]=b; stores++;
-                if(old!=null) dec(old,1);
+                if(old!=null) releaseQuiet(old,1);
             } else {
                 // Still finalizer-free: preserve the native ST release/store order.
-                if(old!=null) dec(old,1);
+                if(old!=null) releaseQuiet(old,1);
                 ref.fields[0]=b; stores++;
             }
             result=ERASED; return;
@@ -2212,7 +2543,7 @@ public final class Interpreter implements AutoCloseable {
                 "String.Pos.set output outside bounded runtime profile");
         String changed=new String(bytes,0,p,StandardCharsets.UTF_8)+new String(Character.toChars(cp))
                 +new String(bytes,p+oldWidth,bytes.length-p-oldWidth,StandardCharsets.UTF_8);
-        result=changed; dec(source,1); dec(position,1);
+        result=changed; releaseQuiet(source,1); releaseQuiet(position,1);
     }
     private static boolean borrowedStringCompletionPrimitive(int op) { return op==STR_MEMCMP; }
     /** Proof-backed equality of raw UTF-8 byte ranges; neither positions nor
@@ -2253,19 +2584,19 @@ public final class Interpreter implements AutoCloseable {
             // Validate BOTH owned operands before consuming either container.
             SubstringView x=substringView(a),y=substringView(b);
             long same=x.size==y.size&&Arrays.equals(x.bytes,x.start,x.start+x.size,y.bytes,y.start,y.start+y.size)?1:0;
-            dec(x.owner,1); dec(y.owner,1); scalarResult=same; return;
+            releaseQuiet(x.owner,1); releaseQuiet(y.owner,1); scalarResult=same; return;
         }
         if(f.intrinsic==STR_POS_OF) {
             byte[] bytes=utf8(a); int cp=codePoint(b),p=0;
             while(p<bytes.length&&utf8CodePoint(bytes,p)!=cp) p+=utf8Width(bytes[p]);
-            result=Long.valueOf(p); dec(a,1); return;
+            result=Long.valueOf(p); releaseQuiet(a,1); return;
         }
         if(f.intrinsic==STR_OFFSET_OF_POS) {
             byte[] bytes=utf8(a); BigInteger position=nat(b);
             int stop=position.compareTo(BigInteger.valueOf(bytes.length))>=0?bytes.length:position.intValue();
             int p=0,count=0;
             while(p<stop) { p+=utf8Width(bytes[p]); count++; }
-            result=Long.valueOf(count); dec(a,1); dec(b,1); return;
+            result=Long.valueOf(count); releaseQuiet(a,1); releaseQuiet(b,1); return;
         }
         require(f.intrinsic==STR_PUSHN,"Invalid String completion intrinsic");
         String source=text(a);
@@ -2276,11 +2607,11 @@ public final class Interpreter implements AutoCloseable {
                 &&repetitions.compareTo(BigInteger.valueOf((MAX_STRING_OUTPUT_BYTES-bytes.length)/width))<=0,
                 "String.pushn output outside bounded runtime profile");
         int count=repetitions.intValue();
-        if(count==0) { result=source; dec(c,1); return; }
+        if(count==0) { result=source; releaseQuiet(c,1); return; }
         int chars=Math.addExact(source.length(),Math.multiplyExact(Character.charCount(cp),count));
         StringBuilder output=new StringBuilder(chars); output.append(source);
         for(int i=0;i<count;i++) output.appendCodePoint(cp);
-        result=output.toString(); dec(a,1); dec(c,1);
+        result=output.toString(); releaseQuiet(a,1); releaseQuiet(c,1);
     }
     private static boolean borrowedIntPrimitive(int op) { return op>=INT_NEG&&op<=INT_LE; }
     private static BigInteger signedInteger(Object value) {
@@ -2352,7 +2683,7 @@ public final class Interpreter implements AutoCloseable {
             for(int i=0;i<size;i++) inputScalar(input.fields[i],U8);
             Node out=newByteArray(size,size);
             for(int i=0;i<size;i++) out.scalars[i]=(byte)inputScalar(input.fields[i],U8);
-            dec(input,1); result=out; return;
+            releaseQuiet(input,1); result=out; return;
         }
         Node input=byteArray(a); ByteArrayState state=(ByteArrayState)kindMetadata(input);
         if(f.intrinsic==BYTE_SIZE) { result=Long.valueOf(state.size); return; }
@@ -2369,7 +2700,7 @@ public final class Interpreter implements AutoCloseable {
         Node out=input;
         if(!exclusive(input)||capacity!=input.scalars.length) {
             out=newByteArray(state.size,capacity);
-            System.arraycopy(input.scalars,0,out.scalars,0,state.size); dec(input,1);
+            System.arraycopy(input.scalars,0,out.scalars,0,state.size); releaseQuiet(input,1);
         }
         ByteArrayState target=(ByteArrayState)kindMetadata(out);
         out.scalars[target.size++]=(byte)value; stores++; result=out;
@@ -2469,7 +2800,7 @@ public final class Interpreter implements AutoCloseable {
         task.fields[0]=value; allocations++; return task;
     }
     private Object getReadyTaskOwned(Node task) {
-        Object value=task.fields[0]; inc(value,1); dec(task,1); return value;
+        Object value=task.fields[0]; inc(value,1); releaseQuiet(task,1); return value;
     }
     private void validateTaskMap(Object[] args) {
         require(args!=null&&args.length==6,"Task.map requires six ABI arguments");
@@ -2576,12 +2907,12 @@ public final class Interpreter implements AutoCloseable {
             case STR_LIST: {
                 Object[] chars=listElements(a); StringBuilder builder=new StringBuilder();
                 for(Object ch:chars) builder.appendCodePoint(codePoint(ch));
-                String s=builder.toString(); dec(a,1); result=s; break;
+                String s=builder.toString(); releaseQuiet(a,1); result=s; break;
             }
             case ARRAY_MK: {
                 Object[] elements=listElements(b); Node n=newArray(elements.length,elements.length);
                 for(int i=0;i<elements.length;i++) { inc(elements[i],1); n.fields[i]=elements[i]; }
-                dec(b,1); result=n; break;
+                releaseQuiet(b,1); result=n; break;
             }
             case ARRAY_SIZE: result=Long.valueOf(arrayState(array(b)).size); break;
             case ARRAY_GET: {
@@ -2650,7 +2981,7 @@ public final class Interpreter implements AutoCloseable {
             case U64_NAT:
                 if(f.params.length>1) require(ERASED.equals(b),"UInt64 conversion proof requires erased placeholder");
                 scalarResult=nat(a).longValue(); break;
-            case U64_OWNED_NAT: scalarResult=nat(a).longValue(); dec(a,1); break;
+            case U64_OWNED_NAT: scalarResult=nat(a).longValue(); releaseQuiet(a,1); break;
             case U64_SHR: scalarResult=(Long)a>>>(Long)b; break;
             case U64_XOR: scalarResult=(Long)a^(Long)b; break;
             case U64_USIZE: scalarResult=(Long)a; break;
@@ -2719,6 +3050,7 @@ public final class Interpreter implements AutoCloseable {
         }
     }
     private void load(Function f) {
+        require(!constantRetired[f.id],"Initialized cache owner has been retired: "+f.label);
         if(constantReady[f.id]) {
             if(f.resultType==OBJ) result=constants[f.id];
             else scalarResult=(Long)constants[f.id];
@@ -2755,8 +3087,11 @@ public final class Interpreter implements AutoCloseable {
     private Function preflightCallable(Function function) { return preflightCallable(function,false); }
     private Function preflightCallable(Function function,boolean allowCodeRequest) {
         requireExecutableAbi(function);
+        require(!disposed,"Disposed task runtime cannot enter guest code");
+        require(function.id<0||!constantRetired[function.id],"Initialized cache owner has been retired: "+function.label);
         Function target=executionTarget(function);
         if(target!=function) { requireExecutableAbi(target); function=target; }
+        require(function.id<0||!constantRetired[function.id],"Initialized cache owner has been retired: "+function.label);
         if(buildIdentityPrimitive(function.intrinsic)) requireBuildIdentity();
         if(function.params.length==0&&constantReady[function.id]) return function;
         Header header=function.header;
@@ -2821,7 +3156,7 @@ public final class Interpreter implements AutoCloseable {
         if(!exclusive(closure)) for(Object a:closure.fields) inc(a,1);
         System.arraycopy(args,0,combined,closure.fields.length,args.length);
         if(exclusive(closure)) { closure.dead=true; Arrays.fill(closure.fields,null); shellDeletes++; }
-        else dec(closure,1);
+        else releaseQuiet(closure,1);
         if(combined.length<f.params.length) return closure(f,combined);
         Object[] actual=combined.length==f.params.length?combined:Arrays.copyOf(combined,f.params.length);
         enter(called,actual); Object answer=called.resultType==OBJ?result:boxScalar(scalarResult,called.resultType);
@@ -2879,7 +3214,7 @@ public final class Interpreter implements AutoCloseable {
                 case USET: { Node n=node(obj(b.a)); unique(n); writeScalar(n,rawOffset(n,b.b,0),USIZE,numbers[bp+b.args[0]]); stores++; b=b.next; break; }
                 case SETTAG: { Node n=node(obj(b.a)); unique(n); n.tag=b.b; b=b.next; break; }
                 case INC: inc(obj(b.a),b.b); b=b.next; break;
-                case DEC: dec(obj(b.a),b.b); b=b.next; break;
+                case DEC: releaseQuiet(obj(b.a),b.b); b=b.next; break;
                 case DEL: deleteShell(obj(b.a)); b=b.next; break;
                 case CASE: {
                     long tag=caseTag(b);
@@ -2908,7 +3243,7 @@ public final class Interpreter implements AutoCloseable {
                        "Closure function identity differs from current code generation");
     }
     private void generationBoundary(String operation) {
-        if(closed||advancing||untrackedFailure||(phase!=IDLE&&phase!=HOST_CALL&&phase!=CODE_CALL)||(!explicit&&sp!=0))
+        if(closed||disposed||advancing||untrackedFailure||(phase!=IDLE&&phase!=HOST_CALL&&phase!=CODE_CALL)||(!explicit&&sp!=0))
             throw new IllegalStateException(operation+" requires an open idle, host-call or code-call boundary");
     }
     /** Install only an actual descendant. Preserve all initialized cache owners
@@ -2920,7 +3255,8 @@ public final class Interpreter implements AutoCloseable {
         if(descendant==program) return;
         Object[] nextConstants=Arrays.copyOf(constants,descendant.functions.length);
         boolean[] nextReady=Arrays.copyOf(constantReady,descendant.functions.length);
-        constants=nextConstants; constantReady=nextReady; program=descendant;
+        constants=nextConstants; constantReady=nextReady;
+        constantRetired=Arrays.copyOf(constantRetired,descendant.functions.length); program=descendant;
     }
     private void validateDescendant(Program descendant) {
         require(descendant!=null,"Actual descendant Program required");
@@ -2970,7 +3306,7 @@ public final class Interpreter implements AutoCloseable {
      * 16 MiB each of scalar bytes and conservative immutable-carrier bytes.
      * Only wired values and lightweight per-global source provenance escape. */
     public Object[] installGraph(PreparedGraph graph) {
-        if(closed||advancing||untrackedFailure||phase!=IDLE||pendingOwnedResult||sp!=0)
+        if(closed||disposed||advancing||untrackedFailure||phase!=IDLE||pendingOwnedResult||sp!=0)
             throw new IllegalStateException("Prepared graph installation requires an open idle engine");
         require(graph!=null,"Actual PreparedGraph required");
         require(!graphInstalled,"Prepared graph has already been installed in this engine");
@@ -3013,7 +3349,7 @@ public final class Interpreter implements AutoCloseable {
             require(header.initialized()&&function.params.length==0&&function.resultType==OBJ,
                     "Prepared global requires an original boxed nullary initialized Header");
             require(uniqueGlobals.add(id),"Duplicate prepared global slot");
-            require(!constantReady[id],"Prepared global slot is already occupied"); globalIds[i]=id;
+            require(!constantReady[id]&&!constantRetired[id],"Prepared global slot is occupied or retired"); globalIds[i]=id;
         }
         boolean[] visited=new boolean[graph.nodes.length]; ArrayDeque<Integer> pending=new ArrayDeque<>();
         enqueueGraphValues(graph.globalValues,positions,visited,pending);
@@ -3155,15 +3491,19 @@ public final class Interpreter implements AutoCloseable {
         if(call.function.resultType==OBJ) validateHostObject(reply);
         else scalar=inputScalar(reply,call.function.resultType);
         preflightHostCompletion(call,reply);
+        RuntimeAction action=taskRuntime==null?null:newAction(ACTION_HOST,call.function,call.next,call.dest,call.kind,call.surplus);
         call.replyClaimed=true; call.completionResult=reply; call.completionScalar=scalar;
         call.resultOwned=call.function.resultType==OBJ;
-        hostRequest=null; hostCompletion=call; advancing=true;
+        call.previousCompletion=hostCompletion;
+        hostRequest=null; hostCompletion=call;
+        if(action!=null) { action.completion=call; action.request=request; publishAction(action); phase=RUNNING; return; }
+        advancing=true;
         try {
             if(call.facade) while(call.borrowedCursor<call.arguments.length) {
                 int index=call.borrowedCursor;
                 if(call.function.hostExtern.borrowed[index]) {
                     call.adapterReleaseStarted=true;
-                    dec(call.arguments[index],1);
+                    releaseQuiet(call.arguments[index],1);
                     call.adapterReleaseStarted=false;
                 }
                 call.borrowedCursor++;
@@ -3188,7 +3528,7 @@ public final class Interpreter implements AutoCloseable {
                 if(call.function.resultType==OBJ) objects[call.dest]=reply; else numbers[call.dest]=scalar;
                 pc=call.next; call.resultOwned=false;
             }
-            hostCompletion=null;
+            hostCompletion=call.previousCompletion;
         } catch(Throwable failure) { markHostFailure(request,failure); throw failure; }
         finally { advancing=false; }
     }
@@ -3277,7 +3617,8 @@ public final class Interpreter implements AutoCloseable {
         }
         activation.claimed=true; codeRequest=null; advancing=true;
         try {
-            constants=nextConstants; constantReady=nextReady; program=descendant;
+            constants=nextConstants; constantReady=nextReady;
+        constantRetired=Arrays.copyOf(constantRetired,descendant.functions.length); program=descendant;
             objects=nextObjects; numbers=nextNumbers; joins=nextJoins; continuations=nextContinuations;
             phase=RUNNING;
             enterExplicit(function,null,activation.arguments,activation.next,activation.dest,activation.kind,activation.surplus);
@@ -3307,6 +3648,7 @@ public final class Interpreter implements AutoCloseable {
         if(args==null||args.length!=function.params.length) throw error("Arity mismatch: "+function.label);
         if(buildIdentityPrimitive(function.intrinsic)) requireBuildUnit(args[0]);
         if(function.intrinsic==TASK_MAP) validateTaskMap(args);
+        if(actionPrimitive(function)) validateNative(function,args);
         for(int i=0;i<args.length;i++) {
             if(function.paramTypes[i]!=OBJ) { if(saved) readSavedScalar(args[i],function.paramTypes[i]); else inputScalar(args[i],function.paramTypes[i]); }
             else if(args[i] instanceof Double||args[i] instanceof F64Bits) throw error("Float scalar is not an OBJ value");
@@ -3320,7 +3662,7 @@ public final class Interpreter implements AutoCloseable {
     /** Bind an owned external invocation, without executing its body. */
     public void start(int function,Object[] args) {
         explicitOnly();
-        if(advancing||phase!=IDLE) throw new IllegalStateException("Take the result or finish the current execution before start");
+        if(advancing||phase!=IDLE||(taskRuntime!=null&&(disposed||untrackedFailure))) throw new IllegalStateException("Take the result or finish the current execution before start");
         Function f=program.functions[function];
         rootEntry(f);
         f=preflightCallable(f,true);
@@ -3330,6 +3672,10 @@ public final class Interpreter implements AutoCloseable {
             else scalarResult=(Long)constants[f.id];
             callsLeft=10_000_000; instructions=0;
             entry=f; phase=COMPLETE; pendingOwnedResult=true; return;
+        }
+        if(actionPrimitive(f)) {
+            enterNative(f,args,null,0,ROOT,null);
+            callsLeft=10_000_000; instructions=0; entry=f; phase=RUNNING; return;
         }
         if(f.intrinsic==TASK_MAP) {
             enterTaskMap(f,null,args,null,0,ROOT,null);
@@ -3393,10 +3739,13 @@ public final class Interpreter implements AutoCloseable {
         }
         Object[] combined=new Object[closure.fields.length+args.length];
         System.arraycopy(closure.fields,0,combined,0,closure.fields.length);
+        System.arraycopy(args,0,combined,closure.fields.length,args.length);
+        if(combined.length>=f.params.length&&actionPrimitive(f))
+            validateNative(f,combined.length==f.params.length?combined:Arrays.copyOf(combined,f.params.length));
         if(!exclusive(closure)) for(Object a:closure.fields) inc(a,1);
         System.arraycopy(args,0,combined,closure.fields.length,args.length);
         if(exclusive(closure)) { closure.dead=true; Arrays.fill(closure.fields,null); shellDeletes++; }
-        else dec(closure,1);
+        else releaseQuiet(closure,1);
         if(combined.length<f.params.length) { result=closure(f,combined); return false; }
         applicationTarget=called;
         applicationArgs=combined.length==f.params.length?combined:Arrays.copyOf(combined,f.params.length);
@@ -3409,6 +3758,7 @@ public final class Interpreter implements AutoCloseable {
             Function f=applicationTarget; Object[] actual=applicationArgs,rest=applicationSurplus;
             applicationTarget=null; applicationArgs=null; applicationSurplus=null;
             if(f.hostExtern!=null) { suspendHost(f,actual,next,dest,APPLY,rest,true); return; }
+            if(actionPrimitive(f)) { enterNative(f,actual,next,dest,APPLY,rest); return; }
             if(f.intrinsic==TASK_MAP) { enterTaskMap(f,null,actual,next,dest,APPLY,rest); return; }
             if(f.intrinsic==0) { enterExplicit(f,null,actual,next,dest,APPLY,rest); return; }
             intrinsicExternal(f,actual);
@@ -3454,7 +3804,7 @@ public final class Interpreter implements AutoCloseable {
         if(phase!=RUNNING) throw new IllegalStateException("No resumable execution: "+phase());
         advancing=true;
         try {
-            if(releaseRoot) runReleaseLoop(budget); else runExplicitLoop(budget);
+            if(releaseTransaction!=null) runReleaseLoop(budget); else runExplicitLoop(budget);
             return phase==COMPLETE;
         }
         catch(Throwable failure) { phase=FAILED; throw failure; }
@@ -3466,12 +3816,13 @@ public final class Interpreter implements AutoCloseable {
                 // Keep the dispatch cursor local. Publish the attempted body
                 // for failures and let control-transfer helpers publish callees.
                 pc=b; instructions++;
+                if(b==ACTION_BODY) { stepAction(); b=pc; continue; }
                 switch(b.op) {
                     case MAP_APPLY: {
                         requireTaskMapFrame(b); tick(); int base=bp;
                         Node task=(Node)objects[base+2]; Object value=task.fields[0];
                         inc(value,1); objects[base+4]=value; numbers[base+7]=1;
-                        numbers[base+7]=2; dec(task,1); objects[base+2]=null; numbers[base+7]=3;
+                        numbers[base+7]=2; releaseQuiet(task,1); objects[base+2]=null; numbers[base+7]=3;
                         Object[] args=(Object[])objects[base+6]; args[0]=value;
                         numbers[base+7]=4;
                         applyExplicit(objects[base+1],args,b.next,base+3);
@@ -3500,6 +3851,8 @@ public final class Interpreter implements AutoCloseable {
                                 Object[] args=new Object[e.args.length];
                                 for(int i=0;i<args.length;i++) args[i]=f.paramTypes[i]==OBJ?obj(e.args[i]):saveScalar(numbers[bp+e.args[i]],f.paramTypes[i]);
                                 suspendHost(f,args,b.next,dest,ASSIGN,null,false); b=pc;
+                            } else if(actionPrimitive(f)) {
+                                enterNative(f,savedArguments(f,e.args),b.next,dest,ASSIGN,null); b=pc;
                             } else if(f.intrinsic==TASK_MAP) {
                                 enterTaskMap(f,e.args,null,b.next,dest,ASSIGN,null); b=pc;
                             } else if(f.intrinsic!=0) {
@@ -3527,7 +3880,10 @@ public final class Interpreter implements AutoCloseable {
                     case USET: { Node n=node(obj(b.a)); unique(n); writeScalar(n,rawOffset(n,b.b,0),USIZE,numbers[bp+b.args[0]]); stores++; b=b.next; break; }
                     case SETTAG: { Node n=node(obj(b.a)); unique(n); n.tag=b.b; b=b.next; break; }
                     case INC: inc(obj(b.a),b.b); b=b.next; break;
-                    case DEC: dec(obj(b.a),b.b); b=b.next; break;
+                    case DEC:
+                        if(taskRuntime!=null) { if(beginRelease(obj(b.a),b.b,b.next)) b=pc; else b=b.next; }
+                        else { releaseQuiet(obj(b.a),b.b); b=b.next; }
+                        break;
                     case DEL: deleteShell(obj(b.a)); b=b.next; break;
                     case CASE: {
                         long tag=caseTag(b);
@@ -3603,18 +3959,25 @@ public final class Interpreter implements AutoCloseable {
         return checksum;
     }
     @Override public void close() {
-        if(closed) return; closed=true;
+        if(closed) return;
+        if(taskRuntime!=null) {
+            if(!disposed||stdoutRoot!=null||runtimeAction!=null||hostCompletion!=null||quietCurrent!=null||releasePending!=0)
+                throw new IllegalStateException("Active runtime requires completed explicit disposal before close");
+            for(boolean ready:constantReady) if(ready)
+                throw new IllegalStateException("Explicit disposal left an initialized cache owner");
+        }
+        closed=true;
         if(explicit&&(phase==RUNNING||phase==FAILED||phase==HOST_CALL||phase==CODE_CALL)) {
             closed=false;
             throw new IllegalStateException("Active or failed explicit execution requires ownership cleanup before close");
         }
         boolean sourceOwnedResult=pendingOwnedResult&&!releaseRoot&&entry.resultType==OBJ;
         releaseRoot=false;
-        if(sourceOwnedResult) dec(result,1);
+        if(sourceOwnedResult) releaseQuiet(result,1);
         pendingOwnedResult=false;
-        if(stdoutRoot!=null) { dec(stdoutRoot,1); stdoutRoot=null; }
+        if(stdoutRoot!=null) { releaseQuiet(stdoutRoot,1); stdoutRoot=null; }
         utf8Key=null; utf8Bytes=null;
-        for(int i=0;i<constants.length;i++) if(constantReady[i]&&program.functions[i].resultType==OBJ) dec(constants[i],1);
+        for(int i=0;i<constants.length;i++) if(constantReady[i]&&program.functions[i].resultType==OBJ) releaseQuiet(constants[i],1);
         Arrays.fill(constants,null); Arrays.fill(objects,null); result=null;
     }
 }
