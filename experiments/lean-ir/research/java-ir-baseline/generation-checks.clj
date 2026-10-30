@@ -214,7 +214,7 @@
   (let [base (prepare common) engine (j/machine base)
         closure (j/make-closure! base engine "identity" [])
         next (reduce (fn [ctx n] (extend ctx [(literal (str "generation-" n) n)])) base (range 128))
-        token (field closure "image") token-class (class token) program-class (class (:program base))]
+        token (field closure "metadata") token-class (class token) program-class (class (:program base))]
     (try
       (is (not (.isInstance ^Class program-class token)))
       (doseq [f (.getDeclaredFields token-class)

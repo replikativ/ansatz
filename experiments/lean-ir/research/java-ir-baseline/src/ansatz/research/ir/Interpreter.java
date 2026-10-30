@@ -334,17 +334,33 @@ public final class Interpreter implements AutoCloseable {
         return resolveExtern(map(map(exportedRow.get("ir")).get("extern"))).symbol;
     }
 
+    /** Kind-specific metadata owns no guest values. Mutable state is branch-local;
+     * immutable provenance can share. Ordinary constructors allocate no metadata. */
+    private interface NodeMetadata {
+        // Metadata owns no guest values. Each mutable kind must explicitly copy.
+        NodeMetadata copyForFork();
+    }
+    private static final class ArrayState implements NodeMetadata {
+        int size;
+        ArrayState(int size) { this.size=size; }
+        public ArrayState copyForFork() { return new ArrayState(size); }
+    }
     public static final class Node {
         public int tag, rc=1;
         public final Object[] fields;
         public final byte[] scalars;
         private Function closure;
-        private Generation image;
+        // Disjoint by kind: immutable Generation for closures; private mutable
+        // ArrayState for arrays; null for ordinary constructors/refs/ready Tasks.
+        private NodeMetadata metadata;
         private boolean dead;
         private boolean array;
-        private int arraySize; // fields.length is capacity; spare slots are always null
         private boolean ref;
         private boolean readyTask;
+        /** Logical live size; fields.length is capacity and spare slots are null. */
+        public int arraySize() {
+            require(array,"Expected Array"); return ((ArrayState)metadata).size;
+        }
         Node(int tag, int size, int scalarBytes) {
             this.tag=tag; fields=new Object[size]; scalars=new byte[scalarBytes];
         }
@@ -668,7 +684,8 @@ public final class Interpreter implements AutoCloseable {
     }
     /** Identity-only lineage: no function/map/Program references. Binary lifting
      * bounds ancestry checks without retaining every old full image table. */
-    private static final class Generation {
+    private static final class Generation implements NodeMetadata {
+        public Generation copyForFork() { return this; }
         final int depth;
         final Generation[] jumps;
         Generation(Generation parent) {
@@ -971,7 +988,7 @@ public final class Interpreter implements AutoCloseable {
                 boolean fresh=fields==null;
                 if(fresh) fields=new Object[old.fields.length];
                 Node out=new Node(old.tag,fields,old.scalars.length);
-                copies.put(source,out); out.rc=old.rc; out.dead=old.dead; out.array=old.array; out.arraySize=old.arraySize; out.ref=old.ref; out.readyTask=old.readyTask; out.image=old.image;
+                copies.put(source,out); out.rc=old.rc; out.dead=old.dead; out.array=old.array; out.ref=old.ref; out.readyTask=old.readyTask; out.metadata=old.metadata==null?null:old.metadata.copyForFork();
                 out.closure=(Function)value(old.closure);
                 System.arraycopy(old.scalars,0,out.scalars,0,old.scalars.length);
                 if(fresh) bind(old.fields,out.fields); return out;
@@ -1296,7 +1313,7 @@ public final class Interpreter implements AutoCloseable {
                 current.dead=true;
                 // Transfer child-edge owners to an explicit private work
                 // stack. No native finalizers run in this profile.
-                for(int i=(current.array?current.arraySize:current.fields.length)-1;i>=0;i--) {
+                for(int i=(current.array?arrayState(current).size:current.fields.length)-1;i>=0;i--) {
                     Object child=current.fields[i]; current.fields[i]=null;
                     if(child instanceof Node) {
                         if(pending==releaseWork.length) releaseWork=Arrays.copyOf(releaseWork,Math.multiplyExact(pending,2));
@@ -1448,28 +1465,29 @@ public final class Interpreter implements AutoCloseable {
         require(n.compareTo(BigInteger.valueOf(MAX_ARRAY_CAPACITY))<=0,"Array capacity outside bounded runtime profile");
         return n.intValue();
     }
+    private static ArrayState arrayState(Node value) { return (ArrayState)value.metadata; }
     private static int arrayIndex(Node a,Object index) {
         BigInteger n=nat(index);
-        require(n.compareTo(BigInteger.valueOf(a.arraySize))<0,"Array index outside bounds");
+        require(n.compareTo(BigInteger.valueOf(arrayState(a).size))<0,"Array index outside bounds");
         return n.intValue();
     }
     private Node newArray(int size,int capacity) {
         require(size>=0&&capacity>=size&&capacity<=MAX_ARRAY_CAPACITY,"Array capacity outside bounded runtime profile");
-        Node out=new Node(246,capacity,0); out.array=true; out.arraySize=size; allocations++; return out;
+        Node out=new Node(246,capacity,0); out.array=true; out.metadata=new ArrayState(size); allocations++; return out;
     }
     /** Copy only shared/persistent arrays. Unique growth transfers element owners
      * into a replacement shell; unused capacity never owns values. */
     private Node exclusiveArray(Node a,boolean push) {
         boolean exclusive=a.rc==1;
-        if(exclusive&&(!push||a.arraySize<a.fields.length)) return a;
-        boolean expand=push&&(exclusive||a.fields.length<2L*a.arraySize+1);
+        if(exclusive&&(!push||arrayState(a).size<a.fields.length)) return a;
+        boolean expand=push&&(exclusive||a.fields.length<2L*arrayState(a).size+1);
         int capacity=expand?Math.multiplyExact(Math.addExact(a.fields.length,1),2):a.fields.length;
-        Node out=newArray(a.arraySize,capacity);
+        Node out=newArray(arrayState(a).size,capacity);
         if(exclusive) {
-            System.arraycopy(a.fields,0,out.fields,0,a.arraySize);
+            System.arraycopy(a.fields,0,out.fields,0,arrayState(a).size);
             Arrays.fill(a.fields,null); a.dead=true; a.rc=0; shellDeletes++;
         } else {
-            for(int i=0;i<a.arraySize;i++) { Object v=a.fields[i]; inc(v,1); out.fields[i]=v; }
+            for(int i=0;i<arrayState(a).size;i++) { Object v=a.fields[i]; inc(v,1); out.fields[i]=v; }
             dec(a,1);
         }
         return out;
@@ -1478,7 +1496,7 @@ public final class Interpreter implements AutoCloseable {
         if(f.intrinsic==ARRAY_CHECKED_GET||f.intrinsic==ARRAY_CHECKED_BORROWED) {
             validateHostObject(a);
             Node array=array(b); BigInteger index=nat(c);
-            require(index.compareTo(BigInteger.valueOf(array.arraySize))<0,
+            require(index.compareTo(BigInteger.valueOf(arrayState(array).size))<0,
                     "Array.get! panic path outside bounded runtime profile");
             Object value=array.fields[index.intValue()];
             if(f.intrinsic==ARRAY_CHECKED_GET) inc(value,1);
@@ -1493,7 +1511,7 @@ public final class Interpreter implements AutoCloseable {
         }
         Node n=array(a);
         switch(f.intrinsic) {
-            case ARRAY_USIZE: scalarResult=n.arraySize; return;
+            case ARRAY_USIZE: scalarResult=arrayState(n).size; return;
             case ARRAY_FGET: case ARRAY_UGET: case ARRAY_UGET_BORROWED: {
                 Object v=n.fields[arrayIndex(n,b)];
                 if(f.intrinsic!=ARRAY_UGET_BORROWED) inc(v,1);
@@ -1501,11 +1519,11 @@ public final class Interpreter implements AutoCloseable {
             }
             case ARRAY_PUSH: {
                 validateHostObject(b); Node out=exclusiveArray(n,true);
-                out.fields[out.arraySize++]=b; stores++; result=out; return;
+                out.fields[arrayState(out).size++]=b; stores++; result=out; return;
             }
             case ARRAY_POP: {
                 Node out=exclusiveArray(n,false);
-                if(out.arraySize!=0) { int i=--out.arraySize; Object old=out.fields[i]; out.fields[i]=null; stores++; dec(old,1); }
+                if(arrayState(out).size!=0) { int i=--arrayState(out).size; Object old=out.fields[i]; out.fields[i]=null; stores++; dec(old,1); }
                 result=out; return;
             }
             case ARRAY_FSET: case ARRAY_USET: {
@@ -1521,7 +1539,7 @@ public final class Interpreter implements AutoCloseable {
             }
             case ARRAY_LIST: {
                 Object list=ERASED;
-                for(int i=n.arraySize-1;i>=0;i--) {
+                for(int i=arrayState(n).size-1;i>=0;i--) {
                     Object v=n.fields[i]; inc(v,1); Node cons=new Node(1,2,0); allocations++;
                     cons.fields[0]=v; cons.fields[1]=list; list=cons;
                 }
@@ -1747,10 +1765,10 @@ public final class Interpreter implements AutoCloseable {
                 for(int i=0;i<elements.length;i++) { inc(elements[i],1); n.fields[i]=elements[i]; }
                 dec(b,1); result=n; break;
             }
-            case ARRAY_SIZE: result=Long.valueOf(array(b).arraySize); break;
+            case ARRAY_SIZE: result=Long.valueOf(arrayState(array(b)).size); break;
             case ARRAY_GET: {
                 Node n=array(b); BigInteger index=nat(c);
-                require(index.compareTo(BigInteger.valueOf(n.arraySize))<0,"Array index outside bounds");
+                require(index.compareTo(BigInteger.valueOf(arrayState(n).size))<0,"Array index outside bounds");
                 result=n.fields[index.intValue()]; break; // Borrowed: caller IR owns the inc.
             }
             case GET_STDOUT: result=stdout(); break;
@@ -1940,7 +1958,7 @@ public final class Interpreter implements AutoCloseable {
         return combined.length==f.params.length?answer:apply(answer,Arrays.copyOfRange(combined,f.params.length,combined.length));
     }
     private Node closure(Function f,Object[] captured) {
-        Node n=new Node(245,captured.length,0); n.closure=f; n.image=program.generation; System.arraycopy(captured,0,n.fields,0,captured.length); allocations++; return n;
+        Node n=new Node(245,captured.length,0); n.closure=f; n.metadata=program.generation; System.arraycopy(captured,0,n.fields,0,captured.length); allocations++; return n;
     }
     private void expression(Expr e,int type,int dest) {
         switch(e.op) {
@@ -2010,7 +2028,7 @@ public final class Interpreter implements AutoCloseable {
     private void acceptsClosure(Node closure) {
         Function function=closure.closure;
         require(function!=null,"Expected closure");
-        if(!program.generation.accepts(closure.image)) throw error("Closure belongs to another code image");
+        if(!(closure.metadata instanceof Generation)||!program.generation.accepts((Generation)closure.metadata)) throw error("Closure belongs to another code image");
         if(function.privateOwner!=null) {
             if(function.privateOwner!=runtimeIdentity) throw error("Host closure belongs to another interpreter");
         } else require(function.id>=0&&function.id<program.functions.length&&program.functions[function.id]==function,
@@ -2132,8 +2150,8 @@ public final class Interpreter implements AutoCloseable {
         Node[] shells=new Node[graph.nodes.length];
         for(int i=0;i<shells.length;i++) {
             ImportNode recipe=graph.nodes[i]; Node shell=new Node(recipe.tag,recipe.fields.length,recipe.scalars.length);
-            shell.rc=recipe.sourceRC==0?0:owners[i]; shell.array=recipe.kind==ImportNode.ARRAY; shell.arraySize=shell.array?recipe.fields.length:0; shell.ref=recipe.kind==ImportNode.REF;
-            if(recipe.kind==ImportNode.CLOSURE) { shell.closure=closureTargets[i]; shell.image=program.generation; }
+            shell.rc=recipe.sourceRC==0?0:owners[i]; shell.array=recipe.kind==ImportNode.ARRAY; if(shell.array) shell.metadata=new ArrayState(recipe.fields.length); shell.ref=recipe.kind==ImportNode.REF;
+            if(recipe.kind==ImportNode.CLOSURE) { shell.closure=closureTargets[i]; shell.metadata=program.generation; }
             System.arraycopy(recipe.scalars,0,shell.scalars,0,recipe.scalars.length); shells[i]=shell;
         }
         for(int i=0;i<shells.length;i++) for(int field=0;field<shells[i].fields.length;field++)
