@@ -1,0 +1,7 @@
+{:schema 1
+ :lean-version "4.33.1"
+ :lean-commit "819816b2e0a3bf405af45ae5c7af2491d8f5bee6"
+ :fixture-sha256 "6963705e3bf6e47c4afe76fce83aecb2b2d5065ad99a030e72db14ffc879db3d"
+ :original-row-count 12
+ :transformation {:remove-top-level-pretty true :original-bodies-unchanged true}
+ :original-blob-identities :per-record-sha256}

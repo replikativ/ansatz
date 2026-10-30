@@ -1,0 +1,2024 @@
+[
+  {
+    "label": "ST.Prim.mkRef",
+    "sha256": "6008c09fe7066cb48fb79138599ff0faf6f6e874b916fefdfb9c9d5aebb600c8",
+    "row": {
+      "dependencies": [],
+      "ir": {
+        "extern": {
+          "ext": {
+            "entries": [
+              {
+                "standard": {
+                  "backend": [
+                    "str",
+                    [
+                      "anonymous"
+                    ],
+                    "all"
+                  ],
+                  "fn": "lean_st_mk_ref"
+                }
+              }
+            ]
+          },
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "ST"
+              ],
+              "Prim"
+            ],
+            "mkRef"
+          ],
+          "type": "tobject",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "erased",
+              "x": {
+                "idx": 1
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "erased",
+              "x": {
+                "idx": 2
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 3
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "void",
+              "x": {
+                "idx": 4
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "ST"
+          ],
+          "Prim"
+        ],
+        "mkRef"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "Init"
+          ],
+          "System"
+        ],
+        "ST"
+      ]
+    }
+  },
+  {
+    "label": "ST.Prim.Ref.get",
+    "sha256": "62dc4f1581c1e49596d9dbbc39e57151f47bc55610fbff91ebd4af0446499cc0",
+    "row": {
+      "dependencies": [],
+      "ir": {
+        "extern": {
+          "ext": {
+            "entries": [
+              {
+                "standard": {
+                  "backend": [
+                    "str",
+                    [
+                      "anonymous"
+                    ],
+                    "all"
+                  ],
+                  "fn": "lean_st_ref_get"
+                }
+              }
+            ]
+          },
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "str",
+                  [
+                    "anonymous"
+                  ],
+                  "ST"
+                ],
+                "Prim"
+              ],
+              "Ref"
+            ],
+            "get"
+          ],
+          "type": "tobject",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "erased",
+              "x": {
+                "idx": 1
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "erased",
+              "x": {
+                "idx": 2
+              }
+            },
+            {
+              "borrow": true,
+              "ty": "tobject",
+              "x": {
+                "idx": 3
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "void",
+              "x": {
+                "idx": 4
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "ST"
+            ],
+            "Prim"
+          ],
+          "Ref"
+        ],
+        "get"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "Init"
+          ],
+          "System"
+        ],
+        "ST"
+      ]
+    }
+  },
+  {
+    "label": "ST.Prim.Ref.set",
+    "sha256": "3557d19a2a861d3427d1d3bd9220e5e413ab373b16e1cca82b22fab288a8e83c",
+    "row": {
+      "dependencies": [],
+      "ir": {
+        "extern": {
+          "ext": {
+            "entries": [
+              {
+                "standard": {
+                  "backend": [
+                    "str",
+                    [
+                      "anonymous"
+                    ],
+                    "all"
+                  ],
+                  "fn": "lean_st_ref_set"
+                }
+              }
+            ]
+          },
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "str",
+                  [
+                    "anonymous"
+                  ],
+                  "ST"
+                ],
+                "Prim"
+              ],
+              "Ref"
+            ],
+            "set"
+          ],
+          "type": "tagged",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "erased",
+              "x": {
+                "idx": 1
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "erased",
+              "x": {
+                "idx": 2
+              }
+            },
+            {
+              "borrow": true,
+              "ty": "tobject",
+              "x": {
+                "idx": 3
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 4
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "void",
+              "x": {
+                "idx": 5
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "ST"
+            ],
+            "Prim"
+          ],
+          "Ref"
+        ],
+        "set"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "Init"
+          ],
+          "System"
+        ],
+        "ST"
+      ]
+    }
+  },
+  {
+    "label": "ST.Prim.Ref.swap",
+    "sha256": "4352d0084ab6c5a3f00fc9ce9860516dcff9d41569e6f828071c9410e347e57f",
+    "row": {
+      "dependencies": [],
+      "ir": {
+        "extern": {
+          "ext": {
+            "entries": [
+              {
+                "standard": {
+                  "backend": [
+                    "str",
+                    [
+                      "anonymous"
+                    ],
+                    "all"
+                  ],
+                  "fn": "lean_st_ref_swap"
+                }
+              }
+            ]
+          },
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "str",
+                  [
+                    "anonymous"
+                  ],
+                  "ST"
+                ],
+                "Prim"
+              ],
+              "Ref"
+            ],
+            "swap"
+          ],
+          "type": "tobject",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "erased",
+              "x": {
+                "idx": 1
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "erased",
+              "x": {
+                "idx": 2
+              }
+            },
+            {
+              "borrow": true,
+              "ty": "tobject",
+              "x": {
+                "idx": 3
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 4
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "void",
+              "x": {
+                "idx": 5
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "ST"
+            ],
+            "Prim"
+          ],
+          "Ref"
+        ],
+        "swap"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "Init"
+          ],
+          "System"
+        ],
+        "ST"
+      ]
+    }
+  },
+  {
+    "label": "ST.Prim.Ref.take",
+    "sha256": "741afa2b5b3a2e9a791394d940ece532b630d8f9740cf4a78b377f5e480ff089",
+    "row": {
+      "dependencies": [],
+      "ir": {
+        "extern": {
+          "ext": {
+            "entries": [
+              {
+                "standard": {
+                  "backend": [
+                    "str",
+                    [
+                      "anonymous"
+                    ],
+                    "all"
+                  ],
+                  "fn": "lean_st_ref_take"
+                }
+              }
+            ]
+          },
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "str",
+                  [
+                    "anonymous"
+                  ],
+                  "ST"
+                ],
+                "Prim"
+              ],
+              "Ref"
+            ],
+            "take"
+          ],
+          "type": "tobject",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "erased",
+              "x": {
+                "idx": 1
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "erased",
+              "x": {
+                "idx": 2
+              }
+            },
+            {
+              "borrow": true,
+              "ty": "tobject",
+              "x": {
+                "idx": 3
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "void",
+              "x": {
+                "idx": 4
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "ST"
+            ],
+            "Prim"
+          ],
+          "Ref"
+        ],
+        "take"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "Init"
+          ],
+          "System"
+        ],
+        "ST"
+      ]
+    }
+  },
+  {
+    "label": "ST.Prim.Ref.ptrEq",
+    "sha256": "30197fb9c20285123938e73952941a4c4086c6e915cec3e7e33e695b3da624e1",
+    "row": {
+      "dependencies": [],
+      "ir": {
+        "extern": {
+          "ext": {
+            "entries": [
+              {
+                "standard": {
+                  "backend": [
+                    "str",
+                    [
+                      "anonymous"
+                    ],
+                    "all"
+                  ],
+                  "fn": "lean_st_ref_ptr_eq"
+                }
+              }
+            ]
+          },
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "str",
+                  [
+                    "anonymous"
+                  ],
+                  "ST"
+                ],
+                "Prim"
+              ],
+              "Ref"
+            ],
+            "ptrEq"
+          ],
+          "type": "uint8",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "erased",
+              "x": {
+                "idx": 1
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "erased",
+              "x": {
+                "idx": 2
+              }
+            },
+            {
+              "borrow": true,
+              "ty": "tobject",
+              "x": {
+                "idx": 3
+              }
+            },
+            {
+              "borrow": true,
+              "ty": "tobject",
+              "x": {
+                "idx": 4
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "void",
+              "x": {
+                "idx": 5
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "ST"
+            ],
+            "Prim"
+          ],
+          "Ref"
+        ],
+        "ptrEq"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "Init"
+          ],
+          "System"
+        ],
+        "ST"
+      ]
+    }
+  },
+  {
+    "label": "ST.Prim.mkRef._boxed",
+    "sha256": "db7be5f44820372ded0c1c4b2f419d57e607888c939048543fddad0830e16180",
+    "row": {
+      "dependencies": [
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "ST"
+            ],
+            "Prim"
+          ],
+          "mkRef"
+        ]
+      ],
+      "ir": {
+        "fdecl": {
+          "body": [
+            "vdecl",
+            {
+              "idx": 5
+            },
+            "tobject",
+            {
+              "fap": {
+                "c": [
+                  "str",
+                  [
+                    "str",
+                    [
+                      "str",
+                      [
+                        "anonymous"
+                      ],
+                      "ST"
+                    ],
+                    "Prim"
+                  ],
+                  "mkRef"
+                ],
+                "ys": [
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 1
+                      }
+                    }
+                  },
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 2
+                      }
+                    }
+                  },
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 3
+                      }
+                    }
+                  },
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 4
+                      }
+                    }
+                  }
+                ]
+              }
+            },
+            [
+              "ret",
+              {
+                "var": {
+                  "id": {
+                    "idx": 5
+                  }
+                }
+              }
+            ]
+          ],
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "str",
+                  [
+                    "anonymous"
+                  ],
+                  "ST"
+                ],
+                "Prim"
+              ],
+              "mkRef"
+            ],
+            "_boxed"
+          ],
+          "info": {},
+          "type": "tobject",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 1
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 2
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 3
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "tagged",
+              "x": {
+                "idx": 4
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "ST"
+            ],
+            "Prim"
+          ],
+          "mkRef"
+        ],
+        "_boxed"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "Init"
+          ],
+          "System"
+        ],
+        "ST"
+      ]
+    }
+  },
+  {
+    "label": "ST.Prim.Ref.get._boxed",
+    "sha256": "e765847bb8f2fdc12daee56d24e6308139fe37d15133c3e1ef961042b4ccf577",
+    "row": {
+      "dependencies": [
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "ST"
+              ],
+              "Prim"
+            ],
+            "Ref"
+          ],
+          "get"
+        ]
+      ],
+      "ir": {
+        "fdecl": {
+          "body": [
+            "vdecl",
+            {
+              "idx": 5
+            },
+            "tobject",
+            {
+              "fap": {
+                "c": [
+                  "str",
+                  [
+                    "str",
+                    [
+                      "str",
+                      [
+                        "str",
+                        [
+                          "anonymous"
+                        ],
+                        "ST"
+                      ],
+                      "Prim"
+                    ],
+                    "Ref"
+                  ],
+                  "get"
+                ],
+                "ys": [
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 1
+                      }
+                    }
+                  },
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 2
+                      }
+                    }
+                  },
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 3
+                      }
+                    }
+                  },
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 4
+                      }
+                    }
+                  }
+                ]
+              }
+            },
+            [
+              "dec",
+              {
+                "idx": 3
+              },
+              1,
+              true,
+              false,
+              [
+                "ret",
+                {
+                  "var": {
+                    "id": {
+                      "idx": 5
+                    }
+                  }
+                }
+              ]
+            ]
+          ],
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "str",
+                  [
+                    "str",
+                    [
+                      "anonymous"
+                    ],
+                    "ST"
+                  ],
+                  "Prim"
+                ],
+                "Ref"
+              ],
+              "get"
+            ],
+            "_boxed"
+          ],
+          "info": {},
+          "type": "tobject",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 1
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 2
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 3
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "tagged",
+              "x": {
+                "idx": 4
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "ST"
+              ],
+              "Prim"
+            ],
+            "Ref"
+          ],
+          "get"
+        ],
+        "_boxed"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "Init"
+          ],
+          "System"
+        ],
+        "ST"
+      ]
+    }
+  },
+  {
+    "label": "ST.Prim.Ref.set._boxed",
+    "sha256": "a4b7af684cb09c0b71201ffec843552d09efae63b3e98b8c51d4f53a02a8ba6b",
+    "row": {
+      "dependencies": [
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "ST"
+              ],
+              "Prim"
+            ],
+            "Ref"
+          ],
+          "set"
+        ]
+      ],
+      "ir": {
+        "fdecl": {
+          "body": [
+            "vdecl",
+            {
+              "idx": 6
+            },
+            "tagged",
+            {
+              "fap": {
+                "c": [
+                  "str",
+                  [
+                    "str",
+                    [
+                      "str",
+                      [
+                        "str",
+                        [
+                          "anonymous"
+                        ],
+                        "ST"
+                      ],
+                      "Prim"
+                    ],
+                    "Ref"
+                  ],
+                  "set"
+                ],
+                "ys": [
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 1
+                      }
+                    }
+                  },
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 2
+                      }
+                    }
+                  },
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 3
+                      }
+                    }
+                  },
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 4
+                      }
+                    }
+                  },
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 5
+                      }
+                    }
+                  }
+                ]
+              }
+            },
+            [
+              "dec",
+              {
+                "idx": 3
+              },
+              1,
+              true,
+              false,
+              [
+                "ret",
+                {
+                  "var": {
+                    "id": {
+                      "idx": 6
+                    }
+                  }
+                }
+              ]
+            ]
+          ],
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "str",
+                  [
+                    "str",
+                    [
+                      "anonymous"
+                    ],
+                    "ST"
+                  ],
+                  "Prim"
+                ],
+                "Ref"
+              ],
+              "set"
+            ],
+            "_boxed"
+          ],
+          "info": {},
+          "type": "tagged",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 1
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 2
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 3
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 4
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "tagged",
+              "x": {
+                "idx": 5
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "ST"
+              ],
+              "Prim"
+            ],
+            "Ref"
+          ],
+          "set"
+        ],
+        "_boxed"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "Init"
+          ],
+          "System"
+        ],
+        "ST"
+      ]
+    }
+  },
+  {
+    "label": "ST.Prim.Ref.swap._boxed",
+    "sha256": "c5172b7103b538d36e14377071000f1426417bfe5ecbfac2918b18d4367a7bf6",
+    "row": {
+      "dependencies": [
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "ST"
+              ],
+              "Prim"
+            ],
+            "Ref"
+          ],
+          "swap"
+        ]
+      ],
+      "ir": {
+        "fdecl": {
+          "body": [
+            "vdecl",
+            {
+              "idx": 6
+            },
+            "tobject",
+            {
+              "fap": {
+                "c": [
+                  "str",
+                  [
+                    "str",
+                    [
+                      "str",
+                      [
+                        "str",
+                        [
+                          "anonymous"
+                        ],
+                        "ST"
+                      ],
+                      "Prim"
+                    ],
+                    "Ref"
+                  ],
+                  "swap"
+                ],
+                "ys": [
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 1
+                      }
+                    }
+                  },
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 2
+                      }
+                    }
+                  },
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 3
+                      }
+                    }
+                  },
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 4
+                      }
+                    }
+                  },
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 5
+                      }
+                    }
+                  }
+                ]
+              }
+            },
+            [
+              "dec",
+              {
+                "idx": 3
+              },
+              1,
+              true,
+              false,
+              [
+                "ret",
+                {
+                  "var": {
+                    "id": {
+                      "idx": 6
+                    }
+                  }
+                }
+              ]
+            ]
+          ],
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "str",
+                  [
+                    "str",
+                    [
+                      "anonymous"
+                    ],
+                    "ST"
+                  ],
+                  "Prim"
+                ],
+                "Ref"
+              ],
+              "swap"
+            ],
+            "_boxed"
+          ],
+          "info": {},
+          "type": "tobject",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 1
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 2
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 3
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 4
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "tagged",
+              "x": {
+                "idx": 5
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "ST"
+              ],
+              "Prim"
+            ],
+            "Ref"
+          ],
+          "swap"
+        ],
+        "_boxed"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "Init"
+          ],
+          "System"
+        ],
+        "ST"
+      ]
+    }
+  },
+  {
+    "label": "ST.Prim.Ref.take._boxed",
+    "sha256": "6189ff8aa054e464ceedc673ce8e81d7da1c21aa44636b113e45292e672c722a",
+    "row": {
+      "dependencies": [
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "ST"
+              ],
+              "Prim"
+            ],
+            "Ref"
+          ],
+          "take"
+        ]
+      ],
+      "ir": {
+        "fdecl": {
+          "body": [
+            "vdecl",
+            {
+              "idx": 5
+            },
+            "tobject",
+            {
+              "fap": {
+                "c": [
+                  "str",
+                  [
+                    "str",
+                    [
+                      "str",
+                      [
+                        "str",
+                        [
+                          "anonymous"
+                        ],
+                        "ST"
+                      ],
+                      "Prim"
+                    ],
+                    "Ref"
+                  ],
+                  "take"
+                ],
+                "ys": [
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 1
+                      }
+                    }
+                  },
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 2
+                      }
+                    }
+                  },
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 3
+                      }
+                    }
+                  },
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 4
+                      }
+                    }
+                  }
+                ]
+              }
+            },
+            [
+              "dec",
+              {
+                "idx": 3
+              },
+              1,
+              true,
+              false,
+              [
+                "ret",
+                {
+                  "var": {
+                    "id": {
+                      "idx": 5
+                    }
+                  }
+                }
+              ]
+            ]
+          ],
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "str",
+                  [
+                    "str",
+                    [
+                      "anonymous"
+                    ],
+                    "ST"
+                  ],
+                  "Prim"
+                ],
+                "Ref"
+              ],
+              "take"
+            ],
+            "_boxed"
+          ],
+          "info": {},
+          "type": "tobject",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 1
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 2
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 3
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "tagged",
+              "x": {
+                "idx": 4
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "ST"
+              ],
+              "Prim"
+            ],
+            "Ref"
+          ],
+          "take"
+        ],
+        "_boxed"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "Init"
+          ],
+          "System"
+        ],
+        "ST"
+      ]
+    }
+  },
+  {
+    "label": "ST.Prim.Ref.ptrEq._boxed",
+    "sha256": "b4b4e105fcb38303e47ab3161961eedca6a9d3ea63ff0bd46463af3e2d025a05",
+    "row": {
+      "dependencies": [
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "ST"
+              ],
+              "Prim"
+            ],
+            "Ref"
+          ],
+          "ptrEq"
+        ]
+      ],
+      "ir": {
+        "fdecl": {
+          "body": [
+            "vdecl",
+            {
+              "idx": 6
+            },
+            "uint8",
+            {
+              "fap": {
+                "c": [
+                  "str",
+                  [
+                    "str",
+                    [
+                      "str",
+                      [
+                        "str",
+                        [
+                          "anonymous"
+                        ],
+                        "ST"
+                      ],
+                      "Prim"
+                    ],
+                    "Ref"
+                  ],
+                  "ptrEq"
+                ],
+                "ys": [
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 1
+                      }
+                    }
+                  },
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 2
+                      }
+                    }
+                  },
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 3
+                      }
+                    }
+                  },
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 4
+                      }
+                    }
+                  },
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 5
+                      }
+                    }
+                  }
+                ]
+              }
+            },
+            [
+              "dec",
+              {
+                "idx": 4
+              },
+              1,
+              true,
+              false,
+              [
+                "dec",
+                {
+                  "idx": 3
+                },
+                1,
+                true,
+                false,
+                [
+                  "vdecl",
+                  {
+                    "idx": 7
+                  },
+                  "tagged",
+                  {
+                    "box": {
+                      "ty": "uint8",
+                      "x": {
+                        "idx": 6
+                      }
+                    }
+                  },
+                  [
+                    "ret",
+                    {
+                      "var": {
+                        "id": {
+                          "idx": 7
+                        }
+                      }
+                    }
+                  ]
+                ]
+              ]
+            ]
+          ],
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "str",
+                  [
+                    "str",
+                    [
+                      "anonymous"
+                    ],
+                    "ST"
+                  ],
+                  "Prim"
+                ],
+                "Ref"
+              ],
+              "ptrEq"
+            ],
+            "_boxed"
+          ],
+          "info": {},
+          "type": "tagged",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 1
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 2
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 3
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 4
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "tagged",
+              "x": {
+                "idx": 5
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "ST"
+              ],
+              "Prim"
+            ],
+            "Ref"
+          ],
+          "ptrEq"
+        ],
+        "_boxed"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "Init"
+          ],
+          "System"
+        ],
+        "ST"
+      ]
+    }
+  }
+]

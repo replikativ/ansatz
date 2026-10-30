@@ -75,8 +75,9 @@ construction references are not guest owners and disappear without inc/dec.
 The existing graph fork copies mutable ref cells, their values, globals, closures,
 constants and execution control through one memo. Refs remain mutable despite
 RC-zero persistence. Ordinary constructor projection, unboxing, cases and unique
-mutation paths reject refs. Ref get/set/swap runtime primitives are a subsequent
-tranche; Java host access in the probe is explicit and is not Ref.set execution.
+mutation paths reject refs. The graph-import milestone used explicit Java host
+ref access; the subsequent [native ref runtime](JAVA_REF_RUNTIME.md) supplies
+get/set/swap/take/ptrEq/mkRef without host requests.
 
 ## Evidence and subsequent gates
 
@@ -99,7 +100,9 @@ actual ready globals `Lean.ppExt` and `Lean.ppFnsRef` through this API. It impor
 ten authentic headers, forks at the first code demand, and each branch loads the
 two original initializer bodies. The five returned callback bodies and both
 global sentinel bodies remain unprepared. There is no reflective Node construction.
-The exact `lean_st_ref_get` host ABI is still used; this is not full parser support.
+This first graph-import probe used the exact `lean_st_ref_get` host ABI. The native
+ref-runtime probe replaces that handler with the actual engine primitive; neither
+gate is full parser support.
 
 The larger selected companion has positive-RC nodes, so it does not pass this
 profile. Its follow-up needs an explicit selected-owner ledger: count each owning

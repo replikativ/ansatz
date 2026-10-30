@@ -23,6 +23,7 @@ public final class Interpreter implements AutoCloseable {
     private static final int USIZE_NAT=9,USIZE_REPR=10,U32_NAT=11,U32_EQ=12,U32_LE=13,PLATFORM_BITS=14;
     private static final int STR_PUSH=15,STR_LIST=16,STR_GET=17,STR_NEXT=18,STR_APPEND=19,STR_SIZE=20,
                              ARRAY_MK=21,ARRAY_SIZE=22,ARRAY_GET=23,GET_STDOUT=24,PANIC=25;
+    private static final int REF_MK=26,REF_GET=27,REF_SET=28,REF_SWAP=29,REF_TAKE=30,REF_PTR_EQ=31;
     private static final int STREAM_FLUSH=100,STREAM_READ=101,STREAM_WRITE=102,STREAM_LINE=103,STREAM_PUT=104,STREAM_TTY=105;
     private static final BigInteger SMALL_MAX=BigInteger.valueOf(Long.MAX_VALUE);
     private static final Object ERASED=Long.valueOf(0);
@@ -167,6 +168,18 @@ public final class Interpreter implements AutoCloseable {
         register(registry,new ExternSpec("lean_array_fget_borrowed",ARRAY_GET,"tobject",new String[]{"erased","object","tobject","erased"},new boolean[]{false,true,true,false}));
         register(registry,new ExternSpec("lean_get_stdout",GET_STDOUT,"object",new String[]{"void"},new boolean[]{false}));
         register(registry,new ExternSpec("lean_panic_fn_borrowed",PANIC,"tobject",new String[]{"erased","tobject","object"},new boolean[]{false,true,false}));
+        register(registry,new ExternSpec("lean_st_mk_ref",REF_MK,"tobject",
+                new String[]{"erased","erased","tobject","void"},new boolean[]{false,false,false,false}));
+        register(registry,new ExternSpec("lean_st_ref_get",REF_GET,"tobject",
+                new String[]{"erased","erased","tobject","void"},new boolean[]{false,false,true,false}));
+        register(registry,new ExternSpec("lean_st_ref_set",REF_SET,"tagged",
+                new String[]{"erased","erased","tobject","tobject","void"},new boolean[]{false,false,true,false,false}));
+        register(registry,new ExternSpec("lean_st_ref_swap",REF_SWAP,"tobject",
+                new String[]{"erased","erased","tobject","tobject","void"},new boolean[]{false,false,true,false,false}));
+        register(registry,new ExternSpec("lean_st_ref_take",REF_TAKE,"tobject",
+                new String[]{"erased","erased","tobject","void"},new boolean[]{false,false,true,false}));
+        register(registry,new ExternSpec("lean_st_ref_ptr_eq",REF_PTR_EQ,"uint8",
+                new String[]{"erased","erased","tobject","tobject","void"},new boolean[]{false,false,true,true,false}));
         registry.replaceAll((symbol,entries)->Collections.unmodifiableList(entries));
         return Collections.unmodifiableMap(registry);
     }
@@ -1046,7 +1059,7 @@ public final class Interpreter implements AutoCloseable {
                     case SPROJ: require((b.type==U8||b.type==U32)&&lane(env,e.a)==OBJ,"Scalar projection lane mismatch"); break;
                     case UPROJ: require(b.type==USIZE&&lane(env,e.a)==OBJ,"USize projection lane mismatch"); break;
                     case FAP: requireExecutableAbi(e.target); checkArgs(env,e.args,e.target.paramTypes); require(b.type==e.target.resultType,"Call result lane mismatch"); break;
-                    case PAP: requireExecutableAbi(e.target); require(b.type==OBJ&&e.args.length<e.target.params.length,"Invalid partial application"); require(e.target.intrinsic!=ARRAY_SIZE&&e.target.intrinsic!=ARRAY_GET,"Borrowed array primitive requires owned closure wrapper"); for(int i=0;i<e.target.paramTypes.length;i++) require(e.target.paramTypes[i]==OBJ,"Unboxed partial target unsupported; boxed wrapper required"); for(int a:e.args) require(lane(env,a)==OBJ,"Partial argument must be boxed"); break;
+                    case PAP: requireExecutableAbi(e.target); require(b.type==OBJ&&e.args.length<e.target.params.length,"Invalid partial application"); require(e.target.intrinsic!=ARRAY_SIZE&&e.target.intrinsic!=ARRAY_GET,"Borrowed array primitive requires owned closure wrapper"); require(!borrowedRefPrimitive(e.target.intrinsic),"Borrowed ref primitive requires owned closure wrapper"); for(int i=0;i<e.target.paramTypes.length;i++) require(e.target.paramTypes[i]==OBJ,"Unboxed partial target unsupported; boxed wrapper required"); for(int a:e.args) require(lane(env,a)==OBJ,"Partial argument must be boxed"); break;
                     case AP: require(b.type==OBJ&&lane(env,e.a)==OBJ&&e.args.length>0,"Unsupported closure application"); for(int a:e.args) require(lane(env,a)==OBJ,"Closure argument must be boxed"); break;
                     case BOX: require(b.type==OBJ&&e.b!=OBJ&&lane(env,e.a)==e.b,"Box lane mismatch"); break;
                     case UNBOX: require(b.type!=OBJ&&lane(env,e.a)==OBJ,"Unbox lane mismatch"); break;
@@ -1195,6 +1208,10 @@ public final class Interpreter implements AutoCloseable {
         return value;
     }
     private void intrinsicSlots(Function f,int[] slots) {
+        if(refPrimitive(f.intrinsic)) {
+            refPlaceholders(obj(slots[0]),obj(slots[1]),obj(slots[slots.length-1]));
+            refIntrinsic(f,obj(slots[2]),slots.length==5?obj(slots[3]):ERASED); return;
+        }
         if(f.intrinsic<=POW) { intrinsic(f,obj(slots[0]),obj(slots[1])); return; }
         Object a=f.paramTypes[0]==OBJ?obj(slots[0]):Long.valueOf(numbers[bp+slots[0]]);
         Object b=slots.length<2?ERASED:f.paramTypes[1]==OBJ?obj(slots[1]):Long.valueOf(numbers[bp+slots[1]]);
@@ -1204,6 +1221,10 @@ public final class Interpreter implements AutoCloseable {
         } else scalarIntrinsic(f,a,b);
     }
     private void intrinsicExternal(Function f,Object[] args) {
+        if(refPrimitive(f.intrinsic)) {
+            refPlaceholders(args[0],args[1],args[args.length-1]);
+            refIntrinsic(f,args[2],args.length==5?args[3]:ERASED); return;
+        }
         if(f.intrinsic<=POW) { intrinsic(f,args[0],args[1]); return; }
         Object a=f.paramTypes[0]==OBJ?args[0]:Long.valueOf(inputScalar(args[0],f.paramTypes[0]));
         Object b=args.length<2?ERASED:f.paramTypes[1]==OBJ?args[1]:Long.valueOf(inputScalar(args[1],f.paramTypes[1]));
@@ -1211,6 +1232,57 @@ public final class Interpreter implements AutoCloseable {
             Object c=args.length<3?ERASED:f.paramTypes[2]==OBJ?args[2]:Long.valueOf(inputScalar(args[2],f.paramTypes[2]));
             runtimeIntrinsic(f,a,b,c);
         } else scalarIntrinsic(f,a,b);
+    }
+    private static boolean refPrimitive(int intrinsic) { return intrinsic>=REF_MK&&intrinsic<=REF_PTR_EQ; }
+    private static boolean borrowedRefPrimitive(int intrinsic) { return intrinsic>=REF_GET&&intrinsic<=REF_PTR_EQ; }
+    private static void refPlaceholders(Object erased1,Object erased2,Object world) {
+        require(ERASED.equals(erased1)&&ERASED.equals(erased2)&&ERASED.equals(world),
+                "ST.Ref erased/world parameters require erased placeholders");
+    }
+    private Node reference(Object value) {
+        Node ref=node(value);
+        require(ref.ref&&!ref.array&&ref.closure==null&&ref.tag==253&&ref.fields.length==1&&ref.scalars.length==0,
+                "Expected ST.Ref cell");
+        return ref;
+    }
+    private Object refPayload(Node ref,Function function) {
+        Object value=ref.fields[0];
+        if(value==null) throw error("Empty ST.Ref in "+function.label+" (single-thread execution profile)");
+        validateHostObject(value); return value;
+    }
+    private static void refIncomingAlias(Object previous,Object incoming) {
+        if(previous==incoming&&incoming instanceof Node) {
+            Node node=(Node)incoming;
+            require(node.rc==0||node.rc>=2,"ST.Ref replacement aliases cell payload without a separate owned credit");
+        }
+    }
+    /** Single-thread ST.Ref model. RC-zero cells remain mutable and fork-local;
+     * no native MT spin/mark_mt semantics or hidden borrowed-ref adapter. */
+    private void refIntrinsic(Function function,Object a,Object b) {
+        if(function.intrinsic==REF_MK) {
+            validateHostObject(a);
+            Node ref=new Node(253,1,0); ref.ref=true; ref.fields[0]=a;
+            allocations++; result=ref; return;
+        }
+        Node ref=reference(a);
+        if(function.intrinsic==REF_PTR_EQ) { scalarResult=ref==reference(b)?1:0; return; }
+        if(function.intrinsic==REF_GET) { Object value=refPayload(ref,function); inc(value,1); result=value; return; }
+        if(function.intrinsic==REF_TAKE) {
+            Object value=refPayload(ref,function); ref.fields[0]=null; stores++; result=value; return;
+        }
+        validateHostObject(b);
+        if(function.intrinsic==REF_SET) {
+            Object old=ref.fields[0];
+            if(old!=null) { validateHostObject(old); refIncomingAlias(old,b); }
+            ref.fields[0]=b; stores++;
+            if(old!=null) dec(old,1);
+            result=ERASED; return;
+        }
+        if(function.intrinsic==REF_SWAP) {
+            Object old=refPayload(ref,function); refIncomingAlias(old,b);
+            ref.fields[0]=b; stores++; result=old; return;
+        }
+        throw error("Invalid ST.Ref intrinsic");
     }
     private String text(Object value) { require(value instanceof String,"Expected immutable String"); return (String)value; }
     private byte[] utf8(Object value) {
@@ -1236,13 +1308,13 @@ public final class Interpreter implements AutoCloseable {
         Object cursor=list;
         while(!(cursor instanceof Long&&(Long)cursor==0)) {
             Node n=node(cursor);
-            require(!n.array&&n.closure==null&&n.tag==1&&n.fields.length==2&&n.scalars.length==0,"Expected List cons");
+            require(!n.ref&&!n.array&&n.closure==null&&n.tag==1&&n.fields.length==2&&n.scalars.length==0,"Expected List cons");
             if(values.size()>=1_000_000) throw error("List traversal limit");
             values.add(n.fields[0]); cursor=n.fields[1];
         }
         return values.toArray();
     }
-    private Node array(Object value) { Node n=node(value); require(n.array,"Expected Array"); return n; }
+    private Node array(Object value) { Node n=node(value); require(n.array&&!n.ref&&n.closure==null,"Expected Array"); return n; }
     private Node ioUnit() { Node n=new Node(0,1,0); n.fields[0]=ERASED; allocations++; return n; }
     private Node stdout() {
         if(stdoutRoot==null) {
@@ -1429,6 +1501,7 @@ public final class Interpreter implements AutoCloseable {
         Node closure=node(value); if(closure.closure==null) throw error("Expected closure");
         acceptsClosure(closure);
         Function f=closure.closure;
+        rootEntry(f);
         requireExecutableAbi(f);
         if(closure.fields.length+args.length>=f.params.length) preflightCallable(f);
         Object[] combined=new Object[closure.fields.length+args.length];
@@ -1593,6 +1666,7 @@ public final class Interpreter implements AutoCloseable {
                 require(recipe.fields.length<target.params.length,"Invalid prepared partial application");
                 require(target.intrinsic!=ARRAY_SIZE&&target.intrinsic!=ARRAY_GET,
                         "Borrowed array primitive requires owned closure wrapper");
+                require(!borrowedRefPrimitive(target.intrinsic),"Borrowed ref primitive requires owned closure wrapper");
                 closureTargets[i]=target;
             }
         }
@@ -1649,6 +1723,7 @@ public final class Interpreter implements AutoCloseable {
         require(captures.length<target.params.length,"Invalid partial application");
         require(target.intrinsic!=ARRAY_SIZE&&target.intrinsic!=ARRAY_GET,
                 "Borrowed array primitive requires owned closure wrapper");
+        require(!borrowedRefPrimitive(target.intrinsic),"Borrowed ref primitive requires owned closure wrapper");
         for(int lane:target.paramTypes) require(lane==OBJ,"Unboxed partial target unsupported; boxed wrapper required");
         Object[] captured=captures.clone();
         IdentityHashMap<Node,Integer> owners=new IdentityHashMap<>();
@@ -1950,6 +2025,7 @@ public final class Interpreter implements AutoCloseable {
         Node closure=node(value); if(closure.closure==null) throw error("Expected closure");
         acceptsClosure(closure);
         Function f=closure.closure;
+        rootEntry(f);
         requireExecutableAbi(f);
         if(closure.fields.length+args.length>=f.params.length) preflightCallable(f,true);
         Object[] combined=new Object[closure.fields.length+args.length];
@@ -2090,6 +2166,8 @@ public final class Interpreter implements AutoCloseable {
     private static void rootEntry(Function f) {
         if(f.intrinsic==ARRAY_SIZE||f.intrinsic==ARRAY_GET)
             throw new UnsupportedOperationException("Borrowed array primitive requires owned guest wrapper at external entry");
+        if(borrowedRefPrimitive(f.intrinsic))
+            throw new UnsupportedOperationException("Borrowed ref primitive requires owned guest wrapper at external entry");
     }
     /** Internal owned-argument typed entry, not Lean's generic call_boxed ABI. */
     public Object invoke(int function,Object[] args) {
