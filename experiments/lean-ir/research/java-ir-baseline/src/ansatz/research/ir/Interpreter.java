@@ -26,7 +26,7 @@ public final class Interpreter implements AutoCloseable {
     private static final int ADD=1,SUB=2,MOD=3,EQ=4,LT=5,MUL=6,DIV=7,POW=8;
     private static final int USIZE_NAT=9,USIZE_REPR=10,U32_NAT=11,U32_EQ=12,U32_LE=13,PLATFORM_BITS=14;
     private static final int STR_POS_SET=260;
-    private static final int EXPR_DATA=400,EXPR_APP_DATA=401,LEVEL_DATA=402,EXPR_CACHE=403;
+    private static final int EXPR_DATA=400,EXPR_APP_DATA=401,LEVEL_DATA=402,EXPR_CACHE=403,EXPR_EQV=404,EXPR_EQUAL=405,U8_TO_U32=406,U64_TO_U8=407;
     private static final int PROFILE_IT=410;
     private static final int STR_PUSH=15,STR_LIST=16,STR_GET=17,STR_NEXT=18,STR_APPEND=19,STR_SIZE=20,
                              ARRAY_MK=21,ARRAY_SIZE=22,ARRAY_GET=23,GET_STDOUT=24,PANIC=25;
@@ -433,6 +433,10 @@ public final class Interpreter implements AutoCloseable {
                 new String[]{"object"},new boolean[]{true}));
         register(registry,new ExternSpec("lean_profileit",PROFILE_IT,"tobject",
                 new String[]{"erased","object","object","tobject","tobject"},new boolean[]{false,true,true,false,false}));
+        register(registry,new ExternSpec("lean_expr_eqv",EXPR_EQV,"uint8",
+                new String[]{"object","object"},new boolean[]{true,true}));
+        register(registry,new ExternSpec("lean_expr_equal",EXPR_EQUAL,"uint8",
+                new String[]{"object","object"},new boolean[]{true,true}));
         register(registry,new ExternSpec("lean_expr_data",EXPR_CACHE,"uint64",
                 new String[]{"object"},new boolean[]{true}));
         register(registry,new ExternSpec("lean_expr_mk_data",EXPR_DATA,"uint64",
@@ -442,6 +446,10 @@ public final class Interpreter implements AutoCloseable {
                 new String[]{"uint64","uint64"},new boolean[]{false,false}));
         register(registry,new ExternSpec("lean_level_mk_data",LEVEL_DATA,"uint64",
                 new String[]{"uint64","tobject","uint8","uint8"},new boolean[]{false,false,false,false}));
+        register(registry,new ExternSpec("lean_uint8_to_uint32",U8_TO_U32,"uint32",
+                new String[]{"uint8"},new boolean[]{false}));
+        register(registry,new ExternSpec("lean_uint64_to_uint8",U64_TO_U8,"uint8",
+                new String[]{"uint64"},new boolean[]{false}));
         register(registry,new ExternSpec("lean_uint8_to_uint64",U8_TO_U64,"uint64",
                 new String[]{"uint8"},new boolean[]{false}));
         register(registry,new ExternSpec("lean_uint32_to_uint64",U32_TO_U64,"uint64",
@@ -2253,7 +2261,7 @@ public final class Interpreter implements AutoCloseable {
                     case SPROJ: require((b.type==U8||b.type==U32||b.type==U64||b.type==F64)&&lane(env,e.a)==OBJ,"Scalar projection lane mismatch"); break;
                     case UPROJ: require(b.type==USIZE&&lane(env,e.a)==OBJ,"USize projection lane mismatch"); break;
                     case FAP: requireExecutableAbi(e.target); checkArgs(env,e.args,e.target.paramTypes); require(b.type==e.target.resultType,"Call result lane mismatch"); break;
-                    case PAP: requireExecutableAbi(e.target); require(e.target.intrinsic!=PROFILE_IT,"Borrowed profiling primitive requires an owned guest wrapper"); require(!borrowedTaskPrimitive(e.target.intrinsic),"Borrowed task primitive requires owned closure wrapper"); require(b.type==OBJ&&e.args.length<e.target.params.length,"Invalid partial application"); require(!borrowedArrayPrimitive(e.target.intrinsic),"Borrowed array primitive requires owned closure wrapper"); require(!borrowedIntPrimitive(e.target.intrinsic),"Borrowed Int primitive requires owned closure wrapper"); require(!borrowedStringPositionPrimitive(e.target.intrinsic),"Borrowed String position primitive requires owned closure wrapper"); require(!borrowedStringCompletionPrimitive(e.target.intrinsic),"Borrowed String range primitive requires owned closure wrapper"); require(!borrowedBytePrimitive(e.target.intrinsic),"Borrowed ByteArray primitive requires owned closure wrapper"); require(e.target.intrinsic!=NAME_EQ,"Borrowed Name equality requires an owned guest wrapper"); require(e.target.intrinsic!=EXPR_CACHE,"Borrowed Expr data requires an owned guest wrapper"); require(e.target.intrinsic!=POINTER_IDENTITY,"Pointer identity requires a certified direct FAP site"); require(!borrowedRefPrimitive(e.target.intrinsic),"Borrowed ref primitive requires owned closure wrapper"); for(int i=0;i<e.target.paramTypes.length;i++) require(e.target.paramTypes[i]==OBJ,"Unboxed partial target unsupported; boxed wrapper required"); for(int a:e.args) require(lane(env,a)==OBJ,"Partial argument must be boxed"); break;
+                    case PAP: requireExecutableAbi(e.target); require(e.target.intrinsic!=PROFILE_IT,"Borrowed profiling primitive requires an owned guest wrapper"); require(!borrowedTaskPrimitive(e.target.intrinsic),"Borrowed task primitive requires owned closure wrapper"); require(b.type==OBJ&&e.args.length<e.target.params.length,"Invalid partial application"); require(!borrowedArrayPrimitive(e.target.intrinsic),"Borrowed array primitive requires owned closure wrapper"); require(!borrowedIntPrimitive(e.target.intrinsic),"Borrowed Int primitive requires owned closure wrapper"); require(!borrowedStringPositionPrimitive(e.target.intrinsic),"Borrowed String position primitive requires owned closure wrapper"); require(!borrowedStringCompletionPrimitive(e.target.intrinsic),"Borrowed String range primitive requires owned closure wrapper"); require(!borrowedBytePrimitive(e.target.intrinsic),"Borrowed ByteArray primitive requires owned closure wrapper"); require(e.target.intrinsic!=NAME_EQ,"Borrowed Name equality requires an owned guest wrapper"); require(e.target.intrinsic!=EXPR_CACHE,"Borrowed Expr data requires an owned guest wrapper"); require(!borrowedExprEquality(e.target.intrinsic),"Borrowed Expr equality requires an owned guest wrapper"); require(e.target.intrinsic!=POINTER_IDENTITY,"Pointer identity requires a certified direct FAP site"); require(!borrowedRefPrimitive(e.target.intrinsic),"Borrowed ref primitive requires owned closure wrapper"); for(int i=0;i<e.target.paramTypes.length;i++) require(e.target.paramTypes[i]==OBJ,"Unboxed partial target unsupported; boxed wrapper required"); for(int a:e.args) require(lane(env,a)==OBJ,"Partial argument must be boxed"); break;
                     case AP: require(b.type==OBJ&&lane(env,e.a)==OBJ&&e.args.length>0,"Unsupported closure application"); for(int a:e.args) require(lane(env,a)==OBJ,"Closure argument must be boxed"); break;
                     case BOX: require(b.type==OBJ&&e.b!=OBJ&&lane(env,e.a)==e.b,"Box lane mismatch"); break;
                     case UNBOX: require(b.type!=OBJ&&lane(env,e.a)==OBJ,"Unbox lane mismatch"); break;
@@ -2605,6 +2613,7 @@ public final class Interpreter implements AutoCloseable {
             floatIntrinsic(f,numbers[bp+slots[0]],slots.length<2?0:numbers[bp+slots[1]]); return;
         }
         require(f.intrinsic!=POINTER_IDENTITY,"Pointer identity requires a certified direct FAP site");
+        if(borrowedExprEquality(f.intrinsic)) { scalarResult=new ExprEquality(f.intrinsic==EXPR_EQUAL).apply(obj(slots[0]),obj(slots[1]))?1:0; return; }
         if(f.intrinsic==EXPR_CACHE) { scalarResult=exprCachedData(obj(slots[0])); return; }
         if(f.intrinsic==EXPR_DATA) {
             exprData(numbers[bp+slots[0]],obj(slots[1]),numbers[bp+slots[2]],numbers[bp+slots[3]],
@@ -2645,6 +2654,7 @@ public final class Interpreter implements AutoCloseable {
             floatIntrinsic(f,readSavedScalar(args[0],f.paramTypes[0]),args.length<2?0:readSavedScalar(args[1],f.paramTypes[1])); return;
         }
         require(f.intrinsic!=POINTER_IDENTITY,"Pointer identity requires a certified direct FAP site");
+        if(borrowedExprEquality(f.intrinsic)) { scalarResult=new ExprEquality(f.intrinsic==EXPR_EQUAL).apply(args[0],args[1])?1:0; return; }
         if(f.intrinsic==EXPR_CACHE) { scalarResult=exprCachedData(args[0]); return; }
         if(f.intrinsic==EXPR_DATA) {
             exprData(inputScalar(args[0],U64),args[1],inputScalar(args[2],U32),inputScalar(args[3],U8),
@@ -3186,19 +3196,23 @@ public final class Interpreter implements AutoCloseable {
                      "Expected Lean.Name Nat component");
         return name;
     }
-    private boolean nameEquals(Object left,Object right) {
+    private boolean nameEquals(Object left,Object right) { return nameEquals(left,right,null); }
+    private boolean nameEquals(Object left,Object right,ExprEquality budget) {
         Node a=nameNode(left),b=nameNode(right);
         if(a==null||b==null) return a==b;
         if(a==b) return true;
         if(readScalar(a,0,U64)!=readScalar(b,0,U64)) return false;
         for(int steps=0;steps<MAX_NAME_COMPARISON_STEPS;steps++) {
+            if(budget!=null) budget.charge(1);
             if(a.tag!=b.tag) return false;
             Object x=a.fields[1],y=b.fields[1];
             if(a.tag==1) {
-                if(!((String)x).equals((String)y)) return false;
+                if(budget!=null) { if(!budget.string(x,y)) return false; }
+                else if(!((String)x).equals((String)y)) return false;
             } else if(x instanceof Long&&y instanceof Long) {
                 if(((Long)x).longValue()!=((Long)y).longValue()) return false;
-            } else if(!nat(x).equals(nat(y))) return false;
+            } else if(budget!=null) { if(!budget.number(x,y,false)) return false; }
+            else if(!nat(x).equals(nat(y))) return false;
             a=nameNode(a.fields[0]); b=nameNode(b.fields[0]);
             if(a==null||b==null) return a==b;
             if(a==b) return true;
@@ -3206,6 +3220,191 @@ public final class Interpreter implements AutoCloseable {
         }
         throw error("Name equality depth/cycle outside bounded runtime profile");
     }
+    private static final int EQ_EXPR=1,EQ_APP_SPINE=2,EQ_LEVEL=3,EQ_LEVELS=4,EQ_MDATA=5,EQ_PAIR=6,
+            EQ_VALUE=7,EQ_LITERAL=8,EQ_SYNTAX=9,EQ_SYNTAX_ARRAY=10,EQ_PRERESOLVED=11,
+            EQ_PRERESOLVED_LIST=12,EQ_STRINGS=13,EQ_NAME=14,EQ_NAT=15,EQ_INT=16,
+            EQ_STRING=17,EQ_SUBSTRING=18,EQ_BOOL=19,EQ_BINDER=20;
+    private static final int MAX_EXPR_EQUALITY_WORK=1_000_000,MAX_EXPR_EQUALITY_PAIRS=100_000,MAX_EXPR_EQUALITY_STACK=100_000;
+    private static final class EqualityKey {
+        final int kind; final Object left,right;
+        EqualityKey(int kind,Object left,Object right) { this.kind=kind; this.left=left; this.right=right; }
+        public int hashCode() { return 31*(31*kind+System.identityHashCode(left))+System.identityHashCode(right); }
+        public boolean equals(Object other) {
+            if(!(other instanceof EqualityKey)) return false;
+            EqualityKey key=(EqualityKey)other; return kind==key.kind&&left==key.left&&right==key.right;
+        }
+    }
+    private static final class EqualityFrame {
+        final EqualityKey key; final boolean finish;
+        EqualityFrame(EqualityKey key,boolean finish) { this.key=key; this.finish=finish; }
+    }
+    /** Invocation-local, read-only bounded equality. No scratch escapes through
+     * Program/Node metadata or failures. This is not native heartbeat accounting. */
+    private final class ExprEquality {
+        final boolean compareBinders;
+        final ArrayDeque<EqualityFrame> stack=new ArrayDeque<>();
+        final HashMap<EqualityKey,Boolean> states=new HashMap<>();
+        long work;
+        ExprEquality(boolean compareBinders) { this.compareBinders=compareBinders; }
+        void charge(long amount) {
+            require(amount>=0&&amount<=MAX_EXPR_EQUALITY_WORK-work,"Expr equality work outside bounded runtime profile");
+            long before=work; work+=amount;
+            if((before>>>10)!=(work>>>10)&&Thread.currentThread().isInterrupted()) throw error("Expr equality interrupted outside bounded runtime profile");
+        }
+        void push(int kind,Object left,Object right) {
+            require(stack.size()<MAX_EXPR_EQUALITY_STACK,"Expr equality stack outside bounded runtime profile");
+            stack.push(new EqualityFrame(new EqualityKey(kind,left,right),false));
+        }
+        boolean string(Object left,Object right) {
+            require(left instanceof String&&right instanceof String,"Expected equality String carriers");
+            charge((long)((String)left).length()+((String)right).length());
+            return left.equals(right);
+        }
+        boolean number(Object left,Object right,boolean signed) {
+            BigInteger a=signed?signedInteger(left):nat(left),b=signed?signedInteger(right):nat(right);
+            charge(1L+(a.bitLength()+63L)/64+(b.bitLength()+63L)/64); return a.equals(b);
+        }
+        Node ctor(Object value,int fields,int scalarBytes) {
+            Node n=constructorNode(value); require(n.closure==null&&n.rc>=0,"Expected live ordinary equality constructor");
+            require(n.fields.length==fields&&n.scalars.length==scalarBytes,"Unexpected equality constructor storage layout"); return n;
+        }
+        Node list(Object value) {
+            if(value instanceof Long&&((Long)value)==0) return null;
+            Node n=ctor(value,2,0); require(n.tag==1,"Expected equality List.cons layout"); return n;
+        }
+        Node level(Object value) {
+            if(value instanceof Long&&((Long)value)==0) return null;
+            Node n=constructorNode(value); require(n.closure==null&&n.rc>=0&&n.tag>=1&&n.tag<=5,"Expected Level constructor kind");
+            require(n.fields.length==(n.tag==2||n.tag==3?2:1)&&n.scalars.length==8,"Unexpected Level cached-data storage layout"); return n;
+        }
+        Node syntax(Object value) {
+            if(value instanceof Long&&((Long)value)==0) return null;
+            Node n=constructorNode(value); require(n.closure==null&&n.rc>=0&&n.tag>=1&&n.tag<=3,"Expected Syntax constructor kind");
+            require(n.fields.length==(n.tag==1?3:n.tag==2?2:4)&&n.scalars.length==0,"Unexpected Syntax storage layout"); return n;
+        }
+        boolean apply(Object left,Object right) {
+            push(EQ_EXPR,left,right);
+            while(!stack.isEmpty()) {
+                EqualityFrame frame=stack.pop(); EqualityKey key=frame.key;
+                if(frame.finish) { states.put(key,Boolean.TRUE); continue; }
+                charge(1); Object x=key.left,y=key.right; int kind=key.kind;
+                // Leaf helpers validate before their identity/equality shortcuts.
+                if(kind==EQ_NAME) { if(!nameEquals(x,y,this)) return false; continue; }
+                if(kind==EQ_NAT||kind==EQ_INT) { if(!number(x,y,kind==EQ_INT)) return false; continue; }
+                if(kind==EQ_STRING) { if(!string(x,y)) return false; continue; }
+                if(kind==EQ_BOOL||kind==EQ_BINDER) {
+                    require(x instanceof Long&&y instanceof Long,"Expected cached annotation byte");
+                    long a=(Long)x,b=(Long)y,max=kind==EQ_BOOL?1:3;
+                    require(a>=0&&a<=max&&b>=0&&b<=max,"Annotation byte outside bounded equality profile");
+                    if(a!=b) return false; continue;
+                }
+                if(kind==EQ_SUBSTRING) {
+                    Node a=ctor(x,3,0),b=ctor(y,3,0); require(a.tag==0&&b.tag==0,"Expected Substring.Raw equality layout");
+                    require(a.fields[0] instanceof String&&b.fields[0] instanceof String,"Expected Substring.Raw String");
+                    charge((long)((String)a.fields[0]).length()+((String)b.fields[0]).length());
+                    SubstringView av=substringView(x),bv=substringView(y);
+                    if(av.size!=bv.size||!Arrays.equals(av.bytes,av.start,av.start+av.size,bv.bytes,bv.start,bv.start+bv.size)) return false;
+                    continue;
+                }
+                Node a=null,b=null;
+                switch(kind) {
+                    case EQ_EXPR: case EQ_APP_SPINE: a=exprNode(x); b=exprNode(y); break;
+                    case EQ_LEVEL: a=level(x); b=level(y); break;
+                    case EQ_LEVELS: case EQ_MDATA: case EQ_PRERESOLVED_LIST: case EQ_STRINGS: a=list(x); b=list(y); break;
+                    case EQ_PAIR: a=ctor(x,2,0); b=ctor(y,2,0); require(a.tag==0&&b.tag==0,"Expected metadata pair layout"); break;
+                    case EQ_SYNTAX: a=syntax(x); b=syntax(y); break;
+                    case EQ_SYNTAX_ARRAY:
+                        a=array(x); b=array(y);
+                        require(arrayState(a).size>=0&&arrayState(a).size<=a.fields.length&&arrayState(b).size>=0&&arrayState(b).size<=b.fields.length,"Invalid Syntax array live extent"); break;
+                    case EQ_VALUE: case EQ_LITERAL: case EQ_PRERESOLVED: {
+                        a=constructorNode(x); b=constructorNode(y);
+                        require(a.closure==null&&b.closure==null&&a.rc>=0&&b.rc>=0,"Expected ordinary equality value constructor");
+                        int max=kind==EQ_VALUE?5:1;
+                        require(a.tag>=0&&a.tag<=max&&b.tag>=0&&b.tag<=max,"Unsupported equality value tag");
+                        int af=kind==EQ_PRERESOLVED?(a.tag==0?1:2):kind==EQ_VALUE&&a.tag==1?0:1;
+                        int bf=kind==EQ_PRERESOLVED?(b.tag==0?1:2):kind==EQ_VALUE&&b.tag==1?0:1;
+                        require(a.fields.length==af&&b.fields.length==bf
+                                &&(kind==EQ_VALUE&&a.tag==1?(a.scalars.length==1||a.scalars.length==8):a.scalars.length==0)
+                                &&(kind==EQ_VALUE&&b.tag==1?(b.scalars.length==1||b.scalars.length==8):b.scalars.length==0),"Unexpected equality value storage layout"); break;
+                    }
+                    default: throw error("Invalid private equality work kind");
+                }
+                if(kind==EQ_LEVEL) {
+                    int at=a==null?0:a.tag,bt=b==null?0:b.tag;
+                    if(at!=bt) return false;
+                    long ad=a==null?2221:readScalar(a,0,U64),bd=b==null?2221:readScalar(b,0,U64);
+                    if((ad&0xffffffffL)!=(bd&0xffffffffL)) return false;
+                    if(a==b) continue;
+                    if(at<=3&&(ad>>>40)!=(bd>>>40)) return false;
+                } else if(kind==EQ_EXPR) {
+                    if(a==b) continue;
+                    if((readScalar(a,0,U64)&0xffffffffL)!=(readScalar(b,0,U64)&0xffffffffL)) return false;
+                    if(a.tag!=b.tag) return false;
+                } else if(kind==EQ_APP_SPINE) {
+                    // Native compares arguments while flattening the left fn
+                    // spine: it does NOT compare intermediate App cached hashes.
+                    if(a.tag!=5) { push(EQ_EXPR,x,y); continue; }
+                    if(b.tag!=5) return false;
+                    if(a==b) continue;
+                } else {
+                    if(a==null||b==null) { if(a!=b) return false; continue; }
+                    if(a==b) continue;
+                    if(a.tag!=b.tag) return false;
+                }
+                Boolean status=states.get(key);
+                if(status!=null) { require(status,"Expr equality cycle outside bounded runtime profile"); continue; }
+                require(states.size()<MAX_EXPR_EQUALITY_PAIRS,"Expr equality pair count outside bounded runtime profile");
+                states.put(key,Boolean.FALSE);
+                require(stack.size()<MAX_EXPR_EQUALITY_STACK,"Expr equality stack outside bounded runtime profile");
+                stack.push(new EqualityFrame(key,true));
+                switch(kind) {
+                    case EQ_EXPR: case EQ_APP_SPINE:
+                        switch(a.tag) {
+                            case 0: push(EQ_NAT,a.fields[0],b.fields[0]); break;
+                            case 1: case 2: push(EQ_NAME,a.fields[0],b.fields[0]); break;
+                            case 3: push(EQ_LEVEL,a.fields[0],b.fields[0]); break;
+                            case 4: push(EQ_LEVELS,a.fields[1],b.fields[1]); push(EQ_NAME,a.fields[0],b.fields[0]); break;
+                            case 5: push(EQ_APP_SPINE,a.fields[0],b.fields[0]); push(EQ_EXPR,a.fields[1],b.fields[1]); break;
+                            case 6: case 7:
+                                if(compareBinders) { push(EQ_BINDER,Long.valueOf(a.scalars[8]&255),Long.valueOf(b.scalars[8]&255)); push(EQ_NAME,a.fields[0],b.fields[0]); }
+                                push(EQ_EXPR,a.fields[2],b.fields[2]); push(EQ_EXPR,a.fields[1],b.fields[1]); break;
+                            case 8:
+                                if(compareBinders) push(EQ_NAME,a.fields[0],b.fields[0]);
+                                push(EQ_BOOL,Long.valueOf(a.scalars[8]&255),Long.valueOf(b.scalars[8]&255));
+                                push(EQ_EXPR,a.fields[3],b.fields[3]); push(EQ_EXPR,a.fields[2],b.fields[2]); push(EQ_EXPR,a.fields[1],b.fields[1]); break;
+                            case 9: push(EQ_LITERAL,a.fields[0],b.fields[0]); break;
+                            case 10: push(EQ_MDATA,a.fields[0],b.fields[0]); push(EQ_EXPR,a.fields[1],b.fields[1]); break;
+                            case 11: push(EQ_NAT,a.fields[1],b.fields[1]); push(EQ_NAME,a.fields[0],b.fields[0]); push(EQ_EXPR,a.fields[2],b.fields[2]); break;
+                            default: throw error("Invalid Expr equality tag");
+                        } break;
+                    case EQ_LEVEL:
+                        if(a.tag>=4) push(EQ_NAME,a.fields[0],b.fields[0]);
+                        else { if(a.tag!=1) push(EQ_LEVEL,a.fields[1],b.fields[1]); push(EQ_LEVEL,a.fields[0],b.fields[0]); } break;
+                    case EQ_LEVELS: case EQ_MDATA: case EQ_PRERESOLVED_LIST: case EQ_STRINGS:
+                        push(kind,a.fields[1],b.fields[1]);
+                        push(kind==EQ_LEVELS?EQ_LEVEL:kind==EQ_MDATA?EQ_PAIR:kind==EQ_STRINGS?EQ_STRING:EQ_PRERESOLVED,a.fields[0],b.fields[0]); break;
+                    case EQ_PAIR: push(EQ_VALUE,a.fields[1],b.fields[1]); push(EQ_NAME,a.fields[0],b.fields[0]); break;
+                    case EQ_VALUE:
+                        if(a.tag==1) push(EQ_BOOL,Long.valueOf(a.scalars[0]&255),Long.valueOf(b.scalars[0]&255));
+                        else push(a.tag==0?EQ_STRING:a.tag==2?EQ_NAME:a.tag==3?EQ_NAT:a.tag==4?EQ_INT:EQ_SYNTAX,a.fields[0],b.fields[0]); break;
+                    case EQ_LITERAL: push(a.tag==0?EQ_NAT:EQ_STRING,a.fields[0],b.fields[0]); break;
+                    case EQ_SYNTAX:
+                        if(a.tag==1) { push(EQ_SYNTAX_ARRAY,a.fields[2],b.fields[2]); push(EQ_NAME,a.fields[1],b.fields[1]); }
+                        else if(a.tag==2) push(EQ_STRING,a.fields[1],b.fields[1]);
+                        else { push(EQ_PRERESOLVED_LIST,a.fields[3],b.fields[3]); push(EQ_NAME,a.fields[2],b.fields[2]); push(EQ_SUBSTRING,a.fields[1],b.fields[1]); } break;
+                    case EQ_SYNTAX_ARRAY:
+                        int size=arrayState(a).size; if(size!=arrayState(b).size) return false;
+                        charge(size); for(int i=size-1;i>=0;i--) push(EQ_SYNTAX,a.fields[i],b.fields[i]); break;
+                    case EQ_PRERESOLVED:
+                        if(a.tag==1) push(EQ_STRINGS,a.fields[1],b.fields[1]); push(EQ_NAME,a.fields[0],b.fields[0]); break;
+                    default: throw error("Invalid private equality continuation");
+                }
+            }
+            return true;
+        }
+    }
+    private static boolean borrowedExprEquality(int intrinsic) { return intrinsic==EXPR_EQV||intrinsic==EXPR_EQUAL; }
+
     private static boolean taskPrimitive(int op) { return op>=PROMISE_NEW&&op<=IO_AS_TASK; }
     private static boolean isPromise(Node node) {
         NodeMetadata metadata=kindMetadata(node);
@@ -3603,7 +3802,8 @@ public final class Interpreter implements AutoCloseable {
     }
     /** Pinned lean_expr_data reads the first scalar word after the object
      * fields. Validate only the known storage family; do not infer AST flags. */
-    private long exprCachedData(Object value) {
+    private long exprCachedData(Object value) { return readScalar(exprNode(value),0,U64); }
+    private Node exprNode(Object value) {
         Node node=constructorNode(value);
         require(node.closure==null,"Closure is not an Expr constructor");
         int expected;
@@ -3617,7 +3817,7 @@ public final class Interpreter implements AutoCloseable {
         int semantic=node.tag>=6&&node.tag<=8?9:8;
         require(node.fields.length==expected&&(node.scalars.length==semantic
                 ||node.scalars.length==((semantic+7)&~7)),"Unexpected Expr cached-data storage layout");
-        return readScalar(node,0,U64);
+        return node;
     }
     /** Native scalar caches only: no Expr/Level object representation is implied.
      * Successful owning Nat arguments fit native immediate bounds. Their accepted
@@ -3668,7 +3868,7 @@ public final class Interpreter implements AutoCloseable {
             case U64_LT: case U64_EQ: case U64_OWNED_NAT: case U64_TO_U32:
             case BOOL_U64: case U64_ADD: case U64_SUB: case U64_MUL: case U64_DIV: case U64_MOD:
             case U64_AND: case U64_OR: case U64_NOT: case U64_NEG: case U64_LOG2: case U64_SHL: case U64_LE:
-            case U8_TO_U64: case U32_TO_U64: case USIZE_TO_U64:
+            case U8_TO_U64: case U32_TO_U64: case USIZE_TO_U64: case U8_TO_U32: case U64_TO_U8:
                 return true;
             default: return false;
         }
@@ -3704,7 +3904,8 @@ public final class Interpreter implements AutoCloseable {
             case U32_TO_U8: scalarResult=(Long)a&255; break;
             case U32_ADD: scalarResult=((Long)a+(Long)b)&0xffffffffL; break;
             case STR_HASH: scalarResult=stringHash(utf8(a)); break;
-            case U8_TO_U64: case U32_TO_U64: case USIZE_TO_U64: scalarResult=(Long)a; break;
+            case U8_TO_U64: case U32_TO_U64: case USIZE_TO_U64: case U8_TO_U32: scalarResult=(Long)a; break;
+            case U64_TO_U8: scalarResult=(Long)a&255L; break;
             case BOOL_U64: requireBoolScalar(a); scalarResult=(Long)a; break;
             case U64_ADD: scalarResult=(Long)a+(Long)b; break;
             case U64_SUB: scalarResult=(Long)a-(Long)b; break;
@@ -3981,7 +4182,7 @@ public final class Interpreter implements AutoCloseable {
         require(function!=null,"Expected closure");
         require(!borrowedTaskPrimitive(function.intrinsic),"Borrowed task primitive requires owned guest wrapper");
         require(function.intrinsic!=NAME_EQ,"Borrowed Name equality cannot be admitted as a first-class closure");
-        require(function.intrinsic!=EXPR_CACHE,"Borrowed Expr data requires an owned guest wrapper");
+        require(function.intrinsic!=EXPR_CACHE,"Borrowed Expr data requires an owned guest wrapper"); require(!borrowedExprEquality(function.intrinsic),"Borrowed Expr equality requires an owned guest wrapper");
         require(function.intrinsic!=POINTER_IDENTITY,"Pointer identity cannot be admitted as a first-class closure");
         if(!(kindMetadata(closure) instanceof Generation)||!program.generation.accepts((Generation)kindMetadata(closure))) throw error("Closure belongs to another code image");
         if(function.privateOwner!=null) {
@@ -4083,7 +4284,7 @@ public final class Interpreter implements AutoCloseable {
                 require(!borrowedStringCompletionPrimitive(target.intrinsic),"Borrowed String range primitive requires owned closure wrapper");
                 require(!borrowedBytePrimitive(target.intrinsic),"Borrowed ByteArray primitive requires owned closure wrapper");
                 require(target.intrinsic!=NAME_EQ,"Borrowed Name equality requires an owned guest wrapper");
-                require(target.intrinsic!=EXPR_CACHE,"Borrowed Expr data requires an owned guest wrapper");
+                require(target.intrinsic!=EXPR_CACHE,"Borrowed Expr data requires an owned guest wrapper"); require(!borrowedExprEquality(target.intrinsic),"Borrowed Expr equality requires an owned guest wrapper");
                 require(target.intrinsic!=POINTER_IDENTITY,"Pointer identity requires a certified direct FAP site");
                 require(!borrowedRefPrimitive(target.intrinsic),"Borrowed ref primitive requires owned closure wrapper");
                 closureTargets[i]=target;
@@ -4158,7 +4359,7 @@ public final class Interpreter implements AutoCloseable {
         require(!borrowedStringCompletionPrimitive(target.intrinsic),"Borrowed String range primitive requires owned closure wrapper");
         require(!borrowedBytePrimitive(target.intrinsic),"Borrowed ByteArray primitive requires owned closure wrapper");
         require(target.intrinsic!=NAME_EQ,"Borrowed Name equality requires an owned guest wrapper");
-        require(target.intrinsic!=EXPR_CACHE,"Borrowed Expr data requires an owned guest wrapper");
+        require(target.intrinsic!=EXPR_CACHE,"Borrowed Expr data requires an owned guest wrapper"); require(!borrowedExprEquality(target.intrinsic),"Borrowed Expr equality requires an owned guest wrapper");
         require(target.intrinsic!=POINTER_IDENTITY,"Pointer identity requires a certified direct FAP site");
         require(!borrowedRefPrimitive(target.intrinsic),"Borrowed ref primitive requires owned closure wrapper");
         for(int lane:target.paramTypes) require(lane==OBJ,"Unboxed partial target unsupported; boxed wrapper required");
@@ -4901,7 +5102,7 @@ public final class Interpreter implements AutoCloseable {
         if(borrowedIntPrimitive(f.intrinsic))
             throw new UnsupportedOperationException("Borrowed Int primitive requires owned guest wrapper at external entry");
         require(f.intrinsic!=NAME_EQ,"Borrowed Name equality requires an owned guest wrapper");
-        require(f.intrinsic!=EXPR_CACHE,"Borrowed Expr data requires an owned guest wrapper");
+        require(f.intrinsic!=EXPR_CACHE,"Borrowed Expr data requires an owned guest wrapper"); require(!borrowedExprEquality(f.intrinsic),"Borrowed Expr equality requires an owned guest wrapper");
         if(borrowedBytePrimitive(f.intrinsic))
             throw new UnsupportedOperationException("Borrowed ByteArray primitive requires owned guest wrapper at external entry");
         require(f.intrinsic!=POINTER_IDENTITY,"Pointer identity requires a certified direct FAP site");
