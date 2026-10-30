@@ -161,7 +161,7 @@ remain unmarked; neither silently opts into this policy.
 
 This profile requires every imported Ref to be persistent. Global-cache and
 owned-output roots cannot directly reference a positive node. Every owning edge
-from a persistent non-Ref must target a persistent node or immediate value;
+from a persistent non-Ref must target a persistent node or immutable carrier;
 only persistent Ref payload slots may cross from persistent to positive storage.
 Starting at those slots, a bounded identity walk follows all owning fields and
 captures through positive nodes, stops at persistent nodes, and requires every
@@ -209,5 +209,11 @@ compatibility, atomic positive-boundary negatives even when also Ref-covered,
 duplicate owner occurrences, source-token identity, take-to-RC1/COW/Ref.set,
 closure AP and Array/ByteArray/Generation/pointer fork metadata, a positive cycle,
 and a 4,096-node chain. Private field inspection is test-only. Bulk frontend
-capture acceptance and the complete regression gate are separate observations;
-this result does not claim that either has run with the new profile.
+capture acceptance remains a separate observation.
+
+The subsequent complete isolated gate passed 105 suites, 1,032 test executions
+and 52,699 assertions at 384 MiB, exit 0, without failures or errors. The combined
+log SHA-256 is
+`ca436e12560ed2dd1668028305f944de9a854272e242f49b571d733ef18078cc`.
+It used the same frozen Java source and immutable runtime jar. No bulk frontend
+image acceptance is claimed by this combined regression result.
