@@ -79,19 +79,45 @@
            :fail-host (.getMethod cls "failHost" (into-array Class [request Throwable]))
            :host-failure (.getMethod cls "hostFailure" (make-array Class 0)))))
 
-(defn prepare-host-program
-  "Prepare in-memory original IR rows with exact opt-in host ABI descriptors.
-   This registers no callback or effect; only explicit execution can request one."
-  [basis rows specifications]
-  (let [basis (host-basis basis)
-        descriptors (mapv (fn [{:keys [symbol parameters borrowed result]}]
+(defn- host-descriptor-array [basis specifications]
+  (let [descriptors (mapv (fn [{:keys [symbol parameters borrowed result]}]
                             (.newInstance ^Constructor (:host-constructor basis)
                               (object-array [symbol (into-array String parameters)
                                              (boolean-array borrowed) result]))) specifications)
         array (java.lang.reflect.Array/newInstance ^Class (:host-class basis) (count descriptors))]
     (doseq [[index descriptor] (map-indexed vector descriptors)]
       (java.lang.reflect.Array/set array index descriptor))
+    array))
+
+(defn prepare-host-program
+  "Prepare in-memory original IR rows with exact opt-in host ABI descriptors.
+   This registers no callback or effect; only explicit execution can request one."
+  [basis rows specifications]
+  (let [basis (host-basis basis) array (host-descriptor-array basis specifications)]
     (assoc basis :explicit true :program (invoke-static (:prepare-host basis) [rows array]))))
+
+(defn extend-program
+  "Prepare an immutable executable descendant. No engine, code or owner executes."
+  ([basis rows] (extend-program basis rows []))
+  ([basis rows additional-host-specifications]
+   (let [basis (host-basis basis) array (host-descriptor-array basis additional-host-specifications)
+         cls ^Class (class (:program basis))
+         method (.getMethod cls "extend" (into-array Class [cls java.util.List (class array)]))]
+     (assoc basis :program (invoke-static method [(:program basis) rows array])))))
+
+(defn install-program!
+  "Install BASIS's prepared descendant on an idle or host-paused engine."
+  [basis engine]
+  (.invoke (.getMethod ^Class (:class basis) "installProgram"
+                       (into-array Class [(class (:program basis))]))
+           engine (object-array [(:program basis)])))
+
+(defn make-closure!
+  "Transfer owned captures into a callable without executing guest code."
+  [basis engine label captures]
+  (.invoke (.getMethod ^Class (:class basis) "makeClosure"
+                       (into-array Class [Integer/TYPE (class (object-array 0))]))
+           engine (object-array [(int (function-id basis label)) (object-array captures)])))
 
 (defn host-request [basis engine]
   (.invoke ^Method (:host-request basis) engine (object-array 0)))
