@@ -140,6 +140,18 @@ rules. A callback's task scope survives code/host pauses and is
 restored at the native boundary before result propagation. Release BaseIO's last
 keepalive while still in that callback scope.
 
+One pinned native lifetime edge requires a narrow profile refusal: a running
+pure bind can lose its last owner during its callback, then return a still-pending
+Task. Native task_bind_fn1 reinstalls a forwarding closure on the deleted outer
+task, while run_task's deleted/no-value path frees its implementation without
+releasing that new closure. Reject this return before publishing forwarding
+state, and preserve its owned pending Task in diagnostics. Silent cleanup could
+run Promise callbacks absent from the native leak. This exception concerns
+deactivation, not cancellation; BaseIO keepalive prevents it, and ordinary ready
+returns and inline sync-ready bind remain supported. Source anchors are pinned
+`src/runtime/object.cpp:744–751,912–956,1242–1270`. The guard does not establish
+general native leak freedom or failure cleanup.
+
 Promise.result! and CancelToken remain original guest code. Option.getOrBlock!
 on None is an explicit unsupported panic/blocking path, never a synthesized value.
 CancelToken.set resolves its Promise before writing its Bool flag: an onSet

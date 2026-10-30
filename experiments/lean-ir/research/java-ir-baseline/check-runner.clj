@@ -40,6 +40,7 @@
 
 (load-file "research/java-ir-baseline/logical-sharing-checks.clj")
 (load-file "research/java-ir-baseline/release-transaction-checks.clj")
+(load-file "research/java-ir-baseline/sync-task-checks.clj")
 (load-file "research/java-ir-baseline/int-checks.clj")
 (load-file "research/java-ir-baseline/name-equality-checks.clj")
 (load-file "research/java-ir-baseline/build-identity-checks.clj")
@@ -123,6 +124,7 @@
                (java-ir-logical-sharing-checks/check! basis)
                (java-ir-logical-sharing-checks/check! (assoc basis :explicit true))
                (java-ir-release-transaction-checks/check! (assoc basis :explicit true))
+               (java-ir-sync-task-checks/check! (assoc basis :explicit true))
                (java-ir-int-checks/check! basis)
                (java-ir-int-checks/check! (assoc basis :explicit true))
                (java-ir-name-equality-checks/check! basis)
@@ -155,5 +157,5 @@
                (clojure.test/run-tests 'prototype.resident-init-prefix-test)
                (clojure.test/run-tests 'prototype.coherent-jvm-slice-test)]]
   (shutdown-agents)
-  (System/exit (if (and (= [9 9 8 6 5 5 6 6 9 9 4 7 9 4 13 18 17 10 10 18 18 7 10 10 8 8 6 6 13 13 6 6 9 9 10 10 8 8 19 19 6 6 6 6 10 10 11 11 16 16 21 21 12 8 8 11 11 8 8 7 7 6 12 9 15 11 11 7 9 4 15 7 10 17 8 4 6 10 9 5 3 4 6 13] (mapv :test results))
+  (System/exit (if (and (= [9 9 8 6 5 5 6 6 9 9 4 7 9 4 13 18 17 10 10 18 18 7 10 10 8 8 6 6 13 13 6 6 9 9 10 10 8 8 19 19 6 6 6 6 10 10 11 11 16 16 21 21 12 11 8 8 11 11 8 8 7 7 6 12 9 15 11 11 7 9 4 15 7 10 17 8 4 6 10 9 5 3 4 6 13] (mapv :test results))
                        (every? #(zero? (+ (:fail %) (:error %))) results)) 0 1)))

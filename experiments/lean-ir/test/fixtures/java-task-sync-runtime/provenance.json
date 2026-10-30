@@ -1,0 +1,23 @@
+{
+  "scope": "Exact original static declaration closure for 25 Promise/task/CancelToken roots and genuine boxed wrappers. Source metadata only; unsupported async operations are not execution support.",
+  "lean-commit": "819816b2e0a3bf405af45ae5c7af2491d8f5bee6",
+  "index-sha256": "74d833d577923821b982e8a9e872a38b5cad011513eb18870b51417e13397f0e",
+  "roots": 50,
+  "declarations": 60,
+  "original-cas-bytes": 60904,
+  "fixture-sha256": "5f80a94832d953b1eb00820991a56fb6acedcaf68134ae8f10b28e5726a6d950",
+  "transforms": "Top-level pretty removed only; original row bodies, ABI, typed Names and dependencies unchanged. Original raw SHA is recorded separately from derived fixture SHA.",
+  "root-fixture-sha256": "d6e469755fb4e76bd2be9d427bc604391a2e1d7150347fe7a0b68ea9267b1451",
+  "upstream-source-sha256": {
+    "src/include/lean/lean.h": "02af0040283143b264e3a44b06b348b6973ae6037fa8f550701c83dd7a062ace",
+    "src/runtime/object.cpp": "e03ea4317ad44fb91a4cc9097abe1601b1e1cf8fb77f5ab7b0620fdfcf348430",
+    "src/runtime/io.cpp": "7dd91cc0c7ebd7a1ed69ac9b870634b6ae251f28e96ba54384b5ba6e8ce20efd",
+    "src/Init/Core.lean": "8537e234659a281a8f49cc91e2f48c17b6faeacb852d1c4ba3a09b6b5e45ab20",
+    "src/Init/System/Promise.lean": "0f9ab86789ac9672d78921a0587a5cecb115abe06781d04471ffe3d52b795845",
+    "src/Init/System/CancelToken.lean": "09fbdbc1a1e154a3d15d9db1550012f4a5940803995c42ab8e1bc47086b53c7e",
+    "src/Init/System/IO.lean": "4612b91e65806364c814fc445b35598d8e26ee0f2a811ffde6c330d792dcddab",
+    "src/Lean/Language/Lean.lean": "f2bca1a2f1d2e435dd9996417245be987368a6e3465cf48fc6cbd1ce938d10cc",
+    "LICENSE": "8b28515ffffc5c0fe2807d8ae3735b00b324d9b7ce807dd63ff6ac8922fbce7e"
+  },
+  "license": "Lean upstream Apache-2.0; source LICENSE pin recorded with the source hashes."
+}
