@@ -1,0 +1,6245 @@
+[
+  {
+    "label": "USize.decLt",
+    "sha256": "bfaba20acf332bc3ac58b9d4bafc5253dd9116cbff757f55887da848d7997140",
+    "row": {
+      "dependencies": [],
+      "ir": {
+        "extern": {
+          "ext": {
+            "entries": [
+              {
+                "standard": {
+                  "backend": [
+                    "str",
+                    [
+                      "anonymous"
+                    ],
+                    "all"
+                  ],
+                  "fn": "lean_usize_dec_lt"
+                }
+              }
+            ]
+          },
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "USize"
+            ],
+            "decLt"
+          ],
+          "type": "uint8",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "usize",
+              "x": {
+                "idx": 1
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "usize",
+              "x": {
+                "idx": 2
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "anonymous"
+          ],
+          "USize"
+        ],
+        "decLt"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Init"
+            ],
+            "Data"
+          ],
+          "UInt"
+        ],
+        "BasicAux"
+      ]
+    }
+  },
+  {
+    "label": "USize.decLt._boxed",
+    "sha256": "c0b0a43e5cad3812fc75d37dea4d243c3f2edd253b7f054bdab3b8d45d2e5693",
+    "row": {
+      "dependencies": [
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "USize"
+          ],
+          "decLt"
+        ]
+      ],
+      "ir": {
+        "fdecl": {
+          "body": [
+            "vdecl",
+            {
+              "idx": 3
+            },
+            "usize",
+            {
+              "unbox": {
+                "x": {
+                  "idx": 1
+                }
+              }
+            },
+            [
+              "dec",
+              {
+                "idx": 1
+              },
+              1,
+              true,
+              false,
+              [
+                "vdecl",
+                {
+                  "idx": 4
+                },
+                "usize",
+                {
+                  "unbox": {
+                    "x": {
+                      "idx": 2
+                    }
+                  }
+                },
+                [
+                  "dec",
+                  {
+                    "idx": 2
+                  },
+                  1,
+                  true,
+                  false,
+                  [
+                    "vdecl",
+                    {
+                      "idx": 5
+                    },
+                    "uint8",
+                    {
+                      "fap": {
+                        "c": [
+                          "str",
+                          [
+                            "str",
+                            [
+                              "anonymous"
+                            ],
+                            "USize"
+                          ],
+                          "decLt"
+                        ],
+                        "ys": [
+                          {
+                            "var": {
+                              "id": {
+                                "idx": 3
+                              }
+                            }
+                          },
+                          {
+                            "var": {
+                              "id": {
+                                "idx": 4
+                              }
+                            }
+                          }
+                        ]
+                      }
+                    },
+                    [
+                      "vdecl",
+                      {
+                        "idx": 6
+                      },
+                      "tagged",
+                      {
+                        "box": {
+                          "ty": "uint8",
+                          "x": {
+                            "idx": 5
+                          }
+                        }
+                      },
+                      [
+                        "ret",
+                        {
+                          "var": {
+                            "id": {
+                              "idx": 6
+                            }
+                          }
+                        }
+                      ]
+                    ]
+                  ]
+                ]
+              ]
+            ]
+          ],
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "USize"
+              ],
+              "decLt"
+            ],
+            "_boxed"
+          ],
+          "info": {},
+          "type": "tagged",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 1
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 2
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "USize"
+          ],
+          "decLt"
+        ],
+        "_boxed"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Init"
+            ],
+            "Data"
+          ],
+          "UInt"
+        ],
+        "BasicAux"
+      ]
+    }
+  },
+  {
+    "label": "USize.add",
+    "sha256": "e4445527360b9c7680774b73141c8129d1d7e33ef4aa00258d9cd95de46333af",
+    "row": {
+      "dependencies": [],
+      "ir": {
+        "extern": {
+          "ext": {
+            "entries": [
+              {
+                "standard": {
+                  "backend": [
+                    "str",
+                    [
+                      "anonymous"
+                    ],
+                    "all"
+                  ],
+                  "fn": "lean_usize_add"
+                }
+              }
+            ]
+          },
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "USize"
+            ],
+            "add"
+          ],
+          "type": "usize",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "usize",
+              "x": {
+                "idx": 1
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "usize",
+              "x": {
+                "idx": 2
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "anonymous"
+          ],
+          "USize"
+        ],
+        "add"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Init"
+            ],
+            "Data"
+          ],
+          "UInt"
+        ],
+        "BasicAux"
+      ]
+    }
+  },
+  {
+    "label": "USize.add._boxed",
+    "sha256": "a716114151608dbcc13f6aa7d269cc1c3fc52beb00cb68278c422ada567a9a3c",
+    "row": {
+      "dependencies": [
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "USize"
+          ],
+          "add"
+        ]
+      ],
+      "ir": {
+        "fdecl": {
+          "body": [
+            "vdecl",
+            {
+              "idx": 3
+            },
+            "usize",
+            {
+              "unbox": {
+                "x": {
+                  "idx": 1
+                }
+              }
+            },
+            [
+              "dec",
+              {
+                "idx": 1
+              },
+              1,
+              true,
+              false,
+              [
+                "vdecl",
+                {
+                  "idx": 4
+                },
+                "usize",
+                {
+                  "unbox": {
+                    "x": {
+                      "idx": 2
+                    }
+                  }
+                },
+                [
+                  "dec",
+                  {
+                    "idx": 2
+                  },
+                  1,
+                  true,
+                  false,
+                  [
+                    "vdecl",
+                    {
+                      "idx": 5
+                    },
+                    "usize",
+                    {
+                      "fap": {
+                        "c": [
+                          "str",
+                          [
+                            "str",
+                            [
+                              "anonymous"
+                            ],
+                            "USize"
+                          ],
+                          "add"
+                        ],
+                        "ys": [
+                          {
+                            "var": {
+                              "id": {
+                                "idx": 3
+                              }
+                            }
+                          },
+                          {
+                            "var": {
+                              "id": {
+                                "idx": 4
+                              }
+                            }
+                          }
+                        ]
+                      }
+                    },
+                    [
+                      "vdecl",
+                      {
+                        "idx": 6
+                      },
+                      "tobject",
+                      {
+                        "box": {
+                          "ty": "usize",
+                          "x": {
+                            "idx": 5
+                          }
+                        }
+                      },
+                      [
+                        "ret",
+                        {
+                          "var": {
+                            "id": {
+                              "idx": 6
+                            }
+                          }
+                        }
+                      ]
+                    ]
+                  ]
+                ]
+              ]
+            ]
+          ],
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "USize"
+              ],
+              "add"
+            ],
+            "_boxed"
+          ],
+          "info": {},
+          "type": "tobject",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 1
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 2
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "USize"
+          ],
+          "add"
+        ],
+        "_boxed"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Init"
+            ],
+            "Data"
+          ],
+          "UInt"
+        ],
+        "BasicAux"
+      ]
+    }
+  },
+  {
+    "label": "USize.ofNat",
+    "sha256": "b4d790636963b4b8ea5e2d09dfa6a171301d0780d8bdc7c919a4494ac74e552b",
+    "row": {
+      "dependencies": [],
+      "ir": {
+        "extern": {
+          "ext": {
+            "entries": [
+              {
+                "standard": {
+                  "backend": [
+                    "str",
+                    [
+                      "anonymous"
+                    ],
+                    "all"
+                  ],
+                  "fn": "lean_usize_of_nat"
+                }
+              }
+            ]
+          },
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "USize"
+            ],
+            "ofNat"
+          ],
+          "type": "usize",
+          "xs": [
+            {
+              "borrow": true,
+              "ty": "tobject",
+              "x": {
+                "idx": 1
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "anonymous"
+          ],
+          "USize"
+        ],
+        "ofNat"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Init"
+            ],
+            "Data"
+          ],
+          "UInt"
+        ],
+        "BasicAux"
+      ]
+    }
+  },
+  {
+    "label": "USize.ofNat._boxed",
+    "sha256": "cf2acc18a8a030ba651b6c3c29252c36aa40d7ea6689f972cfe76fb2a0679217",
+    "row": {
+      "dependencies": [
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "USize"
+          ],
+          "ofNat"
+        ]
+      ],
+      "ir": {
+        "fdecl": {
+          "body": [
+            "vdecl",
+            {
+              "idx": 2
+            },
+            "usize",
+            {
+              "fap": {
+                "c": [
+                  "str",
+                  [
+                    "str",
+                    [
+                      "anonymous"
+                    ],
+                    "USize"
+                  ],
+                  "ofNat"
+                ],
+                "ys": [
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 1
+                      }
+                    }
+                  }
+                ]
+              }
+            },
+            [
+              "dec",
+              {
+                "idx": 1
+              },
+              1,
+              true,
+              false,
+              [
+                "vdecl",
+                {
+                  "idx": 3
+                },
+                "tobject",
+                {
+                  "box": {
+                    "ty": "usize",
+                    "x": {
+                      "idx": 2
+                    }
+                  }
+                },
+                [
+                  "ret",
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 3
+                      }
+                    }
+                  }
+                ]
+              ]
+            ]
+          ],
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "USize"
+              ],
+              "ofNat"
+            ],
+            "_boxed"
+          ],
+          "info": {},
+          "type": "tobject",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 1
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "USize"
+          ],
+          "ofNat"
+        ],
+        "_boxed"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Init"
+            ],
+            "Data"
+          ],
+          "UInt"
+        ],
+        "BasicAux"
+      ]
+    }
+  },
+  {
+    "label": "UInt32.decEq",
+    "sha256": "15c19f3f2a6406f23a66f4f06763ebd293ead73f30e711f3c0448bd5da4b9b0a",
+    "row": {
+      "dependencies": [],
+      "ir": {
+        "extern": {
+          "ext": {
+            "entries": [
+              {
+                "standard": {
+                  "backend": [
+                    "str",
+                    [
+                      "anonymous"
+                    ],
+                    "all"
+                  ],
+                  "fn": "lean_uint32_dec_eq"
+                }
+              }
+            ]
+          },
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "UInt32"
+            ],
+            "decEq"
+          ],
+          "type": "uint8",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "uint32",
+              "x": {
+                "idx": 1
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "uint32",
+              "x": {
+                "idx": 2
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "anonymous"
+          ],
+          "UInt32"
+        ],
+        "decEq"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "anonymous"
+          ],
+          "Init"
+        ],
+        "Prelude"
+      ]
+    }
+  },
+  {
+    "label": "UInt32.decEq._boxed",
+    "sha256": "082daf292d2741dba8ae9dfdfc1c09d1e3539c902e2f2da2f10b708ec354fa40",
+    "row": {
+      "dependencies": [
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "UInt32"
+          ],
+          "decEq"
+        ]
+      ],
+      "ir": {
+        "fdecl": {
+          "body": [
+            "vdecl",
+            {
+              "idx": 3
+            },
+            "uint32",
+            {
+              "unbox": {
+                "x": {
+                  "idx": 1
+                }
+              }
+            },
+            [
+              "dec",
+              {
+                "idx": 1
+              },
+              1,
+              true,
+              false,
+              [
+                "vdecl",
+                {
+                  "idx": 4
+                },
+                "uint32",
+                {
+                  "unbox": {
+                    "x": {
+                      "idx": 2
+                    }
+                  }
+                },
+                [
+                  "dec",
+                  {
+                    "idx": 2
+                  },
+                  1,
+                  true,
+                  false,
+                  [
+                    "vdecl",
+                    {
+                      "idx": 5
+                    },
+                    "uint8",
+                    {
+                      "fap": {
+                        "c": [
+                          "str",
+                          [
+                            "str",
+                            [
+                              "anonymous"
+                            ],
+                            "UInt32"
+                          ],
+                          "decEq"
+                        ],
+                        "ys": [
+                          {
+                            "var": {
+                              "id": {
+                                "idx": 3
+                              }
+                            }
+                          },
+                          {
+                            "var": {
+                              "id": {
+                                "idx": 4
+                              }
+                            }
+                          }
+                        ]
+                      }
+                    },
+                    [
+                      "vdecl",
+                      {
+                        "idx": 6
+                      },
+                      "tagged",
+                      {
+                        "box": {
+                          "ty": "uint8",
+                          "x": {
+                            "idx": 5
+                          }
+                        }
+                      },
+                      [
+                        "ret",
+                        {
+                          "var": {
+                            "id": {
+                              "idx": 6
+                            }
+                          }
+                        }
+                      ]
+                    ]
+                  ]
+                ]
+              ]
+            ]
+          ],
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "UInt32"
+              ],
+              "decEq"
+            ],
+            "_boxed"
+          ],
+          "info": {},
+          "type": "tagged",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 1
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 2
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "UInt32"
+          ],
+          "decEq"
+        ],
+        "_boxed"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "anonymous"
+          ],
+          "Init"
+        ],
+        "Prelude"
+      ]
+    }
+  },
+  {
+    "label": "USize.decEq",
+    "sha256": "cce712595a1d24e16d8629b82423d287b11f1736be3ec6d97684649d56012746",
+    "row": {
+      "dependencies": [],
+      "ir": {
+        "extern": {
+          "ext": {
+            "entries": [
+              {
+                "standard": {
+                  "backend": [
+                    "str",
+                    [
+                      "anonymous"
+                    ],
+                    "all"
+                  ],
+                  "fn": "lean_usize_dec_eq"
+                }
+              }
+            ]
+          },
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "USize"
+            ],
+            "decEq"
+          ],
+          "type": "uint8",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "usize",
+              "x": {
+                "idx": 1
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "usize",
+              "x": {
+                "idx": 2
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "anonymous"
+          ],
+          "USize"
+        ],
+        "decEq"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "anonymous"
+          ],
+          "Init"
+        ],
+        "Prelude"
+      ]
+    }
+  },
+  {
+    "label": "USize.decEq._boxed",
+    "sha256": "a90d79aa46c4400f0a07dc2128b34b7c50f0619bbef3de7d3a5a9fbfbab223dd",
+    "row": {
+      "dependencies": [
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "USize"
+          ],
+          "decEq"
+        ]
+      ],
+      "ir": {
+        "fdecl": {
+          "body": [
+            "vdecl",
+            {
+              "idx": 3
+            },
+            "usize",
+            {
+              "unbox": {
+                "x": {
+                  "idx": 1
+                }
+              }
+            },
+            [
+              "dec",
+              {
+                "idx": 1
+              },
+              1,
+              true,
+              false,
+              [
+                "vdecl",
+                {
+                  "idx": 4
+                },
+                "usize",
+                {
+                  "unbox": {
+                    "x": {
+                      "idx": 2
+                    }
+                  }
+                },
+                [
+                  "dec",
+                  {
+                    "idx": 2
+                  },
+                  1,
+                  true,
+                  false,
+                  [
+                    "vdecl",
+                    {
+                      "idx": 5
+                    },
+                    "uint8",
+                    {
+                      "fap": {
+                        "c": [
+                          "str",
+                          [
+                            "str",
+                            [
+                              "anonymous"
+                            ],
+                            "USize"
+                          ],
+                          "decEq"
+                        ],
+                        "ys": [
+                          {
+                            "var": {
+                              "id": {
+                                "idx": 3
+                              }
+                            }
+                          },
+                          {
+                            "var": {
+                              "id": {
+                                "idx": 4
+                              }
+                            }
+                          }
+                        ]
+                      }
+                    },
+                    [
+                      "vdecl",
+                      {
+                        "idx": 6
+                      },
+                      "tagged",
+                      {
+                        "box": {
+                          "ty": "uint8",
+                          "x": {
+                            "idx": 5
+                          }
+                        }
+                      },
+                      [
+                        "ret",
+                        {
+                          "var": {
+                            "id": {
+                              "idx": 6
+                            }
+                          }
+                        }
+                      ]
+                    ]
+                  ]
+                ]
+              ]
+            ]
+          ],
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "USize"
+              ],
+              "decEq"
+            ],
+            "_boxed"
+          ],
+          "info": {},
+          "type": "tagged",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 1
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 2
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "USize"
+          ],
+          "decEq"
+        ],
+        "_boxed"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "anonymous"
+          ],
+          "Init"
+        ],
+        "Prelude"
+      ]
+    }
+  },
+  {
+    "label": "USize.sub",
+    "sha256": "0a74b9084846e787b21c4d09bea9fab376ab3126d97527f29759281cdd395e32",
+    "row": {
+      "dependencies": [],
+      "ir": {
+        "extern": {
+          "ext": {
+            "entries": [
+              {
+                "standard": {
+                  "backend": [
+                    "str",
+                    [
+                      "anonymous"
+                    ],
+                    "all"
+                  ],
+                  "fn": "lean_usize_sub"
+                }
+              }
+            ]
+          },
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "USize"
+            ],
+            "sub"
+          ],
+          "type": "usize",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "usize",
+              "x": {
+                "idx": 1
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "usize",
+              "x": {
+                "idx": 2
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "anonymous"
+          ],
+          "USize"
+        ],
+        "sub"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Init"
+            ],
+            "Data"
+          ],
+          "UInt"
+        ],
+        "BasicAux"
+      ]
+    }
+  },
+  {
+    "label": "USize.sub._boxed",
+    "sha256": "d94209b03d169eb59c0c42aa456611cbde78da8babf10bfc630f13b2856806bf",
+    "row": {
+      "dependencies": [
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "USize"
+          ],
+          "sub"
+        ]
+      ],
+      "ir": {
+        "fdecl": {
+          "body": [
+            "vdecl",
+            {
+              "idx": 3
+            },
+            "usize",
+            {
+              "unbox": {
+                "x": {
+                  "idx": 1
+                }
+              }
+            },
+            [
+              "dec",
+              {
+                "idx": 1
+              },
+              1,
+              true,
+              false,
+              [
+                "vdecl",
+                {
+                  "idx": 4
+                },
+                "usize",
+                {
+                  "unbox": {
+                    "x": {
+                      "idx": 2
+                    }
+                  }
+                },
+                [
+                  "dec",
+                  {
+                    "idx": 2
+                  },
+                  1,
+                  true,
+                  false,
+                  [
+                    "vdecl",
+                    {
+                      "idx": 5
+                    },
+                    "usize",
+                    {
+                      "fap": {
+                        "c": [
+                          "str",
+                          [
+                            "str",
+                            [
+                              "anonymous"
+                            ],
+                            "USize"
+                          ],
+                          "sub"
+                        ],
+                        "ys": [
+                          {
+                            "var": {
+                              "id": {
+                                "idx": 3
+                              }
+                            }
+                          },
+                          {
+                            "var": {
+                              "id": {
+                                "idx": 4
+                              }
+                            }
+                          }
+                        ]
+                      }
+                    },
+                    [
+                      "vdecl",
+                      {
+                        "idx": 6
+                      },
+                      "tobject",
+                      {
+                        "box": {
+                          "ty": "usize",
+                          "x": {
+                            "idx": 5
+                          }
+                        }
+                      },
+                      [
+                        "ret",
+                        {
+                          "var": {
+                            "id": {
+                              "idx": 6
+                            }
+                          }
+                        }
+                      ]
+                    ]
+                  ]
+                ]
+              ]
+            ]
+          ],
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "USize"
+              ],
+              "sub"
+            ],
+            "_boxed"
+          ],
+          "info": {},
+          "type": "tobject",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 1
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 2
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "USize"
+          ],
+          "sub"
+        ],
+        "_boxed"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Init"
+            ],
+            "Data"
+          ],
+          "UInt"
+        ],
+        "BasicAux"
+      ]
+    }
+  },
+  {
+    "label": "USize.ofNatLT",
+    "sha256": "48bc0237c97a676752c5153b0a19cabb2c335236ccfa49421c030be03594126c",
+    "row": {
+      "dependencies": [],
+      "ir": {
+        "extern": {
+          "ext": {
+            "entries": [
+              {
+                "standard": {
+                  "backend": [
+                    "str",
+                    [
+                      "anonymous"
+                    ],
+                    "all"
+                  ],
+                  "fn": "lean_usize_of_nat"
+                }
+              }
+            ]
+          },
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "USize"
+            ],
+            "ofNatLT"
+          ],
+          "type": "usize",
+          "xs": [
+            {
+              "borrow": true,
+              "ty": "tobject",
+              "x": {
+                "idx": 1
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "erased",
+              "x": {
+                "idx": 2
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "anonymous"
+          ],
+          "USize"
+        ],
+        "ofNatLT"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "anonymous"
+          ],
+          "Init"
+        ],
+        "Prelude"
+      ]
+    }
+  },
+  {
+    "label": "USize.ofNatLT._boxed",
+    "sha256": "6d04349d139018ccced8b50d9bc382b3179c2b823d1192a51dea61fffd314256",
+    "row": {
+      "dependencies": [
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "USize"
+          ],
+          "ofNatLT"
+        ]
+      ],
+      "ir": {
+        "fdecl": {
+          "body": [
+            "vdecl",
+            {
+              "idx": 3
+            },
+            "usize",
+            {
+              "fap": {
+                "c": [
+                  "str",
+                  [
+                    "str",
+                    [
+                      "anonymous"
+                    ],
+                    "USize"
+                  ],
+                  "ofNatLT"
+                ],
+                "ys": [
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 1
+                      }
+                    }
+                  },
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 2
+                      }
+                    }
+                  }
+                ]
+              }
+            },
+            [
+              "dec",
+              {
+                "idx": 1
+              },
+              1,
+              true,
+              false,
+              [
+                "vdecl",
+                {
+                  "idx": 4
+                },
+                "tobject",
+                {
+                  "box": {
+                    "ty": "usize",
+                    "x": {
+                      "idx": 3
+                    }
+                  }
+                },
+                [
+                  "ret",
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 4
+                      }
+                    }
+                  }
+                ]
+              ]
+            ]
+          ],
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "USize"
+              ],
+              "ofNatLT"
+            ],
+            "_boxed"
+          ],
+          "info": {},
+          "type": "tobject",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 1
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 2
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "USize"
+          ],
+          "ofNatLT"
+        ],
+        "_boxed"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "anonymous"
+          ],
+          "Init"
+        ],
+        "Prelude"
+      ]
+    }
+  },
+  {
+    "label": "USize.repr",
+    "sha256": "168df61c7ae94f09e14d9f093da5de41ea243bbbdd036cf249d55ac04b107cb8",
+    "row": {
+      "dependencies": [],
+      "ir": {
+        "extern": {
+          "ext": {
+            "entries": [
+              {
+                "standard": {
+                  "backend": [
+                    "str",
+                    [
+                      "anonymous"
+                    ],
+                    "all"
+                  ],
+                  "fn": "lean_string_of_usize"
+                }
+              }
+            ]
+          },
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "USize"
+            ],
+            "repr"
+          ],
+          "type": "object",
+          "xs": [
+            {
+              "borrow": true,
+              "ty": "usize",
+              "x": {
+                "idx": 1
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "anonymous"
+          ],
+          "USize"
+        ],
+        "repr"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "Init"
+          ],
+          "Data"
+        ],
+        "Repr"
+      ]
+    }
+  },
+  {
+    "label": "USize.repr._boxed",
+    "sha256": "879f89029eeb58e3ab881a6c4aeefa1ac1f3001d4503aaaccb8fc3657134e5ad",
+    "row": {
+      "dependencies": [
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "USize"
+          ],
+          "repr"
+        ]
+      ],
+      "ir": {
+        "fdecl": {
+          "body": [
+            "vdecl",
+            {
+              "idx": 2
+            },
+            "usize",
+            {
+              "unbox": {
+                "x": {
+                  "idx": 1
+                }
+              }
+            },
+            [
+              "dec",
+              {
+                "idx": 1
+              },
+              1,
+              true,
+              false,
+              [
+                "vdecl",
+                {
+                  "idx": 3
+                },
+                "object",
+                {
+                  "fap": {
+                    "c": [
+                      "str",
+                      [
+                        "str",
+                        [
+                          "anonymous"
+                        ],
+                        "USize"
+                      ],
+                      "repr"
+                    ],
+                    "ys": [
+                      {
+                        "var": {
+                          "id": {
+                            "idx": 2
+                          }
+                        }
+                      }
+                    ]
+                  }
+                },
+                [
+                  "ret",
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 3
+                      }
+                    }
+                  }
+                ]
+              ]
+            ]
+          ],
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "USize"
+              ],
+              "repr"
+            ],
+            "_boxed"
+          ],
+          "info": {},
+          "type": "object",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 1
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "USize"
+          ],
+          "repr"
+        ],
+        "_boxed"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "Init"
+          ],
+          "Data"
+        ],
+        "Repr"
+      ]
+    }
+  },
+  {
+    "label": "USize.toNat",
+    "sha256": "dfe7039264cae58fa83ee19778f19148c601230d1024f6bb4032de844e75cf64",
+    "row": {
+      "dependencies": [],
+      "ir": {
+        "extern": {
+          "ext": {
+            "entries": [
+              {
+                "standard": {
+                  "backend": [
+                    "str",
+                    [
+                      "anonymous"
+                    ],
+                    "all"
+                  ],
+                  "fn": "lean_usize_to_nat"
+                }
+              }
+            ]
+          },
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "USize"
+            ],
+            "toNat"
+          ],
+          "type": "tobject",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "usize",
+              "x": {
+                "idx": 1
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "anonymous"
+          ],
+          "USize"
+        ],
+        "toNat"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Init"
+            ],
+            "Data"
+          ],
+          "UInt"
+        ],
+        "BasicAux"
+      ]
+    }
+  },
+  {
+    "label": "USize.toNat._boxed",
+    "sha256": "d2b284aab64b37c25a0aba39161c717914566239a54578543d09a13c33b83557",
+    "row": {
+      "dependencies": [
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "USize"
+          ],
+          "toNat"
+        ]
+      ],
+      "ir": {
+        "fdecl": {
+          "body": [
+            "vdecl",
+            {
+              "idx": 2
+            },
+            "usize",
+            {
+              "unbox": {
+                "x": {
+                  "idx": 1
+                }
+              }
+            },
+            [
+              "dec",
+              {
+                "idx": 1
+              },
+              1,
+              true,
+              false,
+              [
+                "vdecl",
+                {
+                  "idx": 3
+                },
+                "tobject",
+                {
+                  "fap": {
+                    "c": [
+                      "str",
+                      [
+                        "str",
+                        [
+                          "anonymous"
+                        ],
+                        "USize"
+                      ],
+                      "toNat"
+                    ],
+                    "ys": [
+                      {
+                        "var": {
+                          "id": {
+                            "idx": 2
+                          }
+                        }
+                      }
+                    ]
+                  }
+                },
+                [
+                  "ret",
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 3
+                      }
+                    }
+                  }
+                ]
+              ]
+            ]
+          ],
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "USize"
+              ],
+              "toNat"
+            ],
+            "_boxed"
+          ],
+          "info": {},
+          "type": "tobject",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 1
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "USize"
+          ],
+          "toNat"
+        ],
+        "_boxed"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Init"
+            ],
+            "Data"
+          ],
+          "UInt"
+        ],
+        "BasicAux"
+      ]
+    }
+  },
+  {
+    "label": "USize.shiftRight",
+    "sha256": "48a12b38fba3c48e1fd1f461c424d36379efbee59dbb941a58631c640c212285",
+    "row": {
+      "dependencies": [],
+      "ir": {
+        "extern": {
+          "ext": {
+            "entries": [
+              {
+                "standard": {
+                  "backend": [
+                    "str",
+                    [
+                      "anonymous"
+                    ],
+                    "all"
+                  ],
+                  "fn": "lean_usize_shift_right"
+                }
+              }
+            ]
+          },
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "USize"
+            ],
+            "shiftRight"
+          ],
+          "type": "usize",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "usize",
+              "x": {
+                "idx": 1
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "usize",
+              "x": {
+                "idx": 2
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "anonymous"
+          ],
+          "USize"
+        ],
+        "shiftRight"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Init"
+            ],
+            "Data"
+          ],
+          "UInt"
+        ],
+        "Basic"
+      ]
+    }
+  },
+  {
+    "label": "USize.shiftRight._boxed",
+    "sha256": "417a7ebe210cd2521950566075be619e910d2cb5718ccbeaba1eb878532a9f54",
+    "row": {
+      "dependencies": [
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "USize"
+          ],
+          "shiftRight"
+        ]
+      ],
+      "ir": {
+        "fdecl": {
+          "body": [
+            "vdecl",
+            {
+              "idx": 3
+            },
+            "usize",
+            {
+              "unbox": {
+                "x": {
+                  "idx": 1
+                }
+              }
+            },
+            [
+              "dec",
+              {
+                "idx": 1
+              },
+              1,
+              true,
+              false,
+              [
+                "vdecl",
+                {
+                  "idx": 4
+                },
+                "usize",
+                {
+                  "unbox": {
+                    "x": {
+                      "idx": 2
+                    }
+                  }
+                },
+                [
+                  "dec",
+                  {
+                    "idx": 2
+                  },
+                  1,
+                  true,
+                  false,
+                  [
+                    "vdecl",
+                    {
+                      "idx": 5
+                    },
+                    "usize",
+                    {
+                      "fap": {
+                        "c": [
+                          "str",
+                          [
+                            "str",
+                            [
+                              "anonymous"
+                            ],
+                            "USize"
+                          ],
+                          "shiftRight"
+                        ],
+                        "ys": [
+                          {
+                            "var": {
+                              "id": {
+                                "idx": 3
+                              }
+                            }
+                          },
+                          {
+                            "var": {
+                              "id": {
+                                "idx": 4
+                              }
+                            }
+                          }
+                        ]
+                      }
+                    },
+                    [
+                      "vdecl",
+                      {
+                        "idx": 6
+                      },
+                      "tobject",
+                      {
+                        "box": {
+                          "ty": "usize",
+                          "x": {
+                            "idx": 5
+                          }
+                        }
+                      },
+                      [
+                        "ret",
+                        {
+                          "var": {
+                            "id": {
+                              "idx": 6
+                            }
+                          }
+                        }
+                      ]
+                    ]
+                  ]
+                ]
+              ]
+            ]
+          ],
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "USize"
+              ],
+              "shiftRight"
+            ],
+            "_boxed"
+          ],
+          "info": {},
+          "type": "tobject",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 1
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 2
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "USize"
+          ],
+          "shiftRight"
+        ],
+        "_boxed"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Init"
+            ],
+            "Data"
+          ],
+          "UInt"
+        ],
+        "Basic"
+      ]
+    }
+  },
+  {
+    "label": "USize.shiftLeft",
+    "sha256": "d6210476fc9a79b318f4ef2eced26231c098969961956e7fe39caa244e4e3e42",
+    "row": {
+      "dependencies": [],
+      "ir": {
+        "extern": {
+          "ext": {
+            "entries": [
+              {
+                "standard": {
+                  "backend": [
+                    "str",
+                    [
+                      "anonymous"
+                    ],
+                    "all"
+                  ],
+                  "fn": "lean_usize_shift_left"
+                }
+              }
+            ]
+          },
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "USize"
+            ],
+            "shiftLeft"
+          ],
+          "type": "usize",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "usize",
+              "x": {
+                "idx": 1
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "usize",
+              "x": {
+                "idx": 2
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "anonymous"
+          ],
+          "USize"
+        ],
+        "shiftLeft"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Init"
+            ],
+            "Data"
+          ],
+          "UInt"
+        ],
+        "Basic"
+      ]
+    }
+  },
+  {
+    "label": "USize.shiftLeft._boxed",
+    "sha256": "198a645708637fff6aed7a758075587600f64dfd98059ecad9e754891c8c595b",
+    "row": {
+      "dependencies": [
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "USize"
+          ],
+          "shiftLeft"
+        ]
+      ],
+      "ir": {
+        "fdecl": {
+          "body": [
+            "vdecl",
+            {
+              "idx": 3
+            },
+            "usize",
+            {
+              "unbox": {
+                "x": {
+                  "idx": 1
+                }
+              }
+            },
+            [
+              "dec",
+              {
+                "idx": 1
+              },
+              1,
+              true,
+              false,
+              [
+                "vdecl",
+                {
+                  "idx": 4
+                },
+                "usize",
+                {
+                  "unbox": {
+                    "x": {
+                      "idx": 2
+                    }
+                  }
+                },
+                [
+                  "dec",
+                  {
+                    "idx": 2
+                  },
+                  1,
+                  true,
+                  false,
+                  [
+                    "vdecl",
+                    {
+                      "idx": 5
+                    },
+                    "usize",
+                    {
+                      "fap": {
+                        "c": [
+                          "str",
+                          [
+                            "str",
+                            [
+                              "anonymous"
+                            ],
+                            "USize"
+                          ],
+                          "shiftLeft"
+                        ],
+                        "ys": [
+                          {
+                            "var": {
+                              "id": {
+                                "idx": 3
+                              }
+                            }
+                          },
+                          {
+                            "var": {
+                              "id": {
+                                "idx": 4
+                              }
+                            }
+                          }
+                        ]
+                      }
+                    },
+                    [
+                      "vdecl",
+                      {
+                        "idx": 6
+                      },
+                      "tobject",
+                      {
+                        "box": {
+                          "ty": "usize",
+                          "x": {
+                            "idx": 5
+                          }
+                        }
+                      },
+                      [
+                        "ret",
+                        {
+                          "var": {
+                            "id": {
+                              "idx": 6
+                            }
+                          }
+                        }
+                      ]
+                    ]
+                  ]
+                ]
+              ]
+            ]
+          ],
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "USize"
+              ],
+              "shiftLeft"
+            ],
+            "_boxed"
+          ],
+          "info": {},
+          "type": "tobject",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 1
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 2
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "USize"
+          ],
+          "shiftLeft"
+        ],
+        "_boxed"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Init"
+            ],
+            "Data"
+          ],
+          "UInt"
+        ],
+        "Basic"
+      ]
+    }
+  },
+  {
+    "label": "USize.land",
+    "sha256": "5bfa88b4ee84062675978ce5c160a1c42a0cc5b562eab410458c338dcef1aaa4",
+    "row": {
+      "dependencies": [],
+      "ir": {
+        "extern": {
+          "ext": {
+            "entries": [
+              {
+                "standard": {
+                  "backend": [
+                    "str",
+                    [
+                      "anonymous"
+                    ],
+                    "all"
+                  ],
+                  "fn": "lean_usize_land"
+                }
+              }
+            ]
+          },
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "USize"
+            ],
+            "land"
+          ],
+          "type": "usize",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "usize",
+              "x": {
+                "idx": 1
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "usize",
+              "x": {
+                "idx": 2
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "anonymous"
+          ],
+          "USize"
+        ],
+        "land"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Init"
+            ],
+            "Data"
+          ],
+          "UInt"
+        ],
+        "Basic"
+      ]
+    }
+  },
+  {
+    "label": "USize.land._boxed",
+    "sha256": "60e5db8da8ffadddfd74d5909d8440190eb8c92fb5bc341e5a1d6cc0a37ad948",
+    "row": {
+      "dependencies": [
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "USize"
+          ],
+          "land"
+        ]
+      ],
+      "ir": {
+        "fdecl": {
+          "body": [
+            "vdecl",
+            {
+              "idx": 3
+            },
+            "usize",
+            {
+              "unbox": {
+                "x": {
+                  "idx": 1
+                }
+              }
+            },
+            [
+              "dec",
+              {
+                "idx": 1
+              },
+              1,
+              true,
+              false,
+              [
+                "vdecl",
+                {
+                  "idx": 4
+                },
+                "usize",
+                {
+                  "unbox": {
+                    "x": {
+                      "idx": 2
+                    }
+                  }
+                },
+                [
+                  "dec",
+                  {
+                    "idx": 2
+                  },
+                  1,
+                  true,
+                  false,
+                  [
+                    "vdecl",
+                    {
+                      "idx": 5
+                    },
+                    "usize",
+                    {
+                      "fap": {
+                        "c": [
+                          "str",
+                          [
+                            "str",
+                            [
+                              "anonymous"
+                            ],
+                            "USize"
+                          ],
+                          "land"
+                        ],
+                        "ys": [
+                          {
+                            "var": {
+                              "id": {
+                                "idx": 3
+                              }
+                            }
+                          },
+                          {
+                            "var": {
+                              "id": {
+                                "idx": 4
+                              }
+                            }
+                          }
+                        ]
+                      }
+                    },
+                    [
+                      "vdecl",
+                      {
+                        "idx": 6
+                      },
+                      "tobject",
+                      {
+                        "box": {
+                          "ty": "usize",
+                          "x": {
+                            "idx": 5
+                          }
+                        }
+                      },
+                      [
+                        "ret",
+                        {
+                          "var": {
+                            "id": {
+                              "idx": 6
+                            }
+                          }
+                        }
+                      ]
+                    ]
+                  ]
+                ]
+              ]
+            ]
+          ],
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "USize"
+              ],
+              "land"
+            ],
+            "_boxed"
+          ],
+          "info": {},
+          "type": "tobject",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 1
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 2
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "USize"
+          ],
+          "land"
+        ],
+        "_boxed"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Init"
+            ],
+            "Data"
+          ],
+          "UInt"
+        ],
+        "Basic"
+      ]
+    }
+  },
+  {
+    "label": "UInt8.toNat",
+    "sha256": "4a8409313d02add7f005ea250bc2bd12870e1f18f523c7db13db9875a9a0ef04",
+    "row": {
+      "dependencies": [],
+      "ir": {
+        "extern": {
+          "ext": {
+            "entries": [
+              {
+                "standard": {
+                  "backend": [
+                    "str",
+                    [
+                      "anonymous"
+                    ],
+                    "all"
+                  ],
+                  "fn": "lean_uint8_to_nat"
+                }
+              }
+            ]
+          },
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "UInt8"
+            ],
+            "toNat"
+          ],
+          "type": "tagged",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "uint8",
+              "x": {
+                "idx": 1
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "anonymous"
+          ],
+          "UInt8"
+        ],
+        "toNat"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Init"
+            ],
+            "Data"
+          ],
+          "UInt"
+        ],
+        "BasicAux"
+      ]
+    }
+  },
+  {
+    "label": "UInt8.toNat._boxed",
+    "sha256": "9d3532a97c80f0e45b53d8f3390a647d9c22db2c36b6731efbaa9e04d8ca3b86",
+    "row": {
+      "dependencies": [
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "UInt8"
+          ],
+          "toNat"
+        ]
+      ],
+      "ir": {
+        "fdecl": {
+          "body": [
+            "vdecl",
+            {
+              "idx": 2
+            },
+            "uint8",
+            {
+              "unbox": {
+                "x": {
+                  "idx": 1
+                }
+              }
+            },
+            [
+              "vdecl",
+              {
+                "idx": 3
+              },
+              "tagged",
+              {
+                "fap": {
+                  "c": [
+                    "str",
+                    [
+                      "str",
+                      [
+                        "anonymous"
+                      ],
+                      "UInt8"
+                    ],
+                    "toNat"
+                  ],
+                  "ys": [
+                    {
+                      "var": {
+                        "id": {
+                          "idx": 2
+                        }
+                      }
+                    }
+                  ]
+                }
+              },
+              [
+                "ret",
+                {
+                  "var": {
+                    "id": {
+                      "idx": 3
+                    }
+                  }
+                }
+              ]
+            ]
+          ],
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "UInt8"
+              ],
+              "toNat"
+            ],
+            "_boxed"
+          ],
+          "info": {},
+          "type": "tagged",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "tagged",
+              "x": {
+                "idx": 1
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "UInt8"
+          ],
+          "toNat"
+        ],
+        "_boxed"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Init"
+            ],
+            "Data"
+          ],
+          "UInt"
+        ],
+        "BasicAux"
+      ]
+    }
+  },
+  {
+    "label": "UInt8.decEq",
+    "sha256": "d24bc0294f742a95418d99756d4fa6a660c4dcbfaa98a2dfebd06cb15a6e0629",
+    "row": {
+      "dependencies": [],
+      "ir": {
+        "extern": {
+          "ext": {
+            "entries": [
+              {
+                "standard": {
+                  "backend": [
+                    "str",
+                    [
+                      "anonymous"
+                    ],
+                    "all"
+                  ],
+                  "fn": "lean_uint8_dec_eq"
+                }
+              }
+            ]
+          },
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "UInt8"
+            ],
+            "decEq"
+          ],
+          "type": "uint8",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "uint8",
+              "x": {
+                "idx": 1
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "uint8",
+              "x": {
+                "idx": 2
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "anonymous"
+          ],
+          "UInt8"
+        ],
+        "decEq"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "anonymous"
+          ],
+          "Init"
+        ],
+        "Prelude"
+      ]
+    }
+  },
+  {
+    "label": "UInt8.decEq._boxed",
+    "sha256": "2928209cb739fa2683b719314e01bea70a03bcbd1853c1d64b98c3ecd8c11674",
+    "row": {
+      "dependencies": [
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "UInt8"
+          ],
+          "decEq"
+        ]
+      ],
+      "ir": {
+        "fdecl": {
+          "body": [
+            "vdecl",
+            {
+              "idx": 3
+            },
+            "uint8",
+            {
+              "unbox": {
+                "x": {
+                  "idx": 1
+                }
+              }
+            },
+            [
+              "vdecl",
+              {
+                "idx": 4
+              },
+              "uint8",
+              {
+                "unbox": {
+                  "x": {
+                    "idx": 2
+                  }
+                }
+              },
+              [
+                "vdecl",
+                {
+                  "idx": 5
+                },
+                "uint8",
+                {
+                  "fap": {
+                    "c": [
+                      "str",
+                      [
+                        "str",
+                        [
+                          "anonymous"
+                        ],
+                        "UInt8"
+                      ],
+                      "decEq"
+                    ],
+                    "ys": [
+                      {
+                        "var": {
+                          "id": {
+                            "idx": 3
+                          }
+                        }
+                      },
+                      {
+                        "var": {
+                          "id": {
+                            "idx": 4
+                          }
+                        }
+                      }
+                    ]
+                  }
+                },
+                [
+                  "vdecl",
+                  {
+                    "idx": 6
+                  },
+                  "tagged",
+                  {
+                    "box": {
+                      "ty": "uint8",
+                      "x": {
+                        "idx": 5
+                      }
+                    }
+                  },
+                  [
+                    "ret",
+                    {
+                      "var": {
+                        "id": {
+                          "idx": 6
+                        }
+                      }
+                    }
+                  ]
+                ]
+              ]
+            ]
+          ],
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "UInt8"
+              ],
+              "decEq"
+            ],
+            "_boxed"
+          ],
+          "info": {},
+          "type": "tagged",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "tagged",
+              "x": {
+                "idx": 1
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "tagged",
+              "x": {
+                "idx": 2
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "UInt8"
+          ],
+          "decEq"
+        ],
+        "_boxed"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "anonymous"
+          ],
+          "Init"
+        ],
+        "Prelude"
+      ]
+    }
+  },
+  {
+    "label": "UInt32.decLe",
+    "sha256": "aa61a8c8d5babb74cab7092697fa76a4f03b10ef22e9a3ef38fb7085e58d4f5f",
+    "row": {
+      "dependencies": [],
+      "ir": {
+        "extern": {
+          "ext": {
+            "entries": [
+              {
+                "standard": {
+                  "backend": [
+                    "str",
+                    [
+                      "anonymous"
+                    ],
+                    "all"
+                  ],
+                  "fn": "lean_uint32_dec_le"
+                }
+              }
+            ]
+          },
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "UInt32"
+            ],
+            "decLe"
+          ],
+          "type": "uint8",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "uint32",
+              "x": {
+                "idx": 1
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "uint32",
+              "x": {
+                "idx": 2
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "anonymous"
+          ],
+          "UInt32"
+        ],
+        "decLe"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "anonymous"
+          ],
+          "Init"
+        ],
+        "Prelude"
+      ]
+    }
+  },
+  {
+    "label": "UInt32.decLe._boxed",
+    "sha256": "35472bcf8155366ac3cf705b348dfa29dececb7353e6b98f5b5e36ef8f18f6e5",
+    "row": {
+      "dependencies": [
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "UInt32"
+          ],
+          "decLe"
+        ]
+      ],
+      "ir": {
+        "fdecl": {
+          "body": [
+            "vdecl",
+            {
+              "idx": 3
+            },
+            "uint32",
+            {
+              "unbox": {
+                "x": {
+                  "idx": 1
+                }
+              }
+            },
+            [
+              "dec",
+              {
+                "idx": 1
+              },
+              1,
+              true,
+              false,
+              [
+                "vdecl",
+                {
+                  "idx": 4
+                },
+                "uint32",
+                {
+                  "unbox": {
+                    "x": {
+                      "idx": 2
+                    }
+                  }
+                },
+                [
+                  "dec",
+                  {
+                    "idx": 2
+                  },
+                  1,
+                  true,
+                  false,
+                  [
+                    "vdecl",
+                    {
+                      "idx": 5
+                    },
+                    "uint8",
+                    {
+                      "fap": {
+                        "c": [
+                          "str",
+                          [
+                            "str",
+                            [
+                              "anonymous"
+                            ],
+                            "UInt32"
+                          ],
+                          "decLe"
+                        ],
+                        "ys": [
+                          {
+                            "var": {
+                              "id": {
+                                "idx": 3
+                              }
+                            }
+                          },
+                          {
+                            "var": {
+                              "id": {
+                                "idx": 4
+                              }
+                            }
+                          }
+                        ]
+                      }
+                    },
+                    [
+                      "vdecl",
+                      {
+                        "idx": 6
+                      },
+                      "tagged",
+                      {
+                        "box": {
+                          "ty": "uint8",
+                          "x": {
+                            "idx": 5
+                          }
+                        }
+                      },
+                      [
+                        "ret",
+                        {
+                          "var": {
+                            "id": {
+                              "idx": 6
+                            }
+                          }
+                        }
+                      ]
+                    ]
+                  ]
+                ]
+              ]
+            ]
+          ],
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "UInt32"
+              ],
+              "decLe"
+            ],
+            "_boxed"
+          ],
+          "info": {},
+          "type": "tagged",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 1
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 2
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "UInt32"
+          ],
+          "decLe"
+        ],
+        "_boxed"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "anonymous"
+          ],
+          "Init"
+        ],
+        "Prelude"
+      ]
+    }
+  },
+  {
+    "label": "UInt32.toNat",
+    "sha256": "05715b73b7525c15c91ec9053a8fdf94baa6a3f9945e52d753f17fe1e52b489a",
+    "row": {
+      "dependencies": [],
+      "ir": {
+        "extern": {
+          "ext": {
+            "entries": [
+              {
+                "standard": {
+                  "backend": [
+                    "str",
+                    [
+                      "anonymous"
+                    ],
+                    "all"
+                  ],
+                  "fn": "lean_uint32_to_nat"
+                }
+              }
+            ]
+          },
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "UInt32"
+            ],
+            "toNat"
+          ],
+          "type": "tobject",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "uint32",
+              "x": {
+                "idx": 1
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "anonymous"
+          ],
+          "UInt32"
+        ],
+        "toNat"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "anonymous"
+          ],
+          "Init"
+        ],
+        "Prelude"
+      ]
+    }
+  },
+  {
+    "label": "UInt32.toNat._boxed",
+    "sha256": "fede5e9eb1d25b7d63452dd8cdfff4f2ba30715ac5c026cadecae95c75fdfd82",
+    "row": {
+      "dependencies": [
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "UInt32"
+          ],
+          "toNat"
+        ]
+      ],
+      "ir": {
+        "fdecl": {
+          "body": [
+            "vdecl",
+            {
+              "idx": 2
+            },
+            "uint32",
+            {
+              "unbox": {
+                "x": {
+                  "idx": 1
+                }
+              }
+            },
+            [
+              "dec",
+              {
+                "idx": 1
+              },
+              1,
+              true,
+              false,
+              [
+                "vdecl",
+                {
+                  "idx": 3
+                },
+                "tobject",
+                {
+                  "fap": {
+                    "c": [
+                      "str",
+                      [
+                        "str",
+                        [
+                          "anonymous"
+                        ],
+                        "UInt32"
+                      ],
+                      "toNat"
+                    ],
+                    "ys": [
+                      {
+                        "var": {
+                          "id": {
+                            "idx": 2
+                          }
+                        }
+                      }
+                    ]
+                  }
+                },
+                [
+                  "ret",
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 3
+                      }
+                    }
+                  }
+                ]
+              ]
+            ]
+          ],
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "UInt32"
+              ],
+              "toNat"
+            ],
+            "_boxed"
+          ],
+          "info": {},
+          "type": "tobject",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 1
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "UInt32"
+          ],
+          "toNat"
+        ],
+        "_boxed"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "anonymous"
+          ],
+          "Init"
+        ],
+        "Prelude"
+      ]
+    }
+  },
+  {
+    "label": "UInt8.land",
+    "sha256": "2096a8ff309c789ff087deb0775cad0cf75154e54df6a743f959decc1da6c62c",
+    "row": {
+      "dependencies": [],
+      "ir": {
+        "extern": {
+          "ext": {
+            "entries": [
+              {
+                "standard": {
+                  "backend": [
+                    "str",
+                    [
+                      "anonymous"
+                    ],
+                    "all"
+                  ],
+                  "fn": "lean_uint8_land"
+                }
+              }
+            ]
+          },
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "UInt8"
+            ],
+            "land"
+          ],
+          "type": "uint8",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "uint8",
+              "x": {
+                "idx": 1
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "uint8",
+              "x": {
+                "idx": 2
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "anonymous"
+          ],
+          "UInt8"
+        ],
+        "land"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Init"
+            ],
+            "Data"
+          ],
+          "UInt"
+        ],
+        "Basic"
+      ]
+    }
+  },
+  {
+    "label": "UInt8.land._boxed",
+    "sha256": "69eebec17985ac07e38ae5171ff951d90c467a23cbce1d3769b4fc18919da338",
+    "row": {
+      "dependencies": [
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "UInt8"
+          ],
+          "land"
+        ]
+      ],
+      "ir": {
+        "fdecl": {
+          "body": [
+            "vdecl",
+            {
+              "idx": 3
+            },
+            "uint8",
+            {
+              "unbox": {
+                "x": {
+                  "idx": 1
+                }
+              }
+            },
+            [
+              "vdecl",
+              {
+                "idx": 4
+              },
+              "uint8",
+              {
+                "unbox": {
+                  "x": {
+                    "idx": 2
+                  }
+                }
+              },
+              [
+                "vdecl",
+                {
+                  "idx": 5
+                },
+                "uint8",
+                {
+                  "fap": {
+                    "c": [
+                      "str",
+                      [
+                        "str",
+                        [
+                          "anonymous"
+                        ],
+                        "UInt8"
+                      ],
+                      "land"
+                    ],
+                    "ys": [
+                      {
+                        "var": {
+                          "id": {
+                            "idx": 3
+                          }
+                        }
+                      },
+                      {
+                        "var": {
+                          "id": {
+                            "idx": 4
+                          }
+                        }
+                      }
+                    ]
+                  }
+                },
+                [
+                  "vdecl",
+                  {
+                    "idx": 6
+                  },
+                  "tagged",
+                  {
+                    "box": {
+                      "ty": "uint8",
+                      "x": {
+                        "idx": 5
+                      }
+                    }
+                  },
+                  [
+                    "ret",
+                    {
+                      "var": {
+                        "id": {
+                          "idx": 6
+                        }
+                      }
+                    }
+                  ]
+                ]
+              ]
+            ]
+          ],
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "UInt8"
+              ],
+              "land"
+            ],
+            "_boxed"
+          ],
+          "info": {},
+          "type": "tagged",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "tagged",
+              "x": {
+                "idx": 1
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "tagged",
+              "x": {
+                "idx": 2
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "UInt8"
+          ],
+          "land"
+        ],
+        "_boxed"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Init"
+            ],
+            "Data"
+          ],
+          "UInt"
+        ],
+        "Basic"
+      ]
+    }
+  },
+  {
+    "label": "UInt8.decLe",
+    "sha256": "77e8570d37a0f5c7a690a25f1fe339762426043790373bb732af459858f18a63",
+    "row": {
+      "dependencies": [],
+      "ir": {
+        "extern": {
+          "ext": {
+            "entries": [
+              {
+                "standard": {
+                  "backend": [
+                    "str",
+                    [
+                      "anonymous"
+                    ],
+                    "all"
+                  ],
+                  "fn": "lean_uint8_dec_le"
+                }
+              }
+            ]
+          },
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "UInt8"
+            ],
+            "decLe"
+          ],
+          "type": "uint8",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "uint8",
+              "x": {
+                "idx": 1
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "uint8",
+              "x": {
+                "idx": 2
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "anonymous"
+          ],
+          "UInt8"
+        ],
+        "decLe"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "anonymous"
+          ],
+          "Init"
+        ],
+        "Prelude"
+      ]
+    }
+  },
+  {
+    "label": "UInt8.decLe._boxed",
+    "sha256": "95d021a437edfe68f99852dbfb007d9da9917c2b6930eddb889eee4649140121",
+    "row": {
+      "dependencies": [
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "UInt8"
+          ],
+          "decLe"
+        ]
+      ],
+      "ir": {
+        "fdecl": {
+          "body": [
+            "vdecl",
+            {
+              "idx": 3
+            },
+            "uint8",
+            {
+              "unbox": {
+                "x": {
+                  "idx": 1
+                }
+              }
+            },
+            [
+              "vdecl",
+              {
+                "idx": 4
+              },
+              "uint8",
+              {
+                "unbox": {
+                  "x": {
+                    "idx": 2
+                  }
+                }
+              },
+              [
+                "vdecl",
+                {
+                  "idx": 5
+                },
+                "uint8",
+                {
+                  "fap": {
+                    "c": [
+                      "str",
+                      [
+                        "str",
+                        [
+                          "anonymous"
+                        ],
+                        "UInt8"
+                      ],
+                      "decLe"
+                    ],
+                    "ys": [
+                      {
+                        "var": {
+                          "id": {
+                            "idx": 3
+                          }
+                        }
+                      },
+                      {
+                        "var": {
+                          "id": {
+                            "idx": 4
+                          }
+                        }
+                      }
+                    ]
+                  }
+                },
+                [
+                  "vdecl",
+                  {
+                    "idx": 6
+                  },
+                  "tagged",
+                  {
+                    "box": {
+                      "ty": "uint8",
+                      "x": {
+                        "idx": 5
+                      }
+                    }
+                  },
+                  [
+                    "ret",
+                    {
+                      "var": {
+                        "id": {
+                          "idx": 6
+                        }
+                      }
+                    }
+                  ]
+                ]
+              ]
+            ]
+          ],
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "UInt8"
+              ],
+              "decLe"
+            ],
+            "_boxed"
+          ],
+          "info": {},
+          "type": "tagged",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "tagged",
+              "x": {
+                "idx": 1
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "tagged",
+              "x": {
+                "idx": 2
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "UInt8"
+          ],
+          "decLe"
+        ],
+        "_boxed"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "anonymous"
+          ],
+          "Init"
+        ],
+        "Prelude"
+      ]
+    }
+  },
+  {
+    "label": "UInt32.ofNatLT",
+    "sha256": "1a68c92784fbe1915daf3c5c4adc00569ab452f955cf09817c97674adeef56d8",
+    "row": {
+      "dependencies": [],
+      "ir": {
+        "extern": {
+          "ext": {
+            "entries": [
+              {
+                "standard": {
+                  "backend": [
+                    "str",
+                    [
+                      "anonymous"
+                    ],
+                    "all"
+                  ],
+                  "fn": "lean_uint32_of_nat"
+                }
+              }
+            ]
+          },
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "UInt32"
+            ],
+            "ofNatLT"
+          ],
+          "type": "uint32",
+          "xs": [
+            {
+              "borrow": true,
+              "ty": "tobject",
+              "x": {
+                "idx": 1
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "erased",
+              "x": {
+                "idx": 2
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "anonymous"
+          ],
+          "UInt32"
+        ],
+        "ofNatLT"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "anonymous"
+          ],
+          "Init"
+        ],
+        "Prelude"
+      ]
+    }
+  },
+  {
+    "label": "UInt32.ofNatLT._boxed",
+    "sha256": "67efca2340060291f133fc6468f28020d2b0b3185eeb1bac62dd8466efbd842c",
+    "row": {
+      "dependencies": [
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "UInt32"
+          ],
+          "ofNatLT"
+        ]
+      ],
+      "ir": {
+        "fdecl": {
+          "body": [
+            "vdecl",
+            {
+              "idx": 3
+            },
+            "uint32",
+            {
+              "fap": {
+                "c": [
+                  "str",
+                  [
+                    "str",
+                    [
+                      "anonymous"
+                    ],
+                    "UInt32"
+                  ],
+                  "ofNatLT"
+                ],
+                "ys": [
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 1
+                      }
+                    }
+                  },
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 2
+                      }
+                    }
+                  }
+                ]
+              }
+            },
+            [
+              "dec",
+              {
+                "idx": 1
+              },
+              1,
+              true,
+              false,
+              [
+                "vdecl",
+                {
+                  "idx": 4
+                },
+                "tobject",
+                {
+                  "box": {
+                    "ty": "uint32",
+                    "x": {
+                      "idx": 3
+                    }
+                  }
+                },
+                [
+                  "ret",
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 4
+                      }
+                    }
+                  }
+                ]
+              ]
+            ]
+          ],
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "UInt32"
+              ],
+              "ofNatLT"
+            ],
+            "_boxed"
+          ],
+          "info": {},
+          "type": "tobject",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 1
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 2
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "UInt32"
+          ],
+          "ofNatLT"
+        ],
+        "_boxed"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "anonymous"
+          ],
+          "Init"
+        ],
+        "Prelude"
+      ]
+    }
+  },
+  {
+    "label": "UInt32.toUInt8",
+    "sha256": "1eaedea6c5ab6d85ad4dfb32c05ee46145d6c86fc2de800323f01a507a53bc6a",
+    "row": {
+      "dependencies": [],
+      "ir": {
+        "extern": {
+          "ext": {
+            "entries": [
+              {
+                "standard": {
+                  "backend": [
+                    "str",
+                    [
+                      "anonymous"
+                    ],
+                    "all"
+                  ],
+                  "fn": "lean_uint32_to_uint8"
+                }
+              }
+            ]
+          },
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "UInt32"
+            ],
+            "toUInt8"
+          ],
+          "type": "uint8",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "uint32",
+              "x": {
+                "idx": 1
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "anonymous"
+          ],
+          "UInt32"
+        ],
+        "toUInt8"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Init"
+            ],
+            "Data"
+          ],
+          "UInt"
+        ],
+        "BasicAux"
+      ]
+    }
+  },
+  {
+    "label": "UInt32.toUInt8._boxed",
+    "sha256": "6d43012df1a1e89a47bd566ae3033206e6252f80ceab66b5a14bc48dff74eec6",
+    "row": {
+      "dependencies": [
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "UInt32"
+          ],
+          "toUInt8"
+        ]
+      ],
+      "ir": {
+        "fdecl": {
+          "body": [
+            "vdecl",
+            {
+              "idx": 2
+            },
+            "uint32",
+            {
+              "unbox": {
+                "x": {
+                  "idx": 1
+                }
+              }
+            },
+            [
+              "dec",
+              {
+                "idx": 1
+              },
+              1,
+              true,
+              false,
+              [
+                "vdecl",
+                {
+                  "idx": 3
+                },
+                "uint8",
+                {
+                  "fap": {
+                    "c": [
+                      "str",
+                      [
+                        "str",
+                        [
+                          "anonymous"
+                        ],
+                        "UInt32"
+                      ],
+                      "toUInt8"
+                    ],
+                    "ys": [
+                      {
+                        "var": {
+                          "id": {
+                            "idx": 2
+                          }
+                        }
+                      }
+                    ]
+                  }
+                },
+                [
+                  "vdecl",
+                  {
+                    "idx": 4
+                  },
+                  "tagged",
+                  {
+                    "box": {
+                      "ty": "uint8",
+                      "x": {
+                        "idx": 3
+                      }
+                    }
+                  },
+                  [
+                    "ret",
+                    {
+                      "var": {
+                        "id": {
+                          "idx": 4
+                        }
+                      }
+                    }
+                  ]
+                ]
+              ]
+            ]
+          ],
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "UInt32"
+              ],
+              "toUInt8"
+            ],
+            "_boxed"
+          ],
+          "info": {},
+          "type": "tagged",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 1
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "UInt32"
+          ],
+          "toUInt8"
+        ],
+        "_boxed"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Init"
+            ],
+            "Data"
+          ],
+          "UInt"
+        ],
+        "BasicAux"
+      ]
+    }
+  },
+  {
+    "label": "UInt32.add",
+    "sha256": "96646e4c0e27fb64a370adb06dc07a922a688e987851c5825dfb5add59281580",
+    "row": {
+      "dependencies": [],
+      "ir": {
+        "extern": {
+          "ext": {
+            "entries": [
+              {
+                "standard": {
+                  "backend": [
+                    "str",
+                    [
+                      "anonymous"
+                    ],
+                    "all"
+                  ],
+                  "fn": "lean_uint32_add"
+                }
+              }
+            ]
+          },
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "UInt32"
+            ],
+            "add"
+          ],
+          "type": "uint32",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "uint32",
+              "x": {
+                "idx": 1
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "uint32",
+              "x": {
+                "idx": 2
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "anonymous"
+          ],
+          "UInt32"
+        ],
+        "add"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Init"
+            ],
+            "Data"
+          ],
+          "UInt"
+        ],
+        "BasicAux"
+      ]
+    }
+  },
+  {
+    "label": "UInt32.add._boxed",
+    "sha256": "ba8e59bfccf40698699bd9b0b9c647a856c82a51c9e130452dac6ca99492d874",
+    "row": {
+      "dependencies": [
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "UInt32"
+          ],
+          "add"
+        ]
+      ],
+      "ir": {
+        "fdecl": {
+          "body": [
+            "vdecl",
+            {
+              "idx": 3
+            },
+            "uint32",
+            {
+              "unbox": {
+                "x": {
+                  "idx": 1
+                }
+              }
+            },
+            [
+              "dec",
+              {
+                "idx": 1
+              },
+              1,
+              true,
+              false,
+              [
+                "vdecl",
+                {
+                  "idx": 4
+                },
+                "uint32",
+                {
+                  "unbox": {
+                    "x": {
+                      "idx": 2
+                    }
+                  }
+                },
+                [
+                  "dec",
+                  {
+                    "idx": 2
+                  },
+                  1,
+                  true,
+                  false,
+                  [
+                    "vdecl",
+                    {
+                      "idx": 5
+                    },
+                    "uint32",
+                    {
+                      "fap": {
+                        "c": [
+                          "str",
+                          [
+                            "str",
+                            [
+                              "anonymous"
+                            ],
+                            "UInt32"
+                          ],
+                          "add"
+                        ],
+                        "ys": [
+                          {
+                            "var": {
+                              "id": {
+                                "idx": 3
+                              }
+                            }
+                          },
+                          {
+                            "var": {
+                              "id": {
+                                "idx": 4
+                              }
+                            }
+                          }
+                        ]
+                      }
+                    },
+                    [
+                      "vdecl",
+                      {
+                        "idx": 6
+                      },
+                      "tobject",
+                      {
+                        "box": {
+                          "ty": "uint32",
+                          "x": {
+                            "idx": 5
+                          }
+                        }
+                      },
+                      [
+                        "ret",
+                        {
+                          "var": {
+                            "id": {
+                              "idx": 6
+                            }
+                          }
+                        }
+                      ]
+                    ]
+                  ]
+                ]
+              ]
+            ]
+          ],
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "UInt32"
+              ],
+              "add"
+            ],
+            "_boxed"
+          ],
+          "info": {},
+          "type": "tobject",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 1
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 2
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "UInt32"
+          ],
+          "add"
+        ],
+        "_boxed"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Init"
+            ],
+            "Data"
+          ],
+          "UInt"
+        ],
+        "BasicAux"
+      ]
+    }
+  },
+  {
+    "label": "USize.decLe",
+    "sha256": "a6cfbebd46c0a005cfa862732ce0bd1fc20cb70affeac62c5e82911ec7c1f8b3",
+    "row": {
+      "dependencies": [],
+      "ir": {
+        "extern": {
+          "ext": {
+            "entries": [
+              {
+                "standard": {
+                  "backend": [
+                    "str",
+                    [
+                      "anonymous"
+                    ],
+                    "all"
+                  ],
+                  "fn": "lean_usize_dec_le"
+                }
+              }
+            ]
+          },
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "USize"
+            ],
+            "decLe"
+          ],
+          "type": "uint8",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "usize",
+              "x": {
+                "idx": 1
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "usize",
+              "x": {
+                "idx": 2
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "anonymous"
+          ],
+          "USize"
+        ],
+        "decLe"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Init"
+            ],
+            "Data"
+          ],
+          "UInt"
+        ],
+        "BasicAux"
+      ]
+    }
+  },
+  {
+    "label": "USize.decLe._boxed",
+    "sha256": "230370a8f5e48d52b7996e9613e2c06be663fe7f8f6606a04caabff96ab9fc7c",
+    "row": {
+      "dependencies": [
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "USize"
+          ],
+          "decLe"
+        ]
+      ],
+      "ir": {
+        "fdecl": {
+          "body": [
+            "vdecl",
+            {
+              "idx": 3
+            },
+            "usize",
+            {
+              "unbox": {
+                "x": {
+                  "idx": 1
+                }
+              }
+            },
+            [
+              "dec",
+              {
+                "idx": 1
+              },
+              1,
+              true,
+              false,
+              [
+                "vdecl",
+                {
+                  "idx": 4
+                },
+                "usize",
+                {
+                  "unbox": {
+                    "x": {
+                      "idx": 2
+                    }
+                  }
+                },
+                [
+                  "dec",
+                  {
+                    "idx": 2
+                  },
+                  1,
+                  true,
+                  false,
+                  [
+                    "vdecl",
+                    {
+                      "idx": 5
+                    },
+                    "uint8",
+                    {
+                      "fap": {
+                        "c": [
+                          "str",
+                          [
+                            "str",
+                            [
+                              "anonymous"
+                            ],
+                            "USize"
+                          ],
+                          "decLe"
+                        ],
+                        "ys": [
+                          {
+                            "var": {
+                              "id": {
+                                "idx": 3
+                              }
+                            }
+                          },
+                          {
+                            "var": {
+                              "id": {
+                                "idx": 4
+                              }
+                            }
+                          }
+                        ]
+                      }
+                    },
+                    [
+                      "vdecl",
+                      {
+                        "idx": 6
+                      },
+                      "tagged",
+                      {
+                        "box": {
+                          "ty": "uint8",
+                          "x": {
+                            "idx": 5
+                          }
+                        }
+                      },
+                      [
+                        "ret",
+                        {
+                          "var": {
+                            "id": {
+                              "idx": 6
+                            }
+                          }
+                        }
+                      ]
+                    ]
+                  ]
+                ]
+              ]
+            ]
+          ],
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "USize"
+              ],
+              "decLe"
+            ],
+            "_boxed"
+          ],
+          "info": {},
+          "type": "tagged",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 1
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 2
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "USize"
+          ],
+          "decLe"
+        ],
+        "_boxed"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Init"
+            ],
+            "Data"
+          ],
+          "UInt"
+        ],
+        "BasicAux"
+      ]
+    }
+  },
+  {
+    "label": "USize.mul",
+    "sha256": "e5b93ecd7b581f55191992ff9a5fadad3838c00440b1daca9f0a8e87b2047094",
+    "row": {
+      "dependencies": [],
+      "ir": {
+        "extern": {
+          "ext": {
+            "entries": [
+              {
+                "standard": {
+                  "backend": [
+                    "str",
+                    [
+                      "anonymous"
+                    ],
+                    "all"
+                  ],
+                  "fn": "lean_usize_mul"
+                }
+              }
+            ]
+          },
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "USize"
+            ],
+            "mul"
+          ],
+          "type": "usize",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "usize",
+              "x": {
+                "idx": 1
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "usize",
+              "x": {
+                "idx": 2
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "anonymous"
+          ],
+          "USize"
+        ],
+        "mul"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Init"
+            ],
+            "Data"
+          ],
+          "UInt"
+        ],
+        "Basic"
+      ]
+    }
+  },
+  {
+    "label": "USize.mul._boxed",
+    "sha256": "13a6fcba2b708809ec5ac58cd822c55744810ac223bd18d6ea82018177f4a2f3",
+    "row": {
+      "dependencies": [
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "USize"
+          ],
+          "mul"
+        ]
+      ],
+      "ir": {
+        "fdecl": {
+          "body": [
+            "vdecl",
+            {
+              "idx": 3
+            },
+            "usize",
+            {
+              "unbox": {
+                "x": {
+                  "idx": 1
+                }
+              }
+            },
+            [
+              "dec",
+              {
+                "idx": 1
+              },
+              1,
+              true,
+              false,
+              [
+                "vdecl",
+                {
+                  "idx": 4
+                },
+                "usize",
+                {
+                  "unbox": {
+                    "x": {
+                      "idx": 2
+                    }
+                  }
+                },
+                [
+                  "dec",
+                  {
+                    "idx": 2
+                  },
+                  1,
+                  true,
+                  false,
+                  [
+                    "vdecl",
+                    {
+                      "idx": 5
+                    },
+                    "usize",
+                    {
+                      "fap": {
+                        "c": [
+                          "str",
+                          [
+                            "str",
+                            [
+                              "anonymous"
+                            ],
+                            "USize"
+                          ],
+                          "mul"
+                        ],
+                        "ys": [
+                          {
+                            "var": {
+                              "id": {
+                                "idx": 3
+                              }
+                            }
+                          },
+                          {
+                            "var": {
+                              "id": {
+                                "idx": 4
+                              }
+                            }
+                          }
+                        ]
+                      }
+                    },
+                    [
+                      "vdecl",
+                      {
+                        "idx": 6
+                      },
+                      "tobject",
+                      {
+                        "box": {
+                          "ty": "usize",
+                          "x": {
+                            "idx": 5
+                          }
+                        }
+                      },
+                      [
+                        "ret",
+                        {
+                          "var": {
+                            "id": {
+                              "idx": 6
+                            }
+                          }
+                        }
+                      ]
+                    ]
+                  ]
+                ]
+              ]
+            ]
+          ],
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "USize"
+              ],
+              "mul"
+            ],
+            "_boxed"
+          ],
+          "info": {},
+          "type": "tobject",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 1
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 2
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "USize"
+          ],
+          "mul"
+        ],
+        "_boxed"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Init"
+            ],
+            "Data"
+          ],
+          "UInt"
+        ],
+        "Basic"
+      ]
+    }
+  }
+]
