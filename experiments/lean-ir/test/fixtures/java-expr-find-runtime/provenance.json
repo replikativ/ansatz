@@ -1,0 +1,15 @@
+{
+  "schema": "pinned-original-expr-find/1",
+  "lean-commit": "819816b2e0a3bf405af45ae5c7af2491d8f5bee6",
+  "source-index-sha256": "74d833d577923821b982e8a9e872a38b5cad011513eb18870b51417e13397f0e",
+  "rows": 19,
+  "source-sha256": {
+    "src/Lean/Util/FindExpr.lean": "1f7ff0a1cb7790e572b66b8b9be0c1a6107e2db460091a965531573cb6ee926c",
+    "src/kernel/for_each_fn.cpp": "0c50dd26164830b35407ad1ff3dc3c02b4e612b1621f064bbbb3e786c34898d7",
+    "src/kernel/expr.h": "9e8e953ce70ed056458659cdaabc96c0d2784e9a2ac5552357df0b9150571260"
+  },
+  "original-rows-sha256": "c720e5190a8f4afac35ddfb6ab167b443408b590bef05cce86f06b1f78bcf800",
+  "normalization": "Only optional top-level pretty removed; each stored sha identifies complete original CAS bytes",
+  "initialized-dependencies": [],
+  "scope": "Only lean_find_expr; native lean_find_ext_expr is not registered"
+}
