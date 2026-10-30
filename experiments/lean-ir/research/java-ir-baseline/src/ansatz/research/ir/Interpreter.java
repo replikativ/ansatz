@@ -38,6 +38,8 @@ public final class Interpreter implements AutoCloseable {
                              U8_LE=78,U32_FROM_NAT=79,U32_TO_U8=80,U32_ADD=81,USIZE_LE=82,USIZE_MUL=83;
     private static final int STR_HASH=84,U64_MIX=85,U64_NAT=86,U64_SHR=87,U64_XOR=88,U64_USIZE=89,
                              U64_LT=90,U64_EQ=91,U64_OWNED_NAT=92;
+    private static final int BYTE_MK=200,BYTE_GET=201,BYTE_SIZE=202,BYTE_PUSH=203;
+    private static final int MAX_BYTE_CAPACITY=16*1024*1024;
     private static final int MAX_SHIFT_RESULT_BITS=16*1024*1024;
     private static final int MAX_ARRAY_CAPACITY=1_000_000;
     private static final int STREAM_FLUSH=100,STREAM_READ=101,STREAM_WRITE=102,STREAM_LINE=103,STREAM_PUT=104,STREAM_TTY=105;
@@ -320,6 +322,14 @@ public final class Interpreter implements AutoCloseable {
                 new String[]{"uint64","uint64"},new boolean[]{false,false}));
         register(registry,new ExternSpec("lean_uint64_of_nat_mk",U64_OWNED_NAT,"uint64",
                 new String[]{"tobject"},new boolean[]{false}));
+        register(registry,new ExternSpec("lean_byte_array_mk",BYTE_MK,"object",
+                new String[]{"object"},new boolean[]{false}));
+        register(registry,new ExternSpec("lean_byte_array_fget",BYTE_GET,"uint8",
+                new String[]{"object","tobject","erased"},new boolean[]{true,true,false}));
+        register(registry,new ExternSpec("lean_byte_array_size",BYTE_SIZE,"tagged",
+                new String[]{"object"},new boolean[]{true}));
+        register(registry,new ExternSpec("lean_byte_array_push",BYTE_PUSH,"object",
+                new String[]{"object","uint8"},new boolean[]{false,false}));
         registry.replaceAll((symbol,entries)->Collections.unmodifiableList(entries));
         return Collections.unmodifiableMap(registry);
     }
@@ -367,6 +377,13 @@ public final class Interpreter implements AutoCloseable {
         ArrayState(int size) { this.size=size; }
         public ArrayState copyForFork() { return new ArrayState(size); }
     }
+    private static final class ByteArrayState implements NodeMetadata {
+        int size;
+        ByteArrayState(int size) { this.size=size; }
+        public ByteArrayState copyForFork() { return new ByteArrayState(size); }
+    }
+    private static NodeMetadata kindMetadata(Node value) { return value.metadata; }
+    private static boolean isByteArray(Node value) { return kindMetadata(value) instanceof ByteArrayState; }
     public static final class Node {
         public int tag, rc=1;
         public final Object[] fields;
@@ -381,7 +398,10 @@ public final class Interpreter implements AutoCloseable {
         private boolean readyTask;
         /** Logical live size; fields.length is capacity and spare slots are null. */
         public int arraySize() {
-            require(array,"Expected Array"); return ((ArrayState)metadata).size;
+            require(array,"Expected Array"); return ((ArrayState)kindMetadata(this)).size;
+        }
+        public int byteArraySize() {
+            require(isByteArray(this),"Expected ByteArray"); return ((ByteArrayState)kindMetadata(this)).size;
         }
         Node(int tag, int size, int scalarBytes) {
             this.tag=tag; fields=new Object[size]; scalars=new byte[scalarBytes];
@@ -523,7 +543,7 @@ public final class Interpreter implements AutoCloseable {
     /** Immutable source metadata. Numeric positive RC is descriptive, never a
      * destination owner count. PreparedGraph chooses the explicit import profile. */
     public static final class ImportNode {
-        private static final int CONSTRUCTOR=0, ARRAY=1, REF=2, CLOSURE=3;
+        private static final int CONSTRUCTOR=0, ARRAY=1, REF=2, CLOSURE=3, BYTE_ARRAY=4;
         private final long sourceId;
         private final int sourceRC,kind,tag;
         private final Object[] fields;
@@ -548,6 +568,10 @@ public final class Interpreter implements AutoCloseable {
         public static ImportNode array(long id,int sourceRC,Object[] elements) {
             require(elements!=null&&elements.length<=MAX_IMPORT_EDGES,"Prepared array outside research limits");
             return new ImportNode(id,sourceRC,ARRAY,246,elements,new byte[0],null);
+        }
+        public static ImportNode byteArray(long id,int sourceRC,byte[] liveBytes) {
+            require(liveBytes!=null&&liveBytes.length<=MAX_BYTE_CAPACITY,"Prepared ByteArray outside byte capacity limit");
+            return new ImportNode(id,sourceRC,BYTE_ARRAY,248,new Object[0],liveBytes,null);
         }
         public static ImportNode ref(long id,int sourceRC,Object value) {
             return new ImportNode(id,sourceRC,REF,253,new Object[]{value},new byte[0],null);
@@ -1279,7 +1303,7 @@ public final class Interpreter implements AutoCloseable {
                     case SPROJ: require((b.type==U8||b.type==U32||b.type==U64)&&lane(env,e.a)==OBJ,"Scalar projection lane mismatch"); break;
                     case UPROJ: require(b.type==USIZE&&lane(env,e.a)==OBJ,"USize projection lane mismatch"); break;
                     case FAP: requireExecutableAbi(e.target); checkArgs(env,e.args,e.target.paramTypes); require(b.type==e.target.resultType,"Call result lane mismatch"); break;
-                    case PAP: requireExecutableAbi(e.target); require(b.type==OBJ&&e.args.length<e.target.params.length,"Invalid partial application"); require(!borrowedArrayPrimitive(e.target.intrinsic),"Borrowed array primitive requires owned closure wrapper"); require(!borrowedRefPrimitive(e.target.intrinsic),"Borrowed ref primitive requires owned closure wrapper"); for(int i=0;i<e.target.paramTypes.length;i++) require(e.target.paramTypes[i]==OBJ,"Unboxed partial target unsupported; boxed wrapper required"); for(int a:e.args) require(lane(env,a)==OBJ,"Partial argument must be boxed"); break;
+                    case PAP: requireExecutableAbi(e.target); require(b.type==OBJ&&e.args.length<e.target.params.length,"Invalid partial application"); require(!borrowedArrayPrimitive(e.target.intrinsic),"Borrowed array primitive requires owned closure wrapper"); require(!borrowedBytePrimitive(e.target.intrinsic),"Borrowed ByteArray primitive requires owned closure wrapper"); require(!borrowedRefPrimitive(e.target.intrinsic),"Borrowed ref primitive requires owned closure wrapper"); for(int i=0;i<e.target.paramTypes.length;i++) require(e.target.paramTypes[i]==OBJ,"Unboxed partial target unsupported; boxed wrapper required"); for(int a:e.args) require(lane(env,a)==OBJ,"Partial argument must be boxed"); break;
                     case AP: require(b.type==OBJ&&lane(env,e.a)==OBJ&&e.args.length>0,"Unsupported closure application"); for(int a:e.args) require(lane(env,a)==OBJ,"Closure argument must be boxed"); break;
                     case BOX: require(b.type==OBJ&&e.b!=OBJ&&lane(env,e.a)==e.b,"Box lane mismatch"); break;
                     case UNBOX: require(b.type!=OBJ&&lane(env,e.a)==OBJ,"Unbox lane mismatch"); break;
@@ -1357,10 +1381,10 @@ public final class Interpreter implements AutoCloseable {
         } finally { Arrays.fill(releaseWork,0,pending,null); }
     }
     private Node constructorNode(Object value) {
-        Node node=node(value); require(!node.ref&&!node.array&&!node.readyTask,"Reference/array/task is not a constructor"); return node;
+        Node node=node(value); require(!node.ref&&!node.array&&!node.readyTask&&!isByteArray(node),"Reference/array/task/byte-array is not a constructor"); return node;
     }
     private void unique(Node n) {
-        require(!n.ref&&!n.array&&!n.readyTask,"Reference/array/task is not a constructor");
+        require(!n.ref&&!n.array&&!n.readyTask&&!isByteArray(n),"Reference/array/task/byte-array is not a constructor");
         if(n.rc!=1) throw error("Expected exclusive object");
     }
     private static BigInteger nat(Object x) {
@@ -1490,7 +1514,7 @@ public final class Interpreter implements AutoCloseable {
         require(n.compareTo(BigInteger.valueOf(MAX_ARRAY_CAPACITY))<=0,"Array capacity outside bounded runtime profile");
         return n.intValue();
     }
-    private static ArrayState arrayState(Node value) { return (ArrayState)value.metadata; }
+    private static ArrayState arrayState(Node value) { return (ArrayState)kindMetadata(value); }
     private static int arrayIndex(Node a,Object index) {
         BigInteger n=nat(index);
         require(n.compareTo(BigInteger.valueOf(arrayState(a).size))<0,"Array index outside bounds");
@@ -1695,6 +1719,48 @@ public final class Interpreter implements AutoCloseable {
         else if(f.intrinsic==STR_LT) scalarResult=cmp<0?1:0;
         else scalarResult=cmp<0?0:cmp==0?1:2;
     }
+    private static boolean borrowedBytePrimitive(int op) { return op==BYTE_GET||op==BYTE_SIZE; }
+    private Node byteArray(Object value) {
+        Node n=node(value);
+        require(isByteArray(n)&&!n.array&&!n.ref&&!n.readyTask&&n.closure==null&&n.tag==248
+                &&n.fields.length==0,"Expected ByteArray");
+        int size=((ByteArrayState)kindMetadata(n)).size;
+        require(size>=0&&size<=n.scalars.length,"ByteArray live size outside capacity"); return n;
+    }
+    private Node newByteArray(int size,int capacity) {
+        require(size>=0&&capacity>=size&&capacity<=MAX_BYTE_CAPACITY,"ByteArray capacity outside bounded runtime profile");
+        Node out=new Node(248,0,capacity); out.metadata=new ByteArrayState(size); allocations++; return out;
+    }
+    private void byteArrayIntrinsic(Function f,Object a,Object b,Object c) {
+        if(f.intrinsic==BYTE_MK) {
+            Node input=array(a); int size=arrayState(input).size;
+            require(size<=MAX_BYTE_CAPACITY,"ByteArray capacity outside bounded runtime profile");
+            // Validate the whole live prefix before allocation or consumption.
+            for(int i=0;i<size;i++) inputScalar(input.fields[i],U8);
+            Node out=newByteArray(size,size);
+            for(int i=0;i<size;i++) out.scalars[i]=(byte)inputScalar(input.fields[i],U8);
+            dec(input,1); result=out; return;
+        }
+        Node input=byteArray(a); ByteArrayState state=(ByteArrayState)kindMetadata(input);
+        if(f.intrinsic==BYTE_SIZE) { result=Long.valueOf(state.size); return; }
+        if(f.intrinsic==BYTE_GET) {
+            require(ERASED.equals(c),"ByteArray proof requires erased placeholder");
+            BigInteger index=nat(b);
+            require(index.compareTo(BigInteger.valueOf(state.size))<0,"ByteArray index outside live size");
+            scalarResult=Byte.toUnsignedInt(input.scalars[index.intValue()]); return;
+        }
+        require(f.intrinsic==BYTE_PUSH,"Invalid ByteArray intrinsic");
+        long value=inputScalar(b,U8); int next=Math.addExact(state.size,1);
+        int capacity=next<=input.scalars.length?input.scalars.length:Math.multiplyExact(next,2);
+        require(capacity<=MAX_BYTE_CAPACITY,"ByteArray capacity outside bounded runtime profile");
+        Node out=input;
+        if(input.rc!=1||capacity!=input.scalars.length) {
+            out=newByteArray(state.size,capacity);
+            System.arraycopy(input.scalars,0,out.scalars,0,state.size); dec(input,1);
+        }
+        ByteArrayState target=(ByteArrayState)kindMetadata(out);
+        out.scalars[target.size++]=(byte)value; stores++; result=out;
+    }
     private String text(Object value) { require(value instanceof String,"Expected immutable String"); return (String)value; }
     private byte[] utf8(Object value) {
         String s=text(value);
@@ -1719,7 +1785,7 @@ public final class Interpreter implements AutoCloseable {
         Object cursor=list;
         while(!(cursor instanceof Long&&(Long)cursor==0)) {
             Node n=node(cursor);
-            require(!n.ref&&!n.array&&n.closure==null&&n.tag==1&&n.fields.length==2&&n.scalars.length==0,"Expected List cons");
+            require(!n.ref&&!n.array&&!isByteArray(n)&&n.closure==null&&n.tag==1&&n.fields.length==2&&n.scalars.length==0,"Expected List cons");
             if(values.size()>=1_000_000) throw error("List traversal limit");
             values.add(n.fields[0]); cursor=n.fields[1];
         }
@@ -1744,6 +1810,7 @@ public final class Interpreter implements AutoCloseable {
     }
     public String capturedStdout() { return output.toString(); }
     private void runtimeIntrinsic(Function f,Object a,Object b,Object c) {
+        if(f.intrinsic>=BYTE_MK&&f.intrinsic<=BYTE_PUSH) { byteArrayIntrinsic(f,a,b,c); return; }
         if(f.intrinsic==IO_INITIALIZING) {
             require(ERASED.equals(a),"IO.initializing world parameter requires erased placeholder");
             scalarResult=initializing?1:0; return;
@@ -2083,7 +2150,7 @@ public final class Interpreter implements AutoCloseable {
     private void acceptsClosure(Node closure) {
         Function function=closure.closure;
         require(function!=null,"Expected closure");
-        if(!(closure.metadata instanceof Generation)||!program.generation.accepts((Generation)closure.metadata)) throw error("Closure belongs to another code image");
+        if(!(kindMetadata(closure) instanceof Generation)||!program.generation.accepts((Generation)kindMetadata(closure))) throw error("Closure belongs to another code image");
         if(function.privateOwner!=null) {
             if(function.privateOwner!=runtimeIdentity) throw error("Host closure belongs to another interpreter");
         } else require(function.id>=0&&function.id<program.functions.length&&program.functions[function.id]==function,
@@ -2173,6 +2240,7 @@ public final class Interpreter implements AutoCloseable {
                 require(recipe.fields.length<target.params.length,"Invalid prepared partial application");
                 require(!borrowedArrayPrimitive(target.intrinsic),
                         "Borrowed array primitive requires owned closure wrapper");
+                require(!borrowedBytePrimitive(target.intrinsic),"Borrowed ByteArray primitive requires owned closure wrapper");
                 require(!borrowedRefPrimitive(target.intrinsic),"Borrowed ref primitive requires owned closure wrapper");
                 closureTargets[i]=target;
             }
@@ -2206,6 +2274,7 @@ public final class Interpreter implements AutoCloseable {
         for(int i=0;i<shells.length;i++) {
             ImportNode recipe=graph.nodes[i]; Node shell=new Node(recipe.tag,recipe.fields.length,recipe.scalars.length);
             shell.rc=recipe.sourceRC==0?0:owners[i]; shell.array=recipe.kind==ImportNode.ARRAY; if(shell.array) shell.metadata=new ArrayState(recipe.fields.length); shell.ref=recipe.kind==ImportNode.REF;
+            if(recipe.kind==ImportNode.BYTE_ARRAY) shell.metadata=new ByteArrayState(recipe.scalars.length);
             if(recipe.kind==ImportNode.CLOSURE) { shell.closure=closureTargets[i]; shell.metadata=program.generation; }
             System.arraycopy(recipe.scalars,0,shell.scalars,0,recipe.scalars.length); shells[i]=shell;
         }
@@ -2238,6 +2307,7 @@ public final class Interpreter implements AutoCloseable {
         require(captures.length<target.params.length,"Invalid partial application");
         require(!borrowedArrayPrimitive(target.intrinsic),
                 "Borrowed array primitive requires owned closure wrapper");
+        require(!borrowedBytePrimitive(target.intrinsic),"Borrowed ByteArray primitive requires owned closure wrapper");
         require(!borrowedRefPrimitive(target.intrinsic),"Borrowed ref primitive requires owned closure wrapper");
         for(int lane:target.paramTypes) require(lane==OBJ,"Unboxed partial target unsupported; boxed wrapper required");
         Object[] captured=captures.clone();
@@ -2679,6 +2749,8 @@ public final class Interpreter implements AutoCloseable {
     }
     /** Internal borrowed array primitives need an owning wrapper at host entry. */
     private static void rootEntry(Function f) {
+        if(borrowedBytePrimitive(f.intrinsic))
+            throw new UnsupportedOperationException("Borrowed ByteArray primitive requires owned guest wrapper at external entry");
         if(borrowedArrayPrimitive(f.intrinsic))
             throw new UnsupportedOperationException("Borrowed array primitive requires owned guest wrapper at external entry");
         if(borrowedRefPrimitive(f.intrinsic))

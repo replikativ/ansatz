@@ -203,11 +203,21 @@
 (defn graph-ref [basis source-id]
   (let [cls (Class/forName "ansatz.research.ir.Interpreter$GraphRef" true (:loader basis))]
     (.newInstance (.getConstructor cls (into-array Class [Long/TYPE])) (object-array [(long source-id)]))))
+(defn- unsigned-graph-bytes [values]
+  (when-not (and (some? values) (or (and (sequential? values) (counted? values))
+                                  (instance? java.util.List values))
+                 (<= (count values) (* 16 1024 1024)))
+    (throw (ex-info "ByteArray requires a bounded unsigned byte collection" {})))
+  (byte-array (map (fn [value]
+                     (when-not (and (integer? value) (<= 0 value 255))
+                       (throw (ex-info "ByteArray element outside unsigned byte domain" {:value value})))
+                     (unchecked-byte (long value))) values)))
 (defn graph-node [basis {:keys [kind id rc tag fields scalars target]
                          :or {rc 0 fields [] scalars []} :as descriptor}]
   (let [allowed (case kind
                   :ctor #{:kind :id :rc :tag :fields :scalars}
                   :array #{:kind :id :rc :fields}
+                  :byte-array #{:kind :id :rc :bytes}
                   :ref #{:kind :id :rc :fields}
                   :closure #{:kind :id :rc :target :fields})
         _ (when (some #(not (contains? allowed %)) (keys descriptor))
@@ -223,10 +233,11 @@
           :ctor [[Long/TYPE Integer/TYPE Integer/TYPE objects bytes]
                  [(long id) (int rc) (int tag) (object-array fields) (byte-array scalars)]]
           :array [[Long/TYPE Integer/TYPE objects] [(long id) (int rc) (object-array fields)]]
+          :byte-array [[Long/TYPE Integer/TYPE bytes] [(long id) (int rc) (unsigned-graph-bytes (:bytes descriptor))]]
           :ref [[Long/TYPE Integer/TYPE Object] [(long id) (int rc) (first fields)]]
           :closure [[Long/TYPE Integer/TYPE (class target) objects]
                     [(long id) (int rc) target (object-array fields)]])]
-    (invoke-static (.getMethod cls (name kind) (into-array Class types)) arguments)))
+    (invoke-static (.getMethod cls (if (= kind :byte-array) "byteArray" (name kind)) (into-array Class types)) arguments)))
 (defn graph-int [basis value]
   (when-not (integer? value)
     (throw (ex-info "GraphInt requires an exact integer" {:value value})))
