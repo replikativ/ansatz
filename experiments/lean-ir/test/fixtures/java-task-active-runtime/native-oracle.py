@@ -52,7 +52,9 @@ receipt = {
 }
 if args.aot:
     compiler = EXE.parent / "leanc"
-    with tempfile.TemporaryDirectory(prefix="lean-task-oracle-") as directory:
+    work_root = ROOT.parents[2] / "target/java-task-active-runtime"
+    work_root.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="oracle-", dir=work_root) as directory:
         generated = pathlib.Path(directory) / "Oracle.c"
         native = pathlib.Path(directory) / "oracle-native"
         for command in ([str(EXE), "-c", str(generated), str(ROOT / "Oracle.lean")],

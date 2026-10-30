@@ -16,7 +16,8 @@ The checked trace establishes deterministic synchronous observations:
 
 Run `python3 path/to/native-oracle.py` from any directory. Add `--aot` to compile
 the original source to C/native code and check the same trace; generated files
-live in a temporary directory and are removed afterward. `LEAN_BINARY` can select a
+live under the ignored experiment `target/` and are removed afterward.
+`LEAN_BINARY` can select a
 matching installed binary; it must report pinned commit
 `819816b2e0a3bf405af45ae5c7af2491d8f5bee6`. The script checks stdout against the
 committed trace and emits a binary/runtime/source/output receipt. The checked
