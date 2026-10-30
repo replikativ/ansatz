@@ -30,6 +30,9 @@ public final class Interpreter implements AutoCloseable {
     private static final int STR_END=44,STR_SAFE_GET=45,STR_SAFE_NEXT=46,STR_PREV=47,STR_VALID=48,
                              STR_EXTRACT=49,STR_EQ=50,STR_LT=51,STR_COMPARE=52,STR_BYTE=53,
                              STR_CONTAINS=54,STR_LENGTH=55,STR_SET=56;
+    private static final int NAT_LE=57,NAT_LOG2=58,NAT_OR=59,NAT_SHL=60,NAT_SHR=61,TASK_PURE=62,TASK_GET=63;
+    private static final int ARRAY_CHECKED_GET=64,ARRAY_CHECKED_BORROWED=65;
+    private static final int MAX_SHIFT_RESULT_BITS=16*1024*1024;
     private static final int MAX_ARRAY_CAPACITY=1_000_000;
     private static final int STREAM_FLUSH=100,STREAM_READ=101,STREAM_WRITE=102,STREAM_LINE=103,STREAM_PUT=104,STREAM_TTY=105;
     private static final BigInteger SMALL_MAX=BigInteger.valueOf(Long.MAX_VALUE);
@@ -237,6 +240,24 @@ public final class Interpreter implements AutoCloseable {
                 new String[]{"object"},new boolean[]{true}));
         register(registry,new ExternSpec("lean_string_utf8_set",STR_SET,"object",
                 new String[]{"object","tobject","uint32"},new boolean[]{false,true,false}));
+        register(registry,new ExternSpec("lean_nat_dec_le",NAT_LE,"uint8",
+                new String[]{"tobject","tobject"},new boolean[]{true,true}));
+        register(registry,new ExternSpec("lean_nat_log2",NAT_LOG2,"tobject",
+                new String[]{"tobject"},new boolean[]{true}));
+        register(registry,new ExternSpec("lean_nat_lor",NAT_OR,"tobject",
+                new String[]{"tobject","tobject"},new boolean[]{true,true}));
+        register(registry,new ExternSpec("lean_nat_shiftl",NAT_SHL,"tobject",
+                new String[]{"tobject","tobject"},new boolean[]{true,true}));
+        register(registry,new ExternSpec("lean_nat_shiftr",NAT_SHR,"tobject",
+                new String[]{"tobject","tobject"},new boolean[]{true,true}));
+        register(registry,new ExternSpec("lean_task_pure",TASK_PURE,"object",
+                new String[]{"erased","tobject"},new boolean[]{false,false}));
+        register(registry,new ExternSpec("lean_task_get_own",TASK_GET,"tobject",
+                new String[]{"erased","object"},new boolean[]{false,false}));
+        register(registry,new ExternSpec("lean_array_get",ARRAY_CHECKED_GET,"tobject",
+                new String[]{"erased","tobject","object","tobject"},new boolean[]{false,true,true,true}));
+        register(registry,new ExternSpec("lean_array_get_borrowed",ARRAY_CHECKED_BORROWED,"tobject",
+                new String[]{"erased","tobject","object","tobject"},new boolean[]{false,true,true,true}));
         registry.replaceAll((symbol,entries)->Collections.unmodifiableList(entries));
         return Collections.unmodifiableMap(registry);
     }
@@ -283,6 +304,7 @@ public final class Interpreter implements AutoCloseable {
         private boolean array;
         private int arraySize; // fields.length is capacity; spare slots are always null
         private boolean ref;
+        private boolean readyTask;
         Node(int tag, int size, int scalarBytes) {
             this.tag=tag; fields=new Object[size]; scalars=new byte[scalarBytes];
         }
@@ -894,7 +916,7 @@ public final class Interpreter implements AutoCloseable {
                 boolean fresh=fields==null;
                 if(fresh) fields=new Object[old.fields.length];
                 Node out=new Node(old.tag,fields,old.scalars.length);
-                copies.put(source,out); out.rc=old.rc; out.dead=old.dead; out.array=old.array; out.arraySize=old.arraySize; out.ref=old.ref; out.image=old.image;
+                copies.put(source,out); out.rc=old.rc; out.dead=old.dead; out.array=old.array; out.arraySize=old.arraySize; out.ref=old.ref; out.readyTask=old.readyTask; out.image=old.image;
                 out.closure=(Function)value(old.closure);
                 System.arraycopy(old.scalars,0,out.scalars,0,old.scalars.length);
                 if(fresh) bind(old.fields,out.fields); return out;
@@ -1239,10 +1261,10 @@ public final class Interpreter implements AutoCloseable {
         } finally { Arrays.fill(releaseWork,0,pending,null); }
     }
     private Node constructorNode(Object value) {
-        Node node=node(value); require(!node.ref&&!node.array,"Reference/array is not a constructor"); return node;
+        Node node=node(value); require(!node.ref&&!node.array&&!node.readyTask,"Reference/array/task is not a constructor"); return node;
     }
     private void unique(Node n) {
-        require(!n.ref&&!n.array,"Reference/array is not a constructor");
+        require(!n.ref&&!n.array&&!n.readyTask,"Reference/array/task is not a constructor");
         if(n.rc!=1) throw error("Expected exclusive object");
     }
     private static BigInteger nat(Object x) {
@@ -1322,7 +1344,7 @@ public final class Interpreter implements AutoCloseable {
             refPlaceholders(obj(slots[0]),obj(slots[1]),obj(slots[slots.length-1]));
             refIntrinsic(f,obj(slots[2]),slots.length==5?obj(slots[3]):ERASED); return;
         }
-        if(f.intrinsic<=POW) { intrinsic(f,obj(slots[0]),obj(slots[1])); return; }
+        if(f.intrinsic<=POW||(f.intrinsic>=NAT_LE&&f.intrinsic<=NAT_SHR)) { intrinsic(f,obj(slots[0]),slots.length<2?ERASED:obj(slots[1])); return; }
         Object a=f.paramTypes[0]==OBJ?obj(slots[0]):Long.valueOf(numbers[bp+slots[0]]);
         Object b=slots.length<2?ERASED:f.paramTypes[1]==OBJ?obj(slots[1]):Long.valueOf(numbers[bp+slots[1]]);
         if(f.intrinsic>=STR_PUSH) {
@@ -1342,7 +1364,7 @@ public final class Interpreter implements AutoCloseable {
             refPlaceholders(args[0],args[1],args[args.length-1]);
             refIntrinsic(f,args[2],args.length==5?args[3]:ERASED); return;
         }
-        if(f.intrinsic<=POW) { intrinsic(f,args[0],args[1]); return; }
+        if(f.intrinsic<=POW||(f.intrinsic>=NAT_LE&&f.intrinsic<=NAT_SHR)) { intrinsic(f,args[0],args.length<2?ERASED:args[1]); return; }
         Object a=f.paramTypes[0]==OBJ?args[0]:Long.valueOf(inputScalar(args[0],f.paramTypes[0]));
         Object b=args.length<2?ERASED:f.paramTypes[1]==OBJ?args[1]:Long.valueOf(inputScalar(args[1],f.paramTypes[1]));
         if(f.intrinsic>=STR_PUSH) {
@@ -1350,9 +1372,9 @@ public final class Interpreter implements AutoCloseable {
             runtimeIntrinsic(f,a,b,c);
         } else scalarIntrinsic(f,a,b);
     }
-    private static boolean advancedArrayPrimitive(int op) { return op>=ARRAY_EMPTY&&op<=ARRAY_REPLICATE; }
+    private static boolean advancedArrayPrimitive(int op) { return op>=ARRAY_EMPTY&&op<=ARRAY_REPLICATE||op==ARRAY_CHECKED_GET||op==ARRAY_CHECKED_BORROWED; }
     private static boolean borrowedArrayPrimitive(int op) {
-        return op==ARRAY_SIZE||op==ARRAY_GET||op==ARRAY_USIZE||op==ARRAY_FGET||op==ARRAY_UGET||op==ARRAY_UGET_BORROWED;
+        return op==ARRAY_SIZE||op==ARRAY_GET||op==ARRAY_USIZE||op==ARRAY_FGET||op==ARRAY_UGET||op==ARRAY_UGET_BORROWED||op==ARRAY_CHECKED_GET||op==ARRAY_CHECKED_BORROWED;
     }
     private Object slotValue(Function f,int[] slots,int i) {
         return f.paramTypes[i]==OBJ?obj(slots[i]):externalScalar(numbers[bp+slots[i]],f.paramTypes[i]);
@@ -1362,7 +1384,8 @@ public final class Interpreter implements AutoCloseable {
     }
     private static void arrayPlaceholders(Function f,Object erased,Object last,Object penultimate) {
         require(ERASED.equals(erased),"Array erased parameter requires erased placeholder");
-        if(f.params.length>=4) require(ERASED.equals(last)&&ERASED.equals(penultimate),
+        if(f.intrinsic!=ARRAY_CHECKED_GET&&f.intrinsic!=ARRAY_CHECKED_BORROWED&&f.params.length>=4)
+            require(ERASED.equals(last)&&ERASED.equals(penultimate),
                 "Array proof parameters require erased placeholders");
     }
     private static int arrayCapacity(Object value) {
@@ -1397,6 +1420,15 @@ public final class Interpreter implements AutoCloseable {
         return out;
     }
     private void arrayIntrinsic(Function f,Object a,Object b,Object c) {
+        if(f.intrinsic==ARRAY_CHECKED_GET||f.intrinsic==ARRAY_CHECKED_BORROWED) {
+            validateHostObject(a);
+            Node array=array(b); BigInteger index=nat(c);
+            require(index.compareTo(BigInteger.valueOf(array.arraySize))<0,
+                    "Array.get! panic path outside bounded runtime profile");
+            Object value=array.fields[index.intValue()];
+            if(f.intrinsic==ARRAY_CHECKED_GET) inc(value,1);
+            result=value; return;
+        }
         if(f.intrinsic==ARRAY_EMPTY) { result=newArray(0,arrayCapacity(a)); return; }
         if(f.intrinsic==ARRAY_REPLICATE) {
             int size=arrayCapacity(a); validateHostObject(b);
@@ -1614,6 +1646,19 @@ public final class Interpreter implements AutoCloseable {
     }
     public String capturedStdout() { return output.toString(); }
     private void runtimeIntrinsic(Function f,Object a,Object b,Object c) {
+        if(f.intrinsic==TASK_PURE||f.intrinsic==TASK_GET) {
+            require(ERASED.equals(a),"Task erased parameter requires erased placeholder");
+            if(f.intrinsic==TASK_PURE) {
+                validateHostObject(b); Node task=new Node(252,1,0); task.readyTask=true;
+                task.fields[0]=b; allocations++; result=task; return;
+            }
+            Node task=node(b);
+            require(task.readyTask&&!task.ref&&!task.array&&task.closure==null&&task.tag==252
+                    &&task.fields.length==1&&task.scalars.length==0,"Expected engine ready Task");
+            Object value=task.fields[0];
+            require(value!=null,"Pending Task outside ready-only runtime profile");
+            validateHostObject(value); inc(value,1); dec(task,1); result=value; return;
+        }
         if(f.intrinsic>=STR_END&&f.intrinsic<=STR_SET) { stringIntrinsic(f,a,b,c); return; }
         switch(f.intrinsic) {
             case STR_PUSH: utf8(a); result=text(a)+new String(Character.toChars(codePoint(b))); break;
@@ -1682,6 +1727,14 @@ public final class Interpreter implements AutoCloseable {
         }
         return normalize(answer);
     }
+    private static Object natShiftLeft(BigInteger value,BigInteger exponent) {
+        if(value.signum()==0) return ERASED;
+        if(exponent.signum()==0) return normalize(value);
+        require(exponent.compareTo(BigInteger.valueOf(MAX_SHIFT_RESULT_BITS))<=0
+                &&(long)value.bitLength()+exponent.longValue()<=MAX_SHIFT_RESULT_BITS,
+                "Nat.shiftLeft result outside bounded runtime bit limit");
+        return normalize(value.shiftLeft(exponent.intValue()));
+    }
     private void intrinsic(Function f,Object a,Object b) {
         if(a instanceof Long && b instanceof Long && (Long)a>=0 && (Long)b>=0) {
             long x=(Long)a,y=(Long)b;
@@ -1694,6 +1747,11 @@ public final class Interpreter implements AutoCloseable {
                 case POW: result=natPow(BigInteger.valueOf(x),BigInteger.valueOf(y)); break;
                 case EQ: scalarResult=x==y?1:0; break;
                 case LT: scalarResult=x<y?1:0; break;
+                case NAT_LE: scalarResult=x<=y?1:0; break;
+                case NAT_LOG2: result=Long.valueOf(Math.max(0,63-Long.numberOfLeadingZeros(x))); break;
+                case NAT_OR: result=Long.valueOf(x|y); break;
+                case NAT_SHL: result=natShiftLeft(BigInteger.valueOf(x),BigInteger.valueOf(y)); break;
+                case NAT_SHR: result=Long.valueOf(y>=63?0:x>>>y); break;
                 default: throw error("Invalid intrinsic");
             }
         } else {
@@ -1707,6 +1765,11 @@ public final class Interpreter implements AutoCloseable {
                 case POW: result=natPow(x,y); break;
                 case EQ: scalarResult=x.equals(y)?1:0; break;
                 case LT: scalarResult=x.compareTo(y)<0?1:0; break;
+                case NAT_LE: scalarResult=x.compareTo(y)<=0?1:0; break;
+                case NAT_LOG2: result=Long.valueOf(Math.max(0,x.bitLength()-1)); break;
+                case NAT_OR: result=normalize(x.or(y)); break;
+                case NAT_SHL: result=natShiftLeft(x,y); break;
+                case NAT_SHR: result=y.compareTo(BigInteger.valueOf(x.bitLength()))>=0?ERASED:normalize(x.shiftRight(y.intValue())); break;
                 default: throw error("Invalid intrinsic");
             }
         }

@@ -1,0 +1,12 @@
+{:schema 1
+ :lean-version "4.33.1"
+ :lean-commit "819816b2e0a3bf405af45ae5c7af2491d8f5bee6"
+ :source-index-sha256 "74d833d577923821b982e8a9e872a38b5cad011513eb18870b51417e13397f0e"
+ :fixture-sha256 "5f1a4964fb74e4881a560d867890acf856ec5a5ed1d5db4745bc6e5fdccb0c49"
+ :original-row-count 4
+ :transformation {:remove-top-level-pretty true :original-bodies-unchanged true}
+ :original-blob-identities :per-record-sha256
+ :upstream-source-sha256
+ {"src/include/lean/lean.h" "02af0040283143b264e3a44b06b348b6973ae6037fa8f550701c83dd7a062ace"
+  "src/runtime/object.cpp" "e03ea4317ad44fb91a4cc9097abe1601b1e1cf8fb77f5ab7b0620fdfcf348430"
+  "LICENSE" "8b28515ffffc5c0fe2807d8ae3735b00b324d9b7ce807dd63ff6ac8922fbce7e"}}
