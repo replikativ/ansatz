@@ -30,6 +30,8 @@
      :dec (.getMethod cls "dec" (into-array Class [Object Integer/TYPE]))
      :close (.getMethod cls "close" (make-array Class 0))
      :start (.getMethod cls "start" (into-array Class [Integer/TYPE (class (object-array 0))]))
+     :start-release (try (.getMethod cls "startRelease" (into-array Class [Object Integer/TYPE]))
+                         (catch NoSuchMethodException _ nil))
      :advance (.getMethod cls "advance" (into-array Class [Long/TYPE]))
      :take-result (.getMethod cls "takeResult" (make-array Class 0))
      :phase (.getMethod cls "phase" (make-array Class 0))
@@ -76,6 +78,12 @@
 (defn retain! [basis engine value] (.invoke ^Method (:inc basis) engine (object-array [value (int 1)])))
 (defn start! [basis engine label args]
   (.invoke ^Method (:start basis) engine (object-array [(int (function-id basis label)) (object-array args)])))
+(defn start-release! [basis engine value count]
+  (when-not (and (integer? count) (<= 0 count Integer/MAX_VALUE))
+    (throw (ex-info "Release count requires a nonnegative int" {})))
+  (if-let [method (:start-release basis)]
+    (.invoke ^Method method engine (object-array [value (int count)]))
+    (throw (ex-info "Engine artifact has no root release transaction API" {}))))
 (defn advance! [basis engine budget] (.invoke ^Method (:advance basis) engine (object-array [(long budget)])))
 (defn take-result! [basis engine] (.invoke ^Method (:take-result basis) engine (object-array 0)))
 (defn phase [basis engine] (.invoke ^Method (:phase basis) engine (object-array 0)))

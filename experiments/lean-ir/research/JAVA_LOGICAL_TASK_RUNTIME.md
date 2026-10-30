@@ -218,6 +218,19 @@ still uses the explicit transaction API.
 3. Promise lifecycle, pending sync map/bind, BaseIO keepalive and original guest
    cancellation. Verify aliases, first-write/drop, deleted registrations, nested
    LIFO callbacks, callback pauses and both branches after fork.
+   At this point try the original sequential `Lean.Elab.Frontend.processCommand`
+   axiom gate before adding queued contexts. It uses the original parser and
+   elaborator; axiom admission still creates four Promises and synchronous
+   dependencies through Environment.addConstAsync, so it is not a ready-only
+   shortcut. Set `Elab.async=false` and `debug.skipKernelTC=false`; there is no
+   pinned `compiler.async` option. Preserve parseHeader's ModuleParserState and
+   flags. Frontend.Context is runtime-erased to InputContext, while Frontend.State
+   is a four-object constructor `[commandState, parserState, cmdPos, commands]`.
+   Use genuine owned boxed entry wrappers and retain stable caller roots.
+   Collect diagnostics after each command: top-level elaboration resets them,
+   so EOF's messages alone cannot establish whole-file success. This gate may
+   expose kernel/Expr/Meta integration earlier, without replacing the full
+   Language frontend parity gate or establishing general file compatibility.
 4. Runnable contexts, spawn/asTask, async dependencies, pending get and bounded
    pumping. Separate root result from runtime status. Verify no-runnable WAITING,
    equal-priority rotation and dropped pure versus retained BaseIO work.
