@@ -1,0 +1,13 @@
+{
+  "schema": "pinned-original-void-runtime/1",
+  "lean-commit": "819816b2e0a3bf405af45ae5c7af2491d8f5bee6",
+  "source-index-sha256": "74d833d577923821b982e8a9e872a38b5cad011513eb18870b51417e13397f0e",
+  "rows": 2,
+  "source-sha256": {
+    "src/Init/System/ST.lean": "c607d815fc9c6785ced39568aa98134cbf1a42087e2162e3cb48ac72051aea16",
+    "src/include/lean/lean.h": "02af0040283143b264e3a44b06b348b6973ae6037fa8f550701c83dd7a062ace"
+  },
+  "original-rows-sha256": "29935102f8aecdc87a36f014355ea64c6598e8769b72c6a4164d1ddc9c22355b",
+  "normalization": "Only optional top-level pretty removed; each row sha256 identifies complete original CAS bytes",
+  "initialized-dependencies": []
+}
