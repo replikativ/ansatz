@@ -40,6 +40,7 @@
 (load-file "research/java-ir-baseline/u64-widen-checks.clj")
 (load-file "research/java-ir-baseline/expression-data-checks.clj")
 (load-file "research/java-ir-baseline/cached-data-checks.clj")
+(load-file "research/java-ir-baseline/expr-equality-checks.clj")
 (load-file "research/java-ir-baseline/f64-checks.clj")
 (load-file "research/java-ir-baseline/pointer-checks.clj")
 
@@ -138,6 +139,8 @@
                (java-ir-expression-data-checks/check! (assoc basis :explicit true))
                (java-ir-cached-data-checks/check! basis)
                (java-ir-cached-data-checks/check! (assoc basis :explicit true))
+               (java-ir-expr-equality-checks/check! basis)
+               (java-ir-expr-equality-checks/check! (assoc basis :explicit true))
                (java-ir-f64-checks/check! basis)
                (java-ir-f64-checks/check! (assoc basis :explicit true))
                (java-ir-pointer-checks/check! basis)
@@ -183,5 +186,5 @@
                (clojure.test/run-tests 'prototype.resident-init-prefix-test)
                (clojure.test/run-tests 'prototype.coherent-jvm-slice-test)]]
   (shutdown-agents)
-  (System/exit (if (and (= [9 9 8 6 5 5 6 6 9 9 4 7 9 4 13 18 17 10 10 18 18 7 10 10 8 8 6 6 13 13 6 6 9 9 10 10 8 8 19 19 6 6 6 6 10 10 3 3 6 6 5 5 9 9 7 7 11 11 16 16 21 21 12 43 11 9 13 13 12 8 8 11 11 8 8 7 7 6 12 9 15 11 11 7 9 4 15 7 10 17 8 4 6 10 9 5 3 4 6 13] (mapv :test results))
+  (System/exit (if (and (= [9 9 8 6 5 5 6 6 9 9 4 7 9 4 13 18 17 10 10 18 18 7 10 10 8 8 6 6 13 13 6 6 9 9 10 10 8 8 19 19 6 6 6 6 10 10 3 3 6 6 5 5 9 9 7 7 15 15 11 11 16 16 21 21 12 43 11 9 13 13 12 8 8 11 11 8 8 7 7 6 12 9 15 11 11 7 9 4 15 7 10 17 8 4 6 10 9 5 3 4 6 13] (mapv :test results))
                        (every? #(zero? (+ (:fail %) (:error %))) results)) 0 1)))
