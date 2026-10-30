@@ -14,6 +14,7 @@ import java.math.BigInteger;
 import java.lang.ref.WeakReference;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
+import java.util.concurrent.atomic.AtomicLong;
 
 public final class Interpreter implements AutoCloseable {
     private static final int OBJ=0, U8=1, U32=2, USIZE=3, U64=4;
@@ -40,6 +41,7 @@ public final class Interpreter implements AutoCloseable {
                              U64_LT=90,U64_EQ=91,U64_OWNED_NAT=92;
     private static final int BYTE_MK=200,BYTE_GET=201,BYTE_SIZE=202,BYTE_PUSH=203;
     private static final int MAX_BYTE_CAPACITY=16*1024*1024;
+    private static final int POINTER_IDENTITY=93;
     private static final int MAX_SHIFT_RESULT_BITS=16*1024*1024;
     private static final int MAX_ARRAY_CAPACITY=1_000_000;
     private static final int STREAM_FLUSH=100,STREAM_READ=101,STREAM_WRITE=102,STREAM_LINE=103,STREAM_PUT=104,STREAM_TTY=105;
@@ -330,6 +332,8 @@ public final class Interpreter implements AutoCloseable {
                 new String[]{"object"},new boolean[]{true}));
         register(registry,new ExternSpec("lean_byte_array_push",BYTE_PUSH,"object",
                 new String[]{"object","uint8"},new boolean[]{false,false}));
+        register(registry,new ExternSpec("lean_ptr_addr",POINTER_IDENTITY,"usize",
+                new String[]{"erased","tobject"},new boolean[]{false,true}));
         registry.replaceAll((symbol,entries)->Collections.unmodifiableList(entries));
         return Collections.unmodifiableMap(registry);
     }
@@ -370,27 +374,78 @@ public final class Interpreter implements AutoCloseable {
      * immutable provenance can share. Ordinary constructors allocate no metadata. */
     private interface NodeMetadata {
         // Metadata owns no guest values. Each mutable kind must explicitly copy.
-        NodeMetadata copyForFork();
+        NodeMetadata copyForFork(Object childOwner);
+    }
+    /** Nonretaining shared namespace: never reuse an observed identity word. */
+    private static final class PointerAllocator {
+        final AtomicLong next;
+        PointerAllocator(long first) {
+            require(first!=0&&(first&7)==0,"Invalid pointer identity allocator seed");
+            next=new AtomicLong(first);
+        }
+        long allocate() {
+            while(true) {
+                long word=next.get();
+                require(word!=0,"Pointer identity namespace exhausted");
+                if(next.compareAndSet(word,word+8)) return word;
+            }
+        }
+    }
+    private static final PointerAllocator POINTER_WORDS=new PointerAllocator(8);
+    /** Owns only a scalar token, an opaque branch token and kind metadata. */
+    private static final class PointerMetadata implements NodeMetadata {
+        final long word;
+        final Object owner;
+        final NodeMetadata inner;
+        PointerMetadata(long word,Object owner,NodeMetadata inner) {
+            this.word=word; this.owner=owner; this.inner=inner;
+        }
+        public PointerMetadata copyForFork(Object childOwner) {
+            return new PointerMetadata(word,childOwner,inner==null?null:inner.copyForFork(childOwner));
+        }
+    }
+    private static NodeMetadata kindMetadata(Node node) {
+        return node.metadata instanceof PointerMetadata?((PointerMetadata)node.metadata).inner:node.metadata;
+    }
+    private void checkPointerOwner(Node node) {
+        if(node.metadata instanceof PointerMetadata)
+            require(((PointerMetadata)node.metadata).owner==runtimeIdentity,"Pointer-observed object belongs to another interpreter");
+    }
+    private long pointerWord(Object value) {
+        if(value instanceof Long&&((Long)value)>=0) return (((Long)value)<<1)|1;
+        require(value instanceof Node,"Pointer identity supports only Nodes and canonical nonnegative Long immediates");
+        Node node=node(value);
+        require(node.rc>=0,"Invalid pointer object reference count");
+        if(node.metadata instanceof PointerMetadata) return ((PointerMetadata)node.metadata).word;
+        long word=POINTER_WORDS.allocate();
+        node.metadata=new PointerMetadata(word,runtimeIdentity,node.metadata);
+        return word;
+    }
+    private void pointerIdentity(Function function,int[] slots,PreparedBody prepared,Expr site) {
+        require(prepared!=null&&prepared.pointerSites!=null&&prepared.pointerSites.contains(site)
+                &&site.op==FAP&&site.target==function&&site.args==slots&&function.intrinsic==POINTER_IDENTITY,
+                "Pointer identity requires the exact certified FAP site");
+        require(ERASED.equals(obj(slots[0])),"Pointer identity erased parameter requires erased placeholder");
+        scalarResult=pointerWord(obj(slots[1]));
     }
     private static final class ArrayState implements NodeMetadata {
         int size;
         ArrayState(int size) { this.size=size; }
-        public ArrayState copyForFork() { return new ArrayState(size); }
+        public ArrayState copyForFork(Object childOwner) { return new ArrayState(size); }
     }
     private static final class ByteArrayState implements NodeMetadata {
         int size;
         ByteArrayState(int size) { this.size=size; }
-        public ByteArrayState copyForFork() { return new ByteArrayState(size); }
+        public ByteArrayState copyForFork(Object childOwner) { return new ByteArrayState(size); }
     }
-    private static NodeMetadata kindMetadata(Node value) { return value.metadata; }
     private static boolean isByteArray(Node value) { return kindMetadata(value) instanceof ByteArrayState; }
     public static final class Node {
         public int tag, rc=1;
         public final Object[] fields;
         public final byte[] scalars;
         private Function closure;
-        // Disjoint by kind: immutable Generation for closures; private mutable
-        // ArrayState for arrays; null for ordinary constructors/refs/ready Tasks.
+        // Kind metadata: Generation for closures, ArrayState for arrays, otherwise
+        // null. A lazy PointerMetadata may wrap it without owning guest values.
         private NodeMetadata metadata;
         private boolean dead;
         private boolean array;
@@ -702,8 +757,10 @@ public final class Interpreter implements AutoCloseable {
     private static final class PreparedBody {
         final Body body;
         final int width, joinWidth;
+        final Set<Expr> pointerSites;
         PreparedBody(Body body,int width,int joinWidth) {
             this.body=body; this.width=width; this.joinWidth=joinWidth;
+            this.pointerSites=certifyPointerSites(body);
         }
     }
     /** Local preparation state, never retained by a published Function or Program. */
@@ -731,7 +788,7 @@ public final class Interpreter implements AutoCloseable {
     /** Identity-only lineage: no function/map/Program references. Binary lifting
      * bounds ancestry checks without retaining every old full image table. */
     private static final class Generation implements NodeMetadata {
-        public Generation copyForFork() { return this; }
+        public Generation copyForFork(Object childOwner) { return this; }
         final int depth;
         final Generation[] jumps;
         Generation(Generation parent) {
@@ -1030,11 +1087,12 @@ public final class Interpreter implements AutoCloseable {
             Object prior=copies.get(source); if(prior!=null) return prior;
             if(source instanceof Node) {
                 Node old=(Node)source;
+                checkPointerOwner(old);
                 Object[] fields=(Object[])copies.get(old.fields);
                 boolean fresh=fields==null;
                 if(fresh) fields=new Object[old.fields.length];
                 Node out=new Node(old.tag,fields,old.scalars.length);
-                copies.put(source,out); out.rc=old.rc; out.dead=old.dead; out.array=old.array; out.ref=old.ref; out.readyTask=old.readyTask; out.metadata=old.metadata==null?null:old.metadata.copyForFork();
+                copies.put(source,out); out.rc=old.rc; out.dead=old.dead; out.array=old.array; out.ref=old.ref; out.readyTask=old.readyTask; out.metadata=old.metadata==null?null:old.metadata.copyForFork(child.runtimeIdentity);
                 out.closure=(Function)value(old.closure);
                 System.arraycopy(old.scalars,0,out.scalars,0,old.scalars.length);
                 if(fresh) bind(old.fields,out.fields); return out;
@@ -1303,7 +1361,7 @@ public final class Interpreter implements AutoCloseable {
                     case SPROJ: require((b.type==U8||b.type==U32||b.type==U64)&&lane(env,e.a)==OBJ,"Scalar projection lane mismatch"); break;
                     case UPROJ: require(b.type==USIZE&&lane(env,e.a)==OBJ,"USize projection lane mismatch"); break;
                     case FAP: requireExecutableAbi(e.target); checkArgs(env,e.args,e.target.paramTypes); require(b.type==e.target.resultType,"Call result lane mismatch"); break;
-                    case PAP: requireExecutableAbi(e.target); require(b.type==OBJ&&e.args.length<e.target.params.length,"Invalid partial application"); require(!borrowedArrayPrimitive(e.target.intrinsic),"Borrowed array primitive requires owned closure wrapper"); require(!borrowedBytePrimitive(e.target.intrinsic),"Borrowed ByteArray primitive requires owned closure wrapper"); require(!borrowedRefPrimitive(e.target.intrinsic),"Borrowed ref primitive requires owned closure wrapper"); for(int i=0;i<e.target.paramTypes.length;i++) require(e.target.paramTypes[i]==OBJ,"Unboxed partial target unsupported; boxed wrapper required"); for(int a:e.args) require(lane(env,a)==OBJ,"Partial argument must be boxed"); break;
+                    case PAP: requireExecutableAbi(e.target); require(b.type==OBJ&&e.args.length<e.target.params.length,"Invalid partial application"); require(!borrowedArrayPrimitive(e.target.intrinsic),"Borrowed array primitive requires owned closure wrapper"); require(!borrowedBytePrimitive(e.target.intrinsic),"Borrowed ByteArray primitive requires owned closure wrapper"); require(e.target.intrinsic!=POINTER_IDENTITY,"Pointer identity requires a certified direct FAP site"); require(!borrowedRefPrimitive(e.target.intrinsic),"Borrowed ref primitive requires owned closure wrapper"); for(int i=0;i<e.target.paramTypes.length;i++) require(e.target.paramTypes[i]==OBJ,"Unboxed partial target unsupported; boxed wrapper required"); for(int a:e.args) require(lane(env,a)==OBJ,"Partial argument must be boxed"); break;
                     case AP: require(b.type==OBJ&&lane(env,e.a)==OBJ&&e.args.length>0,"Unsupported closure application"); for(int a:e.args) require(lane(env,a)==OBJ,"Closure argument must be boxed"); break;
                     case BOX: require(b.type==OBJ&&e.b!=OBJ&&lane(env,e.a)==e.b,"Box lane mismatch"); break;
                     case UNBOX: require(b.type!=OBJ&&lane(env,e.a)==OBJ,"Unbox lane mismatch"); break;
@@ -1333,13 +1391,90 @@ public final class Interpreter implements AutoCloseable {
             default: throw error("Invalid body opcode");
         }
     }
+    /** Closed syntactic def/use proof, issued only after normal lexical/lane validation.
+     * No pointer values can escape to another activation or scalar storage. */
+    private static Set<Expr> certifyPointerSites(Body body) {
+        if(body==null) return null;
+        Map<Integer,Expr> definitions=new HashMap<>();
+        collectPointerDefinitions(body,definitions);
+        if(definitions.isEmpty()) return null;
+        Set<Integer> used=new HashSet<>();
+        checkPointerUses(body,definitions,used);
+        require(used.containsAll(definitions.keySet()),"Unused pointer identity observation is outside the certified profile");
+        Set<Expr> sites=Collections.newSetFromMap(new IdentityHashMap<>());
+        sites.addAll(definitions.values());
+        return Collections.unmodifiableSet(sites);
+    }
+    private static void collectPointerDefinitions(Body body,Map<Integer,Expr> definitions) {
+        switch(body.op) {
+            case VDECL:
+                if(body.expr.op==FAP&&body.expr.target.intrinsic==POINTER_IDENTITY) {
+                    require(body.type==USIZE,"Invalid pointer identity result lane");
+                    definitions.put(body.a,body.expr);
+                }
+                collectPointerDefinitions(body.next,definitions); break;
+            case JDECL:
+                collectPointerDefinitions(body.body,definitions); collectPointerDefinitions(body.next,definitions); break;
+            case CASE:
+                for(Body alternative:body.alternatives) collectPointerDefinitions(alternative,definitions); break;
+            case SET: case SSET: case USET: case SETTAG: case INC: case DEC: case DEL:
+                collectPointerDefinitions(body.next,definitions); break;
+            case RET: case JMP: case UNREACHABLE: break;
+            default: throw error("Unaudited pointer identity body opcode");
+        }
+    }
+    private static void noPointerUse(int variable,Map<Integer,Expr> definitions) {
+        require(!definitions.containsKey(variable),"Pointer identity value escapes direct fresh-pointer equality");
+    }
+    private static void noPointerUses(int[] variables,Map<Integer,Expr> definitions) {
+        for(int variable:variables) noPointerUse(variable,definitions);
+    }
+    private static void checkPointerUses(Body body,Map<Integer,Expr> definitions,Set<Integer> used) {
+        switch(body.op) {
+            case VDECL: {
+                Expr e=body.expr;
+                switch(e.op) {
+                    case FAP:
+                        if(e.target.intrinsic==USIZE_EQ&&e.args.length==2
+                                &&(definitions.containsKey(e.args[0])||definitions.containsKey(e.args[1]))) {
+                            require(definitions.containsKey(e.args[0])&&definitions.containsKey(e.args[1]),
+                                    "Pointer identity equality requires two direct fresh-pointer definitions");
+                            used.add(e.args[0]); used.add(e.args[1]);
+                        } else noPointerUses(e.args,definitions);
+                        break;
+                    case CTOR: case PAP: noPointerUses(e.args,definitions); break;
+                    case AP: noPointerUse(e.a,definitions); noPointerUses(e.args,definitions); break;
+                    case PROJ: case SPROJ: case UPROJ: case BOX: case UNBOX: case SHARED:
+                        noPointerUse(e.a,definitions); break;
+                    case LIT: break;
+                    default: throw error("Unaudited pointer identity expression opcode");
+                }
+                checkPointerUses(body.next,definitions,used); break;
+            }
+            case JDECL:
+                checkPointerUses(body.body,definitions,used); checkPointerUses(body.next,definitions,used); break;
+            case CASE:
+                noPointerUse(body.a,definitions);
+                for(Body alternative:body.alternatives) checkPointerUses(alternative,definitions,used); break;
+            case SET: case SSET: case USET:
+                noPointerUse(body.a,definitions); noPointerUses(body.args,definitions);
+                checkPointerUses(body.next,definitions,used); break;
+            case INC: case DEC: case DEL: case SETTAG:
+                noPointerUse(body.a,definitions); checkPointerUses(body.next,definitions,used); break;
+            case JMP: noPointerUses(body.args,definitions); break;
+            case RET: noPointerUse(body.a,definitions); break;
+            case UNREACHABLE: break;
+            default: throw error("Unaudited pointer identity body opcode");
+        }
+    }
     private void ensure(int slots,int joinSlots) {
         if(slots>objects.length) { int n=Math.max(slots,objects.length*2); objects=Arrays.copyOf(objects,n); numbers=Arrays.copyOf(numbers,n); }
         if(joinSlots>joins.length) joins=Arrays.copyOf(joins,Math.max(joinSlots,joins.length*2));
     }
     private Object obj(int variable) { return variable==0?ERASED:objects[bp+variable]; }
     private Node node(Object o) {
-        if(!(o instanceof Node)||((Node)o).dead) throw error("Expected live object"); return (Node)o;
+        if(!(o instanceof Node)||((Node)o).dead) throw error("Expected live object");
+        Node value=(Node)o; checkPointerOwner(value); return value;
     }
     public void inc(Object o,int n) {
         if(n<0) throw error("Negative reference increment");
@@ -1454,6 +1589,7 @@ public final class Interpreter implements AutoCloseable {
         return value;
     }
     private void intrinsicSlots(Function f,int[] slots) {
+        require(f.intrinsic!=POINTER_IDENTITY,"Pointer identity requires a certified direct FAP site");
         if(advancedArrayPrimitive(f.intrinsic)) {
             arrayPlaceholders(f,obj(slots[0]),slots.length>3?obj(slots[slots.length-1]):ERASED,
                               slots.length==6?obj(slots[4]):ERASED);
@@ -1474,6 +1610,7 @@ public final class Interpreter implements AutoCloseable {
         } else scalarIntrinsic(f,a,b);
     }
     private void intrinsicExternal(Function f,Object[] args) {
+        require(f.intrinsic!=POINTER_IDENTITY,"Pointer identity requires a certified direct FAP site");
         if(advancedArrayPrimitive(f.intrinsic)) {
             arrayPlaceholders(f,args[0],args.length>3?args[args.length-1]:ERASED,
                               args.length==6?args[4]:ERASED);
@@ -2082,7 +2219,7 @@ public final class Interpreter implements AutoCloseable {
     private Node closure(Function f,Object[] captured) {
         Node n=new Node(245,captured.length,0); n.closure=f; n.metadata=program.generation; System.arraycopy(captured,0,n.fields,0,captured.length); allocations++; return n;
     }
-    private void expression(Expr e,int type,int dest) {
+    private void expression(Expr e,int type,int dest,PreparedBody prepared) {
         switch(e.op) {
             case CTOR: {
                 if(e.size==0&&e.scalarBytes==0) objects[dest]=Long.valueOf(e.tag);
@@ -2092,7 +2229,8 @@ public final class Interpreter implements AutoCloseable {
             case SPROJ: { Node n=constructorNode(obj(e.a)); numbers[dest]=readScalar(n,rawOffset(n,e.size,e.b),type); break; }
             case UPROJ: { Node n=constructorNode(obj(e.a)); numbers[dest]=readScalar(n,rawOffset(n,e.b,0),USIZE); break; }
             case FAP:
-                if(e.args.length==0) load(e.target); else call(e.target,e.args);
+                if(e.target.intrinsic==POINTER_IDENTITY) pointerIdentity(e.target,e.args,prepared,e);
+                else if(e.args.length==0) load(e.target); else call(e.target,e.args);
                 if(type==OBJ) objects[dest]=result; else numbers[dest]=scalarResult; break;
             case PAP: { Object[] captured=new Object[e.args.length]; for(int i=0;i<captured.length;i++) captured[i]=obj(e.args[i]); objects[dest]=closure(e.target,captured); break; }
             case AP: { Object value=obj(e.a); Object[] args=new Object[e.args.length]; for(int i=0;i<args.length;i++) args[i]=obj(e.args[i]); objects[dest]=apply(value,args); break; }
@@ -2116,7 +2254,7 @@ public final class Interpreter implements AutoCloseable {
                         for(int i=0;i<e.args.length;i++) { objects[bp+f.params[i]]=objects[scratch+i]; numbers[bp+f.params[i]]=numbers[scratch+i]; objects[scratch+i]=null; }
                         tick(); b=prepared.body; break;
                     }
-                    expression(e,b.type,bp+b.a); b=b.next; break;
+                    expression(e,b.type,bp+b.a,prepared); b=b.next; break;
                 }
                 case JDECL: joins[jbp+b.a]=b; b=b.next; break;
                 case JMP: {
@@ -2150,6 +2288,7 @@ public final class Interpreter implements AutoCloseable {
     private void acceptsClosure(Node closure) {
         Function function=closure.closure;
         require(function!=null,"Expected closure");
+        require(function.intrinsic!=POINTER_IDENTITY,"Pointer identity cannot be admitted as a first-class closure");
         if(!(kindMetadata(closure) instanceof Generation)||!program.generation.accepts((Generation)kindMetadata(closure))) throw error("Closure belongs to another code image");
         if(function.privateOwner!=null) {
             if(function.privateOwner!=runtimeIdentity) throw error("Host closure belongs to another interpreter");
@@ -2241,6 +2380,7 @@ public final class Interpreter implements AutoCloseable {
                 require(!borrowedArrayPrimitive(target.intrinsic),
                         "Borrowed array primitive requires owned closure wrapper");
                 require(!borrowedBytePrimitive(target.intrinsic),"Borrowed ByteArray primitive requires owned closure wrapper");
+                require(target.intrinsic!=POINTER_IDENTITY,"Pointer identity requires a certified direct FAP site");
                 require(!borrowedRefPrimitive(target.intrinsic),"Borrowed ref primitive requires owned closure wrapper");
                 closureTargets[i]=target;
             }
@@ -2308,6 +2448,7 @@ public final class Interpreter implements AutoCloseable {
         require(!borrowedArrayPrimitive(target.intrinsic),
                 "Borrowed array primitive requires owned closure wrapper");
         require(!borrowedBytePrimitive(target.intrinsic),"Borrowed ByteArray primitive requires owned closure wrapper");
+        require(target.intrinsic!=POINTER_IDENTITY,"Pointer identity requires a certified direct FAP site");
         require(!borrowedRefPrimitive(target.intrinsic),"Borrowed ref primitive requires owned closure wrapper");
         for(int lane:target.paramTypes) require(lane==OBJ,"Unboxed partial target unsupported; boxed wrapper required");
         Object[] captured=captures.clone();
@@ -2701,7 +2842,8 @@ public final class Interpreter implements AutoCloseable {
                                 for(int i=0;i<args.length;i++) args[i]=f.paramTypes[i]==OBJ?obj(e.args[i]):externalScalar(numbers[bp+e.args[i]],f.paramTypes[i]);
                                 suspendHost(f,args,b.next,dest,ASSIGN,null,false); b=pc;
                             } else if(f.intrinsic!=0) {
-                                intrinsicSlots(f,e.args);
+                                if(f.intrinsic==POINTER_IDENTITY) pointerIdentity(f,e.args,activePrepared,e);
+                                else intrinsicSlots(f,e.args);
                                 if(b.type==OBJ) objects[dest]=result; else numbers[dest]=scalarResult;
                                 b=b.next;
                             } else { enterExplicit(f,e.args,null,b.next,dest,e.args.length==0?CACHE:ASSIGN,null); b=pc; }
@@ -2710,7 +2852,7 @@ public final class Interpreter implements AutoCloseable {
                             for(int i=0;i<args.length;i++) args[i]=obj(e.args[i]);
                             applyExplicit(value,args,b.next,dest);
                             b=pc;
-                        } else { expression(e,b.type,dest); b=b.next; }
+                        } else { expression(e,b.type,dest,activePrepared); b=b.next; }
                         break;
                     }
                     case JDECL: joins[jbp+b.a]=b; b=b.next; break;
@@ -2751,6 +2893,7 @@ public final class Interpreter implements AutoCloseable {
     private static void rootEntry(Function f) {
         if(borrowedBytePrimitive(f.intrinsic))
             throw new UnsupportedOperationException("Borrowed ByteArray primitive requires owned guest wrapper at external entry");
+        require(f.intrinsic!=POINTER_IDENTITY,"Pointer identity requires a certified direct FAP site");
         if(borrowedArrayPrimitive(f.intrinsic))
             throw new UnsupportedOperationException("Borrowed array primitive requires owned guest wrapper at external entry");
         if(borrowedRefPrimitive(f.intrinsic))
