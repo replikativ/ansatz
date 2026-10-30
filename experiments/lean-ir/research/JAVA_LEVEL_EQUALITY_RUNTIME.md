@@ -31,5 +31,29 @@ extern and original owned boxed wrapper, source files and shared constructor
 rows. Existing Expr-native oracle observations support only the shared
 Expr-mediated Level relation; no new direct-root native execution is claimed.
 The nine-test focused suite runs under default and explicit engines in the
-bounded integration gate. Verification remains pending the root's new immutable
-Java artifact; this source change does not claim full frontend completion.
+bounded integration gate. The root campaign results below verify the new immutable Java artifact; this
+unit does not claim full frontend completion.
+
+## Verified campaign results
+
+Root's retained 384 MiB JVM passed the focused suite in both modes: nine tests /
+90 assertions recursively and nine tests / 123 assertions explicitly, with zero
+failures or errors. Expected explicit comparator failures preserve their failure
+activation/owner packet and reject close until ownership cleanup; the tests assert
+that rejection without resetting state or claiming cleanup.
+
+The combined gate exited 0 with 110 result families / 1,075 test executions /
+53,250 assertions, including both existing Expr equality modes. It used the same
+compiled source identity beginning `7eff` and immutable Java jar SHA256
+`d317f46252c8e315c191f494df3afc8935f2155cb35fe5a58b81b71d34888339`.
+The campaign receipt `java-level-equality-integration-v1/combined-gate.out` has
+SHA256 `4c65bdcf8de71c0143aab51e48950501f3e8ba7cb560b1e05863a49892ad441f`;
+focused results are in that campaign's `focused-v2.out`.
+
+Independent Astra source review confirmed the pinned structural algorithm,
+shared EQ_LEVEL entry, all five borrowed fences, exact raw/boxed provenance,
+and unchanged existing Expr semantics/error domains. The original Meta solver
+then executed Level.beq successfully during the second dependent command and
+advanced to the separate `instantiateLevelMVarsImp` native gap before its second
+kernel call. This establishes the comparator's integration at that boundary;
+general frontend dependent-command completion remains unestablished.
