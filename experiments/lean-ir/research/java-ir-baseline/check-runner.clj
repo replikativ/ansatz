@@ -20,6 +20,8 @@
 (load-file "research/java-ir-baseline/generation-checks.clj")
 (load-file "research/java-ir-baseline/header-checks.clj")
 (load-file "research/java-ir-baseline/code-checks.clj")
+
+(load-file "research/java-ir-baseline/guest-export-checks.clj")
 (load-file "research/java-ir-baseline/graph-checks.clj")
 (load-file "research/java-ir-baseline/ref-checks.clj")
 (load-file "research/java-ir-baseline/array-checks.clj")
@@ -83,6 +85,8 @@
                (java-ir-generation-checks/check! basis)
                (java-ir-header-checks/check! basis)
                (java-ir-code-checks/check! basis)
+               (java-ir-guest-export-checks/check! basis)
+               (java-ir-guest-export-checks/check! (assoc basis :explicit true))
                (java-ir-graph-checks/check! basis)
                (java-ir-ref-checks/check! basis)
                (java-ir-ref-checks/check! (assoc basis :explicit true))
@@ -142,5 +146,5 @@
                (clojure.test/run-tests 'prototype.resident-init-prefix-test)
                (clojure.test/run-tests 'prototype.coherent-jvm-slice-test)]]
   (shutdown-agents)
-  (System/exit (if (and (= [9 9 8 6 5 5 6 6 9 9 4 7 9 4 13 18 17 10 10 7 10 10 8 8 13 13 6 6 9 9 10 10 8 8 19 19 6 6 6 6 10 10 11 11 16 16 8 8 11 11 8 8 7 7 6 12 9 15 11 11 7 9 4 15 7 10 17 8 4 6 10 9 5 3 4 6 13] (mapv :test results))
+  (System/exit (if (and (= [9 9 8 6 5 5 6 6 9 9 4 7 9 4 13 18 17 10 10 18 18 7 10 10 8 8 13 13 6 6 9 9 10 10 8 8 19 19 6 6 6 6 10 10 11 11 16 16 8 8 11 11 8 8 7 7 6 12 9 15 11 11 7 9 4 15 7 10 17 8 4 6 10 9 5 3 4 6 13] (mapv :test results))
                        (every? #(zero? (+ (:fail %) (:error %))) results)) 0 1)))
