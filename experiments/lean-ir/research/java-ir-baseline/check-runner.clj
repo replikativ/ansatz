@@ -82,5 +82,5 @@
                (clojure.test/run-tests 'prototype.resident-init-prefix-test)
                (clojure.test/run-tests 'prototype.coherent-jvm-slice-test)]]
   (shutdown-agents)
-  (System/exit (if (and (= [9 9 8 6 5 5 6 6 9 9 4 7 9 4 13 18 15 12 9 15 11 11 7 9 4 15 7 10 17 8 4 6 10 9 5 3 4 6 13] (mapv :test results))
+  (System/exit (if (and (= [9 9 8 6 5 5 6 6 9 9 4 7 9 4 13 18 17 12 9 15 11 11 7 9 4 15 7 10 17 8 4 6 10 9 5 3 4 6 13] (mapv :test results))
                        (every? #(zero? (+ (:fail %) (:error %))) results)) 0 1)))
