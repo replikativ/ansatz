@@ -460,8 +460,54 @@ public final class Interpreter implements AutoCloseable {
             return new PointerMetadata(word,childOwner,inner==null?null:inner.copyForFork(childOwner));
         }
     }
-    private static NodeMetadata kindMetadata(Node node) {
+    /** Immutable monotone sharing marker; inner kind state owns no guest values.
+     * PointerMetadata stays outermost so its word/branch guard remains visible. */
+    private static final class SharingMetadata implements NodeMetadata {
+        final NodeMetadata inner;
+        SharingMetadata(NodeMetadata inner) { this.inner=inner; }
+        public SharingMetadata copyForFork(Object childOwner) {
+            return inner==null?this:new SharingMetadata(inner.copyForFork(childOwner));
+        }
+    }
+    private static final SharingMetadata LOGICAL_MT=new SharingMetadata(null);
+    private static NodeMetadata sharingMetadata(Node node) {
         return node.metadata instanceof PointerMetadata?((PointerMetadata)node.metadata).inner:node.metadata;
+    }
+    private static boolean logicalMT(Node node) { return sharingMetadata(node) instanceof SharingMetadata; }
+    private static boolean exclusive(Node node) { return node.rc==1&&!logicalMT(node); }
+    private static boolean refMaybeMT(Node node) { return node.rc==0||logicalMT(node); }
+    private static NodeMetadata kindMetadata(Node node) {
+        NodeMetadata metadata=sharingMetadata(node);
+        return metadata instanceof SharingMetadata?((SharingMetadata)metadata).inner:metadata;
+    }
+    /** Pinned mark_mt owning-edge walk, independent of positive owner counts.
+     * No tasks/scheduler/finalizers are introduced; the only ST Task is ready.
+     * Mark before descending so cycles and duplicate edges terminate. */
+    private void markLogicalMT(Object value) {
+        validateHostObject(value);
+        if(!(value instanceof Node)) return;
+        Node root=(Node)value;
+        if(root.rc==0||logicalMT(root)) return;
+        ArrayDeque<Node> todo=new ArrayDeque<>(); todo.push(root);
+        while(!todo.isEmpty()) {
+            Node current=todo.pop(); validateHostObject(current);
+            if(current.rc==0||logicalMT(current)) continue;
+            if(current.readyTask) readyTaskNode(current);
+            NodeMetadata old=sharingMetadata(current);
+            NodeMetadata marked=old==null?LOGICAL_MT:new SharingMetadata(old);
+            if(current.metadata instanceof PointerMetadata) {
+                PointerMetadata observed=(PointerMetadata)current.metadata;
+                current.metadata=new PointerMetadata(observed.word,observed.owner,marked);
+            } else current.metadata=marked;
+            int live=current.array?arrayState(current).size:current.fields.length;
+            for(int i=0;i<live;i++) {
+                Object child=current.fields[i];
+                // Only Ref.take's empty cell may have an absent owning slot.
+                if(child==null) { require(current.ref,"Absent value in MT owning-edge walk"); continue; }
+                validateHostObject(child);
+                if(child instanceof Node) todo.push((Node)child);
+            }
+        }
     }
     private void checkPointerOwner(Node node) {
         if(node.metadata instanceof PointerMetadata)
@@ -501,7 +547,7 @@ public final class Interpreter implements AutoCloseable {
         public final byte[] scalars;
         private Function closure;
         // Kind metadata: Generation for closures, ArrayState for arrays, otherwise
-        // null. A lazy PointerMetadata may wrap it without owning guest values.
+        // null. Lazy sharing/pointer wrappers preserve it without owning guest values.
         private NodeMetadata metadata;
         private boolean dead;
         private boolean array;
@@ -1671,7 +1717,7 @@ public final class Interpreter implements AutoCloseable {
     }
     private void unique(Node n) {
         require(!n.ref&&!n.array&&!n.readyTask&&!isByteArray(n),"Reference/array/task/byte-array is not a constructor");
-        if(n.rc!=1) throw error("Expected exclusive object");
+        if(!exclusive(n)) throw error("Expected exclusive object");
     }
     private static BigInteger nat(Object x) {
         if(x instanceof Long&&((Long)x)>=0) return BigInteger.valueOf((Long)x);
@@ -1883,7 +1929,7 @@ public final class Interpreter implements AutoCloseable {
     /** Copy only shared/persistent arrays. Unique growth transfers element owners
      * into a replacement shell; unused capacity never owns values. */
     private Node exclusiveArray(Node a,boolean push) {
-        boolean exclusive=a.rc==1;
+        boolean exclusive=exclusive(a);
         if(exclusive&&(!push||arrayState(a).size<a.fields.length)) return a;
         boolean expand=push&&(exclusive||a.fields.length<2L*arrayState(a).size+1);
         int capacity=expand?Math.multiplyExact(Math.addExact(a.fields.length,1),2):a.fields.length;
@@ -1976,8 +2022,8 @@ public final class Interpreter implements AutoCloseable {
             require(node.rc==0||node.rc>=2,"ST.Ref replacement aliases cell payload without a separate owned credit");
         }
     }
-    /** Single-thread ST.Ref model. RC-zero cells remain mutable and fork-local;
-     * no native MT spin/mark_mt semantics or hidden borrowed-ref adapter. */
+    /** Thread-confined refs preserve logical MT/persistent payload marking;
+     * no native atomic waits or hidden borrowed-ref adapter. */
     private void refIntrinsic(Function function,Object a,Object b) {
         if(function.intrinsic==REF_MK) {
             validateHostObject(a);
@@ -1994,12 +2040,19 @@ public final class Interpreter implements AutoCloseable {
         if(function.intrinsic==REF_SET) {
             Object old=ref.fields[0];
             if(old!=null) { validateHostObject(old); refIncomingAlias(old,b); }
-            ref.fields[0]=b; stores++;
-            if(old!=null) dec(old,1);
+            if(refMaybeMT(ref)) {
+                markLogicalMT(b); ref.fields[0]=b; stores++;
+                if(old!=null) dec(old,1);
+            } else {
+                // Still finalizer-free: preserve the native ST release/store order.
+                if(old!=null) dec(old,1);
+                ref.fields[0]=b; stores++;
+            }
             result=ERASED; return;
         }
         if(function.intrinsic==REF_SWAP) {
             Object old=refPayload(ref,function); refIncomingAlias(old,b);
+            if(refMaybeMT(ref)) markLogicalMT(b);
             ref.fields[0]=b; stores++; result=old; return;
         }
         throw error("Invalid ST.Ref intrinsic");
@@ -2253,7 +2306,7 @@ public final class Interpreter implements AutoCloseable {
         int capacity=next<=input.scalars.length?input.scalars.length:Math.multiplyExact(next,2);
         require(capacity<=MAX_BYTE_CAPACITY,"ByteArray capacity outside bounded runtime profile");
         Node out=input;
-        if(input.rc!=1||capacity!=input.scalars.length) {
+        if(!exclusive(input)||capacity!=input.scalars.length) {
             out=newByteArray(state.size,capacity);
             System.arraycopy(input.scalars,0,out.scalars,0,state.size); dec(input,1);
         }
@@ -2704,9 +2757,9 @@ public final class Interpreter implements AutoCloseable {
         Object[] combined=new Object[closure.fields.length+args.length];
         System.arraycopy(closure.fields,0,combined,0,closure.fields.length);
         // A shared closure keeps ownership of its captured arguments.
-        if(closure.rc!=1) for(Object a:closure.fields) inc(a,1);
+        if(!exclusive(closure)) for(Object a:closure.fields) inc(a,1);
         System.arraycopy(args,0,combined,closure.fields.length,args.length);
-        if(closure.rc==1) { closure.dead=true; Arrays.fill(closure.fields,null); shellDeletes++; }
+        if(exclusive(closure)) { closure.dead=true; Arrays.fill(closure.fields,null); shellDeletes++; }
         else dec(closure,1);
         if(combined.length<f.params.length) return closure(f,combined);
         Object[] actual=combined.length==f.params.length?combined:Arrays.copyOf(combined,f.params.length);
@@ -2734,7 +2787,7 @@ public final class Interpreter implements AutoCloseable {
             case BOX: objects[dest]=boxScalar(numbers[bp+e.a],e.b); break;
             case UNBOX: numbers[dest]=unboxScalar(obj(e.a),type); break;
             case LIT: if(type==OBJ) objects[dest]=e.literal; else numbers[dest]=(Long)e.literal; break;
-            case SHARED: numbers[dest]=node(obj(e.a)).rc==1?0:1; break;
+            case SHARED: numbers[dest]=exclusive(node(obj(e.a)))?0:1; break;
             default: throw error("Invalid expression opcode");
         }
     }
@@ -3279,9 +3332,9 @@ public final class Interpreter implements AutoCloseable {
         }
         Object[] combined=new Object[closure.fields.length+args.length];
         System.arraycopy(closure.fields,0,combined,0,closure.fields.length);
-        if(closure.rc!=1) for(Object a:closure.fields) inc(a,1);
+        if(!exclusive(closure)) for(Object a:closure.fields) inc(a,1);
         System.arraycopy(args,0,combined,closure.fields.length,args.length);
-        if(closure.rc==1) { closure.dead=true; Arrays.fill(closure.fields,null); shellDeletes++; }
+        if(exclusive(closure)) { closure.dead=true; Arrays.fill(closure.fields,null); shellDeletes++; }
         else dec(closure,1);
         if(combined.length<f.params.length) { result=closure(f,combined); return false; }
         applicationTarget=called;

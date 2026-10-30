@@ -5,6 +5,11 @@ Implemented research profile, 2026-10-29. Reference: pinned Lean
 and `src/runtime/io.cpp:1426–1535`. This is the engine's single-threaded guest-ref
 model, not Lean's native multi-threaded atomic/ref scheduling implementation.
 
+The [logical sharing foundation](JAVA_LOGICAL_SHARING.md) now preserves native
+MT/persistent ref publication: incoming payloads are marked before set/swap,
+without creating a task manager or adding atomic cross-thread guarantees. Fresh
+ST refs retain their existing unmarked behavior.
+
 ## Exact declarations and ownership
 
 The six original extern ABIs, including both erased parameters and the final

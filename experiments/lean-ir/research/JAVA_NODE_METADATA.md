@@ -7,7 +7,8 @@ Move the counter into private kind-specific metadata and reuse the former closur
 image reference slot; do not add another reference to every node.
 
 The common Node keeps tag/RC, object/scalar storage, closure target and kind flags.
-Its one `NodeMetadata` slot has these alternatives:
+For the unmarked, unobserved values covered by this original layout receipt,
+its one `NodeMetadata` slot has these alternatives:
 
 | Kind | Metadata | Fork policy |
 | --- | --- | --- |
@@ -46,3 +47,7 @@ all27 byte-identical class files, preserving the tested artifact's bytecode.
 This fixes a measured layout regression. UInt64/Float lanes, ByteArray descriptors,
 Task.map, larger state fixed points and the complete frontend remain separate
 campaign gates.
+
+The [logical sharing foundation](JAVA_LOGICAL_SHARING.md) adds a lazy immutable
+sharing wrapper under optional pointer metadata. Common Node layout is unchanged;
+kind access and fork preserve the inner generation/array/byte-array state.
