@@ -1,8 +1,10 @@
 # Transactional prepared graph and global import
 
-Implemented research profile, 2026-10-29. This adds supported graph construction
-to the Java engine. It accepts **only genuinely persistent RC-zero source nodes**;
-it is not a general checkpoint importer or frontend acceptance claim.
+Implemented research profiles, 2026-10-30. This adds supported graph construction
+to the Java engine. The default profile accepts **only genuinely persistent
+RC-zero source nodes**. Explicit selected-owner import also accepts positive
+source metadata. Neither profile is a general checkpoint importer or frontend
+acceptance claim.
 
 ## Source and descriptor contract
 
@@ -24,7 +26,7 @@ new PreparedGraph(SourceBinding binding, Object acceptedStateToken,
 Object[] engine.installGraph(PreparedGraph graph);
 ```
 
-Every sourceRC must be zero. Graph values are GraphRef edges or supported
+In the default constructor every sourceRC must be zero. Graph values are GraphRef edges or supported
 immutable nonnegative Long/BigInteger/String carriers; existing runtime Nodes,
 arbitrary host objects and external/native handles reject. Descriptor arrays and
 scalar bytes are copied. Every source ID must be unique and every edge must
@@ -66,7 +68,7 @@ provenance before publication. A rejection leaves the engine and one-shot marker
 unchanged. Abandoned resource-free unpublished graphs are left to JVM GC, without
 logical decrements of partially constructed state.
 
-All admitted nodes retain RC-zero persistence. Returned roots are independently
+All nodes admitted by the default constructor retain RC-zero persistence. Returned roots are independently
 owned outputs by contract, with no new positive credits for duplicate aliases in
 this profile. The engine retains lightweight per-global source/state provenance,
 not the PreparedGraph, node recipes or a permanent source-ID registry. Temporary
@@ -104,13 +106,45 @@ This first graph-import probe used the exact `lean_st_ref_get` host ABI. The nat
 ref-runtime probe replaces that handler with the actual engine primitive; neither
 gate is full parser support.
 
-The larger selected companion has positive-RC nodes, so it does not pass this
-profile. Its follow-up needs an explicit selected-owner ledger: count each owning
-field/capture/ref slot, global cache and returned owned root, preserve genuine
-RC-zero persistence, and never copy source counts for outside owners absent from
-the new graph. Prove cycles, exclusivity, aliases and failure behavior before
-using that policy. Runtime ref primitives, complete initialized/module state and
-imported module/kernel carriers remain separate campaign gates.
+## Explicit selected-owner profile
+
+`PreparedGraph.selectedOwners(binding, token, nodes, globals, values, roots)`
+uses the same transaction and shape checks, with an explicit ownership policy.
+ImportNode factories describe nonnegative source counts; only graph admission
+selects the policy. The default constructor continues rejecting positive counts.
+
+Source RC0 remains persistent. For each source-positive object, the destination
+count is recomputed from every owning occurrence in constructor fields, live
+array elements, closure captures, ref payloads, global caches and owned output
+roots. Edges from persistent parents count too. Duplicate occurrences count
+separately. The source count's positive magnitude is ignored: absent outside
+owners must not be carried into a closed selection. Counts use checked addition;
+zero-count positive objects reject. These are trusted source facts, not a proof
+that arbitrary host-supplied RC metadata is truthful.
+
+Closed cycles are permitted and retain native RC behavior. Logical RC does not
+collect cycles; programs must break their logical owning cycles where required.
+JVM GC still collects physically unreachable Java graphs. Forking copies the
+complete selected graph and its counts without creating extra guest credits.
+
+`new GraphInt(BigInteger)` transports an exact signed Lean Int only in this
+profile. Signed 64-bit values normalize to Long; larger magnitudes remain
+BigInteger. Descriptors disappear during wiring, including globals and outputs.
+This does not reinterpret UInt64 bits or implement Int arithmetic. Raw negative
+Long/BigInteger leaves still reject; the default graph rejects GraphInt everywhere.
+
+Seven focused tests, invoked with both driver configurations, cover duplicate edges/roots, persistent
+parents, cache cleanup, a positive self-cycle broken with the original boxed
+ST.Ref.set wrapper, closure capture ownership across explicit-driver code suspension/fork,
+signed boundaries, and failed-import retry. The original seven RC0 tests remain
+unchanged. A retained 384 MiB REPL also imports and forks the actual selected
+frontend companion: 47,240 nodes, 2,417 headers, five globals, 1,302 positive
+objects (all recomputed RC1), and 113,703 scalar bytes. Both graph censuses agree.
+The first observed engine installation took 64.26 ms and fork 39.69 ms, excluding
+capsule parsing/header/descriptor preparation. These are single-run observations,
+not steady-state performance estimates. The capsule is derived experimental
+input, not yet a public authenticated bundle loader. Frontend execution, complete
+initialized/module state and imported module/kernel carriers remain separate gates.
 
 The REPL facade's `lean-name-data` converts nested immutable Java Name lists to
 Clojure vectors before persistent-map lookup. Java collection hash codes and

@@ -348,8 +348,22 @@ public final class Interpreter implements AutoCloseable {
         }
         public long sourceId() { return sourceId; }
     }
-    /** Immutable recipe for one persistent source object. Positive source RC
-     * needs a separate owner-envelope contract and is explicitly unsupported. */
+    /** Explicit signed logical Int metadata for selected-owner import only.
+     * This is data transport, not UInt64 reinterpretation or Int arithmetic. */
+    public static final class GraphInt {
+        private final BigInteger value;
+        private final Object runtimeValue;
+        public GraphInt(BigInteger exactSignedValue) {
+            require(exactSignedValue!=null&&exactSignedValue.getClass()==BigInteger.class,
+                    "Exact immutable BigInteger required for GraphInt");
+            value=exactSignedValue;
+            runtimeValue=value.compareTo(BigInteger.valueOf(Long.MIN_VALUE))>=0&&value.compareTo(SMALL_MAX)<=0
+                    ?Long.valueOf(value.longValue()):value;
+        }
+        public BigInteger value() { return value; }
+    }
+    /** Immutable source metadata. Numeric positive RC is descriptive, never a
+     * destination owner count. PreparedGraph chooses the explicit import profile. */
     public static final class ImportNode {
         private static final int CONSTRUCTOR=0, ARRAY=1, REF=2, CLOSURE=3;
         private final long sourceId;
@@ -359,7 +373,7 @@ public final class Interpreter implements AutoCloseable {
         private final Header header;
         private ImportNode(long id,int sourceRC,int kind,int tag,Object[] fields,byte[] scalars,Header header) {
             require(id>=0,"Negative prepared graph source ID");
-            require(sourceRC==0,"Prepared graph import requires source RC zero");
+            require(sourceRC>=0,"Negative prepared graph source reference count");
             require(fields!=null&&scalars!=null,"Explicit prepared graph payload required");
             this.sourceId=id; this.sourceRC=sourceRC; this.kind=kind; this.tag=tag;
             this.fields=graphValues(fields); this.scalars=scalars.clone(); this.header=header;
@@ -388,23 +402,36 @@ public final class Interpreter implements AutoCloseable {
     /** Trusted adapter's accepted state recipe, not cryptographic admission.
      * Source/state tokens must be lightweight immutable authority/lease tokens.
      * Arrays and byte payloads are copied; no existing runtime Nodes are input.
-     * RC-zero persistence allows releaseable owned outputs without increments;
-     * it does not make refs immutable or establish a positive-RC owner ledger. */
+     * The default constructor accepts only source RC0 and nonnegative carriers.
+     * selectedOwners explicitly recomputes positive counts and permits GraphInt.
+     * Persistence comes from trusted source metadata; it does not make refs
+     * immutable, and neither profile authenticates caller-supplied state facts. */
     public static final class PreparedGraph {
         private final SourceBinding binding;
         private final Object acceptedStateToken;
         private final ImportNode[] nodes;
         private final Header[] globals;
         private final Object[] globalValues,ownedRoots;
+        private final boolean selectedOwners;
         public PreparedGraph(SourceBinding binding,Object acceptedStateToken,ImportNode[] nodes,
                              Header[] globals,Object[] globalValues,Object[] ownedRoots) {
+            this(binding,acceptedStateToken,nodes,globals,globalValues,ownedRoots,false);
+        }
+        public static PreparedGraph selectedOwners(SourceBinding binding,Object acceptedStateToken,ImportNode[] nodes,
+                                                    Header[] globals,Object[] globalValues,Object[] ownedRoots) {
+            return new PreparedGraph(binding,acceptedStateToken,nodes,globals,globalValues,ownedRoots,true);
+        }
+        private PreparedGraph(SourceBinding binding,Object acceptedStateToken,ImportNode[] nodes,
+                              Header[] globals,Object[] globalValues,Object[] ownedRoots,boolean selectedOwners) {
             require(binding!=null&&acceptedStateToken!=null,"Actual accepted source/state tokens required");
             require(nodes!=null&&globals!=null&&globalValues!=null&&ownedRoots!=null,
                     "Explicit prepared graph tables and roots required");
             require(nodes.length<=MAX_IMPORT_NODES,"Prepared graph exceeds research node limit");
             require(globals.length<=MAX_IMPORT_ROOTS&&ownedRoots.length<=MAX_IMPORT_ROOTS,"Prepared graph exceeds root/global limit");
             require(globals.length==globalValues.length,"Prepared global table length mismatch");
+            checkGraphProfile(nodes,globalValues,ownedRoots,selectedOwners);
             checkGraphBudget(nodes,globalValues,ownedRoots);
+            this.selectedOwners=selectedOwners;
             this.binding=binding; this.acceptedStateToken=acceptedStateToken;
             this.nodes=nodes.clone(); this.globals=globals.clone();
             this.globalValues=graphValues(globalValues); this.ownedRoots=graphValues(ownedRoots);
@@ -420,12 +447,30 @@ public final class Interpreter implements AutoCloseable {
             this.binding=binding; this.acceptedStateToken=acceptedStateToken;
         }
     }
+    private static void requireDefaultGraphValues(Object[] values) {
+        for(Object value:values) require(!(value instanceof GraphInt),"GraphInt requires selected-owner import profile");
+    }
+    private static void checkGraphProfile(ImportNode[] nodes,Object[] globals,Object[] roots,boolean selectedOwners) {
+        for(ImportNode node:nodes) {
+            require(node!=null,"Null prepared graph node");
+            require(node.sourceRC>=0,"Negative prepared graph source reference count");
+            if(!selectedOwners) {
+                require(node.sourceRC==0,"Default prepared graph import requires source RC zero");
+                requireDefaultGraphValues(node.fields);
+            }
+        }
+        if(!selectedOwners) { requireDefaultGraphValues(globals); requireDefaultGraphValues(roots); }
+    }
     private static long graphBudget(long used,long added,long maximum,String label) {
         if(added<0||used>maximum-added) throw error("Prepared graph exceeds "+label+" budget");
         return used+added;
     }
     private static long graphCarrierBytes(Object value) {
         if(value instanceof GraphRef) return 0;
+        if(value instanceof GraphInt) {
+            Object carrier=((GraphInt)value).runtimeValue;
+            return carrier instanceof Long?8:(((BigInteger)carrier).bitLength()+8L)/8;
+        }
         if(value instanceof String) return 3L*((String)value).length(); // conservative UTF-8 bound, no temporary encoding
         if(value instanceof Long&&((Long)value)>=0) return 8;
         if(value!=null&&value.getClass()==BigInteger.class&&((BigInteger)value).signum()>=0)
@@ -1633,10 +1678,20 @@ public final class Interpreter implements AutoCloseable {
         }
     }
     private static Object importedGraphValue(Object value,Map<Long,Integer> positions,Node[] shells) {
-        return value instanceof GraphRef?shells[graphPosition((GraphRef)value,positions)]:value;
+        if(value instanceof GraphRef) return shells[graphPosition((GraphRef)value,positions)];
+        return value instanceof GraphInt?((GraphInt)value).runtimeValue:value;
     }
-    /** Transactional RC-zero-only import at an open idle boundary. Returned
-     * roots are OWNED persistent values; release is valid and requires no inc.
+    private static void countGraphOwners(Object[] values,ImportNode[] nodes,Map<Long,Integer> positions,int[] owners) {
+        for(Object value:values) if(value instanceof GraphRef) {
+            int position=graphPosition((GraphRef)value,positions);
+            if(nodes[position].sourceRC>0) owners[position]=Math.addExact(owners[position],1);
+        }
+    }
+    /** Transactional default-RC0 or explicit selected-owner import at an open idle boundary. Returned
+     * roots are independently OWNED values. Count each graph/cache/output
+     * occurrence for source-positive nodes; source RC0 remains persistent.
+     * Source-positive numeric counts are never copied or treated as bounds.
+     * Closed cycles preserve native RC behavior, without cycle collection.
      * No guest code, body forcing, existing-node mutation or initializer runs.
      * One bootstrap graph per engine, including an empty graph; forks preserve
      * this marker. This is not incremental import of an overlapping snapshot.
@@ -1651,7 +1706,8 @@ public final class Interpreter implements AutoCloseable {
         Map<Long,Integer> positions=new HashMap<>();
         for(int i=0;i<graph.nodes.length;i++) {
             ImportNode node=graph.nodes[i];
-            require(node.sourceRC==0,"Prepared graph import requires source RC zero");
+            require(node.sourceRC>=0&&(graph.selectedOwners||node.sourceRC==0),
+                    "Prepared graph source count differs from selected profile");
             require(positions.put(node.sourceId,i)==null,"Duplicate prepared graph source ID");
         }
         Function[] closureTargets=new Function[graph.nodes.length];
@@ -1687,10 +1743,18 @@ public final class Interpreter implements AutoCloseable {
         enqueueGraphValues(graph.ownedRoots,positions,visited,pending);
         while(!pending.isEmpty()) enqueueGraphValues(graph.nodes[pending.removeFirst()].fields,positions,visited,pending);
         for(boolean reachable:visited) require(reachable,"Unreachable object in prepared graph envelope");
+        int[] owners=new int[graph.nodes.length];
+        if(graph.selectedOwners) {
+            for(ImportNode node:graph.nodes) countGraphOwners(node.fields,graph.nodes,positions,owners);
+            countGraphOwners(graph.globalValues,graph.nodes,positions,owners);
+            countGraphOwners(graph.ownedRoots,graph.nodes,positions,owners);
+            for(int i=0;i<owners.length;i++) if(graph.nodes[i].sourceRC>0)
+                require(owners[i]>0,"Source-positive object has no selected owning occurrence");
+        }
         Node[] shells=new Node[graph.nodes.length];
         for(int i=0;i<shells.length;i++) {
             ImportNode recipe=graph.nodes[i]; Node shell=new Node(recipe.tag,recipe.fields.length,recipe.scalars.length);
-            shell.rc=0; shell.array=recipe.kind==ImportNode.ARRAY; shell.ref=recipe.kind==ImportNode.REF;
+            shell.rc=recipe.sourceRC==0?0:owners[i]; shell.array=recipe.kind==ImportNode.ARRAY; shell.ref=recipe.kind==ImportNode.REF;
             if(recipe.kind==ImportNode.CLOSURE) { shell.closure=closureTargets[i]; shell.image=program.generation; }
             System.arraycopy(recipe.scalars,0,shell.scalars,0,recipe.scalars.length); shells[i]=shell;
         }

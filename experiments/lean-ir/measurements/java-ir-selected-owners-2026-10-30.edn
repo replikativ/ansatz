@@ -1,0 +1,26 @@
+{:schema 1
+ :date "2026-10-30"
+ :scope :explicit-selected-owner-prepared-state-import
+ :engine-source-sha256 "8dceea108d3f5b62624cf833c6c3564c7a853122aa553ad5b74fcb35bcbcb964"
+ :engine-jar-sha256 "797177e60cc0a056b6277d13fb10a45040ab3258a9e853b5f909c6c2235564ee"
+ :verification {:focused-per-driver {:tests 7 :assertions 37 :fail 0 :error 0}
+                :unchanged-RC0-tests {:tests 7 :assertions 61 :fail 0 :error 0}
+                :combined-isolated-jar {:tests 406 :assertions 13864 :suites 47 :exit 0 :heap-mib 384}}
+ :actual-companion
+ {:graph-capsule-sha256 "82c94e81f7d922f1f7c2c28922b39c0e42b5ae685c1e387ba30c6c80d8feb9a4"
+  :header-candidates-sha256 "54de31e9ff159ad321dceddaa39f9878196b49654ee6ae4eb6d3141720d62b24"
+  :checkpoint-manifest-sha256 "a848092bdd6753f2737a954907747e1bad900c11506ad371fcb8460b576c46d6"
+  :checkpoint-data-sha256 "26282492007e48f6ba06466f0dea2c203c62d918da5ca283aee2db30449e773f"
+  :code-index-sha256 "74d833d577923821b982e8a9e872a38b5cad011513eb18870b51417e13397f0e"
+  :headers 2417 :globals 5
+  :source-and-fork-census {:nodes 47240 :positive 1302 :persistent 45938
+                           :rc-sum 1302 :scalar-bytes 113703}
+  :observed-install-ms 64.260787 :observed-fork-ms 39.685428 :heap-limit-mib 384
+  :timing-scope "One observation in retained JVM; excludes artifact parsing, authentication and header/descriptor preparation. Not a steady-state benchmark."}
+ :contract ["Default graph constructor remains RC0-only and rejects GraphInt everywhere."
+            "Source-positive magnitude is discarded; each selected owning occurrence contributes one checked credit."
+            "Source RC0 remains persistent, including mutable refs. No cycle collector is added."
+            "Signed GraphInt is exact carrier transport, not new arithmetic or UInt64 conversion."
+            "No retained recipe/source-ID map in runtime, no guest code during import."
+            "Derived companion capsule is experimental input, not a public authenticated bundle loader."
+            "This validates state import/fork, not original frontend execution or kernel admission."]}
