@@ -22,6 +22,7 @@
 (load-file "research/java-ir-baseline/code-checks.clj")
 (load-file "research/java-ir-baseline/graph-checks.clj")
 (load-file "research/java-ir-baseline/ref-checks.clj")
+(load-file "research/java-ir-baseline/array-checks.clj")
 (load-file "research/java-ir-baseline/selected-owner-checks.clj")
 (load-file "research/java-ir-baseline/catalogue.clj")
 (load-file "research/java-ir-baseline/catalogue-checks.clj")
@@ -71,6 +72,8 @@
                (java-ir-graph-checks/check! basis)
                (java-ir-ref-checks/check! basis)
                (java-ir-ref-checks/check! (assoc basis :explicit true))
+               (java-ir-array-checks/check! basis)
+               (java-ir-array-checks/check! (assoc basis :explicit true))
                (java-ir-selected-owner-checks/check! basis)
                (java-ir-selected-owner-checks/check! (assoc basis :explicit true))
                (java-ir-catalogue-checks/check!)
@@ -97,5 +100,5 @@
                (clojure.test/run-tests 'prototype.resident-init-prefix-test)
                (clojure.test/run-tests 'prototype.coherent-jvm-slice-test)]]
   (shutdown-agents)
-  (System/exit (if (and (= [9 9 8 6 5 5 6 6 9 9 4 7 9 4 13 18 17 10 10 7 10 10 7 7 6 12 9 15 11 11 7 9 4 15 7 10 17 8 4 6 10 9 5 3 4 6 13] (mapv :test results))
+  (System/exit (if (and (= [9 9 8 6 5 5 6 6 9 9 4 7 9 4 13 18 17 10 10 7 10 10 8 8 7 7 6 12 9 15 11 11 7 9 4 15 7 10 17 8 4 6 10 9 5 3 4 6 13] (mapv :test results))
                        (every? #(zero? (+ (:fail %) (:error %))) results)) 0 1)))

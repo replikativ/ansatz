@@ -24,6 +24,10 @@ public final class Interpreter implements AutoCloseable {
     private static final int STR_PUSH=15,STR_LIST=16,STR_GET=17,STR_NEXT=18,STR_APPEND=19,STR_SIZE=20,
                              ARRAY_MK=21,ARRAY_SIZE=22,ARRAY_GET=23,GET_STDOUT=24,PANIC=25;
     private static final int REF_MK=26,REF_GET=27,REF_SET=28,REF_SWAP=29,REF_TAKE=30,REF_PTR_EQ=31;
+    private static final int ARRAY_EMPTY=32,ARRAY_PUSH=33,ARRAY_POP=34,ARRAY_USIZE=35,
+                             ARRAY_FGET=36,ARRAY_UGET=37,ARRAY_UGET_BORROWED=38,
+                             ARRAY_FSET=39,ARRAY_USET=40,ARRAY_SWAP=41,ARRAY_LIST=42,ARRAY_REPLICATE=43;
+    private static final int MAX_ARRAY_CAPACITY=1_000_000;
     private static final int STREAM_FLUSH=100,STREAM_READ=101,STREAM_WRITE=102,STREAM_LINE=103,STREAM_PUT=104,STREAM_TTY=105;
     private static final BigInteger SMALL_MAX=BigInteger.valueOf(Long.MAX_VALUE);
     private static final Object ERASED=Long.valueOf(0);
@@ -180,6 +184,30 @@ public final class Interpreter implements AutoCloseable {
                 new String[]{"erased","erased","tobject","void"},new boolean[]{false,false,true,false}));
         register(registry,new ExternSpec("lean_st_ref_ptr_eq",REF_PTR_EQ,"uint8",
                 new String[]{"erased","erased","tobject","tobject","void"},new boolean[]{false,false,true,true,false}));
+        register(registry,new ExternSpec("lean_mk_empty_array_with_capacity",ARRAY_EMPTY,"object",
+                new String[]{"erased","tobject"},new boolean[]{false,true}));
+        register(registry,new ExternSpec("lean_array_push",ARRAY_PUSH,"object",
+                new String[]{"erased","object","tobject"},new boolean[]{false,false,false}));
+        register(registry,new ExternSpec("lean_array_pop",ARRAY_POP,"object",
+                new String[]{"erased","object"},new boolean[]{false,false}));
+        register(registry,new ExternSpec("lean_array_size",ARRAY_USIZE,"usize",
+                new String[]{"erased","object"},new boolean[]{false,true}));
+        register(registry,new ExternSpec("lean_array_fget",ARRAY_FGET,"tobject",
+                new String[]{"erased","object","tobject","erased"},new boolean[]{false,true,true,false}));
+        register(registry,new ExternSpec("lean_array_uget",ARRAY_UGET,"tobject",
+                new String[]{"erased","object","usize","erased"},new boolean[]{false,true,false,false}));
+        register(registry,new ExternSpec("lean_array_uget_borrowed",ARRAY_UGET_BORROWED,"tobject",
+                new String[]{"erased","object","usize","erased"},new boolean[]{false,true,false,false}));
+        register(registry,new ExternSpec("lean_array_fset",ARRAY_FSET,"object",
+                new String[]{"erased","object","tobject","tobject","erased"},new boolean[]{false,false,true,false,false}));
+        register(registry,new ExternSpec("lean_array_uset",ARRAY_USET,"object",
+                new String[]{"erased","object","usize","tobject","erased"},new boolean[]{false,false,false,false,false}));
+        register(registry,new ExternSpec("lean_array_fswap",ARRAY_SWAP,"object",
+                new String[]{"erased","object","tobject","tobject","erased","erased"},new boolean[]{false,false,true,true,false,false}));
+        register(registry,new ExternSpec("lean_array_to_list",ARRAY_LIST,"tobject",
+                new String[]{"erased","object"},new boolean[]{false,false}));
+        register(registry,new ExternSpec("lean_mk_array",ARRAY_REPLICATE,"object",
+                new String[]{"erased","tobject","tobject"},new boolean[]{false,false,false}));
         registry.replaceAll((symbol,entries)->Collections.unmodifiableList(entries));
         return Collections.unmodifiableMap(registry);
     }
@@ -224,6 +252,7 @@ public final class Interpreter implements AutoCloseable {
         private Generation image;
         private boolean dead;
         private boolean array;
+        private int arraySize; // fields.length is capacity; spare slots are always null
         private boolean ref;
         Node(int tag, int size, int scalarBytes) {
             this.tag=tag; fields=new Object[size]; scalars=new byte[scalarBytes];
@@ -836,7 +865,7 @@ public final class Interpreter implements AutoCloseable {
                 boolean fresh=fields==null;
                 if(fresh) fields=new Object[old.fields.length];
                 Node out=new Node(old.tag,fields,old.scalars.length);
-                copies.put(source,out); out.rc=old.rc; out.dead=old.dead; out.array=old.array; out.ref=old.ref; out.image=old.image;
+                copies.put(source,out); out.rc=old.rc; out.dead=old.dead; out.array=old.array; out.arraySize=old.arraySize; out.ref=old.ref; out.image=old.image;
                 out.closure=(Function)value(old.closure);
                 System.arraycopy(old.scalars,0,out.scalars,0,old.scalars.length);
                 if(fresh) bind(old.fields,out.fields); return out;
@@ -1104,7 +1133,7 @@ public final class Interpreter implements AutoCloseable {
                     case SPROJ: require((b.type==U8||b.type==U32)&&lane(env,e.a)==OBJ,"Scalar projection lane mismatch"); break;
                     case UPROJ: require(b.type==USIZE&&lane(env,e.a)==OBJ,"USize projection lane mismatch"); break;
                     case FAP: requireExecutableAbi(e.target); checkArgs(env,e.args,e.target.paramTypes); require(b.type==e.target.resultType,"Call result lane mismatch"); break;
-                    case PAP: requireExecutableAbi(e.target); require(b.type==OBJ&&e.args.length<e.target.params.length,"Invalid partial application"); require(e.target.intrinsic!=ARRAY_SIZE&&e.target.intrinsic!=ARRAY_GET,"Borrowed array primitive requires owned closure wrapper"); require(!borrowedRefPrimitive(e.target.intrinsic),"Borrowed ref primitive requires owned closure wrapper"); for(int i=0;i<e.target.paramTypes.length;i++) require(e.target.paramTypes[i]==OBJ,"Unboxed partial target unsupported; boxed wrapper required"); for(int a:e.args) require(lane(env,a)==OBJ,"Partial argument must be boxed"); break;
+                    case PAP: requireExecutableAbi(e.target); require(b.type==OBJ&&e.args.length<e.target.params.length,"Invalid partial application"); require(!borrowedArrayPrimitive(e.target.intrinsic),"Borrowed array primitive requires owned closure wrapper"); require(!borrowedRefPrimitive(e.target.intrinsic),"Borrowed ref primitive requires owned closure wrapper"); for(int i=0;i<e.target.paramTypes.length;i++) require(e.target.paramTypes[i]==OBJ,"Unboxed partial target unsupported; boxed wrapper required"); for(int a:e.args) require(lane(env,a)==OBJ,"Partial argument must be boxed"); break;
                     case AP: require(b.type==OBJ&&lane(env,e.a)==OBJ&&e.args.length>0,"Unsupported closure application"); for(int a:e.args) require(lane(env,a)==OBJ,"Closure argument must be boxed"); break;
                     case BOX: require(b.type==OBJ&&e.b!=OBJ&&lane(env,e.a)==e.b,"Box lane mismatch"); break;
                     case UNBOX: require(b.type!=OBJ&&lane(env,e.a)==OBJ,"Unbox lane mismatch"); break;
@@ -1161,7 +1190,7 @@ public final class Interpreter implements AutoCloseable {
                 current.dead=true;
                 // Transfer child-edge owners to an explicit private work
                 // stack. No native finalizers run in this profile.
-                for(int i=current.fields.length-1;i>=0;i--) {
+                for(int i=(current.array?current.arraySize:current.fields.length)-1;i>=0;i--) {
                     Object child=current.fields[i]; current.fields[i]=null;
                     if(child instanceof Node) {
                         if(pending==releaseWork.length) releaseWork=Arrays.copyOf(releaseWork,Math.multiplyExact(pending,2));
@@ -1181,10 +1210,10 @@ public final class Interpreter implements AutoCloseable {
         } finally { Arrays.fill(releaseWork,0,pending,null); }
     }
     private Node constructorNode(Object value) {
-        Node node=node(value); require(!node.ref,"Reference is not a constructor"); return node;
+        Node node=node(value); require(!node.ref&&!node.array,"Reference/array is not a constructor"); return node;
     }
     private void unique(Node n) {
-        require(!n.ref,"Reference is not a constructor");
+        require(!n.ref&&!n.array,"Reference/array is not a constructor");
         if(n.rc!=1) throw error("Expected exclusive object");
     }
     private static BigInteger nat(Object x) {
@@ -1253,6 +1282,13 @@ public final class Interpreter implements AutoCloseable {
         return value;
     }
     private void intrinsicSlots(Function f,int[] slots) {
+        if(advancedArrayPrimitive(f.intrinsic)) {
+            arrayPlaceholders(f,obj(slots[0]),slots.length>3?obj(slots[slots.length-1]):ERASED,
+                              slots.length==6?obj(slots[4]):ERASED);
+            Object a=slotValue(f,slots,1),b=slots.length>2?slotValue(f,slots,2):ERASED;
+            Object c=slots.length>3?slotValue(f,slots,3):ERASED;
+            arrayIntrinsic(f,a,b,c); return;
+        }
         if(refPrimitive(f.intrinsic)) {
             refPlaceholders(obj(slots[0]),obj(slots[1]),obj(slots[slots.length-1]));
             refIntrinsic(f,obj(slots[2]),slots.length==5?obj(slots[3]):ERASED); return;
@@ -1266,6 +1302,13 @@ public final class Interpreter implements AutoCloseable {
         } else scalarIntrinsic(f,a,b);
     }
     private void intrinsicExternal(Function f,Object[] args) {
+        if(advancedArrayPrimitive(f.intrinsic)) {
+            arrayPlaceholders(f,args[0],args.length>3?args[args.length-1]:ERASED,
+                              args.length==6?args[4]:ERASED);
+            Object a=externalArgument(f,args,1),b=args.length>2?externalArgument(f,args,2):ERASED;
+            Object c=args.length>3?externalArgument(f,args,3):ERASED;
+            arrayIntrinsic(f,a,b,c); return;
+        }
         if(refPrimitive(f.intrinsic)) {
             refPlaceholders(args[0],args[1],args[args.length-1]);
             refIntrinsic(f,args[2],args.length==5?args[3]:ERASED); return;
@@ -1277,6 +1320,99 @@ public final class Interpreter implements AutoCloseable {
             Object c=args.length<3?ERASED:f.paramTypes[2]==OBJ?args[2]:Long.valueOf(inputScalar(args[2],f.paramTypes[2]));
             runtimeIntrinsic(f,a,b,c);
         } else scalarIntrinsic(f,a,b);
+    }
+    private static boolean advancedArrayPrimitive(int op) { return op>=ARRAY_EMPTY&&op<=ARRAY_REPLICATE; }
+    private static boolean borrowedArrayPrimitive(int op) {
+        return op==ARRAY_SIZE||op==ARRAY_GET||op==ARRAY_USIZE||op==ARRAY_FGET||op==ARRAY_UGET||op==ARRAY_UGET_BORROWED;
+    }
+    private Object slotValue(Function f,int[] slots,int i) {
+        return f.paramTypes[i]==OBJ?obj(slots[i]):externalScalar(numbers[bp+slots[i]],f.paramTypes[i]);
+    }
+    private static Object externalArgument(Function f,Object[] args,int i) {
+        return f.paramTypes[i]==OBJ?args[i]:externalScalar(inputScalar(args[i],f.paramTypes[i]),f.paramTypes[i]);
+    }
+    private static void arrayPlaceholders(Function f,Object erased,Object last,Object penultimate) {
+        require(ERASED.equals(erased),"Array erased parameter requires erased placeholder");
+        if(f.params.length>=4) require(ERASED.equals(last)&&ERASED.equals(penultimate),
+                "Array proof parameters require erased placeholders");
+    }
+    private static int arrayCapacity(Object value) {
+        BigInteger n=nat(value);
+        require(n.compareTo(BigInteger.valueOf(MAX_ARRAY_CAPACITY))<=0,"Array capacity outside bounded runtime profile");
+        return n.intValue();
+    }
+    private static int arrayIndex(Node a,Object index) {
+        BigInteger n=nat(index);
+        require(n.compareTo(BigInteger.valueOf(a.arraySize))<0,"Array index outside bounds");
+        return n.intValue();
+    }
+    private Node newArray(int size,int capacity) {
+        require(size>=0&&capacity>=size&&capacity<=MAX_ARRAY_CAPACITY,"Array capacity outside bounded runtime profile");
+        Node out=new Node(246,capacity,0); out.array=true; out.arraySize=size; allocations++; return out;
+    }
+    /** Copy only shared/persistent arrays. Unique growth transfers element owners
+     * into a replacement shell; unused capacity never owns values. */
+    private Node exclusiveArray(Node a,boolean push) {
+        boolean exclusive=a.rc==1;
+        if(exclusive&&(!push||a.arraySize<a.fields.length)) return a;
+        boolean expand=push&&(exclusive||a.fields.length<2L*a.arraySize+1);
+        int capacity=expand?Math.multiplyExact(Math.addExact(a.fields.length,1),2):a.fields.length;
+        Node out=newArray(a.arraySize,capacity);
+        if(exclusive) {
+            System.arraycopy(a.fields,0,out.fields,0,a.arraySize);
+            Arrays.fill(a.fields,null); a.dead=true; a.rc=0; shellDeletes++;
+        } else {
+            for(int i=0;i<a.arraySize;i++) { Object v=a.fields[i]; inc(v,1); out.fields[i]=v; }
+            dec(a,1);
+        }
+        return out;
+    }
+    private void arrayIntrinsic(Function f,Object a,Object b,Object c) {
+        if(f.intrinsic==ARRAY_EMPTY) { result=newArray(0,arrayCapacity(a)); return; }
+        if(f.intrinsic==ARRAY_REPLICATE) {
+            int size=arrayCapacity(a); validateHostObject(b);
+            Node out=newArray(size,size);
+            if(size==0) dec(b,1); else { inc(b,size-1); Arrays.fill(out.fields,b); }
+            result=out; return;
+        }
+        Node n=array(a);
+        switch(f.intrinsic) {
+            case ARRAY_USIZE: scalarResult=n.arraySize; return;
+            case ARRAY_FGET: case ARRAY_UGET: case ARRAY_UGET_BORROWED: {
+                Object v=n.fields[arrayIndex(n,b)];
+                if(f.intrinsic!=ARRAY_UGET_BORROWED) inc(v,1);
+                result=v; return;
+            }
+            case ARRAY_PUSH: {
+                validateHostObject(b); Node out=exclusiveArray(n,true);
+                out.fields[out.arraySize++]=b; stores++; result=out; return;
+            }
+            case ARRAY_POP: {
+                Node out=exclusiveArray(n,false);
+                if(out.arraySize!=0) { int i=--out.arraySize; Object old=out.fields[i]; out.fields[i]=null; stores++; dec(old,1); }
+                result=out; return;
+            }
+            case ARRAY_FSET: case ARRAY_USET: {
+                int index=arrayIndex(n,b); validateHostObject(c);
+                refIncomingAlias(n.fields[index],c);
+                Node out=exclusiveArray(n,false); Object old=out.fields[index];
+                out.fields[index]=c; stores++; dec(old,1); result=out; return;
+            }
+            case ARRAY_SWAP: {
+                int i=arrayIndex(n,b),j=arrayIndex(n,c); Node out=exclusiveArray(n,false);
+                Object old=out.fields[i]; out.fields[i]=out.fields[j]; out.fields[j]=old;
+                stores+=2; result=out; return;
+            }
+            case ARRAY_LIST: {
+                Object list=ERASED;
+                for(int i=n.arraySize-1;i>=0;i--) {
+                    Object v=n.fields[i]; inc(v,1); Node cons=new Node(1,2,0); allocations++;
+                    cons.fields[0]=v; cons.fields[1]=list; list=cons;
+                }
+                dec(n,1); result=list; return;
+            }
+            default: throw error("Invalid array intrinsic");
+        }
     }
     private static boolean refPrimitive(int intrinsic) { return intrinsic>=REF_MK&&intrinsic<=REF_PTR_EQ; }
     private static boolean borrowedRefPrimitive(int intrinsic) { return intrinsic>=REF_GET&&intrinsic<=REF_PTR_EQ; }
@@ -1402,14 +1538,14 @@ public final class Interpreter implements AutoCloseable {
                 String s=builder.toString(); dec(a,1); result=s; break;
             }
             case ARRAY_MK: {
-                Object[] elements=listElements(b); Node n=new Node(246,elements.length,0); n.array=true;
+                Object[] elements=listElements(b); Node n=newArray(elements.length,elements.length);
                 for(int i=0;i<elements.length;i++) { inc(elements[i],1); n.fields[i]=elements[i]; }
-                allocations++; dec(b,1); result=n; break;
+                dec(b,1); result=n; break;
             }
-            case ARRAY_SIZE: result=Long.valueOf(array(b).fields.length); break;
+            case ARRAY_SIZE: result=Long.valueOf(array(b).arraySize); break;
             case ARRAY_GET: {
                 Node n=array(b); BigInteger index=nat(c);
-                require(index.compareTo(BigInteger.valueOf(n.fields.length))<0,"Array index outside bounds");
+                require(index.compareTo(BigInteger.valueOf(n.arraySize))<0,"Array index outside bounds");
                 result=n.fields[index.intValue()]; break; // Borrowed: caller IR owns the inc.
             }
             case GET_STDOUT: result=stdout(); break;
@@ -1720,7 +1856,7 @@ public final class Interpreter implements AutoCloseable {
                 require(target.resultType==OBJ,"Prepared closure requires boxed result");
                 for(int lane:target.paramTypes) require(lane==OBJ,"Prepared closure requires boxed parameters");
                 require(recipe.fields.length<target.params.length,"Invalid prepared partial application");
-                require(target.intrinsic!=ARRAY_SIZE&&target.intrinsic!=ARRAY_GET,
+                require(!borrowedArrayPrimitive(target.intrinsic),
                         "Borrowed array primitive requires owned closure wrapper");
                 require(!borrowedRefPrimitive(target.intrinsic),"Borrowed ref primitive requires owned closure wrapper");
                 closureTargets[i]=target;
@@ -1754,7 +1890,7 @@ public final class Interpreter implements AutoCloseable {
         Node[] shells=new Node[graph.nodes.length];
         for(int i=0;i<shells.length;i++) {
             ImportNode recipe=graph.nodes[i]; Node shell=new Node(recipe.tag,recipe.fields.length,recipe.scalars.length);
-            shell.rc=recipe.sourceRC==0?0:owners[i]; shell.array=recipe.kind==ImportNode.ARRAY; shell.ref=recipe.kind==ImportNode.REF;
+            shell.rc=recipe.sourceRC==0?0:owners[i]; shell.array=recipe.kind==ImportNode.ARRAY; shell.arraySize=shell.array?recipe.fields.length:0; shell.ref=recipe.kind==ImportNode.REF;
             if(recipe.kind==ImportNode.CLOSURE) { shell.closure=closureTargets[i]; shell.image=program.generation; }
             System.arraycopy(recipe.scalars,0,shell.scalars,0,recipe.scalars.length); shells[i]=shell;
         }
@@ -1785,7 +1921,7 @@ public final class Interpreter implements AutoCloseable {
         Function target=program.functions[function];
         requireExecutableAbi(target);
         require(captures.length<target.params.length,"Invalid partial application");
-        require(target.intrinsic!=ARRAY_SIZE&&target.intrinsic!=ARRAY_GET,
+        require(!borrowedArrayPrimitive(target.intrinsic),
                 "Borrowed array primitive requires owned closure wrapper");
         require(!borrowedRefPrimitive(target.intrinsic),"Borrowed ref primitive requires owned closure wrapper");
         for(int lane:target.paramTypes) require(lane==OBJ,"Unboxed partial target unsupported; boxed wrapper required");
@@ -2228,7 +2364,7 @@ public final class Interpreter implements AutoCloseable {
     }
     /** Internal borrowed array primitives need an owning wrapper at host entry. */
     private static void rootEntry(Function f) {
-        if(f.intrinsic==ARRAY_SIZE||f.intrinsic==ARRAY_GET)
+        if(borrowedArrayPrimitive(f.intrinsic))
             throw new UnsupportedOperationException("Borrowed array primitive requires owned guest wrapper at external entry");
         if(borrowedRefPrimitive(f.intrinsic))
             throw new UnsupportedOperationException("Borrowed ref primitive requires owned guest wrapper at external entry");
