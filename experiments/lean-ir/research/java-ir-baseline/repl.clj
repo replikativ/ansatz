@@ -162,6 +162,11 @@
   "Borrow a request accessor; arguments acquire no new guest ownership."
   [request accessor]
   (.invoke (.getMethod ^Class (class request) accessor (make-array Class 0)) request (object-array 0)))
+(defn lean-name-data
+  "Normalize immutable Java Name lists to nested Clojure vectors for hashed lookup.
+   Preserve exact Name tags and leaves; Java and Clojure collection hashes differ."
+  [value]
+  (if (instance? java.util.List value) (mapv lean-name-data value) value))
 (defn resume-host! [basis engine request value]
   (.invoke ^Method (:resume-host basis) engine (object-array [request value])))
 (defn fail-host! [basis engine request cause]
@@ -182,6 +187,46 @@
 (defn code-failure [basis engine]
   (.invoke (.getMethod ^Class (:class basis) "codeFailure" (make-array Class 0))
            engine (object-array 0)))
+(defn graph-ref [basis source-id]
+  (let [cls (Class/forName "ansatz.research.ir.Interpreter$GraphRef" true (:loader basis))]
+    (.newInstance (.getConstructor cls (into-array Class [Long/TYPE])) (object-array [(long source-id)]))))
+(defn graph-node [basis {:keys [kind id rc tag fields scalars target]
+                         :or {rc 0 fields [] scalars []} :as descriptor}]
+  (let [allowed (case kind
+                  :ctor #{:kind :id :rc :tag :fields :scalars}
+                  :array #{:kind :id :rc :fields}
+                  :ref #{:kind :id :rc :fields}
+                  :closure #{:kind :id :rc :target :fields})
+        _ (when (some #(not (contains? allowed %)) (keys descriptor))
+            (throw (ex-info "Unexpected graph descriptor field" {:kind kind})))
+        _ (when (and (= kind :ref) (not= 1 (count fields)))
+            (throw (ex-info "Ref requires exactly one payload" {})))
+        _ (when (and (= kind :closure) (nil? target))
+            (throw (ex-info "Closure requires an actual Header" {})))
+        cls (Class/forName "ansatz.research.ir.Interpreter$ImportNode" true (:loader basis))
+        objects (class (object-array 0)) bytes (class (byte-array 0))
+        [types arguments]
+        (case kind
+          :ctor [[Long/TYPE Integer/TYPE Integer/TYPE objects bytes]
+                 [(long id) (int rc) (int tag) (object-array fields) (byte-array scalars)]]
+          :array [[Long/TYPE Integer/TYPE objects] [(long id) (int rc) (object-array fields)]]
+          :ref [[Long/TYPE Integer/TYPE Object] [(long id) (int rc) (first fields)]]
+          :closure [[Long/TYPE Integer/TYPE (class target) objects]
+                    [(long id) (int rc) target (object-array fields)]])]
+    (invoke-static (.getMethod cls (name kind) (into-array Class types)) arguments)))
+(defn prepared-graph [basis source state-token nodes globals global-values owned-roots]
+  (let [cls (Class/forName "ansatz.research.ir.Interpreter$PreparedGraph" true (:loader basis))
+        node-class (Class/forName "ansatz.research.ir.Interpreter$ImportNode" true (:loader basis))
+        node-array (java.lang.reflect.Array/newInstance node-class (count nodes))
+        global-array (header-array basis globals) objects (class (object-array 0))]
+    (doseq [[i node] (map-indexed vector nodes)] (java.lang.reflect.Array/set node-array i node))
+    (.newInstance (.getConstructor cls (into-array Class [(class source) Object (class node-array)
+                                                         (class global-array) objects objects]))
+                  (object-array [source state-token node-array global-array
+                                 (object-array global-values) (object-array owned-roots)]))))
+(defn install-graph! [basis engine graph]
+  (vec (.invoke (.getMethod ^Class (:class basis) "installGraph" (into-array Class [(class graph)]))
+                engine (object-array [graph]))))
 (defn fork!
   "On-demand capture. ROOTS must account for the external owner/alias contract."
   [basis engine roots]
