@@ -39,6 +39,46 @@ would differ for supplementary characters versus some BMP characters. Length
 counts Unicode scalars; byte size counts UTF-8 bytes. Replacement may change byte
 length and accepts embedded NUL while preserving the number of characters.
 
+## Proof-carrying String positions
+
+The [modern position fixture](../test/fixtures/java-string-pos-runtime/README.md)
+adds the original `String.Pos.set` and its genuine boxed wrapper, alongside
+`String.decodeChar`, `String.Pos.next` and `String.extract` and their wrappers.
+These positions erase to logical Nat byte offsets, not raw USize lanes. The
+modern setter shares `lean_string_utf8_set` with legacy `String.Pos.Raw.set`,
+but its exact ABI consumes String and position, takes UInt32 Char and an erased
+non-end proof. The legacy three-argument borrowed-position ABI keeps its existing
+safe invalid-index behavior.
+
+Both execution drivers dispatch all four modern setter arguments before the
+ordinary three-argument path. Erased proof, logical Nat, valid non-end UTF-8
+boundary and Unicode scalar validate before narrowing, output construction or
+ownership effects. Replacing a character may change byte width, supports NUL,
+and caps the resulting UTF-8 payload at 16 MiB. Invalid modern proof/index inputs
+reject explicitly; they do not inherit legacy setter's return-input fallback.
+Strings remain immutable Java leaves, so native exclusive ASCII in-place identity
+and native allocation behavior are not claimed.
+
+Fast get/next now also check their erased proof placeholder. Their existing
+valid-index domain remains; extraction retains its pinned shared native behavior.
+Raw borrowed fast get/next/extract require original owning wrappers at external
+root, PAP, makeClosure and prepared-closure boundaries. Direct internal FAP
+preserves each original borrow ABI. The genuine wrappers supply ownership and
+Char boxing; no body or original row hash is rewritten.
+
+Pinned sources: Init/Data/String/Defs.lean:352–360 (Pos); Basic.lean:786–789,
+:1152–1154, :1665–1667 (extract/decode/next); Modify.lean:34–42,:160–166
+(modern versus legacy setters); runtime/object.cpp:2468–2495 and
+include/lean/lean.h:1350 (native replacement).
+
+Ten focused tests pass from a separately compiled Java 11 jar in a retained
+256 MiB REPL: 248 recursive and 269 explicit assertions. They cover original
+ABIs/wrappers, Unicode and byte-offset matrices, invalid/high-bit/huge Nat inputs,
+proof and owner preflight, output-cap refusal, borrowed entry fences and forked
+boxed partial applications. Existing String, completion and baseline tests also
+pass in both drivers. No Init/image or command elaboration was run for this
+isolated change; those acceptance receipts remain separate.
+
 ## Range, Substring and repetition completion
 
 `lean_string_memcmp` has seven exact arguments: borrowed String/String/Nat/Nat/Nat
@@ -103,3 +143,17 @@ Four malformed cases stop during diagnostic-body preparation at the unsupported
 Float lane. They are explicit compatibility gaps, not successful error output.
 This corpus does not establish full command elaboration, project execution or
 self-hosting. Single shared-machine case times are not a native-speed benchmark.
+
+Integration evidence (2026-10-30): the complete standalone jar gate passes
+704 test executions / 21,433 assertions across 77 suites, with a 384 MiB heap.
+The existing native-output main checks now enter the original owned boxed
+get/next wrappers; invalid proof/position cases use separate fresh engines in
+the position suite because an in-wrapper failure is terminal in explicit mode.
+The runner also checks both added suites in its expected-count contract.
+
+The retained command probe executes the original `compileImportedFileState`
+with a genuine fresh guest environment and `prelude\naxiom HostedSort : Sort 1\n`.
+It advances to `IO.Promise.new` after 512 newly demanded original bodies and
+299,247 IR instructions. Its 44 initialized globals are authenticated companion
+values and all external owners are included at fork. No declaration has been
+published: pending tasks and promises require a separate active runtime profile.

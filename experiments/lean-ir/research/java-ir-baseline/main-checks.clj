@@ -1,6 +1,7 @@
 (ns java-ir-main-checks
   (:require [clojure.test :refer [deftest is run-tests]]
             [clojure.edn :as edn]
+            [clojure.data.json :as json]
             [java-ir-baseline :as j]
             [java-ir-baseline-checks :as c]
             [java-ir-extern-checks :as x]
@@ -56,7 +57,13 @@
                             (c/let-ir 9 "object" (c/fap "repeat-list" [(c/v 6) (c/v 8)]) (c/ret 9))))))]]])))]))
 
 (defn context []
-  (prepare (concat (j/rows "test/fixtures/unchanged-programs/rbmap-main.jsonl") (helper-rows))))
+  (prepare (concat (j/rows "test/fixtures/unchanged-programs/rbmap-main.jsonl")
+                   ;; Public calls enter the original owned wrappers; their FAPs
+                   ;; retain the captured borrowed primitive ABI.
+                   (for [record (json/read-str (slurp "test/fixtures/java-string-pos-runtime/original-rows.json"))
+                         :when (#{"String.decodeChar._boxed" "String.Pos.next._boxed"} (get record "label"))]
+                     (get record "row"))
+                   (helper-rows))))
 
 (deftest original-main-matches-pinned-native-output
   (let [receipt (edn/read-string (slurp "measurements/java-ir-rbmap-main-oracle.edn"))
@@ -102,10 +109,10 @@
         (j/release! ctx engine list))
       (is (= "" (j/call ctx engine "String.ofList" [0])))
       (doseq [{:keys [position cp next]} (:positions receipt)]
-        (is (= cp (j/call ctx engine "String.decodeChar" [s position 0])))
-        (is (= next (j/call ctx engine "String.Pos.next" [s position 0]))))
-      (doseq [position [2 11 12 (biginteger "18446744073709551616")]]
-        (is (not= "NO ERROR" (c/failure #(j/call ctx engine "String.decodeChar" [s position 0])))))
+        (is (= cp (j/call ctx engine "String.decodeChar._boxed" [s position 0])))
+        (is (= next (j/call ctx engine "String.Pos.next._boxed" [s position 0]))))
+      ;; Invalid positions/proofs run in fresh engines in string-pos-checks:
+      ;; failure inside a guest wrapper is terminal in the explicit driver.
       (finally (j/close! ctx engine)))))
 
 (deftest arrays-preserve-shared-spines-and-borrowed-results
