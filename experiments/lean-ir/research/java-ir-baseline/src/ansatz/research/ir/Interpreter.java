@@ -47,6 +47,7 @@ public final class Interpreter implements AutoCloseable {
                              U64_LT=90,U64_EQ=91,U64_OWNED_NAT=92,U64_TO_U32=98;
     private static final int BOOL_U64=500,U64_ADD=501,U64_SUB=502,U64_MUL=503,U64_DIV=504,U64_MOD=505,
                              U64_AND=506,U64_OR=507,U64_NOT=508,U64_NEG=509,U64_LOG2=510,U64_SHL=511,U64_LE=512;
+    private static final int U8_TO_U64=513,U32_TO_U64=514,USIZE_TO_U64=515;
     private static final int BYTE_MK=200,BYTE_GET=201,BYTE_SIZE=202,BYTE_PUSH=203;
     private static final int INT_OF_NAT=210,INT_NEG_SUCC=211,INT_NEG=212,INT_ABS=213,INT_ADD=214,INT_SUB=215,INT_EQ=216,INT_LT=217,INT_LE=218;
     private static final int STR_MEMCMP=230,STR_SUBSTRING_EQ=231,STR_POS_OF=232,STR_OFFSET_OF_POS=233,STR_PUSHN=234;
@@ -439,6 +440,12 @@ public final class Interpreter implements AutoCloseable {
                 new String[]{"uint64","uint64"},new boolean[]{false,false}));
         register(registry,new ExternSpec("lean_level_mk_data",LEVEL_DATA,"uint64",
                 new String[]{"uint64","tobject","uint8","uint8"},new boolean[]{false,false,false,false}));
+        register(registry,new ExternSpec("lean_uint8_to_uint64",U8_TO_U64,"uint64",
+                new String[]{"uint8"},new boolean[]{false}));
+        register(registry,new ExternSpec("lean_uint32_to_uint64",U32_TO_U64,"uint64",
+                new String[]{"uint32"},new boolean[]{false}));
+        register(registry,new ExternSpec("lean_usize_to_uint64",USIZE_TO_U64,"uint64",
+                new String[]{"usize"},new boolean[]{false}));
         register(registry,new ExternSpec("lean_bool_to_uint64",BOOL_U64,"uint64",
                 new String[]{"uint8"},new boolean[]{false}));
         register(registry,new ExternSpec("lean_uint64_add",U64_ADD,"uint64",
@@ -3639,6 +3646,7 @@ public final class Interpreter implements AutoCloseable {
             case U64_LT: case U64_EQ: case U64_OWNED_NAT: case U64_TO_U32:
             case BOOL_U64: case U64_ADD: case U64_SUB: case U64_MUL: case U64_DIV: case U64_MOD:
             case U64_AND: case U64_OR: case U64_NOT: case U64_NEG: case U64_LOG2: case U64_SHL: case U64_LE:
+            case U8_TO_U64: case U32_TO_U64: case USIZE_TO_U64:
                 return true;
             default: return false;
         }
@@ -3674,6 +3682,7 @@ public final class Interpreter implements AutoCloseable {
             case U32_TO_U8: scalarResult=(Long)a&255; break;
             case U32_ADD: scalarResult=((Long)a+(Long)b)&0xffffffffL; break;
             case STR_HASH: scalarResult=stringHash(utf8(a)); break;
+            case U8_TO_U64: case U32_TO_U64: case USIZE_TO_U64: scalarResult=(Long)a; break;
             case BOOL_U64: requireBoolScalar(a); scalarResult=(Long)a; break;
             case U64_ADD: scalarResult=(Long)a+(Long)b; break;
             case U64_SUB: scalarResult=(Long)a-(Long)b; break;
