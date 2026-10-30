@@ -873,6 +873,15 @@ public final class Interpreter implements AutoCloseable {
             return cursor==ancestor;
         }
     }
+    /** Trusted-host export association, not a source-byte or export-attribute
+     * verifier. Both original Headers stay unchanged; no executable host code. */
+    public static final class GuestExportBinding {
+        private final Header origin,target;
+        public GuestExportBinding(Header origin,Header target) {
+            require(origin!=null&&target!=null,"Actual export origin and target Headers required");
+            this.origin=origin; this.target=target;
+        }
+    }
     public static final class Program {
         final Function[] functions;
         final PreparedBody[] preparedBodies;
@@ -880,8 +889,10 @@ public final class Interpreter implements AutoCloseable {
         final Map<Object,Function> typedNames;
         final Map<String,List<HostExtern>> hostRegistry;
         final Generation generation;
+        private final Function[] guestExports;
         private Program(Function[] functions,PreparedBody[] preparedBodies,Map<String,Function> labels,Map<Object,Function> typedNames,
-                        Map<String,List<HostExtern>> hostRegistry,Generation generation) {
+                        Map<String,List<HostExtern>> hostRegistry,Generation generation,Function[] guestExports) {
+            this.guestExports=guestExports;
             this.functions=functions; this.preparedBodies=preparedBodies; this.labels=labels; this.typedNames=typedNames;
             this.hostRegistry=hostRegistry; this.generation=generation;
         }
@@ -910,6 +921,12 @@ public final class Interpreter implements AutoCloseable {
         public static Program materialize(Program base,Header target,Map<String,Object> originalRow,Header[] directHeaders) {
             return materializedBody(base,target,originalRow,directHeaders);
         }
+        /** Add explicit source-backed implementations for unavailable externs.
+         * Caller authenticates export association and original row bytes. This
+         * publishes one immutable descendant; rejected batches change nothing. */
+        public static Program bindGuestExports(Program base,GuestExportBinding[] bindings) {
+            return boundGuestExports(base,bindings);
+        }
         public int functionCount() { return functions.length; }
         /** Append-only link against this actual base, preserving every old
          * function identity/ID. Metadata-only input with no new ABI is a no-op. */
@@ -920,6 +937,41 @@ public final class Interpreter implements AutoCloseable {
         }
     }
 
+    private static Program boundGuestExports(Program base,GuestExportBinding[] bindings) {
+        require(base!=null&&bindings!=null,"Actual base Program and explicit export bindings required");
+        Function[] targets=base.guestExports.clone(); boolean changed=false;
+        for(GuestExportBinding binding:bindings.clone()) {
+            require(binding!=null,"Null guest export binding");
+            Header origin=binding.origin,target=binding.target;
+            Function from=base.functions[base.functionId(origin)],to=base.functions[base.functionId(target)];
+            require(origin.kind.equals("extern")&&target.kind.equals("fdecl"),
+                    "Guest export requires extern origin and direct fdecl target");
+            require(from!=to&&origin.source==target.source,"Guest export source binding differs");
+            require(from.params.length>0&&!origin.initialized()&&!target.initialized(),
+                    "Nullary or initialized guest exports are outside this profile");
+            Object symbol=externSymbol(origin.declaration);
+            require(symbol instanceof String&&!((String)symbol).isEmpty()&&((String)symbol).length()<=4096
+                    &&((String)symbol).indexOf('\0')<0,"Invalid guest export symbol");
+            require(!EXTERNS.containsKey(symbol),"Guest export cannot shadow builtin: "+symbol);
+            require(from.hostExtern==null&&!base.hostRegistry.containsKey(symbol),
+                    "Guest export conflicts with host extern: "+symbol);
+            require(from.intrinsic==0&&to.intrinsic==0&&to.hostExtern==null,"Guest export requires ordinary target code");
+            require(origin.resultType.equals(target.resultType)&&Arrays.equals(origin.paramTypes,target.paramTypes)
+                    &&Arrays.equals(origin.borrowed,target.borrowed),"Guest export raw ABI mismatch");
+            requireExecutableAbi(from); requireExecutableAbi(to);
+            require(targets[from.id]==null||targets[from.id]==to,"Guest export binding cannot be replaced");
+            if(targets[from.id]==null) { targets[from.id]=to; changed=true; }
+        }
+        if(!changed) return base;
+        return new Program(base.functions,base.preparedBodies,base.labels,base.typedNames,base.hostRegistry,
+                           new Generation(base.generation),targets);
+    }
+    private static void hostExportConflict(Program base,String symbol) {
+        if(base==null) return;
+        for(int i=0;i<base.guestExports.length;i++) if(base.guestExports[i]!=null)
+            require(!symbol.equals(externSymbol(base.functions[i].header.declaration)),
+                    "Host extern conflicts with guest export: "+symbol);
+    }
     private static Map<String,List<HostExtern>> extendedHostRegistry(Program base,HostExtern[] additional) {
         require(additional!=null,"Explicit host extern registry required");
         Map<String,List<HostExtern>> registry=new HashMap<>();
@@ -927,6 +979,7 @@ public final class Interpreter implements AutoCloseable {
             registry.put(entry.getKey(),new ArrayList<>(entry.getValue()));
         for(HostExtern descriptor:additional.clone()) {
             require(descriptor!=null,"Null host extern descriptor");
+            hostExportConflict(base,descriptor.symbol);
             require(!EXTERNS.containsKey(descriptor.symbol),"Host extern cannot shadow builtin: "+descriptor.symbol);
             List<HostExtern> entries=registry.computeIfAbsent(descriptor.symbol,ignored->new ArrayList<>());
             for(HostExtern old:entries) require(!descriptor.sameAbi(old),"Duplicate host extern ABI: "+descriptor.symbol);
@@ -970,7 +1023,7 @@ public final class Interpreter implements AutoCloseable {
         for(Function function:additions) functions[function.id]=function;
         return new Program(functions,Arrays.copyOf(base.preparedBodies,functions.length),
                            Collections.unmodifiableMap(labels),Collections.unmodifiableMap(byName),registry,
-                           new Generation(base.generation));
+                           new Generation(base.generation),Arrays.copyOf(base.guestExports,functions.length));
     }
     private static void directTargets(Body body,Set<Function> targets) {
         if(body==null) return;
@@ -1003,7 +1056,7 @@ public final class Interpreter implements AutoCloseable {
         require(expected.isEmpty(),"Unused direct declaration header");
         validate(function,builder.body);
         PreparedBody[] slots=staged.preparedBodies.clone(); slots[id]=builder.finish();
-        return new Program(staged.functions,slots,staged.labels,staged.typedNames,staged.hostRegistry,new Generation(staged.generation));
+        return new Program(staged.functions,slots,staged.labels,staged.typedNames,staged.hostRegistry,new Generation(staged.generation),staged.guestExports);
     }
 
     /** Explicit trusted-host selection of guest producer metadata, not a hash
@@ -1301,6 +1354,7 @@ public final class Interpreter implements AutoCloseable {
             hostRegistry.put(entry.getKey(),new ArrayList<>(entry.getValue()));
         for(HostExtern descriptor:externs.clone()) {
             require(descriptor!=null,"Null host extern descriptor");
+            hostExportConflict(base,descriptor.symbol);
             require(!EXTERNS.containsKey(descriptor.symbol),"Host extern cannot shadow builtin: "+descriptor.symbol);
             List<HostExtern> entries=hostRegistry.computeIfAbsent(descriptor.symbol,ignored->new ArrayList<>());
             for(HostExtern old:entries) require(!descriptor.sameAbi(old),"Duplicate host extern ABI: "+descriptor.symbol);
@@ -1352,7 +1406,8 @@ public final class Interpreter implements AutoCloseable {
         Function[] prepared=labels.values().toArray(new Function[0]);
         hostRegistry.replaceAll((symbol,entries)->Collections.unmodifiableList(entries));
         return new Program(prepared,preparedBodies,Collections.unmodifiableMap(labels),Collections.unmodifiableMap(byName),
-                           Collections.unmodifiableMap(hostRegistry),new Generation(base==null?null:base.generation));
+                           Collections.unmodifiableMap(hostRegistry),new Generation(base==null?null:base.generation),
+                           base==null?new Function[prepared.length]:Arrays.copyOf(base.guestExports,prepared.length));
     }
     private static Function target(Map<Object,Function> functions,Object name) {
         Function f=functions.get(frozenName(name)); if(f==null) throw error("Unresolved function: "+name); return f;
@@ -2562,17 +2617,28 @@ public final class Interpreter implements AutoCloseable {
     private static void requireBuildUnit(Object value) {
         require(value instanceof Long&&((Long)value).longValue()==0,"Build identity requires canonical Unit zero");
     }
-    private void preflightCallable(Function function) { preflightCallable(function,false); }
-    private void preflightCallable(Function function,boolean allowCodeRequest) {
+    private Function executionTarget(Function function) {
+        if(function.intrinsic!=0||function.hostExtern!=null) return function;
+        Header header=function.header;
+        if(header==null||!header.kind.equals("extern")) return function;
+        require(function.id>=0&&function.id<program.functions.length&&program.functions[function.id]==function,
+                "Export origin outside current Program");
+        Function target=program.guestExports[function.id];
+        return target==null?function:target;
+    }
+    private Function preflightCallable(Function function) { return preflightCallable(function,false); }
+    private Function preflightCallable(Function function,boolean allowCodeRequest) {
         requireExecutableAbi(function);
+        Function target=executionTarget(function);
+        if(target!=function) { requireExecutableAbi(target); function=target; }
         if(buildIdentityPrimitive(function.intrinsic)) requireBuildIdentity();
-        if(function.params.length==0&&constantReady[function.id]) return;
+        if(function.params.length==0&&constantReady[function.id]) return function;
         Header header=function.header;
         if(header!=null&&header.initialized()) throw error("Initialized global is unavailable: "+function.label);
-        if(function.hostExtern!=null||function.intrinsic!=0) return;
+        if(function.hostExtern!=null||function.intrinsic!=0) return function;
         if(header!=null&&header.kind.equals("extern")) throw error("Extern implementation unavailable: "+function.label);
-        if(allowCodeRequest&&header!=null&&program.preparedBodies[function.id]==null) return;
-        preparedBody(function);
+        if(allowCodeRequest&&header!=null&&program.preparedBodies[function.id]==null) return function;
+        preparedBody(function); return function;
     }
     private PreparedBody preparedBody(Function function) {
         require(function.id>=0&&function.id<program.functions.length
@@ -2582,7 +2648,7 @@ public final class Interpreter implements AutoCloseable {
         return prepared;
     }
     private void call(Function f,int[] args) {
-        preflightCallable(f);
+        f=preflightCallable(f);
         if(f.hostExtern!=null) throw new UnsupportedOperationException("Host extern requires explicit driver: "+f.hostExtern.symbol);
         if(args.length!=f.params.length) throw error("Arity mismatch: "+f.label);
         if(f.intrinsic==TASK_MAP) { taskMapRecursive(taskMapArguments(args)); return; }
@@ -2599,7 +2665,7 @@ public final class Interpreter implements AutoCloseable {
         finally { Arrays.fill(objects,oldSp,sp,null); Arrays.fill(joins,oldJsp,jsp,null); bp=oldBp;sp=oldSp;jbp=oldJbp;jsp=oldJsp; }
     }
     private void enter(Function f,Object[] args) {
-        preflightCallable(f);
+        f=preflightCallable(f);
         if(f.hostExtern!=null) throw new UnsupportedOperationException("Host extern requires explicit driver: "+f.hostExtern.symbol);
         if(args.length!=f.params.length) throw error("Arity mismatch: "+f.label);
         if(f.intrinsic==TASK_MAP) { taskMapRecursive(args); return; }
@@ -2616,11 +2682,11 @@ public final class Interpreter implements AutoCloseable {
     private Object apply(Object value,Object[] args) {
         Node closure=node(value); if(closure.closure==null) throw error("Expected closure");
         acceptsClosure(closure);
-        Function f=closure.closure;
+        Function f=closure.closure,called=f;
         rootEntry(f);
         requireExecutableAbi(f);
         if(closure.fields.length+args.length>=f.params.length) {
-            preflightCallable(f);
+            called=preflightCallable(f);
             if(buildIdentityPrimitive(f.intrinsic)) requireBuildUnit(closure.fields.length==0?args[0]:closure.fields[0]);
         }
         Object[] combined=new Object[closure.fields.length+args.length];
@@ -2632,7 +2698,7 @@ public final class Interpreter implements AutoCloseable {
         else dec(closure,1);
         if(combined.length<f.params.length) return closure(f,combined);
         Object[] actual=combined.length==f.params.length?combined:Arrays.copyOf(combined,f.params.length);
-        enter(f,actual); Object answer=f.resultType==OBJ?result:boxScalar(scalarResult,f.resultType);
+        enter(called,actual); Object answer=called.resultType==OBJ?result:boxScalar(scalarResult,called.resultType);
         return combined.length==f.params.length?answer:apply(answer,Arrays.copyOfRange(combined,f.params.length,combined.length));
     }
     private Node closure(Function f,Object[] captured) {
@@ -2667,7 +2733,7 @@ public final class Interpreter implements AutoCloseable {
             switch(b.op) {
                 case VDECL: {
                     Expr e=b.expr;
-                    if(e.op==FAP&&e.target==f&&b.next.op==RET&&b.next.a==b.a) {
+                    if(e.op==FAP&&executionTarget(e.target)==f&&b.next.op==RET&&b.next.a==b.a) {
                         int scratch=sp; ensure(sp+e.args.length,jsp);
                         for(int i=0;i<e.args.length;i++) { objects[scratch+i]=obj(e.args[i]); numbers[scratch+i]=numbers[bp+e.args[i]]; }
                         for(int i=0;i<e.args.length;i++) { objects[bp+f.params[i]]=objects[scratch+i]; numbers[bp+f.params[i]]=numbers[scratch+i]; objects[scratch+i]=null; }
@@ -2736,6 +2802,8 @@ public final class Interpreter implements AutoCloseable {
         require(descendant.functions.length>=program.functions.length,"Descendant function table shrank");
         for(int i=0;i<program.functions.length;i++) {
             require(descendant.functions[i]==program.functions[i],"Descendant replaced an inherited function");
+            require(program.guestExports[i]==null||descendant.guestExports[i]==program.guestExports[i],
+                    "Descendant replaced an inherited guest export binding");
             require(program.preparedBodies[i]==null||descendant.preparedBodies[i]==program.preparedBodies[i],
                     "Descendant replaced an inherited prepared body");
         }
@@ -3129,7 +3197,7 @@ public final class Interpreter implements AutoCloseable {
         if(advancing||phase!=IDLE) throw new IllegalStateException("Take the result or finish the current execution before start");
         Function f=program.functions[function];
         rootEntry(f);
-        preflightCallable(f,true);
+        f=preflightCallable(f,true);
         validateEntryArguments(f,args);
         if(f.params.length==0&&constantReady[f.id]) {
             if(f.resultType==OBJ) { result=constants[f.id]; inc(result,1); }
@@ -3160,7 +3228,7 @@ public final class Interpreter implements AutoCloseable {
 
     private void enterExplicit(Function f,int[] slots,Object[] args,Body next,int dest,int kind,Object[] surplus) {
         if(continuationDepth>=65536) throw error("Continuation depth limit");
-        preflightCallable(f,true);
+        f=preflightCallable(f,true);
         if(program.preparedBodies[f.id]==null) {
             suspendCode(f,slots,args,next,dest,kind,surplus); return;
         }
@@ -3190,11 +3258,11 @@ public final class Interpreter implements AutoCloseable {
     private boolean prepareExplicitApply(Object value,Object[] args) {
         Node closure=node(value); if(closure.closure==null) throw error("Expected closure");
         acceptsClosure(closure);
-        Function f=closure.closure;
+        Function f=closure.closure,called=f;
         rootEntry(f);
         requireExecutableAbi(f);
         if(closure.fields.length+args.length>=f.params.length) {
-            preflightCallable(f,true);
+            called=preflightCallable(f,true);
             if(buildIdentityPrimitive(f.intrinsic)) requireBuildUnit(closure.fields.length==0?args[0]:closure.fields[0]);
         }
         Object[] combined=new Object[closure.fields.length+args.length];
@@ -3204,7 +3272,7 @@ public final class Interpreter implements AutoCloseable {
         if(closure.rc==1) { closure.dead=true; Arrays.fill(closure.fields,null); shellDeletes++; }
         else dec(closure,1);
         if(combined.length<f.params.length) { result=closure(f,combined); return false; }
-        applicationTarget=f;
+        applicationTarget=called;
         applicationArgs=combined.length==f.params.length?combined:Arrays.copyOf(combined,f.params.length);
         applicationSurplus=combined.length==f.params.length?null:Arrays.copyOfRange(combined,f.params.length,combined.length);
         return true;
@@ -3287,8 +3355,8 @@ public final class Interpreter implements AutoCloseable {
                     case VDECL: {
                         Expr e=b.expr; int dest=bp+b.a;
                         if(e.op==FAP) {
-                            Function f=e.target;
-                            if(f!=active) preflightCallable(f,true);
+                            Function f=executionTarget(e.target);
+                            if(f!=active) f=preflightCallable(f,true);
                             if(f==active&&b.next.op==RET&&b.next.a==b.a) {
                                 int scratch=sp; ensure(sp+e.args.length,jsp);
                                 for(int i=0;i<e.args.length;i++) { objects[scratch+i]=obj(e.args[i]); numbers[scratch+i]=numbers[bp+e.args[i]]; }
@@ -3381,7 +3449,7 @@ public final class Interpreter implements AutoCloseable {
         Function f=program.functions[function];
         rootEntry(f);
         if(f.hostExtern!=null) throw new UnsupportedOperationException("Host extern requires explicit driver: "+f.hostExtern.symbol);
-        preflightCallable(f);
+        f=preflightCallable(f);
         validateEntryArguments(f,args);
         callsLeft=10_000_000;
         try {

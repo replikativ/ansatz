@@ -156,6 +156,25 @@
          method (.getMethod cls "registerHeaders" (into-array Class [cls (class array) (class externs)]))]
      (assoc basis :program (invoke-static method [(:program basis) array externs])))))
 
+(defn bind-guest-exports
+  "Publish source-authenticated extern Header→fdecl Header pairs in a descendant.
+   This does not verify source bytes or prove an upstream export association."
+  [basis bindings]
+  (when-not (sequential? bindings)
+    (throw (ex-info "Explicit guest export pairs required" {})))
+  (let [cls (Class/forName "ansatz.research.ir.Interpreter$GuestExportBinding" true (:loader basis))
+        header (Class/forName "ansatz.research.ir.Interpreter$Header" true (:loader basis))
+        constructor (.getConstructor cls (into-array Class [header header]))
+        array (java.lang.reflect.Array/newInstance cls (count bindings))
+        program (class (:program basis))
+        method (.getMethod program "bindGuestExports" (into-array Class [program (class array)]))]
+    (doseq [[index pair] (map-indexed vector bindings)]
+      (when-not (and (sequential? pair) (= 2 (count pair)))
+        (throw (ex-info "Guest export pair must contain exactly two Headers" {})))
+      (java.lang.reflect.Array/set array index
+        (.newInstance constructor (object-array pair))))
+    (assoc basis :program (invoke-static method [(:program basis) array]))))
+
 (defn materialize-body
   "Prepare one authenticated original body; its dependencies remain headers."
   [basis target original-row direct-headers]

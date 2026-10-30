@@ -219,3 +219,7 @@ prepared slots and explicit control boundaries. LLVM is not required.
 First-release code/state distribution is described in
 [the pinned frontend bundle plan](JAVA_FRONTEND_BUNDLE.md). A bundle avoids a
 native build for runtime users; it does not supply missing Java runtime behavior.
+
+Explicit source-backed extern-to-fdecl dispatch is documented in
+[JAVA_GUEST_EXPORT_BINDINGS.md](JAVA_GUEST_EXPORT_BINDINGS.md). The actual target
+Header remains the demand-code identity; original IR rows are unchanged.
