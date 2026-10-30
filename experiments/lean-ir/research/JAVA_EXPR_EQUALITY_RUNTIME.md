@@ -80,4 +80,8 @@ The agent ran bounded Java11 compilation, static source/delimiter/diff checks an
 the offline native-evidence verifier. Root ran the Clojure suites in the existing
 retained JVM; no new Clojure/test JVM or full image/Init replay was launched.
 Independent pinned-source review found no remaining valid-source comparator
-blocker. The combined integration/full regression gate remains root-owned.
+blocker. The final isolated jar gate passed102 suites /997 tests /52,235
+assertions, exit0 at384MiB. Its runner footer independently matches all102
+observed suite counts in order. The original frontend prefix crossed Expr.eqv
+and stopped at missing initialized `Lean.warn.sorry`, before the kernel adapter;
+no original command/file completion is established.
