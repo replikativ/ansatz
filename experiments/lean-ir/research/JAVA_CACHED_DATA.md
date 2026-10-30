@@ -53,7 +53,16 @@ ABI evidence. Existing native-verified mkData/mkAppData packing and original
 constructor IR provide the separate cache-construction evidence. Source/license,
 original row hashes, fixture hashes and oracle provenance are retained.
 
-The feature worker may run bounded javac/jar processes. Focused execution and
-integration gates use the root's retained REPL; no additional live interpreter
-JVM or frontend image is launched here. Final acceptance remains the recorded
-focused checks and subsequent genuine frontend/integration gate results.
+Java11 compilation passed. Both drivers passed seven focused tests / 297
+assertions each in the root's retained 384 MiB REPL. The isolated jar gate exited0
+with 100 suites / 967 tests / 50,877 assertions; all100 footer positions match
+observed suite counts in order. Source SHA256 is
+`5d892bdeba775a0ad08007e488f6e91348b0c5151e49b7f0d42e3270ab846812`;
+jar SHA256 is `1e8e0a2488aa7e919cd78bc84ef982492f5da340ceab058a64ffab035c166834`.
+The source received an independent review with no blocker.
+
+The genuine command crossed this cache-read boundary and reached 364,291
+instructions / 1,331 demanded bodies, stopping at missing `Lean.Expr.eqv`.
+The kernel adapter had not started and frontend execution remains incomplete.
+Only bounded compiler/jar processes were launched by this feature worker;
+focused execution used the existing retained interpreter JVM.
