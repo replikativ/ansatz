@@ -1,0 +1,802 @@
+[
+  {
+    "flag": "0",
+    "a": "0",
+    "b": "0",
+    "results": {
+      "Bool.toUInt64": "0",
+      "UInt64.add": "0",
+      "UInt64.sub": "0",
+      "UInt64.mul": "0",
+      "UInt64.div": "0",
+      "UInt64.mod": "0",
+      "UInt64.land": "0",
+      "UInt64.lor": "0",
+      "UInt64.complement": "18446744073709551615",
+      "UInt64.neg": "0",
+      "UInt64.log2": "0",
+      "UInt64.shiftLeft": "0",
+      "UInt64.decLe": "1"
+    }
+  },
+  {
+    "flag": "0",
+    "a": "0",
+    "b": "64",
+    "results": {
+      "Bool.toUInt64": "0",
+      "UInt64.add": "64",
+      "UInt64.sub": "18446744073709551552",
+      "UInt64.mul": "0",
+      "UInt64.div": "0",
+      "UInt64.mod": "0",
+      "UInt64.land": "0",
+      "UInt64.lor": "64",
+      "UInt64.complement": "18446744073709551615",
+      "UInt64.neg": "0",
+      "UInt64.log2": "0",
+      "UInt64.shiftLeft": "0",
+      "UInt64.decLe": "1"
+    }
+  },
+  {
+    "flag": "0",
+    "a": "1",
+    "b": "0",
+    "results": {
+      "Bool.toUInt64": "0",
+      "UInt64.add": "1",
+      "UInt64.sub": "1",
+      "UInt64.mul": "0",
+      "UInt64.div": "0",
+      "UInt64.mod": "1",
+      "UInt64.land": "0",
+      "UInt64.lor": "1",
+      "UInt64.complement": "18446744073709551614",
+      "UInt64.neg": "18446744073709551615",
+      "UInt64.log2": "0",
+      "UInt64.shiftLeft": "1",
+      "UInt64.decLe": "0"
+    }
+  },
+  {
+    "flag": "0",
+    "a": "18446744073709551615",
+    "b": "0",
+    "results": {
+      "Bool.toUInt64": "0",
+      "UInt64.add": "18446744073709551615",
+      "UInt64.sub": "18446744073709551615",
+      "UInt64.mul": "0",
+      "UInt64.div": "0",
+      "UInt64.mod": "18446744073709551615",
+      "UInt64.land": "0",
+      "UInt64.lor": "18446744073709551615",
+      "UInt64.complement": "0",
+      "UInt64.neg": "1",
+      "UInt64.log2": "63",
+      "UInt64.shiftLeft": "18446744073709551615",
+      "UInt64.decLe": "0"
+    }
+  },
+  {
+    "flag": "0",
+    "a": "18446744073709551615",
+    "b": "1",
+    "results": {
+      "Bool.toUInt64": "0",
+      "UInt64.add": "0",
+      "UInt64.sub": "18446744073709551614",
+      "UInt64.mul": "18446744073709551615",
+      "UInt64.div": "18446744073709551615",
+      "UInt64.mod": "0",
+      "UInt64.land": "1",
+      "UInt64.lor": "18446744073709551615",
+      "UInt64.complement": "0",
+      "UInt64.neg": "1",
+      "UInt64.log2": "63",
+      "UInt64.shiftLeft": "18446744073709551614",
+      "UInt64.decLe": "0"
+    }
+  },
+  {
+    "flag": "0",
+    "a": "18446744073709551615",
+    "b": "2",
+    "results": {
+      "Bool.toUInt64": "0",
+      "UInt64.add": "1",
+      "UInt64.sub": "18446744073709551613",
+      "UInt64.mul": "18446744073709551614",
+      "UInt64.div": "9223372036854775807",
+      "UInt64.mod": "1",
+      "UInt64.land": "2",
+      "UInt64.lor": "18446744073709551615",
+      "UInt64.complement": "0",
+      "UInt64.neg": "1",
+      "UInt64.log2": "63",
+      "UInt64.shiftLeft": "18446744073709551612",
+      "UInt64.decLe": "0"
+    }
+  },
+  {
+    "flag": "0",
+    "a": "9223372036854775808",
+    "b": "2",
+    "results": {
+      "Bool.toUInt64": "0",
+      "UInt64.add": "9223372036854775810",
+      "UInt64.sub": "9223372036854775806",
+      "UInt64.mul": "0",
+      "UInt64.div": "4611686018427387904",
+      "UInt64.mod": "0",
+      "UInt64.land": "0",
+      "UInt64.lor": "9223372036854775810",
+      "UInt64.complement": "9223372036854775807",
+      "UInt64.neg": "9223372036854775808",
+      "UInt64.log2": "63",
+      "UInt64.shiftLeft": "0",
+      "UInt64.decLe": "0"
+    }
+  },
+  {
+    "flag": "0",
+    "a": "9223372036854775808",
+    "b": "9223372036854775808",
+    "results": {
+      "Bool.toUInt64": "0",
+      "UInt64.add": "0",
+      "UInt64.sub": "0",
+      "UInt64.mul": "0",
+      "UInt64.div": "1",
+      "UInt64.mod": "0",
+      "UInt64.land": "9223372036854775808",
+      "UInt64.lor": "9223372036854775808",
+      "UInt64.complement": "9223372036854775807",
+      "UInt64.neg": "9223372036854775808",
+      "UInt64.log2": "63",
+      "UInt64.shiftLeft": "9223372036854775808",
+      "UInt64.decLe": "1"
+    }
+  },
+  {
+    "flag": "0",
+    "a": "18446744073709551615",
+    "b": "9223372036854775808",
+    "results": {
+      "Bool.toUInt64": "0",
+      "UInt64.add": "9223372036854775807",
+      "UInt64.sub": "9223372036854775807",
+      "UInt64.mul": "9223372036854775808",
+      "UInt64.div": "1",
+      "UInt64.mod": "9223372036854775807",
+      "UInt64.land": "9223372036854775808",
+      "UInt64.lor": "18446744073709551615",
+      "UInt64.complement": "0",
+      "UInt64.neg": "1",
+      "UInt64.log2": "63",
+      "UInt64.shiftLeft": "18446744073709551615",
+      "UInt64.decLe": "0"
+    }
+  },
+  {
+    "flag": "0",
+    "a": "1",
+    "b": "63",
+    "results": {
+      "Bool.toUInt64": "0",
+      "UInt64.add": "64",
+      "UInt64.sub": "18446744073709551554",
+      "UInt64.mul": "63",
+      "UInt64.div": "0",
+      "UInt64.mod": "1",
+      "UInt64.land": "1",
+      "UInt64.lor": "63",
+      "UInt64.complement": "18446744073709551614",
+      "UInt64.neg": "18446744073709551615",
+      "UInt64.log2": "0",
+      "UInt64.shiftLeft": "9223372036854775808",
+      "UInt64.decLe": "1"
+    }
+  },
+  {
+    "flag": "0",
+    "a": "1",
+    "b": "64",
+    "results": {
+      "Bool.toUInt64": "0",
+      "UInt64.add": "65",
+      "UInt64.sub": "18446744073709551553",
+      "UInt64.mul": "64",
+      "UInt64.div": "0",
+      "UInt64.mod": "1",
+      "UInt64.land": "0",
+      "UInt64.lor": "65",
+      "UInt64.complement": "18446744073709551614",
+      "UInt64.neg": "18446744073709551615",
+      "UInt64.log2": "0",
+      "UInt64.shiftLeft": "1",
+      "UInt64.decLe": "1"
+    }
+  },
+  {
+    "flag": "0",
+    "a": "1",
+    "b": "65",
+    "results": {
+      "Bool.toUInt64": "0",
+      "UInt64.add": "66",
+      "UInt64.sub": "18446744073709551552",
+      "UInt64.mul": "65",
+      "UInt64.div": "0",
+      "UInt64.mod": "1",
+      "UInt64.land": "1",
+      "UInt64.lor": "65",
+      "UInt64.complement": "18446744073709551614",
+      "UInt64.neg": "18446744073709551615",
+      "UInt64.log2": "0",
+      "UInt64.shiftLeft": "2",
+      "UInt64.decLe": "1"
+    }
+  },
+  {
+    "flag": "0",
+    "a": "1",
+    "b": "18446744073709551615",
+    "results": {
+      "Bool.toUInt64": "0",
+      "UInt64.add": "0",
+      "UInt64.sub": "2",
+      "UInt64.mul": "18446744073709551615",
+      "UInt64.div": "0",
+      "UInt64.mod": "1",
+      "UInt64.land": "1",
+      "UInt64.lor": "18446744073709551615",
+      "UInt64.complement": "18446744073709551614",
+      "UInt64.neg": "18446744073709551615",
+      "UInt64.log2": "0",
+      "UInt64.shiftLeft": "9223372036854775808",
+      "UInt64.decLe": "1"
+    }
+  },
+  {
+    "flag": "0",
+    "a": "2",
+    "b": "63",
+    "results": {
+      "Bool.toUInt64": "0",
+      "UInt64.add": "65",
+      "UInt64.sub": "18446744073709551555",
+      "UInt64.mul": "126",
+      "UInt64.div": "0",
+      "UInt64.mod": "2",
+      "UInt64.land": "2",
+      "UInt64.lor": "63",
+      "UInt64.complement": "18446744073709551613",
+      "UInt64.neg": "18446744073709551614",
+      "UInt64.log2": "1",
+      "UInt64.shiftLeft": "0",
+      "UInt64.decLe": "1"
+    }
+  },
+  {
+    "flag": "0",
+    "a": "9223372036854775808",
+    "b": "1",
+    "results": {
+      "Bool.toUInt64": "0",
+      "UInt64.add": "9223372036854775809",
+      "UInt64.sub": "9223372036854775807",
+      "UInt64.mul": "9223372036854775808",
+      "UInt64.div": "9223372036854775808",
+      "UInt64.mod": "0",
+      "UInt64.land": "0",
+      "UInt64.lor": "9223372036854775809",
+      "UInt64.complement": "9223372036854775807",
+      "UInt64.neg": "9223372036854775808",
+      "UInt64.log2": "63",
+      "UInt64.shiftLeft": "0",
+      "UInt64.decLe": "0"
+    }
+  },
+  {
+    "flag": "0",
+    "a": "18446744073709551615",
+    "b": "18446744073709551615",
+    "results": {
+      "Bool.toUInt64": "0",
+      "UInt64.add": "18446744073709551614",
+      "UInt64.sub": "0",
+      "UInt64.mul": "1",
+      "UInt64.div": "1",
+      "UInt64.mod": "0",
+      "UInt64.land": "18446744073709551615",
+      "UInt64.lor": "18446744073709551615",
+      "UInt64.complement": "0",
+      "UInt64.neg": "1",
+      "UInt64.log2": "63",
+      "UInt64.shiftLeft": "9223372036854775808",
+      "UInt64.decLe": "1"
+    }
+  },
+  {
+    "flag": "0",
+    "a": "9223372036854775807",
+    "b": "18446744073709551615",
+    "results": {
+      "Bool.toUInt64": "0",
+      "UInt64.add": "9223372036854775806",
+      "UInt64.sub": "9223372036854775808",
+      "UInt64.mul": "9223372036854775809",
+      "UInt64.div": "0",
+      "UInt64.mod": "9223372036854775807",
+      "UInt64.land": "9223372036854775807",
+      "UInt64.lor": "18446744073709551615",
+      "UInt64.complement": "9223372036854775808",
+      "UInt64.neg": "9223372036854775809",
+      "UInt64.log2": "62",
+      "UInt64.shiftLeft": "9223372036854775808",
+      "UInt64.decLe": "1"
+    }
+  },
+  {
+    "flag": "0",
+    "a": "2",
+    "b": "64",
+    "results": {
+      "Bool.toUInt64": "0",
+      "UInt64.add": "66",
+      "UInt64.sub": "18446744073709551554",
+      "UInt64.mul": "128",
+      "UInt64.div": "0",
+      "UInt64.mod": "2",
+      "UInt64.land": "0",
+      "UInt64.lor": "66",
+      "UInt64.complement": "18446744073709551613",
+      "UInt64.neg": "18446744073709551614",
+      "UInt64.log2": "1",
+      "UInt64.shiftLeft": "2",
+      "UInt64.decLe": "1"
+    }
+  },
+  {
+    "flag": "0",
+    "a": "63",
+    "b": "65",
+    "results": {
+      "Bool.toUInt64": "0",
+      "UInt64.add": "128",
+      "UInt64.sub": "18446744073709551614",
+      "UInt64.mul": "4095",
+      "UInt64.div": "0",
+      "UInt64.mod": "63",
+      "UInt64.land": "1",
+      "UInt64.lor": "127",
+      "UInt64.complement": "18446744073709551552",
+      "UInt64.neg": "18446744073709551553",
+      "UInt64.log2": "5",
+      "UInt64.shiftLeft": "126",
+      "UInt64.decLe": "1"
+    }
+  },
+  {
+    "flag": "0",
+    "a": "65",
+    "b": "63",
+    "results": {
+      "Bool.toUInt64": "0",
+      "UInt64.add": "128",
+      "UInt64.sub": "2",
+      "UInt64.mul": "4095",
+      "UInt64.div": "1",
+      "UInt64.mod": "2",
+      "UInt64.land": "1",
+      "UInt64.lor": "127",
+      "UInt64.complement": "18446744073709551550",
+      "UInt64.neg": "18446744073709551551",
+      "UInt64.log2": "6",
+      "UInt64.shiftLeft": "9223372036854775808",
+      "UInt64.decLe": "0"
+    }
+  },
+  {
+    "flag": "1",
+    "a": "0",
+    "b": "0",
+    "results": {
+      "Bool.toUInt64": "1",
+      "UInt64.add": "0",
+      "UInt64.sub": "0",
+      "UInt64.mul": "0",
+      "UInt64.div": "0",
+      "UInt64.mod": "0",
+      "UInt64.land": "0",
+      "UInt64.lor": "0",
+      "UInt64.complement": "18446744073709551615",
+      "UInt64.neg": "0",
+      "UInt64.log2": "0",
+      "UInt64.shiftLeft": "0",
+      "UInt64.decLe": "1"
+    }
+  },
+  {
+    "flag": "1",
+    "a": "0",
+    "b": "64",
+    "results": {
+      "Bool.toUInt64": "1",
+      "UInt64.add": "64",
+      "UInt64.sub": "18446744073709551552",
+      "UInt64.mul": "0",
+      "UInt64.div": "0",
+      "UInt64.mod": "0",
+      "UInt64.land": "0",
+      "UInt64.lor": "64",
+      "UInt64.complement": "18446744073709551615",
+      "UInt64.neg": "0",
+      "UInt64.log2": "0",
+      "UInt64.shiftLeft": "0",
+      "UInt64.decLe": "1"
+    }
+  },
+  {
+    "flag": "1",
+    "a": "1",
+    "b": "0",
+    "results": {
+      "Bool.toUInt64": "1",
+      "UInt64.add": "1",
+      "UInt64.sub": "1",
+      "UInt64.mul": "0",
+      "UInt64.div": "0",
+      "UInt64.mod": "1",
+      "UInt64.land": "0",
+      "UInt64.lor": "1",
+      "UInt64.complement": "18446744073709551614",
+      "UInt64.neg": "18446744073709551615",
+      "UInt64.log2": "0",
+      "UInt64.shiftLeft": "1",
+      "UInt64.decLe": "0"
+    }
+  },
+  {
+    "flag": "1",
+    "a": "18446744073709551615",
+    "b": "0",
+    "results": {
+      "Bool.toUInt64": "1",
+      "UInt64.add": "18446744073709551615",
+      "UInt64.sub": "18446744073709551615",
+      "UInt64.mul": "0",
+      "UInt64.div": "0",
+      "UInt64.mod": "18446744073709551615",
+      "UInt64.land": "0",
+      "UInt64.lor": "18446744073709551615",
+      "UInt64.complement": "0",
+      "UInt64.neg": "1",
+      "UInt64.log2": "63",
+      "UInt64.shiftLeft": "18446744073709551615",
+      "UInt64.decLe": "0"
+    }
+  },
+  {
+    "flag": "1",
+    "a": "18446744073709551615",
+    "b": "1",
+    "results": {
+      "Bool.toUInt64": "1",
+      "UInt64.add": "0",
+      "UInt64.sub": "18446744073709551614",
+      "UInt64.mul": "18446744073709551615",
+      "UInt64.div": "18446744073709551615",
+      "UInt64.mod": "0",
+      "UInt64.land": "1",
+      "UInt64.lor": "18446744073709551615",
+      "UInt64.complement": "0",
+      "UInt64.neg": "1",
+      "UInt64.log2": "63",
+      "UInt64.shiftLeft": "18446744073709551614",
+      "UInt64.decLe": "0"
+    }
+  },
+  {
+    "flag": "1",
+    "a": "18446744073709551615",
+    "b": "2",
+    "results": {
+      "Bool.toUInt64": "1",
+      "UInt64.add": "1",
+      "UInt64.sub": "18446744073709551613",
+      "UInt64.mul": "18446744073709551614",
+      "UInt64.div": "9223372036854775807",
+      "UInt64.mod": "1",
+      "UInt64.land": "2",
+      "UInt64.lor": "18446744073709551615",
+      "UInt64.complement": "0",
+      "UInt64.neg": "1",
+      "UInt64.log2": "63",
+      "UInt64.shiftLeft": "18446744073709551612",
+      "UInt64.decLe": "0"
+    }
+  },
+  {
+    "flag": "1",
+    "a": "9223372036854775808",
+    "b": "2",
+    "results": {
+      "Bool.toUInt64": "1",
+      "UInt64.add": "9223372036854775810",
+      "UInt64.sub": "9223372036854775806",
+      "UInt64.mul": "0",
+      "UInt64.div": "4611686018427387904",
+      "UInt64.mod": "0",
+      "UInt64.land": "0",
+      "UInt64.lor": "9223372036854775810",
+      "UInt64.complement": "9223372036854775807",
+      "UInt64.neg": "9223372036854775808",
+      "UInt64.log2": "63",
+      "UInt64.shiftLeft": "0",
+      "UInt64.decLe": "0"
+    }
+  },
+  {
+    "flag": "1",
+    "a": "9223372036854775808",
+    "b": "9223372036854775808",
+    "results": {
+      "Bool.toUInt64": "1",
+      "UInt64.add": "0",
+      "UInt64.sub": "0",
+      "UInt64.mul": "0",
+      "UInt64.div": "1",
+      "UInt64.mod": "0",
+      "UInt64.land": "9223372036854775808",
+      "UInt64.lor": "9223372036854775808",
+      "UInt64.complement": "9223372036854775807",
+      "UInt64.neg": "9223372036854775808",
+      "UInt64.log2": "63",
+      "UInt64.shiftLeft": "9223372036854775808",
+      "UInt64.decLe": "1"
+    }
+  },
+  {
+    "flag": "1",
+    "a": "18446744073709551615",
+    "b": "9223372036854775808",
+    "results": {
+      "Bool.toUInt64": "1",
+      "UInt64.add": "9223372036854775807",
+      "UInt64.sub": "9223372036854775807",
+      "UInt64.mul": "9223372036854775808",
+      "UInt64.div": "1",
+      "UInt64.mod": "9223372036854775807",
+      "UInt64.land": "9223372036854775808",
+      "UInt64.lor": "18446744073709551615",
+      "UInt64.complement": "0",
+      "UInt64.neg": "1",
+      "UInt64.log2": "63",
+      "UInt64.shiftLeft": "18446744073709551615",
+      "UInt64.decLe": "0"
+    }
+  },
+  {
+    "flag": "1",
+    "a": "1",
+    "b": "63",
+    "results": {
+      "Bool.toUInt64": "1",
+      "UInt64.add": "64",
+      "UInt64.sub": "18446744073709551554",
+      "UInt64.mul": "63",
+      "UInt64.div": "0",
+      "UInt64.mod": "1",
+      "UInt64.land": "1",
+      "UInt64.lor": "63",
+      "UInt64.complement": "18446744073709551614",
+      "UInt64.neg": "18446744073709551615",
+      "UInt64.log2": "0",
+      "UInt64.shiftLeft": "9223372036854775808",
+      "UInt64.decLe": "1"
+    }
+  },
+  {
+    "flag": "1",
+    "a": "1",
+    "b": "64",
+    "results": {
+      "Bool.toUInt64": "1",
+      "UInt64.add": "65",
+      "UInt64.sub": "18446744073709551553",
+      "UInt64.mul": "64",
+      "UInt64.div": "0",
+      "UInt64.mod": "1",
+      "UInt64.land": "0",
+      "UInt64.lor": "65",
+      "UInt64.complement": "18446744073709551614",
+      "UInt64.neg": "18446744073709551615",
+      "UInt64.log2": "0",
+      "UInt64.shiftLeft": "1",
+      "UInt64.decLe": "1"
+    }
+  },
+  {
+    "flag": "1",
+    "a": "1",
+    "b": "65",
+    "results": {
+      "Bool.toUInt64": "1",
+      "UInt64.add": "66",
+      "UInt64.sub": "18446744073709551552",
+      "UInt64.mul": "65",
+      "UInt64.div": "0",
+      "UInt64.mod": "1",
+      "UInt64.land": "1",
+      "UInt64.lor": "65",
+      "UInt64.complement": "18446744073709551614",
+      "UInt64.neg": "18446744073709551615",
+      "UInt64.log2": "0",
+      "UInt64.shiftLeft": "2",
+      "UInt64.decLe": "1"
+    }
+  },
+  {
+    "flag": "1",
+    "a": "1",
+    "b": "18446744073709551615",
+    "results": {
+      "Bool.toUInt64": "1",
+      "UInt64.add": "0",
+      "UInt64.sub": "2",
+      "UInt64.mul": "18446744073709551615",
+      "UInt64.div": "0",
+      "UInt64.mod": "1",
+      "UInt64.land": "1",
+      "UInt64.lor": "18446744073709551615",
+      "UInt64.complement": "18446744073709551614",
+      "UInt64.neg": "18446744073709551615",
+      "UInt64.log2": "0",
+      "UInt64.shiftLeft": "9223372036854775808",
+      "UInt64.decLe": "1"
+    }
+  },
+  {
+    "flag": "1",
+    "a": "2",
+    "b": "63",
+    "results": {
+      "Bool.toUInt64": "1",
+      "UInt64.add": "65",
+      "UInt64.sub": "18446744073709551555",
+      "UInt64.mul": "126",
+      "UInt64.div": "0",
+      "UInt64.mod": "2",
+      "UInt64.land": "2",
+      "UInt64.lor": "63",
+      "UInt64.complement": "18446744073709551613",
+      "UInt64.neg": "18446744073709551614",
+      "UInt64.log2": "1",
+      "UInt64.shiftLeft": "0",
+      "UInt64.decLe": "1"
+    }
+  },
+  {
+    "flag": "1",
+    "a": "9223372036854775808",
+    "b": "1",
+    "results": {
+      "Bool.toUInt64": "1",
+      "UInt64.add": "9223372036854775809",
+      "UInt64.sub": "9223372036854775807",
+      "UInt64.mul": "9223372036854775808",
+      "UInt64.div": "9223372036854775808",
+      "UInt64.mod": "0",
+      "UInt64.land": "0",
+      "UInt64.lor": "9223372036854775809",
+      "UInt64.complement": "9223372036854775807",
+      "UInt64.neg": "9223372036854775808",
+      "UInt64.log2": "63",
+      "UInt64.shiftLeft": "0",
+      "UInt64.decLe": "0"
+    }
+  },
+  {
+    "flag": "1",
+    "a": "18446744073709551615",
+    "b": "18446744073709551615",
+    "results": {
+      "Bool.toUInt64": "1",
+      "UInt64.add": "18446744073709551614",
+      "UInt64.sub": "0",
+      "UInt64.mul": "1",
+      "UInt64.div": "1",
+      "UInt64.mod": "0",
+      "UInt64.land": "18446744073709551615",
+      "UInt64.lor": "18446744073709551615",
+      "UInt64.complement": "0",
+      "UInt64.neg": "1",
+      "UInt64.log2": "63",
+      "UInt64.shiftLeft": "9223372036854775808",
+      "UInt64.decLe": "1"
+    }
+  },
+  {
+    "flag": "1",
+    "a": "9223372036854775807",
+    "b": "18446744073709551615",
+    "results": {
+      "Bool.toUInt64": "1",
+      "UInt64.add": "9223372036854775806",
+      "UInt64.sub": "9223372036854775808",
+      "UInt64.mul": "9223372036854775809",
+      "UInt64.div": "0",
+      "UInt64.mod": "9223372036854775807",
+      "UInt64.land": "9223372036854775807",
+      "UInt64.lor": "18446744073709551615",
+      "UInt64.complement": "9223372036854775808",
+      "UInt64.neg": "9223372036854775809",
+      "UInt64.log2": "62",
+      "UInt64.shiftLeft": "9223372036854775808",
+      "UInt64.decLe": "1"
+    }
+  },
+  {
+    "flag": "1",
+    "a": "2",
+    "b": "64",
+    "results": {
+      "Bool.toUInt64": "1",
+      "UInt64.add": "66",
+      "UInt64.sub": "18446744073709551554",
+      "UInt64.mul": "128",
+      "UInt64.div": "0",
+      "UInt64.mod": "2",
+      "UInt64.land": "0",
+      "UInt64.lor": "66",
+      "UInt64.complement": "18446744073709551613",
+      "UInt64.neg": "18446744073709551614",
+      "UInt64.log2": "1",
+      "UInt64.shiftLeft": "2",
+      "UInt64.decLe": "1"
+    }
+  },
+  {
+    "flag": "1",
+    "a": "63",
+    "b": "65",
+    "results": {
+      "Bool.toUInt64": "1",
+      "UInt64.add": "128",
+      "UInt64.sub": "18446744073709551614",
+      "UInt64.mul": "4095",
+      "UInt64.div": "0",
+      "UInt64.mod": "63",
+      "UInt64.land": "1",
+      "UInt64.lor": "127",
+      "UInt64.complement": "18446744073709551552",
+      "UInt64.neg": "18446744073709551553",
+      "UInt64.log2": "5",
+      "UInt64.shiftLeft": "126",
+      "UInt64.decLe": "1"
+    }
+  },
+  {
+    "flag": "1",
+    "a": "65",
+    "b": "63",
+    "results": {
+      "Bool.toUInt64": "1",
+      "UInt64.add": "128",
+      "UInt64.sub": "2",
+      "UInt64.mul": "4095",
+      "UInt64.div": "1",
+      "UInt64.mod": "2",
+      "UInt64.land": "1",
+      "UInt64.lor": "127",
+      "UInt64.complement": "18446744073709551550",
+      "UInt64.neg": "18446744073709551551",
+      "UInt64.log2": "6",
+      "UInt64.shiftLeft": "9223372036854775808",
+      "UInt64.decLe": "0"
+    }
+  }
+]

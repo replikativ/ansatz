@@ -1,0 +1,24 @@
+{
+  "schema": "pinned-original-u64-scalars/1",
+  "lean-commit": "819816b2e0a3bf405af45ae5c7af2491d8f5bee6",
+  "source-index-sha256": "74d833d577923821b982e8a9e872a38b5cad011513eb18870b51417e13397f0e",
+  "fixture-sha256": "ea2b28a43c8065b5bfab215552a0660244f6c848fab59917418a16cf458f8808",
+  "roots": 13,
+  "rows": 26,
+  "normalization": "Only optional top-level pretty omitted; original row SHA still identifies complete CAS bytes",
+  "upstream-source-sha256": {
+    "src/include/lean/lean.h": "02af0040283143b264e3a44b06b348b6973ae6037fa8f550701c83dd7a062ace",
+    "src/Init/Data/UInt/Basic.lean": "71338079939d203e18ce86c04c2fbe15a4ddcfc241317a9a7ce0a7afa485b201",
+    "LICENSE": "8b28515ffffc5c0fe2807d8ae3735b00b324d9b7ce807dd63ff6ac8922fbce7e",
+    "src/Lean/Meta/Basic.lean": "9339066e8c4df71c9aac2c348d9a3a7c2a8a9a20aca0d07228c26deef647d4a8"
+  },
+  "config-rows-sha256": "1516371b37407b0fac86561a0ace7d43881ffebabd253e8c322ebbe54228a7af",
+  "config-rows": 5,
+  "compiled-inline-oracle": {
+    "pinned-inline.h": "431497faa44773f6aeae7a8284c23cbc62718df628bb976cf84871ea2d005181",
+    "oracle.cpp": "25113e0d0c667e1213e355ad8fa1147eb4cd14f4e278eaa12fb61096252920ab",
+    "run-oracle.py": "ce2afad56cd39aa3bd9deeaf9624458bf4a90935dc8f3d24c2840445a7156595",
+    "native-vectors.json": "2711a9e6e44565adbb042b6a02d6ab92ab782dbe5a7a205592360edf2eb3e31c",
+    "native-receipt.json": "d7d18cc4d5f46160fbfdb647c13e56a1417c46e7c0b2e0ebe5fdd0d3f9b8d42a"
+  }
+}
