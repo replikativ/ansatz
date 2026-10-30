@@ -13,9 +13,11 @@ usize, owned and borrowed Nat/USize getters, Nat/USize setters, proof-backed
 swap, toList and replicate. Checked panic/default getters, checked swap, arbitrary
 capacity, byte/scalar arrays, and native concurrency are separate work.
 
-`Node.fields` remains final storage; `arraySize` records its live prefix. Capacity
+`Node.fields` remains final storage; `Node.arraySize()` reads its live prefix
+from private array metadata, without adding a counter to ordinary constructors. Capacity
 can exceed size. Spare slots are null, own no values and never participate in
-get/size results. Destruction visits only the live prefix, matching native O(size). Prepared graphs continue describing only live elements; import
+get/size results. Destruction visits only the live prefix, matching native O(size).
+Prepared graphs continue describing only live elements; import
 sets capacity=size. Fork copies live size, capacity and aliasing into independent
 storage. Ordinary constructor operations reject arrays rather than treating
 spare capacity as constructor fields.

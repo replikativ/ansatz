@@ -10,7 +10,8 @@
 (defn originals [] (json/read-str (slurp fixture)))
 (defn context []
   (assoc *basis* :program (j/invoke-static (:prepare *basis*) [(mapv #(get % "row") (originals))])))
-(defn size [a] (host/private-value a "arraySize"))
+(defn size [a]
+  (.invoke (.getMethod (class a) "arraySize" (make-array Class 0)) a (object-array 0)))
 (defn fields [ctx a] (.get ^java.lang.reflect.Field (:fields ctx) a))
 (defn elements [ctx a] (vec (take (size a) (fields ctx a))))
 (defn empty! [ctx engine capacity] (j/call ctx engine "Array.mkEmpty._boxed" [0 capacity]))
