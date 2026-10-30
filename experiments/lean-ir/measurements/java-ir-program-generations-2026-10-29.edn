@@ -1,0 +1,282 @@
+{:schema 1,
+ :date "2026-10-29",
+ :verification
+ {:generation-tests
+  {:test 15, :pass 126, :fail 0, :error 0, :type :summary},
+  :combined-isolated-gate
+  {:tests 337, :assertions 13357, :exit 0, :heap-mib 384},
+  :independent-review :recursive-entry-gap-fixed-and-cleared},
+ :scope :java-branch-pinned-program-generations,
+ :paired-control-summary
+ [{:explicit false,
+   :artifacts
+   {:prior
+    {:cpu-ms-per-run 2.90074829,
+     :wall-ms-per-run 2.92659673,
+     :allocated-bytes-per-run 1515859.52},
+    :host
+    {:cpu-ms-per-run 3.0701202000000003,
+     :wall-ms-per-run 3.09753402,
+     :allocated-bytes-per-run 1515859.52}}}
+  {:explicit true,
+   :artifacts
+   {:prior
+    {:cpu-ms-per-run 3.33287707,
+     :wall-ms-per-run 3.36929714,
+     :allocated-bytes-per-run 1515859.52},
+    :host
+    {:cpu-ms-per-run 3.30463386,
+     :wall-ms-per-run 3.3319566800000002,
+     :allocated-bytes-per-run 1515859.52}}}],
+ :jit-implemented false,
+ :paired-control
+ {:scope :paired-rbmap-computation-only,
+  :limits
+  ["Warmed retained 384 MiB development JVM, shared machine."
+   "Alternating inputs 1000/1001; seven alternating-order batches of 100."
+   "Measures no-host ordinary execution, not host latency, frontend speed or native/JIT performance."
+   "Accepted control ran after the isolated test JVM exited; earlier overlapping diagnostic is excluded."
+   "prior denotes host-boundary artifact, host denotes generation-capable artifact."],
+  :modes
+  [{:explicit false,
+    :runs
+    [{:trial 0,
+      :artifact :prior,
+      :repetitions 100,
+      :metrics
+      {:cpu-ns 281018836,
+       :wall-ns 283095065,
+       :allocated-bytes 151585952,
+       :gc-collections 1}}
+     {:trial 0,
+      :artifact :host,
+      :repetitions 100,
+      :metrics
+      {:cpu-ns 282441603,
+       :wall-ns 284858080,
+       :allocated-bytes 151585952,
+       :gc-collections 1}}
+     {:trial 1,
+      :artifact :host,
+      :repetitions 100,
+      :metrics
+      {:cpu-ns 307012020,
+       :wall-ns 309753402,
+       :allocated-bytes 151585952,
+       :gc-collections 1}}
+     {:trial 1,
+      :artifact :prior,
+      :repetitions 100,
+      :metrics
+      {:cpu-ns 279460413,
+       :wall-ns 282044567,
+       :allocated-bytes 151585952,
+       :gc-collections 1}}
+     {:trial 2,
+      :artifact :prior,
+      :repetitions 100,
+      :metrics
+      {:cpu-ns 290074829,
+       :wall-ns 292659673,
+       :allocated-bytes 151585952,
+       :gc-collections 1}}
+     {:trial 2,
+      :artifact :host,
+      :repetitions 100,
+      :metrics
+      {:cpu-ns 279206517,
+       :wall-ns 282240156,
+       :allocated-bytes 151585952,
+       :gc-collections 1}}
+     {:trial 3,
+      :artifact :host,
+      :repetitions 100,
+      :metrics
+      {:cpu-ns 305244135,
+       :wall-ns 307731412,
+       :allocated-bytes 151585952,
+       :gc-collections 1}}
+     {:trial 3,
+      :artifact :prior,
+      :repetitions 100,
+      :metrics
+      {:cpu-ns 279839096,
+       :wall-ns 280907111,
+       :allocated-bytes 151585952,
+       :gc-collections 1}}
+     {:trial 4,
+      :artifact :prior,
+      :repetitions 100,
+      :metrics
+      {:cpu-ns 389381722,
+       :wall-ns 397708684,
+       :allocated-bytes 151585952,
+       :gc-collections 1}}
+     {:trial 4,
+      :artifact :host,
+      :repetitions 100,
+      :metrics
+      {:cpu-ns 369772099,
+       :wall-ns 373762509,
+       :allocated-bytes 151585952,
+       :gc-collections 2}}
+     {:trial 5,
+      :artifact :host,
+      :repetitions 100,
+      :metrics
+      {:cpu-ns 382456530,
+       :wall-ns 384572660,
+       :allocated-bytes 151585952,
+       :gc-collections 1}}
+     {:trial 5,
+      :artifact :prior,
+      :repetitions 100,
+      :metrics
+      {:cpu-ns 385015638,
+       :wall-ns 387400419,
+       :allocated-bytes 151585952,
+       :gc-collections 1}}
+     {:trial 6,
+      :artifact :prior,
+      :repetitions 100,
+      :metrics
+      {:cpu-ns 399352514,
+       :wall-ns 401761709,
+       :allocated-bytes 151585952,
+       :gc-collections 1}}
+     {:trial 6,
+      :artifact :host,
+      :repetitions 100,
+      :metrics
+      {:cpu-ns 395946225,
+       :wall-ns 397963086,
+       :allocated-bytes 151585952,
+       :gc-collections 1}}]}
+   {:explicit true,
+    :runs
+    [{:trial 0,
+      :artifact :prior,
+      :repetitions 100,
+      :metrics
+      {:cpu-ns 333287707,
+       :wall-ns 336929714,
+       :allocated-bytes 151585952,
+       :gc-collections 1}}
+     {:trial 0,
+      :artifact :host,
+      :repetitions 100,
+      :metrics
+      {:cpu-ns 326526549,
+       :wall-ns 330095760,
+       :allocated-bytes 151585952,
+       :gc-collections 1}}
+     {:trial 1,
+      :artifact :host,
+      :repetitions 100,
+      :metrics
+      {:cpu-ns 330463386,
+       :wall-ns 333195668,
+       :allocated-bytes 151585952,
+       :gc-collections 1}}
+     {:trial 1,
+      :artifact :prior,
+      :repetitions 100,
+      :metrics
+      {:cpu-ns 328070701,
+       :wall-ns 329869032,
+       :allocated-bytes 151585952,
+       :gc-collections 1}}
+     {:trial 2,
+      :artifact :prior,
+      :repetitions 100,
+      :metrics
+      {:cpu-ns 331531369,
+       :wall-ns 333261864,
+       :allocated-bytes 151585952,
+       :gc-collections 1}}
+     {:trial 2,
+      :artifact :host,
+      :repetitions 100,
+      :metrics
+      {:cpu-ns 328184876,
+       :wall-ns 331058884,
+       :allocated-bytes 151585952,
+       :gc-collections 1}}
+     {:trial 3,
+      :artifact :host,
+      :repetitions 100,
+      :metrics
+      {:cpu-ns 327343685,
+       :wall-ns 330956729,
+       :allocated-bytes 151585952,
+       :gc-collections 1}}
+     {:trial 3,
+      :artifact :prior,
+      :repetitions 100,
+      :metrics
+      {:cpu-ns 331623155,
+       :wall-ns 335223274,
+       :allocated-bytes 151585952,
+       :gc-collections 1}}
+     {:trial 4,
+      :artifact :prior,
+      :repetitions 100,
+      :metrics
+      {:cpu-ns 489104623,
+       :wall-ns 494379911,
+       :allocated-bytes 151585952,
+       :gc-collections 2}}
+     {:trial 4,
+      :artifact :host,
+      :repetitions 100,
+      :metrics
+      {:cpu-ns 491221793,
+       :wall-ns 494400461,
+       :allocated-bytes 151585952,
+       :gc-collections 1}}
+     {:trial 5,
+      :artifact :host,
+      :repetitions 100,
+      :metrics
+      {:cpu-ns 511449106,
+       :wall-ns 513863475,
+       :allocated-bytes 151585952,
+       :gc-collections 1}}
+     {:trial 5,
+      :artifact :prior,
+      :repetitions 100,
+      :metrics
+      {:cpu-ns 499223597,
+       :wall-ns 501785260,
+       :allocated-bytes 151585952,
+       :gc-collections 1}}
+     {:trial 6,
+      :artifact :prior,
+      :repetitions 100,
+      :metrics
+      {:cpu-ns 519474448,
+       :wall-ns 521640510,
+       :allocated-bytes 151585952,
+       :gc-collections 1}}
+     {:trial 6,
+      :artifact :host,
+      :repetitions 100,
+      :metrics
+      {:cpu-ns 491537437,
+       :wall-ns 494136975,
+       :allocated-bytes 151585952,
+       :gc-collections 1}}]}]},
+ :artifact-pins
+ {:source
+  "96154838a4d7dd35fb52e484a9f30a5b611c809ad99db8445b173e8754deded6",
+  :jar
+  "69fea285548b053ddabd821a7d46d2416e0965af0a7ec0e472203ffa867fdeb7",
+  :prior-host-jar
+  "98560694bfba9da43b2e0ea2a03f04ba9f0b2f35e6f86176e33fed24d026d161"},
+ :limits
+ ["Append-only names; replacement requires separate branches from their common base."
+  "Prepared IR remains a trusted input; generation identity is not source/kernel authority."
+  "Closure tokens retain ancestor tokens, not historical Program tables; table-copy scalability is not measured here."
+  "Shared-machine computational control does not establish native/JIT throughput or general performance improvement."
+  "No initializer execution or guest frontend/kernel carrier integration is claimed."],
+ :frontend-executed false}

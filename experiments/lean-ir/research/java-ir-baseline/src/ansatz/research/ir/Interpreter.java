@@ -179,7 +179,7 @@ public final class Interpreter implements AutoCloseable {
         public final Object[] fields;
         public final byte[] scalars;
         private Function closure;
-        private Program image;
+        private Generation image;
         private boolean dead;
         private boolean array;
         Node(int tag, int size, int scalarBytes) {
@@ -212,27 +212,63 @@ public final class Interpreter implements AutoCloseable {
         Body next,body;
         Body[] alternatives;
     }
+    /** Identity-only lineage: no function/map/Program references. Binary lifting
+     * bounds ancestry checks without retaining every old full image table. */
+    private static final class Generation {
+        final int depth;
+        final Generation[] jumps;
+        Generation(Generation parent) {
+            depth=parent==null?0:Math.addExact(parent.depth,1);
+            jumps=new Generation[depth==0?0:32-Integer.numberOfLeadingZeros(depth)];
+            if(jumps.length!=0) jumps[0]=parent;
+            for(int i=1;i<jumps.length;i++) jumps[i]=jumps[i-1].jumps[i-1];
+        }
+        boolean accepts(Generation ancestor) {
+            if(ancestor==null||ancestor.depth>depth) return false;
+            Generation cursor=this;
+            int difference=depth-ancestor.depth,bit=0;
+            while(difference!=0) {
+                if((difference&1)!=0) cursor=cursor.jumps[bit];
+                difference>>>=1; bit++;
+            }
+            return cursor==ancestor;
+        }
+    }
     public static final class Program {
         final Function[] functions;
         final Map<String,Function> labels;
-        Program(Function[] functions,Map<String,Function> labels) { this.functions=functions; this.labels=labels; }
+        final Map<Object,Function> typedNames;
+        final Map<String,List<HostExtern>> hostRegistry;
+        final Generation generation;
+        private Program(Function[] functions,Map<String,Function> labels,Map<Object,Function> typedNames,
+                        Map<String,List<HostExtern>> hostRegistry,Generation generation) {
+            this.functions=functions; this.labels=labels; this.typedNames=typedNames;
+            this.hostRegistry=hostRegistry; this.generation=generation;
+        }
         public int functionId(String label) {
             Function f=labels.get(label);
             if(f==null) throw error("Unknown function: "+label);
             return f.id;
         }
         public int functionCount() { return functions.length; }
+        /** Append-only link against this actual base, preserving every old
+         * function identity/ID. Metadata-only input with no new ABI is a no-op. */
+        public static Program extend(Program base,List<?> rows) { return extend(base,rows,new HostExtern[0]); }
+        public static Program extend(Program base,List<?> rows,HostExtern[] additionalExterns) {
+            require(base!=null,"Actual base Program required");
+            return link(base,rows,additionalExterns);
+        }
     }
 
-    private final Program program;
+    private Program program;
     private Object[] objects=new Object[1024];
     private long[] numbers=new long[1024];
     private Body[] joins=new Body[256];
     private int bp,sp,jbp,jsp;
     private Object result;
     private long scalarResult;
-    private final Object[] constants;
-    private final boolean[] constantReady;
+    private Object[] constants;
+    private boolean[] constantReady;
     private boolean closed;
     private boolean untrackedFailure;
     private final Object runtimeIdentity=new Object();
@@ -441,11 +477,28 @@ public final class Interpreter implements AutoCloseable {
     private static int[] args(Object x) { List<Object> xs=list(x); int[] out=new int[xs.size()]; for(int i=0;i<out.length;i++) out[i]=arg(xs.get(i)); return out; }
     private static int[] params(Object x) { List<Object> xs=list(x); int[] out=new int[xs.size()]; for(int i=0;i<out.length;i++) out[i]=variable(map(xs.get(i)).get("x")); return out; }
 
+    /** Freeze every nested Name list and leaf before retaining it as a key.
+     * No caller-owned list/map/array can later change a generation's index. */
+    private static Object frozenName(Object value) {
+        if(value instanceof List) {
+            List<Object> out=new ArrayList<>();
+            for(Object element:(List<?>)value) out.add(frozenName(element));
+            return Collections.unmodifiableList(out);
+        }
+        if(value instanceof String||value instanceof Long||value instanceof Integer
+                ||value instanceof Short||value instanceof Byte||value instanceof BigInteger
+                ||value instanceof Boolean) return value;
+        throw error("Mutable or unsupported captured Name component");
+    }
     /** Prepare original exported IR once. All functions must be in the profile. */
     public static Program prepare(List<?> rows) { return prepare(rows,new HostExtern[0]); }
-    public static Program prepare(List<?> rows,HostExtern[] externs) {
+    public static Program prepare(List<?> rows,HostExtern[] externs) { return link(null,rows,externs); }
+    private static Program link(Program base,List<?> rows,HostExtern[] externs) {
+        require(rows!=null,"Explicit declaration rows required");
         require(externs!=null,"Explicit host extern registry required");
         Map<String,List<HostExtern>> hostRegistry=new HashMap<>();
+        if(base!=null) for(Map.Entry<String,List<HostExtern>> entry:base.hostRegistry.entrySet())
+            hostRegistry.put(entry.getKey(),new ArrayList<>(entry.getValue()));
         for(HostExtern descriptor:externs.clone()) {
             require(descriptor!=null,"Null host extern descriptor");
             require(!EXTERNS.containsKey(descriptor.symbol),"Host extern cannot shadow builtin: "+descriptor.symbol);
@@ -453,19 +506,25 @@ public final class Interpreter implements AutoCloseable {
             for(HostExtern old:entries) require(!descriptor.sameAbi(old),"Duplicate host extern ABI: "+descriptor.symbol);
             entries.add(descriptor);
         }
-        Map<Object,Function> byName=new HashMap<>();
-        Map<String,Function> labels=new LinkedHashMap<>();
+        Map<Object,Function> byName=base==null?new HashMap<>():new HashMap<>(base.typedNames);
+        Map<String,Function> labels=base==null?new LinkedHashMap<>():new LinkedHashMap<>(base.labels);
         List<Map<String,Object>> declarations=new ArrayList<>();
+        List<Function> additions=new ArrayList<>();
+        int inherited=base==null?0:base.functions.length;
         for(Object row:rows) {
             Map<String,Object> r=map(row);
             if(!"decl".equals(r.get("kind"))) continue;
-            Object key=r.get("name"); String label=name(key);
+            Object key=frozenName(r.get("name")); String label=name(key);
             if(byName.containsKey(key)||labels.containsKey(label)) throw error("Duplicate/ambiguous function name: "+label);
-            Function f=new Function(label); f.id=declarations.size();
-            byName.put(key,f); labels.put(label,f); declarations.add(r);
+            Function f=new Function(label); f.id=Math.addExact(inherited,declarations.size());
+            byName.put(key,f); labels.put(label,f); declarations.add(r); additions.add(f);
         }
-        for(Map<String,Object> row:declarations) {
-            Function f=byName.get(row.get("name"));
+        if(base!=null&&declarations.isEmpty()&&externs.length==0) return base;
+        // Every new target is reserved before any body is parsed/validated.
+        // Row names are not reread to select a mutable inherited Function.
+        for(int rowIndex=0;rowIndex<declarations.size();rowIndex++) {
+            Map<String,Object> row=declarations.get(rowIndex);
+            Function f=additions.get(rowIndex);
             Map<String,Object> ir=map(row.get("ir")); boolean external=ir.containsKey("extern");
             Map<String,Object> d=map(ir.get(external?"extern":"fdecl"));
             f.params=params(d.get("xs")); f.paramTypes=new int[f.params.length];
@@ -483,12 +542,14 @@ public final class Interpreter implements AutoCloseable {
                 }
             } else f.body=body(d.get("body"),f,byName);
         }
+        for(Function f:additions) validate(f);
         Function[] prepared=labels.values().toArray(new Function[0]);
-        for(Function f:prepared) validate(f);
-        return new Program(prepared,Collections.unmodifiableMap(labels));
+        hostRegistry.replaceAll((symbol,entries)->Collections.unmodifiableList(entries));
+        return new Program(prepared,Collections.unmodifiableMap(labels),Collections.unmodifiableMap(byName),
+                           Collections.unmodifiableMap(hostRegistry),new Generation(base==null?null:base.generation));
     }
     private static Function target(Map<Object,Function> functions,Object name) {
-        Function f=functions.get(name); if(f==null) throw error("Unresolved function: "+name); return f;
+        Function f=functions.get(frozenName(name)); if(f==null) throw error("Unresolved function: "+name); return f;
     }
     private static Expr expr(Object input, Function f, Map<Object,Function> functions) {
         Map<String,Object> e=map(input); if(e.size()!=1) throw error("Invalid expression");
@@ -923,8 +984,7 @@ public final class Interpreter implements AutoCloseable {
     }
     private Object apply(Object value,Object[] args) {
         Node closure=node(value); if(closure.closure==null) throw error("Expected closure");
-        if(closure.image!=program) throw error("Closure belongs to another code image");
-        if(closure.closure.privateOwner!=null&&closure.closure.privateOwner!=runtimeIdentity) throw error("Host closure belongs to another interpreter");
+        acceptsClosure(closure);
         Function f=closure.closure; Object[] combined=new Object[closure.fields.length+args.length];
         System.arraycopy(closure.fields,0,combined,0,closure.fields.length);
         // A shared closure keeps ownership of its captured arguments.
@@ -938,7 +998,7 @@ public final class Interpreter implements AutoCloseable {
         return combined.length==f.params.length?answer:apply(answer,Arrays.copyOfRange(combined,f.params.length,combined.length));
     }
     private Node closure(Function f,Object[] captured) {
-        Node n=new Node(245,captured.length,0); n.closure=f; n.image=program; System.arraycopy(captured,0,n.fields,0,captured.length); allocations++; return n;
+        Node n=new Node(245,captured.length,0); n.closure=f; n.image=program.generation; System.arraycopy(captured,0,n.fields,0,captured.length); allocations++; return n;
     }
     private void expression(Expr e,int type,int dest) {
         switch(e.op) {
@@ -1003,13 +1063,65 @@ public final class Interpreter implements AutoCloseable {
         }
     }
 
+    /** Require actual ancestor/current image identity, never matching names or
+     * coincident IDs. Private runtime functions retain the engine-owner guard. */
+    private void acceptsClosure(Node closure) {
+        Function function=closure.closure;
+        require(function!=null,"Expected closure");
+        if(!program.generation.accepts(closure.image)) throw error("Closure belongs to another code image");
+        if(function.privateOwner!=null) {
+            if(function.privateOwner!=runtimeIdentity) throw error("Host closure belongs to another interpreter");
+        } else require(function.id>=0&&function.id<program.functions.length&&program.functions[function.id]==function,
+                       "Closure function identity differs from current code generation");
+    }
+    private void generationBoundary(String operation) {
+        if(closed||advancing||untrackedFailure||(phase!=IDLE&&phase!=HOST_CALL)||(!explicit&&sp!=0))
+            throw new IllegalStateException(operation+" requires an open idle or host-call boundary");
+    }
+    /** Install only an actual descendant. Preserve all initialized cache owners
+     * and readiness; new slots start unready. Both arrays are allocated before
+     * the thread-confined publication, with no guest calls or initializer replay. */
+    public void installProgram(Program descendant) {
+        generationBoundary("Program installation");
+        require(descendant!=null,"Actual descendant Program required");
+        if(descendant==program) return;
+        require(descendant.generation.accepts(program.generation),"Program is not a descendant of the installed generation");
+        require(descendant.functions.length>=program.functions.length,"Descendant function table shrank");
+        for(int i=0;i<program.functions.length;i++)
+            require(descendant.functions[i]==program.functions[i],"Descendant replaced an inherited function");
+        Object[] nextConstants=Arrays.copyOf(constants,descendant.functions.length);
+        boolean[] nextReady=Arrays.copyOf(constantReady,descendant.functions.length);
+        constants=nextConstants; constantReady=nextReady; program=descendant;
+    }
+    /** Host-boundary PAP construction, not function execution. The caller
+     * transfers capture credits once; array copying never retains the values.
+     * Zero-arity/full/unboxed targets require their proper invocation/wrapper. */
+    public Node makeClosure(int function,Object[] captures) {
+        generationBoundary("Closure construction");
+        require(captures!=null,"Explicit closure captures required");
+        Function target=program.functions[function];
+        require(captures.length<target.params.length,"Invalid partial application");
+        require(target.intrinsic!=ARRAY_SIZE&&target.intrinsic!=ARRAY_GET,
+                "Borrowed array primitive requires owned closure wrapper");
+        for(int lane:target.paramTypes) require(lane==OBJ,"Unboxed partial target unsupported; boxed wrapper required");
+        Object[] captured=captures.clone();
+        IdentityHashMap<Node,Integer> owners=new IdentityHashMap<>();
+        for(Object value:captured) {
+            validateHostObject(value);
+            if(value instanceof Node) {
+                Node node=(Node)value; owners.put(node,owners.getOrDefault(node,0)+1);
+            }
+        }
+        for(Map.Entry<Node,Integer> credit:owners.entrySet())
+            require(credit.getKey().rc==0||credit.getKey().rc>=credit.getValue(),"Insufficient owned closure capture credits");
+        return closure(target,captured);
+    }
+
     private void validateHostObject(Object value) {
         if(value instanceof Node) {
             Node n=node(value);
             require(n.rc>=0,"Invalid host object reference count");
-            if(n.closure!=null&&n.image!=program) throw error("Closure belongs to another code image");
-            if(n.closure!=null&&n.closure.privateOwner!=null&&n.closure.privateOwner!=runtimeIdentity)
-                throw error("Host closure belongs to another interpreter");
+            if(n.closure!=null) acceptsClosure(n);
         } else require(value instanceof Long||value instanceof BigInteger||value instanceof String,
                        "Host object outside baseline value profile");
     }
@@ -1099,9 +1211,7 @@ public final class Interpreter implements AutoCloseable {
                     // Validate the AP receiver before beginning its owned transfer.
                     Node closure=node(answer);
                     require(closure.closure!=null,"Expected closure");
-                    require(closure.image==program,"Closure belongs to another code image");
-                    require(closure.closure.privateOwner==null||closure.closure.privateOwner==runtimeIdentity,
-                            "Host closure belongs to another interpreter");
+                    acceptsClosure(closure);
                     call.resultTransferStarted=true; call.resultOwned=false;
                     applyExplicit(answer,call.surplus,call.next,call.dest);
                 }
@@ -1131,22 +1241,26 @@ public final class Interpreter implements AutoCloseable {
     public long instructionCount() { return instructions; }
     public String activeFunction() { return active==null?null:active.label; }
 
+    /** Both drivers reject invalid input closures before publishing frames,
+     * taking owned arguments, or running any guest operation. */
+    private void validateEntryArguments(Function function,Object[] args) {
+        if(args==null||args.length!=function.params.length) throw error("Arity mismatch: "+function.label);
+        for(int i=0;i<args.length;i++) {
+            if(function.paramTypes[i]!=OBJ) inputScalar(args[i],function.paramTypes[i]);
+            else if(args[i] instanceof Node) {
+                Node value=node(args[i]);
+                if(value.closure!=null) acceptsClosure(value);
+            }
+        }
+    }
+
     /** Bind an owned external invocation, without executing its body. */
     public void start(int function,Object[] args) {
         explicitOnly();
         if(advancing||phase!=IDLE) throw new IllegalStateException("Take the result or finish the current execution before start");
         Function f=program.functions[function];
         rootEntry(f);
-        if(args.length!=f.params.length) throw error("Arity mismatch: "+f.label);
-        // Validate host inputs before publishing state or writing stack slots.
-        for(int i=0;i<args.length;i++) {
-            if(f.paramTypes[i]!=OBJ) inputScalar(args[i],f.paramTypes[i]);
-            else if(args[i] instanceof Node) {
-                Node n=node(args[i]);
-                if(n.closure!=null&&n.image!=program) throw error("Closure belongs to another code image");
-                if(n.closure!=null&&n.closure.privateOwner!=null&&n.closure.privateOwner!=runtimeIdentity) throw error("Host closure belongs to another interpreter");
-            }
-        }
+        validateEntryArguments(f,args);
         if(f.hostExtern!=null) {
             for(int i=0;i<args.length;i++) if(f.paramTypes[i]==OBJ) validateHostObject(args[i]);
             callsLeft=10_000_000; instructions=0; entry=f;
@@ -1196,8 +1310,7 @@ public final class Interpreter implements AutoCloseable {
     /** Prepare and consume one AP exactly once; no guest execution here. */
     private boolean prepareExplicitApply(Object value,Object[] args) {
         Node closure=node(value); if(closure.closure==null) throw error("Expected closure");
-        if(closure.image!=program) throw error("Closure belongs to another code image");
-        if(closure.closure.privateOwner!=null&&closure.closure.privateOwner!=runtimeIdentity) throw error("Host closure belongs to another interpreter");
+        acceptsClosure(closure);
         Function f=closure.closure;
         Object[] combined=new Object[closure.fields.length+args.length];
         System.arraycopy(closure.fields,0,combined,0,closure.fields.length);
@@ -1346,11 +1459,11 @@ public final class Interpreter implements AutoCloseable {
             return takeResult();
         }
         if(sp!=0) throw error("Reentrant external invocation unsupported");
-        callsLeft=10_000_000;
         Function f=program.functions[function];
         rootEntry(f);
         if(f.hostExtern!=null) throw new UnsupportedOperationException("Host extern requires explicit driver: "+f.hostExtern.symbol);
-        if(args.length!=f.params.length) throw error("Arity mismatch: "+f.label);
+        validateEntryArguments(f,args);
+        callsLeft=10_000_000;
         try {
             if(f.params.length==0) { load(f); if(f.resultType==OBJ) inc(result,1); }
             else enter(f,args);

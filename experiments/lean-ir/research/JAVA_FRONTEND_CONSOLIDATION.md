@@ -12,6 +12,11 @@ subsequent milestones. The [compilation boundary](JAVA_COMPILATION_BOUNDARY.md)
 records how future Pattern/JVM tiers can share this runtime; it is a design,
 not an implemented JIT.
 
+The next [program-generation slice](JAVA_PROGRAM_GENERATIONS.md) adds explicit
+descendant installation and closure construction at a committed host boundary,
+preserving old code/cache ownership and rejecting siblings. It does not itself
+authorize `evalConst`, execute initializers or construct the guest frontend Env.
+
 ## Reuse prepared kernel stores
 
 `ansatz.export.storage/load-env` already opens a lazy persistent-store-backed
