@@ -42,7 +42,8 @@ public final class Interpreter implements AutoCloseable {
     private static final int BYTE_MK=200,BYTE_GET=201,BYTE_SIZE=202,BYTE_PUSH=203;
     private static final int INT_OF_NAT=210,INT_NEG_SUCC=211,INT_NEG=212,INT_ABS=213,INT_ADD=214,INT_SUB=215,INT_EQ=216,INT_LT=217,INT_LE=218;
     private static final int MAX_BYTE_CAPACITY=16*1024*1024;
-    private static final int POINTER_IDENTITY=93;
+    private static final int POINTER_IDENTITY=93, NAME_EQ=94;
+    private static final int MAX_NAME_COMPARISON_STEPS=1_000_000;
     private static final int MAX_SHIFT_RESULT_BITS=16*1024*1024;
     private static final int MAX_ARRAY_CAPACITY=1_000_000;
     private static final int STREAM_FLUSH=100,STREAM_READ=101,STREAM_WRITE=102,STREAM_LINE=103,STREAM_PUT=104,STREAM_TTY=105;
@@ -352,6 +353,8 @@ public final class Interpreter implements AutoCloseable {
         register(registry,new ExternSpec("lean_int_dec_lt",INT_LT,"uint8",
                 new String[]{"tobject","tobject"},new boolean[]{true,true}));
         register(registry,new ExternSpec("lean_int_dec_le",INT_LE,"uint8",
+                new String[]{"tobject","tobject"},new boolean[]{true,true}));
+        register(registry,new ExternSpec("lean_name_eq",NAME_EQ,"uint8",
                 new String[]{"tobject","tobject"},new boolean[]{true,true}));
         registry.replaceAll((symbol,entries)->Collections.unmodifiableList(entries));
         return Collections.unmodifiableMap(registry);
@@ -1380,7 +1383,7 @@ public final class Interpreter implements AutoCloseable {
                     case SPROJ: require((b.type==U8||b.type==U32||b.type==U64)&&lane(env,e.a)==OBJ,"Scalar projection lane mismatch"); break;
                     case UPROJ: require(b.type==USIZE&&lane(env,e.a)==OBJ,"USize projection lane mismatch"); break;
                     case FAP: requireExecutableAbi(e.target); checkArgs(env,e.args,e.target.paramTypes); require(b.type==e.target.resultType,"Call result lane mismatch"); break;
-                    case PAP: requireExecutableAbi(e.target); require(b.type==OBJ&&e.args.length<e.target.params.length,"Invalid partial application"); require(!borrowedArrayPrimitive(e.target.intrinsic),"Borrowed array primitive requires owned closure wrapper"); require(!borrowedIntPrimitive(e.target.intrinsic),"Borrowed Int primitive requires owned closure wrapper"); require(!borrowedBytePrimitive(e.target.intrinsic),"Borrowed ByteArray primitive requires owned closure wrapper"); require(e.target.intrinsic!=POINTER_IDENTITY,"Pointer identity requires a certified direct FAP site"); require(!borrowedRefPrimitive(e.target.intrinsic),"Borrowed ref primitive requires owned closure wrapper"); for(int i=0;i<e.target.paramTypes.length;i++) require(e.target.paramTypes[i]==OBJ,"Unboxed partial target unsupported; boxed wrapper required"); for(int a:e.args) require(lane(env,a)==OBJ,"Partial argument must be boxed"); break;
+                    case PAP: requireExecutableAbi(e.target); require(b.type==OBJ&&e.args.length<e.target.params.length,"Invalid partial application"); require(!borrowedArrayPrimitive(e.target.intrinsic),"Borrowed array primitive requires owned closure wrapper"); require(!borrowedIntPrimitive(e.target.intrinsic),"Borrowed Int primitive requires owned closure wrapper"); require(!borrowedBytePrimitive(e.target.intrinsic),"Borrowed ByteArray primitive requires owned closure wrapper"); require(e.target.intrinsic!=NAME_EQ,"Borrowed Name equality requires an owned guest wrapper"); require(e.target.intrinsic!=POINTER_IDENTITY,"Pointer identity requires a certified direct FAP site"); require(!borrowedRefPrimitive(e.target.intrinsic),"Borrowed ref primitive requires owned closure wrapper"); for(int i=0;i<e.target.paramTypes.length;i++) require(e.target.paramTypes[i]==OBJ,"Unboxed partial target unsupported; boxed wrapper required"); for(int a:e.args) require(lane(env,a)==OBJ,"Partial argument must be boxed"); break;
                     case AP: require(b.type==OBJ&&lane(env,e.a)==OBJ&&e.args.length>0,"Unsupported closure application"); for(int a:e.args) require(lane(env,a)==OBJ,"Closure argument must be boxed"); break;
                     case BOX: require(b.type==OBJ&&e.b!=OBJ&&lane(env,e.a)==e.b,"Box lane mismatch"); break;
                     case UNBOX: require(b.type!=OBJ&&lane(env,e.a)==OBJ,"Unbox lane mismatch"); break;
@@ -1875,6 +1878,12 @@ public final class Interpreter implements AutoCloseable {
         else if(f.intrinsic==STR_LT) scalarResult=cmp<0?1:0;
         else scalarResult=cmp<0?0:cmp==0?1:2;
     }
+    /** Pinned lean_del_object ignores tagged immediates; heap deletion transfers
+     * already-extracted field credits and must not recursively decrement them. */
+    private void deleteShell(Object value) {
+        if(value instanceof Long) return;
+        Node n=node(value); unique(n); n.dead=true; Arrays.fill(n.fields,null); shellDeletes++;
+    }
     private static boolean borrowedIntPrimitive(int op) { return op>=INT_NEG&&op<=INT_LE; }
     private static BigInteger signedInteger(Object value) {
         if(value instanceof Long) return BigInteger.valueOf((Long)value);
@@ -2015,8 +2024,44 @@ public final class Interpreter implements AutoCloseable {
         inc(stdoutRoot,1); return stdoutRoot;
     }
     public String capturedStdout() { return output.toString(); }
+    /** Validate the current Name head, without a recursive prefix/hash audit.
+     * A well-founded parent chain and valid Unicode are trusted value invariants. */
+    private Node nameNode(Object value) {
+        if(value instanceof Long&&((Long)value)==0) return null;
+        require(value instanceof Node,"Expected Lean.Name anonymous zero or constructor");
+        Node name=constructorNode(value);
+        require(name.closure==null&&(name.tag==1||name.tag==2)&&name.fields.length==2&&name.scalars.length==8,
+                "Expected Lean.Name constructor layout");
+        Object leaf=name.fields[1];
+        if(name.tag==1) require(leaf instanceof String,"Expected Lean.Name String component");
+        else require(leaf instanceof Long&&((Long)leaf)>=0
+                        ||leaf instanceof BigInteger&&((BigInteger)leaf).signum()>=0,
+                     "Expected Lean.Name Nat component");
+        return name;
+    }
+    private boolean nameEquals(Object left,Object right) {
+        Node a=nameNode(left),b=nameNode(right);
+        if(a==null||b==null) return a==b;
+        if(a==b) return true;
+        if(readScalar(a,0,U64)!=readScalar(b,0,U64)) return false;
+        for(int steps=0;steps<MAX_NAME_COMPARISON_STEPS;steps++) {
+            if(a.tag!=b.tag) return false;
+            Object x=a.fields[1],y=b.fields[1];
+            if(a.tag==1) {
+                if(!((String)x).equals((String)y)) return false;
+            } else if(x instanceof Long&&y instanceof Long) {
+                if(((Long)x).longValue()!=((Long)y).longValue()) return false;
+            } else if(!nat(x).equals(nat(y))) return false;
+            a=nameNode(a.fields[0]); b=nameNode(b.fields[0]);
+            if(a==null||b==null) return a==b;
+            if(a==b) return true;
+            // Native lean_name_eq deliberately omits repeated parent hash tests.
+        }
+        throw error("Name equality depth/cycle outside bounded runtime profile");
+    }
     private void runtimeIntrinsic(Function f,Object a,Object b,Object c) {
         if(f.intrinsic>=INT_OF_NAT&&f.intrinsic<=INT_LE) { intIntrinsic(f,a,b); return; }
+        if(f.intrinsic==NAME_EQ) { scalarResult=nameEquals(a,b)?1:0; return; }
         if(f.intrinsic>=BYTE_MK&&f.intrinsic<=BYTE_PUSH) { byteArrayIntrinsic(f,a,b,c); return; }
         if(f.intrinsic==IO_INITIALIZING) {
             require(ERASED.equals(a),"IO.initializing world parameter requires erased placeholder");
@@ -2339,7 +2384,7 @@ public final class Interpreter implements AutoCloseable {
                 case SETTAG: { Node n=node(obj(b.a)); unique(n); n.tag=b.b; b=b.next; break; }
                 case INC: inc(obj(b.a),b.b); b=b.next; break;
                 case DEC: dec(obj(b.a),b.b); b=b.next; break;
-                case DEL: { Node n=node(obj(b.a)); unique(n); n.dead=true; Arrays.fill(n.fields,null); shellDeletes++; b=b.next; break; }
+                case DEL: deleteShell(obj(b.a)); b=b.next; break;
                 case CASE: {
                     long tag=caseTag(b);
                     Body selected=null;
@@ -2358,6 +2403,7 @@ public final class Interpreter implements AutoCloseable {
     private void acceptsClosure(Node closure) {
         Function function=closure.closure;
         require(function!=null,"Expected closure");
+        require(function.intrinsic!=NAME_EQ,"Borrowed Name equality cannot be admitted as a first-class closure");
         require(function.intrinsic!=POINTER_IDENTITY,"Pointer identity cannot be admitted as a first-class closure");
         if(!(kindMetadata(closure) instanceof Generation)||!program.generation.accepts((Generation)kindMetadata(closure))) throw error("Closure belongs to another code image");
         if(function.privateOwner!=null) {
@@ -2451,6 +2497,7 @@ public final class Interpreter implements AutoCloseable {
                         "Borrowed array primitive requires owned closure wrapper");
                 require(!borrowedIntPrimitive(target.intrinsic),"Borrowed Int primitive requires owned closure wrapper");
                 require(!borrowedBytePrimitive(target.intrinsic),"Borrowed ByteArray primitive requires owned closure wrapper");
+                require(target.intrinsic!=NAME_EQ,"Borrowed Name equality requires an owned guest wrapper");
                 require(target.intrinsic!=POINTER_IDENTITY,"Pointer identity requires a certified direct FAP site");
                 require(!borrowedRefPrimitive(target.intrinsic),"Borrowed ref primitive requires owned closure wrapper");
                 closureTargets[i]=target;
@@ -2520,6 +2567,7 @@ public final class Interpreter implements AutoCloseable {
                 "Borrowed array primitive requires owned closure wrapper");
         require(!borrowedIntPrimitive(target.intrinsic),"Borrowed Int primitive requires owned closure wrapper");
         require(!borrowedBytePrimitive(target.intrinsic),"Borrowed ByteArray primitive requires owned closure wrapper");
+        require(target.intrinsic!=NAME_EQ,"Borrowed Name equality requires an owned guest wrapper");
         require(target.intrinsic!=POINTER_IDENTITY,"Pointer identity requires a certified direct FAP site");
         require(!borrowedRefPrimitive(target.intrinsic),"Borrowed ref primitive requires owned closure wrapper");
         for(int lane:target.paramTypes) require(lane==OBJ,"Unboxed partial target unsupported; boxed wrapper required");
@@ -2939,7 +2987,7 @@ public final class Interpreter implements AutoCloseable {
                     case SETTAG: { Node n=node(obj(b.a)); unique(n); n.tag=b.b; b=b.next; break; }
                     case INC: inc(obj(b.a),b.b); b=b.next; break;
                     case DEC: dec(obj(b.a),b.b); b=b.next; break;
-                    case DEL: { Node n=node(obj(b.a)); unique(n); n.dead=true; Arrays.fill(n.fields,null); shellDeletes++; b=b.next; break; }
+                    case DEL: deleteShell(obj(b.a)); b=b.next; break;
                     case CASE: {
                         long tag=caseTag(b);
                         Body selected=null;
@@ -2965,6 +3013,7 @@ public final class Interpreter implements AutoCloseable {
     private static void rootEntry(Function f) {
         if(borrowedIntPrimitive(f.intrinsic))
             throw new UnsupportedOperationException("Borrowed Int primitive requires owned guest wrapper at external entry");
+        require(f.intrinsic!=NAME_EQ,"Borrowed Name equality requires an owned guest wrapper");
         if(borrowedBytePrimitive(f.intrinsic))
             throw new UnsupportedOperationException("Borrowed ByteArray primitive requires owned guest wrapper at external entry");
         require(f.intrinsic!=POINTER_IDENTITY,"Pointer identity requires a certified direct FAP site");
