@@ -18,6 +18,7 @@
 (load-file "research/java-ir-baseline/fork-checks.clj")
 (load-file "research/java-ir-baseline/host-checks.clj")
 (load-file "research/java-ir-baseline/generation-checks.clj")
+(load-file "research/java-ir-baseline/header-checks.clj")
 (load-file "research/checked-delta.clj")
 (load-file "research/checked-delta-checks.clj")
 (require 'prototype.delta-import-test 'prototype.module-import-test 'prototype.source-import-test
@@ -59,6 +60,7 @@
                (java-ir-fork-checks/check! basis)
                (java-ir-host-checks/check! basis)
                (java-ir-generation-checks/check! basis)
+               (java-ir-header-checks/check! basis)
                (research.checked-delta-checks/check!)
                (clojure.test/run-tests 'prototype.delta-import-test)
                (clojure.test/run-tests 'prototype.imported-kernel-test)
@@ -82,5 +84,5 @@
                (clojure.test/run-tests 'prototype.resident-init-prefix-test)
                (clojure.test/run-tests 'prototype.coherent-jvm-slice-test)]]
   (shutdown-agents)
-  (System/exit (if (and (= [9 9 8 6 5 5 6 6 9 9 4 7 9 4 13 18 17 12 9 15 11 11 7 9 4 15 7 10 17 8 4 6 10 9 5 3 4 6 13] (mapv :test results))
+  (System/exit (if (and (= [9 9 8 6 5 5 6 6 9 9 4 7 9 4 13 18 17 10 12 9 15 11 11 7 9 4 15 7 10 17 8 4 6 10 9 5 3 4 6 13] (mapv :test results))
                        (every? #(zero? (+ (:fail %) (:error %))) results)) 0 1)))

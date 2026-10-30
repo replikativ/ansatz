@@ -189,6 +189,114 @@ public final class Interpreter implements AutoCloseable {
             this.tag=tag; this.fields=fields; scalars=new byte[scalarBytes];
         }
     }
+    /** Trusted-host source boundary, not a digest verifier. The adapter supplies
+     * a lightweight immutable accepted catalogue/lease identity, verifies raw
+     * bytes and extraction against it, then issues headers and supplies rows.
+     * Do not pass a full parsed catalogue here or infer authority from a hash. */
+    public static final class SourceBinding {
+        private final Object acceptedCatalogueSnapshot;
+        public SourceBinding(Object acceptedCatalogueSnapshot) {
+            require(acceptedCatalogueSnapshot!=null,"Actual accepted catalogue snapshot required");
+            this.acceptedCatalogueSnapshot=acceptedCatalogueSnapshot;
+        }
+        public Header header(Map<String,Object> declarationHeaderRow,String originalSha256) {
+            return new Header(this,declarationHeaderRow,originalSha256);
+        }
+        public Object acceptedCatalogueSnapshot() { return acceptedCatalogueSnapshot; }
+    }
+    /** Immutable original ABI issued by one actual trusted source binding.
+     * A supplied SHA is descriptive; the source adapter authenticates bytes. */
+    public static final class Header {
+        private final SourceBinding source;
+        private final String originalSha256,kind,resultType;
+        private final Object exactName;
+        private final int[] params;
+        private final String[] paramTypes;
+        private final boolean[] borrowed;
+        private final Map<String,Object> declaration,evidence;
+        private Header(SourceBinding source,Map<String,Object> row,String digest) {
+            require(row!=null&&"decl".equals(row.get("kind")),"Expected declaration header row");
+            require(digest!=null&&digest.matches("[0-9a-f]{64}"),"Expected original SHA-256 identity");
+            this.source=source; originalSha256=digest;
+            exactName=frozenName(row.get("name")); Interpreter.name(exactName);
+            Map<String,Object> ir=map(row.get("ir"));
+            require(ir.size()==1&&(ir.containsKey("fdecl")||ir.containsKey("extern")),"Invalid declaration header kind");
+            kind=ir.containsKey("extern")?"extern":"fdecl";
+            Map<String,Object> raw=map(ir.get(kind)),metadata=new LinkedHashMap<>(raw);
+            require(exactName.equals(frozenName(raw.get("f"))),"Declaration Name differs from exported row Name");
+            metadata.remove("body");
+            declaration=map(frozenMetadata(metadata));
+            params=Interpreter.params(raw.get("xs"));
+            List<Object> xs=list(raw.get("xs")); paramTypes=new String[params.length]; borrowed=new boolean[params.length];
+            Set<Integer> seen=new HashSet<>();
+            for(int i=0;i<params.length;i++) {
+                mark(seen,params[i]); Map<String,Object> parameter=map(xs.get(i));
+                paramTypes[i]=metadataType(parameter.get("ty"));
+                require(parameter.get("borrow") instanceof Boolean,"Invalid original parameter borrow flag");
+                borrowed[i]=(Boolean)parameter.get("borrow");
+            }
+            resultType=metadataType(raw.get("type"));
+            Map<String,Object> selected=new LinkedHashMap<>();
+            for(String key:new String[]{"runtime","dependencies","redirect","sourceLocal","sourceModule"})
+                if(row.containsKey(key)) selected.put(key,row.get(key));
+            evidence=map(frozenMetadata(selected));
+            if(evidence.containsKey("runtime")) {
+                Map<String,Object> runtime=map(evidence.get("runtime"));
+                if("initialized".equals(runtime.get("role"))) {
+                    require(params.length==0,"Initialized global must be nullary");
+                    Interpreter.name(frozenName(runtime.get("initializer")));
+                }
+            }
+        }
+        public SourceBinding source() { return source; }
+        public Object name() { return exactName; }
+        public String originalSha256() { return originalSha256; }
+        public String kind() { return kind; }
+        public int[] params() { return params.clone(); }
+        public String[] paramTypes() { return paramTypes.clone(); }
+        public boolean[] borrowed() { return borrowed.clone(); }
+        public String resultType() { return resultType; }
+        public Map<String,Object> metadata() { return evidence; }
+        private boolean sameOriginalHeader(Header other) {
+            return source==other.source&&exactName.equals(other.exactName)&&kind.equals(other.kind)
+                    &&declaration.equals(other.declaration)&&evidence.equals(other.evidence);
+        }
+        private boolean initialized() {
+            return evidence.containsKey("runtime")&&"initialized".equals(map(evidence.get("runtime")).get("role"));
+        }
+    }
+    private static Object frozenMetadata(Object value) {
+        if(value==null||value instanceof String||value instanceof Boolean||value instanceof Long
+                ||value instanceof Integer||value instanceof Short||value instanceof Byte||value instanceof BigInteger) return value;
+        if(value instanceof List) {
+            List<Object> out=new ArrayList<>();
+            for(Object item:(List<?>)value) out.add(frozenMetadata(item));
+            return Collections.unmodifiableList(out);
+        }
+        if(value instanceof Map) {
+            Map<String,Object> out=new LinkedHashMap<>();
+            for(Map.Entry<?,?> entry:((Map<?,?>)value).entrySet()) {
+                require(entry.getKey() instanceof String,"Invalid metadata key");
+                out.put((String)entry.getKey(),frozenMetadata(entry.getValue()));
+            }
+            return Collections.unmodifiableMap(out);
+        }
+        throw error("Mutable or unsupported declaration metadata");
+    }
+    private static String metadataType(Object value) {
+        require(value instanceof String,"Unsupported structured or malformed IR metadata type");
+        String type=(String)value;
+        switch(type) {
+            case "object": case "tobject": case "tagged": case "erased": case "void":
+            case "uint8": case "uint16": case "uint32": case "uint64": case "usize":
+            case "float": case "float32": return type;
+            default: throw error("Unknown IR metadata type: "+type);
+        }
+    }
+    private static int metadataLane(String raw) {
+        if(raw.equals("uint16")||raw.equals("uint64")||raw.equals("float")||raw.equals("float32")) return -1;
+        return type(raw);
+    }
     /** Stable callable identity and ABI; executable layout belongs to a Program. */
     static final class Function {
         final String label;
@@ -196,8 +304,14 @@ public final class Interpreter implements AutoCloseable {
         final int[] params, paramTypes;
         final Object privateOwner;
         final HostExtern hostExtern;
+        final Header header;
         Function(String label,int id,int[] params,int[] paramTypes,int resultType,
                  int intrinsic,HostExtern hostExtern,Object privateOwner) {
+            this(label,id,params,paramTypes,resultType,intrinsic,hostExtern,privateOwner,null);
+        }
+        Function(String label,int id,int[] params,int[] paramTypes,int resultType,
+                 int intrinsic,HostExtern hostExtern,Object privateOwner,Header header) {
+            this.header=header;
             this.label=label; this.id=id; this.params=params.clone(); this.paramTypes=paramTypes.clone();
             this.resultType=resultType; this.intrinsic=intrinsic;
             this.hostExtern=hostExtern; this.privateOwner=privateOwner;
@@ -272,6 +386,26 @@ public final class Interpreter implements AutoCloseable {
             if(f==null) throw error("Unknown function: "+label);
             return f.id;
         }
+        public int functionId(Header header) {
+            require(header!=null,"Actual declaration Header required");
+            Function function=typedNames.get(header.exactName);
+            require(function!=null&&function.header==header,"Header is not registered in this Program");
+            return function.id;
+        }
+        /** Header metadata is trusted-host input; this does not verify source bytes.
+         * Extern metadata currently requires a standard c/all entry. A missing
+         * implementation or supported lane does not prevent header registration. */
+        public static Program registerHeaders(Program base,Header[] headers) {
+            return registerHeaders(base,headers,new HostExtern[0]);
+        }
+        public static Program registerHeaders(Program base,Header[] headers,HostExtern[] additionalExterns) {
+            return registeredHeaders(base,headers,additionalExterns);
+        }
+        /** Adapter must verify original raw bytes before supplying this parsed row.
+         * Dependencies are the exact unique direct non-self FAP/PAP headers. */
+        public static Program materialize(Program base,Header target,Map<String,Object> originalRow,Header[] directHeaders) {
+            return materializedBody(base,target,originalRow,directHeaders);
+        }
         public int functionCount() { return functions.length; }
         /** Append-only link against this actual base, preserving every old
          * function identity/ID. Metadata-only input with no new ABI is a no-op. */
@@ -280,6 +414,92 @@ public final class Interpreter implements AutoCloseable {
             require(base!=null,"Actual base Program required");
             return link(base,rows,additionalExterns);
         }
+    }
+
+    private static Map<String,List<HostExtern>> extendedHostRegistry(Program base,HostExtern[] additional) {
+        require(additional!=null,"Explicit host extern registry required");
+        Map<String,List<HostExtern>> registry=new HashMap<>();
+        for(Map.Entry<String,List<HostExtern>> entry:base.hostRegistry.entrySet())
+            registry.put(entry.getKey(),new ArrayList<>(entry.getValue()));
+        for(HostExtern descriptor:additional.clone()) {
+            require(descriptor!=null,"Null host extern descriptor");
+            require(!EXTERNS.containsKey(descriptor.symbol),"Host extern cannot shadow builtin: "+descriptor.symbol);
+            List<HostExtern> entries=registry.computeIfAbsent(descriptor.symbol,ignored->new ArrayList<>());
+            for(HostExtern old:entries) require(!descriptor.sameAbi(old),"Duplicate host extern ABI: "+descriptor.symbol);
+            entries.add(descriptor);
+        }
+        registry.replaceAll((symbol,entries)->Collections.unmodifiableList(entries));
+        return Collections.unmodifiableMap(registry);
+    }
+    private static Function headerFunction(Header header,int id,Map<String,List<HostExtern>> registry) {
+        int[] lanes=new int[header.paramTypes.length];
+        for(int i=0;i<lanes.length;i++) lanes[i]=metadataLane(header.paramTypes[i]);
+        int intrinsic=0; HostExtern host=null;
+        if(header.kind.equals("extern")) {
+            Object symbol=externSymbol(header.declaration);
+            if(EXTERNS.containsKey(symbol)) {
+                for(ExternSpec spec:EXTERNS.get(symbol)) if(spec.matches(header.declaration)) { intrinsic=spec.intrinsic; break; }
+            } else if(registry.containsKey(symbol)) {
+                for(HostExtern descriptor:registry.get(symbol)) if(descriptor.matches(header.declaration)) { host=descriptor; break; }
+            }
+        }
+        return new Function(name(header.exactName),id,header.params,lanes,metadataLane(header.resultType),
+                            intrinsic,host,null,header);
+    }
+    private static Program registeredHeaders(Program base,Header[] headers,HostExtern[] additional) {
+        require(base!=null,"Actual base Program required"); require(headers!=null,"Explicit declaration headers required");
+        Map<String,List<HostExtern>> registry=extendedHostRegistry(base,additional);
+        Map<Object,Function> byName=new HashMap<>(base.typedNames);
+        Map<String,Function> labels=new LinkedHashMap<>(base.labels);
+        List<Function> additions=new ArrayList<>();
+        for(Header header:headers.clone()) {
+            require(header!=null,"Null declaration Header");
+            Function old=byName.get(header.exactName);
+            if(old!=null) { require(old.header==header,"Conflicting declaration header identity"); continue; }
+            String label=name(header.exactName);
+            require(!labels.containsKey(label),"Duplicate/ambiguous function name: "+label);
+            Function function=headerFunction(header,base.functions.length+additions.size(),registry);
+            byName.put(header.exactName,function); labels.put(label,function); additions.add(function);
+        }
+        if(additions.isEmpty()&&additional.length==0) return base;
+        Function[] functions=Arrays.copyOf(base.functions,base.functions.length+additions.size());
+        for(Function function:additions) functions[function.id]=function;
+        return new Program(functions,Arrays.copyOf(base.preparedBodies,functions.length),
+                           Collections.unmodifiableMap(labels),Collections.unmodifiableMap(byName),registry,
+                           new Generation(base.generation));
+    }
+    private static void directTargets(Body body,Set<Function> targets) {
+        if(body==null) return;
+        if(body.expr!=null&&(body.expr.op==FAP||body.expr.op==PAP)) targets.add(body.expr.target);
+        directTargets(body.next,targets); directTargets(body.body,targets);
+        if(body.alternatives!=null) for(Body alternative:body.alternatives) directTargets(alternative,targets);
+    }
+    private static Program materializedBody(Program base,Header target,Map<String,Object> originalRow,Header[] directHeaders) {
+        require(base!=null&&target!=null,"Actual base Program and target Header required");
+        int id=base.functionId(target);
+        require(base.preparedBodies[id]==null,"Prepared body replacement is not supported");
+        require(target.kind.equals("fdecl"),"Only original fdecl bodies can be materialized");
+        Header actual=new Header(target.source,originalRow,target.originalSha256);
+        require(target.sameOriginalHeader(actual),"Original row differs from issued declaration header");
+        require(directHeaders!=null,"Explicit direct declaration headers required");
+        Header[] dependencies=directHeaders.clone(); Set<Header> expected=Collections.newSetFromMap(new IdentityHashMap<>());
+        for(Header dependency:dependencies) {
+            require(dependency!=null&&dependency.source==target.source,"Direct header source binding differs");
+            require(dependency!=target&&expected.add(dependency),"Duplicate or self direct header");
+        }
+        Program staged=registeredHeaders(base,dependencies,new HostExtern[0]);
+        Function function=staged.functions[id]; requireExecutableAbi(function);
+        BodyBuilder builder=new BodyBuilder(function);
+        builder.body=body(map(map(originalRow.get("ir")).get("fdecl")).get("body"),builder,staged.typedNames);
+        Set<Function> targets=Collections.newSetFromMap(new IdentityHashMap<>()); directTargets(builder.body,targets);
+        targets.remove(function);
+        require(targets.size()==expected.size(),"Direct header set differs from original FAP/PAP targets");
+        for(Function callee:targets) require(callee.header!=null&&expected.remove(callee.header),
+                                             "Original call target differs from supplied direct header identity");
+        require(expected.isEmpty(),"Unused direct declaration header");
+        validate(function,builder.body);
+        PreparedBody[] slots=staged.preparedBodies.clone(); slots[id]=builder.finish();
+        return new Program(staged.functions,slots,staged.labels,staged.typedNames,staged.hostRegistry,new Generation(staged.generation));
     }
 
     private Program program;
@@ -599,7 +819,7 @@ public final class Interpreter implements AutoCloseable {
             case "lit": {
                 out.op=LIT; Map<String,Object> lit=map(d.get("v"));
                 if(lit.containsKey("num")) { Object n=map(lit.get("num")).get("v"); BigInteger big=new BigInteger(n.toString()); out.literal=normalize(big); }
-                else if(lit.containsKey("str")) out.literal=map(lit.get("str")).get("v");
+                else if(lit.containsKey("str")) { out.literal=map(lit.get("str")).get("v"); require(out.literal instanceof String,"Invalid string literal"); }
                 else throw error("Unsupported literal"); break;
             }
             case "isShared": out.op=SHARED; out.a=variable(d.get("x")); break;
@@ -665,8 +885,8 @@ public final class Interpreter implements AutoCloseable {
                     case PROJ: require(b.type==OBJ&&lane(env,e.a)==OBJ,"Projection lane mismatch"); break;
                     case SPROJ: require((b.type==U8||b.type==U32)&&lane(env,e.a)==OBJ,"Scalar projection lane mismatch"); break;
                     case UPROJ: require(b.type==USIZE&&lane(env,e.a)==OBJ,"USize projection lane mismatch"); break;
-                    case FAP: checkArgs(env,e.args,e.target.paramTypes); require(b.type==e.target.resultType,"Call result lane mismatch"); break;
-                    case PAP: require(b.type==OBJ&&e.args.length<e.target.params.length,"Invalid partial application"); require(e.target.intrinsic!=ARRAY_SIZE&&e.target.intrinsic!=ARRAY_GET,"Borrowed array primitive requires owned closure wrapper"); for(int i=0;i<e.target.paramTypes.length;i++) require(e.target.paramTypes[i]==OBJ,"Unboxed partial target unsupported; boxed wrapper required"); for(int a:e.args) require(lane(env,a)==OBJ,"Partial argument must be boxed"); break;
+                    case FAP: requireExecutableAbi(e.target); checkArgs(env,e.args,e.target.paramTypes); require(b.type==e.target.resultType,"Call result lane mismatch"); break;
+                    case PAP: requireExecutableAbi(e.target); require(b.type==OBJ&&e.args.length<e.target.params.length,"Invalid partial application"); require(e.target.intrinsic!=ARRAY_SIZE&&e.target.intrinsic!=ARRAY_GET,"Borrowed array primitive requires owned closure wrapper"); for(int i=0;i<e.target.paramTypes.length;i++) require(e.target.paramTypes[i]==OBJ,"Unboxed partial target unsupported; boxed wrapper required"); for(int a:e.args) require(lane(env,a)==OBJ,"Partial argument must be boxed"); break;
                     case AP: require(b.type==OBJ&&lane(env,e.a)==OBJ&&e.args.length>0,"Unsupported closure application"); for(int a:e.args) require(lane(env,a)==OBJ,"Closure argument must be boxed"); break;
                     case BOX: require(b.type==OBJ&&e.b!=OBJ&&lane(env,e.a)==e.b,"Box lane mismatch"); break;
                     case UNBOX: require(b.type!=OBJ&&lane(env,e.a)==OBJ,"Unbox lane mismatch"); break;
@@ -984,14 +1204,31 @@ public final class Interpreter implements AutoCloseable {
         else constants[f.id]=Long.valueOf(scalarResult);
         constantReady[f.id]=true;
     }
+    private static void requireExecutableAbi(Function function) {
+        Header header=function.header;
+        if(header==null) return;
+        if(function.resultType<0) throw error("Unsupported execution lane "+header.resultType+" in "+function.label+" ["+header.originalSha256+"]");
+        for(int i=0;i<function.paramTypes.length;i++) if(function.paramTypes[i]<0)
+            throw error("Unsupported execution lane "+header.paramTypes[i]+" in "+function.label+" ["+header.originalSha256+"]");
+    }
+    private void preflightCallable(Function function) {
+        requireExecutableAbi(function);
+        if(function.params.length==0&&constantReady[function.id]) return;
+        Header header=function.header;
+        if(header!=null&&header.initialized()) throw error("Initialized global is unavailable: "+function.label);
+        if(function.hostExtern!=null||function.intrinsic!=0) return;
+        if(header!=null&&header.kind.equals("extern")) throw error("Extern implementation unavailable: "+function.label);
+        preparedBody(function);
+    }
     private PreparedBody preparedBody(Function function) {
         require(function.id>=0&&function.id<program.functions.length
                 &&program.functions[function.id]==function,"Function outside current Program");
         PreparedBody prepared=program.preparedBodies[function.id];
-        if(prepared==null) throw error("Missing eager prepared body: "+function.label);
+        if(prepared==null) throw error("Unprepared executable body: "+function.label);
         return prepared;
     }
     private void call(Function f,int[] args) {
+        preflightCallable(f);
         if(f.hostExtern!=null) throw new UnsupportedOperationException("Host extern requires explicit driver: "+f.hostExtern.symbol);
         if(args.length!=f.params.length) throw error("Arity mismatch: "+f.label);
         if(f.intrinsic!=0) { intrinsicSlots(f,args); return; }
@@ -1007,6 +1244,7 @@ public final class Interpreter implements AutoCloseable {
         finally { Arrays.fill(objects,oldSp,sp,null); Arrays.fill(joins,oldJsp,jsp,null); bp=oldBp;sp=oldSp;jbp=oldJbp;jsp=oldJsp; }
     }
     private void enter(Function f,Object[] args) {
+        preflightCallable(f);
         if(f.hostExtern!=null) throw new UnsupportedOperationException("Host extern requires explicit driver: "+f.hostExtern.symbol);
         if(args.length!=f.params.length) throw error("Arity mismatch: "+f.label);
         if(f.intrinsic!=0) { intrinsicExternal(f,args); return; }
@@ -1022,7 +1260,10 @@ public final class Interpreter implements AutoCloseable {
     private Object apply(Object value,Object[] args) {
         Node closure=node(value); if(closure.closure==null) throw error("Expected closure");
         acceptsClosure(closure);
-        Function f=closure.closure; Object[] combined=new Object[closure.fields.length+args.length];
+        Function f=closure.closure;
+        requireExecutableAbi(f);
+        if(closure.fields.length+args.length>=f.params.length) preflightCallable(f);
+        Object[] combined=new Object[closure.fields.length+args.length];
         System.arraycopy(closure.fields,0,combined,0,closure.fields.length);
         // A shared closure keeps ownership of its captured arguments.
         if(closure.rc!=1) for(Object a:closure.fields) inc(a,1);
@@ -1124,8 +1365,11 @@ public final class Interpreter implements AutoCloseable {
         if(descendant==program) return;
         require(descendant.generation.accepts(program.generation),"Program is not a descendant of the installed generation");
         require(descendant.functions.length>=program.functions.length,"Descendant function table shrank");
-        for(int i=0;i<program.functions.length;i++)
+        for(int i=0;i<program.functions.length;i++) {
             require(descendant.functions[i]==program.functions[i],"Descendant replaced an inherited function");
+            require(program.preparedBodies[i]==null||descendant.preparedBodies[i]==program.preparedBodies[i],
+                    "Descendant replaced an inherited prepared body");
+        }
         Object[] nextConstants=Arrays.copyOf(constants,descendant.functions.length);
         boolean[] nextReady=Arrays.copyOf(constantReady,descendant.functions.length);
         constants=nextConstants; constantReady=nextReady; program=descendant;
@@ -1137,6 +1381,7 @@ public final class Interpreter implements AutoCloseable {
         generationBoundary("Closure construction");
         require(captures!=null,"Explicit closure captures required");
         Function target=program.functions[function];
+        requireExecutableAbi(target);
         require(captures.length<target.params.length,"Invalid partial application");
         require(target.intrinsic!=ARRAY_SIZE&&target.intrinsic!=ARRAY_GET,
                 "Borrowed array primitive requires owned closure wrapper");
@@ -1297,7 +1542,14 @@ public final class Interpreter implements AutoCloseable {
         if(advancing||phase!=IDLE) throw new IllegalStateException("Take the result or finish the current execution before start");
         Function f=program.functions[function];
         rootEntry(f);
+        preflightCallable(f);
         validateEntryArguments(f,args);
+        if(f.params.length==0&&constantReady[f.id]) {
+            if(f.resultType==OBJ) { result=constants[f.id]; inc(result,1); }
+            else scalarResult=(Long)constants[f.id];
+            callsLeft=10_000_000; instructions=0;
+            entry=f; phase=COMPLETE; pendingOwnedResult=true; return;
+        }
         if(f.hostExtern!=null) {
             for(int i=0;i<args.length;i++) if(f.paramTypes[i]==OBJ) validateHostObject(args[i]);
             callsLeft=10_000_000; instructions=0; entry=f;
@@ -1309,12 +1561,6 @@ public final class Interpreter implements AutoCloseable {
             callsLeft=10_000_000; instructions=0;
             entry=f; phase=COMPLETE; pendingOwnedResult=true; return;
         }
-        if(f.params.length==0&&constantReady[f.id]) {
-            if(f.resultType==OBJ) { result=constants[f.id]; inc(result,1); }
-            else scalarResult=(Long)constants[f.id];
-            callsLeft=10_000_000; instructions=0;
-            entry=f; phase=COMPLETE; pendingOwnedResult=true; return;
-        }
         callsLeft=10_000_000; instructions=0;
         entry=f; phase=RUNNING;
         try { enterExplicit(f,null,args,null,0,ROOT|(f.params.length==0?CACHE:0),null); }
@@ -1323,6 +1569,7 @@ public final class Interpreter implements AutoCloseable {
 
     private void enterExplicit(Function f,int[] slots,Object[] args,Body next,int dest,int kind,Object[] surplus) {
         if(continuationDepth>=65536) throw error("Continuation depth limit");
+        preflightCallable(f);
         PreparedBody prepared=preparedBody(f);
         int newSp=Math.addExact(sp,prepared.width),newJsp=Math.addExact(jsp,prepared.joinWidth);
         if(newSp>8_000_000||newJsp>2_000_000) throw error("Explicit stack limit");
@@ -1350,6 +1597,8 @@ public final class Interpreter implements AutoCloseable {
         Node closure=node(value); if(closure.closure==null) throw error("Expected closure");
         acceptsClosure(closure);
         Function f=closure.closure;
+        requireExecutableAbi(f);
+        if(closure.fields.length+args.length>=f.params.length) preflightCallable(f);
         Object[] combined=new Object[closure.fields.length+args.length];
         System.arraycopy(closure.fields,0,combined,0,closure.fields.length);
         if(closure.rc!=1) for(Object a:closure.fields) inc(a,1);
@@ -1424,18 +1673,19 @@ public final class Interpreter implements AutoCloseable {
                         Expr e=b.expr; int dest=bp+b.a;
                         if(e.op==FAP) {
                             Function f=e.target;
+                            if(f!=active) preflightCallable(f);
                             if(f==active&&b.next.op==RET&&b.next.a==b.a) {
                                 int scratch=sp; ensure(sp+e.args.length,jsp);
                                 for(int i=0;i<e.args.length;i++) { objects[scratch+i]=obj(e.args[i]); numbers[scratch+i]=numbers[bp+e.args[i]]; }
                                 for(int i=0;i<e.args.length;i++) { objects[bp+f.params[i]]=objects[scratch+i]; numbers[bp+f.params[i]]=numbers[scratch+i]; objects[scratch+i]=null; }
                                 tick(); b=activePrepared.body;
+                            } else if(e.args.length==0&&constantReady[f.id]) {
+                                if(f.resultType==OBJ) objects[dest]=constants[f.id]; else numbers[dest]=(Long)constants[f.id];
+                                b=b.next;
                             } else if(f.hostExtern!=null) {
                                 Object[] args=new Object[e.args.length];
                                 for(int i=0;i<args.length;i++) args[i]=f.paramTypes[i]==OBJ?obj(e.args[i]):externalScalar(numbers[bp+e.args[i]],f.paramTypes[i]);
                                 suspendHost(f,args,b.next,dest,ASSIGN,null,false); b=pc;
-                            } else if(e.args.length==0&&constantReady[f.id]) {
-                                if(f.resultType==OBJ) objects[dest]=constants[f.id]; else numbers[dest]=(Long)constants[f.id];
-                                b=b.next;
                             } else if(f.intrinsic!=0) {
                                 intrinsicSlots(f,e.args);
                                 if(b.type==OBJ) objects[dest]=result; else numbers[dest]=scalarResult;
@@ -1500,6 +1750,7 @@ public final class Interpreter implements AutoCloseable {
         Function f=program.functions[function];
         rootEntry(f);
         if(f.hostExtern!=null) throw new UnsupportedOperationException("Host extern requires explicit driver: "+f.hostExtern.symbol);
+        preflightCallable(f);
         validateEntryArguments(f,args);
         callsLeft=10_000_000;
         try {
