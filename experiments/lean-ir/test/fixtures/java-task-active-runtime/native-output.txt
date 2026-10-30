@@ -1,0 +1,9 @@
+initial-ready=false
+callback-order=[third, second, first]
+first-result=(some 7)
+after-duplicate=(some 7)
+after-drop=none
+after-set=true
+final-log=[third, second, first, on-set-observed=false]
+sibling-drop-order=[drop-second, drop-first]
+captured-ref-order=[replacement-visible=true]
