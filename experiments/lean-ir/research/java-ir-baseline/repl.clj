@@ -105,6 +105,43 @@
          method (.getMethod cls "extend" (into-array Class [cls java.util.List (class array)]))]
      (assoc basis :program (invoke-static method [(:program basis) rows array])))))
 
+(defn source-binding
+  "Create a binding for the trusted adapter's accepted lightweight source token.
+   This is an authority boundary, not verification of supplied bytes or hashes."
+  [basis accepted-source-token]
+  (let [cls (Class/forName "ansatz.research.ir.Interpreter$SourceBinding" true (:loader basis))]
+    (.newInstance (.getConstructor cls (into-array Class [Object]))
+                  (object-array [accepted-source-token]))))
+
+(defn declaration-header [binding original-header-row original-sha256]
+  (.invoke (.getMethod (class binding) "header" (into-array Class [java.util.Map String]))
+           binding (object-array [original-header-row original-sha256])))
+
+(defn- header-array [basis headers]
+  (let [cls (Class/forName "ansatz.research.ir.Interpreter$Header" true (:loader basis))
+        array (java.lang.reflect.Array/newInstance cls (count headers))]
+    (doseq [[index header] (map-indexed vector headers)]
+      (java.lang.reflect.Array/set array index header))
+    array))
+
+(defn register-headers
+  "Append authentic headers without forcing executable bodies."
+  ([basis headers] (register-headers basis headers []))
+  ([basis headers specifications]
+   (let [basis (host-basis basis) array (header-array basis headers)
+         externs (host-descriptor-array basis specifications)
+         cls (class (:program basis))
+         method (.getMethod cls "registerHeaders" (into-array Class [cls (class array) (class externs)]))]
+     (assoc basis :program (invoke-static method [(:program basis) array externs])))))
+
+(defn materialize-body
+  "Prepare one authenticated original body; its dependencies remain headers."
+  [basis target original-row direct-headers]
+  (let [array (header-array basis direct-headers) cls (class (:program basis))
+        method (.getMethod cls "materialize"
+                           (into-array Class [cls (class target) java.util.Map (class array)]))]
+    (assoc basis :program (invoke-static method [(:program basis) target original-row array]))))
+
 (defn install-program!
   "Install BASIS's prepared descendant on an idle or host-paused engine."
   [basis engine]

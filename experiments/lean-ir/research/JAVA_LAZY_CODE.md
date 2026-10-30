@@ -2,9 +2,9 @@
 
 Implementation plan, 2026-10-29. This document separates the next runtime steps
 from capabilities already implemented in [program generations](JAVA_PROGRAM_GENERATIONS.md).
-Only the prepared-body separation is implemented in the current tranche.
-Header registration, code requests, prepared-global import and frontend execution
-on Java remain subsequent acceptance gates.
+Prepared-body separation, header registration and explicit selected-body
+materialization are implemented. Code requests, a public prepared-global importer
+and frontend execution on Java remain subsequent acceptance gates.
 
 ## Why separate identity from implementation
 
@@ -38,13 +38,60 @@ machine controls, not a native comparison or a performance improvement claim.
 
 ## Header and source authority
 
-The next tranche needs an immutable accepted catalogue binding: exact structured
+Header admission uses an immutable accepted catalogue binding: exact structured
 Lean Name to original declaration identity, including the accepted source cohort
 and overlay resolution. A header captures declaration kind, parameter IDs/types,
 borrow bits, result type and explicit initialized-global classification. A caller
 supplying a hash string does not authenticate a header or its original bytes.
 The trusted adapter must verify bytes and extraction against its accepted source.
 The engine must preserve and check that adapter's actual binding identities.
+
+`SourceBinding(acceptedCatalogueSnapshot)` retains a lightweight trusted-adapter
+authority/lease token, not parsed catalogue contents. Its `header(row, sha256)`
+issues an opaque immutable Header, ignoring the body while capturing original
+Name, parameter IDs/raw types/borrow flags, result and runtime/source metadata.
+This does not check a supplied digest against raw bytes. The adapter must pin its
+source, authenticate bytes and check extraction before issuing a header.
+
+`Program.registerHeaders(base, headers[, additionalExterns])` admits descriptors
+without bodies. `Program.materialize(base, target, originalRow, directHeaders)`
+transactionally prepares exactly one original fdecl body. Direct headers must be
+the exact unique non-self FAP/PAP targets from the same SourceBinding; missing,
+extra, foreign and conflicting descriptors reject. Existing slots cannot be
+replaced. Host extern ABIs must be registered before or with their headers;
+already-published unavailable externs cannot be rebound in this tranche.
+
+Known unsupported numeric lanes remain metadata and reject execution explicitly.
+Structured types and inline/other-backend extern descriptions are not covered.
+PAP construction can reference an unforced supported boxed target. Missing code
+rejects explicitly; it does not yet produce a CodeRequest. Root and AP preflight
+preserve owned inputs before missing-code failure. A failed active guest frame
+still has the existing unsupported general-cleanup limitation.
+
+The [header implementation record](../measurements/java-ir-executable-headers-2026-10-29.edn)
+passes 10 focused tests / 62 assertions and the combined isolated jar gate of
+349 test executions / 13,438 assertions at 384 MiB. Independent review found and
+fixed a static-extern initialized-global readiness bypass and inconsistent inner
+declaration Names. New gates cover those paths and AP capture/closure ownership.
+Paired RBMap allocation remained unchanged; CPU medians were recursive prior
+2.434 ms / headers 2.437 ms and explicit 3.005 / 3.036 ms. No speedup is claimed.
+
+The retained 384 MiB REPL admitted all 2,412 actual captured closure header
+capsules with zero bodies prepared. In one observation, capsule parsing took
+32.9 ms caller CPU / 48.8 MB cumulative allocation, and header construction plus
+registration took 52.1 ms / 59.7 MB cumulative allocation. These are allocation
+totals, not retained heap estimates; the capsules are extracted metadata, not
+restored guest objects or complete executable/frontend acceptance.
+
+An additional probe converted the authentic nine-node `ppExt` companion using
+reflective research construction. It registered eight headers, prepared the two
+original initializer fdecl bodies and supplied the exact `lean_st_ref_get` host
+ABI. The unchanged initializer returned its current saved PPFns record while
+all five callback body slots remained unprepared. Forking at the ref-read host
+pause preserved aliases and isolated a host-side child-ref update. This does not
+implement a public graph/global importer or execute Lean Ref.set. One observed
+conversion/preparation/execution/fork probe took 6.3 ms caller CPU / 2.50 MB
+cumulative allocation; it excludes original checkpoint extraction/authentication.
 
 Register headers append-only without executing code or retaining caller-owned
 mutable rows. Original static calls and PAP targets resolve through the same
