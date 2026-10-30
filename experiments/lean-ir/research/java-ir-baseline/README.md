@@ -214,3 +214,9 @@ cleanup continuations without adding traversal owner credits.
 The [Void.mk release unit](../JAVA_VOID_RUNTIME.md) consumes the original owned
 payload before returning void zero, including resumable finalizer cleanup in the
 active runtime and checked quiet release in inactive modes.
+
+The [structural Level equality value unit](../JAVA_LEVEL_EQUALITY_RUNTIME.md)
+exposes the existing bounded Level comparator through exact borrowed
+`lean_level_eq` and its original owned boxed wrapper. Together with Level.mkData,
+it covers the two externs in pinned Lean/Level.lean; universe equivalence remains
+outside this binding.

@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "lean-commit": "819816b2e0a3bf405af45ae5c7af2491d8f5bee6",
+  "source-index-sha256": "74d833d577923821b982e8a9e872a38b5cad011513eb18870b51417e13397f0e",
+  "fixture-sha256": "14f1c7d42dd6885a9cc6c292e6a3a17fa7d5265409d9bacfc857f9931806a9cd",
+  "original-row-count": 2,
+  "transformation": "Only top-level pretty removed; original complete raw CAS SHA retained",
+  "upstream-source-sha256": {
+    "src/Lean/Level.lean": "560a7b5fde58937f69e9cf85b96d33f0aafcac2a9aec64776347de5e611d1303",
+    "src/kernel/level.cpp": "7cb927c6fabd9fb843f548443494d3673a08074e26fe32b679e80f4664fc7f25",
+    "src/kernel/level.h": "c8bd15369a7defcde87a5e0b750ab46512c28ce0a4de30f9be3eff8e3069c483",
+    "src/include/lean/lean.h": "02af0040283143b264e3a44b06b348b6973ae6037fa8f550701c83dd7a062ace",
+    "LICENSE": "8b28515ffffc5c0fe2807d8ae3735b00b324d9b7ce807dd63ff6ac8922fbce7e"
+  },
+  "shared-fixtures": {
+    "../java-expr-equality-runtime/original-rows.json": "1b426de13c0f12a5b24c877a4bfbcadf06ba299521b29d3b13e13a7289e520ec"
+  },
+  "new-native-execution": false
+}
