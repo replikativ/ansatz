@@ -1,0 +1,20 @@
+{
+  "schema": "compiled-pinned-expression-cache-offset/1",
+  "scope": "verbatim getter bodies with modeled storage API scaffolding; not complete native Lean object ABI",
+  "lean-commit": "819816b2e0a3bf405af45ae5c7af2491d8f5bee6",
+  "compiler": "g++ (Ubuntu 15.2.0-16ubuntu1) 15.2.0",
+  "word-bits": 64,
+  "vectors": 16,
+  "exit": 0,
+  "stderr-bytes": 0,
+  "storage-read-only-check": true,
+  "inline-sha256": "4bb6f233fa4095f1c8d122bb45c799754a2d0668ae5ceea0e4e23bc0a408e4e1",
+  "driver-sha256": "650a30fa9f422ebf2df7c1a8570c19030b78b6cf56918e4f3a8eaea107888a2c",
+  "binary-sha256": "92ac4825de81faaf279cadae95e4281de9b23a71fe7c8a74e9eed269397b18d1",
+  "vectors-sha256": "2245c7866063d0dd5b6fdf2b9a9087f9f96c5fb0ab7d04c2e9bad5f4fd69f0de",
+  "limits": {
+    "address-space-mib": 256,
+    "compile-wall-seconds": 25,
+    "oracle-wall-seconds": 10
+  }
+}

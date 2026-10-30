@@ -26,7 +26,7 @@ public final class Interpreter implements AutoCloseable {
     private static final int ADD=1,SUB=2,MOD=3,EQ=4,LT=5,MUL=6,DIV=7,POW=8;
     private static final int USIZE_NAT=9,USIZE_REPR=10,U32_NAT=11,U32_EQ=12,U32_LE=13,PLATFORM_BITS=14;
     private static final int STR_POS_SET=260;
-    private static final int EXPR_DATA=400,EXPR_APP_DATA=401,LEVEL_DATA=402;
+    private static final int EXPR_DATA=400,EXPR_APP_DATA=401,LEVEL_DATA=402,EXPR_CACHE=403;
     private static final int PROFILE_IT=410;
     private static final int STR_PUSH=15,STR_LIST=16,STR_GET=17,STR_NEXT=18,STR_APPEND=19,STR_SIZE=20,
                              ARRAY_MK=21,ARRAY_SIZE=22,ARRAY_GET=23,GET_STDOUT=24,PANIC=25;
@@ -433,6 +433,8 @@ public final class Interpreter implements AutoCloseable {
                 new String[]{"object"},new boolean[]{true}));
         register(registry,new ExternSpec("lean_profileit",PROFILE_IT,"tobject",
                 new String[]{"erased","object","object","tobject","tobject"},new boolean[]{false,true,true,false,false}));
+        register(registry,new ExternSpec("lean_expr_data",EXPR_CACHE,"uint64",
+                new String[]{"object"},new boolean[]{true}));
         register(registry,new ExternSpec("lean_expr_mk_data",EXPR_DATA,"uint64",
                 new String[]{"uint64","tobject","uint32","uint8","uint8","uint8","uint8"},
                 new boolean[]{false,false,false,false,false,false,false}));
@@ -2251,7 +2253,7 @@ public final class Interpreter implements AutoCloseable {
                     case SPROJ: require((b.type==U8||b.type==U32||b.type==U64||b.type==F64)&&lane(env,e.a)==OBJ,"Scalar projection lane mismatch"); break;
                     case UPROJ: require(b.type==USIZE&&lane(env,e.a)==OBJ,"USize projection lane mismatch"); break;
                     case FAP: requireExecutableAbi(e.target); checkArgs(env,e.args,e.target.paramTypes); require(b.type==e.target.resultType,"Call result lane mismatch"); break;
-                    case PAP: requireExecutableAbi(e.target); require(e.target.intrinsic!=PROFILE_IT,"Borrowed profiling primitive requires an owned guest wrapper"); require(!borrowedTaskPrimitive(e.target.intrinsic),"Borrowed task primitive requires owned closure wrapper"); require(b.type==OBJ&&e.args.length<e.target.params.length,"Invalid partial application"); require(!borrowedArrayPrimitive(e.target.intrinsic),"Borrowed array primitive requires owned closure wrapper"); require(!borrowedIntPrimitive(e.target.intrinsic),"Borrowed Int primitive requires owned closure wrapper"); require(!borrowedStringPositionPrimitive(e.target.intrinsic),"Borrowed String position primitive requires owned closure wrapper"); require(!borrowedStringCompletionPrimitive(e.target.intrinsic),"Borrowed String range primitive requires owned closure wrapper"); require(!borrowedBytePrimitive(e.target.intrinsic),"Borrowed ByteArray primitive requires owned closure wrapper"); require(e.target.intrinsic!=NAME_EQ,"Borrowed Name equality requires an owned guest wrapper"); require(e.target.intrinsic!=POINTER_IDENTITY,"Pointer identity requires a certified direct FAP site"); require(!borrowedRefPrimitive(e.target.intrinsic),"Borrowed ref primitive requires owned closure wrapper"); for(int i=0;i<e.target.paramTypes.length;i++) require(e.target.paramTypes[i]==OBJ,"Unboxed partial target unsupported; boxed wrapper required"); for(int a:e.args) require(lane(env,a)==OBJ,"Partial argument must be boxed"); break;
+                    case PAP: requireExecutableAbi(e.target); require(e.target.intrinsic!=PROFILE_IT,"Borrowed profiling primitive requires an owned guest wrapper"); require(!borrowedTaskPrimitive(e.target.intrinsic),"Borrowed task primitive requires owned closure wrapper"); require(b.type==OBJ&&e.args.length<e.target.params.length,"Invalid partial application"); require(!borrowedArrayPrimitive(e.target.intrinsic),"Borrowed array primitive requires owned closure wrapper"); require(!borrowedIntPrimitive(e.target.intrinsic),"Borrowed Int primitive requires owned closure wrapper"); require(!borrowedStringPositionPrimitive(e.target.intrinsic),"Borrowed String position primitive requires owned closure wrapper"); require(!borrowedStringCompletionPrimitive(e.target.intrinsic),"Borrowed String range primitive requires owned closure wrapper"); require(!borrowedBytePrimitive(e.target.intrinsic),"Borrowed ByteArray primitive requires owned closure wrapper"); require(e.target.intrinsic!=NAME_EQ,"Borrowed Name equality requires an owned guest wrapper"); require(e.target.intrinsic!=EXPR_CACHE,"Borrowed Expr data requires an owned guest wrapper"); require(e.target.intrinsic!=POINTER_IDENTITY,"Pointer identity requires a certified direct FAP site"); require(!borrowedRefPrimitive(e.target.intrinsic),"Borrowed ref primitive requires owned closure wrapper"); for(int i=0;i<e.target.paramTypes.length;i++) require(e.target.paramTypes[i]==OBJ,"Unboxed partial target unsupported; boxed wrapper required"); for(int a:e.args) require(lane(env,a)==OBJ,"Partial argument must be boxed"); break;
                     case AP: require(b.type==OBJ&&lane(env,e.a)==OBJ&&e.args.length>0,"Unsupported closure application"); for(int a:e.args) require(lane(env,a)==OBJ,"Closure argument must be boxed"); break;
                     case BOX: require(b.type==OBJ&&e.b!=OBJ&&lane(env,e.a)==e.b,"Box lane mismatch"); break;
                     case UNBOX: require(b.type!=OBJ&&lane(env,e.a)==OBJ,"Unbox lane mismatch"); break;
@@ -2603,6 +2605,7 @@ public final class Interpreter implements AutoCloseable {
             floatIntrinsic(f,numbers[bp+slots[0]],slots.length<2?0:numbers[bp+slots[1]]); return;
         }
         require(f.intrinsic!=POINTER_IDENTITY,"Pointer identity requires a certified direct FAP site");
+        if(f.intrinsic==EXPR_CACHE) { scalarResult=exprCachedData(obj(slots[0])); return; }
         if(f.intrinsic==EXPR_DATA) {
             exprData(numbers[bp+slots[0]],obj(slots[1]),numbers[bp+slots[2]],numbers[bp+slots[3]],
                     numbers[bp+slots[4]],numbers[bp+slots[5]],numbers[bp+slots[6]]); return;
@@ -2642,6 +2645,7 @@ public final class Interpreter implements AutoCloseable {
             floatIntrinsic(f,readSavedScalar(args[0],f.paramTypes[0]),args.length<2?0:readSavedScalar(args[1],f.paramTypes[1])); return;
         }
         require(f.intrinsic!=POINTER_IDENTITY,"Pointer identity requires a certified direct FAP site");
+        if(f.intrinsic==EXPR_CACHE) { scalarResult=exprCachedData(args[0]); return; }
         if(f.intrinsic==EXPR_DATA) {
             exprData(inputScalar(args[0],U64),args[1],inputScalar(args[2],U32),inputScalar(args[3],U8),
                     inputScalar(args[4],U8),inputScalar(args[5],U8),inputScalar(args[6],U8)); return;
@@ -3597,6 +3601,24 @@ public final class Interpreter implements AutoCloseable {
             default: throw error("Invalid runtime intrinsic");
         }
     }
+    /** Pinned lean_expr_data reads the first scalar word after the object
+     * fields. Validate only the known storage family; do not infer AST flags. */
+    private long exprCachedData(Object value) {
+        Node node=constructorNode(value);
+        require(node.closure==null,"Closure is not an Expr constructor");
+        int expected;
+        switch(node.tag) {
+            case 0: case 1: case 2: case 3: case 9: expected=1; break;
+            case 4: case 5: case 10: expected=2; break;
+            case 6: case 7: case 11: expected=3; break;
+            case 8: expected=4; break;
+            default: throw error("Unsupported Expr cached-data constructor tag");
+        }
+        int semantic=node.tag>=6&&node.tag<=8?9:8;
+        require(node.fields.length==expected&&(node.scalars.length==semantic
+                ||node.scalars.length==((semantic+7)&~7)),"Unexpected Expr cached-data storage layout");
+        return readScalar(node,0,U64);
+    }
     /** Native scalar caches only: no Expr/Level object representation is implied.
      * Successful owning Nat arguments fit native immediate bounds. Their accepted
      * Long/BigInteger carriers are uncounted, so consumption needs no DEC callback.
@@ -3959,6 +3981,7 @@ public final class Interpreter implements AutoCloseable {
         require(function!=null,"Expected closure");
         require(!borrowedTaskPrimitive(function.intrinsic),"Borrowed task primitive requires owned guest wrapper");
         require(function.intrinsic!=NAME_EQ,"Borrowed Name equality cannot be admitted as a first-class closure");
+        require(function.intrinsic!=EXPR_CACHE,"Borrowed Expr data requires an owned guest wrapper");
         require(function.intrinsic!=POINTER_IDENTITY,"Pointer identity cannot be admitted as a first-class closure");
         if(!(kindMetadata(closure) instanceof Generation)||!program.generation.accepts((Generation)kindMetadata(closure))) throw error("Closure belongs to another code image");
         if(function.privateOwner!=null) {
@@ -4060,6 +4083,7 @@ public final class Interpreter implements AutoCloseable {
                 require(!borrowedStringCompletionPrimitive(target.intrinsic),"Borrowed String range primitive requires owned closure wrapper");
                 require(!borrowedBytePrimitive(target.intrinsic),"Borrowed ByteArray primitive requires owned closure wrapper");
                 require(target.intrinsic!=NAME_EQ,"Borrowed Name equality requires an owned guest wrapper");
+                require(target.intrinsic!=EXPR_CACHE,"Borrowed Expr data requires an owned guest wrapper");
                 require(target.intrinsic!=POINTER_IDENTITY,"Pointer identity requires a certified direct FAP site");
                 require(!borrowedRefPrimitive(target.intrinsic),"Borrowed ref primitive requires owned closure wrapper");
                 closureTargets[i]=target;
@@ -4134,6 +4158,7 @@ public final class Interpreter implements AutoCloseable {
         require(!borrowedStringCompletionPrimitive(target.intrinsic),"Borrowed String range primitive requires owned closure wrapper");
         require(!borrowedBytePrimitive(target.intrinsic),"Borrowed ByteArray primitive requires owned closure wrapper");
         require(target.intrinsic!=NAME_EQ,"Borrowed Name equality requires an owned guest wrapper");
+        require(target.intrinsic!=EXPR_CACHE,"Borrowed Expr data requires an owned guest wrapper");
         require(target.intrinsic!=POINTER_IDENTITY,"Pointer identity requires a certified direct FAP site");
         require(!borrowedRefPrimitive(target.intrinsic),"Borrowed ref primitive requires owned closure wrapper");
         for(int lane:target.paramTypes) require(lane==OBJ,"Unboxed partial target unsupported; boxed wrapper required");
@@ -4876,6 +4901,7 @@ public final class Interpreter implements AutoCloseable {
         if(borrowedIntPrimitive(f.intrinsic))
             throw new UnsupportedOperationException("Borrowed Int primitive requires owned guest wrapper at external entry");
         require(f.intrinsic!=NAME_EQ,"Borrowed Name equality requires an owned guest wrapper");
+        require(f.intrinsic!=EXPR_CACHE,"Borrowed Expr data requires an owned guest wrapper");
         if(borrowedBytePrimitive(f.intrinsic))
             throw new UnsupportedOperationException("Borrowed ByteArray primitive requires owned guest wrapper at external entry");
         require(f.intrinsic!=POINTER_IDENTITY,"Pointer identity requires a certified direct FAP site");

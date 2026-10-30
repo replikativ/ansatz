@@ -1,0 +1,782 @@
+[
+  {
+    "label": "Lean.Expr.bvar._override",
+    "name": [
+      "str",
+      [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "Lean"
+          ],
+          "Expr"
+        ],
+        "bvar"
+      ],
+      "_override"
+    ],
+    "sha256": "65c182e597519411555771e582645ee70b608f98413158d2cf3e525eaa689be1",
+    "ctor": {
+      "cidx": 0,
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Lean"
+            ],
+            "Expr"
+          ],
+          "bvar"
+        ],
+        "_impl"
+      ],
+      "size": 1,
+      "ssize": 8,
+      "usize": 0
+    },
+    "scalar-stores": [
+      [
+        "sset",
+        {
+          "idx": 10
+        },
+        1,
+        0,
+        {
+          "idx": 9
+        },
+        "uint64"
+      ]
+    ]
+  },
+  {
+    "label": "Lean.Expr.fvar._override",
+    "name": [
+      "str",
+      [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "Lean"
+          ],
+          "Expr"
+        ],
+        "fvar"
+      ],
+      "_override"
+    ],
+    "sha256": "4a761b5fbe274dcbd2c7c360fee291589730f5649977a56743b01839069cca1e",
+    "ctor": {
+      "cidx": 1,
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Lean"
+            ],
+            "Expr"
+          ],
+          "fvar"
+        ],
+        "_impl"
+      ],
+      "size": 1,
+      "ssize": 8,
+      "usize": 0
+    },
+    "scalar-stores": [
+      [
+        "sset",
+        {
+          "idx": 10
+        },
+        1,
+        0,
+        {
+          "idx": 9
+        },
+        "uint64"
+      ]
+    ]
+  },
+  {
+    "label": "Lean.Expr.mvar._override",
+    "name": [
+      "str",
+      [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "Lean"
+          ],
+          "Expr"
+        ],
+        "mvar"
+      ],
+      "_override"
+    ],
+    "sha256": "74c946d79274140f5172957f5bd44ceb0a5f58b4cf67c646c6bee4ad291554f6",
+    "ctor": {
+      "cidx": 2,
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Lean"
+            ],
+            "Expr"
+          ],
+          "mvar"
+        ],
+        "_impl"
+      ],
+      "size": 1,
+      "ssize": 8,
+      "usize": 0
+    },
+    "scalar-stores": [
+      [
+        "sset",
+        {
+          "idx": 10
+        },
+        1,
+        0,
+        {
+          "idx": 9
+        },
+        "uint64"
+      ]
+    ]
+  },
+  {
+    "label": "Lean.Expr.sort._override",
+    "name": [
+      "str",
+      [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "Lean"
+          ],
+          "Expr"
+        ],
+        "sort"
+      ],
+      "_override"
+    ],
+    "sha256": "7ef9c9c1c18da89d2811e3c31a516e05106d3ab6e0ac9a972cbe9eb6dde68f6d",
+    "ctor": {
+      "cidx": 3,
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Lean"
+            ],
+            "Expr"
+          ],
+          "sort"
+        ],
+        "_impl"
+      ],
+      "size": 1,
+      "ssize": 8,
+      "usize": 0
+    },
+    "scalar-stores": [
+      [
+        "sset",
+        {
+          "idx": 11
+        },
+        1,
+        0,
+        {
+          "idx": 10
+        },
+        "uint64"
+      ]
+    ]
+  },
+  {
+    "label": "Lean.Expr.const._override",
+    "name": [
+      "str",
+      [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "Lean"
+          ],
+          "Expr"
+        ],
+        "const"
+      ],
+      "_override"
+    ],
+    "sha256": "729dc14162f591752d010053a082eedfb8d39d3c12db845d49ba2361a6e0bfe3",
+    "ctor": {
+      "cidx": 4,
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Lean"
+            ],
+            "Expr"
+          ],
+          "const"
+        ],
+        "_impl"
+      ],
+      "size": 2,
+      "ssize": 8,
+      "usize": 0
+    },
+    "scalar-stores": [
+      [
+        "sset",
+        {
+          "idx": 16
+        },
+        2,
+        0,
+        {
+          "idx": 15
+        },
+        "uint64"
+      ]
+    ]
+  },
+  {
+    "label": "Lean.Expr.app._override",
+    "name": [
+      "str",
+      [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "Lean"
+          ],
+          "Expr"
+        ],
+        "app"
+      ],
+      "_override"
+    ],
+    "sha256": "80d03ae09c95edb7d931e5f36dd67e6d0452a7efb9002b4cff43f5d7cc0d4ef4",
+    "ctor": {
+      "cidx": 5,
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Lean"
+            ],
+            "Expr"
+          ],
+          "app"
+        ],
+        "_impl"
+      ],
+      "size": 2,
+      "ssize": 8,
+      "usize": 0
+    },
+    "scalar-stores": [
+      [
+        "sset",
+        {
+          "idx": 6
+        },
+        2,
+        0,
+        {
+          "idx": 5
+        },
+        "uint64"
+      ]
+    ]
+  },
+  {
+    "label": "Lean.Expr.lam._override",
+    "name": [
+      "str",
+      [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "Lean"
+          ],
+          "Expr"
+        ],
+        "lam"
+      ],
+      "_override"
+    ],
+    "sha256": "80f1e0a2e8b2ac62c4ede3594038d565e5c1f766246d98780cc6bec90bda8383",
+    "ctor": {
+      "cidx": 6,
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Lean"
+            ],
+            "Expr"
+          ],
+          "lam"
+        ],
+        "_impl"
+      ],
+      "size": 3,
+      "ssize": 9,
+      "usize": 0
+    },
+    "scalar-stores": [
+      [
+        "sset",
+        {
+          "idx": 14
+        },
+        3,
+        0,
+        {
+          "idx": 13
+        },
+        "uint64"
+      ],
+      [
+        "sset",
+        {
+          "idx": 14
+        },
+        3,
+        8,
+        {
+          "idx": 4
+        },
+        "uint8"
+      ]
+    ]
+  },
+  {
+    "label": "Lean.Expr.forallE._override",
+    "name": [
+      "str",
+      [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "Lean"
+          ],
+          "Expr"
+        ],
+        "forallE"
+      ],
+      "_override"
+    ],
+    "sha256": "ec1db6123fc88e8a2df13ebf93771df324097e82694932ac4ad9cdd88630ce06",
+    "ctor": {
+      "cidx": 7,
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Lean"
+            ],
+            "Expr"
+          ],
+          "forallE"
+        ],
+        "_impl"
+      ],
+      "size": 3,
+      "ssize": 9,
+      "usize": 0
+    },
+    "scalar-stores": [
+      [
+        "sset",
+        {
+          "idx": 14
+        },
+        3,
+        0,
+        {
+          "idx": 13
+        },
+        "uint64"
+      ],
+      [
+        "sset",
+        {
+          "idx": 14
+        },
+        3,
+        8,
+        {
+          "idx": 4
+        },
+        "uint8"
+      ]
+    ]
+  },
+  {
+    "label": "Lean.Expr.letE._override",
+    "name": [
+      "str",
+      [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "Lean"
+          ],
+          "Expr"
+        ],
+        "letE"
+      ],
+      "_override"
+    ],
+    "sha256": "0f7e7edc4a7e4c75077a842eb8c51cc1bf6c78e7fadc96de0922c6bcdfcb0c89",
+    "ctor": {
+      "cidx": 8,
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Lean"
+            ],
+            "Expr"
+          ],
+          "letE"
+        ],
+        "_impl"
+      ],
+      "size": 4,
+      "ssize": 9,
+      "usize": 0
+    },
+    "scalar-stores": [
+      [
+        "sset",
+        {
+          "idx": 15
+        },
+        4,
+        0,
+        {
+          "idx": 14
+        },
+        "uint64"
+      ],
+      [
+        "sset",
+        {
+          "idx": 15
+        },
+        4,
+        8,
+        {
+          "idx": 5
+        },
+        "uint8"
+      ]
+    ]
+  },
+  {
+    "label": "Lean.Expr.lit._override",
+    "name": [
+      "str",
+      [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "Lean"
+          ],
+          "Expr"
+        ],
+        "lit"
+      ],
+      "_override"
+    ],
+    "sha256": "8f5ddac3783f04b6592d0d8dce84f12bde66236ee03165a5609abb6d415e673e",
+    "ctor": {
+      "cidx": 9,
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Lean"
+            ],
+            "Expr"
+          ],
+          "lit"
+        ],
+        "_impl"
+      ],
+      "size": 1,
+      "ssize": 8,
+      "usize": 0
+    },
+    "scalar-stores": [
+      [
+        "sset",
+        {
+          "idx": 9
+        },
+        1,
+        0,
+        {
+          "idx": 8
+        },
+        "uint64"
+      ]
+    ]
+  },
+  {
+    "label": "Lean.Expr.mdata._override",
+    "name": [
+      "str",
+      [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "Lean"
+          ],
+          "Expr"
+        ],
+        "mdata"
+      ],
+      "_override"
+    ],
+    "sha256": "b0c8524c099135bec06dacbf9abc3eb0ab4b413ffc6004d55ac782290179a7f4",
+    "ctor": {
+      "cidx": 10,
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Lean"
+            ],
+            "Expr"
+          ],
+          "mdata"
+        ],
+        "_impl"
+      ],
+      "size": 2,
+      "ssize": 8,
+      "usize": 0
+    },
+    "scalar-stores": [
+      [
+        "sset",
+        {
+          "idx": 18
+        },
+        2,
+        0,
+        {
+          "idx": 17
+        },
+        "uint64"
+      ]
+    ]
+  },
+  {
+    "label": "Lean.Expr.proj._override",
+    "name": [
+      "str",
+      [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "Lean"
+          ],
+          "Expr"
+        ],
+        "proj"
+      ],
+      "_override"
+    ],
+    "sha256": "cf155c3f689c3251707318535264965a5482ed40177d2d255d6076331bc668ab",
+    "ctor": {
+      "cidx": 11,
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Lean"
+            ],
+            "Expr"
+          ],
+          "proj"
+        ],
+        "_impl"
+      ],
+      "size": 3,
+      "ssize": 8,
+      "usize": 0
+    },
+    "scalar-stores": [
+      [
+        "sset",
+        {
+          "idx": 24
+        },
+        3,
+        0,
+        {
+          "idx": 23
+        },
+        "uint64"
+      ]
+    ]
+  }
+]
