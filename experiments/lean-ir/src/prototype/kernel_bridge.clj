@@ -127,6 +127,16 @@
     :axiom-declaration
     (let [[axiom] (:fields (ctor! ops world value 0 1 0))]
       {:children [[:axiom-val axiom]] :build first})
+    :theorem-val
+    ;; Lean 819816b2 Declaration.lean:142-153: ConstantVal, value, all;
+    ;; no safety scalar and no singleton restriction on mutual-block metadata.
+    (let [[constant proof all] (:fields (ctor! ops world value 0 3 0))]
+      {:children [[:constant-val constant] [:expr proof] [:names all]]
+       :build (fn [[{:keys [name params type]} proof all]]
+                (ConstantInfo/mkThm name (object-array params) type proof (object-array all)))})
+    :theorem-declaration
+    (let [[theorem] (:fields (ctor! ops world value 2 1 0))]
+      {:children [[:theorem-val theorem]] :build first})
     :compiler-marker-constant
     (let [[name params type] (:fields (ctor! ops world value 0 3 0))
           [parent text] (:fields (ctor! ops world name 1 2 8))
@@ -277,6 +287,20 @@
    (when-not (and (integer? fuel) (<= 1 fuel Long/MAX_VALUE))
      (fail "Invalid checking fuel" {:fuel fuel}))
    (let [^ConstantInfo constant (:value (project-with-stats world :axiom-declaration declaration projector))
+         next-env (TypeChecker/checkConstant env constant (long fuel))]
+     {:env next-env :constant constant :world world :guest-declaration declaration})))
+
+(defn admit-theorem
+  "Strict thmDecl admission: check the proposition and its proof before adding
+   the theorem to a NEW Java Env. Preserves the complete all-name metadata and
+   original guest root; does not publish into a guest Environment. An explicit
+   projector supplies the same carrier/lifetime/resource policy as other admissions."
+  ([world env declaration] (admit-theorem world env declaration 1000000))
+  ([world env declaration fuel] (admit-theorem world env declaration fuel (make-projector world)))
+  ([world ^Env env declaration fuel projector]
+   (when-not (and (integer? fuel) (<= 1 fuel Long/MAX_VALUE))
+     (fail "Invalid checking fuel" {:fuel fuel}))
+   (let [^ConstantInfo constant (:value (project-with-stats world :theorem-declaration declaration projector))
          next-env (TypeChecker/checkConstant env constant (long fuel))]
      {:env next-env :constant constant :world world :guest-declaration declaration})))
 
