@@ -44,6 +44,12 @@
   (assoc basis :program (invoke-static (:prepare basis) [(rows path)])))
 (defn machine [basis]
   (cond
+    (:build-identity basis)
+    (let [cls ^Class (:class basis)
+          identity-class (.loadClass (.getClassLoader cls) "ansatz.research.ir.Interpreter$BuildIdentity")
+          identity (:build-identity basis)]
+      (.newInstance (.getConstructor cls (into-array Class [(class (:program basis)) Boolean/TYPE Boolean/TYPE identity-class]))
+                    (object-array [(:program basis) (boolean (:explicit basis)) (boolean (:initializing basis)) identity])))
     (:initializing basis)
     (if-let [constructor (:constructor-initializing basis)]
       (.newInstance ^Constructor constructor (object-array [(:program basis) (boolean (:explicit basis)) true]))
@@ -51,6 +57,9 @@
     (:explicit basis)
     (.newInstance ^Constructor (:constructor-explicit basis) (object-array [(:program basis) true]))
     :else (.newInstance ^Constructor (:constructor basis) (object-array [(:program basis)]))))
+(defn supported-build-identity [basis]
+  (let [cls (.loadClass (.getClassLoader ^Class (:class basis)) "ansatz.research.ir.Interpreter$BuildIdentity")]
+    (invoke-static (.getMethod cls "supportedLean4331" (make-array Class 0)) [])))
 (defn finish-initialization! [basis engine]
   (.invoke (.getMethod ^Class (:class basis) "finishInitialization" (make-array Class 0))
            engine (object-array 0)))
