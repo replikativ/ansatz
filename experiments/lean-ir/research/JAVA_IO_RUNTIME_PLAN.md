@@ -116,6 +116,11 @@ The Java engine should implement or adapt these contracts behind the existing
 facade. It should not create a second public IO, loader or host-call API. Existing
 contracts are reuse material, not evidence of new-engine coverage.
 
+The subsequent [typed host-boundary slice](JAVA_HOST_BOUNDARY.md) implements
+explicit request/reply suspension and pending-request forks for opted-in captured
+ABIs. It does not yet schedule guest helper activations inside a host request,
+adapt kernel/frontend carriers, link new IR or provide general resource IO.
+
 ## Frontend dependencies beyond ordinary IO
 
 `Lean/CompactedRegion.lean` and `Lean/Environment.lean` load compacted object
