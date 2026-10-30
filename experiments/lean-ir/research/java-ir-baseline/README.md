@@ -205,3 +205,8 @@ inactive/recursive execution remain outside that opt-in profile.
 The [borrowed checking projection](../JAVA_KERNEL_CARRIER_PROJECTION.md) reuses
 the existing kernel bridge with invocation-local Java Node storage views. It
 adds no engine or guest AST representation and preserves explicit ownership.
+
+The [resumable Expr.find profile](../JAVA_EXPR_FIND_RUNTIME.md) runs original
+owned wrappers over borrowed source Expr graphs in active explicit mode. It
+preserves callback traversal/sharing policy, code/Host/fork pauses and pending
+cleanup continuations without adding traversal owner credits.
