@@ -58,3 +58,16 @@ The idle prepared parent is retained. Experiments fork all external roots,
 including the owned IO result, so a terminal failed child does not force another
 JVM launch or parent reconstruction. Code catalogue storage stays host-scoped.
 Failed states preserve diagnostics; arbitrary failed-state unwinding is not claimed.
+
+With checked-disabled profiling and UInt64 narrowing enabled, the same original
+command reaches `Lean.Elab.expandMacroImpl?`. Its next stop is the unavailable
+initialized global `Lean.Elab.macroAttribute`, after 344,282 accumulated work units
+and 652 additional demanded bodies. This advances the runtime gate; it does not
+establish axiom elaboration or kernel admission. The profiling option was read
+through the original getter using an authenticated captured default, not forced off.
+
+The combined standalone Java gate for these two additions exits 0 at a 384 MiB
+heap: 90 suites / 884 test executions / 24,126 assertions. UInt64 narrowing also
+matches eight native C-cast vectors through direct and original boxed calls in
+both interpreter modes. The integrated Java source SHA-256 is
+`97833400f3b286fc7dbb43148367be3c856e86b04418864dda4c3c7a01c81865`.
