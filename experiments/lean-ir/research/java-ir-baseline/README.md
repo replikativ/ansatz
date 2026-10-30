@@ -201,3 +201,7 @@ The [checked-disabled profiling callback](../JAVA_PROFILE_RUNTIME.md) executes
 the original option getter, retires the native declaration owner before the
 callback, and preserves explicit code/host/fork control. Enabled profiling and
 inactive/recursive execution remain outside that opt-in profile.
+
+The [borrowed checking projection](../JAVA_KERNEL_CARRIER_PROJECTION.md) reuses
+the existing kernel bridge with invocation-local Java Node storage views. It
+adds no engine or guest AST representation and preserves explicit ownership.

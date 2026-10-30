@@ -2,12 +2,12 @@
   "Experimental world-scoped compact memo for the existing checking projection.
    Compile java/prototype/TypedLongMemo.java into an isolated classpath directory.
    No validation or Lean semantics are replaced: specification is borrowed from
-   kernel-bridge via a read-only private Var lookup. This explicit experimental
-   coupling must be reviewed if the pinned bridge changes. No redefs or globals
-   are mutated. Drop the returned projector/context after bulk projection to
+   kernel-bridge's explicit default-world decomposition reader. Alternate memo
+   storage does not replace semantic checks. No private Var lookup, redefs or
+   global mutation is used. Drop the returned projector/context after bulk projection to
    free its memo. Complete-constant scopes can retire temporary lists/maps early."
   (:require [prototype.machine :as m]
-            [prototype.kernel-bridge]
+            [prototype.kernel-bridge :as bridge]
             [prototype.imported-kernel :as kernel])
   (:import [prototype TypedLongMemo]
            [java.util HashMap ArrayDeque]))
@@ -23,7 +23,7 @@
 
 (defn- projection-context
   [world scratch-kinds]
-  (let [specification (deref (ns-resolve 'prototype.kernel-bridge 'specification))
+  (let [specification (bridge/default-world-specification-reader world)
         memo (TypedLongMemo.)
         fallback (HashMap.)
         scratch (volatile! nil)
@@ -69,7 +69,7 @@
                       (when (identical? cached active)
                         (throw (ex-info "Cyclic guest kernel value" {:kind (first key)})))
                       (when (identical? cached absent)
-                        (let [spec (specification world (first key) (second key))]
+                        (let [spec (specification (first key) (second key))]
                           (put-value! key active)
                           (.push work [:build key spec])
                           (doseq [child (reverse (:children spec))]

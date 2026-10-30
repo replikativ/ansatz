@@ -245,3 +245,30 @@
                     :completed)]
       (is (= :completed (project-constant world nil)))
       (is (= 1 @calls)))))
+
+(deftest explicit-default-world-reader-keeps-baseline-and-compact-semantics-shared
+  (let [[world root] (guest/literal (m/world {}) 23)
+        baseline (bridge/make-projector world)
+        factory bridge/default-world-specification-reader
+        reads (atom [])
+        alternate (with-redefs [bridge/default-world-specification-reader
+                                (fn [bound-world]
+                                  (is (identical? world bound-world))
+                                  (let [reader (factory bound-world)]
+                                    (fn [kind value]
+                                      (swap! reads conj [kind value])
+                                      (reader kind value))))]
+                    (compact/make-projector world))
+        expected (baseline world :expr root)
+        actual (alternate world :expr root)]
+    (is (= expected actual))
+    (is (= 23N (.o0 ^Expr (:value actual))))
+    (is (some #(= [:expr root] %) @reads))
+    (is (some #(= :literal (first %)) @reads))
+    (is (some #(= :nat (first %)) @reads))
+    ;; Reader carries no memo of its own; alternate traversal owns cache/cycles.
+    (let [before @reads]
+      (is (= actual (alternate world :expr root)))
+      (is (= before @reads)))
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"different world"
+          (alternate (into {} world) :expr root)))))

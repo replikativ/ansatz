@@ -401,3 +401,38 @@
                                              (+ (quot (+ n 9) 10) (quot (+ (inc n) 9) 10)))))
                       (assoc metrics :mode mode :n n :trial trial :checksum checksum))))}
       (finally (doseq [[mode engine] engines] (close! (contexts mode) engine))))))
+
+(defn host-guest-policy
+  "Capture independently selected exact Headers; this does not authenticate source bytes."
+  [basis outer-headers helper-headers]
+  (let [cls (Class/forName "ansatz.research.ir.Interpreter$HostGuestPolicy" true (:loader basis))
+        outers (header-array basis outer-headers) helpers (header-array basis helper-headers)]
+    (invoke-static (.getMethod cls "of" (into-array Class [(class outers) (class helpers)])) [outers helpers])))
+(defn configure-host-guest! [basis engine policy]
+  (.invoke (.getMethod ^Class (:class basis) "configureHostGuestCalls" (into-array Class [(class policy)]))
+           engine (object-array [policy])))
+(defn host-owned-argument [basis value]
+  (let [cls (Class/forName "ansatz.research.ir.Interpreter$HostGuestArgument" true (:loader basis))]
+    (invoke-static (.getMethod cls "owned" (into-array Class [Object])) [value])))
+(defn host-transferred-argument [basis request index]
+  (let [cls (Class/forName "ansatz.research.ir.Interpreter$HostGuestArgument" true (:loader basis))]
+    (invoke-static (.getMethod cls "fromHostArgument" (into-array Class [(class request) Integer/TYPE]))
+                   [request (int index)])))
+(defn start-host-guest! [basis engine request header arguments]
+  (let [cls (Class/forName "ansatz.research.ir.Interpreter$HostGuestArgument" true (:loader basis))
+        array (java.lang.reflect.Array/newInstance cls (count arguments))]
+    (doseq [[index argument] (map-indexed vector arguments)] (java.lang.reflect.Array/set array index argument))
+    (.invoke (.getMethod ^Class (:class basis) "startHostGuestCall"
+                        (into-array Class [(class request) (class header) (class array)]))
+             engine (object-array [request header array]))))
+(defn start-host-release! [basis engine request argument count]
+  (.invoke (.getMethod ^Class (:class basis) "startHostRelease"
+                      (into-array Class [(class request) (class argument) Integer/TYPE]))
+           engine (object-array [request argument (int count)])))
+(defn host-guest-operation [basis engine]
+  (.invoke (.getMethod ^Class (:class basis) "currentHostGuestOperation" (make-array Class 0)) engine (object-array 0)))
+(defn host-guest-result [basis engine]
+  (.invoke (.getMethod ^Class (:class basis) "pendingHostGuestResult" (make-array Class 0)) engine (object-array 0)))
+(defn take-host-guest-result! [basis engine request operation]
+  (.invoke (.getMethod ^Class (:class basis) "takeHostGuestResult" (into-array Class [(class request) (class operation)]))
+           engine (object-array [request operation])))

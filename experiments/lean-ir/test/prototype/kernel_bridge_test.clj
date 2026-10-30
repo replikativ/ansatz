@@ -261,3 +261,22 @@
     (doseq [world variants]
       (is (false? (bridge/compiler-marker-declaration? world declaration)))
       (is (thrown? clojure.lang.ExceptionInfo (bridge/admit-compiler-marker world (env/empty-env) declaration))))))
+
+(deftest explicit-carrier-ops-preserve-semantics-and-check-memo-hits
+  (let [[world value] (literal (m/world {}) 17)
+        checks (atom 0) open? (atom true)
+        projector (bridge/make-projector world
+                    {:ref? m/ref? :node m/node
+                     :check! (fn [] (swap! checks inc) (when-not @open? (throw (ex-info "closed fixture" {}))))})
+        first-value (bridge/project-expr world value projector)
+        before @checks]
+    (is (= 17N (.o0 ^Expr first-value)))
+    (is (identical? first-value (bridge/project-expr world value projector)))
+    (is (> @checks before))
+    (is (pos? ((:prototype.kernel-bridge/memo-size (meta projector)))))
+    ((:prototype.kernel-bridge/clear-memo! (meta projector)))
+    (is (= 0 ((:prototype.kernel-bridge/memo-size (meta projector)))))
+    (is (= 17N (.o0 ^Expr (bridge/project-expr world value projector))))
+    (reset! open? false)
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"closed fixture"
+          (bridge/project-expr world value projector)))))
