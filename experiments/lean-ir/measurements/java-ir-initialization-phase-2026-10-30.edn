@@ -1,0 +1,20 @@
+{:schema 1 :date "2026-10-30" :scope :branch-local-native-boot-initialization-phase
+ :engine-source-sha256 "a1ea31ba6796f5c47f64368ab576dbe59525dd99d12c6b9d98b4c7d95205b165"
+ :engine-jar-sha256 "a3b4bf78275f09ed9ee437fc2e6df8a0b2d34e0c0589a492a39a02117505b420"
+ :fixture-sha256 "caa50bed59564e13ec1d4b12568e54a6f10b79939d88df1cb6401ef3ee49bda5"
+ :verification {:focused-per-configuration {:tests 6 :assertions 47 :fail 0 :error 0}
+                :suspension-tests :explicit-driver
+                :combined-isolated-jar-gate {:tests 462 :assertions 15170 :suites 55 :exit 0 :heap-mib 384}
+                :independent-review :clear}
+ :captured-lifecycle {:state-sha256 "050d4aa8732944835757330603078d4342eb86964ca0e561f866a6e749dc241c"
+                      :state-bytes 695713
+                      :previously-accepted-checkpoint-sha256 "26282492007e48f6ba06466f0dea2c203c62d918da5ca283aee2db30449e773f"
+                      :bounded-tail-read-bytes 1048576 :state-frame-equal true
+                      :producer-modeled-initializing false
+                      :new-whole-data-authentication false}
+ :original-header-probe {:original-bodies-loaded 20 :instructions 891 :heap-limit-mib 384
+                         :next-missing-runtime "USize.decLt" :frontend-complete false}
+ :limits ["Ordinary constructor denotes execution mode, not evidence of complete module/global initialization."
+          "Native boot flag, guest importingRef, and logical module guard registry are distinct."
+          "PreparedGraph does not authenticate lifecycle; current harness uses separately pinned capture evidence."
+          "No free phase reset, module scheduler, full frontend or self-hosting claim."]}
