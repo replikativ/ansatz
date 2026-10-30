@@ -1,0 +1,17 @@
+{
+  "lean-commit": "819816b2e0a3bf405af45ae5c7af2491d8f5bee6",
+  "source-index-sha256": "74d833d577923821b982e8a9e872a38b5cad011513eb18870b51417e13397f0e",
+  "fixture-sha256": "287fe38297d2b34a3a379dfd0a945d218f39fd94911838d6e548e3784ac4af84",
+  "upstream-source-sha256": {
+    "src/include/lean/lean.h": "02af0040283143b264e3a44b06b348b6973ae6037fa8f550701c83dd7a062ace",
+    "src/Init/Data/UInt/BasicAux.lean": "06272442e6e53c4ac0445e9ebf6c493228d3a00847a9e77e0b3f85497448dd48"
+  },
+  "semantics": "Pinned uint64_t to uint32_t C cast; low32bits, no guest allocation/ownership effects",
+  "native-oracle": {
+    "kind": "compiled pinned C cast body; not a whole Lean --run/AOT program",
+    "exit": 0,
+    "vectors": 8,
+    "source-sha256": "98a5b22e519ad7fc29d2bc43bbe4ee477084edabffe66f95a8a64447f10e68ae",
+    "vectors-sha256": "39a362e777da5a8e22a8776eaee66b1a50296ebdb2d701af2c0619a4197ae6f0"
+  }
+}
