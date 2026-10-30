@@ -3,8 +3,9 @@
 Implementation plan, 2026-10-29. This document separates the next runtime steps
 from capabilities already implemented in [program generations](JAVA_PROGRAM_GENERATIONS.md).
 Prepared-body separation, header registration and explicit selected-body
-materialization and forkable code requests are implemented. A public prepared-global
-importer and frontend execution on Java remain subsequent acceptance gates.
+materialization and forkable code requests are implemented. A narrow persistent
+graph/global bootstrap importer is implemented; wider positive-RC import and
+frontend execution on Java remain subsequent acceptance gates.
 
 ## Why separate identity from implementation
 
@@ -154,8 +155,11 @@ host-reply overapplication, wrong/stale replies, independently linked sibling
 callee IDs and injected failure after claim. The actual ppExt experiment now
 forks at its first code pause; each branch demands the two original initializer
 bodies independently, preserves the current saved PPFns record and leaves all
-five callback bodies unprepared. Graph construction remains reflective research
-code, and ref mutation remains a host-side probe.
+five callback bodies unprepared. That code-request probe used reflective research
+graph construction, and ref mutation remains a host-side probe. The subsequent
+[prepared-graph API](JAVA_PREPARED_GRAPHS.md) replaces Node construction with a
+transactional importer for the genuine nine-node persistent slice and its two
+ready globals; it does not yet cover the positive-RC nodes in the larger companion.
 
 The [code-request implementation record](../measurements/java-ir-code-requests-2026-10-29.edn)
 passes 10 focused code tests / 59 assertions and the combined isolated jar gate

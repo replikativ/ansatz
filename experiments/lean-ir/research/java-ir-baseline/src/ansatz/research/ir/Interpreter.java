@@ -26,6 +26,8 @@ public final class Interpreter implements AutoCloseable {
     private static final int STREAM_FLUSH=100,STREAM_READ=101,STREAM_WRITE=102,STREAM_LINE=103,STREAM_PUT=104,STREAM_TTY=105;
     private static final BigInteger SMALL_MAX=BigInteger.valueOf(Long.MAX_VALUE);
     private static final Object ERASED=Long.valueOf(0);
+    private static final int MAX_IMPORT_NODES=100_000, MAX_IMPORT_ROOTS=100_000, MAX_IMPORT_EDGES=1_000_000;
+    private static final long MAX_IMPORT_SCALAR_BYTES=16L*1024*1024, MAX_IMPORT_CARRIER_BYTES=16L*1024*1024;
 
     /** Opt-in captured ABI descriptor, not a Java function or host capability.
      * Strings and array views are immutable/defensive. The driver supplies the
@@ -209,6 +211,7 @@ public final class Interpreter implements AutoCloseable {
         private Generation image;
         private boolean dead;
         private boolean array;
+        private boolean ref;
         Node(int tag, int size, int scalarBytes) {
             this.tag=tag; fields=new Object[size]; scalars=new byte[scalarBytes];
         }
@@ -324,6 +327,117 @@ public final class Interpreter implements AutoCloseable {
         if(raw.equals("uint16")||raw.equals("uint64")||raw.equals("float")||raw.equals("float32")) return -1;
         return type(raw);
     }
+    /** Source-local graph identity, never a native pointer or runtime Node. */
+    public static final class GraphRef {
+        private final long sourceId;
+        public GraphRef(long sourceId) {
+            require(sourceId>=0,"Negative prepared graph source ID"); this.sourceId=sourceId;
+        }
+        public long sourceId() { return sourceId; }
+    }
+    /** Immutable recipe for one persistent source object. Positive source RC
+     * needs a separate owner-envelope contract and is explicitly unsupported. */
+    public static final class ImportNode {
+        private static final int CONSTRUCTOR=0, ARRAY=1, REF=2, CLOSURE=3;
+        private final long sourceId;
+        private final int sourceRC,kind,tag;
+        private final Object[] fields;
+        private final byte[] scalars;
+        private final Header header;
+        private ImportNode(long id,int sourceRC,int kind,int tag,Object[] fields,byte[] scalars,Header header) {
+            require(id>=0,"Negative prepared graph source ID");
+            require(sourceRC==0,"Prepared graph import requires source RC zero");
+            require(fields!=null&&scalars!=null,"Explicit prepared graph payload required");
+            this.sourceId=id; this.sourceRC=sourceRC; this.kind=kind; this.tag=tag;
+            this.fields=graphValues(fields); this.scalars=scalars.clone(); this.header=header;
+        }
+        public long sourceId() { return sourceId; }
+        public int sourceRC() { return sourceRC; }
+        public static ImportNode ctor(long id,int sourceRC,int tag,Object[] fields,byte[] scalars) {
+            require(tag>=0&&tag<=243,"Prepared constructor tag outside Lean constructor domain");
+            require(fields!=null&&fields.length<256&&scalars!=null&&scalars.length<1024,
+                    "Prepared constructor payload outside Lean limits");
+            require(fields.length!=0||scalars.length!=0,"Nullary scalar constructor must use an immediate Long");
+            return new ImportNode(id,sourceRC,CONSTRUCTOR,tag,fields,scalars,null);
+        }
+        public static ImportNode array(long id,int sourceRC,Object[] elements) {
+            require(elements!=null&&elements.length<=MAX_IMPORT_EDGES,"Prepared array outside research limits");
+            return new ImportNode(id,sourceRC,ARRAY,246,elements,new byte[0],null);
+        }
+        public static ImportNode ref(long id,int sourceRC,Object value) {
+            return new ImportNode(id,sourceRC,REF,253,new Object[]{value},new byte[0],null);
+        }
+        public static ImportNode closure(long id,int sourceRC,Header header,Object[] captures) {
+            require(header!=null,"Actual prepared closure Header required");
+            return new ImportNode(id,sourceRC,CLOSURE,245,captures,new byte[0],header);
+        }
+    }
+    /** Trusted adapter's accepted state recipe, not cryptographic admission.
+     * Source/state tokens must be lightweight immutable authority/lease tokens.
+     * Arrays and byte payloads are copied; no existing runtime Nodes are input.
+     * RC-zero persistence allows releaseable owned outputs without increments;
+     * it does not make refs immutable or establish a positive-RC owner ledger. */
+    public static final class PreparedGraph {
+        private final SourceBinding binding;
+        private final Object acceptedStateToken;
+        private final ImportNode[] nodes;
+        private final Header[] globals;
+        private final Object[] globalValues,ownedRoots;
+        public PreparedGraph(SourceBinding binding,Object acceptedStateToken,ImportNode[] nodes,
+                             Header[] globals,Object[] globalValues,Object[] ownedRoots) {
+            require(binding!=null&&acceptedStateToken!=null,"Actual accepted source/state tokens required");
+            require(nodes!=null&&globals!=null&&globalValues!=null&&ownedRoots!=null,
+                    "Explicit prepared graph tables and roots required");
+            require(nodes.length<=MAX_IMPORT_NODES,"Prepared graph exceeds research node limit");
+            require(globals.length<=MAX_IMPORT_ROOTS&&ownedRoots.length<=MAX_IMPORT_ROOTS,"Prepared graph exceeds root/global limit");
+            require(globals.length==globalValues.length,"Prepared global table length mismatch");
+            checkGraphBudget(nodes,globalValues,ownedRoots);
+            this.binding=binding; this.acceptedStateToken=acceptedStateToken;
+            this.nodes=nodes.clone(); this.globals=globals.clone();
+            this.globalValues=graphValues(globalValues); this.ownedRoots=graphValues(ownedRoots);
+            for(ImportNode node:this.nodes) require(node!=null,"Null prepared graph node");
+            for(Header header:this.globals) require(header!=null,"Null prepared global Header");
+        }
+    }
+    /** Lightweight state provenance only: no source-ID table or graph recipe. */
+    private static final class PreparedGlobalSource {
+        final SourceBinding binding;
+        final Object acceptedStateToken;
+        PreparedGlobalSource(SourceBinding binding,Object acceptedStateToken) {
+            this.binding=binding; this.acceptedStateToken=acceptedStateToken;
+        }
+    }
+    private static long graphBudget(long used,long added,long maximum,String label) {
+        if(added<0||used>maximum-added) throw error("Prepared graph exceeds "+label+" budget");
+        return used+added;
+    }
+    private static long graphCarrierBytes(Object value) {
+        if(value instanceof GraphRef) return 0;
+        if(value instanceof String) return 3L*((String)value).length(); // conservative UTF-8 bound, no temporary encoding
+        if(value instanceof Long&&((Long)value)>=0) return 8;
+        if(value!=null&&value.getClass()==BigInteger.class&&((BigInteger)value).signum()>=0)
+            return (((BigInteger)value).bitLength()+7L)/8;
+        throw error("Prepared graph value outside immutable nonnegative carrier profile");
+    }
+    private static Object[] graphValues(Object[] values) {
+        require(values!=null,"Explicit prepared graph values required");
+        require(values.length<=MAX_IMPORT_EDGES,"Prepared graph value array exceeds edge limit");
+        long bytes=0;
+        for(Object value:values) bytes=graphBudget(bytes,graphCarrierBytes(value),MAX_IMPORT_CARRIER_BYTES,"immutable carrier byte");
+        return values.clone();
+    }
+    private static void checkGraphBudget(ImportNode[] nodes,Object[] globalValues,Object[] roots) {
+        long edges=graphBudget(globalValues.length,roots.length,MAX_IMPORT_EDGES,"edge"),scalars=0,carriers=0;
+        for(Object value:globalValues) carriers=graphBudget(carriers,graphCarrierBytes(value),MAX_IMPORT_CARRIER_BYTES,"immutable carrier byte");
+        for(Object value:roots) carriers=graphBudget(carriers,graphCarrierBytes(value),MAX_IMPORT_CARRIER_BYTES,"immutable carrier byte");
+        for(ImportNode node:nodes) {
+            require(node!=null,"Null prepared graph node");
+            edges=graphBudget(edges,node.fields.length,MAX_IMPORT_EDGES,"edge");
+            scalars=graphBudget(scalars,node.scalars.length,MAX_IMPORT_SCALAR_BYTES,"scalar byte");
+            for(Object value:node.fields) carriers=graphBudget(carriers,graphCarrierBytes(value),MAX_IMPORT_CARRIER_BYTES,"immutable carrier byte");
+        }
+    }
+
     /** Stable callable identity and ABI; executable layout belongs to a Program. */
     static final class Function {
         final String label;
@@ -538,6 +652,8 @@ public final class Interpreter implements AutoCloseable {
     private long scalarResult;
     private Object[] constants;
     private boolean[] constantReady;
+    private boolean graphInstalled;
+    private Map<Integer,PreparedGlobalSource> preparedGlobalSources=Collections.emptyMap();
     private boolean closed;
     private boolean untrackedFailure;
     private final Object runtimeIdentity=new Object();
@@ -614,6 +730,7 @@ public final class Interpreter implements AutoCloseable {
         child.objects=(Object[])copy.value(objects);
         child.numbers=numbers.clone(); child.joins=joins.clone();
         System.arraycopy(constantReady,0,child.constantReady,0,constantReady.length);
+        child.graphInstalled=graphInstalled; child.preparedGlobalSources=preparedGlobalSources;
         child.bp=bp; child.sp=sp; child.jbp=jbp; child.jsp=jsp;
         child.result=copy.value(result); child.scalarResult=scalarResult;
         child.stdoutRoot=(Node)copy.value(stdoutRoot);
@@ -661,7 +778,7 @@ public final class Interpreter implements AutoCloseable {
                 boolean fresh=fields==null;
                 if(fresh) fields=new Object[old.fields.length];
                 Node out=new Node(old.tag,fields,old.scalars.length);
-                copies.put(source,out); out.rc=old.rc; out.dead=old.dead; out.array=old.array; out.image=old.image;
+                copies.put(source,out); out.rc=old.rc; out.dead=old.dead; out.array=old.array; out.ref=old.ref; out.image=old.image;
                 out.closure=(Function)value(old.closure);
                 System.arraycopy(old.scalars,0,out.scalars,0,old.scalars.length);
                 if(fresh) bind(old.fields,out.fields); return out;
@@ -1005,7 +1122,13 @@ public final class Interpreter implements AutoCloseable {
             }
         } finally { Arrays.fill(releaseWork,0,pending,null); }
     }
-    private void unique(Node n) { if(n.rc!=1) throw error("Expected exclusive object"); }
+    private Node constructorNode(Object value) {
+        Node node=node(value); require(!node.ref,"Reference is not a constructor"); return node;
+    }
+    private void unique(Node n) {
+        require(!n.ref,"Reference is not a constructor");
+        if(n.rc!=1) throw error("Expected exclusive object");
+    }
     private static BigInteger nat(Object x) {
         if(x instanceof Long&&((Long)x)>=0) return BigInteger.valueOf((Long)x);
         if(x instanceof BigInteger&&((BigInteger)x).signum()>=0) return (BigInteger)x;
@@ -1052,7 +1175,7 @@ public final class Interpreter implements AutoCloseable {
     }
     private long unboxScalar(Object value,int type) {
         if(type==USIZE) {
-            Node n=node(value);
+            Node n=constructorNode(value);
             require(n.tag==0&&n.fields.length==0&&n.scalars.length==8&&n.closure==null,"Expected boxed USize");
             return readScalar(n,0,USIZE);
         }
@@ -1061,7 +1184,7 @@ public final class Interpreter implements AutoCloseable {
     private long caseTag(Body b) {
         if(b.type==OBJ) {
             Object value=obj(b.a);
-            if(value instanceof Node) return node(value).tag;
+            if(value instanceof Node) return constructorNode(value).tag;
             if(value instanceof Long) return ((Long)value)&0xffffffffL;
             throw error("Object case outside baseline value profile");
         }
@@ -1329,9 +1452,9 @@ public final class Interpreter implements AutoCloseable {
                 if(e.size==0&&e.scalarBytes==0) objects[dest]=Long.valueOf(e.tag);
                 else { Node n=new Node(e.tag,e.size,e.scalarBytes); for(int i=0;i<e.size;i++) n.fields[i]=obj(e.args[i]); objects[dest]=n; allocations++; } break;
             }
-            case PROJ: objects[dest]=node(obj(e.a)).fields[e.b]; break;
-            case SPROJ: { Node n=node(obj(e.a)); numbers[dest]=readScalar(n,rawOffset(n,e.size,e.b),type); break; }
-            case UPROJ: { Node n=node(obj(e.a)); numbers[dest]=readScalar(n,rawOffset(n,e.b,0),USIZE); break; }
+            case PROJ: objects[dest]=constructorNode(obj(e.a)).fields[e.b]; break;
+            case SPROJ: { Node n=constructorNode(obj(e.a)); numbers[dest]=readScalar(n,rawOffset(n,e.size,e.b),type); break; }
+            case UPROJ: { Node n=constructorNode(obj(e.a)); numbers[dest]=readScalar(n,rawOffset(n,e.b,0),USIZE); break; }
             case FAP:
                 if(e.args.length==0) load(e.target); else call(e.target,e.args);
                 if(type==OBJ) objects[dest]=result; else numbers[dest]=scalarResult; break;
@@ -1422,6 +1545,99 @@ public final class Interpreter implements AutoCloseable {
                     "Descendant replaced an inherited prepared body");
         }
     }
+    private static int graphPosition(GraphRef reference,Map<Long,Integer> positions) {
+        Integer position=positions.get(reference.sourceId);
+        if(position==null) throw error("Prepared graph reference has no source object: "+reference.sourceId);
+        return position;
+    }
+    private static void checkGraphReferences(Object[] values,Map<Long,Integer> positions) {
+        for(Object value:values) if(value instanceof GraphRef) graphPosition((GraphRef)value,positions);
+    }
+    private static void enqueueGraphValues(Object[] values,Map<Long,Integer> positions,boolean[] visited,ArrayDeque<Integer> pending) {
+        for(Object value:values) if(value instanceof GraphRef) {
+            int position=graphPosition((GraphRef)value,positions);
+            if(!visited[position]) { visited[position]=true; pending.addLast(position); }
+        }
+    }
+    private static Object importedGraphValue(Object value,Map<Long,Integer> positions,Node[] shells) {
+        return value instanceof GraphRef?shells[graphPosition((GraphRef)value,positions)]:value;
+    }
+    /** Transactional RC-zero-only import at an open idle boundary. Returned
+     * roots are OWNED persistent values; release is valid and requires no inc.
+     * No guest code, body forcing, existing-node mutation or initializer runs.
+     * One bootstrap graph per engine, including an empty graph; forks preserve
+     * this marker. This is not incremental import of an overlapping snapshot.
+     * Limits: 100k nodes/globals/owned roots, 1m total value occurrences,
+     * 16 MiB each of scalar bytes and conservative immutable-carrier bytes.
+     * Only wired values and lightweight per-global source provenance escape. */
+    public Object[] installGraph(PreparedGraph graph) {
+        if(closed||advancing||untrackedFailure||phase!=IDLE||pendingOwnedResult||sp!=0)
+            throw new IllegalStateException("Prepared graph installation requires an open idle engine");
+        require(graph!=null,"Actual PreparedGraph required");
+        require(!graphInstalled,"Prepared graph has already been installed in this engine");
+        Map<Long,Integer> positions=new HashMap<>();
+        for(int i=0;i<graph.nodes.length;i++) {
+            ImportNode node=graph.nodes[i];
+            require(node.sourceRC==0,"Prepared graph import requires source RC zero");
+            require(positions.put(node.sourceId,i)==null,"Duplicate prepared graph source ID");
+        }
+        Function[] closureTargets=new Function[graph.nodes.length];
+        for(int i=0;i<graph.nodes.length;i++) {
+            ImportNode recipe=graph.nodes[i]; checkGraphReferences(recipe.fields,positions);
+            if(recipe.kind==ImportNode.CLOSURE) {
+                require(recipe.header.source==graph.binding,"Prepared closure source binding differs");
+                Function target=program.functions[program.functionId(recipe.header)];
+                requireExecutableAbi(target);
+                require(target.resultType==OBJ,"Prepared closure requires boxed result");
+                for(int lane:target.paramTypes) require(lane==OBJ,"Prepared closure requires boxed parameters");
+                require(recipe.fields.length<target.params.length,"Invalid prepared partial application");
+                require(target.intrinsic!=ARRAY_SIZE&&target.intrinsic!=ARRAY_GET,
+                        "Borrowed array primitive requires owned closure wrapper");
+                closureTargets[i]=target;
+            }
+        }
+        checkGraphReferences(graph.globalValues,positions); checkGraphReferences(graph.ownedRoots,positions);
+        int[] globalIds=new int[graph.globals.length]; Set<Integer> uniqueGlobals=new HashSet<>();
+        for(int i=0;i<globalIds.length;i++) {
+            Header header=graph.globals[i];
+            require(header.source==graph.binding,"Prepared global source binding differs");
+            int id=program.functionId(header); Function function=program.functions[id];
+            requireExecutableAbi(function);
+            require(header.initialized()&&function.params.length==0&&function.resultType==OBJ,
+                    "Prepared global requires an original boxed nullary initialized Header");
+            require(uniqueGlobals.add(id),"Duplicate prepared global slot");
+            require(!constantReady[id],"Prepared global slot is already occupied"); globalIds[i]=id;
+        }
+        boolean[] visited=new boolean[graph.nodes.length]; ArrayDeque<Integer> pending=new ArrayDeque<>();
+        enqueueGraphValues(graph.globalValues,positions,visited,pending);
+        enqueueGraphValues(graph.ownedRoots,positions,visited,pending);
+        while(!pending.isEmpty()) enqueueGraphValues(graph.nodes[pending.removeFirst()].fields,positions,visited,pending);
+        for(boolean reachable:visited) require(reachable,"Unreachable object in prepared graph envelope");
+        Node[] shells=new Node[graph.nodes.length];
+        for(int i=0;i<shells.length;i++) {
+            ImportNode recipe=graph.nodes[i]; Node shell=new Node(recipe.tag,recipe.fields.length,recipe.scalars.length);
+            shell.rc=0; shell.array=recipe.kind==ImportNode.ARRAY; shell.ref=recipe.kind==ImportNode.REF;
+            if(recipe.kind==ImportNode.CLOSURE) { shell.closure=closureTargets[i]; shell.image=program.generation; }
+            System.arraycopy(recipe.scalars,0,shell.scalars,0,recipe.scalars.length); shells[i]=shell;
+        }
+        for(int i=0;i<shells.length;i++) for(int field=0;field<shells[i].fields.length;field++)
+            shells[i].fields[field]=importedGraphValue(graph.nodes[i].fields[field],positions,shells);
+        Object[] nextConstants=constants.clone(); boolean[] nextReady=constantReady.clone();
+        Object[] outputs=new Object[graph.ownedRoots.length];
+        for(int i=0;i<outputs.length;i++) outputs[i]=importedGraphValue(graph.ownedRoots[i],positions,shells);
+        for(int i=0;i<globalIds.length;i++) {
+            nextConstants[globalIds[i]]=importedGraphValue(graph.globalValues[i],positions,shells); nextReady[globalIds[i]]=true;
+        }
+        Map<Integer,PreparedGlobalSource> sources=new HashMap<>(preparedGlobalSources);
+        PreparedGlobalSource source=new PreparedGlobalSource(graph.binding,graph.acceptedStateToken);
+        for(int id:globalIds) sources.put(id,source);
+        Map<Integer,PreparedGlobalSource> nextSources=Collections.unmodifiableMap(sources);
+        long nextAllocations=Math.addExact(allocations,shells.length);
+        constants=nextConstants; constantReady=nextReady; preparedGlobalSources=nextSources;
+        allocations=nextAllocations; graphInstalled=true;
+        return outputs;
+    }
+
     /** Host-boundary PAP construction, not function execution. The caller
      * transfers capture credits once; array copying never retains the values.
      * Zero-arity/full/unboxed targets require their proper invocation/wrapper. */
