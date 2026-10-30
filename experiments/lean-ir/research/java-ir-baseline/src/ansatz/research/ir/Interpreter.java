@@ -45,6 +45,8 @@ public final class Interpreter implements AutoCloseable {
                              U8_LE=78,U32_FROM_NAT=79,U32_TO_U8=80,U32_ADD=81,USIZE_LE=82,USIZE_MUL=83;
     private static final int STR_HASH=84,U64_MIX=85,U64_NAT=86,U64_SHR=87,U64_XOR=88,U64_USIZE=89,
                              U64_LT=90,U64_EQ=91,U64_OWNED_NAT=92,U64_TO_U32=98;
+    private static final int BOOL_U64=500,U64_ADD=501,U64_SUB=502,U64_MUL=503,U64_DIV=504,U64_MOD=505,
+                             U64_AND=506,U64_OR=507,U64_NOT=508,U64_NEG=509,U64_LOG2=510,U64_SHL=511,U64_LE=512;
     private static final int BYTE_MK=200,BYTE_GET=201,BYTE_SIZE=202,BYTE_PUSH=203;
     private static final int INT_OF_NAT=210,INT_NEG_SUCC=211,INT_NEG=212,INT_ABS=213,INT_ADD=214,INT_SUB=215,INT_EQ=216,INT_LT=217,INT_LE=218;
     private static final int STR_MEMCMP=230,STR_SUBSTRING_EQ=231,STR_POS_OF=232,STR_OFFSET_OF_POS=233,STR_PUSHN=234;
@@ -437,6 +439,32 @@ public final class Interpreter implements AutoCloseable {
                 new String[]{"uint64","uint64"},new boolean[]{false,false}));
         register(registry,new ExternSpec("lean_level_mk_data",LEVEL_DATA,"uint64",
                 new String[]{"uint64","tobject","uint8","uint8"},new boolean[]{false,false,false,false}));
+        register(registry,new ExternSpec("lean_bool_to_uint64",BOOL_U64,"uint64",
+                new String[]{"uint8"},new boolean[]{false}));
+        register(registry,new ExternSpec("lean_uint64_add",U64_ADD,"uint64",
+                new String[]{"uint64","uint64"},new boolean[]{false,false}));
+        register(registry,new ExternSpec("lean_uint64_sub",U64_SUB,"uint64",
+                new String[]{"uint64","uint64"},new boolean[]{false,false}));
+        register(registry,new ExternSpec("lean_uint64_mul",U64_MUL,"uint64",
+                new String[]{"uint64","uint64"},new boolean[]{false,false}));
+        register(registry,new ExternSpec("lean_uint64_div",U64_DIV,"uint64",
+                new String[]{"uint64","uint64"},new boolean[]{false,false}));
+        register(registry,new ExternSpec("lean_uint64_mod",U64_MOD,"uint64",
+                new String[]{"uint64","uint64"},new boolean[]{false,false}));
+        register(registry,new ExternSpec("lean_uint64_land",U64_AND,"uint64",
+                new String[]{"uint64","uint64"},new boolean[]{false,false}));
+        register(registry,new ExternSpec("lean_uint64_lor",U64_OR,"uint64",
+                new String[]{"uint64","uint64"},new boolean[]{false,false}));
+        register(registry,new ExternSpec("lean_uint64_complement",U64_NOT,"uint64",
+                new String[]{"uint64"},new boolean[]{false}));
+        register(registry,new ExternSpec("lean_uint64_neg",U64_NEG,"uint64",
+                new String[]{"uint64"},new boolean[]{false}));
+        register(registry,new ExternSpec("lean_uint64_log2",U64_LOG2,"uint64",
+                new String[]{"uint64"},new boolean[]{false}));
+        register(registry,new ExternSpec("lean_uint64_shift_left",U64_SHL,"uint64",
+                new String[]{"uint64","uint64"},new boolean[]{false,false}));
+        register(registry,new ExternSpec("lean_uint64_dec_le",U64_LE,"uint8",
+                new String[]{"uint64","uint64"},new boolean[]{false,false}));
         register(registry,new ExternSpec("lean_uint64_mix_hash",U64_MIX,"uint64",
                 new String[]{"uint64","uint64"},new boolean[]{false,false}));
         register(registry,new ExternSpec("lean_uint64_of_nat",U64_NAT,"uint64",
@@ -2596,7 +2624,7 @@ public final class Interpreter implements AutoCloseable {
         if(f.intrinsic<=POW||(f.intrinsic>=NAT_LE&&f.intrinsic<=NAT_SHR)) { intrinsic(f,obj(slots[0]),slots.length<2?ERASED:obj(slots[1])); return; }
         Object a=f.paramTypes[0]==OBJ?obj(slots[0]):Long.valueOf(numbers[bp+slots[0]]);
         Object b=slots.length<2?ERASED:f.paramTypes[1]==OBJ?obj(slots[1]):Long.valueOf(numbers[bp+slots[1]]);
-        if(f.intrinsic>=STR_PUSH&&!(f.intrinsic>=USIZE_LT&&f.intrinsic<=U64_OWNED_NAT)&&f.intrinsic!=U64_TO_U32) {
+        if(f.intrinsic>=STR_PUSH&&!(f.intrinsic>=USIZE_LT&&f.intrinsic<=USIZE_MUL)&&!u64ScalarPrimitive(f.intrinsic)) {
             Object c=slots.length<3?ERASED:f.paramTypes[2]==OBJ?obj(slots[2]):Long.valueOf(numbers[bp+slots[2]]);
             runtimeIntrinsic(f,a,b,c);
         } else scalarIntrinsic(f,a,b);
@@ -2635,7 +2663,7 @@ public final class Interpreter implements AutoCloseable {
         if(f.intrinsic<=POW||(f.intrinsic>=NAT_LE&&f.intrinsic<=NAT_SHR)) { intrinsic(f,args[0],args.length<2?ERASED:args[1]); return; }
         Object a=f.paramTypes[0]==OBJ?args[0]:Long.valueOf(inputScalar(args[0],f.paramTypes[0]));
         Object b=args.length<2?ERASED:f.paramTypes[1]==OBJ?args[1]:Long.valueOf(inputScalar(args[1],f.paramTypes[1]));
-        if(f.intrinsic>=STR_PUSH&&!(f.intrinsic>=USIZE_LT&&f.intrinsic<=U64_OWNED_NAT)&&f.intrinsic!=U64_TO_U32) {
+        if(f.intrinsic>=STR_PUSH&&!(f.intrinsic>=USIZE_LT&&f.intrinsic<=USIZE_MUL)&&!u64ScalarPrimitive(f.intrinsic)) {
             Object c=args.length<3?ERASED:f.paramTypes[2]==OBJ?args[2]:Long.valueOf(inputScalar(args[2],f.paramTypes[2]));
             runtimeIntrinsic(f,a,b,c);
         } else scalarIntrinsic(f,a,b);
@@ -3604,6 +3632,20 @@ public final class Interpreter implements AutoCloseable {
         }
         hash^=hash>>>47; hash*=m; hash^=hash>>>47; return hash;
     }
+    /** Explicit membership: later IDs need not lie beside the original scalar group. */
+    private static boolean u64ScalarPrimitive(int op) {
+        switch(op) {
+            case STR_HASH: case U64_MIX: case U64_NAT: case U64_SHR: case U64_XOR: case U64_USIZE:
+            case U64_LT: case U64_EQ: case U64_OWNED_NAT: case U64_TO_U32:
+            case BOOL_U64: case U64_ADD: case U64_SUB: case U64_MUL: case U64_DIV: case U64_MOD:
+            case U64_AND: case U64_OR: case U64_NOT: case U64_NEG: case U64_LOG2: case U64_SHL: case U64_LE:
+                return true;
+            default: return false;
+        }
+    }
+    private static void requireBoolScalar(Object value) {
+        require(inputScalar(value,U8)<=1,"Bool.toUInt64 requires canonical Bool 0 or 1");
+    }
     private void scalarIntrinsic(Function f,Object a,Object b) {
         switch(f.intrinsic) {
             case USIZE_NAT:
@@ -3632,6 +3674,19 @@ public final class Interpreter implements AutoCloseable {
             case U32_TO_U8: scalarResult=(Long)a&255; break;
             case U32_ADD: scalarResult=((Long)a+(Long)b)&0xffffffffL; break;
             case STR_HASH: scalarResult=stringHash(utf8(a)); break;
+            case BOOL_U64: requireBoolScalar(a); scalarResult=(Long)a; break;
+            case U64_ADD: scalarResult=(Long)a+(Long)b; break;
+            case U64_SUB: scalarResult=(Long)a-(Long)b; break;
+            case U64_MUL: scalarResult=(Long)a*(Long)b; break;
+            case U64_DIV: scalarResult=(Long)b==0?0:Long.divideUnsigned((Long)a,(Long)b); break;
+            case U64_MOD: scalarResult=(Long)b==0?(Long)a:Long.remainderUnsigned((Long)a,(Long)b); break;
+            case U64_AND: scalarResult=(Long)a&(Long)b; break;
+            case U64_OR: scalarResult=(Long)a|(Long)b; break;
+            case U64_NOT: scalarResult=~(Long)a; break;
+            case U64_NEG: scalarResult=-(Long)a; break;
+            case U64_LOG2: scalarResult=(Long)a==0?0:63-Long.numberOfLeadingZeros((Long)a); break;
+            case U64_SHL: scalarResult=(Long)a<<(Long)b; break;
+            case U64_LE: scalarResult=Long.compareUnsigned((Long)a,(Long)b)<=0?1:0; break;
             case U64_MIX: scalarResult=mixHash((Long)a,(Long)b); break;
             case U64_NAT:
                 if(f.params.length>1) require(ERASED.equals(b),"UInt64 conversion proof requires erased placeholder");
@@ -3807,6 +3862,7 @@ public final class Interpreter implements AutoCloseable {
         if(closure.fields.length+args.length>=f.params.length) {
             called=preflightCallable(f);
             if(buildIdentityPrimitive(f.intrinsic)) requireBuildUnit(closure.fields.length==0?args[0]:closure.fields[0]);
+            if(f.intrinsic==BOOL_U64) requireBoolScalar(closure.fields.length==0?args[0]:closure.fields[0]);
         }
         Object[] combined=new Object[closure.fields.length+args.length];
         System.arraycopy(closure.fields,0,combined,0,closure.fields.length);
@@ -4503,6 +4559,7 @@ public final class Interpreter implements AutoCloseable {
     private void validateEntryArguments(Function function,Object[] args,boolean saved) {
         if(args==null||args.length!=function.params.length) throw error("Arity mismatch: "+function.label);
         if(buildIdentityPrimitive(function.intrinsic)) requireBuildUnit(args[0]);
+        if(function.intrinsic==BOOL_U64) requireBoolScalar(args[0]);
         if(function.intrinsic==TASK_MAP&&taskRuntime==null) validateTaskMap(args);
         if(taskRuntime!=null&&function.intrinsic==TASK_PURE) {
             require(ERASED.equals(args[0]),"Task.pure erased placeholder required"); validateHostObject(args[1]);
@@ -4598,6 +4655,7 @@ public final class Interpreter implements AutoCloseable {
         if(closure.fields.length+args.length>=f.params.length) {
             called=preflightCallable(f,true);
             if(buildIdentityPrimitive(f.intrinsic)) requireBuildUnit(closure.fields.length==0?args[0]:closure.fields[0]);
+            if(f.intrinsic==BOOL_U64) requireBoolScalar(closure.fields.length==0?args[0]:closure.fields[0]);
         }
         Object[] combined=new Object[closure.fields.length+args.length];
         System.arraycopy(closure.fields,0,combined,0,closure.fields.length);
