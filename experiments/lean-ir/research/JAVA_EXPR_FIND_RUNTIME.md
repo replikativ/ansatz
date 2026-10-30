@@ -63,7 +63,7 @@ retained REPL using Java source SHA-256
 `3b63c20a602b56ea34cab35a31a52ac223b772c0953e03301fd9acd90e916fca`
 and immutable runtime jar SHA-256
 `fe8803c7255e7f191743dafc811ad2974731d37dae1e496e8c4a84fbd6cfcd9d`.
-No test JVM was launched by the feature agent. The suite covers all twelve Expr
+The suite covers all twelve Expr
 shapes, authentic hasSorry and owned wrappers, dynamic sharing-hint boundaries,
 partial Apps, deep chains/shared DAGs, callback Code/Host/nested Find, forks with
 visited/pending state, result escrow, failure and limit models. A claimed Host
