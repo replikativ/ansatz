@@ -162,6 +162,16 @@
       {:children [[:definition-val definition]] :build first})
     (fail "Unsupported kernel projection kind" {:kind kind})))
 
+(defn ^:no-doc default-world-specification-reader
+  "Internal shared semantic decomposition contract for alternate m.World walkers.
+   Capture WORLD and return [kind value] -> {:children [[kind value] ...], :build f}.
+   One call performs the existing bounded node/layout decomposition, not a graph
+   traversal, memoization or admission. The consumer must enforce world identity,
+   scope lifetime, cycle detection and traversal/resource bounds. This reader
+   intentionally uses the default carrier; custom carriers use make-projector."
+  [world]
+  (fn [kind value] (specification default-carrier-ops world kind value)))
+
 (defn make-projector
   "Capture exactly WORLD and one private typed memo for a projection scope.
    Optional carrier ops have :ref? [value], :node [world value] and optional

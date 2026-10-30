@@ -1,6 +1,7 @@
 {:schema 1
  :scope :invocation-local-borrowed-checking-projection
- :core-source-sha256 "82daec028672c0a5c3785cf1ec1ac1484f32641a43d618eb2b11dafe7c84c6ba"
+ :core-source-sha256 "0f5f3e26505a8e18823415d8fdde598d47d2f96a3f5bbd15b761f06616892551"
+ :carrier-validation-before-additive-reader-factory true
  :adapter-source-sha256 "4aaa2d29e778f230814cfbf1037444741cad63b01be9bd5fed79cb43a9a2fae2"
  :validation-runner :root-existing-retained-repl :heap-limit-mib 384
  :java-node-tests {:tests 9 :assertions 63 :fail 0 :error 0}
@@ -14,4 +15,10 @@
  :lifecycle-checks [:closed :idle-untracked-failure :disposed]
  :close-checks [:invalidates :clears-view-memo :clears-semantic-memo :drops-engine-holder]
  :unchanged-limits [:mdata-erasure :nondep-normalization :universe-normalization :no-free-metavariables]
+ :legacy-compatibility-fix
+ {:interface :default-world-specification-reader
+  :compact-source-sha256 "b894bb473e4209e92c872a846b986669e8d178c53addef8864cf005c8c300f0f"
+  :compact-tests {:tests 13 :assertions 22272 :fail 0 :error 0}
+  :full-init-admission-tests {:tests 6 :assertions 73 :fail 0 :error 0}
+  :private-bridge-consumers-found 1 :remaining-private-bridge-consumers 0}
  :not-run-by-this-agent [:jvm-launch :native-compiler :full-gate :genuine-frontend :image-restore]}

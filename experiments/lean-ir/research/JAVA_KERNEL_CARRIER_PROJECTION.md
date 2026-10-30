@@ -87,3 +87,21 @@ Sort 1 axiom, strict negative types/closedness/safety, unchanged guest ownership
 close/progress/deadline/thread/node caps, cycles/kind rejection and exact/padded
 storage. No JVM, full image or native compiler was launched by this agent. Full
 repository and genuine frontend integration remain separate root checks.
+
+## Legacy compact projection compatibility
+
+The combined integration gate exposed one existing private consumer: the compact
+m.World backend dereferenced private `specification` and assumed its former
+three-argument signature. The carrier refactor changed that private signature.
+The compact backend now uses the explicit no-doc
+`default-world-specification-reader(world)` factory, which returns a two-argument
+`[kind value]` semantic decomposition reader. It delegates to the same rules and
+does not traverse, memoize or admit anything. The compact walker retains its own
+world identity, cycle, lifetime and resource checks; no rules are duplicated.
+A source/research/test audit found no other private bridge-helper consumers.
+
+A focused regression proves that the compact walker uses this interface and
+keeps baseline results/cache/world checks. Root's retained REPL passes the full
+compact suite (13 tests / 22,272 assertions) and the previously failing full-init
+admission suite (6 tests / 73 assertions). These bounded tests do not run a full
+Init/image restore. A new combined-gate run remains the integration authority.
