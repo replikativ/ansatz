@@ -1,0 +1,20 @@
+{:schema 1 :date "2026-10-30" :scope :distinct-uint64-lane-and-original-hash-runtime
+ :engine-source-sha256 "6ee160112e4a457bc94675e716581dec8cb192523006612d627af29c438d6c01"
+ :engine-jar-sha256 "96ae8c7b60ddbc4faf958ffe684d97f425348c6e39862ce3ccff03b554274d1f"
+ :fixtures {:original-28-rows "3e7edb83b0a94afe80339c35f5baebe4549048e018165cb6c726bae2f1919155"
+            :genuine-name-11-rows "c9bcf2e7ed26bca221a352e3e80fc11ba25a20b4c7d171d6730622f52bb4d59c"
+            :compiled-hash-source-results "309f1a8751e8919ea58daf3a7d56592fe41e28f9ee802e502254b36d537e6261"}
+ :verification {:focused-per-driver {:tests 10 :assertions 220 :fail 0 :error 0}
+                :host-and-code-suspension-tests :explicit-driver
+                :legacy-scalar-recursive {:tests 6 :assertions 531 :fail 0 :error 0}
+                :legacy-scalar-explicit {:tests 6 :assertions 534 :fail 0 :error 0}
+                :combined-isolated-jar-gate {:tests 494 :assertions 16820 :suites 59 :exit 0 :heap-mib 384}
+                :compiled-oracle {:compiler-exit 0 :oracle-exit 0 :matching-reference-vectors 16
+                                  :scope :pinned-hash-source-arithmetic :full-native-abi false}
+                :independent-review :clear-after-oracle-digest-check}
+ :original-header-probe {:globals 6 :nodes 49645 :original-bodies-loaded 72 :instructions 2131
+                         :next-missing-runtime "ptrAddrUnsafe" :heap-limit-mib 384 :frontend-complete false}
+ :limits ["UInt64 remains distinct from USize; Float/Expr packing/arbitrary UInt64 primitive set remain incomplete."
+          "Wide64-bit scalar cases outside unsigned32 reject rather than silently truncating."
+          "Compiled hash-source arithmetic oracle is not native full runtime/heap compatibility evidence."
+          "No physical pointers, complete frontend, public bundle or self-hosting claim."]}

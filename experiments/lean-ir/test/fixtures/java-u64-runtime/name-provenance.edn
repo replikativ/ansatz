@@ -1,0 +1,18 @@
+{:schema 1
+ :lean-version "4.33.1"
+ :lean-commit "819816b2e0a3bf405af45ae5c7af2491d8f5bee6"
+ :source-index-sha256 "74d833d577923821b982e8a9e872a38b5cad011513eb18870b51417e13397f0e"
+ :fixture-file "name-rows.json"
+ :fixture-sha256 "c9bcf2e7ed26bca221a352e3e80fc11ba25a20b4c7d171d6730622f52bb4d59c"
+ :original-row-count 11
+ :original-raw-bytes 12958
+ :derived-bytes 50946
+ :roots ["Lean.Name.str._override" "Lean.Name.num._override"
+         "Lean.Name.hash._override" "Lean.Name.hash._override._boxed"]
+ :closure-policy :actual-transitive-fap-pap-targets
+ :transformation {:remove-top-level-pretty true :original-bodies-unchanged true}
+ :original-blob-identities :per-record-sha256
+ :execution-performed false
+ :upstream-source-sha256
+ {"src/Init/Prelude.lean" "56de5780adc4358372fa9cfac270a70f2d03fd4f213a373aea4365483b31a544"
+  "LICENSE" "8b28515ffffc5c0fe2807d8ae3735b00b324d9b7ce807dd63ff6ac8922fbce7e"}}
