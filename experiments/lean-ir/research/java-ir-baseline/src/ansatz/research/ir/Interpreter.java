@@ -27,6 +27,9 @@ public final class Interpreter implements AutoCloseable {
     private static final int ARRAY_EMPTY=32,ARRAY_PUSH=33,ARRAY_POP=34,ARRAY_USIZE=35,
                              ARRAY_FGET=36,ARRAY_UGET=37,ARRAY_UGET_BORROWED=38,
                              ARRAY_FSET=39,ARRAY_USET=40,ARRAY_SWAP=41,ARRAY_LIST=42,ARRAY_REPLICATE=43;
+    private static final int STR_END=44,STR_SAFE_GET=45,STR_SAFE_NEXT=46,STR_PREV=47,STR_VALID=48,
+                             STR_EXTRACT=49,STR_EQ=50,STR_LT=51,STR_COMPARE=52,STR_BYTE=53,
+                             STR_CONTAINS=54,STR_LENGTH=55,STR_SET=56;
     private static final int MAX_ARRAY_CAPACITY=1_000_000;
     private static final int STREAM_FLUSH=100,STREAM_READ=101,STREAM_WRITE=102,STREAM_LINE=103,STREAM_PUT=104,STREAM_TTY=105;
     private static final BigInteger SMALL_MAX=BigInteger.valueOf(Long.MAX_VALUE);
@@ -208,6 +211,32 @@ public final class Interpreter implements AutoCloseable {
                 new String[]{"erased","object"},new boolean[]{false,false}));
         register(registry,new ExternSpec("lean_mk_array",ARRAY_REPLICATE,"object",
                 new String[]{"erased","tobject","tobject"},new boolean[]{false,false,false}));
+        register(registry,new ExternSpec("lean_string_utf8_at_end",STR_END,"uint8",
+                new String[]{"object","tobject"},new boolean[]{true,true}));
+        register(registry,new ExternSpec("lean_string_utf8_get",STR_SAFE_GET,"uint32",
+                new String[]{"object","tobject"},new boolean[]{true,true}));
+        register(registry,new ExternSpec("lean_string_utf8_next",STR_SAFE_NEXT,"tobject",
+                new String[]{"object","tobject"},new boolean[]{true,true}));
+        register(registry,new ExternSpec("lean_string_utf8_prev",STR_PREV,"tobject",
+                new String[]{"object","tobject"},new boolean[]{true,true}));
+        register(registry,new ExternSpec("lean_string_is_valid_pos",STR_VALID,"uint8",
+                new String[]{"object","tobject"},new boolean[]{true,true}));
+        register(registry,new ExternSpec("lean_string_utf8_extract",STR_EXTRACT,"object",
+                new String[]{"object","tobject","tobject"},new boolean[]{true,true,true}));
+        register(registry,new ExternSpec("lean_string_dec_eq",STR_EQ,"uint8",
+                new String[]{"object","object"},new boolean[]{true,true}));
+        register(registry,new ExternSpec("lean_string_dec_lt",STR_LT,"uint8",
+                new String[]{"object","object"},new boolean[]{true,true}));
+        register(registry,new ExternSpec("lean_string_compare",STR_COMPARE,"uint8",
+                new String[]{"object","object"},new boolean[]{true,true}));
+        register(registry,new ExternSpec("lean_string_get_byte_fast",STR_BYTE,"uint8",
+                new String[]{"object","tobject","erased"},new boolean[]{true,false,false}));
+        register(registry,new ExternSpec("lean_string_contains",STR_CONTAINS,"uint8",
+                new String[]{"object","uint32"},new boolean[]{false,false}));
+        register(registry,new ExternSpec("lean_string_length",STR_LENGTH,"tobject",
+                new String[]{"object"},new boolean[]{true}));
+        register(registry,new ExternSpec("lean_string_utf8_set",STR_SET,"object",
+                new String[]{"object","tobject","uint32"},new boolean[]{false,true,false}));
         registry.replaceAll((symbol,entries)->Collections.unmodifiableList(entries));
         return Collections.unmodifiableMap(registry);
     }
@@ -1465,6 +1494,77 @@ public final class Interpreter implements AutoCloseable {
         }
         throw error("Invalid ST.Ref intrinsic");
     }
+    private static boolean leadingByte(byte value) { return (value&0xc0)!=0x80; }
+    private static int utf8Width(byte value) {
+        int b=Byte.toUnsignedInt(value);
+        return b<128?1:b<224?2:b<240?3:4;
+    }
+    private static int utf8CodePoint(byte[] bytes,int p) {
+        int first=Byte.toUnsignedInt(bytes[p]),width=utf8Width(bytes[p]);
+        int cp=width==1?first:first&((1<<(7-width))-1);
+        for(int i=1;i<width;i++) cp=(cp<<6)|(bytes[p+i]&63);
+        return cp;
+    }
+    /** Native strings use byte positions, including defined safe invalid-index
+     * behavior. Java carriers are validated Unicode; no normalization occurs. */
+    private void stringPositionIntrinsic(Function f,Object a,Object b,Object c) {
+        byte[] bytes=utf8(a); BigInteger position=nat(b);
+        int length=bytes.length;
+        if(f.intrinsic==STR_END) { scalarResult=position.compareTo(BigInteger.valueOf(length))>=0?1:0; return; }
+        if(f.intrinsic==STR_SAFE_NEXT) {
+            int width=1;
+            if(position.compareTo(BigInteger.valueOf(length))<0) {
+                int p=position.intValue(); width=leadingByte(bytes[p])?utf8Width(bytes[p]):1;
+            }
+            result=normalize(position.add(BigInteger.valueOf(width))); return;
+        }
+        if(f.intrinsic==STR_PREV) {
+            if(position.signum()==0) { result=ERASED; return; }
+            if(position.compareTo(BigInteger.valueOf(length))>0) { result=normalize(position.subtract(BigInteger.ONE)); return; }
+            int p=position.intValue()-1;
+            while(p>0&&!leadingByte(bytes[p])) p--;
+            result=Long.valueOf(p); return;
+        }
+        if(f.intrinsic==STR_VALID) {
+            scalarResult=position.compareTo(BigInteger.valueOf(length))<=0
+                    &&(position.intValue()==length||leadingByte(bytes[position.intValue()]))?1:0; return;
+        }
+        if(f.intrinsic==STR_EXTRACT) {
+            BigInteger end=nat(c);
+            if(position.bitLength()>63||end.bitLength()>63) { result=a; return; }
+            if(position.compareTo(end)>=0||position.compareTo(BigInteger.valueOf(length))>=0) { result=""; return; }
+            int begin=position.intValue();
+            if(!leadingByte(bytes[begin])) { result=""; return; }
+            int stop=end.compareTo(BigInteger.valueOf(length))>=0?length:end.intValue();
+            if(stop<length&&!leadingByte(bytes[stop])) stop=length;
+            result=new String(bytes,begin,stop-begin,StandardCharsets.UTF_8); return;
+        }
+        boolean inRange=position.compareTo(BigInteger.valueOf(length))<0;
+        if(f.intrinsic==STR_BYTE) {
+            require(ERASED.equals(c),"String byte proof requires erased placeholder");
+            require(inRange,"UTF-8 byte index outside String");
+            scalarResult=Byte.toUnsignedInt(bytes[position.intValue()]); return;
+        }
+        if(f.intrinsic==STR_SET) {
+            int replacement=codePoint(c);
+            if(!inRange||!leadingByte(bytes[position.intValue()])) { result=a; return; }
+            int p=position.intValue(),width=utf8Width(bytes[p]);
+            result=new String(bytes,0,p,StandardCharsets.UTF_8)+new String(Character.toChars(replacement))
+                    +new String(bytes,p+width,length-p-width,StandardCharsets.UTF_8); return;
+        }
+        scalarResult=inRange&&leadingByte(bytes[position.intValue()])?utf8CodePoint(bytes,position.intValue()):65;
+    }
+    private void stringIntrinsic(Function f,Object a,Object b,Object c) {
+        if(f.intrinsic>=STR_END&&f.intrinsic<=STR_EXTRACT||f.intrinsic==STR_BYTE||f.intrinsic==STR_SET) {
+            stringPositionIntrinsic(f,a,b,c); return;
+        }
+        if(f.intrinsic==STR_LENGTH) { String s=text(a); utf8(s); result=Long.valueOf(s.codePointCount(0,s.length())); return; }
+        if(f.intrinsic==STR_CONTAINS) { String s=text(a); utf8(s); scalarResult=s.indexOf(codePoint(b))>=0?1:0; return; }
+        byte[] x=utf8(a),y=utf8(b); int cmp=Arrays.compareUnsigned(x,y);
+        if(f.intrinsic==STR_EQ) scalarResult=cmp==0?1:0;
+        else if(f.intrinsic==STR_LT) scalarResult=cmp<0?1:0;
+        else scalarResult=cmp<0?0:cmp==0?1:2;
+    }
     private String text(Object value) { require(value instanceof String,"Expected immutable String"); return (String)value; }
     private byte[] utf8(Object value) {
         String s=text(value);
@@ -1514,6 +1614,7 @@ public final class Interpreter implements AutoCloseable {
     }
     public String capturedStdout() { return output.toString(); }
     private void runtimeIntrinsic(Function f,Object a,Object b,Object c) {
+        if(f.intrinsic>=STR_END&&f.intrinsic<=STR_SET) { stringIntrinsic(f,a,b,c); return; }
         switch(f.intrinsic) {
             case STR_PUSH: utf8(a); result=text(a)+new String(Character.toChars(codePoint(b))); break;
             case STR_APPEND: utf8(a); utf8(b); result=text(a)+text(b); break;

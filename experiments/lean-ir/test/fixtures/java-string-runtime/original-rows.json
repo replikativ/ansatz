@@ -1,0 +1,9025 @@
+[
+  {
+    "label": "String.utf8ByteSize",
+    "sha256": "59037259d7eadf21b6553824390cbfa8417f114be769d6d15803b48f50a80d60",
+    "row": {
+      "dependencies": [],
+      "ir": {
+        "extern": {
+          "ext": {
+            "entries": [
+              {
+                "standard": {
+                  "backend": [
+                    "str",
+                    [
+                      "anonymous"
+                    ],
+                    "all"
+                  ],
+                  "fn": "lean_string_utf8_byte_size"
+                }
+              }
+            ]
+          },
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "String"
+            ],
+            "utf8ByteSize"
+          ],
+          "type": "tagged",
+          "xs": [
+            {
+              "borrow": true,
+              "ty": "object",
+              "x": {
+                "idx": 1
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "anonymous"
+          ],
+          "String"
+        ],
+        "utf8ByteSize"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "anonymous"
+          ],
+          "Init"
+        ],
+        "Prelude"
+      ]
+    }
+  },
+  {
+    "label": "String.utf8ByteSize._boxed",
+    "sha256": "91d439eb485a01d88bcc9542170116ec00f2774c7c9a7d63f92ed402887d1838",
+    "row": {
+      "dependencies": [
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "String"
+          ],
+          "utf8ByteSize"
+        ]
+      ],
+      "ir": {
+        "fdecl": {
+          "body": [
+            "vdecl",
+            {
+              "idx": 2
+            },
+            "tagged",
+            {
+              "fap": {
+                "c": [
+                  "str",
+                  [
+                    "str",
+                    [
+                      "anonymous"
+                    ],
+                    "String"
+                  ],
+                  "utf8ByteSize"
+                ],
+                "ys": [
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 1
+                      }
+                    }
+                  }
+                ]
+              }
+            },
+            [
+              "dec",
+              {
+                "idx": 1
+              },
+              1,
+              false,
+              false,
+              [
+                "ret",
+                {
+                  "var": {
+                    "id": {
+                      "idx": 2
+                    }
+                  }
+                }
+              ]
+            ]
+          ],
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "String"
+              ],
+              "utf8ByteSize"
+            ],
+            "_boxed"
+          ],
+          "info": {},
+          "type": "tagged",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "object",
+              "x": {
+                "idx": 1
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "String"
+          ],
+          "utf8ByteSize"
+        ],
+        "_boxed"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "anonymous"
+          ],
+          "Init"
+        ],
+        "Prelude"
+      ]
+    }
+  },
+  {
+    "label": "String.append",
+    "sha256": "a0e22d5fa68be3c27404e071c6199496beb6a38ec7c1ebe1a4fa75b8e7ae26b5",
+    "row": {
+      "dependencies": [],
+      "ir": {
+        "extern": {
+          "ext": {
+            "entries": [
+              {
+                "standard": {
+                  "backend": [
+                    "str",
+                    [
+                      "anonymous"
+                    ],
+                    "all"
+                  ],
+                  "fn": "lean_string_append"
+                }
+              }
+            ]
+          },
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "String"
+            ],
+            "append"
+          ],
+          "type": "object",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "object",
+              "x": {
+                "idx": 1
+              }
+            },
+            {
+              "borrow": true,
+              "ty": "object",
+              "x": {
+                "idx": 2
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "anonymous"
+          ],
+          "String"
+        ],
+        "append"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Init"
+            ],
+            "Data"
+          ],
+          "String"
+        ],
+        "Defs"
+      ]
+    }
+  },
+  {
+    "label": "String.append._boxed",
+    "sha256": "c9591a8254f178cd0f0295aa41cbce59822598c691368a873765053d1478b8e8",
+    "row": {
+      "dependencies": [
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "String"
+          ],
+          "append"
+        ]
+      ],
+      "ir": {
+        "fdecl": {
+          "body": [
+            "vdecl",
+            {
+              "idx": 3
+            },
+            "object",
+            {
+              "fap": {
+                "c": [
+                  "str",
+                  [
+                    "str",
+                    [
+                      "anonymous"
+                    ],
+                    "String"
+                  ],
+                  "append"
+                ],
+                "ys": [
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 1
+                      }
+                    }
+                  },
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 2
+                      }
+                    }
+                  }
+                ]
+              }
+            },
+            [
+              "dec",
+              {
+                "idx": 2
+              },
+              1,
+              false,
+              false,
+              [
+                "ret",
+                {
+                  "var": {
+                    "id": {
+                      "idx": 3
+                    }
+                  }
+                }
+              ]
+            ]
+          ],
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "String"
+              ],
+              "append"
+            ],
+            "_boxed"
+          ],
+          "info": {},
+          "type": "object",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "object",
+              "x": {
+                "idx": 1
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "object",
+              "x": {
+                "idx": 2
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "String"
+          ],
+          "append"
+        ],
+        "_boxed"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Init"
+            ],
+            "Data"
+          ],
+          "String"
+        ],
+        "Defs"
+      ]
+    }
+  },
+  {
+    "label": "String.Pos.Raw.atEnd",
+    "sha256": "2a3cc95ca3e2fc2b2501fef94ed70e7334734a7252ca6354af33e0d55e94f409",
+    "row": {
+      "dependencies": [],
+      "ir": {
+        "extern": {
+          "ext": {
+            "entries": [
+              {
+                "standard": {
+                  "backend": [
+                    "str",
+                    [
+                      "anonymous"
+                    ],
+                    "all"
+                  ],
+                  "fn": "lean_string_utf8_at_end"
+                }
+              }
+            ]
+          },
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "str",
+                  [
+                    "anonymous"
+                  ],
+                  "String"
+                ],
+                "Pos"
+              ],
+              "Raw"
+            ],
+            "atEnd"
+          ],
+          "type": "uint8",
+          "xs": [
+            {
+              "borrow": true,
+              "ty": "object",
+              "x": {
+                "idx": 1
+              }
+            },
+            {
+              "borrow": true,
+              "ty": "tobject",
+              "x": {
+                "idx": 2
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "String"
+            ],
+            "Pos"
+          ],
+          "Raw"
+        ],
+        "atEnd"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Init"
+            ],
+            "Data"
+          ],
+          "String"
+        ],
+        "Basic"
+      ]
+    }
+  },
+  {
+    "label": "String.Pos.Raw.atEnd._boxed",
+    "sha256": "313d98c009888e72c490932ce631e9898292c7e1d5ad9052023c5434eb9ac9dd",
+    "row": {
+      "dependencies": [
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "String"
+              ],
+              "Pos"
+            ],
+            "Raw"
+          ],
+          "atEnd"
+        ]
+      ],
+      "ir": {
+        "fdecl": {
+          "body": [
+            "vdecl",
+            {
+              "idx": 3
+            },
+            "uint8",
+            {
+              "fap": {
+                "c": [
+                  "str",
+                  [
+                    "str",
+                    [
+                      "str",
+                      [
+                        "str",
+                        [
+                          "anonymous"
+                        ],
+                        "String"
+                      ],
+                      "Pos"
+                    ],
+                    "Raw"
+                  ],
+                  "atEnd"
+                ],
+                "ys": [
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 1
+                      }
+                    }
+                  },
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 2
+                      }
+                    }
+                  }
+                ]
+              }
+            },
+            [
+              "dec",
+              {
+                "idx": 2
+              },
+              1,
+              true,
+              false,
+              [
+                "dec",
+                {
+                  "idx": 1
+                },
+                1,
+                false,
+                false,
+                [
+                  "vdecl",
+                  {
+                    "idx": 4
+                  },
+                  "tagged",
+                  {
+                    "box": {
+                      "ty": "uint8",
+                      "x": {
+                        "idx": 3
+                      }
+                    }
+                  },
+                  [
+                    "ret",
+                    {
+                      "var": {
+                        "id": {
+                          "idx": 4
+                        }
+                      }
+                    }
+                  ]
+                ]
+              ]
+            ]
+          ],
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "str",
+                  [
+                    "str",
+                    [
+                      "anonymous"
+                    ],
+                    "String"
+                  ],
+                  "Pos"
+                ],
+                "Raw"
+              ],
+              "atEnd"
+            ],
+            "_boxed"
+          ],
+          "info": {},
+          "type": "tagged",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "object",
+              "x": {
+                "idx": 1
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 2
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "String"
+              ],
+              "Pos"
+            ],
+            "Raw"
+          ],
+          "atEnd"
+        ],
+        "_boxed"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Init"
+            ],
+            "Data"
+          ],
+          "String"
+        ],
+        "Basic"
+      ]
+    }
+  },
+  {
+    "label": "String.Pos.Raw.get",
+    "sha256": "04702f93a64480e6ca1814fff0a01544e7ee5f932dd34924b625b98c9368d436",
+    "row": {
+      "dependencies": [],
+      "ir": {
+        "extern": {
+          "ext": {
+            "entries": [
+              {
+                "standard": {
+                  "backend": [
+                    "str",
+                    [
+                      "anonymous"
+                    ],
+                    "all"
+                  ],
+                  "fn": "lean_string_utf8_get"
+                }
+              }
+            ]
+          },
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "str",
+                  [
+                    "anonymous"
+                  ],
+                  "String"
+                ],
+                "Pos"
+              ],
+              "Raw"
+            ],
+            "get"
+          ],
+          "type": "uint32",
+          "xs": [
+            {
+              "borrow": true,
+              "ty": "object",
+              "x": {
+                "idx": 1
+              }
+            },
+            {
+              "borrow": true,
+              "ty": "tobject",
+              "x": {
+                "idx": 2
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "String"
+            ],
+            "Pos"
+          ],
+          "Raw"
+        ],
+        "get"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Init"
+            ],
+            "Data"
+          ],
+          "String"
+        ],
+        "Basic"
+      ]
+    }
+  },
+  {
+    "label": "String.Pos.Raw.get._boxed",
+    "sha256": "b4a8d6682f993fd284fd8fed8c5d0c1f20b0045c8dac768aecf8890ac1741bc3",
+    "row": {
+      "dependencies": [
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "String"
+              ],
+              "Pos"
+            ],
+            "Raw"
+          ],
+          "get"
+        ]
+      ],
+      "ir": {
+        "fdecl": {
+          "body": [
+            "vdecl",
+            {
+              "idx": 3
+            },
+            "uint32",
+            {
+              "fap": {
+                "c": [
+                  "str",
+                  [
+                    "str",
+                    [
+                      "str",
+                      [
+                        "str",
+                        [
+                          "anonymous"
+                        ],
+                        "String"
+                      ],
+                      "Pos"
+                    ],
+                    "Raw"
+                  ],
+                  "get"
+                ],
+                "ys": [
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 1
+                      }
+                    }
+                  },
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 2
+                      }
+                    }
+                  }
+                ]
+              }
+            },
+            [
+              "dec",
+              {
+                "idx": 2
+              },
+              1,
+              true,
+              false,
+              [
+                "dec",
+                {
+                  "idx": 1
+                },
+                1,
+                false,
+                false,
+                [
+                  "vdecl",
+                  {
+                    "idx": 4
+                  },
+                  "tobject",
+                  {
+                    "box": {
+                      "ty": "uint32",
+                      "x": {
+                        "idx": 3
+                      }
+                    }
+                  },
+                  [
+                    "ret",
+                    {
+                      "var": {
+                        "id": {
+                          "idx": 4
+                        }
+                      }
+                    }
+                  ]
+                ]
+              ]
+            ]
+          ],
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "str",
+                  [
+                    "str",
+                    [
+                      "anonymous"
+                    ],
+                    "String"
+                  ],
+                  "Pos"
+                ],
+                "Raw"
+              ],
+              "get"
+            ],
+            "_boxed"
+          ],
+          "info": {},
+          "type": "tobject",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "object",
+              "x": {
+                "idx": 1
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 2
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "String"
+              ],
+              "Pos"
+            ],
+            "Raw"
+          ],
+          "get"
+        ],
+        "_boxed"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Init"
+            ],
+            "Data"
+          ],
+          "String"
+        ],
+        "Basic"
+      ]
+    }
+  },
+  {
+    "label": "String.Pos.Raw.next",
+    "sha256": "c269f106448f0478c98a30bcd4e8a15d5b656cc913fc2d3648222586c85972d8",
+    "row": {
+      "dependencies": [],
+      "ir": {
+        "extern": {
+          "ext": {
+            "entries": [
+              {
+                "standard": {
+                  "backend": [
+                    "str",
+                    [
+                      "anonymous"
+                    ],
+                    "all"
+                  ],
+                  "fn": "lean_string_utf8_next"
+                }
+              }
+            ]
+          },
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "str",
+                  [
+                    "anonymous"
+                  ],
+                  "String"
+                ],
+                "Pos"
+              ],
+              "Raw"
+            ],
+            "next"
+          ],
+          "type": "tobject",
+          "xs": [
+            {
+              "borrow": true,
+              "ty": "object",
+              "x": {
+                "idx": 1
+              }
+            },
+            {
+              "borrow": true,
+              "ty": "tobject",
+              "x": {
+                "idx": 2
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "String"
+            ],
+            "Pos"
+          ],
+          "Raw"
+        ],
+        "next"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Init"
+            ],
+            "Data"
+          ],
+          "String"
+        ],
+        "Basic"
+      ]
+    }
+  },
+  {
+    "label": "String.Pos.Raw.next._boxed",
+    "sha256": "9e2ce261ff945f3bf9c1e404b50938e38cf6a8d2278745796bb20bf033c67b21",
+    "row": {
+      "dependencies": [
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "String"
+              ],
+              "Pos"
+            ],
+            "Raw"
+          ],
+          "next"
+        ]
+      ],
+      "ir": {
+        "fdecl": {
+          "body": [
+            "vdecl",
+            {
+              "idx": 3
+            },
+            "tobject",
+            {
+              "fap": {
+                "c": [
+                  "str",
+                  [
+                    "str",
+                    [
+                      "str",
+                      [
+                        "str",
+                        [
+                          "anonymous"
+                        ],
+                        "String"
+                      ],
+                      "Pos"
+                    ],
+                    "Raw"
+                  ],
+                  "next"
+                ],
+                "ys": [
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 1
+                      }
+                    }
+                  },
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 2
+                      }
+                    }
+                  }
+                ]
+              }
+            },
+            [
+              "dec",
+              {
+                "idx": 2
+              },
+              1,
+              true,
+              false,
+              [
+                "dec",
+                {
+                  "idx": 1
+                },
+                1,
+                false,
+                false,
+                [
+                  "ret",
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 3
+                      }
+                    }
+                  }
+                ]
+              ]
+            ]
+          ],
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "str",
+                  [
+                    "str",
+                    [
+                      "anonymous"
+                    ],
+                    "String"
+                  ],
+                  "Pos"
+                ],
+                "Raw"
+              ],
+              "next"
+            ],
+            "_boxed"
+          ],
+          "info": {},
+          "type": "tobject",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "object",
+              "x": {
+                "idx": 1
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 2
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "String"
+              ],
+              "Pos"
+            ],
+            "Raw"
+          ],
+          "next"
+        ],
+        "_boxed"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Init"
+            ],
+            "Data"
+          ],
+          "String"
+        ],
+        "Basic"
+      ]
+    }
+  },
+  {
+    "label": "String.Pos.Raw.extract",
+    "sha256": "7c264408ada7969eda3ef5bf254d01da0ae38c63922a460830c61ff0e6dc8688",
+    "row": {
+      "dependencies": [],
+      "ir": {
+        "extern": {
+          "ext": {
+            "entries": [
+              {
+                "standard": {
+                  "backend": [
+                    "str",
+                    [
+                      "anonymous"
+                    ],
+                    "all"
+                  ],
+                  "fn": "lean_string_utf8_extract"
+                }
+              }
+            ]
+          },
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "str",
+                  [
+                    "anonymous"
+                  ],
+                  "String"
+                ],
+                "Pos"
+              ],
+              "Raw"
+            ],
+            "extract"
+          ],
+          "type": "object",
+          "xs": [
+            {
+              "borrow": true,
+              "ty": "object",
+              "x": {
+                "idx": 1
+              }
+            },
+            {
+              "borrow": true,
+              "ty": "tobject",
+              "x": {
+                "idx": 2
+              }
+            },
+            {
+              "borrow": true,
+              "ty": "tobject",
+              "x": {
+                "idx": 3
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "String"
+            ],
+            "Pos"
+          ],
+          "Raw"
+        ],
+        "extract"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Init"
+            ],
+            "Data"
+          ],
+          "String"
+        ],
+        "Basic"
+      ]
+    }
+  },
+  {
+    "label": "String.Pos.Raw.extract._boxed",
+    "sha256": "d8272fabdc607d898d0d846c88e808e208bf198677eed7d7e758758308fe16b4",
+    "row": {
+      "dependencies": [
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "String"
+              ],
+              "Pos"
+            ],
+            "Raw"
+          ],
+          "extract"
+        ]
+      ],
+      "ir": {
+        "fdecl": {
+          "body": [
+            "vdecl",
+            {
+              "idx": 4
+            },
+            "object",
+            {
+              "fap": {
+                "c": [
+                  "str",
+                  [
+                    "str",
+                    [
+                      "str",
+                      [
+                        "str",
+                        [
+                          "anonymous"
+                        ],
+                        "String"
+                      ],
+                      "Pos"
+                    ],
+                    "Raw"
+                  ],
+                  "extract"
+                ],
+                "ys": [
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 1
+                      }
+                    }
+                  },
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 2
+                      }
+                    }
+                  },
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 3
+                      }
+                    }
+                  }
+                ]
+              }
+            },
+            [
+              "dec",
+              {
+                "idx": 3
+              },
+              1,
+              true,
+              false,
+              [
+                "dec",
+                {
+                  "idx": 2
+                },
+                1,
+                true,
+                false,
+                [
+                  "dec",
+                  {
+                    "idx": 1
+                  },
+                  1,
+                  false,
+                  false,
+                  [
+                    "ret",
+                    {
+                      "var": {
+                        "id": {
+                          "idx": 4
+                        }
+                      }
+                    }
+                  ]
+                ]
+              ]
+            ]
+          ],
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "str",
+                  [
+                    "str",
+                    [
+                      "anonymous"
+                    ],
+                    "String"
+                  ],
+                  "Pos"
+                ],
+                "Raw"
+              ],
+              "extract"
+            ],
+            "_boxed"
+          ],
+          "info": {},
+          "type": "object",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "object",
+              "x": {
+                "idx": 1
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 2
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 3
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "String"
+              ],
+              "Pos"
+            ],
+            "Raw"
+          ],
+          "extract"
+        ],
+        "_boxed"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Init"
+            ],
+            "Data"
+          ],
+          "String"
+        ],
+        "Basic"
+      ]
+    }
+  },
+  {
+    "label": "String.Pos.Raw.get'",
+    "sha256": "f28a426ff7f58a786cbeb20ccc8e9a1d93b0fdb1de53d675ab19110533746a6a",
+    "row": {
+      "dependencies": [],
+      "ir": {
+        "extern": {
+          "ext": {
+            "entries": [
+              {
+                "standard": {
+                  "backend": [
+                    "str",
+                    [
+                      "anonymous"
+                    ],
+                    "all"
+                  ],
+                  "fn": "lean_string_utf8_get_fast"
+                }
+              }
+            ]
+          },
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "str",
+                  [
+                    "anonymous"
+                  ],
+                  "String"
+                ],
+                "Pos"
+              ],
+              "Raw"
+            ],
+            "get'"
+          ],
+          "type": "uint32",
+          "xs": [
+            {
+              "borrow": true,
+              "ty": "object",
+              "x": {
+                "idx": 1
+              }
+            },
+            {
+              "borrow": true,
+              "ty": "tobject",
+              "x": {
+                "idx": 2
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "erased",
+              "x": {
+                "idx": 3
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "String"
+            ],
+            "Pos"
+          ],
+          "Raw"
+        ],
+        "get'"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Init"
+            ],
+            "Data"
+          ],
+          "String"
+        ],
+        "Basic"
+      ]
+    }
+  },
+  {
+    "label": "String.Pos.Raw.get'._boxed",
+    "sha256": "a2f5c092e960bc450a0da2517a17b7a5d80ff4765078ccc55d380923c1c1af46",
+    "row": {
+      "dependencies": [
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "String"
+              ],
+              "Pos"
+            ],
+            "Raw"
+          ],
+          "get'"
+        ]
+      ],
+      "ir": {
+        "fdecl": {
+          "body": [
+            "vdecl",
+            {
+              "idx": 4
+            },
+            "uint32",
+            {
+              "fap": {
+                "c": [
+                  "str",
+                  [
+                    "str",
+                    [
+                      "str",
+                      [
+                        "str",
+                        [
+                          "anonymous"
+                        ],
+                        "String"
+                      ],
+                      "Pos"
+                    ],
+                    "Raw"
+                  ],
+                  "get'"
+                ],
+                "ys": [
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 1
+                      }
+                    }
+                  },
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 2
+                      }
+                    }
+                  },
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 3
+                      }
+                    }
+                  }
+                ]
+              }
+            },
+            [
+              "dec",
+              {
+                "idx": 2
+              },
+              1,
+              true,
+              false,
+              [
+                "dec",
+                {
+                  "idx": 1
+                },
+                1,
+                false,
+                false,
+                [
+                  "vdecl",
+                  {
+                    "idx": 5
+                  },
+                  "tobject",
+                  {
+                    "box": {
+                      "ty": "uint32",
+                      "x": {
+                        "idx": 4
+                      }
+                    }
+                  },
+                  [
+                    "ret",
+                    {
+                      "var": {
+                        "id": {
+                          "idx": 5
+                        }
+                      }
+                    }
+                  ]
+                ]
+              ]
+            ]
+          ],
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "str",
+                  [
+                    "str",
+                    [
+                      "anonymous"
+                    ],
+                    "String"
+                  ],
+                  "Pos"
+                ],
+                "Raw"
+              ],
+              "get'"
+            ],
+            "_boxed"
+          ],
+          "info": {},
+          "type": "tobject",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "object",
+              "x": {
+                "idx": 1
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 2
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 3
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "String"
+              ],
+              "Pos"
+            ],
+            "Raw"
+          ],
+          "get'"
+        ],
+        "_boxed"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Init"
+            ],
+            "Data"
+          ],
+          "String"
+        ],
+        "Basic"
+      ]
+    }
+  },
+  {
+    "label": "String.Pos.Raw.next'",
+    "sha256": "e233b605e6780edf2aacdfd4b4c4004bcc0f69bc0495ed1feea9ff52eabc58fe",
+    "row": {
+      "dependencies": [],
+      "ir": {
+        "extern": {
+          "ext": {
+            "entries": [
+              {
+                "standard": {
+                  "backend": [
+                    "str",
+                    [
+                      "anonymous"
+                    ],
+                    "all"
+                  ],
+                  "fn": "lean_string_utf8_next_fast"
+                }
+              }
+            ]
+          },
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "str",
+                  [
+                    "anonymous"
+                  ],
+                  "String"
+                ],
+                "Pos"
+              ],
+              "Raw"
+            ],
+            "next'"
+          ],
+          "type": "tagged",
+          "xs": [
+            {
+              "borrow": true,
+              "ty": "object",
+              "x": {
+                "idx": 1
+              }
+            },
+            {
+              "borrow": true,
+              "ty": "tobject",
+              "x": {
+                "idx": 2
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "erased",
+              "x": {
+                "idx": 3
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "String"
+            ],
+            "Pos"
+          ],
+          "Raw"
+        ],
+        "next'"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Init"
+            ],
+            "Data"
+          ],
+          "String"
+        ],
+        "Basic"
+      ]
+    }
+  },
+  {
+    "label": "String.Pos.Raw.next'._boxed",
+    "sha256": "d007b28ba224858d88110aa5ec1da18a8f77961d6fed5e2795770ad25c9657e5",
+    "row": {
+      "dependencies": [
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "String"
+              ],
+              "Pos"
+            ],
+            "Raw"
+          ],
+          "next'"
+        ]
+      ],
+      "ir": {
+        "fdecl": {
+          "body": [
+            "vdecl",
+            {
+              "idx": 4
+            },
+            "tagged",
+            {
+              "fap": {
+                "c": [
+                  "str",
+                  [
+                    "str",
+                    [
+                      "str",
+                      [
+                        "str",
+                        [
+                          "anonymous"
+                        ],
+                        "String"
+                      ],
+                      "Pos"
+                    ],
+                    "Raw"
+                  ],
+                  "next'"
+                ],
+                "ys": [
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 1
+                      }
+                    }
+                  },
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 2
+                      }
+                    }
+                  },
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 3
+                      }
+                    }
+                  }
+                ]
+              }
+            },
+            [
+              "dec",
+              {
+                "idx": 2
+              },
+              1,
+              true,
+              false,
+              [
+                "dec",
+                {
+                  "idx": 1
+                },
+                1,
+                false,
+                false,
+                [
+                  "ret",
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 4
+                      }
+                    }
+                  }
+                ]
+              ]
+            ]
+          ],
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "str",
+                  [
+                    "str",
+                    [
+                      "anonymous"
+                    ],
+                    "String"
+                  ],
+                  "Pos"
+                ],
+                "Raw"
+              ],
+              "next'"
+            ],
+            "_boxed"
+          ],
+          "info": {},
+          "type": "tagged",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "object",
+              "x": {
+                "idx": 1
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 2
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 3
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "String"
+              ],
+              "Pos"
+            ],
+            "Raw"
+          ],
+          "next'"
+        ],
+        "_boxed"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Init"
+            ],
+            "Data"
+          ],
+          "String"
+        ],
+        "Basic"
+      ]
+    }
+  },
+  {
+    "label": "String.Pos.next",
+    "sha256": "6f27de1c61f3ebd20bb6f14562eb29001b03a0fc473f12a9fe43ed18cb0bc1e5",
+    "row": {
+      "dependencies": [],
+      "ir": {
+        "extern": {
+          "ext": {
+            "entries": [
+              {
+                "standard": {
+                  "backend": [
+                    "str",
+                    [
+                      "anonymous"
+                    ],
+                    "all"
+                  ],
+                  "fn": "lean_string_utf8_next_fast"
+                }
+              }
+            ]
+          },
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "String"
+              ],
+              "Pos"
+            ],
+            "next"
+          ],
+          "type": "tagged",
+          "xs": [
+            {
+              "borrow": true,
+              "ty": "object",
+              "x": {
+                "idx": 1
+              }
+            },
+            {
+              "borrow": true,
+              "ty": "tobject",
+              "x": {
+                "idx": 2
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "erased",
+              "x": {
+                "idx": 3
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "String"
+          ],
+          "Pos"
+        ],
+        "next"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Init"
+            ],
+            "Data"
+          ],
+          "String"
+        ],
+        "Basic"
+      ]
+    }
+  },
+  {
+    "label": "String.Pos.next._boxed",
+    "sha256": "95c4ea69e78fc5be223e66ceee1cdff9d0861f6c6f1ecdc9a3181e9ef8b2d211",
+    "row": {
+      "dependencies": [
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "String"
+            ],
+            "Pos"
+          ],
+          "next"
+        ]
+      ],
+      "ir": {
+        "fdecl": {
+          "body": [
+            "vdecl",
+            {
+              "idx": 4
+            },
+            "tagged",
+            {
+              "fap": {
+                "c": [
+                  "str",
+                  [
+                    "str",
+                    [
+                      "str",
+                      [
+                        "anonymous"
+                      ],
+                      "String"
+                    ],
+                    "Pos"
+                  ],
+                  "next"
+                ],
+                "ys": [
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 1
+                      }
+                    }
+                  },
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 2
+                      }
+                    }
+                  },
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 3
+                      }
+                    }
+                  }
+                ]
+              }
+            },
+            [
+              "dec",
+              {
+                "idx": 2
+              },
+              1,
+              true,
+              false,
+              [
+                "dec",
+                {
+                  "idx": 1
+                },
+                1,
+                false,
+                false,
+                [
+                  "ret",
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 4
+                      }
+                    }
+                  }
+                ]
+              ]
+            ]
+          ],
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "str",
+                  [
+                    "anonymous"
+                  ],
+                  "String"
+                ],
+                "Pos"
+              ],
+              "next"
+            ],
+            "_boxed"
+          ],
+          "info": {},
+          "type": "tagged",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "object",
+              "x": {
+                "idx": 1
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 2
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 3
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "String"
+            ],
+            "Pos"
+          ],
+          "next"
+        ],
+        "_boxed"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Init"
+            ],
+            "Data"
+          ],
+          "String"
+        ],
+        "Basic"
+      ]
+    }
+  },
+  {
+    "label": "String.hash",
+    "sha256": "182d99421300ac5e70ec287480bbed0569be1d38fa4a130299109502b2f01403",
+    "row": {
+      "dependencies": [],
+      "ir": {
+        "extern": {
+          "ext": {
+            "entries": [
+              {
+                "standard": {
+                  "backend": [
+                    "str",
+                    [
+                      "anonymous"
+                    ],
+                    "all"
+                  ],
+                  "fn": "lean_string_hash"
+                }
+              }
+            ]
+          },
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "String"
+            ],
+            "hash"
+          ],
+          "type": "uint64",
+          "xs": [
+            {
+              "borrow": true,
+              "ty": "object",
+              "x": {
+                "idx": 1
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "anonymous"
+          ],
+          "String"
+        ],
+        "hash"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "anonymous"
+          ],
+          "Init"
+        ],
+        "Prelude"
+      ]
+    }
+  },
+  {
+    "label": "String.hash._boxed",
+    "sha256": "5076102a5071b3339a9c57c7d36f011f0ea3430b1c01dc73b2d7bdc2b370e258",
+    "row": {
+      "dependencies": [
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "String"
+          ],
+          "hash"
+        ]
+      ],
+      "ir": {
+        "fdecl": {
+          "body": [
+            "vdecl",
+            {
+              "idx": 2
+            },
+            "uint64",
+            {
+              "fap": {
+                "c": [
+                  "str",
+                  [
+                    "str",
+                    [
+                      "anonymous"
+                    ],
+                    "String"
+                  ],
+                  "hash"
+                ],
+                "ys": [
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 1
+                      }
+                    }
+                  }
+                ]
+              }
+            },
+            [
+              "dec",
+              {
+                "idx": 1
+              },
+              1,
+              false,
+              false,
+              [
+                "vdecl",
+                {
+                  "idx": 3
+                },
+                "object",
+                {
+                  "box": {
+                    "ty": "uint64",
+                    "x": {
+                      "idx": 2
+                    }
+                  }
+                },
+                [
+                  "ret",
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 3
+                      }
+                    }
+                  }
+                ]
+              ]
+            ]
+          ],
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "String"
+              ],
+              "hash"
+            ],
+            "_boxed"
+          ],
+          "info": {},
+          "type": "object",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "object",
+              "x": {
+                "idx": 1
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "String"
+          ],
+          "hash"
+        ],
+        "_boxed"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "anonymous"
+          ],
+          "Init"
+        ],
+        "Prelude"
+      ]
+    }
+  },
+  {
+    "label": "String.decEq",
+    "sha256": "49da3bae4b9363462f8f570578a0e4f86a29dc292f34721903dc0cf1d27508aa",
+    "row": {
+      "dependencies": [],
+      "ir": {
+        "extern": {
+          "ext": {
+            "entries": [
+              {
+                "standard": {
+                  "backend": [
+                    "str",
+                    [
+                      "anonymous"
+                    ],
+                    "all"
+                  ],
+                  "fn": "lean_string_dec_eq"
+                }
+              }
+            ]
+          },
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "String"
+            ],
+            "decEq"
+          ],
+          "type": "uint8",
+          "xs": [
+            {
+              "borrow": true,
+              "ty": "object",
+              "x": {
+                "idx": 1
+              }
+            },
+            {
+              "borrow": true,
+              "ty": "object",
+              "x": {
+                "idx": 2
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "anonymous"
+          ],
+          "String"
+        ],
+        "decEq"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "anonymous"
+          ],
+          "Init"
+        ],
+        "Prelude"
+      ]
+    }
+  },
+  {
+    "label": "String.decEq._boxed",
+    "sha256": "3e8ff2e5121dbc60f9d029a1b70e8d87c9edcb4ef22d63f48f1c1b72052ca405",
+    "row": {
+      "dependencies": [
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "String"
+          ],
+          "decEq"
+        ]
+      ],
+      "ir": {
+        "fdecl": {
+          "body": [
+            "vdecl",
+            {
+              "idx": 3
+            },
+            "uint8",
+            {
+              "fap": {
+                "c": [
+                  "str",
+                  [
+                    "str",
+                    [
+                      "anonymous"
+                    ],
+                    "String"
+                  ],
+                  "decEq"
+                ],
+                "ys": [
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 1
+                      }
+                    }
+                  },
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 2
+                      }
+                    }
+                  }
+                ]
+              }
+            },
+            [
+              "dec",
+              {
+                "idx": 2
+              },
+              1,
+              false,
+              false,
+              [
+                "dec",
+                {
+                  "idx": 1
+                },
+                1,
+                false,
+                false,
+                [
+                  "vdecl",
+                  {
+                    "idx": 4
+                  },
+                  "tagged",
+                  {
+                    "box": {
+                      "ty": "uint8",
+                      "x": {
+                        "idx": 3
+                      }
+                    }
+                  },
+                  [
+                    "ret",
+                    {
+                      "var": {
+                        "id": {
+                          "idx": 4
+                        }
+                      }
+                    }
+                  ]
+                ]
+              ]
+            ]
+          ],
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "String"
+              ],
+              "decEq"
+            ],
+            "_boxed"
+          ],
+          "info": {},
+          "type": "tagged",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "object",
+              "x": {
+                "idx": 1
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "object",
+              "x": {
+                "idx": 2
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "String"
+          ],
+          "decEq"
+        ],
+        "_boxed"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "anonymous"
+          ],
+          "Init"
+        ],
+        "Prelude"
+      ]
+    }
+  },
+  {
+    "label": "String.Internal.append",
+    "sha256": "22075fe1516afe5d1092f95e9099b5658ce5003fca2704e46ebb2f30cd28e7e8",
+    "row": {
+      "dependencies": [],
+      "ir": {
+        "extern": {
+          "ext": {
+            "entries": [
+              {
+                "standard": {
+                  "backend": [
+                    "str",
+                    [
+                      "anonymous"
+                    ],
+                    "all"
+                  ],
+                  "fn": "lean_string_append"
+                }
+              }
+            ]
+          },
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "String"
+              ],
+              "Internal"
+            ],
+            "append"
+          ],
+          "type": "object",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "object",
+              "x": {
+                "idx": 1
+              }
+            },
+            {
+              "borrow": true,
+              "ty": "object",
+              "x": {
+                "idx": 2
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "String"
+          ],
+          "Internal"
+        ],
+        "append"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Init"
+            ],
+            "Data"
+          ],
+          "String"
+        ],
+        "Bootstrap"
+      ]
+    }
+  },
+  {
+    "label": "String.Internal.append._boxed",
+    "sha256": "0d79c629c7fc46fe01250968e1588cde33c2f1056ac3cdcf5da772a9850a03ca",
+    "row": {
+      "dependencies": [
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "String"
+            ],
+            "Internal"
+          ],
+          "append"
+        ]
+      ],
+      "ir": {
+        "fdecl": {
+          "body": [
+            "vdecl",
+            {
+              "idx": 3
+            },
+            "object",
+            {
+              "fap": {
+                "c": [
+                  "str",
+                  [
+                    "str",
+                    [
+                      "str",
+                      [
+                        "anonymous"
+                      ],
+                      "String"
+                    ],
+                    "Internal"
+                  ],
+                  "append"
+                ],
+                "ys": [
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 1
+                      }
+                    }
+                  },
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 2
+                      }
+                    }
+                  }
+                ]
+              }
+            },
+            [
+              "dec",
+              {
+                "idx": 2
+              },
+              1,
+              false,
+              false,
+              [
+                "ret",
+                {
+                  "var": {
+                    "id": {
+                      "idx": 3
+                    }
+                  }
+                }
+              ]
+            ]
+          ],
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "str",
+                  [
+                    "anonymous"
+                  ],
+                  "String"
+                ],
+                "Internal"
+              ],
+              "append"
+            ],
+            "_boxed"
+          ],
+          "info": {},
+          "type": "object",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "object",
+              "x": {
+                "idx": 1
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "object",
+              "x": {
+                "idx": 2
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "String"
+            ],
+            "Internal"
+          ],
+          "append"
+        ],
+        "_boxed"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Init"
+            ],
+            "Data"
+          ],
+          "String"
+        ],
+        "Bootstrap"
+      ]
+    }
+  },
+  {
+    "label": "String.compare",
+    "sha256": "db0fbd8eee4b7c88428bf9fe097a416234e2d0a82bd3fdebb19bc2b55d6a6f34",
+    "row": {
+      "dependencies": [],
+      "ir": {
+        "extern": {
+          "ext": {
+            "entries": [
+              {
+                "standard": {
+                  "backend": [
+                    "str",
+                    [
+                      "anonymous"
+                    ],
+                    "all"
+                  ],
+                  "fn": "lean_string_compare"
+                }
+              }
+            ]
+          },
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "String"
+            ],
+            "compare"
+          ],
+          "type": "uint8",
+          "xs": [
+            {
+              "borrow": true,
+              "ty": "object",
+              "x": {
+                "idx": 1
+              }
+            },
+            {
+              "borrow": true,
+              "ty": "object",
+              "x": {
+                "idx": 2
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "anonymous"
+          ],
+          "String"
+        ],
+        "compare"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Init"
+            ],
+            "Data"
+          ],
+          "Ord"
+        ],
+        "String"
+      ]
+    }
+  },
+  {
+    "label": "String.compare._boxed",
+    "sha256": "6ce7880d5bf0acbcaddf9cee417715553e907360ea7741643493851ad9e42515",
+    "row": {
+      "dependencies": [
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "String"
+          ],
+          "compare"
+        ]
+      ],
+      "ir": {
+        "fdecl": {
+          "body": [
+            "vdecl",
+            {
+              "idx": 3
+            },
+            "uint8",
+            {
+              "fap": {
+                "c": [
+                  "str",
+                  [
+                    "str",
+                    [
+                      "anonymous"
+                    ],
+                    "String"
+                  ],
+                  "compare"
+                ],
+                "ys": [
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 1
+                      }
+                    }
+                  },
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 2
+                      }
+                    }
+                  }
+                ]
+              }
+            },
+            [
+              "dec",
+              {
+                "idx": 2
+              },
+              1,
+              false,
+              false,
+              [
+                "dec",
+                {
+                  "idx": 1
+                },
+                1,
+                false,
+                false,
+                [
+                  "vdecl",
+                  {
+                    "idx": 4
+                  },
+                  "tagged",
+                  {
+                    "box": {
+                      "ty": "uint8",
+                      "x": {
+                        "idx": 3
+                      }
+                    }
+                  },
+                  [
+                    "ret",
+                    {
+                      "var": {
+                        "id": {
+                          "idx": 4
+                        }
+                      }
+                    }
+                  ]
+                ]
+              ]
+            ]
+          ],
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "String"
+              ],
+              "compare"
+            ],
+            "_boxed"
+          ],
+          "info": {},
+          "type": "tagged",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "object",
+              "x": {
+                "idx": 1
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "object",
+              "x": {
+                "idx": 2
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "String"
+          ],
+          "compare"
+        ],
+        "_boxed"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Init"
+            ],
+            "Data"
+          ],
+          "Ord"
+        ],
+        "String"
+      ]
+    }
+  },
+  {
+    "label": "String.decodeChar",
+    "sha256": "ddfa343aeb75b31fe1513c023c24eb037148302c0280cb1f2e9bf3ea106ae1aa",
+    "row": {
+      "dependencies": [],
+      "ir": {
+        "extern": {
+          "ext": {
+            "entries": [
+              {
+                "standard": {
+                  "backend": [
+                    "str",
+                    [
+                      "anonymous"
+                    ],
+                    "all"
+                  ],
+                  "fn": "lean_string_utf8_get_fast"
+                }
+              }
+            ]
+          },
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "String"
+            ],
+            "decodeChar"
+          ],
+          "type": "uint32",
+          "xs": [
+            {
+              "borrow": true,
+              "ty": "object",
+              "x": {
+                "idx": 1
+              }
+            },
+            {
+              "borrow": true,
+              "ty": "tobject",
+              "x": {
+                "idx": 2
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "erased",
+              "x": {
+                "idx": 3
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "anonymous"
+          ],
+          "String"
+        ],
+        "decodeChar"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Init"
+            ],
+            "Data"
+          ],
+          "String"
+        ],
+        "Basic"
+      ]
+    }
+  },
+  {
+    "label": "String.decodeChar._boxed",
+    "sha256": "b653d65d20978ab8cdc6dc46c09c0609ee0a9ede67518959ddf2a85643c9cacf",
+    "row": {
+      "dependencies": [
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "String"
+          ],
+          "decodeChar"
+        ]
+      ],
+      "ir": {
+        "fdecl": {
+          "body": [
+            "vdecl",
+            {
+              "idx": 4
+            },
+            "uint32",
+            {
+              "fap": {
+                "c": [
+                  "str",
+                  [
+                    "str",
+                    [
+                      "anonymous"
+                    ],
+                    "String"
+                  ],
+                  "decodeChar"
+                ],
+                "ys": [
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 1
+                      }
+                    }
+                  },
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 2
+                      }
+                    }
+                  },
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 3
+                      }
+                    }
+                  }
+                ]
+              }
+            },
+            [
+              "dec",
+              {
+                "idx": 2
+              },
+              1,
+              true,
+              false,
+              [
+                "dec",
+                {
+                  "idx": 1
+                },
+                1,
+                false,
+                false,
+                [
+                  "vdecl",
+                  {
+                    "idx": 5
+                  },
+                  "tobject",
+                  {
+                    "box": {
+                      "ty": "uint32",
+                      "x": {
+                        "idx": 4
+                      }
+                    }
+                  },
+                  [
+                    "ret",
+                    {
+                      "var": {
+                        "id": {
+                          "idx": 5
+                        }
+                      }
+                    }
+                  ]
+                ]
+              ]
+            ]
+          ],
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "String"
+              ],
+              "decodeChar"
+            ],
+            "_boxed"
+          ],
+          "info": {},
+          "type": "tobject",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "object",
+              "x": {
+                "idx": 1
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 2
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 3
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "String"
+          ],
+          "decodeChar"
+        ],
+        "_boxed"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Init"
+            ],
+            "Data"
+          ],
+          "String"
+        ],
+        "Basic"
+      ]
+    }
+  },
+  {
+    "label": "String.getUTF8Byte",
+    "sha256": "3b7be62bd62a11d11e4766625dd6e9aec81b0cf0f7943af26364c02d771364a5",
+    "row": {
+      "dependencies": [],
+      "ir": {
+        "extern": {
+          "ext": {
+            "entries": [
+              {
+                "standard": {
+                  "backend": [
+                    "str",
+                    [
+                      "anonymous"
+                    ],
+                    "all"
+                  ],
+                  "fn": "lean_string_get_byte_fast"
+                }
+              }
+            ]
+          },
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "String"
+            ],
+            "getUTF8Byte"
+          ],
+          "type": "uint8",
+          "xs": [
+            {
+              "borrow": true,
+              "ty": "object",
+              "x": {
+                "idx": 1
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 2
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "erased",
+              "x": {
+                "idx": 3
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "anonymous"
+          ],
+          "String"
+        ],
+        "getUTF8Byte"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Init"
+            ],
+            "Data"
+          ],
+          "String"
+        ],
+        "PosRaw"
+      ]
+    }
+  },
+  {
+    "label": "String.getUTF8Byte._boxed",
+    "sha256": "2fda7de59d5fe5f197148da5b48f403e471f66239326e00b736b2f5a96f775cc",
+    "row": {
+      "dependencies": [
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "String"
+          ],
+          "getUTF8Byte"
+        ]
+      ],
+      "ir": {
+        "fdecl": {
+          "body": [
+            "vdecl",
+            {
+              "idx": 4
+            },
+            "uint8",
+            {
+              "fap": {
+                "c": [
+                  "str",
+                  [
+                    "str",
+                    [
+                      "anonymous"
+                    ],
+                    "String"
+                  ],
+                  "getUTF8Byte"
+                ],
+                "ys": [
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 1
+                      }
+                    }
+                  },
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 2
+                      }
+                    }
+                  },
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 3
+                      }
+                    }
+                  }
+                ]
+              }
+            },
+            [
+              "dec",
+              {
+                "idx": 1
+              },
+              1,
+              false,
+              false,
+              [
+                "vdecl",
+                {
+                  "idx": 5
+                },
+                "tagged",
+                {
+                  "box": {
+                    "ty": "uint8",
+                    "x": {
+                      "idx": 4
+                    }
+                  }
+                },
+                [
+                  "ret",
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 5
+                      }
+                    }
+                  }
+                ]
+              ]
+            ]
+          ],
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "String"
+              ],
+              "getUTF8Byte"
+            ],
+            "_boxed"
+          ],
+          "info": {},
+          "type": "tagged",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "object",
+              "x": {
+                "idx": 1
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 2
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 3
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "String"
+          ],
+          "getUTF8Byte"
+        ],
+        "_boxed"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Init"
+            ],
+            "Data"
+          ],
+          "String"
+        ],
+        "PosRaw"
+      ]
+    }
+  },
+  {
+    "label": "String.Internal.contains",
+    "sha256": "ae85f2ce7c12cf4bac8747b635e125ec683cecc4252df938c2c70a90b4a8674b",
+    "row": {
+      "dependencies": [],
+      "ir": {
+        "extern": {
+          "ext": {
+            "entries": [
+              {
+                "standard": {
+                  "backend": [
+                    "str",
+                    [
+                      "anonymous"
+                    ],
+                    "all"
+                  ],
+                  "fn": "lean_string_contains"
+                }
+              }
+            ]
+          },
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "String"
+              ],
+              "Internal"
+            ],
+            "contains"
+          ],
+          "type": "uint8",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "object",
+              "x": {
+                "idx": 1
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "uint32",
+              "x": {
+                "idx": 2
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "String"
+          ],
+          "Internal"
+        ],
+        "contains"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Init"
+            ],
+            "Data"
+          ],
+          "String"
+        ],
+        "Bootstrap"
+      ]
+    }
+  },
+  {
+    "label": "String.Internal.contains._boxed",
+    "sha256": "b2a1ee731d1c74fe7527b99353c98780399916f67a6519fb35f6376b2ff60fe4",
+    "row": {
+      "dependencies": [
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "String"
+            ],
+            "Internal"
+          ],
+          "contains"
+        ]
+      ],
+      "ir": {
+        "fdecl": {
+          "body": [
+            "vdecl",
+            {
+              "idx": 3
+            },
+            "uint32",
+            {
+              "unbox": {
+                "x": {
+                  "idx": 2
+                }
+              }
+            },
+            [
+              "dec",
+              {
+                "idx": 2
+              },
+              1,
+              true,
+              false,
+              [
+                "vdecl",
+                {
+                  "idx": 4
+                },
+                "uint8",
+                {
+                  "fap": {
+                    "c": [
+                      "str",
+                      [
+                        "str",
+                        [
+                          "str",
+                          [
+                            "anonymous"
+                          ],
+                          "String"
+                        ],
+                        "Internal"
+                      ],
+                      "contains"
+                    ],
+                    "ys": [
+                      {
+                        "var": {
+                          "id": {
+                            "idx": 1
+                          }
+                        }
+                      },
+                      {
+                        "var": {
+                          "id": {
+                            "idx": 3
+                          }
+                        }
+                      }
+                    ]
+                  }
+                },
+                [
+                  "vdecl",
+                  {
+                    "idx": 5
+                  },
+                  "tagged",
+                  {
+                    "box": {
+                      "ty": "uint8",
+                      "x": {
+                        "idx": 4
+                      }
+                    }
+                  },
+                  [
+                    "ret",
+                    {
+                      "var": {
+                        "id": {
+                          "idx": 5
+                        }
+                      }
+                    }
+                  ]
+                ]
+              ]
+            ]
+          ],
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "str",
+                  [
+                    "anonymous"
+                  ],
+                  "String"
+                ],
+                "Internal"
+              ],
+              "contains"
+            ],
+            "_boxed"
+          ],
+          "info": {},
+          "type": "tagged",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "object",
+              "x": {
+                "idx": 1
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 2
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "String"
+            ],
+            "Internal"
+          ],
+          "contains"
+        ],
+        "_boxed"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Init"
+            ],
+            "Data"
+          ],
+          "String"
+        ],
+        "Bootstrap"
+      ]
+    }
+  },
+  {
+    "label": "String.Slice.Pattern.Internal.memcmpStr",
+    "sha256": "0fedf0cdd67baecc7a4d36fdcb9742172b51be9404078e5475d1a0aff8a5d877",
+    "row": {
+      "dependencies": [],
+      "ir": {
+        "extern": {
+          "ext": {
+            "entries": [
+              {
+                "standard": {
+                  "backend": [
+                    "str",
+                    [
+                      "anonymous"
+                    ],
+                    "all"
+                  ],
+                  "fn": "lean_string_memcmp"
+                }
+              }
+            ]
+          },
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "str",
+                  [
+                    "str",
+                    [
+                      "anonymous"
+                    ],
+                    "String"
+                  ],
+                  "Slice"
+                ],
+                "Pattern"
+              ],
+              "Internal"
+            ],
+            "memcmpStr"
+          ],
+          "type": "uint8",
+          "xs": [
+            {
+              "borrow": true,
+              "ty": "object",
+              "x": {
+                "idx": 1
+              }
+            },
+            {
+              "borrow": true,
+              "ty": "object",
+              "x": {
+                "idx": 2
+              }
+            },
+            {
+              "borrow": true,
+              "ty": "tobject",
+              "x": {
+                "idx": 3
+              }
+            },
+            {
+              "borrow": true,
+              "ty": "tobject",
+              "x": {
+                "idx": 4
+              }
+            },
+            {
+              "borrow": true,
+              "ty": "tobject",
+              "x": {
+                "idx": 5
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "erased",
+              "x": {
+                "idx": 6
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "erased",
+              "x": {
+                "idx": 7
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "String"
+              ],
+              "Slice"
+            ],
+            "Pattern"
+          ],
+          "Internal"
+        ],
+        "memcmpStr"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "Init"
+              ],
+              "Data"
+            ],
+            "String"
+          ],
+          "Pattern"
+        ],
+        "Basic"
+      ]
+    }
+  },
+  {
+    "label": "String.Slice.Pattern.Internal.memcmpStr._boxed",
+    "sha256": "4c3fff7d0adbd6d7ba73743b17e75ddd18916682c828e5e8a1a761e495e6b5a4",
+    "row": {
+      "dependencies": [
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "str",
+                  [
+                    "anonymous"
+                  ],
+                  "String"
+                ],
+                "Slice"
+              ],
+              "Pattern"
+            ],
+            "Internal"
+          ],
+          "memcmpStr"
+        ]
+      ],
+      "ir": {
+        "fdecl": {
+          "body": [
+            "vdecl",
+            {
+              "idx": 8
+            },
+            "uint8",
+            {
+              "fap": {
+                "c": [
+                  "str",
+                  [
+                    "str",
+                    [
+                      "str",
+                      [
+                        "str",
+                        [
+                          "str",
+                          [
+                            "anonymous"
+                          ],
+                          "String"
+                        ],
+                        "Slice"
+                      ],
+                      "Pattern"
+                    ],
+                    "Internal"
+                  ],
+                  "memcmpStr"
+                ],
+                "ys": [
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 1
+                      }
+                    }
+                  },
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 2
+                      }
+                    }
+                  },
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 3
+                      }
+                    }
+                  },
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 4
+                      }
+                    }
+                  },
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 5
+                      }
+                    }
+                  },
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 6
+                      }
+                    }
+                  },
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 7
+                      }
+                    }
+                  }
+                ]
+              }
+            },
+            [
+              "dec",
+              {
+                "idx": 5
+              },
+              1,
+              true,
+              false,
+              [
+                "dec",
+                {
+                  "idx": 4
+                },
+                1,
+                true,
+                false,
+                [
+                  "dec",
+                  {
+                    "idx": 3
+                  },
+                  1,
+                  true,
+                  false,
+                  [
+                    "dec",
+                    {
+                      "idx": 2
+                    },
+                    1,
+                    false,
+                    false,
+                    [
+                      "dec",
+                      {
+                        "idx": 1
+                      },
+                      1,
+                      false,
+                      false,
+                      [
+                        "vdecl",
+                        {
+                          "idx": 9
+                        },
+                        "tagged",
+                        {
+                          "box": {
+                            "ty": "uint8",
+                            "x": {
+                              "idx": 8
+                            }
+                          }
+                        },
+                        [
+                          "ret",
+                          {
+                            "var": {
+                              "id": {
+                                "idx": 9
+                              }
+                            }
+                          }
+                        ]
+                      ]
+                    ]
+                  ]
+                ]
+              ]
+            ]
+          ],
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "str",
+                  [
+                    "str",
+                    [
+                      "str",
+                      [
+                        "anonymous"
+                      ],
+                      "String"
+                    ],
+                    "Slice"
+                  ],
+                  "Pattern"
+                ],
+                "Internal"
+              ],
+              "memcmpStr"
+            ],
+            "_boxed"
+          ],
+          "info": {},
+          "type": "tagged",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "object",
+              "x": {
+                "idx": 1
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "object",
+              "x": {
+                "idx": 2
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 3
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 4
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 5
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 6
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 7
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "str",
+                  [
+                    "anonymous"
+                  ],
+                  "String"
+                ],
+                "Slice"
+              ],
+              "Pattern"
+            ],
+            "Internal"
+          ],
+          "memcmpStr"
+        ],
+        "_boxed"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "Init"
+              ],
+              "Data"
+            ],
+            "String"
+          ],
+          "Pattern"
+        ],
+        "Basic"
+      ]
+    }
+  },
+  {
+    "label": "Substring.Raw.Internal.beq",
+    "sha256": "dc11436563029f00ab3fbedf1e7d7666d68ea28e0d9ee1b6af6875ef37821c42",
+    "row": {
+      "dependencies": [],
+      "ir": {
+        "extern": {
+          "ext": {
+            "entries": [
+              {
+                "standard": {
+                  "backend": [
+                    "str",
+                    [
+                      "anonymous"
+                    ],
+                    "all"
+                  ],
+                  "fn": "lean_substring_beq"
+                }
+              }
+            ]
+          },
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "str",
+                  [
+                    "anonymous"
+                  ],
+                  "Substring"
+                ],
+                "Raw"
+              ],
+              "Internal"
+            ],
+            "beq"
+          ],
+          "type": "uint8",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "object",
+              "x": {
+                "idx": 1
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "object",
+              "x": {
+                "idx": 2
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Substring"
+            ],
+            "Raw"
+          ],
+          "Internal"
+        ],
+        "beq"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Init"
+            ],
+            "Data"
+          ],
+          "String"
+        ],
+        "Bootstrap"
+      ]
+    }
+  },
+  {
+    "label": "Substring.Raw.Internal.beq._boxed",
+    "sha256": "320e16f8820107b4c4b9c593a710ebb29deac5e783e8549c10311da99a1e7213",
+    "row": {
+      "dependencies": [
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "Substring"
+              ],
+              "Raw"
+            ],
+            "Internal"
+          ],
+          "beq"
+        ]
+      ],
+      "ir": {
+        "fdecl": {
+          "body": [
+            "vdecl",
+            {
+              "idx": 3
+            },
+            "uint8",
+            {
+              "fap": {
+                "c": [
+                  "str",
+                  [
+                    "str",
+                    [
+                      "str",
+                      [
+                        "str",
+                        [
+                          "anonymous"
+                        ],
+                        "Substring"
+                      ],
+                      "Raw"
+                    ],
+                    "Internal"
+                  ],
+                  "beq"
+                ],
+                "ys": [
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 1
+                      }
+                    }
+                  },
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 2
+                      }
+                    }
+                  }
+                ]
+              }
+            },
+            [
+              "vdecl",
+              {
+                "idx": 4
+              },
+              "tagged",
+              {
+                "box": {
+                  "ty": "uint8",
+                  "x": {
+                    "idx": 3
+                  }
+                }
+              },
+              [
+                "ret",
+                {
+                  "var": {
+                    "id": {
+                      "idx": 4
+                    }
+                  }
+                }
+              ]
+            ]
+          ],
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "str",
+                  [
+                    "str",
+                    [
+                      "anonymous"
+                    ],
+                    "Substring"
+                  ],
+                  "Raw"
+                ],
+                "Internal"
+              ],
+              "beq"
+            ],
+            "_boxed"
+          ],
+          "info": {},
+          "type": "tagged",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "object",
+              "x": {
+                "idx": 1
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "object",
+              "x": {
+                "idx": 2
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "Substring"
+              ],
+              "Raw"
+            ],
+            "Internal"
+          ],
+          "beq"
+        ],
+        "_boxed"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Init"
+            ],
+            "Data"
+          ],
+          "String"
+        ],
+        "Bootstrap"
+      ]
+    }
+  },
+  {
+    "label": "String.ofList",
+    "sha256": "0be8e65699f26504a81928f1fec4ecaa8846279665f563f0f43171baa3f6ccd7",
+    "row": {
+      "dependencies": [],
+      "ir": {
+        "extern": {
+          "ext": {
+            "entries": [
+              {
+                "standard": {
+                  "backend": [
+                    "str",
+                    [
+                      "anonymous"
+                    ],
+                    "all"
+                  ],
+                  "fn": "lean_string_mk"
+                }
+              }
+            ]
+          },
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "String"
+            ],
+            "ofList"
+          ],
+          "type": "object",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 1
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "anonymous"
+          ],
+          "String"
+        ],
+        "ofList"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "anonymous"
+          ],
+          "Init"
+        ],
+        "Prelude"
+      ]
+    }
+  },
+  {
+    "label": "String.ofList._boxed",
+    "sha256": "d68ff9d16495e1eb7ff150f837b6cccf4f7327c1cf5db37a7d70b0c0c3b36b7a",
+    "row": {
+      "dependencies": [
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "String"
+          ],
+          "ofList"
+        ]
+      ],
+      "ir": {
+        "fdecl": {
+          "body": [
+            "vdecl",
+            {
+              "idx": 2
+            },
+            "object",
+            {
+              "fap": {
+                "c": [
+                  "str",
+                  [
+                    "str",
+                    [
+                      "anonymous"
+                    ],
+                    "String"
+                  ],
+                  "ofList"
+                ],
+                "ys": [
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 1
+                      }
+                    }
+                  }
+                ]
+              }
+            },
+            [
+              "ret",
+              {
+                "var": {
+                  "id": {
+                    "idx": 2
+                  }
+                }
+              }
+            ]
+          ],
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "String"
+              ],
+              "ofList"
+            ],
+            "_boxed"
+          ],
+          "info": {},
+          "type": "object",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 1
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "String"
+          ],
+          "ofList"
+        ],
+        "_boxed"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "anonymous"
+          ],
+          "Init"
+        ],
+        "Prelude"
+      ]
+    }
+  },
+  {
+    "label": "String.push",
+    "sha256": "b40462b03bc17cdda105f143657a4fbfeab4342129309ec08a46931303d76a77",
+    "row": {
+      "dependencies": [],
+      "ir": {
+        "extern": {
+          "ext": {
+            "entries": [
+              {
+                "standard": {
+                  "backend": [
+                    "str",
+                    [
+                      "anonymous"
+                    ],
+                    "all"
+                  ],
+                  "fn": "lean_string_push"
+                }
+              }
+            ]
+          },
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "String"
+            ],
+            "push"
+          ],
+          "type": "object",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "object",
+              "x": {
+                "idx": 1
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "uint32",
+              "x": {
+                "idx": 2
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "anonymous"
+          ],
+          "String"
+        ],
+        "push"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Init"
+            ],
+            "Data"
+          ],
+          "String"
+        ],
+        "Bootstrap"
+      ]
+    }
+  },
+  {
+    "label": "String.push._boxed",
+    "sha256": "b022ab55b8009bd440a934f1b90a15ff8abf259f75d6ae91532cd514110747e4",
+    "row": {
+      "dependencies": [
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "String"
+          ],
+          "push"
+        ]
+      ],
+      "ir": {
+        "fdecl": {
+          "body": [
+            "vdecl",
+            {
+              "idx": 3
+            },
+            "uint32",
+            {
+              "unbox": {
+                "x": {
+                  "idx": 2
+                }
+              }
+            },
+            [
+              "dec",
+              {
+                "idx": 2
+              },
+              1,
+              true,
+              false,
+              [
+                "vdecl",
+                {
+                  "idx": 4
+                },
+                "object",
+                {
+                  "fap": {
+                    "c": [
+                      "str",
+                      [
+                        "str",
+                        [
+                          "anonymous"
+                        ],
+                        "String"
+                      ],
+                      "push"
+                    ],
+                    "ys": [
+                      {
+                        "var": {
+                          "id": {
+                            "idx": 1
+                          }
+                        }
+                      },
+                      {
+                        "var": {
+                          "id": {
+                            "idx": 3
+                          }
+                        }
+                      }
+                    ]
+                  }
+                },
+                [
+                  "ret",
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 4
+                      }
+                    }
+                  }
+                ]
+              ]
+            ]
+          ],
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "String"
+              ],
+              "push"
+            ],
+            "_boxed"
+          ],
+          "info": {},
+          "type": "object",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "object",
+              "x": {
+                "idx": 1
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 2
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "String"
+          ],
+          "push"
+        ],
+        "_boxed"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Init"
+            ],
+            "Data"
+          ],
+          "String"
+        ],
+        "Bootstrap"
+      ]
+    }
+  },
+  {
+    "label": "String.Pos.Raw.prev",
+    "sha256": "0beeca3000d0e5806991c0a336abd1e438f03c1f8ceff36a73b44c6622fc0847",
+    "row": {
+      "dependencies": [],
+      "ir": {
+        "extern": {
+          "ext": {
+            "entries": [
+              {
+                "standard": {
+                  "backend": [
+                    "str",
+                    [
+                      "anonymous"
+                    ],
+                    "all"
+                  ],
+                  "fn": "lean_string_utf8_prev"
+                }
+              }
+            ]
+          },
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "str",
+                  [
+                    "anonymous"
+                  ],
+                  "String"
+                ],
+                "Pos"
+              ],
+              "Raw"
+            ],
+            "prev"
+          ],
+          "type": "tobject",
+          "xs": [
+            {
+              "borrow": true,
+              "ty": "object",
+              "x": {
+                "idx": 1
+              }
+            },
+            {
+              "borrow": true,
+              "ty": "tobject",
+              "x": {
+                "idx": 2
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "String"
+            ],
+            "Pos"
+          ],
+          "Raw"
+        ],
+        "prev"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Init"
+            ],
+            "Data"
+          ],
+          "String"
+        ],
+        "Basic"
+      ]
+    }
+  },
+  {
+    "label": "String.Pos.Raw.prev._boxed",
+    "sha256": "a02b5e30f23e013a0c8120090ae0827ae8f77cdca0cf450e1d93349d3cc32dfe",
+    "row": {
+      "dependencies": [
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "String"
+              ],
+              "Pos"
+            ],
+            "Raw"
+          ],
+          "prev"
+        ]
+      ],
+      "ir": {
+        "fdecl": {
+          "body": [
+            "vdecl",
+            {
+              "idx": 3
+            },
+            "tobject",
+            {
+              "fap": {
+                "c": [
+                  "str",
+                  [
+                    "str",
+                    [
+                      "str",
+                      [
+                        "str",
+                        [
+                          "anonymous"
+                        ],
+                        "String"
+                      ],
+                      "Pos"
+                    ],
+                    "Raw"
+                  ],
+                  "prev"
+                ],
+                "ys": [
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 1
+                      }
+                    }
+                  },
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 2
+                      }
+                    }
+                  }
+                ]
+              }
+            },
+            [
+              "dec",
+              {
+                "idx": 2
+              },
+              1,
+              true,
+              false,
+              [
+                "dec",
+                {
+                  "idx": 1
+                },
+                1,
+                false,
+                false,
+                [
+                  "ret",
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 3
+                      }
+                    }
+                  }
+                ]
+              ]
+            ]
+          ],
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "str",
+                  [
+                    "str",
+                    [
+                      "anonymous"
+                    ],
+                    "String"
+                  ],
+                  "Pos"
+                ],
+                "Raw"
+              ],
+              "prev"
+            ],
+            "_boxed"
+          ],
+          "info": {},
+          "type": "tobject",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "object",
+              "x": {
+                "idx": 1
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 2
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "String"
+              ],
+              "Pos"
+            ],
+            "Raw"
+          ],
+          "prev"
+        ],
+        "_boxed"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Init"
+            ],
+            "Data"
+          ],
+          "String"
+        ],
+        "Basic"
+      ]
+    }
+  },
+  {
+    "label": "String.decidableLT",
+    "sha256": "0d666dbfbd7e923ea8aba695277641a9be148364534ffc412da7e527e99b916e",
+    "row": {
+      "dependencies": [],
+      "ir": {
+        "extern": {
+          "ext": {
+            "entries": [
+              {
+                "standard": {
+                  "backend": [
+                    "str",
+                    [
+                      "anonymous"
+                    ],
+                    "all"
+                  ],
+                  "fn": "lean_string_dec_lt"
+                }
+              }
+            ]
+          },
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "String"
+            ],
+            "decidableLT"
+          ],
+          "type": "uint8",
+          "xs": [
+            {
+              "borrow": true,
+              "ty": "object",
+              "x": {
+                "idx": 1
+              }
+            },
+            {
+              "borrow": true,
+              "ty": "object",
+              "x": {
+                "idx": 2
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "anonymous"
+          ],
+          "String"
+        ],
+        "decidableLT"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Init"
+            ],
+            "Data"
+          ],
+          "String"
+        ],
+        "Basic"
+      ]
+    }
+  },
+  {
+    "label": "String.decidableLT._boxed",
+    "sha256": "31c19abc72c3d95e541dd5840e440bcfb60ee60589b3efd69fcf0e92349b73a1",
+    "row": {
+      "dependencies": [
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "String"
+          ],
+          "decidableLT"
+        ]
+      ],
+      "ir": {
+        "fdecl": {
+          "body": [
+            "vdecl",
+            {
+              "idx": 3
+            },
+            "uint8",
+            {
+              "fap": {
+                "c": [
+                  "str",
+                  [
+                    "str",
+                    [
+                      "anonymous"
+                    ],
+                    "String"
+                  ],
+                  "decidableLT"
+                ],
+                "ys": [
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 1
+                      }
+                    }
+                  },
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 2
+                      }
+                    }
+                  }
+                ]
+              }
+            },
+            [
+              "dec",
+              {
+                "idx": 2
+              },
+              1,
+              false,
+              false,
+              [
+                "dec",
+                {
+                  "idx": 1
+                },
+                1,
+                false,
+                false,
+                [
+                  "vdecl",
+                  {
+                    "idx": 4
+                  },
+                  "tagged",
+                  {
+                    "box": {
+                      "ty": "uint8",
+                      "x": {
+                        "idx": 3
+                      }
+                    }
+                  },
+                  [
+                    "ret",
+                    {
+                      "var": {
+                        "id": {
+                          "idx": 4
+                        }
+                      }
+                    }
+                  ]
+                ]
+              ]
+            ]
+          ],
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "String"
+              ],
+              "decidableLT"
+            ],
+            "_boxed"
+          ],
+          "info": {},
+          "type": "tagged",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "object",
+              "x": {
+                "idx": 1
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "object",
+              "x": {
+                "idx": 2
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "String"
+          ],
+          "decidableLT"
+        ],
+        "_boxed"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Init"
+            ],
+            "Data"
+          ],
+          "String"
+        ],
+        "Basic"
+      ]
+    }
+  },
+  {
+    "label": "String.Pos.Raw.isValid",
+    "sha256": "b5b5d52a34baa7d8fd72f88dd499bb5784f4d82fb77f4b4f48bcc7283cabd04c",
+    "row": {
+      "dependencies": [],
+      "ir": {
+        "extern": {
+          "ext": {
+            "entries": [
+              {
+                "standard": {
+                  "backend": [
+                    "str",
+                    [
+                      "anonymous"
+                    ],
+                    "all"
+                  ],
+                  "fn": "lean_string_is_valid_pos"
+                }
+              }
+            ]
+          },
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "str",
+                  [
+                    "anonymous"
+                  ],
+                  "String"
+                ],
+                "Pos"
+              ],
+              "Raw"
+            ],
+            "isValid"
+          ],
+          "type": "uint8",
+          "xs": [
+            {
+              "borrow": true,
+              "ty": "object",
+              "x": {
+                "idx": 1
+              }
+            },
+            {
+              "borrow": true,
+              "ty": "tobject",
+              "x": {
+                "idx": 2
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "String"
+            ],
+            "Pos"
+          ],
+          "Raw"
+        ],
+        "isValid"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Init"
+            ],
+            "Data"
+          ],
+          "String"
+        ],
+        "Basic"
+      ]
+    }
+  },
+  {
+    "label": "String.Pos.Raw.isValid._boxed",
+    "sha256": "a67ed25397c0250dfaf8cf231aaaafd93cb9df1333773c3f916c0713f00836c9",
+    "row": {
+      "dependencies": [
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "String"
+              ],
+              "Pos"
+            ],
+            "Raw"
+          ],
+          "isValid"
+        ]
+      ],
+      "ir": {
+        "fdecl": {
+          "body": [
+            "vdecl",
+            {
+              "idx": 3
+            },
+            "uint8",
+            {
+              "fap": {
+                "c": [
+                  "str",
+                  [
+                    "str",
+                    [
+                      "str",
+                      [
+                        "str",
+                        [
+                          "anonymous"
+                        ],
+                        "String"
+                      ],
+                      "Pos"
+                    ],
+                    "Raw"
+                  ],
+                  "isValid"
+                ],
+                "ys": [
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 1
+                      }
+                    }
+                  },
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 2
+                      }
+                    }
+                  }
+                ]
+              }
+            },
+            [
+              "dec",
+              {
+                "idx": 2
+              },
+              1,
+              true,
+              false,
+              [
+                "dec",
+                {
+                  "idx": 1
+                },
+                1,
+                false,
+                false,
+                [
+                  "vdecl",
+                  {
+                    "idx": 4
+                  },
+                  "tagged",
+                  {
+                    "box": {
+                      "ty": "uint8",
+                      "x": {
+                        "idx": 3
+                      }
+                    }
+                  },
+                  [
+                    "ret",
+                    {
+                      "var": {
+                        "id": {
+                          "idx": 4
+                        }
+                      }
+                    }
+                  ]
+                ]
+              ]
+            ]
+          ],
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "str",
+                  [
+                    "str",
+                    [
+                      "anonymous"
+                    ],
+                    "String"
+                  ],
+                  "Pos"
+                ],
+                "Raw"
+              ],
+              "isValid"
+            ],
+            "_boxed"
+          ],
+          "info": {},
+          "type": "tagged",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "object",
+              "x": {
+                "idx": 1
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 2
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "String"
+              ],
+              "Pos"
+            ],
+            "Raw"
+          ],
+          "isValid"
+        ],
+        "_boxed"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Init"
+            ],
+            "Data"
+          ],
+          "String"
+        ],
+        "Basic"
+      ]
+    }
+  },
+  {
+    "label": "String.Internal.posOf",
+    "sha256": "b335129f9e7617e63cfb8cc8f421e0bd785183f5dc84cdfc892fc147c982b8a9",
+    "row": {
+      "dependencies": [],
+      "ir": {
+        "extern": {
+          "ext": {
+            "entries": [
+              {
+                "standard": {
+                  "backend": [
+                    "str",
+                    [
+                      "anonymous"
+                    ],
+                    "all"
+                  ],
+                  "fn": "lean_string_posof"
+                }
+              }
+            ]
+          },
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "String"
+              ],
+              "Internal"
+            ],
+            "posOf"
+          ],
+          "type": "tobject",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "object",
+              "x": {
+                "idx": 1
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "uint32",
+              "x": {
+                "idx": 2
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "String"
+          ],
+          "Internal"
+        ],
+        "posOf"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Init"
+            ],
+            "Data"
+          ],
+          "String"
+        ],
+        "Bootstrap"
+      ]
+    }
+  },
+  {
+    "label": "String.Internal.posOf._boxed",
+    "sha256": "9e60448297fbb6866e7338852d4a26064a9b766955c0c8131935c5bf025d7b93",
+    "row": {
+      "dependencies": [
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "String"
+            ],
+            "Internal"
+          ],
+          "posOf"
+        ]
+      ],
+      "ir": {
+        "fdecl": {
+          "body": [
+            "vdecl",
+            {
+              "idx": 3
+            },
+            "uint32",
+            {
+              "unbox": {
+                "x": {
+                  "idx": 2
+                }
+              }
+            },
+            [
+              "dec",
+              {
+                "idx": 2
+              },
+              1,
+              true,
+              false,
+              [
+                "vdecl",
+                {
+                  "idx": 4
+                },
+                "tobject",
+                {
+                  "fap": {
+                    "c": [
+                      "str",
+                      [
+                        "str",
+                        [
+                          "str",
+                          [
+                            "anonymous"
+                          ],
+                          "String"
+                        ],
+                        "Internal"
+                      ],
+                      "posOf"
+                    ],
+                    "ys": [
+                      {
+                        "var": {
+                          "id": {
+                            "idx": 1
+                          }
+                        }
+                      },
+                      {
+                        "var": {
+                          "id": {
+                            "idx": 3
+                          }
+                        }
+                      }
+                    ]
+                  }
+                },
+                [
+                  "ret",
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 4
+                      }
+                    }
+                  }
+                ]
+              ]
+            ]
+          ],
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "str",
+                  [
+                    "anonymous"
+                  ],
+                  "String"
+                ],
+                "Internal"
+              ],
+              "posOf"
+            ],
+            "_boxed"
+          ],
+          "info": {},
+          "type": "tobject",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "object",
+              "x": {
+                "idx": 1
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 2
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "String"
+            ],
+            "Internal"
+          ],
+          "posOf"
+        ],
+        "_boxed"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Init"
+            ],
+            "Data"
+          ],
+          "String"
+        ],
+        "Bootstrap"
+      ]
+    }
+  },
+  {
+    "label": "String.Internal.length",
+    "sha256": "71d9e399959a0c2a88ea0a7178cd0bd668b99078df529e69030b1261ebe511c9",
+    "row": {
+      "dependencies": [],
+      "ir": {
+        "extern": {
+          "ext": {
+            "entries": [
+              {
+                "standard": {
+                  "backend": [
+                    "str",
+                    [
+                      "anonymous"
+                    ],
+                    "all"
+                  ],
+                  "fn": "lean_string_length"
+                }
+              }
+            ]
+          },
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "String"
+              ],
+              "Internal"
+            ],
+            "length"
+          ],
+          "type": "tobject",
+          "xs": [
+            {
+              "borrow": true,
+              "ty": "object",
+              "x": {
+                "idx": 1
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "String"
+          ],
+          "Internal"
+        ],
+        "length"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Init"
+            ],
+            "Data"
+          ],
+          "String"
+        ],
+        "Bootstrap"
+      ]
+    }
+  },
+  {
+    "label": "String.Internal.length._boxed",
+    "sha256": "7b6b0ff1630d396a922393612d033b6eb70bfddc2abcd0a9c4412b98912791dc",
+    "row": {
+      "dependencies": [
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "String"
+            ],
+            "Internal"
+          ],
+          "length"
+        ]
+      ],
+      "ir": {
+        "fdecl": {
+          "body": [
+            "vdecl",
+            {
+              "idx": 2
+            },
+            "tobject",
+            {
+              "fap": {
+                "c": [
+                  "str",
+                  [
+                    "str",
+                    [
+                      "str",
+                      [
+                        "anonymous"
+                      ],
+                      "String"
+                    ],
+                    "Internal"
+                  ],
+                  "length"
+                ],
+                "ys": [
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 1
+                      }
+                    }
+                  }
+                ]
+              }
+            },
+            [
+              "dec",
+              {
+                "idx": 1
+              },
+              1,
+              false,
+              false,
+              [
+                "ret",
+                {
+                  "var": {
+                    "id": {
+                      "idx": 2
+                    }
+                  }
+                }
+              ]
+            ]
+          ],
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "str",
+                  [
+                    "anonymous"
+                  ],
+                  "String"
+                ],
+                "Internal"
+              ],
+              "length"
+            ],
+            "_boxed"
+          ],
+          "info": {},
+          "type": "tobject",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "object",
+              "x": {
+                "idx": 1
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "String"
+            ],
+            "Internal"
+          ],
+          "length"
+        ],
+        "_boxed"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Init"
+            ],
+            "Data"
+          ],
+          "String"
+        ],
+        "Bootstrap"
+      ]
+    }
+  },
+  {
+    "label": "String.Internal.extract",
+    "sha256": "4abe85177c6724f7d93570ae08c9ad2960e6de3904ea8bb337554ec9b1fbfbb7",
+    "row": {
+      "dependencies": [],
+      "ir": {
+        "extern": {
+          "ext": {
+            "entries": [
+              {
+                "standard": {
+                  "backend": [
+                    "str",
+                    [
+                      "anonymous"
+                    ],
+                    "all"
+                  ],
+                  "fn": "lean_string_utf8_extract"
+                }
+              }
+            ]
+          },
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "String"
+              ],
+              "Internal"
+            ],
+            "extract"
+          ],
+          "type": "object",
+          "xs": [
+            {
+              "borrow": true,
+              "ty": "object",
+              "x": {
+                "idx": 1
+              }
+            },
+            {
+              "borrow": true,
+              "ty": "tobject",
+              "x": {
+                "idx": 2
+              }
+            },
+            {
+              "borrow": true,
+              "ty": "tobject",
+              "x": {
+                "idx": 3
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "String"
+          ],
+          "Internal"
+        ],
+        "extract"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Init"
+            ],
+            "Data"
+          ],
+          "String"
+        ],
+        "Bootstrap"
+      ]
+    }
+  },
+  {
+    "label": "String.Internal.extract._boxed",
+    "sha256": "dcf9124eb689a47c38b511ec85fe453ab46a4915f5cf8e4679131ee37a287439",
+    "row": {
+      "dependencies": [
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "String"
+            ],
+            "Internal"
+          ],
+          "extract"
+        ]
+      ],
+      "ir": {
+        "fdecl": {
+          "body": [
+            "vdecl",
+            {
+              "idx": 4
+            },
+            "object",
+            {
+              "fap": {
+                "c": [
+                  "str",
+                  [
+                    "str",
+                    [
+                      "str",
+                      [
+                        "anonymous"
+                      ],
+                      "String"
+                    ],
+                    "Internal"
+                  ],
+                  "extract"
+                ],
+                "ys": [
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 1
+                      }
+                    }
+                  },
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 2
+                      }
+                    }
+                  },
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 3
+                      }
+                    }
+                  }
+                ]
+              }
+            },
+            [
+              "dec",
+              {
+                "idx": 3
+              },
+              1,
+              true,
+              false,
+              [
+                "dec",
+                {
+                  "idx": 2
+                },
+                1,
+                true,
+                false,
+                [
+                  "dec",
+                  {
+                    "idx": 1
+                  },
+                  1,
+                  false,
+                  false,
+                  [
+                    "ret",
+                    {
+                      "var": {
+                        "id": {
+                          "idx": 4
+                        }
+                      }
+                    }
+                  ]
+                ]
+              ]
+            ]
+          ],
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "str",
+                  [
+                    "anonymous"
+                  ],
+                  "String"
+                ],
+                "Internal"
+              ],
+              "extract"
+            ],
+            "_boxed"
+          ],
+          "info": {},
+          "type": "object",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "object",
+              "x": {
+                "idx": 1
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 2
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 3
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "String"
+            ],
+            "Internal"
+          ],
+          "extract"
+        ],
+        "_boxed"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Init"
+            ],
+            "Data"
+          ],
+          "String"
+        ],
+        "Bootstrap"
+      ]
+    }
+  },
+  {
+    "label": "String.Internal.pushn",
+    "sha256": "76bc5e8a6a0fdde279a141c04abeabeeb7104cab43ca6724ed81e04c05586bc7",
+    "row": {
+      "dependencies": [],
+      "ir": {
+        "extern": {
+          "ext": {
+            "entries": [
+              {
+                "standard": {
+                  "backend": [
+                    "str",
+                    [
+                      "anonymous"
+                    ],
+                    "all"
+                  ],
+                  "fn": "lean_string_pushn"
+                }
+              }
+            ]
+          },
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "String"
+              ],
+              "Internal"
+            ],
+            "pushn"
+          ],
+          "type": "object",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "object",
+              "x": {
+                "idx": 1
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "uint32",
+              "x": {
+                "idx": 2
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 3
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "String"
+          ],
+          "Internal"
+        ],
+        "pushn"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Init"
+            ],
+            "Data"
+          ],
+          "String"
+        ],
+        "Bootstrap"
+      ]
+    }
+  },
+  {
+    "label": "String.Internal.pushn._boxed",
+    "sha256": "c7c7aabdf70fbf6444d682623f7ef4f431ae4d37e8e08aa063eb84a30273662d",
+    "row": {
+      "dependencies": [
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "String"
+            ],
+            "Internal"
+          ],
+          "pushn"
+        ]
+      ],
+      "ir": {
+        "fdecl": {
+          "body": [
+            "vdecl",
+            {
+              "idx": 4
+            },
+            "uint32",
+            {
+              "unbox": {
+                "x": {
+                  "idx": 2
+                }
+              }
+            },
+            [
+              "dec",
+              {
+                "idx": 2
+              },
+              1,
+              true,
+              false,
+              [
+                "vdecl",
+                {
+                  "idx": 5
+                },
+                "object",
+                {
+                  "fap": {
+                    "c": [
+                      "str",
+                      [
+                        "str",
+                        [
+                          "str",
+                          [
+                            "anonymous"
+                          ],
+                          "String"
+                        ],
+                        "Internal"
+                      ],
+                      "pushn"
+                    ],
+                    "ys": [
+                      {
+                        "var": {
+                          "id": {
+                            "idx": 1
+                          }
+                        }
+                      },
+                      {
+                        "var": {
+                          "id": {
+                            "idx": 4
+                          }
+                        }
+                      },
+                      {
+                        "var": {
+                          "id": {
+                            "idx": 3
+                          }
+                        }
+                      }
+                    ]
+                  }
+                },
+                [
+                  "ret",
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 5
+                      }
+                    }
+                  }
+                ]
+              ]
+            ]
+          ],
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "str",
+                  [
+                    "anonymous"
+                  ],
+                  "String"
+                ],
+                "Internal"
+              ],
+              "pushn"
+            ],
+            "_boxed"
+          ],
+          "info": {},
+          "type": "object",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "object",
+              "x": {
+                "idx": 1
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 2
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 3
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "String"
+            ],
+            "Internal"
+          ],
+          "pushn"
+        ],
+        "_boxed"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Init"
+            ],
+            "Data"
+          ],
+          "String"
+        ],
+        "Bootstrap"
+      ]
+    }
+  },
+  {
+    "label": "String.Internal.next",
+    "sha256": "c654213974ebae85ab4c655d6cf6e11ef1995ba21c5faeae731866ec3955cefb",
+    "row": {
+      "dependencies": [],
+      "ir": {
+        "extern": {
+          "ext": {
+            "entries": [
+              {
+                "standard": {
+                  "backend": [
+                    "str",
+                    [
+                      "anonymous"
+                    ],
+                    "all"
+                  ],
+                  "fn": "lean_string_utf8_next"
+                }
+              }
+            ]
+          },
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "String"
+              ],
+              "Internal"
+            ],
+            "next"
+          ],
+          "type": "tobject",
+          "xs": [
+            {
+              "borrow": true,
+              "ty": "object",
+              "x": {
+                "idx": 1
+              }
+            },
+            {
+              "borrow": true,
+              "ty": "tobject",
+              "x": {
+                "idx": 2
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "String"
+          ],
+          "Internal"
+        ],
+        "next"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Init"
+            ],
+            "Data"
+          ],
+          "String"
+        ],
+        "Bootstrap"
+      ]
+    }
+  },
+  {
+    "label": "String.Internal.next._boxed",
+    "sha256": "dfe576b8a609ff8740ba0a108e60ddde3a93392dd99d3f10f46a91d5ee00d69f",
+    "row": {
+      "dependencies": [
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "String"
+            ],
+            "Internal"
+          ],
+          "next"
+        ]
+      ],
+      "ir": {
+        "fdecl": {
+          "body": [
+            "vdecl",
+            {
+              "idx": 3
+            },
+            "tobject",
+            {
+              "fap": {
+                "c": [
+                  "str",
+                  [
+                    "str",
+                    [
+                      "str",
+                      [
+                        "anonymous"
+                      ],
+                      "String"
+                    ],
+                    "Internal"
+                  ],
+                  "next"
+                ],
+                "ys": [
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 1
+                      }
+                    }
+                  },
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 2
+                      }
+                    }
+                  }
+                ]
+              }
+            },
+            [
+              "dec",
+              {
+                "idx": 2
+              },
+              1,
+              true,
+              false,
+              [
+                "dec",
+                {
+                  "idx": 1
+                },
+                1,
+                false,
+                false,
+                [
+                  "ret",
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 3
+                      }
+                    }
+                  }
+                ]
+              ]
+            ]
+          ],
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "str",
+                  [
+                    "anonymous"
+                  ],
+                  "String"
+                ],
+                "Internal"
+              ],
+              "next"
+            ],
+            "_boxed"
+          ],
+          "info": {},
+          "type": "tobject",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "object",
+              "x": {
+                "idx": 1
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 2
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "String"
+            ],
+            "Internal"
+          ],
+          "next"
+        ],
+        "_boxed"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Init"
+            ],
+            "Data"
+          ],
+          "String"
+        ],
+        "Bootstrap"
+      ]
+    }
+  },
+  {
+    "label": "String.extract",
+    "sha256": "8ef0af2e9b50a1f10d3929b8d5d60a86ba0f82d843da4b3821edda61168eed7f",
+    "row": {
+      "dependencies": [],
+      "ir": {
+        "extern": {
+          "ext": {
+            "entries": [
+              {
+                "standard": {
+                  "backend": [
+                    "str",
+                    [
+                      "anonymous"
+                    ],
+                    "all"
+                  ],
+                  "fn": "lean_string_utf8_extract"
+                }
+              }
+            ]
+          },
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "String"
+            ],
+            "extract"
+          ],
+          "type": "object",
+          "xs": [
+            {
+              "borrow": true,
+              "ty": "object",
+              "x": {
+                "idx": 1
+              }
+            },
+            {
+              "borrow": true,
+              "ty": "tobject",
+              "x": {
+                "idx": 2
+              }
+            },
+            {
+              "borrow": true,
+              "ty": "tobject",
+              "x": {
+                "idx": 3
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "anonymous"
+          ],
+          "String"
+        ],
+        "extract"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Init"
+            ],
+            "Data"
+          ],
+          "String"
+        ],
+        "Basic"
+      ]
+    }
+  },
+  {
+    "label": "String.extract._boxed",
+    "sha256": "6b9a0c32f22409c9857d66e19930dd579162983e054dc16586bf03a0f3514c3d",
+    "row": {
+      "dependencies": [
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "String"
+          ],
+          "extract"
+        ]
+      ],
+      "ir": {
+        "fdecl": {
+          "body": [
+            "vdecl",
+            {
+              "idx": 4
+            },
+            "object",
+            {
+              "fap": {
+                "c": [
+                  "str",
+                  [
+                    "str",
+                    [
+                      "anonymous"
+                    ],
+                    "String"
+                  ],
+                  "extract"
+                ],
+                "ys": [
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 1
+                      }
+                    }
+                  },
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 2
+                      }
+                    }
+                  },
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 3
+                      }
+                    }
+                  }
+                ]
+              }
+            },
+            [
+              "dec",
+              {
+                "idx": 3
+              },
+              1,
+              true,
+              false,
+              [
+                "dec",
+                {
+                  "idx": 2
+                },
+                1,
+                true,
+                false,
+                [
+                  "dec",
+                  {
+                    "idx": 1
+                  },
+                  1,
+                  false,
+                  false,
+                  [
+                    "ret",
+                    {
+                      "var": {
+                        "id": {
+                          "idx": 4
+                        }
+                      }
+                    }
+                  ]
+                ]
+              ]
+            ]
+          ],
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "String"
+              ],
+              "extract"
+            ],
+            "_boxed"
+          ],
+          "info": {},
+          "type": "object",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "object",
+              "x": {
+                "idx": 1
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 2
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 3
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "String"
+          ],
+          "extract"
+        ],
+        "_boxed"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Init"
+            ],
+            "Data"
+          ],
+          "String"
+        ],
+        "Basic"
+      ]
+    }
+  },
+  {
+    "label": "String.Pos.Raw.set",
+    "sha256": "99457d3e0ecf2461811d4b266257d9e586568634d9e43d729180c057d54972f4",
+    "row": {
+      "dependencies": [],
+      "ir": {
+        "extern": {
+          "ext": {
+            "entries": [
+              {
+                "standard": {
+                  "backend": [
+                    "str",
+                    [
+                      "anonymous"
+                    ],
+                    "all"
+                  ],
+                  "fn": "lean_string_utf8_set"
+                }
+              }
+            ]
+          },
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "str",
+                  [
+                    "anonymous"
+                  ],
+                  "String"
+                ],
+                "Pos"
+              ],
+              "Raw"
+            ],
+            "set"
+          ],
+          "type": "object",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "object",
+              "x": {
+                "idx": 1
+              }
+            },
+            {
+              "borrow": true,
+              "ty": "tobject",
+              "x": {
+                "idx": 2
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "uint32",
+              "x": {
+                "idx": 3
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "String"
+            ],
+            "Pos"
+          ],
+          "Raw"
+        ],
+        "set"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Init"
+            ],
+            "Data"
+          ],
+          "String"
+        ],
+        "Modify"
+      ]
+    }
+  },
+  {
+    "label": "String.Pos.Raw.set._boxed",
+    "sha256": "93ad973b4ef9eeef011dd4113989062ee87382d601890a678d50ea898aeb9e1f",
+    "row": {
+      "dependencies": [
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "String"
+              ],
+              "Pos"
+            ],
+            "Raw"
+          ],
+          "set"
+        ]
+      ],
+      "ir": {
+        "fdecl": {
+          "body": [
+            "vdecl",
+            {
+              "idx": 4
+            },
+            "uint32",
+            {
+              "unbox": {
+                "x": {
+                  "idx": 3
+                }
+              }
+            },
+            [
+              "dec",
+              {
+                "idx": 3
+              },
+              1,
+              true,
+              false,
+              [
+                "vdecl",
+                {
+                  "idx": 5
+                },
+                "object",
+                {
+                  "fap": {
+                    "c": [
+                      "str",
+                      [
+                        "str",
+                        [
+                          "str",
+                          [
+                            "str",
+                            [
+                              "anonymous"
+                            ],
+                            "String"
+                          ],
+                          "Pos"
+                        ],
+                        "Raw"
+                      ],
+                      "set"
+                    ],
+                    "ys": [
+                      {
+                        "var": {
+                          "id": {
+                            "idx": 1
+                          }
+                        }
+                      },
+                      {
+                        "var": {
+                          "id": {
+                            "idx": 2
+                          }
+                        }
+                      },
+                      {
+                        "var": {
+                          "id": {
+                            "idx": 4
+                          }
+                        }
+                      }
+                    ]
+                  }
+                },
+                [
+                  "dec",
+                  {
+                    "idx": 2
+                  },
+                  1,
+                  true,
+                  false,
+                  [
+                    "ret",
+                    {
+                      "var": {
+                        "id": {
+                          "idx": 5
+                        }
+                      }
+                    }
+                  ]
+                ]
+              ]
+            ]
+          ],
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "str",
+                  [
+                    "str",
+                    [
+                      "anonymous"
+                    ],
+                    "String"
+                  ],
+                  "Pos"
+                ],
+                "Raw"
+              ],
+              "set"
+            ],
+            "_boxed"
+          ],
+          "info": {},
+          "type": "object",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "object",
+              "x": {
+                "idx": 1
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 2
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 3
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "String"
+              ],
+              "Pos"
+            ],
+            "Raw"
+          ],
+          "set"
+        ],
+        "_boxed"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Init"
+            ],
+            "Data"
+          ],
+          "String"
+        ],
+        "Modify"
+      ]
+    }
+  },
+  {
+    "label": "String.Internal.offsetOfPos",
+    "sha256": "b6fe97257466b5d6bde2b768e1ea349d25446442980de04133db27775efae660",
+    "row": {
+      "dependencies": [],
+      "ir": {
+        "extern": {
+          "ext": {
+            "entries": [
+              {
+                "standard": {
+                  "backend": [
+                    "str",
+                    [
+                      "anonymous"
+                    ],
+                    "all"
+                  ],
+                  "fn": "lean_string_offsetofpos"
+                }
+              }
+            ]
+          },
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "String"
+              ],
+              "Internal"
+            ],
+            "offsetOfPos"
+          ],
+          "type": "tobject",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "object",
+              "x": {
+                "idx": 1
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 2
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "String"
+          ],
+          "Internal"
+        ],
+        "offsetOfPos"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Init"
+            ],
+            "Data"
+          ],
+          "String"
+        ],
+        "Bootstrap"
+      ]
+    }
+  },
+  {
+    "label": "String.Internal.offsetOfPos._boxed",
+    "sha256": "699f6357fb23b1d345a6d1e55f477fa67d4cc91c3acc8081242093c3ac15e45f",
+    "row": {
+      "dependencies": [
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "String"
+            ],
+            "Internal"
+          ],
+          "offsetOfPos"
+        ]
+      ],
+      "ir": {
+        "fdecl": {
+          "body": [
+            "vdecl",
+            {
+              "idx": 3
+            },
+            "tobject",
+            {
+              "fap": {
+                "c": [
+                  "str",
+                  [
+                    "str",
+                    [
+                      "str",
+                      [
+                        "anonymous"
+                      ],
+                      "String"
+                    ],
+                    "Internal"
+                  ],
+                  "offsetOfPos"
+                ],
+                "ys": [
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 1
+                      }
+                    }
+                  },
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 2
+                      }
+                    }
+                  }
+                ]
+              }
+            },
+            [
+              "ret",
+              {
+                "var": {
+                  "id": {
+                    "idx": 3
+                  }
+                }
+              }
+            ]
+          ],
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "str",
+                  [
+                    "anonymous"
+                  ],
+                  "String"
+                ],
+                "Internal"
+              ],
+              "offsetOfPos"
+            ],
+            "_boxed"
+          ],
+          "info": {},
+          "type": "tobject",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "object",
+              "x": {
+                "idx": 1
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 2
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "String"
+            ],
+            "Internal"
+          ],
+          "offsetOfPos"
+        ],
+        "_boxed"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Init"
+            ],
+            "Data"
+          ],
+          "String"
+        ],
+        "Bootstrap"
+      ]
+    }
+  }
+]

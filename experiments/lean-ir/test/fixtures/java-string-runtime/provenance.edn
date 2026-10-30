@@ -1,0 +1,20 @@
+{:schema 1
+ :lean-version "4.33.1"
+ :lean-commit "819816b2e0a3bf405af45ae5c7af2491d8f5bee6"
+ :source-index-sha256 "74d833d577923821b982e8a9e872a38b5cad011513eb18870b51417e13397f0e"
+ :fixture-sha256 "6ab5eb467108bf3471ebf9a21c863c05d089aa55bda74c3ef725a967c37bb239"
+ :original-row-count 62
+ :selection {:original-header-static-inventory-extern-roots 31
+             :genuine-boxed-wrappers 31
+             :symbol-prefixes ["lean_string_" "lean_substring_"]
+             :name-prefixes ["String." "Substring."]}
+ :transformation {:remove-top-level-pretty true :original-bodies-unchanged true}
+ :original-blob-identities :per-record-sha256
+ :upstream-source-sha256
+ {"src/include/lean/lean.h" "02af0040283143b264e3a44b06b348b6973ae6037fa8f550701c83dd7a062ace"
+  "src/runtime/object.cpp" "e03ea4317ad44fb91a4cc9097abe1601b1e1cf8fb77f5ab7b0620fdfcf348430"
+  "src/runtime/hash.cpp" "9b677d0ef3d7f1dbcb9e6c019b15b2fec1fd0cbe112cd103655c56a8220ddfac"
+  "src/Init/Data/String/Defs.lean" "d5f604f68e1c80928fd146c598ba77ee74b70f84793f7af8ae264c5c43d06a97"
+  "src/Init/Data/String/Search.lean" "3ab6a3903cb4532e0f5b8b1ce157dfa6f4b291497239179d311d3717a5f33d06"
+  "src/Init/Data/String/Substring.lean" "6b9dc9e76926d0a89be53929c80d92aa8e8805ea6138954d35f374ce1200bc9d"
+  "LICENSE" "8b28515ffffc5c0fe2807d8ae3735b00b324d9b7ce807dd63ff6ac8922fbce7e"}}
