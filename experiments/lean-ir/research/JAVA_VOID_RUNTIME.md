@@ -65,3 +65,12 @@ immutable runtime jar SHA-256 is
 Independent source review found no remaining blocker. No test JVM was launched by
 the feature agent. No Init/image restore, kernel representation change, separate
 native oracle or native performance parity is implied by this unit.
+
+The complete isolated regression gate then passed 107 suites, 1,052 test
+executions and 52,979 assertions at 384 MiB, exit 0, with no failures or errors.
+The combined log SHA-256 is
+`e7ff19b0d8ce00888e5176873654b70c95e24d482030eec12eaf00392f52c23d`.
+It used the same reviewed Java source and immutable runtime jar. Separate
+original-frontend command/EOF receipts and their cold/warm timings belong to the
+integration experiment; this unit's gate is not a general file/import acceptance
+or native execution/performance-parity claim.
