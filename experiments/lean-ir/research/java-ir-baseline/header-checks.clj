@@ -86,7 +86,7 @@
 
 (deftest known-unsupported-lanes-remain-metadata-and-cannot-execute
   (let [base (empty-program) binding (j/source-binding base (Object.))
-        row (c/decl "wide" [(c/p 1 "uint64")] "uint64" (c/ret 1))
+        row (c/decl "wide" [(c/p 1 "float")] "float" (c/ret 1))
         h (header binding row) ctx (j/register-headers base [h])
         engine (j/machine ctx)]
     (try
