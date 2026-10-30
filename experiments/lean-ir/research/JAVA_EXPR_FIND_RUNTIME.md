@@ -72,3 +72,13 @@ on both branches, and finishes without replay while Find remains suspended.
 The runner registers Find once in active explicit mode, plus negative legacy
 checks within that suite. No complete Init restore, frontend image replay, native
 find oracle, or successful default frontend command is claimed by this result.
+
+The complete isolated feature gate subsequently passed 103 suites, 1,018 test
+executions and 52,499 assertions at 384 MiB, exit 0, with no failures or errors.
+Its combined log SHA-256 is
+`76663b81e0a5a0bd21b1b3c386f984d5452cc0e7bd75693878c6e38c437bfe7a`.
+The first clean gate exposed a test-namespace load-order error hidden by the
+retained REPL; loading Find checks after HostGuest checks corrected the harness.
+The successful gate used the same reviewed Java source and immutable runtime jar.
+Independent source review found no remaining blocker; that review is separate
+from the focused and combined runtime observations above.
