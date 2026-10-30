@@ -130,5 +130,8 @@ counts beta/zeta and other reduction work, not ordinary expression visits; its
 negative test therefore forces four beta redexes in the declared proposition.
 The bounded Java integration runner includes this suite at result index 70,
 bringing its expected totals to 108 result families / 1,057 test executions.
-The full gate remains a separate root verification. These abstract-carrier tests
-do not establish Java HostRequest publication or frontend theorem execution.
+The complete bounded gate passed those 108 families / 1,057 executions and
+53,037 assertions, exit 0 at 384 MiB. Its combined log SHA-256 is
+`bd2a382483c1e23114b95d55544d01986bcf6dc6b0aae36407582d322ebd842b`.
+These abstract-carrier tests do not establish Java HostRequest publication or
+frontend theorem execution.
