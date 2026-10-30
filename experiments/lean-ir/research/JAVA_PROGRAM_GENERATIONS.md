@@ -39,7 +39,8 @@ ancestor code does not convey authority to use another engine's private stream.
 All closure entry, application, argument and host-reply checks use the same rule.
 
 `installProgram(descendant)` is allowed only on an open, non-advancing, unfailed
-engine at idle or a committed host request. Recursive execution also needs an
+engine at idle or a committed host/code request. The code-request extension is
+specified in [the demand-loading contract](JAVA_LAZY_CODE.md). Recursive execution also needs an
 empty active stack. Reject paused running frames, pending complete results,
 rollback, sibling/unrelated Programs and failed engines. The exact current
 Program is a no-op at an otherwise permitted boundary.
@@ -52,7 +53,7 @@ disposition and once-only identity. The result may subsequently be a closure
 from the installed descendant. Forks share immutable code/token state but copy
 their constant/control/heap state through the existing graph memo.
 
-`makeClosure(functionId, captures)` creates an owned PAP at idle or a host request,
+`makeClosure(functionId, captures)` creates an owned PAP at idle or a host/code request,
 without reentering guest execution. Validate supported object parameters,
 strict underapplication, value carriers and closure generations before taking
 capture ownership. Clone the capture array; each occurrence transfers its own

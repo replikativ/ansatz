@@ -143,7 +143,7 @@
     (assoc basis :program (invoke-static method [(:program basis) target original-row array]))))
 
 (defn install-program!
-  "Install BASIS's prepared descendant on an idle or host-paused engine."
+  "Install BASIS's descendant on an idle, host-paused or code-paused engine."
   [basis engine]
   (.invoke (.getMethod ^Class (:class basis) "installProgram"
                        (into-array Class [(class (:program basis))]))
@@ -168,6 +168,20 @@
   (.invoke ^Method (:fail-host basis) engine (object-array [request cause])))
 (defn host-failure [basis engine]
   (.invoke ^Method (:host-failure basis) engine (object-array 0)))
+(defn code-request [basis engine]
+  (.invoke (.getMethod ^Class (:class basis) "pendingCodeRequest" (make-array Class 0))
+           engine (object-array 0)))
+(defn resume-code! [basis engine request]
+  (.invoke (.getMethod ^Class (:class basis) "resumeCode"
+                       (into-array Class [(class request) (class (:program basis))]))
+           engine (object-array [request (:program basis)])))
+(defn fail-code! [basis engine request cause]
+  (.invoke (.getMethod ^Class (:class basis) "failCode"
+                       (into-array Class [(class request) Throwable]))
+           engine (object-array [request cause])))
+(defn code-failure [basis engine]
+  (.invoke (.getMethod ^Class (:class basis) "codeFailure" (make-array Class 0))
+           engine (object-array 0)))
 (defn fork!
   "On-demand capture. ROOTS must account for the external owner/alias contract."
   [basis engine roots]
