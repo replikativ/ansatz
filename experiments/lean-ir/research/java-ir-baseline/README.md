@@ -210,3 +210,7 @@ The [resumable Expr.find profile](../JAVA_EXPR_FIND_RUNTIME.md) runs original
 owned wrappers over borrowed source Expr graphs in active explicit mode. It
 preserves callback traversal/sharing policy, code/Host/fork pauses and pending
 cleanup continuations without adding traversal owner credits.
+
+The [Void.mk release unit](../JAVA_VOID_RUNTIME.md) consumes the original owned
+payload before returning void zero, including resumable finalizer cleanup in the
+active runtime and checked quiet release in inactive modes.

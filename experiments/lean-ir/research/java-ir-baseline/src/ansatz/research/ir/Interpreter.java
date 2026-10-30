@@ -26,6 +26,7 @@ public final class Interpreter implements AutoCloseable {
     private static final int ADD=1,SUB=2,MOD=3,EQ=4,LT=5,MUL=6,DIV=7,POW=8;
     private static final int USIZE_NAT=9,USIZE_REPR=10,U32_NAT=11,U32_EQ=12,U32_LE=13,PLATFORM_BITS=14;
     private static final int STR_POS_SET=260;
+    private static final int VOID_MK=516;
     private static final int EXPR_DATA=400,EXPR_APP_DATA=401,LEVEL_DATA=402,EXPR_CACHE=403,EXPR_EQV=404,EXPR_EQUAL=405,U8_TO_U32=406,U64_TO_U8=407,EXPR_FIND=408;
     private static final int PROFILE_IT=410;
     private static final int STR_PUSH=15,STR_LIST=16,STR_GET=17,STR_NEXT=18,STR_APPEND=19,STR_SIZE=20,
@@ -433,6 +434,8 @@ public final class Interpreter implements AutoCloseable {
                 new String[]{"object"},new boolean[]{true}));
         register(registry,new ExternSpec("lean_profileit",PROFILE_IT,"tobject",
                 new String[]{"erased","object","object","tobject","tobject"},new boolean[]{false,true,true,false,false}));
+        register(registry,new ExternSpec("lean_void_mk",VOID_MK,"void",
+                new String[]{"erased","tobject"},new boolean[]{false,false}));
         register(registry,new ExternSpec("lean_find_expr",EXPR_FIND,"tobject",
                 new String[]{"object","object"},new boolean[]{true,true}));
         register(registry,new ExternSpec("lean_expr_eqv",EXPR_EQV,"uint8",
@@ -1600,7 +1603,7 @@ public final class Interpreter implements AutoCloseable {
     }
     private boolean actionPrimitive(Function function) {
         int op=function.intrinsic;
-        return taskRuntime!=null&&(op==PROFILE_IT||op==EXPR_FIND||taskPrimitive(op)||op==TASK_MAP||op==REF_SET||op==ARRAY_POP||op==ARRAY_FSET||op==ARRAY_USET||op==ARRAY_REPLICATE);
+        return taskRuntime!=null&&(op==VOID_MK||op==PROFILE_IT||op==EXPR_FIND||taskPrimitive(op)||op==TASK_MAP||op==REF_SET||op==ARRAY_POP||op==ARRAY_FSET||op==ARRAY_USET||op==ARRAY_REPLICATE);
     }
     private Object[] savedArguments(Function function,int[] slots) {
         Object[] args=new Object[slots.length];
@@ -1632,7 +1635,56 @@ public final class Interpreter implements AutoCloseable {
         for(Map.Entry<Node,Integer> credit:credits.entrySet())
             require(credit.getKey().rc==0||credit.getKey().rc>=credit.getValue(),"Insufficient profiling owned/borrowed alias credits");
     }
+    /** Inactive Void.mk promises only a bounded quiet domain. Preflight the
+     * positive owning graph before claiming a last root credit; shared children
+     * cannot be skipped because duplicate incoming edges may jointly retire them. */
+    private void validateQuietVoid(Object value) {
+        if(taskRuntime!=null||!(value instanceof Node)) return;
+        Node root=(Node)value;
+        if(root.rc==0||root.rc>1) return;
+        IdentityHashMap<Node,Boolean> seen=new IdentityHashMap<>();
+        ArrayDeque<Node> pending=new ArrayDeque<>(); pending.push(root); long edges=0;
+        while(!pending.isEmpty()) {
+            Node current=pending.pop();
+            validateHostObject(current);
+            if(current.rc==0||seen.containsKey(current)) continue;
+            require(seen.size()<100_000,"Void.mk quiet graph exceeds bounded node profile");
+            seen.put(current,Boolean.TRUE);
+            require(!(kindMetadata(current) instanceof TaskMetadata),"Void.mk quiet profile rejects runtime Task/Promise metadata");
+            NodeMetadata kind=kindMetadata(current);
+            if(current.array) {
+                require(kind instanceof ArrayState&&!current.readyTask&&current.tag==246&&current.scalars.length==0,
+                        "Void.mk quiet profile rejects unknown array shape"); array(current);
+            } else if(isByteArray(current)) byteArray(current);
+            else if(current.ref) { require(!current.readyTask,"Void.mk quiet profile rejects unknown Ref shape"); reference(current); }
+            else if(current.readyTask) readyTaskNode(current);
+            else if(current.closure!=null) {
+                require(current.tag==245&&current.scalars.length==0,"Void.mk quiet profile rejects unknown closure shape"); acceptsClosure(current);
+            } else require(kind==null&&current.tag>=0&&current.tag<=243,"Void.mk quiet profile rejects unknown object kind");
+            int live=owningFieldCount(current);
+            require(live>=0&&live<=current.fields.length,"Void.mk quiet owning extent outside payload");
+            require(edges<=1_000_000-live,"Void.mk quiet graph exceeds bounded edge profile"); edges+=live;
+            if(Thread.currentThread().isInterrupted()) throw error("Void.mk quiet preflight interrupted");
+            for(int i=0;i<live;i++) {
+                Object child=current.fields[i];
+                if(child==null) { require(current.ref,"Void.mk quiet profile rejects absent owning field"); continue; }
+                if(child instanceof Node) pending.push((Node)child); else validateHostObject(child);
+            }
+        }
+    }
+    private void validateVoidArguments(Object erased,Object value) {
+        require(ERASED.equals(erased),"Void.mk requires an erased parameter placeholder");
+        validateHostObject(value); validateQuietVoid(value);
+    }
+    private void voidIntrinsic(Object erased,Object value) {
+        validateVoidArguments(erased,value);
+        releaseQuiet(value,1); result=ERASED;
+    }
     private void validateNative(Function function,Object[] args) {
+        if(function.intrinsic==VOID_MK) {
+            require(args!=null&&args.length==2,"Void.mk native arity mismatch");
+            validateVoidArguments(args[0],args[1]); return;
+        }
         if(function.intrinsic==PROFILE_IT) { validateProfile(function,args); return; }
         if(function.intrinsic==EXPR_FIND) { validateFind(args); return; }
         if(taskPrimitive(function.intrinsic)||function.intrinsic==TASK_MAP) { validateTaskOperation(function,args); return; }
@@ -1793,7 +1845,8 @@ public final class Interpreter implements AutoCloseable {
         if(action.stage==0) {
             action.stage=1;
             Object old=null;
-            if(op==REF_SET) {
+            if(op==VOID_MK) { old=args[1]; action.output=ERASED; action.stage=2; }
+            else if(op==REF_SET) {
                 Node ref=reference(args[2]); old=ref.fields[0]; action.current=ref;
                 if(refMaybeMT(ref)) {
                     markLogicalMT(args[3]); ref.fields[0]=args[3]; stores++; action.stage=2;
@@ -2737,6 +2790,7 @@ public final class Interpreter implements AutoCloseable {
         return value;
     }
     private void intrinsicSlots(Function f,int[] slots) {
+        if(f.intrinsic==VOID_MK) { voidIntrinsic(obj(slots[0]),obj(slots[1])); return; }
         require(f.intrinsic!=TASK_MAP,"Task.map requires its runtime frame");
         if(floatPrimitive(f.intrinsic)) {
             floatIntrinsic(f,numbers[bp+slots[0]],slots.length<2?0:numbers[bp+slots[1]]); return;
@@ -2778,6 +2832,7 @@ public final class Interpreter implements AutoCloseable {
         } else scalarIntrinsic(f,a,b);
     }
     private void intrinsicExternal(Function f,Object[] args) {
+        if(f.intrinsic==VOID_MK) { voidIntrinsic(args[0],args[1]); return; }
         require(f.intrinsic!=TASK_MAP,"Task.map requires its runtime frame");
         if(floatPrimitive(f.intrinsic)) {
             floatIntrinsic(f,readSavedScalar(args[0],f.paramTypes[0]),args.length<2?0:readSavedScalar(args[1],f.paramTypes[1])); return;
@@ -4228,9 +4283,10 @@ public final class Interpreter implements AutoCloseable {
         }
         Object[] combined=new Object[closure.fields.length+args.length];
         System.arraycopy(closure.fields,0,combined,0,closure.fields.length);
+        System.arraycopy(args,0,combined,closure.fields.length,args.length);
+        if(combined.length>=f.params.length&&called.intrinsic==VOID_MK) validateVoidArguments(combined[0],combined[1]);
         // A shared closure keeps ownership of its captured arguments.
         if(!exclusive(closure)) for(Object a:closure.fields) inc(a,1);
-        System.arraycopy(args,0,combined,closure.fields.length,args.length);
         if(exclusive(closure)) { closure.dead=true; Arrays.fill(closure.fields,null); shellDeletes++; }
         else releaseQuiet(closure,1);
         if(combined.length<f.params.length) return closure(f,combined);
@@ -4973,7 +5029,8 @@ public final class Interpreter implements AutoCloseable {
         if(taskRuntime!=null&&function.intrinsic==TASK_GET) {
             require(ERASED.equals(args[0]),"Task.get erased placeholder required"); readyTaskNode(args[1]);
         }
-        if(actionPrimitive(function)) validateNative(function,args);
+        if(function.intrinsic==VOID_MK) validateVoidArguments(args[0],args[1]);
+        else if(actionPrimitive(function)) validateNative(function,args);
         for(int i=0;i<args.length;i++) {
             if(function.paramTypes[i]!=OBJ) { if(saved) readSavedScalar(args[i],function.paramTypes[i]); else inputScalar(args[i],function.paramTypes[i]); }
             else if(args[i] instanceof Double||args[i] instanceof F64Bits) throw error("Float scalar is not an OBJ value");
@@ -5066,9 +5123,10 @@ public final class Interpreter implements AutoCloseable {
         Object[] combined=new Object[closure.fields.length+args.length];
         System.arraycopy(closure.fields,0,combined,0,closure.fields.length);
         System.arraycopy(args,0,combined,closure.fields.length,args.length);
-        if(combined.length>=f.params.length&&taskRuntime!=null) {
+        if(combined.length>=f.params.length&&(taskRuntime!=null||called.intrinsic==VOID_MK)) {
             Object[] actual=combined.length==f.params.length?combined:Arrays.copyOf(combined,f.params.length);
-            if(actionPrimitive(f)) validateNative(f,actual);
+            if(called.intrinsic==VOID_MK) validateVoidArguments(actual[0],actual[1]);
+            else if(actionPrimitive(f)) validateNative(f,actual);
             else if(f.intrinsic==TASK_GET||f.intrinsic==TASK_PURE) validateEntryArguments(f,actual,true);
         }
         if(taskRuntime!=null) {
