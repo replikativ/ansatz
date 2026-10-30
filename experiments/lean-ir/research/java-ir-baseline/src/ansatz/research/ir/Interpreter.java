@@ -27,6 +27,7 @@ public final class Interpreter implements AutoCloseable {
     private static final int USIZE_NAT=9,USIZE_REPR=10,U32_NAT=11,U32_EQ=12,U32_LE=13,PLATFORM_BITS=14;
     private static final int STR_POS_SET=260;
     private static final int EXPR_DATA=400,EXPR_APP_DATA=401,LEVEL_DATA=402;
+    private static final int PROFILE_IT=410;
     private static final int STR_PUSH=15,STR_LIST=16,STR_GET=17,STR_NEXT=18,STR_APPEND=19,STR_SIZE=20,
                              ARRAY_MK=21,ARRAY_SIZE=22,ARRAY_GET=23,GET_STDOUT=24,PANIC=25;
     private static final int REF_MK=26,REF_GET=27,REF_SET=28,REF_SWAP=29,REF_TAKE=30,REF_PTR_EQ=31;
@@ -43,7 +44,7 @@ public final class Interpreter implements AutoCloseable {
                              USIZE_SHR=72,USIZE_SHL=73,USIZE_AND=74,U8_NAT=75,U8_EQ=76,U8_AND=77,
                              U8_LE=78,U32_FROM_NAT=79,U32_TO_U8=80,U32_ADD=81,USIZE_LE=82,USIZE_MUL=83;
     private static final int STR_HASH=84,U64_MIX=85,U64_NAT=86,U64_SHR=87,U64_XOR=88,U64_USIZE=89,
-                             U64_LT=90,U64_EQ=91,U64_OWNED_NAT=92;
+                             U64_LT=90,U64_EQ=91,U64_OWNED_NAT=92,U64_TO_U32=98;
     private static final int BYTE_MK=200,BYTE_GET=201,BYTE_SIZE=202,BYTE_PUSH=203;
     private static final int INT_OF_NAT=210,INT_NEG_SUCC=211,INT_NEG=212,INT_ABS=213,INT_ADD=214,INT_SUB=215,INT_EQ=216,INT_LT=217,INT_LE=218;
     private static final int STR_MEMCMP=230,STR_SUBSTRING_EQ=231,STR_POS_OF=232,STR_OFFSET_OF_POS=233,STR_PUSHN=234;
@@ -351,6 +352,8 @@ public final class Interpreter implements AutoCloseable {
                 new String[]{"usize","usize"},new boolean[]{false,false}));
         register(registry,new ExternSpec("lean_string_hash",STR_HASH,"uint64",
                 new String[]{"object"},new boolean[]{true}));
+        register(registry,new ExternSpec("lean_profileit",PROFILE_IT,"tobject",
+                new String[]{"erased","object","object","tobject","tobject"},new boolean[]{false,true,true,false,false}));
         register(registry,new ExternSpec("lean_expr_mk_data",EXPR_DATA,"uint64",
                 new String[]{"uint64","tobject","uint32","uint8","uint8","uint8","uint8"},
                 new boolean[]{false,false,false,false,false,false,false}));
@@ -368,6 +371,8 @@ public final class Interpreter implements AutoCloseable {
                 new String[]{"uint64","uint64"},new boolean[]{false,false}));
         register(registry,new ExternSpec("lean_uint64_xor",U64_XOR,"uint64",
                 new String[]{"uint64","uint64"},new boolean[]{false,false}));
+        register(registry,new ExternSpec("lean_uint64_to_uint32",U64_TO_U32,"uint32",
+                new String[]{"uint64"},new boolean[]{false}));
         register(registry,new ExternSpec("lean_uint64_to_usize",U64_USIZE,"usize",
                 new String[]{"uint64"},new boolean[]{false}));
         register(registry,new ExternSpec("lean_uint64_dec_lt",U64_LT,"uint8",
@@ -1187,6 +1192,27 @@ public final class Interpreter implements AutoCloseable {
     }
     private IdentityHashMap<Node,TaskRecord> taskRecords=new IdentityHashMap<>();
     private TaskRecord currentTask;
+    /** Explicit disabled-only native profiling gate. Header bytes are
+     * authenticated by the trusted source adapter; this checks its pinned role.
+     * The policy owns no guest value and retains no Program/catalogue reader. */
+    public static final class ProfilingPolicy {
+        private final Header getter;
+        private ProfilingPolicy(Header getter) { this.getter=getter; }
+        public static ProfilingPolicy requireDisabled(Header getter) {
+            require(getter!=null&&getter.kind.equals("fdecl")
+                    &&getter.originalSha256.equals("697f802be49ca83e350147ca7a564a73e3162beb454ca78d2990455df96796ed"),
+                    "Profiling requires the pinned original boxed option getter");
+            Object name=Arrays.asList("anonymous");
+            for(String segment:new String[]{"_private","Lean","Util","Profile"}) name=Arrays.asList("str",name,segment);
+            name=Arrays.asList("num",name,"0");
+            for(String segment:new String[]{"Lean","get_profiler","_boxed"}) name=Arrays.asList("str",name,segment);
+            require(getter.exactName.equals(frozenName(name))&&getter.params.length==1
+                    &&getter.paramTypes[0].equals("object")&&!getter.borrowed[0]&&getter.resultType.equals("tagged"),
+                    "Profiling option getter Name or raw ABI differs");
+            return new ProfilingPolicy(getter);
+        }
+    }
+    private final ProfilingPolicy profilingPolicy;
     private final TaskRuntime taskRuntime;
     private final BuildIdentity buildIdentity;
     private Program program;
@@ -1250,7 +1276,7 @@ public final class Interpreter implements AutoCloseable {
     private HostRequest hostRequest,failedHostRequest;
     private HostCall hostCompletion;
     private RuntimeAction runtimeAction,failedRuntimeAction;
-    private static final int ACTION_RELEASE=1,ACTION_DISPOSE=2,ACTION_NATIVE=3,ACTION_HOST=4,ACTION_TASK=5,ACTION_RESOLVE=6,ACTION_RUN_TASK=7;
+    private static final int ACTION_RELEASE=1,ACTION_DISPOSE=2,ACTION_NATIVE=3,ACTION_HOST=4,ACTION_TASK=5,ACTION_RESOLVE=6,ACTION_RUN_TASK=7,ACTION_PROFILE=8;
     private static final Body ACTION_BODY=new Body();
     /** Typed ownership/control state, separate from NodeMetadata. The output
      * scratch slot is reserved before callbacks may enter generic AP. */
@@ -1437,14 +1463,40 @@ public final class Interpreter implements AutoCloseable {
     }
     private boolean actionPrimitive(Function function) {
         int op=function.intrinsic;
-        return taskRuntime!=null&&(taskPrimitive(op)||op==TASK_MAP||op==REF_SET||op==ARRAY_POP||op==ARRAY_FSET||op==ARRAY_USET||op==ARRAY_REPLICATE);
+        return taskRuntime!=null&&(op==PROFILE_IT||taskPrimitive(op)||op==TASK_MAP||op==REF_SET||op==ARRAY_POP||op==ARRAY_FSET||op==ARRAY_USET||op==ARRAY_REPLICATE);
     }
     private Object[] savedArguments(Function function,int[] slots) {
         Object[] args=new Object[slots.length];
         for(int i=0;i<args.length;i++) args[i]=function.paramTypes[i]==OBJ?obj(slots[i]):saveScalar(numbers[bp+slots[i]],function.paramTypes[i]);
         return args;
     }
+    private Function profilingGetter(Function function) {
+        require(explicit&&taskRuntime!=null&&profilingPolicy!=null,
+                "Native profiling requires an active explicit runtime and checked-disabled policy");
+        Header getter=profilingPolicy.getter;
+        require(function.header!=null&&function.header.source==getter.source,"Profiling getter source binding differs");
+        Function target=program.functions[program.functionId(getter)];
+        require(target.header==getter&&target.intrinsic==0&&target.hostExtern==null
+                &&program.guestExports[target.id]==null,"Profiling getter is not the original guest function");
+        return preflightCallable(target,true);
+    }
+    private void validateProfile(Function function,Object[] args) {
+        profilingGetter(function);
+        require(args.length==5&&ERASED.equals(args[0]),"Profiling erased parameter required");
+        utf8(args[1]); validateHostObject(args[2]); validateHostObject(args[4]);
+        Node callback=node(args[3]); require(callback.closure!=null,"Profiling requires a closure"); acceptsClosure(callback);
+        Function target=callback.closure; rootEntry(target); requireExecutableAbi(target);
+        require(target.resultType==OBJ,"Profiling requires boxed callback result");
+        for(int lane:target.paramTypes) require(lane==OBJ,"Profiling requires boxed callback parameters");
+        require(callback.fields.length<target.params.length,"Profiling requires an unsaturated callback");
+        IdentityHashMap<Node,Integer> credits=new IdentityHashMap<>(); credits.put(callback,1);
+        if(args[4] instanceof Node) credits.merge((Node)args[4],1,Integer::sum);
+        if(args[2] instanceof Node&&credits.containsKey((Node)args[2])) credits.merge((Node)args[2],1,Integer::sum);
+        for(Map.Entry<Node,Integer> credit:credits.entrySet())
+            require(credit.getKey().rc==0||credit.getKey().rc>=credit.getValue(),"Insufficient profiling owned/borrowed alias credits");
+    }
     private void validateNative(Function function,Object[] args) {
+        if(function.intrinsic==PROFILE_IT) { validateProfile(function,args); return; }
         if(taskPrimitive(function.intrinsic)||function.intrinsic==TASK_MAP) { validateTaskOperation(function,args); return; }
         if(function.intrinsic==REF_SET) {
             refPlaceholders(args[0],args[1],args[args.length-1]);
@@ -1464,8 +1516,38 @@ public final class Interpreter implements AutoCloseable {
     }
     private void enterNative(Function function,Object[] args,Body next,int dest,int kind,Object[] surplus) {
         validateNative(function,args);
-        RuntimeAction action=newAction(taskPrimitive(function.intrinsic)||function.intrinsic==TASK_MAP?ACTION_TASK:ACTION_NATIVE,function,next,dest,kind,surplus);
+        RuntimeAction action=newAction(function.intrinsic==PROFILE_IT?ACTION_PROFILE:
+                taskPrimitive(function.intrinsic)||function.intrinsic==TASK_MAP?ACTION_TASK:ACTION_NATIVE,function,next,dest,kind,surplus);
         action.arguments=args; publishAction(action); applicationEntry(kind);
+    }
+    private void stepProfile(RuntimeAction action) {
+        Object[] args=action.arguments;
+        if(action.stage==0) {
+            Function getter=profilingGetter(action.function);
+            Object[] packet=new Object[]{args[2]};
+            inc(args[2],1); // object_ref::to_obj_arg: original getter owns ONE copy.
+            action.work=packet; action.stage=1;
+            enterExplicit(getter,null,packet,ACTION_BODY,action.slot,ASSIGN,null); return;
+        }
+        if(action.stage==1) {
+            Object enabled=objects[action.slot];
+            require(ERASED.equals(enabled)||Long.valueOf(1).equals(enabled),"Profiling getter did not return Bool");
+            require(ERASED.equals(enabled),"Enabled native profiling is outside the checked-disabled runtime profile");
+            objects[action.slot]=null; action.work=null; action.stage=2;
+            // Native time_task's by-value name parameter retires at constructor
+            // exit when disabled, BEFORE apply_1. A finalizer may suspend here.
+            action.retiring=args[4]; action.releaseClaimed=false;
+            if(beginRelease(args[4],1,ACTION_BODY)) return;
+        }
+        if(action.stage==2) {
+            action.stage=3;
+            // arguments[] is an alias packet, not a second set of owners.
+            // Generic AP records its once-only transfer/failure progress.
+            applyExplicit(args[3],new Object[]{ERASED},ACTION_BODY,action.slot); return;
+        }
+        require(action.stage==3,"Invalid profiling continuation");
+        Object answer=objects[action.slot]; objects[action.slot]=null;
+        finishAction(action,answer);
     }
     private void stepNative(RuntimeAction action) {
         Object[] args=action.arguments; int op=action.function.intrinsic;
@@ -1554,6 +1636,7 @@ public final class Interpreter implements AutoCloseable {
         else if(action.operation==ACTION_TASK) stepTask(action);
         else if(action.operation==ACTION_RESOLVE) stepResolve(action);
         else if(action.operation==ACTION_RUN_TASK) stepRunTask(action);
+        else if(action.operation==ACTION_PROFILE) stepProfile(action);
         else if(action.operation==ACTION_HOST) {
             try { stepHostCompletion(action); }
             catch(Throwable failure) { markHostFailure(action.request,failure); throw failure; }
@@ -1587,6 +1670,11 @@ public final class Interpreter implements AutoCloseable {
         this(program,explicit,initializing,buildIdentity,null);
     }
     public Interpreter(Program program,boolean explicit,boolean initializing,BuildIdentity buildIdentity,TaskRuntime taskRuntime) {
+        this(program,explicit,initializing,buildIdentity,taskRuntime,null);
+    }
+    public Interpreter(Program program,boolean explicit,boolean initializing,BuildIdentity buildIdentity,TaskRuntime taskRuntime,ProfilingPolicy profilingPolicy) {
+        require(profilingPolicy==null||(explicit&&taskRuntime!=null),"Profiling policy requires an active explicit runtime");
+        this.profilingPolicy=profilingPolicy;
         require(taskRuntime==null||explicit,"Logical task runtime requires the explicit driver");
         this.taskRuntime=taskRuntime;
         this.program=program;
@@ -1633,7 +1721,7 @@ public final class Interpreter implements AutoCloseable {
         if(externalRoots==null) throw error("Explicit fork roots required");
         // phase RUNNING between advance calls is a paused dispatch/release-work
         // boundary. No Java call frame is captured in that state.
-        Interpreter child=new Interpreter(program,explicit,initializing,buildIdentity,taskRuntime);
+        Interpreter child=new Interpreter(program,explicit,initializing,buildIdentity,taskRuntime,profilingPolicy);
         ForkCopy copy=new ForkCopy(child);
         copy.bind(constants,child.constants);
         child.objects=(Object[])copy.value(objects);
@@ -2024,7 +2112,7 @@ public final class Interpreter implements AutoCloseable {
                     case SPROJ: require((b.type==U8||b.type==U32||b.type==U64||b.type==F64)&&lane(env,e.a)==OBJ,"Scalar projection lane mismatch"); break;
                     case UPROJ: require(b.type==USIZE&&lane(env,e.a)==OBJ,"USize projection lane mismatch"); break;
                     case FAP: requireExecutableAbi(e.target); checkArgs(env,e.args,e.target.paramTypes); require(b.type==e.target.resultType,"Call result lane mismatch"); break;
-                    case PAP: requireExecutableAbi(e.target); require(!borrowedTaskPrimitive(e.target.intrinsic),"Borrowed task primitive requires owned closure wrapper"); require(b.type==OBJ&&e.args.length<e.target.params.length,"Invalid partial application"); require(!borrowedArrayPrimitive(e.target.intrinsic),"Borrowed array primitive requires owned closure wrapper"); require(!borrowedIntPrimitive(e.target.intrinsic),"Borrowed Int primitive requires owned closure wrapper"); require(!borrowedStringPositionPrimitive(e.target.intrinsic),"Borrowed String position primitive requires owned closure wrapper"); require(!borrowedStringCompletionPrimitive(e.target.intrinsic),"Borrowed String range primitive requires owned closure wrapper"); require(!borrowedBytePrimitive(e.target.intrinsic),"Borrowed ByteArray primitive requires owned closure wrapper"); require(e.target.intrinsic!=NAME_EQ,"Borrowed Name equality requires an owned guest wrapper"); require(e.target.intrinsic!=POINTER_IDENTITY,"Pointer identity requires a certified direct FAP site"); require(!borrowedRefPrimitive(e.target.intrinsic),"Borrowed ref primitive requires owned closure wrapper"); for(int i=0;i<e.target.paramTypes.length;i++) require(e.target.paramTypes[i]==OBJ,"Unboxed partial target unsupported; boxed wrapper required"); for(int a:e.args) require(lane(env,a)==OBJ,"Partial argument must be boxed"); break;
+                    case PAP: requireExecutableAbi(e.target); require(e.target.intrinsic!=PROFILE_IT,"Borrowed profiling primitive requires an owned guest wrapper"); require(!borrowedTaskPrimitive(e.target.intrinsic),"Borrowed task primitive requires owned closure wrapper"); require(b.type==OBJ&&e.args.length<e.target.params.length,"Invalid partial application"); require(!borrowedArrayPrimitive(e.target.intrinsic),"Borrowed array primitive requires owned closure wrapper"); require(!borrowedIntPrimitive(e.target.intrinsic),"Borrowed Int primitive requires owned closure wrapper"); require(!borrowedStringPositionPrimitive(e.target.intrinsic),"Borrowed String position primitive requires owned closure wrapper"); require(!borrowedStringCompletionPrimitive(e.target.intrinsic),"Borrowed String range primitive requires owned closure wrapper"); require(!borrowedBytePrimitive(e.target.intrinsic),"Borrowed ByteArray primitive requires owned closure wrapper"); require(e.target.intrinsic!=NAME_EQ,"Borrowed Name equality requires an owned guest wrapper"); require(e.target.intrinsic!=POINTER_IDENTITY,"Pointer identity requires a certified direct FAP site"); require(!borrowedRefPrimitive(e.target.intrinsic),"Borrowed ref primitive requires owned closure wrapper"); for(int i=0;i<e.target.paramTypes.length;i++) require(e.target.paramTypes[i]==OBJ,"Unboxed partial target unsupported; boxed wrapper required"); for(int a:e.args) require(lane(env,a)==OBJ,"Partial argument must be boxed"); break;
                     case AP: require(b.type==OBJ&&lane(env,e.a)==OBJ&&e.args.length>0,"Unsupported closure application"); for(int a:e.args) require(lane(env,a)==OBJ,"Closure argument must be boxed"); break;
                     case BOX: require(b.type==OBJ&&e.b!=OBJ&&lane(env,e.a)==e.b,"Box lane mismatch"); break;
                     case UNBOX: require(b.type!=OBJ&&lane(env,e.a)==OBJ,"Unbox lane mismatch"); break;
@@ -2404,7 +2492,7 @@ public final class Interpreter implements AutoCloseable {
         if(f.intrinsic<=POW||(f.intrinsic>=NAT_LE&&f.intrinsic<=NAT_SHR)) { intrinsic(f,obj(slots[0]),slots.length<2?ERASED:obj(slots[1])); return; }
         Object a=f.paramTypes[0]==OBJ?obj(slots[0]):Long.valueOf(numbers[bp+slots[0]]);
         Object b=slots.length<2?ERASED:f.paramTypes[1]==OBJ?obj(slots[1]):Long.valueOf(numbers[bp+slots[1]]);
-        if(f.intrinsic>=STR_PUSH&&!(f.intrinsic>=USIZE_LT&&f.intrinsic<=U64_OWNED_NAT)) {
+        if(f.intrinsic>=STR_PUSH&&!(f.intrinsic>=USIZE_LT&&f.intrinsic<=U64_OWNED_NAT)&&f.intrinsic!=U64_TO_U32) {
             Object c=slots.length<3?ERASED:f.paramTypes[2]==OBJ?obj(slots[2]):Long.valueOf(numbers[bp+slots[2]]);
             runtimeIntrinsic(f,a,b,c);
         } else scalarIntrinsic(f,a,b);
@@ -2443,7 +2531,7 @@ public final class Interpreter implements AutoCloseable {
         if(f.intrinsic<=POW||(f.intrinsic>=NAT_LE&&f.intrinsic<=NAT_SHR)) { intrinsic(f,args[0],args.length<2?ERASED:args[1]); return; }
         Object a=f.paramTypes[0]==OBJ?args[0]:Long.valueOf(inputScalar(args[0],f.paramTypes[0]));
         Object b=args.length<2?ERASED:f.paramTypes[1]==OBJ?args[1]:Long.valueOf(inputScalar(args[1],f.paramTypes[1]));
-        if(f.intrinsic>=STR_PUSH&&!(f.intrinsic>=USIZE_LT&&f.intrinsic<=U64_OWNED_NAT)) {
+        if(f.intrinsic>=STR_PUSH&&!(f.intrinsic>=USIZE_LT&&f.intrinsic<=U64_OWNED_NAT)&&f.intrinsic!=U64_TO_U32) {
             Object c=args.length<3?ERASED:f.paramTypes[2]==OBJ?args[2]:Long.valueOf(inputScalar(args[2],f.paramTypes[2]));
             runtimeIntrinsic(f,a,b,c);
         } else scalarIntrinsic(f,a,b);
@@ -3448,6 +3536,7 @@ public final class Interpreter implements AutoCloseable {
             case U64_SHR: scalarResult=(Long)a>>>(Long)b; break;
             case U64_XOR: scalarResult=(Long)a^(Long)b; break;
             case U64_USIZE: scalarResult=(Long)a; break;
+            case U64_TO_U32: scalarResult=(Long)a&0xffffffffL; break;
             case U64_LT: scalarResult=Long.compareUnsigned((Long)a,(Long)b)<0?1:0; break;
             case U64_EQ: scalarResult=((Long)a).longValue()==((Long)b).longValue()?1:0; break;
             default: throw error("Invalid scalar intrinsic");
@@ -3555,6 +3644,7 @@ public final class Interpreter implements AutoCloseable {
         Function target=executionTarget(function);
         if(target!=function) { requireExecutableAbi(target); function=target; }
         require(function.id<0||!constantRetired[function.id],"Initialized cache owner has been retired: "+function.label);
+        if(function.intrinsic==PROFILE_IT) profilingGetter(function);
         if(buildIdentityPrimitive(function.intrinsic)) requireBuildIdentity();
         if(taskPrimitive(function.intrinsic)) require(taskRuntime!=null,"Logical synchronous task runtime is inactive");
         if(function.params.length==0&&constantReady[function.id]) return function;
@@ -3797,6 +3887,7 @@ public final class Interpreter implements AutoCloseable {
                         "Borrowed array primitive requires owned closure wrapper");
                 require(!borrowedIntPrimitive(target.intrinsic),"Borrowed Int primitive requires owned closure wrapper");
                 require(!borrowedStringPositionPrimitive(target.intrinsic),"Borrowed String position primitive requires owned closure wrapper");
+                require(target.intrinsic!=PROFILE_IT,"Borrowed profiling primitive requires an owned guest wrapper");
                 require(!borrowedStringCompletionPrimitive(target.intrinsic),"Borrowed String range primitive requires owned closure wrapper");
                 require(!borrowedBytePrimitive(target.intrinsic),"Borrowed ByteArray primitive requires owned closure wrapper");
                 require(target.intrinsic!=NAME_EQ,"Borrowed Name equality requires an owned guest wrapper");
@@ -3870,6 +3961,7 @@ public final class Interpreter implements AutoCloseable {
                 "Borrowed array primitive requires owned closure wrapper");
         require(!borrowedIntPrimitive(target.intrinsic),"Borrowed Int primitive requires owned closure wrapper");
         require(!borrowedStringPositionPrimitive(target.intrinsic),"Borrowed String position primitive requires owned closure wrapper");
+        require(target.intrinsic!=PROFILE_IT,"Borrowed profiling primitive requires an owned guest wrapper");
         require(!borrowedStringCompletionPrimitive(target.intrinsic),"Borrowed String range primitive requires owned closure wrapper");
         require(!borrowedBytePrimitive(target.intrinsic),"Borrowed ByteArray primitive requires owned closure wrapper");
         require(target.intrinsic!=NAME_EQ,"Borrowed Name equality requires an owned guest wrapper");
@@ -4419,6 +4511,7 @@ public final class Interpreter implements AutoCloseable {
         return op==PROMISE_RESOLVE||op==PROMISE_RESULT||op==TASK_STATE||op==TASK_CANCEL;
     }
     private static void rootEntry(Function f) {
+        require(f.intrinsic!=PROFILE_IT,"Borrowed profiling primitive requires an owned guest wrapper");
         require(!borrowedTaskPrimitive(f.intrinsic),"Borrowed task primitive requires owned guest wrapper");
         if(borrowedStringPositionPrimitive(f.intrinsic))
             throw new UnsupportedOperationException("Borrowed String position primitive requires owned guest wrapper at external entry");

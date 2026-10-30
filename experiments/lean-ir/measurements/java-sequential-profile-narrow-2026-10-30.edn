@@ -1,0 +1,20 @@
+{:schema 1 :scope :original-sequential-frontend-runtime-gates
+ :lean-commit "819816b2e0a3bf405af45ae5c7af2491d8f5bee6"
+ :engine-source-sha256 "97833400f3b286fc7dbb43148367be3c856e86b04418864dda4c3c7a01c81865"
+ :engine-jar-sha256 "72ea4f9cf2aca0253ecd8ef6c13c15582c5fbfe88ae1eeb6bf75585a8e57a29f"
+ :combined-gate {:heap-mib 384 :suites 90 :test-executions 884 :assertions 24126 :exit 0}
+ :focused {:checked-disabled-profile {:tests 11 :assertions 73 :fail 0 :error 0}
+           :u64-narrow {:modes [:recursive :explicit] :tests-per-mode 3 :assertions-per-mode 37 :fail 0 :error 0}}
+ :original-frontend {:input "prelude\naxiom HostedSort : Sort 1\n"
+                     :setup :prepared :header-errors false :header-end-byte 8
+                     :companion-globals 45
+                     :companion-graph-sha256 "8bd0414b09a1e5c5c5df4fb899f02cf8b16a0b2bb65cf328f870c6bc737c156e"
+                     :passed-native-gates ["Lean.profileit" "UInt64.toUInt32"]
+                     :boundary "Initialized global is unavailable: Lean.Elab.macroAttribute"
+                     :active-function "Lean.Elab.expandMacroImpl?"
+                     :cumulative-work-units 344282 :additional-code-bodies 652
+                     :excluded-parent-environment-code-bodies 196
+                     :adapter-ordinary-constructor-allocations 1
+                     :checked-declaration-established false}
+ :limits [:not-complete-command :not-kernel-admission :not-project-loading
+          :not-native-speed-or-allocation-measurement]}

@@ -1,0 +1,61 @@
+{
+  "schema": "captured-profiler-option/1",
+  "source": {
+    "checkpoint_manifest_sha256": "a848092bdd6753f2737a954907747e1bad900c11506ad371fcb8460b576c46d6",
+    "checkpoint_data_sha256": "26282492007e48f6ba06466f0dea2c203c62d918da5ca283aee2db30449e773f",
+    "code_index_sha256": "74d833d577923821b982e8a9e872a38b5cad011513eb18870b51417e13397f0e",
+    "header_candidates_sha256": "e458c8b0a0ed75e75f67e4cdd9fd59f5927a06eaffa0f49c30731e33c4f78ecb",
+    "selected_source_rows_sha256": "1044ee717ab8a3024d95b7f29ed28c9295a1980e4612dd20de7602c977a5545a"
+  },
+  "global": {
+    "name": [
+      "str",
+      [
+        "str",
+        [
+          "anonymous"
+        ],
+        "Lean"
+      ],
+      "profiler"
+    ],
+    "offset": 565038419,
+    "bytes": 115,
+    "sha256": "5ff3c41aa4f0a5ba7d74ec13816b01d290e4b95bf5e5463a8c17f56c6807846f",
+    "row": "[:global [\"str\" [\"str\" [\"anonymous\"] \"Lean\"] \"profiler\"] {:status :ready :value #prototype.machine.Ref {:id 5709}}]"
+  },
+  "nodes": [
+    {
+      "id": 5709,
+      "kind": "ctor",
+      "source_rc": 0,
+      "fields": [
+        {
+          "ref": 5698
+        },
+        0
+      ],
+      "tag": 0,
+      "scalar_hex": ""
+    },
+    {
+      "id": 5698,
+      "kind": "ctor",
+      "source_rc": 0,
+      "fields": [
+        0,
+        "profiler"
+      ],
+      "tag": 1,
+      "scalar_hex": "37c76893a0228121"
+    }
+  ],
+  "original-heap-frames": [
+    "[:heap 5709 {:kind :ctor :tag 0 :fields [#prototype.machine.Ref {:id 5698} 0] :rc 0}]",
+    "[:heap 5698 {:kind :ctor :tag 1 :fields [#prototype.machine.Tag {:tag 0} \"profiler\"] :rc 0 :layout {:objects 2 :usize 0 :ssize 8} :scalar-bytes {16 55N 17 199N 18 104N 19 147N 20 160N 21 34N 22 129N 23 33N}}]"
+  ],
+  "original-heap-frame-sha256": [
+    "06abb532ef88a504c4f148f824f425acc1fb97fbf3d9ed7a11158431fd845df5",
+    "bf2e3a9f84d9e9ebdf5f1fb6c0c826f7f8bca9cfb6d9046a5ef5a97d8fe1aa5d"
+  ]
+}

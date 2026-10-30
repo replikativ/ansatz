@@ -50,10 +50,15 @@
     (let [cls ^Class (:class basis)
           loader (.getClassLoader cls)
           identity-class (.loadClass loader "ansatz.research.ir.Interpreter$BuildIdentity")
-          runtime-class (.loadClass loader "ansatz.research.ir.Interpreter$TaskRuntime")]
-      (.newInstance (.getConstructor cls (into-array Class [(class (:program basis)) Boolean/TYPE Boolean/TYPE identity-class runtime-class]))
-                    (object-array [(:program basis) (boolean (:explicit basis)) (boolean (:initializing basis))
-                                   (:build-identity basis) (:task-runtime basis)])))
+          runtime-class (.loadClass loader "ansatz.research.ir.Interpreter$TaskRuntime")
+          policy (:profiling-policy basis)
+          parameters [(class (:program basis)) Boolean/TYPE Boolean/TYPE identity-class runtime-class]
+          arguments [(:program basis) (boolean (:explicit basis)) (boolean (:initializing basis))
+                     (:build-identity basis) (:task-runtime basis)]]
+      (if policy
+        (.newInstance (.getConstructor cls (into-array Class (conj parameters (class policy))))
+                      (object-array (conj arguments policy)))
+        (.newInstance (.getConstructor cls (into-array Class parameters)) (object-array arguments))))
     (:build-identity basis)
     (let [cls ^Class (:class basis)
           identity-class (.loadClass (.getClassLoader cls) "ansatz.research.ir.Interpreter$BuildIdentity")
@@ -70,6 +75,9 @@
 (defn logical-sync-task-runtime [basis]
   (let [cls (.loadClass (.getClassLoader ^Class (:class basis)) "ansatz.research.ir.Interpreter$TaskRuntime")]
     (invoke-static (.getMethod cls "logicalSynchronous" (make-array Class 0)) [])))
+(defn require-disabled-profiling [basis getter]
+  (let [cls (.loadClass (.getClassLoader ^Class (:class basis)) "ansatz.research.ir.Interpreter$ProfilingPolicy")]
+    (invoke-static (.getMethod cls "requireDisabled" (into-array Class [(class getter)])) [getter])))
 (defn start-dispose! [basis engine]
   (.invoke (.getMethod ^Class (:class basis) "startDispose" (make-array Class 0)) engine (object-array 0)))
 (defn supported-build-identity [basis]
