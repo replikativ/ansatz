@@ -64,9 +64,12 @@ Private absent slots are never guest null values. TaskMetadata contains only
 kind, branch identity and primitive state; it owns no guest values.
 
 TaskRecord, registration lists, detached batches and scope links are NONOWNING
-in guest RC. Keepalive is a separately counted Task credit. Last-owner pure drop
-unlinks its registration and releases its capture batch without running the
-callback. A running deactivated map finishes its committed callback and discards
+in guest RC. Keepalive is a separately counted Task credit. At a pure Task's deactivation visit, its registration is unlinked and its
+capture batch is released without running the callback. A generic constructor
+batch can queue a zero-owner Task before a later Promise; LIFO visits that
+Promise first, and its completion may still execute the registered callback
+before the queued Task's own deactivation visit. Credit-claim time is not a
+premature cancellation boundary. A running deactivated map finishes its committed callback and discards
 its result. Retired records are removed; no historical task registry is kept.
 Detached registrations retain membership/backpointers so an earlier LIFO callback
 can delete a later entry. Nested propagation completes depth-first.
@@ -176,9 +179,10 @@ before claims. Close also checks that no private owner roots were recreated.
 
 ## Bounded validation
 
-The enabled focused suite currently has **39 tests / 366 assertions**, run in one
+The enabled focused suite currently has **40 tests / 372 assertions**, run in one
 retained 256 MiB REPL, with no Init/full image. It covers genuine wrappers and
-CancelToken/result! bodies; LIFO/depth-first registration behavior; deleting later
+CancelToken/result! bodies; LIFO/depth-first registration behavior, including queued-zero Task dispatch
+before its deactivation visit; deleting later
 detached entries; keepalive/bind forwarding; scalar and object Host reply
 ownership; missing-code, intrinsic/PAP/overapplication callback receivers;
 release/Ref/Array native suffixes; first/duplicate publication marking; cancellation

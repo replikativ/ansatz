@@ -796,4 +796,23 @@
       (is (identical? value (get! ctx engine mapped))) (release! ctx engine value))
     (close! ctx engine)))
 
+(deftest queued-zero-pure-task-can-run-before-its-native-lifo-deactivation-visit
+  ;; A generic constructor drop claims BOTH child credits before visiting
+  ;; either shell. Its later Promise is visited first and completes the still
+  ;; registered Task; cancelling at the earlier credit claim would be premature.
+  (let [spec (host/spec "queued_zero" ["object"] [false] "object")
+        pair (c/decl "pair" [(c/p 1 "object") (c/p 2 "object")] "object"
+                    (c/let-ir 3 "object" (c/ctor 2 [(c/v 1) (c/v 2)] 0) (c/ret 3)))
+        ctx (task-context [(host/ext "queued-zero" spec) pair] [spec]) engine (j/machine ctx)
+        p (promise! ctx engine)
+        dependent (map! ctx engine (j/make-closure! ctx engine "queued-zero" []) (result-task! ctx engine p))
+        root (order/pair! ctx engine dependent p)]
+    (j/start-release! ctx engine root 1)
+    (let [request (host/request! ctx engine)]
+      (is (order/dead? dependent)) (is (order/dead? p))
+      (is (= [0] (host/args request)))
+      (j/resume-host! ctx engine request 0) (is (= 0 (finish! ctx engine)))
+      (is (zero? (.size ^java.util.Map (host/private-value engine "taskRecords"))))
+      (is (quiescent? ctx engine)) (close! ctx engine))))
+
 (defn check! [basis] (binding [*basis* basis] (run-tests 'java-ir-sync-task-checks)))
