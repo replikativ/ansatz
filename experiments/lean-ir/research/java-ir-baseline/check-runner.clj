@@ -25,6 +25,7 @@
 (load-file "research/java-ir-baseline/array-checks.clj")
 (load-file "research/java-ir-baseline/byte-array-checks.clj")
 (load-file "research/java-ir-baseline/string-checks.clj")
+(load-file "research/java-ir-baseline/string-completion-checks.clj")
 (load-file "research/java-ir-baseline/runtime-basics-checks.clj")
 (load-file "research/java-ir-baseline/initialization-checks.clj")
 (load-file "research/java-ir-baseline/integral-checks.clj")
@@ -88,6 +89,8 @@
                (java-ir-byte-array-checks/check! (assoc basis :explicit true))
                (java-ir-string-checks/check! basis)
                (java-ir-string-checks/check! (assoc basis :explicit true))
+               (java-ir-string-completion-checks/check! basis)
+               (java-ir-string-completion-checks/check! (assoc basis :explicit true))
                (java-ir-runtime-basics-checks/check! basis)
                (java-ir-runtime-basics-checks/check! (assoc basis :explicit true))
                (java-ir-initialization-checks/check! basis)
@@ -130,5 +133,5 @@
                (clojure.test/run-tests 'prototype.resident-init-prefix-test)
                (clojure.test/run-tests 'prototype.coherent-jvm-slice-test)]]
   (shutdown-agents)
-  (System/exit (if (and (= [9 9 8 6 5 5 6 6 9 9 4 7 9 4 13 18 17 10 10 7 10 10 8 8 13 13 6 6 8 8 6 6 6 6 10 10 16 16 8 8 11 11 8 8 7 7 6 12 9 15 11 11 7 9 4 15 7 10 17 8 4 6 10 9 5 3 4 6 13] (mapv :test results))
+  (System/exit (if (and (= [9 9 8 6 5 5 6 6 9 9 4 7 9 4 13 18 17 10 10 7 10 10 8 8 13 13 6 6 9 9 8 8 6 6 6 6 10 10 16 16 8 8 11 11 8 8 7 7 6 12 9 15 11 11 7 9 4 15 7 10 17 8 4 6 10 9 5 3 4 6 13] (mapv :test results))
                        (every? #(zero? (+ (:fail %) (:error %))) results)) 0 1)))
