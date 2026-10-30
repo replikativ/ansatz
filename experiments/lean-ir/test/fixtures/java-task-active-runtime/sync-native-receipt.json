@@ -1,0 +1,59 @@
+{
+  "schema": "matching-native-sync-task-oracle/1",
+  "lean-commit": "819816b2e0a3bf405af45ae5c7af2491d8f5bee6",
+  "version": "Lean (version 4.33.1, x86_64-unknown-linux-gnu, commit 819816b2e0a3bf405af45ae5c7af2491d8f5bee6, Release)",
+  "binary-sha256": "e8baaa71855a616dc351028f3ad2200051b0671f423a1696a100e809302d5550",
+  "runtime-sha256": "23d636cac1cadcba37beac30eff9b9b20d66cee726cf5defb4ae39f1284a3e5a",
+  "source-sha256": "62ab02763bb05a61a3b6b1ddebcc2fe91cc3a2e65ed1b3ce33f347575c1192c3",
+  "output-sha256": "483383ffa145d6d409504ce2afd608a9887e8d81a31d2efbb3f4dae9bfd57d46",
+  "verifier-sha256": "1ea4861d80bef7f65cb7cde52ceb638872d7bee9b9aa2a3d5c20fe2d32047126",
+  "cases": [
+    "nested-sync-lifo-depth-first",
+    "duplicate-losing-token-release",
+    "discarded-baseio-keepalive",
+    "pure-waiting-capture-drop",
+    "drop-later-detached-dependent",
+    "cancel-finish-and-inline-scope"
+  ],
+  "modes": [
+    "--run",
+    "C/native"
+  ],
+  "exit": 0,
+  "stderr": "",
+  "environment": {
+    "LC_ALL": "C",
+    "LANG": "C",
+    "LEAN_NUM_THREADS": "1",
+    "TMPDIR": "repository-local temporary directory"
+  },
+  "bounds": {
+    "file-bytes": 536870912,
+    "output-bytes-per-command": 65536,
+    "version-wall-seconds": 10,
+    "run-wall-seconds": 40,
+    "compile-wall-seconds-per-command": 70,
+    "native-wall-seconds": 30,
+    "version-cpu-seconds": 5,
+    "run-cpu-seconds": 30,
+    "compile-cpu-seconds-per-command": 60,
+    "native-cpu-seconds": 15,
+    "cpu-hard-grace-seconds": 5,
+    "core-bytes": 0,
+    "address-space-bound": null
+  },
+  "scope": "Deterministic synchronous ownership/cancellation observations, not JVM pending-task support or native timing.",
+  "provenance-scope": "Matching installed binary/runtime; not authentication of the accepted IR checkpoint producer.",
+  "aot": {
+    "exit": 0,
+    "stderr": "",
+    "matches-run-trace": true,
+    "leanc-sha256": "cc293b2c81b7bc16d750959c7c82d61f4b95f50c2942d1131d57c078b8245ac1",
+    "linker-threads": 1,
+    "generated-c-sha256": "e8d67fc5864c1a839341e3fd35c7a321cc077c048f0b5922f536d6c36485036e",
+    "generated-c-bytes": 60452,
+    "executable-sha256": "354b2bbafcace8a6947a4be81037e6705857a55a3080829e31ab087752877400",
+    "executable-bytes": 120436784,
+    "runtime-archive-sha256": "5ba1e096483bd26685eb5c774fa4775ff5d67db522520621b46186c29ddd8f37"
+  }
+}

@@ -1,0 +1,10 @@
+nested=[outer-second-enter, inner-second, inner-first, outer-second-exit, outer-first, after-resolve]
+duplicate=[before-duplicate, losing-token-drop, after-duplicate]
+duplicate-winner=true
+keepalive=[before-resolve, kept-callback, after-resolve]
+pure-drop-pending=true
+pure-drop=[before-drop, pure-token-drop, after-drop, after-resolve]
+detached-pending=true
+detached=[before-resolve, killer-before, later-token-drop, killer-after, after-resolve]
+cancel-pending=true
+cancel-scope=[pending-canceled=true, ready-inline-canceled=true, pending-after=true, root-after=false, root-inline=false]
