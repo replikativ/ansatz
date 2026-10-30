@@ -214,16 +214,29 @@
           :closure [[Long/TYPE Integer/TYPE (class target) objects]
                     [(long id) (int rc) target (object-array fields)]])]
     (invoke-static (.getMethod cls (name kind) (into-array Class types)) arguments)))
-(defn prepared-graph [basis source state-token nodes globals global-values owned-roots]
+(defn graph-int [basis value]
+  (when-not (integer? value)
+    (throw (ex-info "GraphInt requires an exact integer" {:value value})))
+  (let [cls (Class/forName "ansatz.research.ir.Interpreter$GraphInt" true (:loader basis))]
+    (.newInstance (.getConstructor cls (into-array Class [java.math.BigInteger]))
+                  (object-array [(biginteger value)]))))
+(defn- graph-recipe [selected? basis source state-token nodes globals global-values owned-roots]
   (let [cls (Class/forName "ansatz.research.ir.Interpreter$PreparedGraph" true (:loader basis))
         node-class (Class/forName "ansatz.research.ir.Interpreter$ImportNode" true (:loader basis))
         node-array (java.lang.reflect.Array/newInstance node-class (count nodes))
         global-array (header-array basis globals) objects (class (object-array 0))]
     (doseq [[i node] (map-indexed vector nodes)] (java.lang.reflect.Array/set node-array i node))
-    (.newInstance (.getConstructor cls (into-array Class [(class source) Object (class node-array)
-                                                         (class global-array) objects objects]))
-                  (object-array [source state-token node-array global-array
-                                 (object-array global-values) (object-array owned-roots)]))))
+    (let [types (into-array Class [(class source) Object (class node-array)
+                                  (class global-array) objects objects])
+          args [source state-token node-array global-array
+                (object-array global-values) (object-array owned-roots)]]
+      (if selected?
+        (invoke-static (.getMethod cls "selectedOwners" types) args)
+        (.newInstance (.getConstructor cls types) (object-array args))))))
+(defn prepared-graph [basis source state-token nodes globals global-values owned-roots]
+  (graph-recipe false basis source state-token nodes globals global-values owned-roots))
+(defn selected-owner-graph [basis source state-token nodes globals global-values owned-roots]
+  (graph-recipe true basis source state-token nodes globals global-values owned-roots))
 (defn install-graph! [basis engine graph]
   (vec (.invoke (.getMethod ^Class (:class basis) "installGraph" (into-array Class [(class graph)]))
                 engine (object-array [graph]))))
