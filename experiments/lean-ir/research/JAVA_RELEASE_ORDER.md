@@ -27,10 +27,12 @@ suite checks sibling order, shared grandchildren, duplicate edges, persistence,
 array spare capacity, closure captures, queue growth and deep public DEC.
 Snapshots and test references acquire no guest owner credits.
 
-This remains a synchronous, finalizer-free change. It adds no Promise, pending
-Task, scheduler, logical MT metadata, release transaction, public pause or general
-failed-release cleanup. The existing work-array cleanup on terminal failure is
-not a resumable ownership ledger. Native Task/Promise-specific nested release
+This ordering-only tranche remains synchronous and finalizer-free. A separate
+[root release transaction foundation](JAVA_RELEASE_TRANSACTIONS.md) now provides
+budgeted explicit root disposal. Neither tranche adds Promise, pending Task,
+scheduler, logical MT metadata or general failed-execution cleanup. Default
+synchronous DEC's existing work-array cleanup on terminal failure is not a
+resumable ownership ledger. Native Task/Promise-specific nested release
 boundaries, helper publication order, stacked Host cleanup continuations and
 explicit active-mode disposal must be implemented before guest finalizers can
 run. Public dec/close and the ready-only runtime profile are unchanged.

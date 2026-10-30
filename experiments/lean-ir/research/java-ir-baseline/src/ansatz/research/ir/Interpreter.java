@@ -1137,6 +1137,15 @@ public final class Interpreter implements AutoCloseable {
     private byte[] utf8Bytes;
     private Object[] releaseWork=new Object[32];
     private int releasePending;
+    private boolean releaseRoot;
+    private ReleaseTransaction releaseTransaction;
+    /** Explicit finalizer-free root only. Credits are claimed once; current and
+     * queued dead shells still own each not-yet-scanned field edge. */
+    private static final class ReleaseTransaction {
+        Node origin,current;
+        int count,fieldCursor,fieldLimit;
+        boolean claimed;
+    }
     private long callsLeft;
     private final boolean explicit;
     private static final int IDLE=0, RUNNING=1, COMPLETE=2, FAILED=3, HOST_CALL=4, CODE_CALL=5;
@@ -1217,8 +1226,8 @@ public final class Interpreter implements AutoCloseable {
         if(closed||advancing||phase==FAILED||untrackedFailure||(!explicit&&sp!=0))
             throw new IllegalStateException("Fork requires an open idle or paused instruction boundary");
         if(externalRoots==null) throw error("Explicit fork roots required");
-        // phase RUNNING between advance calls is the explicit driver's paused
-        // instruction boundary. No Java call frame is captured in that state.
+        // phase RUNNING between advance calls is a paused dispatch/release-work
+        // boundary. No Java call frame is captured in that state.
         Interpreter child=new Interpreter(program,explicit,initializing,buildIdentity);
         ForkCopy copy=new ForkCopy(child);
         copy.bind(constants,child.constants);
@@ -1234,6 +1243,7 @@ public final class Interpreter implements AutoCloseable {
         child.utf8Key=key==null?null:new WeakReference<>(key);
         child.utf8Bytes=utf8Bytes==null?null:utf8Bytes.clone();
         child.releaseWork=(Object[])copy.value(releaseWork); child.releasePending=releasePending;
+        child.releaseRoot=releaseRoot; child.releaseTransaction=(ReleaseTransaction)copy.value(releaseTransaction);
         child.callsLeft=callsLeft; child.phase=phase; child.continuationDepth=continuationDepth;
         child.untrackedFailure=untrackedFailure;
         child.instructions=instructions; child.pendingOwnedResult=pendingOwnedResult;
@@ -1288,6 +1298,12 @@ public final class Interpreter implements AutoCloseable {
                 Function out=new Function(old.label,old.id,old.params,old.paramTypes,
                         old.resultType,old.intrinsic,old.hostExtern,child.runtimeIdentity);
                 copies.put(source,out); return out;
+            }
+            if(source instanceof ReleaseTransaction) {
+                ReleaseTransaction old=(ReleaseTransaction)source,out=new ReleaseTransaction(); copies.put(source,out);
+                out.origin=(Node)value(old.origin); out.current=(Node)value(old.current);
+                out.count=old.count; out.fieldCursor=old.fieldCursor; out.fieldLimit=old.fieldLimit; out.claimed=old.claimed;
+                return out;
             }
             if(source instanceof CodeRequest) {
                 CodeRequest old=(CodeRequest)source;
@@ -1667,6 +1683,7 @@ public final class Interpreter implements AutoCloseable {
         if(o instanceof Node) { Node v=node(o); if(v.rc!=0) { v.rc=Math.addExact(v.rc,n); retains+=n; } }
     }
     public void dec(Object o,int n) {
+        if(releaseRoot) throw new IllegalStateException("Synchronous DEC cannot overlap a release transaction");
         if(n<0) throw error("Negative reference decrement");
         if(!(o instanceof Node)) return;
         Node v=node(o);
@@ -1678,24 +1695,25 @@ public final class Interpreter implements AutoCloseable {
     /** Consume each owning edge before visiting any zero-owner child. Pinned
      * lean_del_core scans ascending, then drains zero shells in LIFO order.
      * Queued zero is dead, distinct from a live persistent rc0 object. */
-    private void releaseFields(Node current) {
-        int size=current.array?arrayState(current).size:current.fields.length;
-        for(int i=0;i<size;i++) {
-            Object child=current.fields[i];
-            if(child instanceof Node) {
-                Node value=node(child);
-                if(value.rc!=0) {
-                    if(value.rc<0) throw error("Reference count underflow");
-                    // Grow before claiming a final edge; no queue entry is lost
-                    // if capacity allocation itself fails.
-                    if(value.rc==1&&releasePending==releaseWork.length)
-                        releaseWork=Arrays.copyOf(releaseWork,Math.multiplyExact(releasePending,2));
-                    value.rc--; releases++;
-                    if(value.rc==0) { value.dead=true; releaseWork[releasePending++]=value; }
-                }
+    private int owningFieldCount(Node current) { return current.array?arrayState(current).size:current.fields.length; }
+    private void releaseField(Node current,int index) {
+        Object child=current.fields[index];
+        if(child instanceof Node) {
+            Node value=node(child);
+            if(value.rc!=0) {
+                if(value.rc<0) throw error("Reference count underflow");
+                // Capacity is secured before the last child credit is claimed.
+                if(value.rc==1&&releasePending==releaseWork.length)
+                    releaseWork=Arrays.copyOf(releaseWork,Math.multiplyExact(releasePending,2));
+                value.rc--; releases++;
+                if(value.rc==0) { value.dead=true; releaseWork[releasePending++]=value; }
             }
-            current.fields[i]=null;
         }
+        current.fields[index]=null;
+    }
+    private void releaseFields(Node current) {
+        int size=owningFieldCount(current);
+        for(int i=0;i<size;i++) releaseField(current,i);
     }
     private Node takeReleased() {
         Node next=(Node)releaseWork[--releasePending]; releaseWork[releasePending]=null; return next;
@@ -1710,6 +1728,49 @@ public final class Interpreter implements AutoCloseable {
             }
         } finally {
             Arrays.fill(releaseWork,0,releasePending,null); releasePending=0;
+        }
+    }
+    /** Claim external credits once, then budget ordinary native-order release.
+     * Existing value/pointer/closure discipline is checked, not a universal
+     * proof that arbitrary unstamped Node references belong to this branch. */
+    public void startRelease(Object value,int count) {
+        explicitOnly();
+        if(advancing||phase!=IDLE||pendingOwnedResult||untrackedFailure||sp!=0||continuationDepth!=0
+                ||releaseRoot||releasePending!=0)
+            throw new IllegalStateException("Release transaction requires an open idle engine");
+        require(count>=0,"Negative release count");
+        validateHostObject(value);
+        Node root=value instanceof Node?(Node)value:null;
+        if(root!=null&&root.rc!=0) require(count<=root.rc,"Reference count underflow");
+        ReleaseTransaction transaction=null;
+        if(root!=null&&root.rc!=0&&count!=0&&count==root.rc) {
+            int limit=owningFieldCount(root);
+            require(limit>=0&&limit<=root.fields.length,"Release field count outside payload");
+            transaction=new ReleaseTransaction(); transaction.origin=root; transaction.current=root;
+            transaction.count=count; transaction.fieldLimit=limit;
+        }
+        // Publish the preallocated claim record before consuming the root token.
+        releaseRoot=true; releaseTransaction=transaction; entry=null; active=null; activePrepared=null; pc=null;
+        result=null; instructions=0;
+        if(root!=null&&root.rc!=0) { root.rc-=count; releases+=count; }
+        if(transaction==null) { completeRelease(); return; }
+        transaction.claimed=true; root.dead=true; phase=RUNNING;
+    }
+    private void completeRelease() {
+        releaseTransaction=null; result=ERASED; pendingOwnedResult=true; phase=COMPLETE;
+    }
+    private void runReleaseLoop(long budget) {
+        while(phase==RUNNING&&budget-->0) {
+            instructions++;
+            ReleaseTransaction transaction=releaseTransaction;
+            if(transaction.fieldCursor<transaction.fieldLimit) {
+                releaseField(transaction.current,transaction.fieldCursor);
+                transaction.fieldCursor++;
+            } else if(releasePending!=0) {
+                Node next=(Node)releaseWork[releasePending-1]; int limit=owningFieldCount(next);
+                require(limit>=0&&limit<=next.fields.length,"Release field count outside payload");
+                transaction.current=takeReleased(); transaction.fieldCursor=0; transaction.fieldLimit=limit;
+            } else completeRelease();
         }
     }
     private Node constructorNode(Object value) {
@@ -3381,7 +3442,9 @@ public final class Interpreter implements AutoCloseable {
 
     /** New engine-level body-dispatch budget, not the legacy World fuel ABI.
      * Calls commit their continuation before pause; RET restoration is atomic.
-     * Self-tail elimination consumes its VDECL and has no deferred RET frame. */
+     * Self-tail elimination consumes its VDECL and has no deferred RET frame.
+     * A root release charges one field edge or shell transition/completion per
+     * unit; it has no source Function, PC, or guest body instruction. */
     public boolean advance(long budget) {
         explicitOnly();
         if(budget<0) throw error("Negative instruction budget");
@@ -3390,7 +3453,10 @@ public final class Interpreter implements AutoCloseable {
         if(phase==HOST_CALL||phase==CODE_CALL) return false;
         if(phase!=RUNNING) throw new IllegalStateException("No resumable execution: "+phase());
         advancing=true;
-        try { runExplicitLoop(budget); return phase==COMPLETE; }
+        try {
+            if(releaseRoot) runReleaseLoop(budget); else runExplicitLoop(budget);
+            return phase==COMPLETE;
+        }
         catch(Throwable failure) { phase=FAILED; throw failure; }
         finally { advancing=false; }
     }
@@ -3480,8 +3546,8 @@ public final class Interpreter implements AutoCloseable {
     public Object takeResult() {
         explicitOnly();
         if(phase!=COMPLETE||!pendingOwnedResult) throw new IllegalStateException("No owned result available");
-        Object value=entry.resultType==OBJ?result:externalScalar(scalarResult,entry.resultType);
-        pendingOwnedResult=false; result=null; entry=null; phase=IDLE;
+        Object value=releaseRoot?ERASED:entry.resultType==OBJ?result:externalScalar(scalarResult,entry.resultType);
+        pendingOwnedResult=false; result=null; entry=null; releaseRoot=false; phase=IDLE;
         return value;
     }
     /** Internal borrowed array primitives need an owning wrapper at host entry. */
@@ -3542,7 +3608,9 @@ public final class Interpreter implements AutoCloseable {
             closed=false;
             throw new IllegalStateException("Active or failed explicit execution requires ownership cleanup before close");
         }
-        if(pendingOwnedResult&&entry.resultType==OBJ) dec(result,1);
+        boolean sourceOwnedResult=pendingOwnedResult&&!releaseRoot&&entry.resultType==OBJ;
+        releaseRoot=false;
+        if(sourceOwnedResult) dec(result,1);
         pendingOwnedResult=false;
         if(stdoutRoot!=null) { dec(stdoutRoot,1); stdoutRoot=null; }
         utf8Key=null; utf8Bytes=null;
