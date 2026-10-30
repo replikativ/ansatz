@@ -20,6 +20,8 @@
      :prepare (.getMethod cls "prepare" (into-array Class [java.util.List]))
      :constructor (.getConstructor cls (into-array Class [program]))
      :constructor-explicit (.getConstructor cls (into-array Class [program Boolean/TYPE]))
+     :constructor-initializing (try (.getConstructor cls (into-array Class [program Boolean/TYPE Boolean/TYPE]))
+                                   (catch NoSuchMethodException _ nil))
      :function-id (.getMethod program "functionId" (into-array Class [String]))
      :invoke (.getMethod cls "invoke" (into-array Class [Integer/TYPE (class (object-array 0))]))
      :rbmap (.getMethod cls "rbmap" (into-array Class (repeat 4 Integer/TYPE)))
@@ -41,9 +43,20 @@
 (defn open-program [basis path]
   (assoc basis :program (invoke-static (:prepare basis) [(rows path)])))
 (defn machine [basis]
-  (if (:explicit basis)
+  (cond
+    (:initializing basis)
+    (if-let [constructor (:constructor-initializing basis)]
+      (.newInstance ^Constructor constructor (object-array [(:program basis) (boolean (:explicit basis)) true]))
+      (throw (ex-info "Engine artifact has no initialization-session API" {})))
+    (:explicit basis)
     (.newInstance ^Constructor (:constructor-explicit basis) (object-array [(:program basis) true]))
-    (.newInstance ^Constructor (:constructor basis) (object-array [(:program basis)]))))
+    :else (.newInstance ^Constructor (:constructor basis) (object-array [(:program basis)]))))
+(defn finish-initialization! [basis engine]
+  (.invoke (.getMethod ^Class (:class basis) "finishInitialization" (make-array Class 0))
+           engine (object-array 0)))
+(defn initializing? [basis engine]
+  (.invoke (.getMethod ^Class (:class basis) "isInitializing" (make-array Class 0))
+           engine (object-array 0)))
 (defn function-id [basis label]
   (.invoke ^Method (:function-id basis) (:program basis) (object-array [label])))
 (defn call [basis engine label args]

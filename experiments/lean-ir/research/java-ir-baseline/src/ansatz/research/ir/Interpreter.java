@@ -32,6 +32,7 @@ public final class Interpreter implements AutoCloseable {
                              STR_CONTAINS=54,STR_LENGTH=55,STR_SET=56;
     private static final int NAT_LE=57,NAT_LOG2=58,NAT_OR=59,NAT_SHL=60,NAT_SHR=61,TASK_PURE=62,TASK_GET=63;
     private static final int ARRAY_CHECKED_GET=64,ARRAY_CHECKED_BORROWED=65;
+    private static final int IO_INITIALIZING=66;
     private static final int MAX_SHIFT_RESULT_BITS=16*1024*1024;
     private static final int MAX_ARRAY_CAPACITY=1_000_000;
     private static final int STREAM_FLUSH=100,STREAM_READ=101,STREAM_WRITE=102,STREAM_LINE=103,STREAM_PUT=104,STREAM_TTY=105;
@@ -258,6 +259,8 @@ public final class Interpreter implements AutoCloseable {
                 new String[]{"erased","tobject","object","tobject"},new boolean[]{false,true,true,true}));
         register(registry,new ExternSpec("lean_array_get_borrowed",ARRAY_CHECKED_BORROWED,"tobject",
                 new String[]{"erased","tobject","object","tobject"},new boolean[]{false,true,true,true}));
+        register(registry,new ExternSpec("lean_io_initializing",IO_INITIALIZING,"uint8",
+                new String[]{"void"},new boolean[]{false}));
         registry.replaceAll((symbol,entries)->Collections.unmodifiableList(entries));
         return Collections.unmodifiableMap(registry);
     }
@@ -791,6 +794,7 @@ public final class Interpreter implements AutoCloseable {
     private Object[] constants;
     private boolean[] constantReady;
     private boolean graphInstalled;
+    private boolean initializing;
     private Map<Integer,PreparedGlobalSource> preparedGlobalSources=Collections.emptyMap();
     private boolean closed;
     private boolean untrackedFailure;
@@ -829,12 +833,26 @@ public final class Interpreter implements AutoCloseable {
     public long allocations,stores,retains,releases,shellDeletes;
 
     public Interpreter(Program program) { this(program,false); }
-    public Interpreter(Program program,boolean explicit) {
+    /** Existing constructors denote ordinary post-boot execution, not native
+     * process startup or evidence of module/global initialization completeness. */
+    public Interpreter(Program program,boolean explicit) { this(program,explicit,false); }
+    /** Fresh initialization mode is explicit; it is never re-entered by imports. */
+    public Interpreter(Program program,boolean explicit,boolean initializing) {
         this.program=program;
+        this.initializing=initializing;
         this.explicit=explicit;
         if(explicit) continuations=new Continuation[32];
         constants=new Object[program.functions.length];
         constantReady=new boolean[constants.length];
+    }
+
+    public boolean isInitializing() { return initializing; }
+    /** One-way host launch boundary, analogous to native mark_end_initialization.
+     * Program/header/graph operations never infer or change this phase. */
+    public void finishInitialization() {
+        if(closed||advancing||phase!=IDLE||pendingOwnedResult||sp!=0||untrackedFailure)
+            throw new IllegalStateException("Initialization completion requires an open idle engine");
+        initializing=false;
     }
 
     /** Eager research fork, O(allocated stack capacity + reachable graph), not
@@ -862,7 +880,7 @@ public final class Interpreter implements AutoCloseable {
         if(externalRoots==null) throw error("Explicit fork roots required");
         // phase RUNNING between advance calls is the explicit driver's paused
         // instruction boundary. No Java call frame is captured in that state.
-        Interpreter child=new Interpreter(program,explicit);
+        Interpreter child=new Interpreter(program,explicit,initializing);
         ForkCopy copy=new ForkCopy(child);
         copy.bind(constants,child.constants);
         child.objects=(Object[])copy.value(objects);
@@ -1646,6 +1664,10 @@ public final class Interpreter implements AutoCloseable {
     }
     public String capturedStdout() { return output.toString(); }
     private void runtimeIntrinsic(Function f,Object a,Object b,Object c) {
+        if(f.intrinsic==IO_INITIALIZING) {
+            require(ERASED.equals(a),"IO.initializing world parameter requires erased placeholder");
+            scalarResult=initializing?1:0; return;
+        }
         if(f.intrinsic==TASK_PURE||f.intrinsic==TASK_GET) {
             require(ERASED.equals(a),"Task erased parameter requires erased placeholder");
             if(f.intrinsic==TASK_PURE) {
