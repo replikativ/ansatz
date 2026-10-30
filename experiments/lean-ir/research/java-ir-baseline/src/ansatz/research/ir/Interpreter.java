@@ -115,6 +115,10 @@ public final class Interpreter implements AutoCloseable {
         public boolean[] borrowed() { return call.function.hostExtern.borrowed(); }
         public String resultType() { return call.function.hostExtern.resultType; }
         public Object[] arguments() { return argumentViews(call.function,call.arguments); }
+        public boolean argumentTransferred(int index) {
+            require(index>=0&&index<call.arguments.length,"Host argument index outside ABI");
+            return call.argumentTransferred!=null&&call.argumentTransferred[index];
+        }
     }
     /** Engine-private continuation and ownership disposition. It is copied by
      * the same fork memo as stack/argument graphs; it never runs a host handler. */
@@ -127,6 +131,78 @@ public final class Interpreter implements AutoCloseable {
         Object completionResult;
         long completionScalar;
         HostCall previousCompletion;
+        boolean[] argumentTransferred;
+    }
+
+    /** Trusted-adapter setup policy, not source hash authentication. Headers
+     * retain only their existing immutable code/source metadata, never an engine. */
+    public static final class HostGuestPolicy {
+        private final Header[] outerHeaders,helperHeaders;
+        private HostGuestPolicy(Header[] outerHeaders,Header[] helperHeaders) {
+            require(outerHeaders!=null&&outerHeaders.length>0&&outerHeaders.length<=64
+                    &&helperHeaders!=null&&helperHeaders.length>0&&helperHeaders.length<=64,"Invalid host guest policy size");
+            this.outerHeaders=outerHeaders.clone(); this.helperHeaders=helperHeaders.clone();
+            Set<Header> seen=Collections.newSetFromMap(new IdentityHashMap<Header,Boolean>());
+            for(Header header:this.outerHeaders) require(header!=null&&seen.add(header),"Duplicate/null outer Header");
+            seen.clear();
+            for(Header header:this.helperHeaders) require(header!=null&&seen.add(header),"Duplicate/null helper Header");
+        }
+        public static HostGuestPolicy of(Header[] outerHeaders,Header[] helperHeaders) {
+            return new HostGuestPolicy(outerHeaders,helperHeaders);
+        }
+        private boolean outer(Header target) { for(Header h:outerHeaders) if(h==target) return true; return false; }
+        private boolean helper(Header target) { for(Header h:helperHeaders) if(h==target) return true; return false; }
+        public Header[] outerHeaders() { return outerHeaders.clone(); }
+        public Header[] helperHeaders() { return helperHeaders.clone(); }
+    }
+    /** An explicit credit source, not a way to manufacture one. owned(value)
+     * has the existing caller-owned-credit precondition. An outer-slot transfer
+     * is checked/consumed once by its actual engine/HostCall, not this descriptor. */
+    public static final class HostGuestArgument {
+        private final Object value;
+        private final HostRequest outer;
+        private final int index;
+        private HostGuestArgument(Object value,HostRequest outer,int index) { this.value=value; this.outer=outer; this.index=index; }
+        public static HostGuestArgument owned(Object value) { return new HostGuestArgument(value,null,-1); }
+        public static HostGuestArgument fromHostArgument(HostRequest outer,int index) {
+            require(outer!=null&&index>=0,"Actual host argument index required");
+            return new HostGuestArgument(null,outer,index);
+        }
+    }
+    /** Borrowed operation/result view. The token owns no extra guest credits
+     * and contains no strong Interpreter reference. Engine claim is one-shot. */
+    public static final class HostGuestOperation {
+        private final Object owner;
+        private final HostGuestRecord record;
+        private HostGuestOperation(Object owner,HostGuestRecord record) { this.owner=owner; this.record=record; }
+        public HostRequest outerRequest() { return record.outer; }
+        public Header helperHeader() { return record.helper; }
+        public boolean isRelease() { return record.release; }
+        public boolean resultTaken() { return record.taken; }
+        public boolean argumentsOwned() { return record.argumentsOwned; }
+        public boolean resultOwned() { return record.resultOwned; }
+        public Object[] arguments() { return record.arguments==null?new Object[0]:record.arguments.clone(); }
+        public Object result() {
+            if(!record.complete||record.taken) throw new IllegalStateException("No unclaimed host guest result");
+            return record.result;
+        }
+    }
+    private static final class HostGuestRecord {
+        HostGuestRecord parent;
+        HostRequest outer;
+        HostGuestOperation token;
+        RuntimeAction action;
+        Header helper;
+        Function function,caller;
+        PreparedBody callerPrepared;
+        Body savedPc;
+        TaskRecord scope;
+        HostCall completionBase;
+        Object[] arguments;
+        int[] movedSlots;
+        int bp,sp,jbp,jsp,depth,count;
+        boolean release,argumentsOwned,entered,complete,resultOwned,taken,releaseClaimed;
+        Object result;
     }
 
     /** Borrowed diagnostic view of a committed code activation. This request
@@ -1251,7 +1327,7 @@ public final class Interpreter implements AutoCloseable {
     }
     private long callsLeft;
     private final boolean explicit;
-    private static final int IDLE=0, RUNNING=1, COMPLETE=2, FAILED=3, HOST_CALL=4, CODE_CALL=5, WAITING=6;
+    private static final int IDLE=0, RUNNING=1, COMPLETE=2, FAILED=3, HOST_CALL=4, CODE_CALL=5, WAITING=6, HOST_GUEST_RESULT=7;
     private static final int ASSIGN=0, CACHE=1, APPLY=2, ROOT=4;
     private int phase=IDLE, continuationDepth;
     private long instructions;
@@ -1274,14 +1350,17 @@ public final class Interpreter implements AutoCloseable {
         applicationCaptureCount=0; applicationRetainedCaptures=0;
     }
     private HostRequest hostRequest,failedHostRequest;
+    private HostGuestPolicy hostGuestPolicy;
+    private HostGuestRecord hostGuestRecord;
     private HostCall hostCompletion;
     private RuntimeAction runtimeAction,failedRuntimeAction;
-    private static final int ACTION_RELEASE=1,ACTION_DISPOSE=2,ACTION_NATIVE=3,ACTION_HOST=4,ACTION_TASK=5,ACTION_RESOLVE=6,ACTION_RUN_TASK=7,ACTION_PROFILE=8;
+    private static final int ACTION_RELEASE=1,ACTION_DISPOSE=2,ACTION_NATIVE=3,ACTION_HOST=4,ACTION_TASK=5,ACTION_RESOLVE=6,ACTION_RUN_TASK=7,ACTION_PROFILE=8,ACTION_HOST_GUEST=20;
     private static final Body ACTION_BODY=new Body();
     /** Typed ownership/control state, separate from NodeMetadata. The output
      * scratch slot is reserved before callbacks may enter generic AP. */
     private static final class RuntimeAction {
         RuntimeAction parent;
+        HostGuestRecord guest;
         int operation,stage,savedSp,slot,dest,kind,cursor,limit,pending;
         Function function;
         Body next;
@@ -1637,6 +1716,7 @@ public final class Interpreter implements AutoCloseable {
         else if(action.operation==ACTION_RESOLVE) stepResolve(action);
         else if(action.operation==ACTION_RUN_TASK) stepRunTask(action);
         else if(action.operation==ACTION_PROFILE) stepProfile(action);
+        else if(action.operation==ACTION_HOST_GUEST) stepHostGuest(action);
         else if(action.operation==ACTION_HOST) {
             try { stepHostCompletion(action); }
             catch(Throwable failure) { markHostFailure(action.request,failure); throw failure; }
@@ -1755,6 +1835,7 @@ public final class Interpreter implements AutoCloseable {
         child.applicationRetainedCaptures=applicationRetainedCaptures;
         child.hostRequest=(HostRequest)copy.value(hostRequest);
         child.hostCompletion=(HostCall)copy.value(hostCompletion);
+        child.hostGuestPolicy=hostGuestPolicy; child.hostGuestRecord=(HostGuestRecord)copy.value(hostGuestRecord);
         child.runtimeAction=(RuntimeAction)copy.value(runtimeAction);
         child.failedRuntimeAction=(RuntimeAction)copy.value(failedRuntimeAction);
         child.currentTask=(TaskRecord)copy.value(currentTask);
@@ -1814,6 +1895,16 @@ public final class Interpreter implements AutoCloseable {
                 Registration out=new Registration(); copies.put(source,out);
                 pending.addLast(new Object[]{source,out}); return out;
             }
+            if(source instanceof HostGuestRecord) {
+                HostGuestRecord out=new HostGuestRecord(); copies.put(source,out);
+                pending.addLast(new Object[]{source,out}); return out;
+            }
+            if(source instanceof HostGuestOperation) {
+                HostGuestOperation old=(HostGuestOperation)source;
+                require(old.owner==runtimeIdentity,"Foreign host guest operation");
+                HostGuestOperation out=new HostGuestOperation(child.runtimeIdentity,(HostGuestRecord)value(old.record));
+                copies.put(source,out); return out;
+            }
             if(source instanceof RuntimeAction) {
                 RuntimeAction out=new RuntimeAction(); copies.put(source,out);
                 pending.addLast(new Object[]{source,out}); return out;
@@ -1865,7 +1956,7 @@ public final class Interpreter implements AutoCloseable {
                     for(int i=0;i<from.length;i++) to[i]=value(from[i]);
                 } else if(source instanceof RuntimeAction) {
                     RuntimeAction old=(RuntimeAction)source,out=(RuntimeAction)target;
-                    out.parent=(RuntimeAction)value(old.parent); out.operation=old.operation; out.stage=old.stage;
+                    out.parent=(RuntimeAction)value(old.parent); out.guest=(HostGuestRecord)value(old.guest); out.operation=old.operation; out.stage=old.stage;
                     out.savedSp=old.savedSp; out.slot=old.slot; out.dest=old.dest; out.kind=old.kind;
                     out.cursor=old.cursor; out.limit=old.limit; out.pending=old.pending;
                     out.function=(Function)value(old.function); out.next=old.next;
@@ -1885,6 +1976,7 @@ public final class Interpreter implements AutoCloseable {
                     out.resultTransferStarted=old.resultTransferStarted;
                     out.completionResult=value(old.completionResult); out.completionScalar=old.completionScalar;
                     out.previousCompletion=(HostCall)value(old.previousCompletion);
+                    out.argumentTransferred=old.argumentTransferred==null?null:old.argumentTransferred.clone();
 
                 } else if(source instanceof TaskRecord) {
                     TaskRecord old=(TaskRecord)source,out=(TaskRecord)target;
@@ -1897,6 +1989,18 @@ public final class Interpreter implements AutoCloseable {
                     Registration old=(Registration)source,out=(Registration)target;
                     out.list=(DependencyList)value(old.list); out.previous=(Registration)value(old.previous);
                     out.next=(Registration)value(old.next); out.source=(TaskRecord)value(old.source); out.dependent=(TaskRecord)value(old.dependent);
+                } else if(source instanceof HostGuestRecord) {
+                    HostGuestRecord old=(HostGuestRecord)source,out=(HostGuestRecord)target;
+                    out.parent=(HostGuestRecord)value(old.parent); out.outer=(HostRequest)value(old.outer);
+                    out.token=(HostGuestOperation)value(old.token); out.action=(RuntimeAction)value(old.action);
+                    out.helper=old.helper; out.function=(Function)value(old.function); out.caller=(Function)value(old.caller);
+                    out.callerPrepared=old.callerPrepared; out.savedPc=old.savedPc; out.scope=(TaskRecord)value(old.scope);
+                    out.completionBase=(HostCall)value(old.completionBase); out.arguments=(Object[])value(old.arguments);
+                    out.movedSlots=old.movedSlots==null?null:old.movedSlots.clone();
+                    out.bp=old.bp; out.sp=old.sp; out.jbp=old.jbp; out.jsp=old.jsp; out.depth=old.depth; out.count=old.count;
+                    out.release=old.release; out.argumentsOwned=old.argumentsOwned; out.entered=old.entered;
+                    out.complete=old.complete; out.resultOwned=old.resultOwned; out.taken=old.taken;
+                    out.releaseClaimed=old.releaseClaimed; out.result=value(old.result);
                 } else throw error("Unknown deferred fork record");
             }
         }
@@ -4013,6 +4117,182 @@ public final class Interpreter implements AutoCloseable {
         if(message==null) message=hostFailure.getClass().getName();
         return message.substring(0,Math.min(900,message.length()));
     }
+    /** One-time independent policy capture at an idle boundary. Source/catalogue
+     * authentication belongs to the trusted adapter selecting these Headers. */
+    public void configureHostGuestCalls(HostGuestPolicy policy) {
+        explicitOnly();
+        if(taskRuntime==null||advancing||disposed||untrackedFailure||phase!=IDLE||pendingOwnedResult||sp!=0
+                ||continuationDepth!=0||runtimeAction!=null||hostGuestRecord!=null||hostGuestPolicy!=null)
+            throw new IllegalStateException("Host guest policy requires an idle active runtime and may be configured once");
+        require(policy!=null,"Actual host guest policy required");
+        for(Header header:policy.outerHeaders) {
+            Function function=program.functions[program.functionId(header)];
+            require(function.header==header&&function.hostExtern!=null,"Allowed outer must be an actual captured Host Header");
+        }
+        for(Header header:policy.helperHeaders) validateHostGuestHelper(header);
+        hostGuestPolicy=policy;
+    }
+    private Function validateHostGuestHelper(Header header) {
+        require(header!=null,"Actual helper Header required");
+        Function function=program.functions[program.functionId(header)];
+        require(function.header==header&&header.kind.equals("fdecl")&&!header.initialized()
+                &&function.intrinsic==0&&function.hostExtern==null&&function.params.length>0&&function.params.length<=64
+                &&function.resultType==OBJ,"Host guest helper requires ordinary non-nullary boxed fdecl");
+        for(int i=0;i<function.params.length;i++)
+            require(function.paramTypes[i]==OBJ&&!header.borrowed[i],"Host guest helper requires owned boxed parameters; use an original boxed wrapper");
+        return function;
+    }
+    private HostCall requireHostGuestOuter(HostRequest outer) {
+        HostCall call=requireHostRequest(outer);
+        require(taskRuntime!=null&&hostGuestPolicy!=null&&hostGuestPolicy.outer(call.function.header),"Host guest outer Header is not authorized");
+        int depth=0;
+        for(HostGuestRecord r=hostGuestRecord;r!=null;r=r.parent)
+            require(++depth<1024,"Host guest operation nesting limit");
+        return call;
+    }
+    private static void addCredit(IdentityHashMap<Node,Integer> credits,Object value,int count) {
+        if(value instanceof Node&&count!=0) {
+            Node node=(Node)value; credits.put(node,Math.addExact(credits.getOrDefault(node,0),count));
+        }
+    }
+    private void reserveHostCall(HostCall call,IdentityHashMap<Node,Integer> credits,Set<Node> borrowed,boolean unclaimed,
+                                 boolean[] moved) {
+        for(int i=0;i<call.arguments.length;i++) if(call.function.paramTypes[i]==OBJ&&call.arguments[i] instanceof Node) {
+            boolean transferred=call.argumentTransferred!=null&&call.argumentTransferred[i]||moved!=null&&moved[i];
+            if(call.function.hostExtern.borrowed[i]) {
+                if(call.facade) {
+                    if(i>=call.borrowedCursor&&!(i==call.borrowedCursor&&call.adapterReleaseStarted)) addCredit(credits,call.arguments[i],1);
+                } else if(unclaimed) borrowed.add((Node)call.arguments[i]);
+            } else if(unclaimed&&!transferred) addCredit(credits,call.arguments[i],1);
+        }
+        if(!unclaimed&&call.resultOwned) addCredit(credits,call.completionResult,1);
+    }
+    /** Account only known reserved occurrences plus a distinct-node protection
+     * floor for repeated FAP borrowed views. This is not an owner-graph proof. */
+    private IdentityHashMap<Node,Integer> hostGuestReservations(HostCall outer,boolean[] moved) {
+        IdentityHashMap<Node,Integer> credits=new IdentityHashMap<>();
+        Set<Node> borrowed=Collections.newSetFromMap(new IdentityHashMap<Node,Boolean>());
+        reserveHostCall(outer,credits,borrowed,true,moved);
+        for(HostGuestRecord r=hostGuestRecord;r!=null;r=r.parent) {
+            reserveHostCall(r.outer.call,credits,borrowed,true,null);
+            if(r.argumentsOwned) for(Object value:r.arguments) addCredit(credits,value,r.release?r.count:1);
+            if(r.resultOwned) addCredit(credits,r.result,1);
+        }
+        for(HostCall call=hostCompletion;call!=null;call=call.previousCompletion)
+            reserveHostCall(call,credits,borrowed,false,null);
+        for(Node value:borrowed) if(!credits.containsKey(value)) credits.put(value,1);
+        return credits;
+    }
+    private Object[] preflightHostGuestArguments(HostRequest outer,HostGuestArgument[] descriptors,int count,
+                                                boolean release,boolean[] moved) {
+        require(descriptors!=null&&descriptors.length<=64,"Explicit host guest arguments required");
+        Object[] values=new Object[descriptors.length]; HostCall call=outer.call;
+        for(int i=0;i<values.length;i++) {
+            HostGuestArgument descriptor=descriptors[i]; require(descriptor!=null,"Actual credit descriptor required");
+            Object value;
+            if(descriptor.outer!=null) {
+                int index=descriptor.index;
+                require(descriptor.outer==outer&&descriptor.outer.owner==runtimeIdentity&&index<call.arguments.length,
+                        "Stale/foreign host argument transfer");
+                require(!call.function.hostExtern.borrowed[index]&&call.function.paramTypes[index]==OBJ,
+                        "Only an owned boxed outer argument can transfer");
+                require(!moved[index]&&(call.argumentTransferred==null||!call.argumentTransferred[index]),"Host argument credit was already transferred");
+                require(!release||count==1,"An outer slot supplies exactly one release credit");
+                moved[index]=true; value=call.arguments[index];
+            } else value=descriptor.value;
+            validateHostObject(value); values[i]=value;
+        }
+        IdentityHashMap<Node,Integer> credits=hostGuestReservations(call,moved);
+        for(Object value:values) addCredit(credits,value,release?count:1);
+        for(Map.Entry<Node,Integer> entry:credits.entrySet()) {
+            Node value=entry.getKey(); validateHostObject(value);
+            require(value.rc==0||value.rc>=entry.getValue(),"Insufficient unreserved host guest owner credits");
+        }
+        return values;
+    }
+    private HostGuestRecord prepareHostGuestOperation(HostRequest outer,Header helper,Object[] args,int[] slots,
+                                                     boolean release,int count) {
+        HostGuestRecord record=new HostGuestRecord();
+        record.outer=outer; record.helper=helper; record.arguments=args; record.movedSlots=slots;
+        record.release=release; record.count=count; record.argumentsOwned=true;
+        record.caller=active; record.callerPrepared=activePrepared; record.savedPc=pc;
+        record.bp=bp; record.sp=sp; record.jbp=jbp; record.jsp=jsp; record.depth=continuationDepth;
+        record.scope=currentTask; record.completionBase=hostCompletion;
+        record.token=new HostGuestOperation(runtimeIdentity,record);
+        record.action=newAction(ACTION_HOST_GUEST,null,null,-1,ASSIGN,null); record.action.guest=record;
+        return record;
+    }
+    private void parkHostGuestOperation(HostGuestRecord record,boolean[] moved) {
+        HostCall call=record.outer.call;
+        // Allocate bookkeeping before parking or transferring any credit.
+        boolean[] transferred=call.argumentTransferred==null?new boolean[call.arguments.length]:call.argumentTransferred.clone();
+        for(int i=0;i<moved.length;i++) if(moved[i]) transferred[i]=true;
+        record.parent=hostGuestRecord; hostGuestRecord=record; call.argumentTransferred=transferred;
+        hostRequest=null; phase=RUNNING; publishAction(record.action);
+    }
+    public HostGuestOperation startHostGuestCall(HostRequest outer,Header helper,HostGuestArgument[] arguments) {
+        HostCall call=requireHostGuestOuter(outer);
+        require(hostGuestPolicy.helper(helper),"Host guest helper Header is not authorized");
+        Function function=validateHostGuestHelper(helper);
+        require(arguments!=null&&arguments.length==function.params.length,"Host guest helper arity mismatch");
+        boolean[] moved=new boolean[call.arguments.length];
+        Object[] values=preflightHostGuestArguments(outer,arguments,1,false,moved);
+        validateEntryArguments(function,values);
+        int[] slots=new int[values.length]; Arrays.fill(slots,-1);
+        for(int i=0;i<values.length;i++) if(arguments[i].outer!=null) slots[i]=arguments[i].index;
+        HostGuestRecord record=prepareHostGuestOperation(outer,helper,values,slots,false,1); record.function=function;
+        parkHostGuestOperation(record,moved); return record.token;
+    }
+    public HostGuestOperation startHostRelease(HostRequest outer,HostGuestArgument argument,int count) {
+        HostCall call=requireHostGuestOuter(outer); require(count>=0,"Negative host release count");
+        boolean[] moved=new boolean[call.arguments.length];
+        Object[] values=preflightHostGuestArguments(outer,new HostGuestArgument[]{argument},count,true,moved);
+        int[] slots=new int[]{argument.outer==null?-1:argument.index};
+        HostGuestRecord record=prepareHostGuestOperation(outer,null,values,slots,true,count);
+        parkHostGuestOperation(record,moved); return record.token;
+    }
+    /** Current token also exposes the child's parked outer identity after fork. */
+    public HostGuestOperation currentHostGuestOperation() { return hostGuestRecord==null?null:hostGuestRecord.token; }
+    public HostGuestOperation pendingHostGuestResult() { return phase==HOST_GUEST_RESULT?currentHostGuestOperation():null; }
+    public Object takeHostGuestResult(HostRequest outer,HostGuestOperation operation) {
+        explicitOnly();
+        if(advancing||operation==null||operation.owner!=runtimeIdentity||hostGuestRecord!=operation.record
+                ||phase!=HOST_GUEST_RESULT||operation.record.outer!=outer||!operation.record.complete||operation.record.taken)
+            throw new IllegalStateException("Stale/foreign host guest result claim");
+        HostGuestRecord record=operation.record; Object value=record.result;
+        record.taken=true; record.resultOwned=false; hostGuestRecord=record.parent;
+        hostRequest=record.outer; phase=HOST_CALL;
+        record.parent=null; record.result=null; record.arguments=null; record.scope=null; record.completionBase=null;
+        record.action=null; record.function=null; record.caller=null; record.callerPrepared=null; record.savedPc=null;
+        return value;
+    }
+    private void hostGuestEntry(Function function,Object[] args) {
+        HostGuestRecord record=hostGuestRecord;
+        if(record!=null&&record.action==runtimeAction&&record.function==function&&record.arguments==args&&!record.entered) {
+            record.entered=true; record.argumentsOwned=false;
+        }
+    }
+    private void stepHostGuest(RuntimeAction action) {
+        HostGuestRecord record=action.guest;
+        require(record!=null&&hostGuestRecord==record,"Host guest operation order differs");
+        if(action.stage==0) {
+            action.stage=1;
+            if(record.release) {
+                boolean dispatched=beginRelease(record.arguments[0],record.count,ACTION_BODY,true);
+                record.releaseClaimed=true; record.argumentsOwned=false;
+                if(dispatched) return;
+            } else {
+                enterExplicit(record.function,null,record.arguments,ACTION_BODY,action.slot,ASSIGN,null); return;
+            }
+        }
+        record.result=record.release?ERASED:objects[action.slot]; record.resultOwned=true;
+        require(active==record.caller&&activePrepared==record.callerPrepared&&bp==record.bp&&jbp==record.jbp&&jsp==record.jsp
+                &&continuationDepth==record.depth&&currentTask==record.scope&&hostCompletion==record.completionBase,
+                "Host guest return did not restore its control prefix");
+        objects[action.slot]=null; sp=action.savedSp; runtimeAction=action.parent; pc=record.savedPc;
+        record.complete=true; phase=HOST_GUEST_RESULT;
+    }
+
     private HostCall requireHostRequest(HostRequest request) {
         explicitOnly();
         if(advancing) throw new IllegalStateException("Reentrant host completion");
@@ -4023,17 +4303,26 @@ public final class Interpreter implements AutoCloseable {
     /** Check only known adapter and reply credits, never infer ownership from
      * stale registers. Persistent nodes have the existing unlimited-credit rule. */
     private void preflightHostCompletion(HostCall call,Object reply) {
-        IdentityHashMap<Node,Integer> owners=new IdentityHashMap<>();
-        if(call.facade) for(int i=call.borrowedCursor;i<call.arguments.length;i++)
-            if(call.function.hostExtern.borrowed[i]&&call.arguments[i] instanceof Node) {
-                Node value=node(call.arguments[i]); owners.put(value,owners.getOrDefault(value,0)+1);
-            }
+        IdentityHashMap<Node,Integer> owners;
+        if(hostGuestRecord!=null) {
+            // Owned current-call inputs remain the handler's obligations and
+            // may transfer as its reply. Parked ancestor escrows may not.
+            boolean[] transferred=new boolean[call.arguments.length]; Arrays.fill(transferred,true);
+            owners=hostGuestReservations(call,transferred);
+        } else {
+            owners=new IdentityHashMap<>();
+            if(call.facade) for(int i=call.borrowedCursor;i<call.arguments.length;i++)
+                if(call.function.hostExtern.borrowed[i]&&call.arguments[i] instanceof Node)
+                    addCredit(owners,node(call.arguments[i]),1);
+        }
         if(call.function.resultType==OBJ&&reply instanceof Node) {
             Node value=node(reply); owners.put(value,owners.getOrDefault(value,0)+1);
         }
-        for(Map.Entry<Node,Integer> credit:owners.entrySet())
-            require(credit.getKey().rc==0||credit.getKey().rc>=credit.getValue(),
-                    "Insufficient host reply or borrowed-facade owner credits");
+        for(Map.Entry<Node,Integer> credit:owners.entrySet()) {
+            Node value=node(credit.getKey());
+            require(value.rc==0||value.rc>=credit.getValue(),
+                    "Insufficient host reply or reserved owner credits");
+        }
     }
     private void markHostFailure(HostRequest request,Throwable cause) {
         hostRequest=null; failedHostRequest=request; hostCompletion=request.call;
@@ -4117,7 +4406,7 @@ public final class Interpreter implements AutoCloseable {
             for(int i=0;i<slots.length;i++) activation.arguments[i]=function.paramTypes[i]==OBJ
                     ?obj(slots[i]):saveScalar(numbers[bp+slots[i]],function.paramTypes[i]);
         }
-        codeRequest=new CodeRequest(runtimeIdentity,activation); pc=next; phase=CODE_CALL; applicationEntry(kind);
+        codeRequest=new CodeRequest(runtimeIdentity,activation); pc=next; phase=CODE_CALL; applicationEntry(kind); hostGuestEntry(function,args);
     }
     public CodeRequest pendingCodeRequest() { return phase==CODE_CALL?codeRequest:null; }
     public CodeRequest failureCodeRequest() { return failedCodeRequest; }
@@ -4199,11 +4488,11 @@ public final class Interpreter implements AutoCloseable {
     /** No automatic queued work is implied; pending pure dependencies may still
      * exist. Root completion alone does not discharge BaseIO keepalive credits. */
     public boolean taskRuntimeQuiescent() {
-        if(untrackedFailure||phase==FAILED||phase==RUNNING||runtimeAction!=null||currentTask!=null||hostCompletion!=null||hostRequest!=null||codeRequest!=null) return false;
+        if(untrackedFailure||phase==FAILED||phase==RUNNING||hostGuestRecord!=null||runtimeAction!=null||currentTask!=null||hostCompletion!=null||hostRequest!=null||codeRequest!=null) return false;
         for(TaskRecord record:taskRecords.values()) if(record.keepalive) return false;
         return true;
     }
-    public String phase() { return new String[]{"idle","running","complete","failed","host-call","code-call","waiting"}[phase]; }
+    public String phase() { return new String[]{"idle","running","complete","failed","host-call","code-call","waiting","host-guest-result"}[phase]; }
     public int continuationDepth() { return continuationDepth; }
     public long instructionCount() { return instructions; }
     public String activeFunction() { return active==null?null:active.label; }
@@ -4295,7 +4584,7 @@ public final class Interpreter implements AutoCloseable {
         k.caller=active; k.callerPrepared=activePrepared; k.next=next; k.bp=bp; k.sp=sp; k.jbp=jbp; k.jsp=jsp;
         k.dest=dest; k.kind=kind; k.surplus=surplus;
         continuationDepth++;
-        bp=sp; sp=newSp; jbp=jsp; jsp=newJsp; active=f; activePrepared=prepared; pc=prepared.body; applicationEntry(kind);
+        bp=sp; sp=newSp; jbp=jsp; jsp=newJsp; active=f; activePrepared=prepared; pc=prepared.body; applicationEntry(kind); hostGuestEntry(f,args);
         tick();
     }
 
@@ -4400,7 +4689,7 @@ public final class Interpreter implements AutoCloseable {
         if(budget<0) throw error("Negative instruction budget");
         if(advancing) throw new IllegalStateException("Reentrant advance");
         if(phase==COMPLETE) return true;
-        if(phase==HOST_CALL||phase==CODE_CALL||phase==WAITING) return false;
+        if(phase==HOST_CALL||phase==CODE_CALL||phase==WAITING||phase==HOST_GUEST_RESULT) return false;
         if(phase!=RUNNING) throw new IllegalStateException("No resumable execution: "+phase());
         advancing=true;
         try {
@@ -4565,6 +4854,7 @@ public final class Interpreter implements AutoCloseable {
     }
     @Override public void close() {
         if(closed) return;
+        if(hostGuestRecord!=null) throw new IllegalStateException("Host guest operation requires explicit completion before close");
         if(taskRuntime!=null) {
             if(!disposed||stdoutRoot!=null||runtimeAction!=null||hostCompletion!=null||quietCurrent!=null||releasePending!=0)
                 throw new IllegalStateException("Active runtime requires completed explicit disposal before close");
