@@ -32,7 +32,8 @@ releases its result. Fork copies kind and aliases through the existing graph mem
 An arbitrary constructor with the same tag/layout is not a Task. Constructor
 projection/mutation/unboxing reject Tasks. No host Future, scheduler, mutex or
 native implementation pointer is retained. This supports engine-created ready
-values, not pending tasks, map/spawn/bind, parallelism or native Task imports.
+values. Ready Task.map now has a [separate continuation gate](JAVA_TASK_MAP.md);
+pending tasks, spawn/bind, parallelism and native Task imports remain excluded.
 The prepared graph importer does not gain a new Task descriptor incidentally.
 
 ## Checked array read valid domain

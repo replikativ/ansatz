@@ -21,6 +21,7 @@ import java.util.concurrent.atomic.AtomicLong;
 public final class Interpreter implements AutoCloseable {
     private static final int OBJ=0, U8=1, U32=2, USIZE=3, U64=4, F64=5;
     private static final int VDECL=0,JDECL=1,SET=2,SSET=3,INC=4,DEC=5,DEL=6,CASE=7,RET=8,JMP=9,UNREACHABLE=10,SETTAG=11,USET=12;
+    private static final int MAP_APPLY=13,MAP_WRAP=14;
     private static final int CTOR=0,PROJ=1,SPROJ=2,FAP=3,PAP=4,AP=5,BOX=6,UNBOX=7,LIT=8,SHARED=9,UPROJ=10;
     private static final int ADD=1,SUB=2,MOD=3,EQ=4,LT=5,MUL=6,DIV=7,POW=8;
     private static final int USIZE_NAT=9,USIZE_REPR=10,U32_NAT=11,U32_EQ=12,U32_LE=13,PLATFORM_BITS=14;
@@ -33,7 +34,7 @@ public final class Interpreter implements AutoCloseable {
     private static final int STR_END=44,STR_SAFE_GET=45,STR_SAFE_NEXT=46,STR_PREV=47,STR_VALID=48,
                              STR_EXTRACT=49,STR_EQ=50,STR_LT=51,STR_COMPARE=52,STR_BYTE=53,
                              STR_CONTAINS=54,STR_LENGTH=55,STR_SET=56;
-    private static final int NAT_LE=57,NAT_LOG2=58,NAT_OR=59,NAT_SHL=60,NAT_SHR=61,TASK_PURE=62,TASK_GET=63;
+    private static final int NAT_LE=57,NAT_LOG2=58,NAT_OR=59,NAT_SHL=60,NAT_SHR=61,TASK_PURE=62,TASK_GET=63,TASK_MAP=97;
     private static final int ARRAY_CHECKED_GET=64,ARRAY_CHECKED_BORROWED=65;
     private static final int IO_INITIALIZING=66;
     private static final int USIZE_LT=67,USIZE_ADD=68,USIZE_EQ=69,USIZE_SUB=70,USIZE_TO_NAT=71,
@@ -267,6 +268,9 @@ public final class Interpreter implements AutoCloseable {
                 new String[]{"tobject","tobject"},new boolean[]{true,true}));
         register(registry,new ExternSpec("lean_nat_shiftr",NAT_SHR,"tobject",
                 new String[]{"tobject","tobject"},new boolean[]{true,true}));
+        register(registry,new ExternSpec("lean_task_map",TASK_MAP,"object",
+                new String[]{"erased","erased","tobject","object","tobject","uint8"},
+                new boolean[]{false,false,false,false,false,false}));
         register(registry,new ExternSpec("lean_task_pure",TASK_PURE,"object",
                 new String[]{"erased","tobject"},new boolean[]{false,false}));
         register(registry,new ExternSpec("lean_task_get_own",TASK_GET,"tobject",
@@ -802,11 +806,15 @@ public final class Interpreter implements AutoCloseable {
             this.hostExtern=hostExtern; this.privateOwner=privateOwner;
         }
     }
-    /** Published only after parsing and validation; inherited slots share identity. */
+    /** Source layouts publish after validation; inherited slots share identity.
+     * The private map layout below never occupies a Program slot. */
     private static final class PreparedBody {
         final Body body;
         final int width, joinWidth;
         final Set<Expr> pointerSites;
+        private PreparedBody(Body runtimeMapBody) {
+            body=runtimeMapBody; width=8; joinWidth=0; pointerSites=null;
+        }
         PreparedBody(Body body,int width,int joinWidth) {
             this.body=body; this.width=width; this.joinWidth=joinWidth;
             this.pointerSites=certifyPointerSites(body);
@@ -833,6 +841,11 @@ public final class Interpreter implements AutoCloseable {
         Expr expr;
         Body next,body;
         Body[] alternatives;
+    }
+    private static final PreparedBody TASK_MAP_LAYOUT=taskMapLayout();
+    private static PreparedBody taskMapLayout() {
+        Body apply=new Body(),wrap=new Body(); apply.op=MAP_APPLY; wrap.op=MAP_WRAP;
+        apply.next=wrap; return new PreparedBody(apply);
     }
     /** Identity-only lineage: no function/map/Program references. Binary lifting
      * bounds ancestry checks without retaining every old full image table. */
@@ -1679,6 +1692,7 @@ public final class Interpreter implements AutoCloseable {
         return value;
     }
     private void intrinsicSlots(Function f,int[] slots) {
+        require(f.intrinsic!=TASK_MAP,"Task.map requires its runtime frame");
         if(floatPrimitive(f.intrinsic)) {
             floatIntrinsic(f,numbers[bp+slots[0]],slots.length<2?0:numbers[bp+slots[1]]); return;
         }
@@ -1706,6 +1720,7 @@ public final class Interpreter implements AutoCloseable {
         } else scalarIntrinsic(f,a,b);
     }
     private void intrinsicExternal(Function f,Object[] args) {
+        require(f.intrinsic!=TASK_MAP,"Task.map requires its runtime frame");
         if(floatPrimitive(f.intrinsic)) {
             floatIntrinsic(f,readSavedScalar(args[0],f.paramTypes[0]),args.length<2?0:readSavedScalar(args[1],f.paramTypes[1])); return;
         }
@@ -2233,6 +2248,84 @@ public final class Interpreter implements AutoCloseable {
         }
         throw error("Name equality depth/cycle outside bounded runtime profile");
     }
+    private Node readyTaskNode(Object value) {
+        Node task=node(value);
+        require(task.readyTask&&!task.ref&&!task.array&&task.closure==null&&task.tag==252
+                &&task.fields.length==1&&task.scalars.length==0,"Expected engine ready Task");
+        require(task.fields[0]!=null,"Pending Task outside ready-only runtime profile");
+        validateHostObject(task.fields[0]); return task;
+    }
+    private Node newReadyTask(Object value) {
+        validateHostObject(value); Node task=new Node(252,1,0); task.readyTask=true;
+        task.fields[0]=value; allocations++; return task;
+    }
+    private Object getReadyTaskOwned(Node task) {
+        Object value=task.fields[0]; inc(value,1); dec(task,1); return value;
+    }
+    private void validateTaskMap(Object[] args) {
+        require(args!=null&&args.length==6,"Task.map requires six ABI arguments");
+        require(ERASED.equals(args[0])&&ERASED.equals(args[1]),"Task.map erased placeholders required");
+        require(args[4] instanceof Long&&((Long)args[4])>=0,"Task.map requires immediate nonnegative priority");
+        require(inputScalar(args[5],U8)<=1,"Task.map sync must be Bool zero or one");
+        Node callback=node(args[2]); acceptsClosure(callback);
+        Function target=callback.closure; rootEntry(target); requireExecutableAbi(target);
+        require(callback.tag==245&&!callback.array&&!callback.ref&&!callback.readyTask
+                &&callback.scalars.length==0&&callback.fields.length<target.params.length,"Expected partial callback closure");
+        for(int lane:target.paramTypes) require(lane==OBJ,"Task.map callback requires boxed object parameters");
+        Node task=readyTaskNode(args[3]);
+        for(Object capture:callback.fields) validateHostObject(capture);
+        if(callback.fields.length+1>=target.params.length) {
+            preflightCallable(target,explicit);
+            if(!explicit&&target.hostExtern!=null) throw error("Host callback requires explicit driver");
+            if(buildIdentityPrimitive(target.intrinsic)) requireBuildUnit(task.fields[0]);
+        }
+        // These are known input/capture/field owner occurrences, not a heap audit.
+        IdentityHashMap<Node,Integer> credits=new IdentityHashMap<>();
+        credits.put(callback,1); credits.put(task,1);
+        Object payload=task.fields[0];
+        if(payload instanceof Node) credits.put((Node)payload,credits.getOrDefault((Node)payload,0)+1);
+        for(Object capture:callback.fields) if(capture instanceof Node)
+            credits.put((Node)capture,credits.getOrDefault((Node)capture,0)+1);
+        for(Map.Entry<Node,Integer> credit:credits.entrySet())
+            require(credit.getKey().rc==0||credit.getKey().rc>=credit.getValue(),"Insufficient Task.map owner credits");
+    }
+    private Object[] taskMapArguments(int[] slots) {
+        require(slots.length==6,"Task.map requires six ABI arguments");
+        return new Object[]{obj(slots[0]),obj(slots[1]),obj(slots[2]),obj(slots[3]),obj(slots[4]),
+                            externalScalar(numbers[bp+slots[5]],U8)};
+    }
+    private void taskMapRecursive(Object[] args) {
+        validateTaskMap(args);
+        Object value=getReadyTaskOwned((Node)args[3]);
+        result=newReadyTask(apply(args[2],new Object[]{value}));
+    }
+    /** A private, forkable continuation: all guest refs remain in objects[].
+     * Slots1/2/3 hold callback/task/result;4 retains get's acquired payload;
+     * 5 is a borrowed capture snapshot;6 is AP's argument vector. Stage7 records
+     * retained(1), release-started(2), consumed(3), AP-started(4), published(5).
+     * Snapshots/stale aliases acquire no guest credits. Failure remains terminal. */
+    private void enterTaskMap(Function function,int[] slots,Object[] args,Body next,int dest,int kind,Object[] surplus) {
+        require(function.intrinsic==TASK_MAP,"Expected Task.map runtime entry");
+        Object[] actual=slots==null?args:taskMapArguments(slots); validateTaskMap(actual);
+        if(continuationDepth>=65536) throw error("Continuation depth limit");
+        int newSp=Math.addExact(sp,TASK_MAP_LAYOUT.width);
+        if(newSp>8_000_000) throw error("Explicit stack limit");
+        ensure(newSp,jsp);
+        if(continuationDepth==continuations.length) continuations=Arrays.copyOf(continuations,continuations.length*2);
+        Continuation k=continuations[continuationDepth];
+        if(k==null) continuations[continuationDepth]=k=new Continuation();
+        Object[] captures=((Node)actual[2]).fields.clone(),argument=new Object[1];
+        k.caller=active; k.callerPrepared=activePrepared; k.next=next; k.bp=bp; k.sp=sp; k.jbp=jbp; k.jsp=jsp;
+        k.dest=dest; k.kind=kind; k.surplus=surplus;
+        Arrays.fill(objects,sp,newSp,null);
+        objects[sp+1]=actual[2]; objects[sp+2]=actual[3]; objects[sp+5]=captures; objects[sp+6]=argument;
+        numbers[sp+7]=0; continuationDepth++;
+        bp=sp; sp=newSp; jbp=jsp; active=function; activePrepared=TASK_MAP_LAYOUT; pc=TASK_MAP_LAYOUT.body;
+    }
+    private void requireTaskMapFrame(Body state) {
+        require(activePrepared==TASK_MAP_LAYOUT&&active!=null&&active.intrinsic==TASK_MAP
+                &&(state==TASK_MAP_LAYOUT.body||state==TASK_MAP_LAYOUT.body.next),"Invalid private Task.map runtime frame");
+    }
     private void runtimeIntrinsic(Function f,Object a,Object b,Object c) {
         if(f.intrinsic>=STR_SUBSTRING_EQ&&f.intrinsic<=STR_PUSHN) { stringCompletionIntrinsic(f,a,b,c); return; }
         if(f.intrinsic>=INT_OF_NAT&&f.intrinsic<=INT_LE) { intIntrinsic(f,a,b); return; }
@@ -2248,16 +2341,8 @@ public final class Interpreter implements AutoCloseable {
         }
         if(f.intrinsic==TASK_PURE||f.intrinsic==TASK_GET) {
             require(ERASED.equals(a),"Task erased parameter requires erased placeholder");
-            if(f.intrinsic==TASK_PURE) {
-                validateHostObject(b); Node task=new Node(252,1,0); task.readyTask=true;
-                task.fields[0]=b; allocations++; result=task; return;
-            }
-            Node task=node(b);
-            require(task.readyTask&&!task.ref&&!task.array&&task.closure==null&&task.tag==252
-                    &&task.fields.length==1&&task.scalars.length==0,"Expected engine ready Task");
-            Object value=task.fields[0];
-            require(value!=null,"Pending Task outside ready-only runtime profile");
-            validateHostObject(value); inc(value,1); dec(task,1); result=value; return;
+            if(f.intrinsic==TASK_PURE) { result=newReadyTask(b); return; }
+            result=getReadyTaskOwned(readyTaskNode(b)); return;
         }
         if(f.intrinsic>=STR_END&&f.intrinsic<=STR_SET) { stringIntrinsic(f,a,b,c); return; }
         switch(f.intrinsic) {
@@ -2471,6 +2556,7 @@ public final class Interpreter implements AutoCloseable {
         preflightCallable(f);
         if(f.hostExtern!=null) throw new UnsupportedOperationException("Host extern requires explicit driver: "+f.hostExtern.symbol);
         if(args.length!=f.params.length) throw error("Arity mismatch: "+f.label);
+        if(f.intrinsic==TASK_MAP) { taskMapRecursive(taskMapArguments(args)); return; }
         if(f.intrinsic!=0) { intrinsicSlots(f,args); return; }
         PreparedBody prepared=preparedBody(f);
         int oldBp=bp,oldSp=sp,oldJbp=jbp,oldJsp=jsp;
@@ -2487,6 +2573,7 @@ public final class Interpreter implements AutoCloseable {
         preflightCallable(f);
         if(f.hostExtern!=null) throw new UnsupportedOperationException("Host extern requires explicit driver: "+f.hostExtern.symbol);
         if(args.length!=f.params.length) throw error("Arity mismatch: "+f.label);
+        if(f.intrinsic==TASK_MAP) { taskMapRecursive(args); return; }
         if(f.intrinsic!=0) { intrinsicExternal(f,args); return; }
         PreparedBody prepared=preparedBody(f);
         int oldBp=bp,oldSp=sp,oldJbp=jbp,oldJsp=jsp;
@@ -2994,6 +3081,7 @@ public final class Interpreter implements AutoCloseable {
     private void validateEntryArguments(Function function,Object[] args,boolean saved) {
         if(args==null||args.length!=function.params.length) throw error("Arity mismatch: "+function.label);
         if(buildIdentityPrimitive(function.intrinsic)) requireBuildUnit(args[0]);
+        if(function.intrinsic==TASK_MAP) validateTaskMap(args);
         for(int i=0;i<args.length;i++) {
             if(function.paramTypes[i]!=OBJ) { if(saved) readSavedScalar(args[i],function.paramTypes[i]); else inputScalar(args[i],function.paramTypes[i]); }
             else if(args[i] instanceof Double||args[i] instanceof F64Bits) throw error("Float scalar is not an OBJ value");
@@ -3017,6 +3105,10 @@ public final class Interpreter implements AutoCloseable {
             else scalarResult=(Long)constants[f.id];
             callsLeft=10_000_000; instructions=0;
             entry=f; phase=COMPLETE; pendingOwnedResult=true; return;
+        }
+        if(f.intrinsic==TASK_MAP) {
+            enterTaskMap(f,null,args,null,0,ROOT,null);
+            callsLeft=10_000_000; instructions=0; entry=f; phase=RUNNING; return;
         }
         if(f.hostExtern!=null) {
             for(int i=0;i<args.length;i++) if(f.paramTypes[i]==OBJ) validateHostObject(args[i]);
@@ -3092,6 +3184,7 @@ public final class Interpreter implements AutoCloseable {
             Function f=applicationTarget; Object[] actual=applicationArgs,rest=applicationSurplus;
             applicationTarget=null; applicationArgs=null; applicationSurplus=null;
             if(f.hostExtern!=null) { suspendHost(f,actual,next,dest,APPLY,rest,true); return; }
+            if(f.intrinsic==TASK_MAP) { enterTaskMap(f,null,actual,next,dest,APPLY,rest); return; }
             if(f.intrinsic==0) { enterExplicit(f,null,actual,next,dest,APPLY,rest); return; }
             intrinsicExternal(f,actual);
             value=f.resultType==OBJ?result:boxScalar(scalarResult,f.resultType);
@@ -3144,6 +3237,22 @@ public final class Interpreter implements AutoCloseable {
                 // for failures and let control-transfer helpers publish callees.
                 pc=b; instructions++;
                 switch(b.op) {
+                    case MAP_APPLY: {
+                        requireTaskMapFrame(b); tick(); int base=bp;
+                        Node task=(Node)objects[base+2]; Object value=task.fields[0];
+                        inc(value,1); objects[base+4]=value; numbers[base+7]=1;
+                        numbers[base+7]=2; dec(task,1); objects[base+2]=null; numbers[base+7]=3;
+                        Object[] args=(Object[])objects[base+6]; args[0]=value;
+                        numbers[base+7]=4;
+                        applyExplicit(objects[base+1],args,b.next,base+3);
+                        objects[base+1]=null; objects[base+4]=null; objects[base+5]=null; objects[base+6]=null;
+                        numbers[base+7]=5; b=pc; break;
+                    }
+                    case MAP_WRAP: {
+                        requireTaskMapFrame(b);
+                        Node task=newReadyTask(objects[bp+3]); objects[bp+3]=null;
+                        result=task; numbers[bp+7]=6; returnExplicit(); b=pc; break;
+                    }
                     case VDECL: {
                         Expr e=b.expr; int dest=bp+b.a;
                         if(e.op==FAP) {
@@ -3161,6 +3270,8 @@ public final class Interpreter implements AutoCloseable {
                                 Object[] args=new Object[e.args.length];
                                 for(int i=0;i<args.length;i++) args[i]=f.paramTypes[i]==OBJ?obj(e.args[i]):saveScalar(numbers[bp+e.args[i]],f.paramTypes[i]);
                                 suspendHost(f,args,b.next,dest,ASSIGN,null,false); b=pc;
+                            } else if(f.intrinsic==TASK_MAP) {
+                                enterTaskMap(f,e.args,null,b.next,dest,ASSIGN,null); b=pc;
                             } else if(f.intrinsic!=0) {
                                 if(f.intrinsic==POINTER_IDENTITY) pointerIdentity(f,e.args,activePrepared,e);
                                 else intrinsicSlots(f,e.args);
