@@ -11,7 +11,8 @@
     "lean_string_utf8_get_fast" "lean_string_utf8_next_fast" "lean_string_utf8_at_end"
     "lean_string_utf8_get" "lean_string_utf8_next" "lean_string_utf8_prev" "lean_string_is_valid_pos"
     "lean_string_utf8_extract" "lean_string_dec_eq" "lean_string_dec_lt" "lean_string_compare"
-    "lean_string_get_byte_fast" "lean_string_contains" "lean_string_length" "lean_string_utf8_set"})
+    "lean_string_get_byte_fast" "lean_string_contains" "lean_string_length" "lean_string_utf8_set"
+    "lean_string_memcmp" "lean_substring_beq" "lean_string_posof" "lean_string_offsetofpos" "lean_string_pushn"})
 (defn originals [] (json/read-str (slurp fixture)))
 (defn selected-rows []
   (let [rows (mapv #(get % "row") (originals))
@@ -30,7 +31,7 @@
 (deftest original-fixture-and-supported-subset-have-exact-abis
   (let [manifest (edn/read-string (slurp "test/fixtures/java-string-runtime/provenance.edn"))]
     (is (= (:fixture-sha256 manifest) (corpus/sha256 fixture)))
-    (is (= 62 (count (originals)))) (is (= 50 (count (selected-rows))))
+    (is (= 62 (count (originals)))) (is (= 60 (count (selected-rows))))
     (doseq [row (selected-rows) :when (get-in row ["ir" "extern"])]
       (is (string? (j/invoke-static (.getMethod ^Class (:class *basis*) "validateExternAbi"
                                                 (into-array Class [java.util.Map])) [row]))))))

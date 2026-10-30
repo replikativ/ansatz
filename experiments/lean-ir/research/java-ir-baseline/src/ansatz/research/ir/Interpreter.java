@@ -41,6 +41,8 @@ public final class Interpreter implements AutoCloseable {
                              U64_LT=90,U64_EQ=91,U64_OWNED_NAT=92;
     private static final int BYTE_MK=200,BYTE_GET=201,BYTE_SIZE=202,BYTE_PUSH=203;
     private static final int INT_OF_NAT=210,INT_NEG_SUCC=211,INT_NEG=212,INT_ABS=213,INT_ADD=214,INT_SUB=215,INT_EQ=216,INT_LT=217,INT_LE=218;
+    private static final int STR_MEMCMP=230,STR_SUBSTRING_EQ=231,STR_POS_OF=232,STR_OFFSET_OF_POS=233,STR_PUSHN=234;
+    private static final int MAX_STRING_OUTPUT_BYTES=16*1024*1024;
     private static final int MAX_BYTE_CAPACITY=16*1024*1024;
     private static final int POINTER_IDENTITY=93, NAME_EQ=94, BUILD_GITHASH=95, BUILD_TARGET=96;
     private static final int MAX_NAME_COMPARISON_STEPS=1_000_000;
@@ -360,6 +362,16 @@ public final class Interpreter implements AutoCloseable {
                 new String[]{"tagged"},new boolean[]{false}));
         register(registry,new ExternSpec("lean_system_platform_target",BUILD_TARGET,"object",
                 new String[]{"tagged"},new boolean[]{false}));
+        register(registry,new ExternSpec("lean_string_memcmp",STR_MEMCMP,"uint8",
+                new String[]{"object","object","tobject","tobject","tobject","erased","erased"},new boolean[]{true,true,true,true,true,false,false}));
+        register(registry,new ExternSpec("lean_substring_beq",STR_SUBSTRING_EQ,"uint8",
+                new String[]{"object","object"},new boolean[]{false,false}));
+        register(registry,new ExternSpec("lean_string_posof",STR_POS_OF,"tobject",
+                new String[]{"object","uint32"},new boolean[]{false,false}));
+        register(registry,new ExternSpec("lean_string_offsetofpos",STR_OFFSET_OF_POS,"tobject",
+                new String[]{"object","tobject"},new boolean[]{false,false}));
+        register(registry,new ExternSpec("lean_string_pushn",STR_PUSHN,"object",
+                new String[]{"object","uint32","tobject"},new boolean[]{false,false,false}));
         registry.replaceAll((symbol,entries)->Collections.unmodifiableList(entries));
         return Collections.unmodifiableMap(registry);
     }
@@ -1404,7 +1416,7 @@ public final class Interpreter implements AutoCloseable {
                     case SPROJ: require((b.type==U8||b.type==U32||b.type==U64)&&lane(env,e.a)==OBJ,"Scalar projection lane mismatch"); break;
                     case UPROJ: require(b.type==USIZE&&lane(env,e.a)==OBJ,"USize projection lane mismatch"); break;
                     case FAP: requireExecutableAbi(e.target); checkArgs(env,e.args,e.target.paramTypes); require(b.type==e.target.resultType,"Call result lane mismatch"); break;
-                    case PAP: requireExecutableAbi(e.target); require(b.type==OBJ&&e.args.length<e.target.params.length,"Invalid partial application"); require(!borrowedArrayPrimitive(e.target.intrinsic),"Borrowed array primitive requires owned closure wrapper"); require(!borrowedIntPrimitive(e.target.intrinsic),"Borrowed Int primitive requires owned closure wrapper"); require(!borrowedBytePrimitive(e.target.intrinsic),"Borrowed ByteArray primitive requires owned closure wrapper"); require(e.target.intrinsic!=NAME_EQ,"Borrowed Name equality requires an owned guest wrapper"); require(e.target.intrinsic!=POINTER_IDENTITY,"Pointer identity requires a certified direct FAP site"); require(!borrowedRefPrimitive(e.target.intrinsic),"Borrowed ref primitive requires owned closure wrapper"); for(int i=0;i<e.target.paramTypes.length;i++) require(e.target.paramTypes[i]==OBJ,"Unboxed partial target unsupported; boxed wrapper required"); for(int a:e.args) require(lane(env,a)==OBJ,"Partial argument must be boxed"); break;
+                    case PAP: requireExecutableAbi(e.target); require(b.type==OBJ&&e.args.length<e.target.params.length,"Invalid partial application"); require(!borrowedArrayPrimitive(e.target.intrinsic),"Borrowed array primitive requires owned closure wrapper"); require(!borrowedIntPrimitive(e.target.intrinsic),"Borrowed Int primitive requires owned closure wrapper"); require(!borrowedStringCompletionPrimitive(e.target.intrinsic),"Borrowed String range primitive requires owned closure wrapper"); require(!borrowedBytePrimitive(e.target.intrinsic),"Borrowed ByteArray primitive requires owned closure wrapper"); require(e.target.intrinsic!=NAME_EQ,"Borrowed Name equality requires an owned guest wrapper"); require(e.target.intrinsic!=POINTER_IDENTITY,"Pointer identity requires a certified direct FAP site"); require(!borrowedRefPrimitive(e.target.intrinsic),"Borrowed ref primitive requires owned closure wrapper"); for(int i=0;i<e.target.paramTypes.length;i++) require(e.target.paramTypes[i]==OBJ,"Unboxed partial target unsupported; boxed wrapper required"); for(int a:e.args) require(lane(env,a)==OBJ,"Partial argument must be boxed"); break;
                     case AP: require(b.type==OBJ&&lane(env,e.a)==OBJ&&e.args.length>0,"Unsupported closure application"); for(int a:e.args) require(lane(env,a)==OBJ,"Closure argument must be boxed"); break;
                     case BOX: require(b.type==OBJ&&e.b!=OBJ&&lane(env,e.a)==e.b,"Box lane mismatch"); break;
                     case UNBOX: require(b.type!=OBJ&&lane(env,e.a)==OBJ,"Unbox lane mismatch"); break;
@@ -1633,6 +1645,9 @@ public final class Interpreter implements AutoCloseable {
     }
     private void intrinsicSlots(Function f,int[] slots) {
         require(f.intrinsic!=POINTER_IDENTITY,"Pointer identity requires a certified direct FAP site");
+        if(f.intrinsic==STR_MEMCMP) {
+            stringMemcmp(obj(slots[0]),obj(slots[1]),obj(slots[2]),obj(slots[3]),obj(slots[4]),obj(slots[5]),obj(slots[6])); return;
+        }
         if(advancedArrayPrimitive(f.intrinsic)) {
             arrayPlaceholders(f,obj(slots[0]),slots.length>3?obj(slots[slots.length-1]):ERASED,
                               slots.length==6?obj(slots[4]):ERASED);
@@ -1654,6 +1669,9 @@ public final class Interpreter implements AutoCloseable {
     }
     private void intrinsicExternal(Function f,Object[] args) {
         require(f.intrinsic!=POINTER_IDENTITY,"Pointer identity requires a certified direct FAP site");
+        if(f.intrinsic==STR_MEMCMP) {
+            stringMemcmp(args[0],args[1],args[2],args[3],args[4],args[5],args[6]); return;
+        }
         if(advancedArrayPrimitive(f.intrinsic)) {
             arrayPlaceholders(f,args[0],args.length>3?args[args.length-1]:ERASED,
                               args.length==6?args[4]:ERASED);
@@ -1905,6 +1923,74 @@ public final class Interpreter implements AutoCloseable {
         if(value instanceof Long) return;
         Node n=node(value); unique(n); n.dead=true; Arrays.fill(n.fields,null); shellDeletes++;
     }
+    private static boolean borrowedStringCompletionPrimitive(int op) { return op==STR_MEMCMP; }
+    /** Proof-backed equality of raw UTF-8 byte ranges; neither positions nor
+     * length may be narrowed until the complete range has been validated. */
+    private void stringMemcmp(Object left,Object right,Object leftStart,Object rightStart,Object size,Object leftProof,Object rightProof) {
+        require(ERASED.equals(leftProof)&&ERASED.equals(rightProof),"String memcmp proofs require erased placeholders");
+        byte[] a=utf8(left),b=utf8(right);
+        BigInteger x=nat(leftStart),y=nat(rightStart),n=nat(size);
+        require(x.compareTo(BigInteger.valueOf(a.length))<=0&&y.compareTo(BigInteger.valueOf(b.length))<=0
+                &&n.compareTo(BigInteger.valueOf(a.length).subtract(x))<=0
+                &&n.compareTo(BigInteger.valueOf(b.length).subtract(y))<=0,
+                "String memcmp range outside bounded source domain");
+        int from=x.intValue(),other=y.intValue(),count=n.intValue();
+        scalarResult=Arrays.equals(a,from,from+count,b,other,other+count)?1:0;
+    }
+    private static int repairedStringPosition(byte[] bytes,BigInteger position) {
+        if(position.compareTo(BigInteger.valueOf(bytes.length))>=0) return bytes.length;
+        int p=position.intValue(); return leadingByte(bytes[p])?p:bytes.length;
+    }
+    /** Transient validated view, never retained by an engine or guest Node. */
+    private static final class SubstringView {
+        final Node owner;
+        final byte[] bytes;
+        final int start,size;
+        SubstringView(Node owner,byte[] bytes,int start,int size) {
+            this.owner=owner; this.bytes=bytes; this.start=start; this.size=size;
+        }
+    }
+    private SubstringView substringView(Object value) {
+        Node n=constructorNode(value);
+        require(n.closure==null&&n.tag==0&&n.fields.length==3&&n.scalars.length==0,"Expected Substring.Raw constructor");
+        byte[] bytes=utf8(n.fields[0]); BigInteger begin=nat(n.fields[1]),end=nat(n.fields[2]);
+        int start=repairedStringPosition(bytes,begin),stop=repairedStringPosition(bytes,end);
+        return new SubstringView(n,bytes,start,Math.max(0,stop-start));
+    }
+    private void stringCompletionIntrinsic(Function f,Object a,Object b,Object c) {
+        if(f.intrinsic==STR_SUBSTRING_EQ) {
+            // Validate BOTH owned operands before consuming either container.
+            SubstringView x=substringView(a),y=substringView(b);
+            long same=x.size==y.size&&Arrays.equals(x.bytes,x.start,x.start+x.size,y.bytes,y.start,y.start+y.size)?1:0;
+            dec(x.owner,1); dec(y.owner,1); scalarResult=same; return;
+        }
+        if(f.intrinsic==STR_POS_OF) {
+            byte[] bytes=utf8(a); int cp=codePoint(b),p=0;
+            while(p<bytes.length&&utf8CodePoint(bytes,p)!=cp) p+=utf8Width(bytes[p]);
+            result=Long.valueOf(p); dec(a,1); return;
+        }
+        if(f.intrinsic==STR_OFFSET_OF_POS) {
+            byte[] bytes=utf8(a); BigInteger position=nat(b);
+            int stop=position.compareTo(BigInteger.valueOf(bytes.length))>=0?bytes.length:position.intValue();
+            int p=0,count=0;
+            while(p<stop) { p+=utf8Width(bytes[p]); count++; }
+            result=Long.valueOf(count); dec(a,1); dec(b,1); return;
+        }
+        require(f.intrinsic==STR_PUSHN,"Invalid String completion intrinsic");
+        String source=text(a);
+        require(source.length()<=MAX_STRING_OUTPUT_BYTES,"String.pushn output outside bounded runtime profile");
+        int cp=codePoint(b); BigInteger repetitions=nat(c); byte[] bytes=utf8(source);
+        int width=cp<0x80?1:cp<0x800?2:cp<0x10000?3:4;
+        require(bytes.length<=MAX_STRING_OUTPUT_BYTES
+                &&repetitions.compareTo(BigInteger.valueOf((MAX_STRING_OUTPUT_BYTES-bytes.length)/width))<=0,
+                "String.pushn output outside bounded runtime profile");
+        int count=repetitions.intValue();
+        if(count==0) { result=source; dec(c,1); return; }
+        int chars=Math.addExact(source.length(),Math.multiplyExact(Character.charCount(cp),count));
+        StringBuilder output=new StringBuilder(chars); output.append(source);
+        for(int i=0;i<count;i++) output.appendCodePoint(cp);
+        result=output.toString(); dec(a,1); dec(c,1);
+    }
     private static boolean borrowedIntPrimitive(int op) { return op>=INT_NEG&&op<=INT_LE; }
     private static BigInteger signedInteger(Object value) {
         if(value instanceof Long) return BigInteger.valueOf((Long)value);
@@ -2081,6 +2167,7 @@ public final class Interpreter implements AutoCloseable {
         throw error("Name equality depth/cycle outside bounded runtime profile");
     }
     private void runtimeIntrinsic(Function f,Object a,Object b,Object c) {
+        if(f.intrinsic>=STR_SUBSTRING_EQ&&f.intrinsic<=STR_PUSHN) { stringCompletionIntrinsic(f,a,b,c); return; }
         if(f.intrinsic>=INT_OF_NAT&&f.intrinsic<=INT_LE) { intIntrinsic(f,a,b); return; }
         if(f.intrinsic==NAME_EQ) { scalarResult=nameEquals(a,b)?1:0; return; }
         if(buildIdentityPrimitive(f.intrinsic)) {
@@ -2530,6 +2617,7 @@ public final class Interpreter implements AutoCloseable {
                 require(!borrowedArrayPrimitive(target.intrinsic),
                         "Borrowed array primitive requires owned closure wrapper");
                 require(!borrowedIntPrimitive(target.intrinsic),"Borrowed Int primitive requires owned closure wrapper");
+                require(!borrowedStringCompletionPrimitive(target.intrinsic),"Borrowed String range primitive requires owned closure wrapper");
                 require(!borrowedBytePrimitive(target.intrinsic),"Borrowed ByteArray primitive requires owned closure wrapper");
                 require(target.intrinsic!=NAME_EQ,"Borrowed Name equality requires an owned guest wrapper");
                 require(target.intrinsic!=POINTER_IDENTITY,"Pointer identity requires a certified direct FAP site");
@@ -2600,6 +2688,7 @@ public final class Interpreter implements AutoCloseable {
         require(!borrowedArrayPrimitive(target.intrinsic),
                 "Borrowed array primitive requires owned closure wrapper");
         require(!borrowedIntPrimitive(target.intrinsic),"Borrowed Int primitive requires owned closure wrapper");
+        require(!borrowedStringCompletionPrimitive(target.intrinsic),"Borrowed String range primitive requires owned closure wrapper");
         require(!borrowedBytePrimitive(target.intrinsic),"Borrowed ByteArray primitive requires owned closure wrapper");
         require(target.intrinsic!=NAME_EQ,"Borrowed Name equality requires an owned guest wrapper");
         require(target.intrinsic!=POINTER_IDENTITY,"Pointer identity requires a certified direct FAP site");
@@ -3049,6 +3138,8 @@ public final class Interpreter implements AutoCloseable {
     }
     /** Internal borrowed array primitives need an owning wrapper at host entry. */
     private static void rootEntry(Function f) {
+        if(borrowedStringCompletionPrimitive(f.intrinsic))
+            throw new UnsupportedOperationException("Borrowed String range primitive requires owned guest wrapper at external entry");
         if(borrowedIntPrimitive(f.intrinsic))
             throw new UnsupportedOperationException("Borrowed Int primitive requires owned guest wrapper at external entry");
         require(f.intrinsic!=NAME_EQ,"Borrowed Name equality requires an owned guest wrapper");
