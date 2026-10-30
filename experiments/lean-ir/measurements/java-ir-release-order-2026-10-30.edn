@@ -1,0 +1,14 @@
+{:schema 1 :date "2026-10-30" :scope :native-order-finalizer-free-release
+ :lean-commit "819816b2e0a3bf405af45ae5c7af2491d8f5bee6"
+ :engine-source-sha256 "e87306e9be17220538138d5799653151e1dbe9771c65512f4f97c7ef174d23c6"
+ :engine-jar-sha256 "3a3be09b76062c9889eb96ba90318c89691648069c5fc8ccc468ac7cdd8136fd"
+ :verification {:combined {:tests 752 :assertions 21782 :suites 81 :exit 0 :heap-limit-mib 384}
+                :focused-recursive {:tests 6 :assertions 55 :fail 0 :error 0}
+                :focused-explicit {:tests 6 :assertions 55 :fail 0 :error 0}
+                :independent-source-batch-queue-review :clear}
+ :semantics {:field-credit-scan :ascending :zero-shell-visitation :lifo
+             :persistent-live-rc0-distinct-from-dead-queued-zero true
+             :deep-chain-nodes 5000 :worklist :iterative}
+ :limits ["Ordinary original-IR/runtime RC ordering; C known-field optimizations can differ."
+          "No Promise finalizers, active tasks, resumable release or new public API."
+          "Unfinished active-mode ownership requires the separately planned continuation protocol."]}
