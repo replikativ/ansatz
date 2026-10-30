@@ -33,6 +33,9 @@ public final class Interpreter implements AutoCloseable {
     private static final int NAT_LE=57,NAT_LOG2=58,NAT_OR=59,NAT_SHL=60,NAT_SHR=61,TASK_PURE=62,TASK_GET=63;
     private static final int ARRAY_CHECKED_GET=64,ARRAY_CHECKED_BORROWED=65;
     private static final int IO_INITIALIZING=66;
+    private static final int USIZE_LT=67,USIZE_ADD=68,USIZE_EQ=69,USIZE_SUB=70,USIZE_TO_NAT=71,
+                             USIZE_SHR=72,USIZE_SHL=73,USIZE_AND=74,U8_NAT=75,U8_EQ=76,U8_AND=77,
+                             U8_LE=78,U32_FROM_NAT=79,U32_TO_U8=80,U32_ADD=81,USIZE_LE=82,USIZE_MUL=83;
     private static final int MAX_SHIFT_RESULT_BITS=16*1024*1024;
     private static final int MAX_ARRAY_CAPACITY=1_000_000;
     private static final int STREAM_FLUSH=100,STREAM_READ=101,STREAM_WRITE=102,STREAM_LINE=103,STREAM_PUT=104,STREAM_TTY=105;
@@ -261,6 +264,40 @@ public final class Interpreter implements AutoCloseable {
                 new String[]{"erased","tobject","object","tobject"},new boolean[]{false,true,true,true}));
         register(registry,new ExternSpec("lean_io_initializing",IO_INITIALIZING,"uint8",
                 new String[]{"void"},new boolean[]{false}));
+        register(registry,new ExternSpec("lean_usize_dec_lt",USIZE_LT,"uint8",
+                new String[]{"usize","usize"},new boolean[]{false,false}));
+        register(registry,new ExternSpec("lean_usize_add",USIZE_ADD,"usize",
+                new String[]{"usize","usize"},new boolean[]{false,false}));
+        register(registry,new ExternSpec("lean_usize_dec_eq",USIZE_EQ,"uint8",
+                new String[]{"usize","usize"},new boolean[]{false,false}));
+        register(registry,new ExternSpec("lean_usize_sub",USIZE_SUB,"usize",
+                new String[]{"usize","usize"},new boolean[]{false,false}));
+        register(registry,new ExternSpec("lean_usize_to_nat",USIZE_TO_NAT,"tobject",
+                new String[]{"usize"},new boolean[]{false}));
+        register(registry,new ExternSpec("lean_usize_shift_right",USIZE_SHR,"usize",
+                new String[]{"usize","usize"},new boolean[]{false,false}));
+        register(registry,new ExternSpec("lean_usize_shift_left",USIZE_SHL,"usize",
+                new String[]{"usize","usize"},new boolean[]{false,false}));
+        register(registry,new ExternSpec("lean_usize_land",USIZE_AND,"usize",
+                new String[]{"usize","usize"},new boolean[]{false,false}));
+        register(registry,new ExternSpec("lean_uint8_to_nat",U8_NAT,"tagged",
+                new String[]{"uint8"},new boolean[]{false}));
+        register(registry,new ExternSpec("lean_uint8_dec_eq",U8_EQ,"uint8",
+                new String[]{"uint8","uint8"},new boolean[]{false,false}));
+        register(registry,new ExternSpec("lean_uint8_land",U8_AND,"uint8",
+                new String[]{"uint8","uint8"},new boolean[]{false,false}));
+        register(registry,new ExternSpec("lean_uint8_dec_le",U8_LE,"uint8",
+                new String[]{"uint8","uint8"},new boolean[]{false,false}));
+        register(registry,new ExternSpec("lean_uint32_of_nat",U32_FROM_NAT,"uint32",
+                new String[]{"tobject","erased"},new boolean[]{true,false}));
+        register(registry,new ExternSpec("lean_uint32_to_uint8",U32_TO_U8,"uint8",
+                new String[]{"uint32"},new boolean[]{false}));
+        register(registry,new ExternSpec("lean_uint32_add",U32_ADD,"uint32",
+                new String[]{"uint32","uint32"},new boolean[]{false,false}));
+        register(registry,new ExternSpec("lean_usize_dec_le",USIZE_LE,"uint8",
+                new String[]{"usize","usize"},new boolean[]{false,false}));
+        register(registry,new ExternSpec("lean_usize_mul",USIZE_MUL,"usize",
+                new String[]{"usize","usize"},new boolean[]{false,false}));
         registry.replaceAll((symbol,entries)->Collections.unmodifiableList(entries));
         return Collections.unmodifiableMap(registry);
     }
@@ -1365,7 +1402,7 @@ public final class Interpreter implements AutoCloseable {
         if(f.intrinsic<=POW||(f.intrinsic>=NAT_LE&&f.intrinsic<=NAT_SHR)) { intrinsic(f,obj(slots[0]),slots.length<2?ERASED:obj(slots[1])); return; }
         Object a=f.paramTypes[0]==OBJ?obj(slots[0]):Long.valueOf(numbers[bp+slots[0]]);
         Object b=slots.length<2?ERASED:f.paramTypes[1]==OBJ?obj(slots[1]):Long.valueOf(numbers[bp+slots[1]]);
-        if(f.intrinsic>=STR_PUSH) {
+        if(f.intrinsic>=STR_PUSH&&!(f.intrinsic>=USIZE_LT&&f.intrinsic<=USIZE_MUL)) {
             Object c=slots.length<3?ERASED:f.paramTypes[2]==OBJ?obj(slots[2]):Long.valueOf(numbers[bp+slots[2]]);
             runtimeIntrinsic(f,a,b,c);
         } else scalarIntrinsic(f,a,b);
@@ -1385,7 +1422,7 @@ public final class Interpreter implements AutoCloseable {
         if(f.intrinsic<=POW||(f.intrinsic>=NAT_LE&&f.intrinsic<=NAT_SHR)) { intrinsic(f,args[0],args.length<2?ERASED:args[1]); return; }
         Object a=f.paramTypes[0]==OBJ?args[0]:Long.valueOf(inputScalar(args[0],f.paramTypes[0]));
         Object b=args.length<2?ERASED:f.paramTypes[1]==OBJ?args[1]:Long.valueOf(inputScalar(args[1],f.paramTypes[1]));
-        if(f.intrinsic>=STR_PUSH) {
+        if(f.intrinsic>=STR_PUSH&&!(f.intrinsic>=USIZE_LT&&f.intrinsic<=USIZE_MUL)) {
             Object c=args.length<3?ERASED:f.paramTypes[2]==OBJ?args[2]:Long.valueOf(inputScalar(args[2],f.paramTypes[2]));
             runtimeIntrinsic(f,a,b,c);
         } else scalarIntrinsic(f,a,b);
@@ -1728,12 +1765,31 @@ public final class Interpreter implements AutoCloseable {
     }
     private void scalarIntrinsic(Function f,Object a,Object b) {
         switch(f.intrinsic) {
-            case USIZE_NAT: scalarResult=nat(a).longValue(); break;
+            case USIZE_NAT:
+                if(f.params.length>1) require(ERASED.equals(b),"USize conversion proof requires erased placeholder");
+                scalarResult=nat(a).longValue(); break;
             case USIZE_REPR: result=Long.toUnsignedString((Long)a); break;
             case U32_NAT: result=a; break;
             case U32_EQ: scalarResult=((Long)a).longValue()==((Long)b).longValue()?1:0; break;
             case U32_LE: scalarResult=(Long)a<=(Long)b?1:0; break;
             case PLATFORM_BITS: require(a instanceof Long&&(Long)a==0,"Expected Unit for platform bits"); result=Long.valueOf(64); break;
+            case USIZE_LT: scalarResult=Long.compareUnsigned((Long)a,(Long)b)<0?1:0; break;
+            case USIZE_LE: scalarResult=Long.compareUnsigned((Long)a,(Long)b)<=0?1:0; break;
+            case USIZE_EQ: case U8_EQ: scalarResult=((Long)a).longValue()==((Long)b).longValue()?1:0; break;
+            case USIZE_ADD: scalarResult=(Long)a+(Long)b; break;
+            case USIZE_SUB: scalarResult=(Long)a-(Long)b; break;
+            case USIZE_MUL: scalarResult=(Long)a*(Long)b; break;
+            case USIZE_TO_NAT: result=externalScalar((Long)a,USIZE); break;
+            case USIZE_SHR: scalarResult=(Long)a>>>(Long)b; break;
+            case USIZE_SHL: scalarResult=(Long)a<<(Long)b; break;
+            case USIZE_AND: case U8_AND: scalarResult=(Long)a&(Long)b; break;
+            case U8_NAT: result=a; break;
+            case U8_LE: scalarResult=(Long)a<=(Long)b?1:0; break;
+            case U32_FROM_NAT:
+                require(ERASED.equals(b),"UInt32 conversion proof requires erased placeholder");
+                scalarResult=nat(a).longValue()&0xffffffffL; break;
+            case U32_TO_U8: scalarResult=(Long)a&255; break;
+            case U32_ADD: scalarResult=((Long)a+(Long)b)&0xffffffffL; break;
             default: throw error("Invalid scalar intrinsic");
         }
     }
