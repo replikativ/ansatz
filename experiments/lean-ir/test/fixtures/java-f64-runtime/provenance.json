@@ -1,0 +1,34 @@
+{
+  "lean-commit": "819816b2e0a3bf405af45ae5c7af2491d8f5bee6",
+  "source-index-sha256": "74d833d577923821b982e8a9e872a38b5cad011513eb18870b51417e13397f0e",
+  "fixture-sha256": "a8fe1bed07ab02b88d6d26b4bcae64bfdbd206f6e271f853c088dd0b7a5a5c59",
+  "rows": 18,
+  "bytes": 52150,
+  "original-identities": {
+    "Float.ofBits": "4634e9c32860ec6e67265865ec667157340d51b61f5d9c0992e5ee5a827b0bdc",
+    "Float.ofBits._boxed": "7a14c468d4a48a3c23a81f35a27ac06ee17f0152ac3d289341068007ecfb56dd",
+    "Float.ofModel": "32a052f14f9305c5f1259080b07c258cd40bab595226719beac3a835eb42e7b6",
+    "Float.ofModel._boxed": "02cb8b0b9e1284c29413bf295bfb065ab347a93747fdf5b08eed7025ae246ca4",
+    "UInt64.toFloat": "16f7c80734e905b932e71418bc9c7fd15d5dcb1f7babbfc04b4f5231c70a8b8d",
+    "UInt64.toFloat._boxed": "dc58da0e4cb68627d8c1b16064dda7825ae680475b5cb2b91a05356f3b80d3cf",
+    "Float.sub": "98bc5a2f8e800b5b68c7a19a9268501b659634df641cf6504464f13416f9cc3a",
+    "Float.sub._boxed": "6111b16354ea228f0b0d2f5ae697dbc6ffbfbf59d948f108d1a0869080cbb3cf",
+    "Float.mul": "5e5869734ec4794c131f4254608dc17b56665dd06dfd44e56f1240136956a2d2",
+    "Float.mul._boxed": "239b52f0adc2a8e5e7baa7b3dbc08ef0fd3bdfe03b27b1983e918ab269be0458",
+    "Float.div": "773de2a47205bb0909c8f1420d1e23bcc90685fe5177adcf8be6f374c8ef88f4",
+    "Float.div._boxed": "0488f0e0ea0282b64f5ff701ef5081a3168a6a107278d440fb1ac60ae23112c0",
+    "Float.beq": "37a8885668dbab7d00ec20018902c5307da5a8089457d99719d93aabec9971c8",
+    "Float.beq._boxed": "4ddaf107407d296b7d26528934a172ff0c294684aa54951923504413e6755e6a",
+    "Float.decLt": "bb46e6bd2bf50777863fa4fd9d3cc54c0bc8a9fc06d4d30db4d09ffea3150cfa",
+    "Float.decLt._boxed": "efb1f232f981c7927020bfd17e1df5b9471436ead3d9fd3efd8f38ef21030ccc",
+    "Float.toString": "c6518456b316f99a5a819ec3d5b19a6e095481b6a7bfe27398cd95fd0234b20d",
+    "Float.toString._boxed": "8b05ab6f680f122cadcce04acaefef205e6ac038d44ea924faef5083266d605a"
+  },
+  "pinned-source-sha256": {
+    "src/include/lean/lean.h": "02af0040283143b264e3a44b06b348b6973ae6037fa8f550701c83dd7a062ace",
+    "src/runtime/object.cpp": "e03ea4317ad44fb91a4cc9097abe1601b1e1cf8fb77f5ab7b0620fdfcf348430",
+    "src/Init/Data/OfScientific.lean": "011dabc61a4dba51839735860eac2f41c0bb377cd709e515bc62bee6d5cbde65",
+    "src/library/ir_interpreter.cpp": "45ff3db98a310a530fe4d149bb084af6538deb9317c2e618de22f4c421ec87b1",
+    "src/CMakeLists.txt": "58ddf694e2f2a4852b8e093befccd92eb572e9701c436e8b8ae637851be8b02e"
+  }
+}

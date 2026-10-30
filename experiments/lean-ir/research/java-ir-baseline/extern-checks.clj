@@ -108,7 +108,8 @@
   (let [ctx (prepare (executable-rows))]
     (doseq [label ["Nat.mul" "Nat.div" "Nat.pow" "wrapped-mul" "wrapped-div" "wrapped-pow"]
             args [[-1 2] [(biginteger -1) 2] [2 -1] [2 (biginteger -1)] [1.0 2] [2 1.0]]]
-      (probe-failure! ctx label args #"Invalid Nat"))
+      (probe-failure! ctx label args (if (some #(instance? Double %) args)
+                                     #"Float scalar is not an OBJ value" #"Invalid Nat")))
     (doseq [label ["Nat.pow" "wrapped-pow"] base [0 1 2]
             exponent [4294967296 (biginteger "18446744073709551616")]]
       (probe-failure! ctx label [base exponent] #"Nat.pow exponent is too big"))))
