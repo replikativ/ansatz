@@ -20,6 +20,62 @@ The sequential entry does not import modules, initialize the frontend, or preser
 whole-file diagnostics automatically. Its top-level elaborator resets messages;
 end-of-file success or environment membership alone is insufficient evidence.
 
+## Current checkpoint — 2026-10-30, command and EOF complete
+
+Acceptance steps 1 and 2 passed for the exact prelude/axiom input above in the
+retained 384 MiB JVM. The original parser and `processCommand` completed the
+axiom, then a second call reached EOF; both observations reported no errors.
+The strict empty-safe-axiom adapter checked `HostedSort : Sort 1` in the Java
+kernel, published it through the original guest environment helpers, validated
+the original checked-map readback, and revalidated the Java association segment.
+Sorry warnings retained their default; `debug.skipKernelTC=false` and
+`Elab.async=false`. The explicit lab profile still disables native heartbeat and
+recursion limits and uses the engine allocation counter as a heartbeat diagnostic.
+This does not establish native heartbeat parity.
+
+The [flat measurement](../measurements/java-original-frontend-command-2026-10-30.edn)
+records input, source/artifact hashes, observations, ownership retirement and
+limits. The input context is prepared by the research adapter; this is not a
+complete `Lean.Language.Lean` file/import API. General declarations, imported
+kernel environments, rejected-input diagnostics, module IO and project coverage
+remain subsequent gates.
+
+A complete finite code-and-captured-state inventory replaced incremental missing
+global probes. The new companion contains **512 globals, 97,326 nodes and 3,594
+immediately required Headers**. Its 5,658 positive objects have 6,139 selected
+owner credits. An independent source-frame and CAS verifier explained all 194
+new owning edges behind 97 changed baseline counts. The explicit persistent-Ref
+payload sharing profile derives target logical MT; it does not recover historical
+native sharing bits from the Clojure producer. Existing import profiles and old
+capsules remain unchanged. Runtime code/state are separate from kernel Init
+stores; no frontend blob is added to the repository by this result.
+
+The conservative archive inventory has 136,294 execution declarations plus
+4,811 initializer-only declarations. Captured callbacks and two authorized Meta
+export edges are included. Native hidden callbacks, runtime-generated code and
+plugins remain explicit coverage limits; finite closure is not whole-frontend
+execution coverage. Exact source-code gzip counting yielded 70,485,766 bytes for
+execution code, and normalized node state compressed to 1,370,600 bytes. These
+exclude index, globals/Header tables and packaging overhead and do not measure
+JVM residency. Code bodies remain lazy.
+
+The first observed successful run took 11.57 s including import/setup/cold code
+preparation. Measured `advance` calls took 110 ms; inclusive code service took
+9.99 s, with lookup and materialization nested inside it. These timers overlap.
+After promoting only validated immutable code into the unchanged parent, a fresh
+fork/setup/checked-command experiment took **613 ms with zero code requests**;
+EOF took 18 ms. These are individual tiny-input observations, not throughput or a
+comparison against native Lean. Both child sessions retired their two association
+anchors, released caller owners, closed source scopes, disposed and closed.
+One idle parent remains reusable; the whole retained REPL used about 135 MiB
+after GC, including tests, code catalogue and multiple runtime classloaders.
+
+The current Java11 isolated gate passes **107 suites / 1,052 test executions /
+52,979 assertions**, exit 0 at 384 MiB. The [Void runtime unit](JAVA_VOID_RUNTIME.md)
+and explicit [sharing import profile](JAVA_PREPARED_GRAPHS.md) have independent
+source review and focused runtime tests. The detailed earlier stops below are
+historical and do not describe this completed tiny-input command/EOF observation.
+
 ## Earlier runtime observations — 2026-10-30, before PR #316
 
 The then-integrated synchronous runtime passed 87 suites / 867 test executions /
@@ -73,7 +129,7 @@ both interpreter modes. The integrated Java source SHA-256 is
 `97833400f3b286fc7dbb43148367be3c856e86b04418864dda4c3c7a01c81865`.
 
 
-## Current checkpoint — 2026-10-30, Expr equality integration
+## Historical checkpoint — 2026-10-30, Expr equality integration
 
 The current Java11 isolated jar gate exits0 with **102 suites / 997 test
 executions / 52,235 assertions** at a 384 MiB heap. Expr eqv/equal and the two
