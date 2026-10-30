@@ -42,7 +42,7 @@ public final class Interpreter implements AutoCloseable {
     private static final int BYTE_MK=200,BYTE_GET=201,BYTE_SIZE=202,BYTE_PUSH=203;
     private static final int INT_OF_NAT=210,INT_NEG_SUCC=211,INT_NEG=212,INT_ABS=213,INT_ADD=214,INT_SUB=215,INT_EQ=216,INT_LT=217,INT_LE=218;
     private static final int MAX_BYTE_CAPACITY=16*1024*1024;
-    private static final int POINTER_IDENTITY=93, NAME_EQ=94;
+    private static final int POINTER_IDENTITY=93, NAME_EQ=94, BUILD_GITHASH=95, BUILD_TARGET=96;
     private static final int MAX_NAME_COMPARISON_STEPS=1_000_000;
     private static final int MAX_SHIFT_RESULT_BITS=16*1024*1024;
     private static final int MAX_ARRAY_CAPACITY=1_000_000;
@@ -356,6 +356,10 @@ public final class Interpreter implements AutoCloseable {
                 new String[]{"tobject","tobject"},new boolean[]{true,true}));
         register(registry,new ExternSpec("lean_name_eq",NAME_EQ,"uint8",
                 new String[]{"tobject","tobject"},new boolean[]{true,true}));
+        register(registry,new ExternSpec("lean_get_githash",BUILD_GITHASH,"object",
+                new String[]{"tagged"},new boolean[]{false}));
+        register(registry,new ExternSpec("lean_system_platform_target",BUILD_TARGET,"object",
+                new String[]{"tagged"},new boolean[]{false}));
         registry.replaceAll((symbol,entries)->Collections.unmodifiableList(entries));
         return Collections.unmodifiableMap(registry);
     }
@@ -963,6 +967,17 @@ public final class Interpreter implements AutoCloseable {
         return new Program(staged.functions,slots,staged.labels,staged.typedNames,staged.hostRegistry,new Generation(staged.generation));
     }
 
+    /** Explicit trusted-host selection of guest producer metadata, not a hash
+     * verifier or an assertion about the JVM host's OS or this executable.
+     * Contains no catalogue, channel, source binding, or Interpreter owner. */
+    public static final class BuildIdentity {
+        private static final BuildIdentity LEAN_4331=new BuildIdentity();
+        private BuildIdentity() {}
+        public static BuildIdentity supportedLean4331() { return LEAN_4331; }
+        public String githash() { return "819816b2e0a3bf405af45ae5c7af2491d8f5bee6"; }
+        public String target() { return "x86_64-unknown-linux-gnu"; }
+    }
+    private final BuildIdentity buildIdentity;
     private Program program;
     private Object[] objects=new Object[1024];
     private long[] numbers=new long[1024];
@@ -1017,7 +1032,13 @@ public final class Interpreter implements AutoCloseable {
     public Interpreter(Program program,boolean explicit) { this(program,explicit,false); }
     /** Fresh initialization mode is explicit; it is never re-entered by imports. */
     public Interpreter(Program program,boolean explicit,boolean initializing) {
+        this(program,explicit,initializing,null);
+    }
+    /** The caller has independently accepted the selected producer profile.
+     * Null keeps build identity unavailable; module initialization is separate. */
+    public Interpreter(Program program,boolean explicit,boolean initializing,BuildIdentity buildIdentity) {
         this.program=program;
+        this.buildIdentity=buildIdentity;
         this.initializing=initializing;
         this.explicit=explicit;
         if(explicit) continuations=new Continuation[32];
@@ -1059,7 +1080,7 @@ public final class Interpreter implements AutoCloseable {
         if(externalRoots==null) throw error("Explicit fork roots required");
         // phase RUNNING between advance calls is the explicit driver's paused
         // instruction boundary. No Java call frame is captured in that state.
-        Interpreter child=new Interpreter(program,explicit,initializing);
+        Interpreter child=new Interpreter(program,explicit,initializing,buildIdentity);
         ForkCopy copy=new ForkCopy(child);
         copy.bind(constants,child.constants);
         child.objects=(Object[])copy.value(objects);
@@ -2062,6 +2083,10 @@ public final class Interpreter implements AutoCloseable {
     private void runtimeIntrinsic(Function f,Object a,Object b,Object c) {
         if(f.intrinsic>=INT_OF_NAT&&f.intrinsic<=INT_LE) { intIntrinsic(f,a,b); return; }
         if(f.intrinsic==NAME_EQ) { scalarResult=nameEquals(a,b)?1:0; return; }
+        if(buildIdentityPrimitive(f.intrinsic)) {
+            requireBuildIdentity(); requireBuildUnit(a);
+            result=f.intrinsic==BUILD_GITHASH?buildIdentity.githash():buildIdentity.target(); return;
+        }
         if(f.intrinsic>=BYTE_MK&&f.intrinsic<=BYTE_PUSH) { byteArrayIntrinsic(f,a,b,c); return; }
         if(f.intrinsic==IO_INITIALIZING) {
             require(ERASED.equals(a),"IO.initializing world parameter requires erased placeholder");
@@ -2264,9 +2289,15 @@ public final class Interpreter implements AutoCloseable {
         for(int i=0;i<function.paramTypes.length;i++) if(function.paramTypes[i]<0)
             throw error("Unsupported execution lane "+header.paramTypes[i]+" in "+function.label+" ["+header.originalSha256+"]");
     }
+    private static boolean buildIdentityPrimitive(int op) { return op==BUILD_GITHASH||op==BUILD_TARGET; }
+    private void requireBuildIdentity() { require(buildIdentity!=null,"Producer build identity unavailable"); }
+    private static void requireBuildUnit(Object value) {
+        require(value instanceof Long&&((Long)value).longValue()==0,"Build identity requires canonical Unit zero");
+    }
     private void preflightCallable(Function function) { preflightCallable(function,false); }
     private void preflightCallable(Function function,boolean allowCodeRequest) {
         requireExecutableAbi(function);
+        if(buildIdentityPrimitive(function.intrinsic)) requireBuildIdentity();
         if(function.params.length==0&&constantReady[function.id]) return;
         Header header=function.header;
         if(header!=null&&header.initialized()) throw error("Initialized global is unavailable: "+function.label);
@@ -2318,7 +2349,10 @@ public final class Interpreter implements AutoCloseable {
         Function f=closure.closure;
         rootEntry(f);
         requireExecutableAbi(f);
-        if(closure.fields.length+args.length>=f.params.length) preflightCallable(f);
+        if(closure.fields.length+args.length>=f.params.length) {
+            preflightCallable(f);
+            if(buildIdentityPrimitive(f.intrinsic)) requireBuildUnit(closure.fields.length==0?args[0]:closure.fields[0]);
+        }
         Object[] combined=new Object[closure.fields.length+args.length];
         System.arraycopy(closure.fields,0,combined,0,closure.fields.length);
         // A shared closure keeps ownership of its captured arguments.
@@ -2798,6 +2832,7 @@ public final class Interpreter implements AutoCloseable {
      * taking owned arguments, or running any guest operation. */
     private void validateEntryArguments(Function function,Object[] args) {
         if(args==null||args.length!=function.params.length) throw error("Arity mismatch: "+function.label);
+        if(buildIdentityPrimitive(function.intrinsic)) requireBuildUnit(args[0]);
         for(int i=0;i<args.length;i++) {
             if(function.paramTypes[i]!=OBJ) inputScalar(args[i],function.paramTypes[i]);
             else if(args[i] instanceof Node) {
@@ -2873,7 +2908,10 @@ public final class Interpreter implements AutoCloseable {
         Function f=closure.closure;
         rootEntry(f);
         requireExecutableAbi(f);
-        if(closure.fields.length+args.length>=f.params.length) preflightCallable(f,true);
+        if(closure.fields.length+args.length>=f.params.length) {
+            preflightCallable(f,true);
+            if(buildIdentityPrimitive(f.intrinsic)) requireBuildUnit(closure.fields.length==0?args[0]:closure.fields[0]);
+        }
         Object[] combined=new Object[closure.fields.length+args.length];
         System.arraycopy(closure.fields,0,combined,0,closure.fields.length);
         if(closure.rc!=1) for(Object a:closure.fields) inc(a,1);
