@@ -173,6 +173,41 @@ code generations under their existing contracts. A child must never retain a
 parent scheduler link. Fork at pending/new, detached propagation, queued/parked,
 bind-forwarding, release, code and host boundaries, then resolve independently.
 
+## Quiet release and uncommon dispatch
+
+The active release protocol must preserve a cheap ordinary path. Internal
+`beginRelease(value, count)` returns `QUIET_COMPLETE` or `NEEDS_DISPATCH` as
+private control outcomes, never as guest data or a thrown suspension sentinel.
+A valid decrement leaving positive RC completes without allocating a frame.
+Ordinary native-order destruction can also finish inline in reusable work
+buffers. Quiet completion means all required effects finished, not merely that
+the graph had no special kinds.
+
+Stop before applying any guest callback, including a prepared callback. Preserve
+the release cursor, nested boundaries, propagation position and committed owner
+dispositions. The caller then saves its typed operands/output and exact suffix,
+attaches the pending release and returns control to the central dispatcher.
+Only that dispatcher may enter the callback. Do not advance the PC, publish a
+result, apply surplus arguments or release later operands in the meantime.
+
+Reusable ReleaseScratch and NativeOpScratch hold ownership-bearing intermediates
+before mutations which might suspend or fail. Promote that state into a private
+continuation only at the uncommon boundary, preferably using reusable frame
+storage. Scratch participates in fork whenever nonempty. If promotion fails,
+preserve the interrupted operation and unfinished destruction for terminal
+diagnostics; this does not promise recovery from arbitrary JVM OOM. Grow work
+buffers before detaching the next edge where practical. Do not clear unfinished
+active-mode work in an unconditional finally block.
+
+For Array.uset the saved suffix stores the incoming value and returns the saved
+array. For MT Ref.set it returns Unit, since exchange already happened. For host
+cleanup it finishes the current release, advances that borrowed-argument cursor,
+then considers the next argument. Keep separate nested HostCompletion records
+when an outer claimed reply's cleanup creates another HostRequest. Every root,
+FAP, AP and helper path must propagate the outcome. No graph-wide may-finalize
+prewalk or transitive finalizer cache is required; public active-mode release
+still uses the explicit transaction API.
+
 ## Implementation sequence and acceptance
 
 1. Native-order finalizer-free release, with focused shared-child/order tests;

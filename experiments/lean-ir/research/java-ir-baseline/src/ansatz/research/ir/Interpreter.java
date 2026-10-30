@@ -1090,6 +1090,7 @@ public final class Interpreter implements AutoCloseable {
     private WeakReference<String> utf8Key;
     private byte[] utf8Bytes;
     private Object[] releaseWork=new Object[32];
+    private int releasePending;
     private long callsLeft;
     private final boolean explicit;
     private static final int IDLE=0, RUNNING=1, COMPLETE=2, FAILED=3, HOST_CALL=4, CODE_CALL=5;
@@ -1186,7 +1187,7 @@ public final class Interpreter implements AutoCloseable {
         String key=utf8Key==null?null:utf8Key.get();
         child.utf8Key=key==null?null:new WeakReference<>(key);
         child.utf8Bytes=utf8Bytes==null?null:utf8Bytes.clone();
-        child.releaseWork=(Object[])copy.value(releaseWork);
+        child.releaseWork=(Object[])copy.value(releaseWork); child.releasePending=releasePending;
         child.callsLeft=callsLeft; child.phase=phase; child.continuationDepth=continuationDepth;
         child.untrackedFailure=untrackedFailure;
         child.instructions=instructions; child.pendingOwnedResult=pendingOwnedResult;
@@ -1628,31 +1629,42 @@ public final class Interpreter implements AutoCloseable {
         v.rc-=n; releases+=n;
         if(v.rc==0) destroy(v);
     }
+    /** Consume each owning edge before visiting any zero-owner child. Pinned
+     * lean_del_core scans ascending, then drains zero shells in LIFO order.
+     * Queued zero is dead, distinct from a live persistent rc0 object. */
+    private void releaseFields(Node current) {
+        int size=current.array?arrayState(current).size:current.fields.length;
+        for(int i=0;i<size;i++) {
+            Object child=current.fields[i];
+            if(child instanceof Node) {
+                Node value=node(child);
+                if(value.rc!=0) {
+                    if(value.rc<0) throw error("Reference count underflow");
+                    // Grow before claiming a final edge; no queue entry is lost
+                    // if capacity allocation itself fails.
+                    if(value.rc==1&&releasePending==releaseWork.length)
+                        releaseWork=Arrays.copyOf(releaseWork,Math.multiplyExact(releasePending,2));
+                    value.rc--; releases++;
+                    if(value.rc==0) { value.dead=true; releaseWork[releasePending++]=value; }
+                }
+            }
+            current.fields[i]=null;
+        }
+    }
+    private Node takeReleased() {
+        Node next=(Node)releaseWork[--releasePending]; releaseWork[releasePending]=null; return next;
+    }
     private void destroy(Node current) {
-        int pending=0;
         try {
             while(true) {
                 current.dead=true;
-                // Transfer child-edge owners to an explicit private work
-                // stack. No native finalizers run in this profile.
-                for(int i=(current.array?arrayState(current).size:current.fields.length)-1;i>=0;i--) {
-                    Object child=current.fields[i]; current.fields[i]=null;
-                    if(child instanceof Node) {
-                        if(pending==releaseWork.length) releaseWork=Arrays.copyOf(releaseWork,Math.multiplyExact(pending,2));
-                        releaseWork[pending++]=child;
-                    }
-                }
-                Node next=null;
-                while(pending!=0) {
-                    Node child=node(releaseWork[--pending]); releaseWork[pending]=null;
-                    if(child.rc==0) continue;
-                    child.rc--; releases++;
-                    if(child.rc==0) { next=child; break; }
-                }
-                if(next==null) return;
-                current=next;
+                releaseFields(current);
+                if(releasePending==0) return;
+                current=takeReleased();
             }
-        } finally { Arrays.fill(releaseWork,0,pending,null); }
+        } finally {
+            Arrays.fill(releaseWork,0,releasePending,null); releasePending=0;
+        }
     }
     private Node constructorNode(Object value) {
         Node node=node(value); require(!node.ref&&!node.array&&!node.readyTask&&!isByteArray(node),"Reference/array/task/byte-array is not a constructor"); return node;
