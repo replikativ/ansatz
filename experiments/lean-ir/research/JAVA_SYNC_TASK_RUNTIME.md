@@ -209,3 +209,12 @@ and logical sharing suites were also run. Integration/full gate and real
 sequential frontend probes belong to the root campaign after independent review.
 Native oracle receipts remain separate evidence; a matching installed Lean
 binary does not prove the historical producer executable or general async timing.
+
+Combined integration validation (2026-10-30): the isolated Java 11 jar completed
+all 87 suites with 867 test executions / 23,979 assertions, exit 0, at a 384 MiB
+heap. This includes the independently reviewed active AP ownership repair,
+inactive recursive regressions, and the separately landed Expr/Level scalar-cache
+primitives. Source SHA-256 is
+`33d3e24c635dc66f8976bdd74eb049163212d3008b4e4002d003463b9525f73f`.
+This validates the bounded synchronous profile; declaration elaboration and
+queued frontend support remain separate campaign gates.
