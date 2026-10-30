@@ -1,0 +1,223 @@
+[
+  {
+    "label": "ptrAddrUnsafe",
+    "sha256": "dd3bfa344b80ec49d812d6cc91af6897f7e14f3bced8f4c46a7fc0237e9b43be",
+    "row": {
+      "dependencies": [],
+      "ir": {
+        "extern": {
+          "ext": {
+            "entries": [
+              {
+                "standard": {
+                  "backend": [
+                    "str",
+                    [
+                      "anonymous"
+                    ],
+                    "all"
+                  ],
+                  "fn": "lean_ptr_addr"
+                }
+              }
+            ]
+          },
+          "f": [
+            "str",
+            [
+              "anonymous"
+            ],
+            "ptrAddrUnsafe"
+          ],
+          "type": "usize",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "erased",
+              "x": {
+                "idx": 1
+              }
+            },
+            {
+              "borrow": true,
+              "ty": "tobject",
+              "x": {
+                "idx": 2
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "anonymous"
+        ],
+        "ptrAddrUnsafe"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "anonymous"
+          ],
+          "Init"
+        ],
+        "Util"
+      ]
+    }
+  },
+  {
+    "label": "ptrAddrUnsafe._boxed",
+    "sha256": "11f96acf62858b802c842eefdd6aaabeebc91864f1df8035c479e95d20ef5d64",
+    "row": {
+      "dependencies": [
+        [
+          "str",
+          [
+            "anonymous"
+          ],
+          "ptrAddrUnsafe"
+        ]
+      ],
+      "ir": {
+        "fdecl": {
+          "body": [
+            "vdecl",
+            {
+              "idx": 3
+            },
+            "usize",
+            {
+              "fap": {
+                "c": [
+                  "str",
+                  [
+                    "anonymous"
+                  ],
+                  "ptrAddrUnsafe"
+                ],
+                "ys": [
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 1
+                      }
+                    }
+                  },
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 2
+                      }
+                    }
+                  }
+                ]
+              }
+            },
+            [
+              "dec",
+              {
+                "idx": 2
+              },
+              1,
+              true,
+              false,
+              [
+                "vdecl",
+                {
+                  "idx": 4
+                },
+                "tobject",
+                {
+                  "box": {
+                    "ty": "usize",
+                    "x": {
+                      "idx": 3
+                    }
+                  }
+                },
+                [
+                  "ret",
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 4
+                      }
+                    }
+                  }
+                ]
+              ]
+            ]
+          ],
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "ptrAddrUnsafe"
+            ],
+            "_boxed"
+          ],
+          "info": {},
+          "type": "tobject",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 1
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 2
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "anonymous"
+          ],
+          "ptrAddrUnsafe"
+        ],
+        "_boxed"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "anonymous"
+          ],
+          "Init"
+        ],
+        "Util"
+      ]
+    }
+  }
+]
