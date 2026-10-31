@@ -1,0 +1,38 @@
+{
+  "schema": "general-frontend-compatibility-corpus/1",
+  "source-profile": "explicit-prelude",
+  "files": {
+    "01Earlier.lean": {
+      "sha256": "b2bb7fdafd54ad4e399288e09ffdc78b4c353aacfa0c2c55fd10df0899355c2f",
+      "status": "pending-hosted-execution",
+      "origin": "reviewed general-file compatibility proposal"
+    },
+    "02Proof.lean": {
+      "sha256": "5ecd3e9014764ecdb44b003d77dadcfc196e8c9ef3d3d457b7e8bffc617b9a18",
+      "status": "native-rejected-under-Prelude-only: equality notation not imported",
+      "origin": "reviewed general-file compatibility proposal"
+    },
+    "03Recursive.lean": {
+      "sha256": "fb203e5ca9ca54525799e88b00042dd8be39237691bae9277e645ed768c3d1b3",
+      "status": "pending-hosted-execution",
+      "origin": "reviewed general-file compatibility proposal"
+    },
+    "04Lists.lean": {
+      "sha256": "d1d9cf6d3483f3ac8fad93888a0f76e140d5aa7ff9b7d2a482154f015a60d100",
+      "status": "pending-hosted-execution",
+      "origin": "reviewed general-file compatibility proposal"
+    },
+    "05Closures.lean": {
+      "sha256": "8a0e50c73aadbad56a8e6c9a84ee58999501b50cecc3097286917d694689dcd1",
+      "status": "pending-hosted-execution",
+      "origin": "reviewed general-file compatibility proposal"
+    },
+    "06Closed.lean": {
+      "sha256": "5ff3b87e8591a1aef7513138050985aacb72be4654b7494b8fd59783d6fc872f",
+      "status": "pending-hosted-execution",
+      "origin": "reviewed general-file compatibility proposal"
+    }
+  },
+  "claims": "Sources are coverage probes, not a grammar whitelist or project support claim",
+  "scopeNote": "Original proposals retained unchanged; core syntax variants are a separate corpus. No unchanged-project acceptance claimed."
+}
