@@ -203,7 +203,7 @@ and a small project corpus. The earlier `prototype.project-loader` is a separate
 World/NativeBase implementation and cannot directly replace these Java capabilities.
 Larger runtime artifacts and bootstrap installation still need a reproducible,
 explicitly supplied artifact path. LLVM is not required for this execution route.
-# Versioned arithmetic extension (not yet runtime accepted)
+# Versioned arithmetic extension
 
 `filesystem-nat-file-run-v1/open-arithmetic-file!` opts into the finite v3 source
 profile. It accepts the old identity lines and `x + 1` / `Nat.add x 1` bodies,
@@ -219,10 +219,19 @@ the same actual version/branch/Program custody. Generated code stays on the chil
 Invocation checks the immutable Nat carrier and the selected operation's result.
 
 `nat-arithmetic-v3.json` records bounded source deltas against the untouched v25
-`acceptance.json`; it does **not** extend that earlier runtime result to arithmetic.
-Six new model families cover source, original IR shape and result-domain gates.
-The copied native export is an offline shape fixture, never an issued CodeBatch.
-The parent ran the six structural model families in its coordinated retained REPL:
-6 tests / 63 assertions passed. No worker JVM/native execution or fresh filesystem
-arithmetic acceptance has run. The parent must still run fresh checked
-compile/link/invoke/EOF/retirement.
+`acceptance.json`. [The arithmetic acceptance](nat-arithmetic-runtime-validation.json)
+records a separate fresh filesystem run: original parser, elaborator and compiler
+on the JVM, one strict Java-kernel publication, two generated rows, same-branch
+linking, actual EOF and normal retirement. With original code metadata warmed,
+the definition and EOF took 10.79 seconds in the retained 384 MiB JVM. Calls
+covered 0, 42, the small-Nat overflow boundary, 2^64 and 2^200. Retirement released
+12 additional owner occurrences and 534 runtime roots; the parent remained idle
+and did not acquire the generated entry. The copied native export remains an
+offline shape fixture, never an issued CodeBatch.
+
+Seven model families / 67 assertions cover source, original IR shape, SSA,
+result-domain and frozen-description boundaries. The warm timing excludes
+bootstrap, original-code discovery and child preparation. Cold discovery exceeded
+the experimental one-minute file limit; its diagnostic completion was not accepted
+as a file result. This finite profile still does not admit arbitrary commands,
+source-module imports or general Lean projects.

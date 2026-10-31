@@ -406,7 +406,7 @@
             _ (#'adapter/validate-versions! session)
             description (frozen-host (:description capture))
             _ (need (map? description) "Independent source profile description required")
-            summary {:schema (if (= arithmetic-profile (:profile description)) "original-compiler-nat-arithmetic/3" "original-compiler-nat-identity/1") :root root-name :boxed-entry boxed-name
+            summary {:schema (if (= arithmetic-profile (get description "profile")) "original-compiler-nat-arithmetic/3" "original-compiler-nat-identity/1") :root root-name :boxed-entry boxed-name
                      :rows-sha256 (digest rows) :profile-description description :row-count 2
                      :root-abi {:parameters [{:type "tobject" :borrow true}] :result "tobject"}
                      :boxed-abi {:parameters [{:type "tobject" :borrow false}] :result "tobject"}

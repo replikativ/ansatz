@@ -2,12 +2,12 @@
   "schema": "artifact-frontend-source-delta/1",
   "base-acceptance-sha256": "d261a55a887a72a573022a39f0ec2dd6c788c1f09d46e6c5c36311643e5c7fb0",
   "scope": "Finite source-bound identity/add-one v3, no general declaration or initializer support",
-  "acceptance": "Prior checkpoint74863e1: parent models6/63 PASS; boxed SSA distinctness follow-up plus one negative model pending parent execution; filesystem arithmetic remains pending",
+  "acceptance": "Fresh retained JVM384MiB filesystem arithmetic compile/link/invoke/EOF/retirement PASS; seven models67 assertions PASS; see nat-arithmetic-runtime-validation.json",
   "sources": [
     {
       "file": "generated-command.clj",
       "base-sha256": "0113a69a41fe9df0664da93918c776cc629592d45c6121836a21d526b570910e",
-      "sha256": "f2e13b8ad145a59242998da4ef605436b8ab38152338edd13feec371e218699e"
+      "sha256": "257540c0f261a3f5a19492301bba8eb4367a8fd3901d9611de243c5f893f236f"
     },
     {
       "file": "filesystem-profile.clj",
@@ -37,7 +37,7 @@
     {
       "file": "models/nat-arithmetic.clj",
       "base-sha256": null,
-      "sha256": "ef434b50312a099f353d4247fc28a6d67a087f59df120de30bd3c1cc3851b955"
+      "sha256": "35442cd666c3c2c3ebd74ab73504639aab8b8722fa716f88084316c3a26bfe78"
     }
   ],
   "fixture-directory": "experiments/lean-ir/test/fixtures/generated-nat-arithmetic",

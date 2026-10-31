@@ -80,4 +80,13 @@
                (proxy [java.math.BigInteger] ["1"] (signum [] (throw (AssertionError. "Not called"))))]]
     (is (rejects? #(#'file/validate-nat-result! :identity 1 bad))))
   (is (rejects? #(#'file/validate-nat-result! :unsupported 1 1))))
+(deftest frozen-source-description-has-json-text-keys
+  (let [description (#'command/frozen-host
+                     {:profile "legacy-private-filesystem-nat-arithmetic/3"
+                      :operation :add-one :nested {:source "λ"}})]
+    (is (= "legacy-private-filesystem-nat-arithmetic/3" (get description "profile")))
+    (is (= {"profile" "legacy-private-filesystem-nat-arithmetic/3"
+            "operation" "add-one" "nested" {"source" "λ"}}
+           (json/read-str (json/write-str description))))
+    (is (rejects? #(#'command/frozen-host {:profile 1 "profile" 2})))))
 (defn check! [] (run-tests 'generated-nat-arithmetic-checks-v3))
