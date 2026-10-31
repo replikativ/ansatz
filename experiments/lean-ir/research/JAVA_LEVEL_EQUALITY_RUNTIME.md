@@ -29,7 +29,7 @@ Program or guest ownership counters are written by comparison.
 The [fixture](../test/fixtures/java-level-equality-runtime/README.md) pins the raw
 extern and original owned boxed wrapper, source files and shared constructor
 rows. Existing Expr-native oracle observations support only the shared
-Expr-mediated Level relation; no new direct-root native execution is claimed.
+Expr-mediated Level relation; no separate Lean-native direct-Level oracle run is claimed.
 The nine-test focused suite runs under default and explicit engines in the
 bounded integration gate. The root campaign results below verify the new immutable Java artifact; this
 unit does not claim full frontend completion.
@@ -44,7 +44,8 @@ that rejection without resetting state or claiming cleanup.
 
 The combined gate exited 0 with 110 result families / 1,075 test executions /
 53,250 assertions, including both existing Expr equality modes. It used the same
-compiled source identity beginning `7eff` and immutable Java jar SHA256
+compiled source SHA256
+`7effa38dd94102c178d35c5262eeb748f15b4b4b8b689e363eb510c1ca4f7a50` and immutable Java jar SHA256
 `d317f46252c8e315c191f494df3afc8935f2155cb35fe5a58b81b71d34888339`.
 The campaign receipt `java-level-equality-integration-v1/combined-gate.out` has
 SHA256 `4c65bdcf8de71c0143aab51e48950501f3e8ba7cb560b1e05863a49892ad441f`;
