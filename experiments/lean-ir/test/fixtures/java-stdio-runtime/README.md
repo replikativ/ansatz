@@ -147,3 +147,10 @@ javac or native process. Root must compile a frozen immutable jar, run focused a
 full gates using an isolated basis, then combine the separately reviewed UTF8 and
 heartbeat units before actual original realization/withIsolatedStreams acceptance.
 Old runtime cohorts and pristine seeds remain valid and unmodified.
+
+Coordinated validation passed the combined frozen runtime in the retained384MiB
+REPL:13 stdio tests /286 assertions and20 UTF8 tests /784 assertions. A fresh
+384MiB JVM passed the full159-group regression,1527 tests /60280 assertions,
+with zero failures/errors. See validation.edn for source, jar and log hashes.
+The old seed subsequently retired its534 roots normally before the deliberate
+runtime-process rollover. Original realization/frontend acceptance remains pending.
