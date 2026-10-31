@@ -173,11 +173,25 @@
                         (finally (when interrupted (.interrupt (Thread/currentThread)))))]
     (swap! journal assoc :status :failed :stop-failure-class stop-error)
     (throw (ex-info "Native compilation failed before any Java guest engine; preserve compiler journal" {:journal @journal} cause))))
+(defn- rss-from-status! [pid text alive?]
+  (let [rss (re-find #"(?m)^VmRSS:\s+(\d+)\s+kB$" text)
+        state (second (re-find #"(?m)^State:\s+([A-Za-z])(?:\s|$)" text))]
+    (cond rss (Long/parseLong (second rss))
+          ;; Linux removes the mm before the zombie/dead task is reaped;
+          ;; ProcessHandle.isAlive can still be true in that interval.
+          (or (#{"Z" "X" "x"} state) (not alive?)) 0
+          :else (throw (ex-info "Live process RSS unavailable"
+                                {:profile profile :pid pid :kernel-state state
+                                 :process-alive? alive? :status text})))))
 (defn- handle-rss-kib [^ProcessHandle process]
   (try
-    (let [text (proc-text! (str "/proc/" (.pid process) "/status")) m (re-find #"(?m)^VmRSS:\s+(\d+)\s+kB$" text)]
-      (if m (Long/parseLong (second m)) (do (need (not (.isAlive process)) "Live process RSS unavailable") 0)))
-    (catch java.nio.file.NoSuchFileException error (if (.isAlive process) (throw error) 0))))
+    (let [text (proc-text! (str "/proc/" (.pid process) "/status"))]
+      (rss-from-status! (.pid process) text (.isAlive process)))
+    (catch java.nio.file.NoSuchFileException error
+      (if (.isAlive process)
+        (throw (ex-info "Live process status vanished"
+                        {:profile profile :pid (.pid process) :process-alive? true :status-unavailable true} error))
+        0))))
 (defn- remember-process! [handles handle]
   ;; Publish each handle before a bound can fail, so cancellation retains it.
   (swap! handles #(if (some #{handle} %) % (conj % handle)))

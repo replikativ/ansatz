@@ -9,7 +9,7 @@
     },
     {
       "file": "JVM_COMPILER.md",
-      "sha256": "dbf7f5173ead8c62e79f0fbf90b2eda9571b4d7bc2707299d1e71229f4634176"
+      "sha256": "e167a9da8ea75a0d33acd8af5410dca4d2f99b40eef2b1fb1c7d8ced3ff93411"
     },
     {
       "file": "README.md",
@@ -17,11 +17,11 @@
     },
     {
       "file": "compiler-models.clj",
-      "sha256": "ee56e970a41b3cb2b8d4d2b7fc0122057a3963b4333360182abdd2303bf8656e"
+      "sha256": "3c680e1e3c7cdc1ecaa9e89598f319a834c55af703c72aacc1deb26ba89cd980"
     },
     {
       "file": "compiler.clj",
-      "sha256": "7eabe57f7a6d13d2d231bfc93b52fc12d7b0c487710335d6b3634176bfb069bd"
+      "sha256": "de40356610fd69987d89d24c55c6b1713f9eb88af6b54cde7cf1608285de00b2"
     },
     {
       "file": "loader.clj",
@@ -196,18 +196,18 @@
     "status": "definition-and-pure-model-gate-only",
     "defaultBackend": "jvm",
     "PythonInvoked": false,
-    "sourceSHA256": "7eabe57f7a6d13d2d231bfc93b52fc12d7b0c487710335d6b3634176bfb069bd",
+    "sourceSHA256": "de40356610fd69987d89d24c55c6b1713f9eb88af6b54cde7cf1608285de00b2",
     "nativeCompilerTokenIssued": false,
     "nativeJobStarted": false,
     "modelGate": {
-      "tests": 9,
-      "assertions": 38,
+      "tests": 10,
+      "assertions": 41,
       "failures": 0,
       "errors": 0,
-      "testedCompilerSourceSHA256": "b0a5c5c5a89cbb94cf494a0409b94db53610293824cd1ce5d48118d867c82d50",
+      "testedCompilerSourceSHA256": "7eabe57f7a6d13d2d231bfc93b52fc12d7b0c487710335d6b3634176bfb069bd",
       "receipt": {
-        "file": "target/java-source-exchange-v1/native-jvm-compiler-models-v2.edn",
-        "sha256": "d9decb18d31c20174b4e580064d215cd9e7cbd494534d4918168be037b968b8a"
+        "file": "target/java-source-exchange-v1/native-jvm-compiler-models-v3.edn",
+        "sha256": "db66d8b86fe8bcc14e15b36bb9edf6fb6b09d67f31cc815f92ffd69598b9ee1d"
       }
     },
     "processProfile": {
@@ -227,12 +227,20 @@
     "followupModels": {
       "families": 1,
       "status": "pending parent execution",
-      "scope": "bounded pseudo-file-compatible process evidence reader"
+      "scope": "actual no-mm process states versus unsupported live missing-RSS diagnostics"
     },
     "preNativeFailure": {
       "status": "failed before native start",
       "reason": "JDK25 FileInputStream.available rejected proc pseudo-file via slurp",
       "fix": "bounded Files.newBufferedReader reads; pending actual retry"
+    },
+    "actualProbeFailure": {
+      "completedStages": [
+        "identity-commit"
+      ],
+      "failedStage": "identity-version",
+      "reason": "live handle but missing VmRSS; fast-exit no-mm state suspected",
+      "fix": "actual Z/X/x status or already-dead handle only; no unknown-state fallback"
     }
   }
 }

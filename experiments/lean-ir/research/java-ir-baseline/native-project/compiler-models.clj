@@ -119,6 +119,17 @@
     (is (thrown? Exception (#'compiler/proc-text! (str (.resolve directory "missing")))))
     (write! directory "excessive" (apply str (repeat 65537 "a")))
     (is (thrown? Exception (#'compiler/proc-text! (str (.resolve directory "excessive")))))))
+(deftest rss-missing-only-for-actual-no-mm-or-exited-processes
+  (is (= 123 (#'compiler/rss-from-status! 7 "State:\tR (running)\nVmRSS:\t123 kB\n" true)))
+  (doseq [state ["Z" "X" "x"]]
+    (is (zero? (#'compiler/rss-from-status! 7 (str "State:\t" state " (dead or zombie)\n") true))))
+  ;; A handle can become non-live after the status snapshot was captured.
+  (is (zero? (#'compiler/rss-from-status! 7 "State:\tR (running)\n" false)))
+  (doseq [text ["State:\tS (sleeping)\n" "Name:\tno-state\n" "State:\tR (running)\nVmRSS:\tinvalid kB\n"]]
+    (let [error (try (#'compiler/rss-from-status! 7 text true) nil (catch clojure.lang.ExceptionInfo e e))]
+      (is (some? error))
+      (is (= 7 (:pid (ex-data error))))
+      (is (= text (:status (ex-data error)))))))
 (defn check! [workspace]
   (binding [*directory* (.toRealPath (.toPath (io/file (str workspace))) (make-array java.nio.file.LinkOption 0))]
     (run-tests 'native-project-compiler-models-v1)))
