@@ -106,13 +106,14 @@
   (let [ctx (context) e (j/machine ctx) source (j/source-binding ctx (Object.))
         [root stopped child] (j/install-graph! ctx e
           (j/selected-owner-graph ctx source (Object.)
-            [(j/graph-node ctx {:kind :ctor :id 1 :tag 0 :fields [(j/graph-ref ctx 2) (j/graph-ref ctx 2)]})
-             (j/graph-node ctx {:kind :ref :id 2 :fields [(j/graph-ref ctx 1)]})
+            [(j/graph-node ctx {:kind :ctor :id 1 :rc 1 :tag 0 :fields [(j/graph-ref ctx 2) (j/graph-ref ctx 2)]})
+             (j/graph-node ctx {:kind :ref :id 2 :rc 1 :fields [(j/graph-ref ctx 1)]})
              (j/graph-node ctx {:kind :ref :id 3 :rc 0 :fields [(j/graph-ref ctx 4)]})
-             (j/graph-node ctx {:kind :ctor :id 4 :tag 0 :fields [0]})]
+             (j/graph-node ctx {:kind :ctor :id 4 :rc 1 :tag 0 :fields [0]})]
             [] [] [(j/graph-ref ctx 1) (j/graph-ref ctx 3) (j/graph-ref ctx 4)]))
         cell (aget ^objects (fields ctx root) 0)]
     (try
+      (is (every? #(pos? (c/rc ctx %)) [root cell child]) "positive cycle and contrasted payload are collectable before marking")
       (is (identical? root (mark! ctx e root)))
       (is (identical? cell (aget ^objects (fields ctx root) 1)))
       (is (= [0 0] [(c/rc ctx root) (c/rc ctx cell)]))
