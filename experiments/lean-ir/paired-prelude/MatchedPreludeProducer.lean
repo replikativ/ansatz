@@ -92,7 +92,11 @@ addDecl, imported proof checking, extension callbacks, or executable IR. -/
 unsafe def produce (directory : System.FilePath) : IO Unit := do
   unless Lean.githash == "819816b2e0a3bf405af45ae5c7af2491d8f5bee6" do
     throw <| IO.userError "wrong Lean build"
-  let imports : Array Import := #[{module := `Init.Prelude, importAll := true}]
+  -- Exact source-expressible legacy header: prelude; import Init.Prelude.
+  -- globalLevel.private promotes effective importAll without changing the
+  -- authenticated parsed request. Import.isExported defaults to true, but spell
+  -- every modifier out so the public header contract is explicit.
+  let imports : Array Import := #[{ module := `Init.Prelude, importAll := false, isExported := true, isMeta := false }]
   let (_, state) ← (importModulesCore (globalLevel := .private) imports).run
   let view : ImportStateView := unsafeCast state
   unless view.moduleNames == #[`Init.Prelude] do

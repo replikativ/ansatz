@@ -84,3 +84,20 @@ uses no fuzz, and never writes upstream. The build cohort binds both source
 files, the tracked patch, and compiled artifacts. Set `PAIRED_PRELUDE_BUILD` to a
 new directory relative to `experiments/lean-ir` (or an absolute directory) in
 build/provenance/run commands to preserve earlier producer binaries and receipts.
+
+The v4 source header profile is the valid legacy file:
+
+```lean
+prelude
+import Init.Prelude
+```
+
+Its exact requested flags are importAll=false, isExported=true, isMeta=false,
+with globalLevel.private and finalizer isModule=false. Pinned
+`Lean/Environment.lean` promotes effective importAll at private global level,
+so effective Prelude remains importAll=true/isExported=false with all five parts
+and the complete private 2,314-CI inventory. The audit rejects a different parsed
+request; header comparison is never weakened. `import all` without `module` and
+`public import all` are invalid source headers. Module/exported-mode support is a
+separate profile and is not claimed by this pair. The default v4 build directory
+preserves the earlier structural-v3 producer binary/cohort.

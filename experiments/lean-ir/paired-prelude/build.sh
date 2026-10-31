@@ -7,7 +7,7 @@ pin=819816b2e0a3bf405af45ae5c7af2491d8f5bee6
 toolchain=leanprover/lean4:v4.33.1
 [[ $(lean +"$toolchain" --githash) == "$pin" ]]
 sysroot=$(lean +"$toolchain" --print-prefix)
-build="${PAIRED_PRELUDE_BUILD:-target/matched-prelude-producer-structural-v3}"
+build="${PAIRED_PRELUDE_BUILD:-target/matched-prelude-producer-structural-v4}"
 [[ "$build" == /* ]] || build="$PWD/$build"
 mkdir -p "$build"
 # Patch only a pinned copy. Expr.eqv must never merge binder names/annotations.

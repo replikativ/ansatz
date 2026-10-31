@@ -23,7 +23,7 @@ def main():
     exporter, output = map(Path, sys.argv[1:])
     here = Path(__file__).resolve().parent
     root = here.parent
-    build = root / os.environ.get('PAIRED_PRELUDE_BUILD', 'target/matched-prelude-producer-structural-v3')
+    build = root / os.environ.get('PAIRED_PRELUDE_BUILD', 'target/matched-prelude-producer-structural-v4')
     verify(exporter / 'Export.lean', build / 'Export.lean')
     prefix = subprocess.check_output(['lean', '+leanprover/lean4:v4.33.1', '--print-prefix'], text=True).strip()
     commit = subprocess.check_output(['lean', '+leanprover/lean4:v4.33.1', '--githash'], text=True).strip()

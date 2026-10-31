@@ -49,6 +49,8 @@
                     :transport-receipt.json :build-cohort.json :typed-scalars.json :module-file-cohort.json}
                   (set (keys (:files audit)))) "unexpected paired input file set" {})
     (require! (= "matched-prelude-pair-audit/1" (:schema audit)) "wrong audit schema" {})
+    (require! (= "legacy-prelude-explicit-Init.Prelude/1" (:sourceHeaderProfile audit))
+              "source-expressible legacy header profile required" {})
     (require! (and (= 2314 (:declarations audit) (count entries) (count expected))
                    (:checkingShapesEqual audit) (:structuralExprKeys audit) (:dependencyClosure audit) (:familyClosure audit)
                    (:typedNameCollisionFree audit) (:displayKeyCollisionFree audit)

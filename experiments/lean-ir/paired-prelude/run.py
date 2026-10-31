@@ -18,7 +18,7 @@ def snapshot(prefix):
 
 def main():
     here = Path(__file__).resolve().parent
-    build = here.parent / os.environ.get('PAIRED_PRELUDE_BUILD', 'target/matched-prelude-producer-structural-v3')
+    build = here.parent / os.environ.get('PAIRED_PRELUDE_BUILD', 'target/matched-prelude-producer-structural-v4')
     output = Path(sys.argv[1]).resolve()
     require(not output.exists(), 'output must not exist; failed stages require explicit inspection')
     output.mkdir(parents=True)

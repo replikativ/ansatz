@@ -41,6 +41,13 @@ def audit(directory):
             cohort.get('exporterPatchedSha256') == PATCHED_SHA256, 'structural exporter source pins')
     require(source['schema'] == 'matched-prelude-source-correspondence/1', 'correspondence schema')
     require(source['bodyPolicy'] == 'full', 'full body evidence required')
+    prelude = ['str', ['str', ['anonymous'], 'Init'], 'Prelude']
+    require(source['source']['globalLevel'] == 'private', 'legacy source profile requires private global level')
+    require(source['source']['requestedImports'] == [dict(module=prelude, importAll=False,
+            isExported=True, isMeta=False)], 'source-expressible legacy import request required')
+    require(len(source['source']['modules']) == 1 and
+            source['source']['modules'][0]['effectiveImport'] == dict(module=prelude,
+            importAll=True, isExported=False, isMeta=False), 'effective private Prelude profile')
     require(source['source']['leanCommit'] == '819816b2e0a3bf405af45ae5c7af2491d8f5bee6', 'source pin')
     transport = next(records(directory / 'module-data.jsonl'))
     # Native transport metadata lives under input in its graph manifest.
@@ -156,6 +163,7 @@ def audit(directory):
         'names': len(names), 'levels': len(levels), 'expressions': len(expressions),
         'moduleDataRecords': transport['inventory']['nodes'],
         'sourceCIIndicesComplete': True, 'checkingShapesEqual': True, 'structuralExprKeys': True,
+        'sourceHeaderProfile': 'legacy-prelude-explicit-Init.Prelude/1',
         'typedNameCollisionFree': True, 'displayKeyCollisionFree': True,
         'dependencyClosure': True, 'familyClosure': True, 'fullBodies': True,
         'quotInit': True, 'baseBasis': 'trusted-artifact', 'proofReplay': False,
