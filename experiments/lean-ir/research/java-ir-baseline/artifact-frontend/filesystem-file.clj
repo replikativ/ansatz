@@ -27,13 +27,14 @@
   "Capture was read by prototype.project-source and is independently checked
    against actual guest InputContext by each SourceCaptures factory. BUNDLE is
    trusted host orchestration, not an authority inferred from descriptive maps."
-  [bundle capture {:keys [close-branch! layout-directory]
-                   :or {layout-directory "../../target/java-kernel-shim-overlay-v1"}}]
+  [bundle capture {:keys [close-branch! layout-directory source-profile]
+                   :or {layout-directory "../../target/java-kernel-shim-overlay-v1" source-profile :identities-v2}}]
   (need (fn? close-branch!) "Explicit trusted branch disposal hook required")
   (need (and (string? layout-directory) (seq layout-directory)) "Explicit compiled layout directory required")
-  (let [p (profile/captured-profile capture)
+  (need (contains? #{:identities-v2 :arithmetic-v3} source-profile) "Unknown finite source profile")
+  (let [p ((if (= :arithmetic-v3 source-profile) profile/captured-arithmetic-profile profile/captured-profile) capture)
         token (FileRun.) holder (atom {:status :open :thread (Thread/currentThread)
-          :bundle bundle :capture capture :profile p :close-branch! close-branch! :layout-directory layout-directory
+          :bundle bundle :capture capture :profile p :source-profile source-profile :close-branch! close-branch! :layout-directory layout-directory
           :receipts [] :next-command 0 :active nil})]
     (live! holder)
     (need (= "idle" (j/phase (sp/ctx (:frontend bundle)) (sp/engine (:frontend bundle)))) "File requires idle prepared frontend")
@@ -60,7 +61,7 @@
               _ (swap! holder assoc-in [:bundle :frontend] frontend)
               eof? (= i (get-in state [:profile :command-count]))
               root (if eof? "__EOF__" (get-in state [:profile :commands i :root]))
-              captures (provider/make-captures! child frontend (:capture state) i {:layout-directory (:layout-directory state)})
+              captures (provider/make-captures! child frontend (:capture state) i {:layout-directory (:layout-directory state) :source-profile (:source-profile state)})
               run (command/open-command! frontend (:admission bundle)
                     {:root-label root :layout-directory (:layout-directory state) :source-captures captures})
               _ (swap! holder assoc :active run)
@@ -81,6 +82,13 @@
       (catch Throwable error
         (swap! holder assoc :status :failed :failure {:class (.getName (class error)) :message (.getMessage error)})
         (inspect file)))))
+(defn- validate-nat-result! [operation n result]
+  (need (contains? #{nil :identity :add-one} operation) "Unknown finite Nat operation")
+  (need (or (and (instance? Long result) (<= 0 result))
+            (and (= java.math.BigInteger (class result)) (not (neg? (.signum ^java.math.BigInteger result)))))
+        "Expected immutable Nat result")
+  (need (= (if (= :add-one operation) (inc (bigint n)) n) result) "Finite Nat execution differed")
+  result)
 (defn invoke-nat! [file root n]
   (let [holder (cell file) s (live! holder) d (get-in s [:bundle :child :driver]) c @(:current-ctx d) e (:engine d)]
     (need (and (= :ready (:status s))
@@ -97,7 +105,7 @@
         (case (j/phase c e)
           "complete" (let [result (j/take-result! c e)]
                        (swap! holder assoc-in [:invocation :result] result)
-                       (need (= n result) "Finite identity execution differed")
+                       (validate-nat-result! (:operation (first (filter #(= root (:root %)) (get-in s [:profile :commands])))) n result)
                        (swap! holder #(-> % (assoc :status :ready) (dissoc :invocation))) result)
           "running" (do (need (pos? left) "Identity execution budget exceeded") (j/advance! c e (min 100 left)) (recur (- left (min 100 left))))
           (throw (ex-info "Unexpected finite identity runtime boundary" {:phase (j/phase c e)}))))
@@ -115,3 +123,8 @@
       (catch Throwable error
         (swap! holder assoc :status :failed :failure {:class (.getName (class error)) :message (.getMessage error)})
         (throw error)))))
+
+(defn open-arithmetic-file!
+  "Versioned finite identity/add-one grammar; old open-file! defaults stay identity-only."
+  [bundle capture options]
+  (open-file! bundle capture (assoc options :source-profile :arithmetic-v3)))

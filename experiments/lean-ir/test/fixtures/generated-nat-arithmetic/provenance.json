@@ -1,0 +1,13 @@
+{
+  "schema": "generated-nat-arithmetic-fixture/1",
+  "lean-commit": "819816b2e0a3bf405af45ae5c7af2491d8f5bee6",
+  "source-index-sha256": "74d833d577923821b982e8a9e872a38b5cad011513eb18870b51417e13397f0e",
+  "original-nat-add-sha256": "c2551c95b26c3a0fe2fdaddfc8bb97d8a7dcf21438b035c862456e78aa22ffb5",
+  "files": {
+    "original-nat-add.json": "c2551c95b26c3a0fe2fdaddfc8bb97d8a7dcf21438b035c862456e78aa22ffb5",
+    "original-output.jsonl": "f2bccd539535d557b898b237c6128389f7fbf41ab40dedd0bc051b93959dd0ac",
+    "HostedArithmetic.lean": "a2602204c14a5b749f2add3faae53ecd3f88bf534f0e97b5ec87689dbc51d2ab"
+  },
+  "purpose": "Offline original compiler-shape reference; never CodeBatch/source issuance",
+  "execution": "Parent-produced source export; worker performed no native/JVM execution; no new filesystem arithmetic acceptance yet"
+}

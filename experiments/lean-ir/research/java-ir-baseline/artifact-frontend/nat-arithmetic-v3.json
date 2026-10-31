@@ -1,0 +1,51 @@
+{
+  "schema": "artifact-frontend-source-delta/1",
+  "base-acceptance-sha256": "d261a55a887a72a573022a39f0ec2dd6c788c1f09d46e6c5c36311643e5c7fb0",
+  "scope": "Finite source-bound identity/add-one v3, no general declaration or initializer support",
+  "acceptance": "Fresh retained JVM384MiB filesystem arithmetic compile/link/invoke/EOF/retirement PASS; seven models67 assertions PASS; see nat-arithmetic-runtime-validation.json",
+  "sources": [
+    {
+      "file": "generated-command.clj",
+      "base-sha256": "0113a69a41fe9df0664da93918c776cc629592d45c6121836a21d526b570910e",
+      "sha256": "257540c0f261a3f5a19492301bba8eb4367a8fd3901d9611de243c5f893f236f"
+    },
+    {
+      "file": "filesystem-profile.clj",
+      "base-sha256": "0293352fdc1f3729df15313214bea66fcbcd89000e4861daefcf1658a67ccd41",
+      "sha256": "c2e3619f35299d34c3cb2a91c01308f5939b20d900ce3849b211ff1dcadfe095"
+    },
+    {
+      "file": "filesystem-provider.clj",
+      "base-sha256": "5798128db74ffaa8d90ffcb41e2971a54e4794d5cfecd64cb4a1c4e95e06f408",
+      "sha256": "75877eded4ba2301b635968266fb62d841042e05614e7a5693bf39e532096179"
+    },
+    {
+      "file": "filesystem-file.clj",
+      "base-sha256": "96f5aa21e7feb9049d1d5fa690f0e8bc0c403778a7bd362e681ae8d89c27b360",
+      "sha256": "5f071fc402fc4c52beeb25efdc37e7605ce09e45b363904b1f373ff352e22cb4"
+    },
+    {
+      "file": "loader.clj",
+      "base-sha256": "7db10268ade18079e3d319500d3e611f7cfb509f290c8cb74ea52c5b32f55cd6",
+      "sha256": "d10ec5d4909c1c45cf205d7e2aa10a4e90d6fa7400c496143374998e6fb6c1e8"
+    },
+    {
+      "file": "verify-source.py",
+      "base-sha256": "17107732ac7241ffe59d646b8b74095211a1adfb70cd9e1e95ac12294b219067",
+      "sha256": "648d82fc8b482aa674865ef3c341c43213eb2ff467c6850fb8d2b46fac788f4e"
+    },
+    {
+      "file": "models/nat-arithmetic.clj",
+      "base-sha256": null,
+      "sha256": "35442cd666c3c2c3ebd74ab73504639aab8b8722fa716f88084316c3a26bfe78"
+    }
+  ],
+  "fixture-directory": "experiments/lean-ir/test/fixtures/generated-nat-arithmetic",
+  "fixture-files": {
+    "provenance.json": "b37d495f1edbad091811d6d554b9f092f21696241eff6ed6f14fb7d35ea5be18",
+    "original-nat-add.json": "c2551c95b26c3a0fe2fdaddfc8bb97d8a7dcf21438b035c862456e78aa22ffb5",
+    "README.md": "c9ae7d5ed1ce7edfe8ad3a9d2ca6dee14cffd8256c0b13bece96200a00ae0df4",
+    "original-output.jsonl": "f2bccd539535d557b898b237c6128389f7fbf41ab40dedd0bc051b93959dd0ac",
+    "HostedArithmetic.lean": "a2602204c14a5b749f2add3faae53ecd3f88bf534f0e97b5ec87689dbc51d2ab"
+  }
+}

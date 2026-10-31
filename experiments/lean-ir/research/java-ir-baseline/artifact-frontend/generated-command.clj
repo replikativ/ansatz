@@ -5,6 +5,7 @@
   (:require [clojure.data.json :as json] [clojure.set :as set]
             [java-ir-baseline :as j] [sequential-frontend-probe :as sp]
             [ansatz.research.ir.catalogue :as cat]
+            [ansatz.research.ir.authenticated-demand :as demand]
             [ansatz.research.ir.node-decoder-v1 :as decoder]
             [artifact-checked-declaration-adapter-v4 :as adapter]
             [artifact-declaration-authority-v4 :as authority])
@@ -233,6 +234,68 @@
                (= Expr/LAM (.-tag value)) (nat-const? (.-o1 value))
                (= Expr/BVAR (.-tag ^Expr (.-o2 value))) (zero? (.-longVal ^Expr (.-o2 value))))
           "First code profile requires exact safe Nat unary identity CI") ci))
+(def ^:private arithmetic-profile "legacy-private-filesystem-nat-arithmetic/3")
+(def ^:private nat-add-name ["str" ["str" ["anonymous"] "Nat"] "add"])
+(defn- selected-operation! [capture root]
+  (let [description (:description capture)]
+    (if (= arithmetic-profile (:profile description))
+      (do (need (and (= :definition (:action description)) (= root (:root description))
+                     (contains? #{:identity :add-one} (:operation description)))
+                "Source-bound arithmetic operation differs")
+          (:operation description))
+      :identity)))
+(defn- arithmetic-batch! [delta root-name boxed-name]
+  ;; Match original compiler output; never rewrite the observed instructions.
+  (let [root (get delta root-name) boxed (get delta boxed-name)
+        x (get-in root ["xs" 0 "x"]) bx (get-in boxed ["xs" 0 "x"])
+        body (get root "body") y (get body 1) tail (get body 4) z (get tail 1)
+        wrapper-body (get boxed "body") result (get wrapper-body 1)
+        variable (fn [id] {"var" {"id" id}})
+        id? (fn [id] (and (map? id) (= #{"idx"} (set (keys id)))
+                         (integer? (get id "idx")) (<= 0 (get id "idx") 1000000)))]
+    (need (and (every? id? [x bx y z result]) (= 3 (count (set [x y z]))) (not= bx result)
+               (= [{"x" x "borrow" true "ty" "tobject"}] (get root "xs"))
+               (= [{"x" bx "borrow" false "ty" "tobject"}] (get boxed "xs"))
+               (= "tobject" (get root "type") (get boxed "type")))
+          "Arithmetic requires original borrowed root/owned boxed Nat ABI")
+    (need (= ["vdecl" y "tagged" {"lit" {"v" {"num" {"v" 1}}}}
+              ["vdecl" z "tobject" {"fap" {"c" nat-add-name "ys" [(variable x) (variable y)]}}
+               ["ret" (variable z)]]] body)
+          "Arithmetic root differs from original add-one compiler shape")
+    (need (= ["vdecl" result "tobject" {"fap" {"c" root-name "ys" [(variable bx)]}}
+              ["dec" bx 1 true false ["ret" (variable result)]]] wrapper-body)
+          "Arithmetic boxed entry differs from original owning facade")
+    (need (= #{nat-add-name} (static-calls! root)) "Arithmetic static dependency differs")
+    (need (= #{root-name} (static-calls! boxed)) "Arithmetic boxed dependency differs")))
+(defn- arithmetic-ci! [session version root]
+  (#'adapter/validate-versions! session)
+  (let [^ConstantInfo ci (.lookupLocal ^ansatz.kernel.Env (:env version) root)
+        ^Expr type (when ci (.type ci))]
+    (need (and ci (= 1 (.tag ci)) (= 0 (.safety ci)) (empty? (.levelParams ci))
+               (= [root] (vec (.all ci))) (.value ci)
+               (= Expr/FORALL (.-tag type)) (nat-const? (.-o1 type)) (nat-const? (.-o2 type)))
+          "Arithmetic requires this strict safe unary Nat definition") ci))
+(defn- arithmetic-dependency! [driver]
+  ;; The resolver authenticates actual indexed bytes even on memo hits. Require
+  ;; an already executable native slot; no new host specification or alias here.
+  (let [{:keys [row sha256]} (demand/original-row! driver nat-add-name)
+        declaration (get-in row ["ir" "extern"])
+        _ (need (= "c2551c95b26c3a0fe2fdaddfc8bb97d8a7dcf21438b035c862456e78aa22ffb5" sha256) "Pinned Nat.add row differs")
+        header (demand/ensure-header! driver nat-add-name)
+        program (:program @(:current-ctx driver))
+        functions ^objects (field program "functions")
+        function (some #(when (identical? header (field % "header")) %) functions)]
+    (need (and (= #{"extern"} (set (keys (get row "ir"))))
+               (= ["tobject" "tobject"] (mapv #(get % "ty") (get declaration "xs")))
+               (= [true true] (mapv #(get % "borrow") (get declaration "xs")))
+               (= "tobject" (get declaration "type"))
+               (= "lean_nat_add" (get-in declaration ["ext" "entries" 0 "standard" "fn"]))
+               (= "ordinary" (get-in row ["runtime" "role"]))
+               (nil? (get-in row ["runtime" "initializer"]))
+               (nil? (get row "redirect"))) "Original Nat.add metadata/ABI differs")
+    (need (and function (pos? (long (field function "intrinsic")))
+               (nil? (field function "hostExtern"))) "Current canonical Nat.add native is unavailable")
+    {:header header :name nat-add-name :sha256 sha256}))
 (defn- frozen-host [value]
   ;; Check depth/size and exact allowed host carriers BEFORE recursive JSON use.
   ;; No guest Nodes, CI objects, mutable arrays, receipts or arbitrary objects.
@@ -292,6 +355,7 @@
             _ (need (and (identical? e (:engine capture)) (identical? (:source s) (:source capture))
                          (identical? (sp/owned f :input) (:input capture))
                          (identical? (sp/owned f :state-ref) (:state-ref capture))) "Independent source witness lacks actual roots")
+            operation (selected-operation! capture (:root-label s))
             _ (swap! holder assoc :capture capture :stage :baseline)
             initial (snapshot! holder :before)
             before-version @(:published-count session)
@@ -309,7 +373,7 @@
             _ (need (and (instance? Long errors) (= 0 errors)) "Compiler or elaborator diagnostics reported failure")
             version (peek @(:versions session))
             root (Name/mkStr Name/ANONYMOUS_NAME (:root-label s))
-            ci (identity-ci! session version root)
+            ci ((if (= :add-one operation) arithmetic-ci! identity-ci!) session version root)
             actual (#'authority/environment-view! (:driver f) (:layout s) (:environment after))
             published (#'authority/kernel-view! (:driver f) (:layout s) (aget ^objects (:kernel-root version) 0))
             _ (need (and (identical? (:constant-map actual) (aget ^objects (:constant-map version) 0))
@@ -324,7 +388,7 @@
             _ (need (= #{root-name boxed-name} (set (keys delta))) "First batch must contain exactly root and original boxed companion")
             _ (doseq [name (keys delta)]
                 (need (nil? (cat/lookup (get-in f [:driver :catalogue]) name)) "Generated Name overlaps original catalogue domain"))
-            _ (first-batch! delta root-name boxed-name)
+            _ ((if (= :add-one operation) arithmetic-batch! first-batch!) delta root-name boxed-name)
             rows (mapv (fn [name] {"kind" "decl" "name" name "ir" {"fdecl" (get delta name)}}) [root-name boxed-name])
             _ (swap! holder assoc :stage :cleanup)
             _ (clean-temporaries! holder)
@@ -332,6 +396,7 @@
             ;; Cleanup may demand original finalizer bodies; capture its actual
             ;; descendant only AFTER every callback-capable temporary release.
             _ (swap! holder assoc :stage :prepare)
+            dependency (when (= :add-one operation) (arithmetic-dependency! (:driver f)))
             base (ctx @holder)
             prepared (j/extend-program base rows)
             ;; Program.extend deliberately ignores non-declaration envelopes.
@@ -341,16 +406,16 @@
             _ (#'adapter/validate-versions! session)
             description (frozen-host (:description capture))
             _ (need (map? description) "Independent source profile description required")
-            summary {:schema "original-compiler-nat-identity/1" :root root-name :boxed-entry boxed-name
+            summary {:schema (if (= arithmetic-profile (get description "profile")) "original-compiler-nat-arithmetic/3" "original-compiler-nat-identity/1") :root root-name :boxed-entry boxed-name
                      :rows-sha256 (digest rows) :profile-description description :row-count 2
                      :root-abi {:parameters [{:type "tobject" :borrow true}] :result "tobject"}
                      :boxed-abi {:parameters [{:type "tobject" :borrow false}] :result "tobject"}
                      :checked-version (:id version) :input-description-sha256 (digest description)
-                     :initializers [] :static-frontier [] :native-physical-parity false}
+                     :initializers [] :static-frontier (if dependency [(dissoc dependency :header)] []) :native-physical-parity false}
             batch (CodeBatch.)]
         ;; Registry holds live custody, never inserted into Program or public summary.
         (swap! holder assoc :stage :sealed :status :sealed :version version :ci ci :base-program (:program base)
-               :prepared prepared :summary summary :rows rows)
+               :prepared prepared :summary summary :rows rows :dependency dependency)
         (put-issued batches batch holder)
         {:status :sealed :batch batch :summary summary})
       (catch Throwable error
@@ -438,6 +503,10 @@
                (= "idle" (j/phase c e)) (identical? (:program c) (:base-program s))) "Link only exact sealed compilation branch/base Program")
     (#'adapter/validate-versions! (:adapter (:strict-driver s)))
     (need (identical? (:version s) (peek @(:versions (:adapter (:strict-driver s)))) ) "Checked version advanced after compilation")
+    (when-let [dependency (:dependency s)]
+      (let [current (arithmetic-dependency! driver)]
+        (need (and (identical? (:header dependency) (:header current))
+                   (= (dissoc dependency :header) (dissoc current :header))) "Arithmetic dependency changed before link")))
     (swap! holder assoc :stage :install-pending)
     (try
       (j/install-program! (:prepared s) e)

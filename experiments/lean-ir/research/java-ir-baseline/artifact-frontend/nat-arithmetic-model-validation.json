@@ -1,0 +1,17 @@
+{
+  "schema": "generated-nat-arithmetic-model-validation/1",
+  "date": "2026-10-31",
+  "executed-by": "parent agent, coordinated retained REPL 65694",
+  "result": {
+    "tests": 7,
+    "assertions": 67,
+    "failures": 0,
+    "errors": 0
+  },
+  "scope": "Structural/source grammar/result-domain/frozen-description models; runtime acceptance recorded separately",
+  "source": "Parent reported exact result; worker performed no JVM/native run.",
+  "historical-identity-acceptance": "acceptance.json preserved byte-for-byte",
+  "remaining": [],
+  "validated-checkpoint": "74863e13fe9a6dbca59279a7cc6b753344129d84",
+  "follow-up": "Distinct boxed SSA regression and frozen description checks executed; actual runtime acceptance in nat-arithmetic-runtime-validation.json"
+}
