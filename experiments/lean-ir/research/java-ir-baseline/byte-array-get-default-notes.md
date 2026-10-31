@@ -22,8 +22,8 @@ Focused checks are in `byte-array-get-default-checks.clj`. Load after the existi
 baseline and byte-array check namespaces, then bind the newly compiled basis:
 
 ```clojure
-(binding [java-ir-byte-array-get-default-checks/*basis* actual-new-basis]
-  (java-ir-byte-array-get-default-checks/check!))
+(java-ir-byte-array-get-default-checks/check!
+  actual-new-basis "test/fixtures/java-byte-array-get-default")
 ```
 
 Five test families cover original pins/exact ABI refusal, live bytes/out-of-range/
@@ -31,3 +31,11 @@ huge indices, spare capacity and RC/counters, raw borrowed entry/closure refusal
 and dead/foreign/wrong-kind/malformed metadata. The worker performed reader and
 source checks only; root owns JVM compilation/focused/full validation. No native
 compiler/exporter process or worker JVM was launched for this change.
+
+The fixture directory argument may point into the isolated worktree while the
+retained REPL keeps its normal baseline working directory. The malformed-size
+case starts from an actual tag248 ByteArray, unwraps its genuine ByteArrayState,
+then temporarily sets logical size beyond capacity. Dead and foreign cases use
+actual released/other-engine values. These cases verify rejection and unchanged
+RC before restoring test-only corruption and retiring the known local owner;
+they do not claim recovery of arbitrary failed callback/task ownership.

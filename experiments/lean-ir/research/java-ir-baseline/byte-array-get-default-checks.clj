@@ -1,13 +1,14 @@
 (ns java-ir-byte-array-get-default-checks
   "Original ByteArray.get! rows: zero outside live extent; proof-fget is distinct."
-  (:require [clojure.test :refer [deftest is run-tests]] [clojure.data.json :as json]
+  (:require [clojure.test :refer [deftest is run-tests]] [clojure.data.json :as json] [clojure.java.io :as io]
             [java-ir-baseline :as j] [java-ir-baseline-checks :as c]
             [java-ir-byte-array-checks :as b] [java-ir-generation-checks :as g]
             [java-ir-host-checks :as host] [lean-compatibility-corpus :as corpus])
   (:import [java.math BigInteger]))
 (def ^:dynamic *basis* nil)
-(def directory "test/fixtures/java-byte-array-get-default/")
-(defn rows [] (mapv #(json/read-str (slurp (str directory %))) ["original-raw.json" "original-boxed.json"]))
+(def ^:dynamic *directory* "test/fixtures/java-byte-array-get-default")
+(defn fixture-file [file] (io/file (str *directory*) file))
+(defn rows [] (mapv #(json/read-str (slurp (fixture-file %))) ["original-raw.json" "original-boxed.json"]))
 (defn context []
   (j/extend-program (binding [b/*basis* *basis*] (b/context)) (rows)))
 (defn get! [ctx engine value index]
@@ -18,9 +19,9 @@
                     [(j/graph-ref ctx 1)] true)))
 
 (deftest original-rows-have-exact-borrowed-abi-and-byte-provenance
-  (let [p (json/read-str (slurp (str directory "provenance.json"))) [raw boxed] (rows)]
+  (let [p (json/read-str (slurp (fixture-file "provenance.json"))) [raw boxed] (rows)]
     (is (= "819816b2e0a3bf405af45ae5c7af2491d8f5bee6" (get p "leanCommit")))
-    (doseq [[f pin] (get p "rows")] (is (= pin (corpus/sha256 (str directory f)))))
+    (doseq [[f pin] (get p "rows")] (is (= pin (corpus/sha256 (fixture-file f)))))
     (is (= ["object" "tobject"] (mapv #(get % "ty") (get-in raw ["ir" "extern" "xs"]))))
     (is (= [true true] (mapv #(get % "borrow") (get-in raw ["ir" "extern" "xs"]))))
     (is (= "uint8" (get-in raw ["ir" "extern" "type"])))
@@ -92,4 +93,8 @@
         (when other (j/close! ctx other))
         (j/close! ctx engine)))))
 
-(defn check! [] (run-tests 'java-ir-byte-array-get-default-checks))
+(defn check!
+  ([] (run-tests 'java-ir-byte-array-get-default-checks))
+  ([basis] (check! basis *directory*))
+  ([basis fixture-directory]
+   (binding [*basis* basis *directory* fixture-directory] (check!))))
