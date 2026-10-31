@@ -1,6 +1,6 @@
 # Artifact-relative frontend research definitions
 
-This package preserves the stable lower units from the retained REPL experiment
+This package preserves the checked frontend and execution units from the retained REPL experiment
 as tracked sources. It is a research package, not a standalone boot command or a
 shipped project-loading API. Existing namespaces and opaque token registries are
 preserved. `migration.json` records the reviewed source hashes and intentional
@@ -9,8 +9,29 @@ mechanical differences; generated artifacts and runtime receipts stay external.
 The package contains the original finalizer lineage controller, byte-authenticated
 Prelude ModuleData capability, guarded lazy Java base, artifact declaration
 request authority, v4 strict declaration adapter and driver, borrowed IR node
-decoder, sequential frontend probe, option proof, and focused models. The changing
-generated-IR controller and filesystem provider are deliberately separate work.
+decoder, sequential frontend probe, option proof, generated-code controller,
+bounded filesystem session, and focused models. The executable corpus is
+[HostedIdentities.lean](../../../lean/HostedIdentities.lean). Its two definitions
+are elaborated, strictly checked, compiled and executed by the JVM-hosted Lean
+frontend; loading this file does not launch the native Lean frontend.
+
+```mermaid
+flowchart LR
+  F[Captured UTF-8 file] --> P[Original Lean parser and elaborator IR]
+  P --> K[Java kernel checks and versioned publication]
+  K --> C[Original Lean compiler IR]
+  C --> D[Bounded IR decoder and sealed code batch]
+  D --> J[Same-branch JVM Program extension]
+  J --> A[Clojure calls to boxed Nat entries]
+  B[Matched Prelude artifact and lazy kernel store] --> P
+  B --> K
+```
+
+The fixed source profile accepts the literal Prelude header followed by 1–16
+independent unary Nat identity definitions. Successful execution of two definitions
+and EOF is the current measured corpus, not evidence of general Lean-project
+compatibility. Ordinary implicit `Init`, cross-file source imports, arbitrary
+declaration/code profiles, IO programs and a public library API remain separate work.
 
 ## Explicit load order
 
@@ -97,8 +118,86 @@ stubs grant no real source/Run/Module/Base or guest association authority.
 Before integration, run all copied focused checks against the current compiled
 Java basis, plus the actual retained source route through valid header parsing,
 original finalization, strict checking, IR sealing/linking, JVM invocation, EOF
-and complete owner retirement. The packager ran only mechanical hash comparisons,
-path audits and delimiter validation; no JVM/native process or fresh standalone
-boot was run. Existing runtime successes are external receipts, not replayed by
-loading this package. Website build/browser suites are unrelated to these research
-source additions and were not run.
+and complete owner retirement. The initial mechanical copy was source-only; the
+coordinated tracked-source acceptance is recorded below. Loading definitions does
+not replay that acceptance or provide a fresh standalone boot. Website
+build/browser suites are unrelated to these research sources and were not run.
+
+## Retained file workflow
+
+After the trusted host has prepared the authenticated runtime, original import
+finalizer, matched lazy base and strict adapter, supply their actual branch as
+`prepared-branch`. The host owns the complete branch disposal hook; it must release
+the frontend, all checked versions, finalizer and module owners before disposing
+the engine. No host map substitutes for those capabilities.
+
+```clojure
+(def capture
+  (filesystem-nat-source-profile-v2/capture-source!
+    (prototype.project-source/provider ["lean"] 16384) ["HostedIdentities"]))
+;; Prepare using (:text capture), (str (:path capture)), and (:module capture).
+;; setup-prelude!'s fifth argument sets the real module through original helpers.
+(def file
+  (filesystem-nat-file-run-v1/open-file! prepared-branch capture
+    {:layout-directory compiled-layout-directory :close-branch! dispose-branch!}))
+(filesystem-nat-file-run-v1/load! file)
+(filesystem-nat-file-run-v1/invoke-nat! file "hostedFirst" 42)
+(filesystem-nat-file-run-v1/invoke-nat! file "hostedSecond"
+  (java.math.BigInteger. "18446744073709551616"))
+(filesystem-nat-file-run-v1/close! file)
+```
+
+Compilation uses the captured immutable text rather than reopening the source.
+Each command authenticates the actual InputContext, FileMap, scope/options, main
+module and original compiler callback, then owns the real command invocation,
+strict publication, compiler diagnostics and IR readback. A batch must contain the
+exact supported code and both executable entries before it can link. EOF is its
+own authenticated transaction: it must preserve the checked version and IR map,
+report no errors and return the genuine terminal result.
+
+Mutable frontend references are inspected at stable boundaries. Native Lean's
+`ST.Ref.take` deliberately empties a reference while a guest frame owns its value;
+instruction-tick guards check live reference shells and protected immutable roots
+without trying to read that transient value. This follows pinned
+`src/runtime/io.cpp` lines 1477–1489 and the Java `REF_TAKE` implementation.
+
+Only completed files can invoke their checked Nat entries. Invocation preserves
+the exact linked Program/version, rejects negative or unsupported host carriers,
+and accepts only final `Long` or exact-class `BigInteger` Nat values. Failed work
+stays terminal with its actual pending owner packet available through
+`owner-packet`; no failed unwind or retry is inferred. Active checked-session
+forking is not implemented. The current seed fork precedes import and association.
+
+## Measured acceptance and next scope
+
+The tracked-source repeat used a retained 384 MiB JVM. The two-definition load,
+including authenticated EOF and transaction retirement, took 10.961 seconds.
+Transactions through sealing/linking took 5.949 s and 4.613 s; EOF took 0.362 s.
+Their individual timings end before command-owner retirement, which is included
+in the whole-load time. These are warm, small-corpus observations, not throughput
+or native-parity benchmarks. Both entries returned `0`, `42` and `2^64` correctly;
+the seed had no generated entries, and complete disposal released 14 extra owner
+occurrences plus 534 runtime roots. The earlier 10.195-second repeat used the
+equivalent target prototype rather than the tracked demand-injection facade.
+
+The focused checks passed 49 tests and 277 assertions, including actual tiny
+Header/CodeRequest and decoder tests plus explicitly modeled authority/ownership
+checks. [acceptance.json](acceptance.json) pins the source inventory, runtime and
+artifact inputs, corpus and external evidence digests. It is a recorded experiment,
+not an issuance token or a standalone boot recipe. `migration.json` preserves the
+older lower-unit migration record; it does not cover the newer leaves.
+
+The library suite ran 1,337 tests and 11,488 assertions with no assertion failures;
+five localhost-server tests were blocked by sandbox socket permissions. Their
+complete namespace passed separately with socket access: seven tests, 56 assertions.
+The full Mathlib-using library suite required a 1,536 MiB test heap; its initial
+384 MiB attempt exhausted memory. Both hosted frontend repeats and the focused
+checks used the retained 384 MiB interpreter JVM.
+
+Continue by broadening checked declaration and generated-IR profiles to arithmetic,
+calls and data structures; composing source modules through real ModuleData
+export/import and checked associations; then supporting ordinary implicit `Init`
+and a small project corpus. The earlier `prototype.project-loader` is a separate
+World/NativeBase implementation and cannot directly replace these Java capabilities.
+Larger runtime artifacts and bootstrap installation still need a reproducible,
+explicitly supplied artifact path. LLVM is not required for this execution route.

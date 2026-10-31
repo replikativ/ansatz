@@ -30,11 +30,20 @@ assert '(find-var'not in seq
 # Loading the package defines only functions/data. Guest entry points stay in
 # defn bodies; this audit is not a Clojure compiler or runtime proof.
 loader=(P/'loader.clj').read_text();units=re.findall(r'\["([^"]+\.clj)" ([^\]\s]+)\]',loader)
-assert len(units)==16
+assert len(units)==23
 for file,namespace in units:
  assert (P/file).is_file(),file
  assert re.search(r'\(ns\s+'+re.escape(namespace)+r'(?:\s|\))',(P/file).read_text()),(file,namespace)
 for match in re.finditer(r'\]\(([^)]+)\)',(P/'README.md').read_text()):
  path=match.group(1)
  if '://'not in path and not path.startswith('#'):assert (P/path.split('#')[0]).exists(),path
+acceptance=json.loads((P/'acceptance.json').read_text())
+inventory=acceptance['source-inventory']
+expected={str(p.relative_to(P))for p in P.rglob('*.clj')}|{'verify-source.py'}
+assert {item['file']for item in inventory}==expected,'Acceptance source inventory differs'
+for item in inventory:
+ assert hashlib.sha256((P/item['file']).read_bytes()).hexdigest()==item['sha256'],item['file']
+if args.reviewed_root:
+ for item in acceptance['external-evidence']:
+  assert hashlib.sha256((args.reviewed_root/item['file']).read_bytes()).hexdigest()==item['sha256'],item['file']
 print(json.dumps({'reviewed-copies':len(M['sources']),'byte-identical-copies':len(M['sources'])-len(changes),'intentional-source-deltas':sorted(changes),'ordered-load-units':len(units),'all-Clojure-delimiters-balanced':True,'machine-paths':0,'JVM-or-native-executed':False}))

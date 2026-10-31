@@ -15,14 +15,21 @@
     ["driver.clj" artifact-declaration-driver-v4]
     ["node-decoder.clj" ansatz.research.ir.node-decoder-v1]
     ["sequential-probe.clj" sequential-frontend-probe]
-    ["options-proof.clj" heartbeat-lab-options-proof]])
+    ["options-proof.clj" heartbeat-lab-options-proof]
+    ["imported-setup.clj" imported-frontend-setup-v4]
+    ["generated-command.clj" generated-command-receipt-v1]
+    ["filesystem-profile.clj" filesystem-nat-source-profile-v2]
+    ["filesystem-provider.clj" filesystem-nat-source-provider-v2]
+    ["filesystem-file.clj" filesystem-nat-file-run-v1]])
 (def models
   '[["models/demand.clj" ansatz.research.ir.authenticated-demand-checks]
     ["models/lineage.clj" java-prelude-finalizer-lineage-models-v1]
     ["models/capability.clj" java-matched-prelude-capability-models-v4]
     ["models/authority.clj" artifact-declaration-authority-v4-models]
     ["models/adapter.clj" artifact-declaration-adapter-v4-models-v1]
-    ["models/node-decoder.clj" ansatz.research.ir.node-decoder-checks-v1]])
+    ["models/node-decoder.clj" ansatz.research.ir.node-decoder-checks-v1]
+    ["models/generated-command.clj" generated-command-receipt-checks-v1]
+    ["models/filesystem-profile.clj" filesystem-nat-source-profile-v2-checks]])
 (defn- load-units! [root entries required]
   (doseq [n required]
     (when-not (find-ns n) (throw (ex-info "Load explicit research prerequisite first" {:namespace n}))))
