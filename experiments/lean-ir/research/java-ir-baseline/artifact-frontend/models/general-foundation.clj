@@ -4,6 +4,7 @@
   (:require [clojure.test :refer [deftest is run-tests]]
             [java-ir-baseline :as j]
             [java-matched-artifact-base-v1 :as base]
+            [artifact-declaration-authority-v4 :as authority]
             [artifact-checked-declaration-adapter-v4 :as adapter]))
 (deftest finite-and-general-session-ceilings-remain-explicit
   (with-redefs-fn {#'adapter/open-session-with-ceiling (fn [ceiling & _] ceiling)}
@@ -15,6 +16,13 @@
    :authority {:layout-receipt-sha256 (apply str (repeat 64 "a"))}
    :options {:max-declarations 4} :versions (atom []) :invocation (atom nil)
    :events (atom []) :base-operation (atom nil) :published-count (atom 0) :phase (atom :idle)})
+(deftest unrelated-host-guest-results-are-not-kernel-witnesses
+  (let [state {:driver {:engine (Object.) :current-ctx (atom {})} :request (atom nil)}]
+    (with-redefs [j/host-guest-result (fn [& _] (throw (AssertionError. "No registered kernel request: do not inspect other controller result")))]
+      (is (nil? (#'authority/observe-result! state))))
+    (reset! (:request state) (Object.))
+    (with-redefs [j/host-guest-result (fn [& _] (Object.))]
+      (is (thrown? Exception (#'authority/observe-result! state))))))
 (deftest baseline-retain-failures-preserve-prepublished-exact-targets
   (doseq [failure-call [1 2]]
     (let [session (fake-session) environment (Object.) root (Object.) constant-map (Object.) calls (atom 0)
