@@ -38,6 +38,9 @@ for match in re.finditer(r'\]\(([^)]+)\)',(P/'README.md').read_text()):
  path=match.group(1)
  if '://'not in path and not path.startswith('#'):assert (P/path.split('#')[0]).exists(),path
 acceptance=json.loads((P/'acceptance.json').read_text())
+corpus=acceptance['corpus'];fixture=P.parents[4]/corpus['file']
+assert fixture.stat().st_size==corpus['bytes']
+assert hashlib.sha256(fixture.read_bytes()).hexdigest()==corpus['sha256'],fixture
 inventory=acceptance['source-inventory']
 expected={str(p.relative_to(P))for p in P.rglob('*.clj')}|{'verify-source.py'}
 assert {item['file']for item in inventory}==expected,'Acceptance source inventory differs'

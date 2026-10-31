@@ -32,6 +32,8 @@ independent unary Nat identity definitions. Successful execution of two definiti
 and EOF is the current measured corpus, not evidence of general Lean-project
 compatibility. Ordinary implicit `Init`, cross-file source imports, arbitrary
 declaration/code profiles, IO programs and a public library API remain separate work.
+The parser bound does not enlarge the prepared branch's explicit execution or
+command budgets; the measured branch permits two definitions and EOF.
 
 ## Explicit load order
 
@@ -190,7 +192,7 @@ older lower-unit migration record; it does not cover the newer leaves.
 The library suite ran 1,337 tests and 11,488 assertions with no assertion failures;
 five localhost-server tests were blocked by sandbox socket permissions. Their
 complete namespace passed separately with socket access: seven tests, 56 assertions.
-The full Mathlib-using library suite required a 1,536 MiB test heap; its initial
+The full Mathlib-using library suite ran with a 1,536 MiB test heap; its initial
 384 MiB attempt exhausted memory. Both hosted frontend repeats and the focused
 checks used the retained 384 MiB interpreter JVM.
 
