@@ -2,8 +2,8 @@
   "schema": "runtime-cohort-package/1",
   "files": {
     "README.md": {
-      "bytes": 16172,
-      "sha256": "21b7ada7e3ab1a60870a9173b5f7bc7fe938787f252bf8a09c02b8fc787a470c"
+      "bytes": 16309,
+      "sha256": "9921ef83f358700163c5ca8f0261947cbac2a8d53addbefccd2168f74a16cbdb"
     },
     "build-identity.clj": {
       "bytes": 6122,
@@ -14,8 +14,8 @@
       "sha256": "de97566a8da2e769b9ee0026e83f9b517a8995e666db552fec1ebab43fdfe4f4"
     },
     "cohort.clj": {
-      "bytes": 31651,
-      "sha256": "e2074eb5c9f86b1d81f57d8243d24c9ee80c3ea4fcd5edd169e6e78e0e96a066"
+      "bytes": 32015,
+      "sha256": "a66a3ec54cbf3a929e9b19829f31a2cad8bbc417c83d5986691bae47da0ed079"
     },
     "data/build-identity/lean_version_get_is_release.json": {
       "bytes": 1715,
@@ -126,8 +126,8 @@
       "sha256": "70764537c0180dd00f1c4f7870046a4965cbd50ac891f73fbff80d5af6c6c718"
     },
     "sources.json": {
-      "bytes": 6536,
-      "sha256": "fe9bd538530fb7291710f974d1e1d7923732d17834280bd8a288a6fbd048ae79"
+      "bytes": 6863,
+      "sha256": "1f37fcd35d9fbb701dd6af220cc3ae95cc490b8a91cc7138f34e079c160233cc"
     },
     "stdin.clj": {
       "bytes": 6210,

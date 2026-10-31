@@ -1,0 +1,392 @@
+[
+  {
+    "symbol": "lean_get_num_attributes",
+    "origin": {
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "anonymous"
+          ],
+          "Lean"
+        ],
+        "getNumBuiltinAttributes"
+      ],
+      "label": "Lean.getNumBuiltinAttributes",
+      "sha256": "bc10b48c3b6e8d9ea490a2adf4773b994aa9e783a2aa89a2cc03291824f4bf6e"
+    },
+    "target": {
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "anonymous"
+          ],
+          "Lean"
+        ],
+        "getNumBuiltinAttributesImpl"
+      ],
+      "label": "Lean.getNumBuiltinAttributesImpl",
+      "sha256": "12b04d19da68b55a65513358c79de9c657103aa957d30b1ccfd54717e51242bf"
+    },
+    "abi": {
+      "params": [
+        "void"
+      ],
+      "borrowed": [
+        false
+      ],
+      "result": "object"
+    },
+    "wrappers": [
+      {
+        "name": [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Lean"
+            ],
+            "getNumBuiltinAttributes"
+          ],
+          "_boxed"
+        ],
+        "label": "Lean.getNumBuiltinAttributes._boxed",
+        "sha256": "6a8177288d2184317946aca6ec2a31f31cb230499fc8b5a08b39ff3ca926ee44",
+        "abi": {
+          "params": [
+            "tagged"
+          ],
+          "borrowed": [
+            false
+          ],
+          "result": "object"
+        }
+      },
+      {
+        "name": [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Lean"
+            ],
+            "getNumBuiltinAttributesImpl"
+          ],
+          "_boxed"
+        ],
+        "label": "Lean.getNumBuiltinAttributesImpl._boxed",
+        "sha256": "b5208012b0aaf1233055c083c16e9679f21a65679bea2d4f49ca31211ff0a8cd",
+        "abi": {
+          "params": [
+            "tagged"
+          ],
+          "borrowed": [
+            false
+          ],
+          "result": "object"
+        }
+      }
+    ]
+  },
+  {
+    "symbol": "lean_update_env_attributes",
+    "origin": {
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "anonymous"
+          ],
+          "Lean"
+        ],
+        "updateEnvAttributes"
+      ],
+      "label": "Lean.updateEnvAttributes",
+      "sha256": "4ac86094726c93e5a2aeab603eb0b0a19a778774dea1f38d2b02b642e8fae20c"
+    },
+    "target": {
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "anonymous"
+          ],
+          "Lean"
+        ],
+        "updateEnvAttributesImpl"
+      ],
+      "label": "Lean.updateEnvAttributesImpl",
+      "sha256": "6bd57082befd78abe1a87479cc4cb19d61123224b8dd3fda60ac22f17bc236c2"
+    },
+    "abi": {
+      "params": [
+        "object",
+        "void"
+      ],
+      "borrowed": [
+        false,
+        false
+      ],
+      "result": "object"
+    },
+    "wrappers": [
+      {
+        "name": [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Lean"
+            ],
+            "updateEnvAttributes"
+          ],
+          "_boxed"
+        ],
+        "label": "Lean.updateEnvAttributes._boxed",
+        "sha256": "2502e2167adc65d6adfa9863d33d1c6151e1a057de4dc4a6f5f480dc508246e2",
+        "abi": {
+          "params": [
+            "object",
+            "tagged"
+          ],
+          "borrowed": [
+            false,
+            false
+          ],
+          "result": "object"
+        }
+      },
+      {
+        "name": [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Lean"
+            ],
+            "updateEnvAttributesImpl"
+          ],
+          "_boxed"
+        ],
+        "label": "Lean.updateEnvAttributesImpl._boxed",
+        "sha256": "56fecf8a0d26827819b96c281b684d9f50c3e82d77321c6c552a9eadf4925a7e",
+        "abi": {
+          "params": [
+            "object",
+            "tagged"
+          ],
+          "borrowed": [
+            false,
+            false
+          ],
+          "result": "object"
+        }
+      }
+    ]
+  },
+  {
+    "symbol": "lean_run_init_attrs",
+    "origin": {
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "num",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "str",
+                  [
+                    "anonymous"
+                  ],
+                  "_private"
+                ],
+                "Lean"
+              ],
+              "Environment"
+            ],
+            "0"
+          ],
+          "Lean"
+        ],
+        "runInitAttrs"
+      ],
+      "label": "_private.Lean.Environment.0.Lean.runInitAttrs",
+      "sha256": "8c4dcfb7e7d9a383853d866f70e7e73bf8559e908a0bf30d10a0b90cea56f9b6"
+    },
+    "target": {
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "num",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "str",
+                  [
+                    "str",
+                    [
+                      "anonymous"
+                    ],
+                    "_private"
+                  ],
+                  "Lean"
+                ],
+                "Compiler"
+              ],
+              "InitAttr"
+            ],
+            "0"
+          ],
+          "Lean"
+        ],
+        "runInitAttrs"
+      ],
+      "label": "_private.Lean.Compiler.InitAttr.0.Lean.runInitAttrs",
+      "sha256": "751846549492e36487d5d89b1a68f5315848987abe997d74a830c4c53749b708"
+    },
+    "abi": {
+      "params": [
+        "object",
+        "object",
+        "void"
+      ],
+      "borrowed": [
+        false,
+        false,
+        false
+      ],
+      "result": "object"
+    },
+    "wrappers": [
+      {
+        "name": [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "num",
+                [
+                  "str",
+                  [
+                    "str",
+                    [
+                      "str",
+                      [
+                        "anonymous"
+                      ],
+                      "_private"
+                    ],
+                    "Lean"
+                  ],
+                  "Environment"
+                ],
+                "0"
+              ],
+              "Lean"
+            ],
+            "runInitAttrs"
+          ],
+          "_boxed"
+        ],
+        "label": "_private.Lean.Environment.0.Lean.runInitAttrs._boxed",
+        "sha256": "a34e2bc52e45fca49e5451eb3f01d1872db8a874c5b2755faabd6d69a8cfee21",
+        "abi": {
+          "params": [
+            "object",
+            "object",
+            "tagged"
+          ],
+          "borrowed": [
+            false,
+            false,
+            false
+          ],
+          "result": "object"
+        }
+      },
+      {
+        "name": [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "num",
+                [
+                  "str",
+                  [
+                    "str",
+                    [
+                      "str",
+                      [
+                        "str",
+                        [
+                          "anonymous"
+                        ],
+                        "_private"
+                      ],
+                      "Lean"
+                    ],
+                    "Compiler"
+                  ],
+                  "InitAttr"
+                ],
+                "0"
+              ],
+              "Lean"
+            ],
+            "runInitAttrs"
+          ],
+          "_boxed"
+        ],
+        "label": "_private.Lean.Compiler.InitAttr.0.Lean.runInitAttrs._boxed",
+        "sha256": "efaf7010138b9ef523c179bd09ddb521b3d6067f4fcc694f42f8828e1adf0462",
+        "abi": {
+          "params": [
+            "object",
+            "object",
+            "tagged"
+          ],
+          "borrowed": [
+            false,
+            false,
+            false
+          ],
+          "result": "object"
+        }
+      }
+    ]
+  }
+]

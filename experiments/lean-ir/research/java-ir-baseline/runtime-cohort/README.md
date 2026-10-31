@@ -249,7 +249,9 @@ parent's retained JVM. `load-runtime-models!` defines the separate actual-engine
 version tests; invoke their `check!` with the explicitly accepted basis. They
 are excluded from the pure packaged runner. No worker JVM was launched.
 
-Parent and fresh child drivers carry their actual CodeReceipt before native
-or frontend wrapper capture. Finalizer options pass the parent's exact additional
-overlay contract explicitly; the legacy default remains an empty vector.
-Bootstrap-specific importer and child-observer callbacks are a separate unit.
+A companion importer callback may preflight an independently pinned artifact
+bundle before reusing the same production graph importer. Omitting the callback
+retains the original importer. Parent and fresh child drivers carry their actual
+CodeReceipt before any native/frontend wrapper captures them. Finalizer options
+pass the parent's exact additional overlay contract explicitly; the legacy
+default remains the empty additional-overlay vector.

@@ -1,0 +1,1106 @@
+[
+  {
+    "symbol": "lean_string_intercalate",
+    "origin": {
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "String"
+          ],
+          "Internal"
+        ],
+        "intercalate"
+      ],
+      "label": "String.Internal.intercalate",
+      "sha256": "04dc1fbe2375748ee6d5ad1e09b99df606860bd47d7f9a3e4e677b5571a2371c"
+    },
+    "target": {
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "String"
+          ],
+          "Internal"
+        ],
+        "intercalateImpl"
+      ],
+      "label": "String.Internal.intercalateImpl",
+      "sha256": "0a5cd8423c5e19bea546572754d1670e250e6c42bdea16b023b8e7818c097fad"
+    },
+    "abi": {
+      "params": [
+        "object",
+        "tobject"
+      ],
+      "borrowed": [
+        false,
+        false
+      ],
+      "result": "object"
+    },
+    "wrappers": [
+      {
+        "name": [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "String"
+              ],
+              "Internal"
+            ],
+            "intercalate"
+          ],
+          "_boxed"
+        ],
+        "label": "String.Internal.intercalate._boxed",
+        "sha256": "5b14060ffcdafc1dbc2948ce96713a885876875ddf9aba4919b9998bb5776cd0",
+        "abi": {
+          "params": [
+            "object",
+            "tobject"
+          ],
+          "borrowed": [
+            false,
+            false
+          ],
+          "result": "object"
+        }
+      }
+    ]
+  },
+  {
+    "symbol": "lean_string_capitalize",
+    "origin": {
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "String"
+          ],
+          "Internal"
+        ],
+        "capitalize"
+      ],
+      "label": "String.Internal.capitalize",
+      "sha256": "4c023dc62f46b9c74360091d56e0564d8ff41f4daf03c7064a4de04d62662dee"
+    },
+    "target": {
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "String"
+          ],
+          "Internal"
+        ],
+        "capitalizeImpl"
+      ],
+      "label": "String.Internal.capitalizeImpl",
+      "sha256": "170df5f8e3a164e453a8ce495c7cd2ca598e60259bc4f0b14a43d334ef478dfc"
+    },
+    "abi": {
+      "params": [
+        "object"
+      ],
+      "borrowed": [
+        false
+      ],
+      "result": "object"
+    },
+    "wrappers": [
+      {
+        "name": [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "String"
+              ],
+              "Internal"
+            ],
+            "capitalize"
+          ],
+          "_boxed"
+        ],
+        "label": "String.Internal.capitalize._boxed",
+        "sha256": "64f8500a22935e94d6b63fad1e8d4f6a013af0f29389c7d9c379e07a8154ba9b",
+        "abi": {
+          "params": [
+            "object"
+          ],
+          "borrowed": [
+            false
+          ],
+          "result": "object"
+        }
+      }
+    ]
+  },
+  {
+    "symbol": "lean_string_pos_sub",
+    "origin": {
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "String"
+              ],
+              "Pos"
+            ],
+            "Raw"
+          ],
+          "Internal"
+        ],
+        "sub"
+      ],
+      "label": "String.Pos.Raw.Internal.sub",
+      "sha256": "a78774ff3764ea908279d3e418348233af0dcd869e99a59fcc53dfc5c0eb8e93"
+    },
+    "target": {
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "String"
+            ],
+            "Pos"
+          ],
+          "Internal"
+        ],
+        "subImpl"
+      ],
+      "label": "String.Pos.Internal.subImpl",
+      "sha256": "aa00e4130364b8593ab00a021273950c5b1c9c9aca916c23414b3e22dc7dcdd5"
+    },
+    "abi": {
+      "params": [
+        "tobject",
+        "tobject"
+      ],
+      "borrowed": [
+        false,
+        false
+      ],
+      "result": "tobject"
+    },
+    "wrappers": [
+      {
+        "name": [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "str",
+                  [
+                    "str",
+                    [
+                      "anonymous"
+                    ],
+                    "String"
+                  ],
+                  "Pos"
+                ],
+                "Raw"
+              ],
+              "Internal"
+            ],
+            "sub"
+          ],
+          "_boxed"
+        ],
+        "label": "String.Pos.Raw.Internal.sub._boxed",
+        "sha256": "acfa7a3f27e36e58adb7f686028dcec8a27105dd78e643e0a7373daf7f143956",
+        "abi": {
+          "params": [
+            "tobject",
+            "tobject"
+          ],
+          "borrowed": [
+            false,
+            false
+          ],
+          "result": "tobject"
+        }
+      }
+    ]
+  },
+  {
+    "symbol": "lean_string_pos_min",
+    "origin": {
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "String"
+              ],
+              "Pos"
+            ],
+            "Raw"
+          ],
+          "Internal"
+        ],
+        "min"
+      ],
+      "label": "String.Pos.Raw.Internal.min",
+      "sha256": "0d9bc5b70630b8291e6d6f1f2fd45979221c801d5955b4285da07909ef3bbb5e"
+    },
+    "target": {
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "String"
+              ],
+              "Pos"
+            ],
+            "Raw"
+          ],
+          "Internal"
+        ],
+        "minImpl"
+      ],
+      "label": "String.Pos.Raw.Internal.minImpl",
+      "sha256": "95107c5d494b4c418035c32894ab9e0f7672528562b847634c903ec2789168a7"
+    },
+    "abi": {
+      "params": [
+        "tobject",
+        "tobject"
+      ],
+      "borrowed": [
+        false,
+        false
+      ],
+      "result": "tobject"
+    },
+    "wrappers": [
+      {
+        "name": [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "str",
+                  [
+                    "str",
+                    [
+                      "anonymous"
+                    ],
+                    "String"
+                  ],
+                  "Pos"
+                ],
+                "Raw"
+              ],
+              "Internal"
+            ],
+            "min"
+          ],
+          "_boxed"
+        ],
+        "label": "String.Pos.Raw.Internal.min._boxed",
+        "sha256": "592990b1c332ade856965b75fbe59c580b3394a7b61bec1c47bc5becd69919f2",
+        "abi": {
+          "params": [
+            "tobject",
+            "tobject"
+          ],
+          "borrowed": [
+            false,
+            false
+          ],
+          "result": "tobject"
+        }
+      }
+    ]
+  },
+  {
+    "symbol": "lean_string_any",
+    "origin": {
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "String"
+          ],
+          "Internal"
+        ],
+        "any"
+      ],
+      "label": "String.Internal.any",
+      "sha256": "4eb1c275b2cd6d7fac6df6b8148b031480f73bbd61e3c0c1e45916532b29a381"
+    },
+    "target": {
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "String"
+          ],
+          "Internal"
+        ],
+        "anyImpl"
+      ],
+      "label": "String.Internal.anyImpl",
+      "sha256": "fa03701e91928ab84d80fe314549de0efb5beeec78aaa38027f5fb2006af343e"
+    },
+    "abi": {
+      "params": [
+        "object",
+        "object"
+      ],
+      "borrowed": [
+        false,
+        false
+      ],
+      "result": "uint8"
+    },
+    "wrappers": [
+      {
+        "name": [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "String"
+              ],
+              "Internal"
+            ],
+            "any"
+          ],
+          "_boxed"
+        ],
+        "label": "String.Internal.any._boxed",
+        "sha256": "db50bb53a6e30f545cf6a5d6f548815c03bca9de65932366c3beae0150174b02",
+        "abi": {
+          "params": [
+            "object",
+            "object"
+          ],
+          "borrowed": [
+            false,
+            false
+          ],
+          "result": "tagged"
+        }
+      },
+      {
+        "name": [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "String"
+              ],
+              "Internal"
+            ],
+            "anyImpl"
+          ],
+          "_boxed"
+        ],
+        "label": "String.Internal.anyImpl._boxed",
+        "sha256": "a8a9995485ba2d3cefa4a9b6bd64f94dcc6dd71de92344fa9bf8440e51f359c9",
+        "abi": {
+          "params": [
+            "object",
+            "object"
+          ],
+          "borrowed": [
+            false,
+            false
+          ],
+          "result": "tagged"
+        }
+      }
+    ]
+  },
+  {
+    "symbol": "lean_string_front",
+    "origin": {
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "String"
+          ],
+          "Internal"
+        ],
+        "front"
+      ],
+      "label": "String.Internal.front",
+      "sha256": "3d04f8f61064b4673d42f05e5f8a03161ba5efa661db2880a4f6fd23313b0f64"
+    },
+    "target": {
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "String"
+          ],
+          "Internal"
+        ],
+        "frontImpl"
+      ],
+      "label": "String.Internal.frontImpl",
+      "sha256": "eb0d6db93b0b96819e66e52c580b8750fe5868d31362e840abe93d736220955f"
+    },
+    "abi": {
+      "params": [
+        "object"
+      ],
+      "borrowed": [
+        false
+      ],
+      "result": "uint32"
+    },
+    "wrappers": [
+      {
+        "name": [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "String"
+              ],
+              "Internal"
+            ],
+            "front"
+          ],
+          "_boxed"
+        ],
+        "label": "String.Internal.front._boxed",
+        "sha256": "512d905ba6646fc5088cd47f10ec60cdad0190a2df60cfba1e38e0ac4edfeaa1",
+        "abi": {
+          "params": [
+            "object"
+          ],
+          "borrowed": [
+            false
+          ],
+          "result": "tobject"
+        }
+      },
+      {
+        "name": [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "String"
+              ],
+              "Internal"
+            ],
+            "frontImpl"
+          ],
+          "_boxed"
+        ],
+        "label": "String.Internal.frontImpl._boxed",
+        "sha256": "abd8be96891747b1ea2cb6c3fbd92e567476c6c96773d828119f575c685fad7f",
+        "abi": {
+          "params": [
+            "object"
+          ],
+          "borrowed": [
+            false
+          ],
+          "result": "tobject"
+        }
+      }
+    ]
+  },
+  {
+    "symbol": "lean_string_drop",
+    "origin": {
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "String"
+          ],
+          "Internal"
+        ],
+        "drop"
+      ],
+      "label": "String.Internal.drop",
+      "sha256": "dd62c39f6da246df5764c08f1a47883cf84abcf8a412a281d21eefe9fb41fc60"
+    },
+    "target": {
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "String"
+          ],
+          "Internal"
+        ],
+        "dropImpl"
+      ],
+      "label": "String.Internal.dropImpl",
+      "sha256": "18ff446dc8cbf3e73a0bd2174bb80aea4f315c3df1bb716513c77a4407c1c40c"
+    },
+    "abi": {
+      "params": [
+        "object",
+        "tobject"
+      ],
+      "borrowed": [
+        false,
+        false
+      ],
+      "result": "object"
+    },
+    "wrappers": [
+      {
+        "name": [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "String"
+              ],
+              "Internal"
+            ],
+            "drop"
+          ],
+          "_boxed"
+        ],
+        "label": "String.Internal.drop._boxed",
+        "sha256": "6660b1b76385f5aabc076a0f14bd9f9900695a0a3297e4e65600f6eb4e1a2954",
+        "abi": {
+          "params": [
+            "object",
+            "tobject"
+          ],
+          "borrowed": [
+            false,
+            false
+          ],
+          "result": "object"
+        }
+      }
+    ]
+  },
+  {
+    "symbol": "lean_string_dropright",
+    "origin": {
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "String"
+          ],
+          "Internal"
+        ],
+        "dropRight"
+      ],
+      "label": "String.Internal.dropRight",
+      "sha256": "f06c70e5b3adf03855813dfe701a674618370bb8ee63bc80c039a9747b25901c"
+    },
+    "target": {
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "String"
+          ],
+          "Internal"
+        ],
+        "dropRightImpl"
+      ],
+      "label": "String.Internal.dropRightImpl",
+      "sha256": "71c1c4e6d0fbb85a378e22bcc8149bfecef5000b008c21d8b698d1f25e6fb96a"
+    },
+    "abi": {
+      "params": [
+        "object",
+        "tobject"
+      ],
+      "borrowed": [
+        false,
+        false
+      ],
+      "result": "object"
+    },
+    "wrappers": [
+      {
+        "name": [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "String"
+              ],
+              "Internal"
+            ],
+            "dropRight"
+          ],
+          "_boxed"
+        ],
+        "label": "String.Internal.dropRight._boxed",
+        "sha256": "6fcb203445fe1ae60a5637a597eeb80b6574efbea68b92990b288403cf576adb",
+        "abi": {
+          "params": [
+            "object",
+            "tobject"
+          ],
+          "borrowed": [
+            false,
+            false
+          ],
+          "result": "object"
+        }
+      }
+    ]
+  },
+  {
+    "symbol": "lean_string_isprefixof",
+    "origin": {
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "String"
+          ],
+          "Internal"
+        ],
+        "isPrefixOf"
+      ],
+      "label": "String.Internal.isPrefixOf",
+      "sha256": "d011572f4930ed3a717ba704731f74a4cd5638c53fee90b9378bae0a6439cfb7"
+    },
+    "target": {
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "String"
+          ],
+          "Internal"
+        ],
+        "isPrefixOfImpl"
+      ],
+      "label": "String.Internal.isPrefixOfImpl",
+      "sha256": "731bfde7a5ddfd257ea34fbdba1481f7b5dbb046815ab4f650c53fc992421936"
+    },
+    "abi": {
+      "params": [
+        "object",
+        "object"
+      ],
+      "borrowed": [
+        false,
+        false
+      ],
+      "result": "uint8"
+    },
+    "wrappers": [
+      {
+        "name": [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "String"
+              ],
+              "Internal"
+            ],
+            "isPrefixOf"
+          ],
+          "_boxed"
+        ],
+        "label": "String.Internal.isPrefixOf._boxed",
+        "sha256": "86edb8cef6a48d1a1b341d2792e3b695ebb3820086458f204e4467eb870799ef",
+        "abi": {
+          "params": [
+            "object",
+            "object"
+          ],
+          "borrowed": [
+            false,
+            false
+          ],
+          "result": "tagged"
+        }
+      },
+      {
+        "name": [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "String"
+              ],
+              "Internal"
+            ],
+            "isPrefixOfImpl"
+          ],
+          "_boxed"
+        ],
+        "label": "String.Internal.isPrefixOfImpl._boxed",
+        "sha256": "7e26005c7dd3b101f89e122b79a062ea295dd1008337639b0984a63664ec15df",
+        "abi": {
+          "params": [
+            "object",
+            "object"
+          ],
+          "borrowed": [
+            false,
+            false
+          ],
+          "result": "tagged"
+        }
+      }
+    ]
+  },
+  {
+    "symbol": "lean_string_trim",
+    "origin": {
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "String"
+          ],
+          "Internal"
+        ],
+        "trim"
+      ],
+      "label": "String.Internal.trim",
+      "sha256": "e8dd1aa42c33a9601cafdca6da4112109aa7b6271155ee9bcc290a63ed7ba523"
+    },
+    "target": {
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "String"
+          ],
+          "Internal"
+        ],
+        "trimImpl"
+      ],
+      "label": "String.Internal.trimImpl",
+      "sha256": "5bcec241736135c0cffcb2100bc42a8d593f642c2ff926921e2f642723309bc9"
+    },
+    "abi": {
+      "params": [
+        "object"
+      ],
+      "borrowed": [
+        false
+      ],
+      "result": "object"
+    },
+    "wrappers": [
+      {
+        "name": [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "String"
+              ],
+              "Internal"
+            ],
+            "trim"
+          ],
+          "_boxed"
+        ],
+        "label": "String.Internal.trim._boxed",
+        "sha256": "d9311828d6fb765db00ee58d00aabaa0fda589442bd1a63e9225f2de94ea60d7",
+        "abi": {
+          "params": [
+            "object"
+          ],
+          "borrowed": [
+            false
+          ],
+          "result": "object"
+        }
+      }
+    ]
+  },
+  {
+    "symbol": "lean_string_nextwhile",
+    "origin": {
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "String"
+          ],
+          "Internal"
+        ],
+        "nextWhile"
+      ],
+      "label": "String.Internal.nextWhile",
+      "sha256": "53c0ecc841f21af7c6e3dcfe3df013eb732a7403eea9bf38baf4891eaabc26dc"
+    },
+    "target": {
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "String"
+          ],
+          "Internal"
+        ],
+        "nextWhileImpl"
+      ],
+      "label": "String.Internal.nextWhileImpl",
+      "sha256": "20bfcdbee95e223d65c335b8f6ea46f7baabf4e180f044d7399eb16d9cd24faa"
+    },
+    "abi": {
+      "params": [
+        "object",
+        "object",
+        "tobject"
+      ],
+      "borrowed": [
+        false,
+        false,
+        false
+      ],
+      "result": "tobject"
+    },
+    "wrappers": [
+      {
+        "name": [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "String"
+              ],
+              "Internal"
+            ],
+            "nextWhile"
+          ],
+          "_boxed"
+        ],
+        "label": "String.Internal.nextWhile._boxed",
+        "sha256": "b07afb8e532c267edbaafabdff475f720ca81ae44b623e237ebe52e144bc1ef0",
+        "abi": {
+          "params": [
+            "object",
+            "object",
+            "tobject"
+          ],
+          "borrowed": [
+            false,
+            false,
+            false
+          ],
+          "result": "tobject"
+        }
+      }
+    ]
+  }
+]

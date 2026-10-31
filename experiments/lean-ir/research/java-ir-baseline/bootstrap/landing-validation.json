@@ -1,0 +1,31 @@
+{
+  "schema": "source4-bootstrap-landing-validation/1",
+  "base-commit": "ab9339effa347dbda1502fc72e5d863e8c98ad8d",
+  "scope": "Tracked bootstrap/policy package and two optional cohort hooks only; source-module layers unchanged.",
+  "worker-JVM-or-native-executed": false,
+  "metadata-checks": {
+    "bootstrap-source-files": 51,
+    "policy-families": 11,
+    "policy-fixture-files": 28,
+    "Header-occurrences": 247,
+    "unique-Header-Names": 225,
+    "pinned-upstream-blobs-checked": 77,
+    "policy-corruption-tests": 6,
+    "assembly-synthetic-tests": 7,
+    "artifact-frontend-load-units": 49,
+    "runtime-cohort-payload-files": 35,
+    "failures": 0
+  },
+  "parent-runtime-acceptance": "assembly-validation.json records the exact previously accepted profile, fresh 512 MiB process, two definitions, real EOF, 40 to 42 and normal cleanup. No additional runtime claim comes from this landing.",
+  "source-pins": {
+    "artifacts.clj": "421d79b355f1a2b56a95559a36a166befb0655d455a91b06bdcb4f4c8496bdb1",
+    "definitions.clj": "974d77892cea0b971b1e8d8aae36d85e9e7e2794fd9ab8f9f7eb2710a3e249af",
+    "captured-runtime.clj": "7f6dba6f399ad929ca77648046716d209ee70555fe9138f64f0dce0dbbf5fb72",
+    "source4.clj": "bc92d5a37b002aac215edafc024f62ce9a6b37916a6d4b06dbe754a9a02783b6",
+    "policies.clj": "e8f2762108ee5e0d7cd308e63ee122206059d518adf6aa5e295b5b87c836ddec",
+    "policies-early.clj": "9b098c7d0af8d4db7748b2c9ffa2f2fa20a51592d344073a6251f5172c65f606",
+    "assemble-pack.py": "5b0da3386201d4d9b32ec9ba2efd1ee05b415f826c2ab3a682c34a360e3d813d",
+    "definition-order.json": "6853e7910abb34b84efbb05cf46e1b047bf30cea892782cd51d99a6f127ca36d"
+  },
+  "runtime-cohort-hook-source-sha256": "a66a3ec54cbf3a929e9b19829f31a2cad8bbc417c83d5986691bae47da0ed079"
+}

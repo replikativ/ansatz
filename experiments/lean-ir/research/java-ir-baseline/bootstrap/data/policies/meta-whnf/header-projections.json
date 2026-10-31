@@ -1,0 +1,1498 @@
+[
+  {
+    "label": "Lean.Meta.whnf",
+    "sha256": "58417d29f331de06b23c93b0f72bfd8439c46d7b3d1e363531eb37a918167503",
+    "header-row": {
+      "dependencies": [],
+      "ir": {
+        "extern": {
+          "ext": {
+            "entries": [
+              {
+                "standard": {
+                  "backend": [
+                    "str",
+                    [
+                      "anonymous"
+                    ],
+                    "all"
+                  ],
+                  "fn": "lean_whnf"
+                }
+              }
+            ]
+          },
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "Lean"
+              ],
+              "Meta"
+            ],
+            "whnf"
+          ],
+          "type": "object",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "object",
+              "x": {
+                "idx": 1
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "object",
+              "x": {
+                "idx": 2
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 3
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "object",
+              "x": {
+                "idx": 4
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 5
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "void",
+              "x": {
+                "idx": 6
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "Lean"
+          ],
+          "Meta"
+        ],
+        "whnf"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "Lean"
+          ],
+          "Meta"
+        ],
+        "Basic"
+      ]
+    },
+    "full-raw-CAS-byte-length": 836
+  },
+  {
+    "label": "Lean.Meta.whnfImp",
+    "sha256": "cc1b6a37f14283c1b9547dd6144eb143ff7244a89be7af34fb64b7b54fb696c2",
+    "header-row": {
+      "dependencies": [
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "Nat"
+          ],
+          "add"
+        ],
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "str",
+                  [
+                    "str",
+                    [
+                      "str",
+                      [
+                        "str",
+                        [
+                          "anonymous"
+                        ],
+                        "Lean"
+                      ],
+                      "Meta"
+                    ],
+                    "whnfEasyCases"
+                  ],
+                  "_at_"
+                ],
+                "Lean"
+              ],
+              "Meta"
+            ],
+            "whnfImp"
+          ],
+          "spec_3"
+        ],
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "Nat"
+          ],
+          "decEq"
+        ],
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "Nat"
+          ],
+          "decEq"
+        ],
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "str",
+                  [
+                    "str",
+                    [
+                      "str",
+                      [
+                        "str",
+                        [
+                          "anonymous"
+                        ],
+                        "Lean"
+                      ],
+                      "throwMaxRecDepthAt"
+                    ],
+                    "_at_"
+                  ],
+                  "Lean"
+                ],
+                "Meta"
+              ],
+              "whnfImp"
+            ],
+            "spec_4"
+          ],
+          "_redArg"
+        ]
+      ],
+      "ir": {
+        "fdecl": {
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "Lean"
+              ],
+              "Meta"
+            ],
+            "whnfImp"
+          ],
+          "info": {},
+          "type": "object",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "object",
+              "x": {
+                "idx": 1
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "object",
+              "x": {
+                "idx": 2
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 3
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "object",
+              "x": {
+                "idx": 4
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 5
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "void",
+              "x": {
+                "idx": 6
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "Lean"
+          ],
+          "Meta"
+        ],
+        "whnfImp"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "Lean"
+          ],
+          "Meta"
+        ],
+        "WHNF"
+      ]
+    },
+    "full-raw-CAS-byte-length": 9306
+  },
+  {
+    "label": "Lean.Meta.whnf._boxed",
+    "sha256": "097f84962ca84501ba99b6a6e6c9ac2a0ab59a1d354a28e75ef6c77b9717ade9",
+    "header-row": {
+      "dependencies": [
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Lean"
+            ],
+            "Meta"
+          ],
+          "whnf"
+        ]
+      ],
+      "ir": {
+        "fdecl": {
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "str",
+                  [
+                    "anonymous"
+                  ],
+                  "Lean"
+                ],
+                "Meta"
+              ],
+              "whnf"
+            ],
+            "_boxed"
+          ],
+          "info": {},
+          "type": "object",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "object",
+              "x": {
+                "idx": 1
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "object",
+              "x": {
+                "idx": 2
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 3
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "object",
+              "x": {
+                "idx": 4
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 5
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "tagged",
+              "x": {
+                "idx": 6
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Lean"
+            ],
+            "Meta"
+          ],
+          "whnf"
+        ],
+        "_boxed"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "Lean"
+          ],
+          "Meta"
+        ],
+        "Basic"
+      ]
+    },
+    "full-raw-CAS-byte-length": 1228
+  },
+  {
+    "label": "Lean.Meta.whnfImp._boxed",
+    "sha256": "7d8a68b22cda22a0e0899bc0cc35084335529961954a11cf1139c5f558f989c5",
+    "header-row": {
+      "dependencies": [
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Lean"
+            ],
+            "Meta"
+          ],
+          "whnfImp"
+        ]
+      ],
+      "ir": {
+        "fdecl": {
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "str",
+                  [
+                    "anonymous"
+                  ],
+                  "Lean"
+                ],
+                "Meta"
+              ],
+              "whnfImp"
+            ],
+            "_boxed"
+          ],
+          "info": {},
+          "type": "object",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "object",
+              "x": {
+                "idx": 1
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "object",
+              "x": {
+                "idx": 2
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 3
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "object",
+              "x": {
+                "idx": 4
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 5
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "tagged",
+              "x": {
+                "idx": 6
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Lean"
+            ],
+            "Meta"
+          ],
+          "whnfImp"
+        ],
+        "_boxed"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "Lean"
+          ],
+          "Meta"
+        ],
+        "WHNF"
+      ]
+    },
+    "full-raw-CAS-byte-length": 1245
+  },
+  {
+    "label": "Lean.Meta.inferType",
+    "sha256": "306d3be61ebd0b46892124633bd1d6c344232f5dd54472f316e442cb8bd4d2a4",
+    "header-row": {
+      "dependencies": [],
+      "ir": {
+        "extern": {
+          "ext": {
+            "entries": [
+              {
+                "standard": {
+                  "backend": [
+                    "str",
+                    [
+                      "anonymous"
+                    ],
+                    "all"
+                  ],
+                  "fn": "lean_infer_type"
+                }
+              }
+            ]
+          },
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "Lean"
+              ],
+              "Meta"
+            ],
+            "inferType"
+          ],
+          "type": "object",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "object",
+              "x": {
+                "idx": 1
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "object",
+              "x": {
+                "idx": 2
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 3
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "object",
+              "x": {
+                "idx": 4
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 5
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "void",
+              "x": {
+                "idx": 6
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "Lean"
+          ],
+          "Meta"
+        ],
+        "inferType"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "Lean"
+          ],
+          "Meta"
+        ],
+        "Basic"
+      ]
+    },
+    "full-raw-CAS-byte-length": 857
+  },
+  {
+    "label": "Lean.Meta.inferTypeImp",
+    "sha256": "2dd340bb8dea305463220c96ca08d894de63bacf8c16e1421062d548775a80b1",
+    "header-row": {
+      "dependencies": [
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "Lean"
+              ],
+              "Meta"
+            ],
+            "Context"
+          ],
+          "config"
+        ],
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "num",
+                  [
+                    "str",
+                    [
+                      "str",
+                      [
+                        "str",
+                        [
+                          "str",
+                          [
+                            "anonymous"
+                          ],
+                          "_private"
+                        ],
+                        "Lean"
+                      ],
+                      "Meta"
+                    ],
+                    "Basic"
+                  ],
+                  "0"
+                ],
+                "Lean"
+              ],
+              "Meta"
+            ],
+            "Config"
+          ],
+          "toKey"
+        ],
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "num",
+                  [
+                    "str",
+                    [
+                      "str",
+                      [
+                        "str",
+                        [
+                          "str",
+                          [
+                            "anonymous"
+                          ],
+                          "_private"
+                        ],
+                        "Lean"
+                      ],
+                      "Meta"
+                    ],
+                    "InferType"
+                  ],
+                  "0"
+                ],
+                "Lean"
+              ],
+              "Meta"
+            ],
+            "inferTypeImp"
+          ],
+          "infer"
+        ],
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "Lean"
+              ],
+              "Meta"
+            ],
+            "Context"
+          ],
+          "config"
+        ],
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "Lean"
+              ],
+              "Meta"
+            ],
+            "Context"
+          ],
+          "configKey"
+        ],
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "UInt64"
+          ],
+          "shiftRight"
+        ],
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "UInt64"
+          ],
+          "shiftLeft"
+        ],
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "Lean"
+              ],
+              "Meta"
+            ],
+            "TransparencyMode"
+          ],
+          "toUInt64"
+        ],
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "UInt64"
+          ],
+          "lor"
+        ],
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "Lean"
+              ],
+              "Meta"
+            ],
+            "Context"
+          ],
+          "config"
+        ],
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Lean"
+            ],
+            "Meta"
+          ],
+          "instDecidableEqProjReductionKind"
+        ],
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "Lean"
+              ],
+              "Meta"
+            ],
+            "instBEqEtaStructMode"
+          ],
+          "beq"
+        ],
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "num",
+                  [
+                    "str",
+                    [
+                      "str",
+                      [
+                        "str",
+                        [
+                          "str",
+                          [
+                            "anonymous"
+                          ],
+                          "_private"
+                        ],
+                        "Lean"
+                      ],
+                      "Meta"
+                    ],
+                    "InferType"
+                  ],
+                  "0"
+                ],
+                "Lean"
+              ],
+              "Meta"
+            ],
+            "inferTypeImp"
+          ],
+          "infer"
+        ],
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "Lean"
+              ],
+              "Meta"
+            ],
+            "Context"
+          ],
+          "config"
+        ],
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "Nat"
+          ],
+          "add"
+        ],
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "Lean"
+              ],
+              "Meta"
+            ],
+            "TransparencyMode"
+          ],
+          "lt"
+        ],
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "Nat"
+          ],
+          "decEq"
+        ],
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "Nat"
+          ],
+          "decEq"
+        ],
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "str",
+                  [
+                    "str",
+                    [
+                      "str",
+                      [
+                        "str",
+                        [
+                          "anonymous"
+                        ],
+                        "Lean"
+                      ],
+                      "throwMaxRecDepthAt"
+                    ],
+                    "_at_"
+                  ],
+                  "Lean"
+                ],
+                "Meta"
+              ],
+              "inferTypeImp"
+            ],
+            "spec_0"
+          ],
+          "_redArg"
+        ]
+      ],
+      "ir": {
+        "fdecl": {
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "Lean"
+              ],
+              "Meta"
+            ],
+            "inferTypeImp"
+          ],
+          "info": {},
+          "type": "object",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "object",
+              "x": {
+                "idx": 1
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "object",
+              "x": {
+                "idx": 2
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 3
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "object",
+              "x": {
+                "idx": 4
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 5
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "void",
+              "x": {
+                "idx": 6
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "Lean"
+          ],
+          "Meta"
+        ],
+        "inferTypeImp"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "Lean"
+          ],
+          "Meta"
+        ],
+        "InferType"
+      ]
+    },
+    "full-raw-CAS-byte-length": 41120
+  },
+  {
+    "label": "Lean.Meta.inferType._boxed",
+    "sha256": "b5266f76c75ec19b17390405b52238b7f68a06d774ad19ec48b1c640cb81d3ae",
+    "header-row": {
+      "dependencies": [
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Lean"
+            ],
+            "Meta"
+          ],
+          "inferType"
+        ]
+      ],
+      "ir": {
+        "fdecl": {
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "str",
+                  [
+                    "anonymous"
+                  ],
+                  "Lean"
+                ],
+                "Meta"
+              ],
+              "inferType"
+            ],
+            "_boxed"
+          ],
+          "info": {},
+          "type": "object",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "object",
+              "x": {
+                "idx": 1
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "object",
+              "x": {
+                "idx": 2
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 3
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "object",
+              "x": {
+                "idx": 4
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 5
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "tagged",
+              "x": {
+                "idx": 6
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Lean"
+            ],
+            "Meta"
+          ],
+          "inferType"
+        ],
+        "_boxed"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "Lean"
+          ],
+          "Meta"
+        ],
+        "Basic"
+      ]
+    },
+    "full-raw-CAS-byte-length": 1258
+  },
+  {
+    "label": "Lean.Meta.inferTypeImp._boxed",
+    "sha256": "635d11c2c83eeaa5e0548477d403c7c34fd0cf4d9a157aeee04547f8511e214d",
+    "header-row": {
+      "dependencies": [
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Lean"
+            ],
+            "Meta"
+          ],
+          "inferTypeImp"
+        ]
+      ],
+      "ir": {
+        "fdecl": {
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "str",
+                  [
+                    "anonymous"
+                  ],
+                  "Lean"
+                ],
+                "Meta"
+              ],
+              "inferTypeImp"
+            ],
+            "_boxed"
+          ],
+          "info": {},
+          "type": "object",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "object",
+              "x": {
+                "idx": 1
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "object",
+              "x": {
+                "idx": 2
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 3
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "object",
+              "x": {
+                "idx": 4
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 5
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "tagged",
+              "x": {
+                "idx": 6
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Lean"
+            ],
+            "Meta"
+          ],
+          "inferTypeImp"
+        ],
+        "_boxed"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "Lean"
+          ],
+          "Meta"
+        ],
+        "InferType"
+      ]
+    },
+    "full-raw-CAS-byte-length": 1280
+  }
+]

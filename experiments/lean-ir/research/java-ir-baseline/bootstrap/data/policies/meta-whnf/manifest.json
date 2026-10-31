@@ -1,0 +1,982 @@
+{
+  "schema": "original-meta-whnf-guest-export-proposal/1",
+  "lean-commit": "819816b2e0a3bf405af45ae5c7af2491d8f5bee6",
+  "source-index-sha256": "74d833d577923821b982e8a9e872a38b5cad011513eb18870b51417e13397f0e",
+  "source-sha256": {
+    "src/Lean/Meta/Basic.lean": "9339066e8c4df71c9aac2c348d9a3a7c2a8a9a20aca0d07228c26deef647d4a8",
+    "src/Lean/Meta/WHNF.lean": "a7dda85d86ae0a7118566b80e0f8cd274030846e371d156f6882713d48647836",
+    "src/Lean/Meta/InferType.lean": "ed92098c36a75443312d2d474b4ad7a5c12434cd78bf1a7453e91c876880859e",
+    "src/Lean/Meta/ExprDefEq.lean": "0be5ead1c11aa486f924948f2a0b7946284fbc2f0b899993dd8989f1a9370b27",
+    "src/Lean/Compiler/ExportAttr.lean": "3de0bbe433d5933428777c0e8be582dfd266db3feb9d5e90fa6a7ac2d004c24d",
+    "src/Lean/Compiler/LCNF/EmitC.lean": "b583be256c880a879bf723bb4c2cd87bd80d433d0539ea67d87c28a6da500216"
+  },
+  "registry-source-sha256": "a44c4265fdb6c4f098bd65ac8f35282524441b900b265731792c6d2563d5c2fb",
+  "binding-count": 2,
+  "header-record-count": 8,
+  "direct-row-count": 4845,
+  "required-global-count": 51,
+  "new-required-global-count": 0,
+  "dynamic-input-AP-sites": 282,
+  "companion-global-count": 534,
+  "companion-file-sha256": "a767a04d8b330aab1565b4590ad267f84387e68fe8dc3aca16f11faef773a43c",
+  "pairs": [
+    {
+      "symbol": "lean_whnf",
+      "origin": {
+        "name": [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Lean"
+            ],
+            "Meta"
+          ],
+          "whnf"
+        ],
+        "label": "Lean.Meta.whnf",
+        "sha256": "58417d29f331de06b23c93b0f72bfd8439c46d7b3d1e363531eb37a918167503"
+      },
+      "target": {
+        "name": [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Lean"
+            ],
+            "Meta"
+          ],
+          "whnfImp"
+        ],
+        "label": "Lean.Meta.whnfImp",
+        "sha256": "cc1b6a37f14283c1b9547dd6144eb143ff7244a89be7af34fb64b7b54fb696c2"
+      },
+      "abi": {
+        "params": [
+          "object",
+          "object",
+          "tobject",
+          "object",
+          "tobject",
+          "void"
+        ],
+        "borrowed": [
+          false,
+          false,
+          false,
+          false,
+          false,
+          false
+        ],
+        "result": "object"
+      },
+      "wrappers": [
+        {
+          "name": [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "str",
+                  [
+                    "anonymous"
+                  ],
+                  "Lean"
+                ],
+                "Meta"
+              ],
+              "whnf"
+            ],
+            "_boxed"
+          ],
+          "label": "Lean.Meta.whnf._boxed",
+          "sha256": "097f84962ca84501ba99b6a6e6c9ac2a0ab59a1d354a28e75ef6c77b9717ade9",
+          "abi": {
+            "params": [
+              "object",
+              "object",
+              "tobject",
+              "object",
+              "tobject",
+              "tagged"
+            ],
+            "borrowed": [
+              false,
+              false,
+              false,
+              false,
+              false,
+              false
+            ],
+            "result": "object"
+          }
+        },
+        {
+          "name": [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "str",
+                  [
+                    "anonymous"
+                  ],
+                  "Lean"
+                ],
+                "Meta"
+              ],
+              "whnfImp"
+            ],
+            "_boxed"
+          ],
+          "label": "Lean.Meta.whnfImp._boxed",
+          "sha256": "7d8a68b22cda22a0e0899bc0cc35084335529961954a11cf1139c5f558f989c5",
+          "abi": {
+            "params": [
+              "object",
+              "object",
+              "tobject",
+              "object",
+              "tobject",
+              "tagged"
+            ],
+            "borrowed": [
+              false,
+              false,
+              false,
+              false,
+              false,
+              false
+            ],
+            "result": "object"
+          }
+        }
+      ],
+      "source": {
+        "path": "src/Lean/Meta/WHNF.lean",
+        "line": 1103
+      },
+      "status": "selected-reachable"
+    },
+    {
+      "symbol": "lean_infer_type",
+      "origin": {
+        "name": [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Lean"
+            ],
+            "Meta"
+          ],
+          "inferType"
+        ],
+        "label": "Lean.Meta.inferType",
+        "sha256": "306d3be61ebd0b46892124633bd1d6c344232f5dd54472f316e442cb8bd4d2a4"
+      },
+      "target": {
+        "name": [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Lean"
+            ],
+            "Meta"
+          ],
+          "inferTypeImp"
+        ],
+        "label": "Lean.Meta.inferTypeImp",
+        "sha256": "2dd340bb8dea305463220c96ca08d894de63bacf8c16e1421062d548775a80b1"
+      },
+      "abi": {
+        "params": [
+          "object",
+          "object",
+          "tobject",
+          "object",
+          "tobject",
+          "void"
+        ],
+        "borrowed": [
+          false,
+          false,
+          false,
+          false,
+          false,
+          false
+        ],
+        "result": "object"
+      },
+      "wrappers": [
+        {
+          "name": [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "str",
+                  [
+                    "anonymous"
+                  ],
+                  "Lean"
+                ],
+                "Meta"
+              ],
+              "inferType"
+            ],
+            "_boxed"
+          ],
+          "label": "Lean.Meta.inferType._boxed",
+          "sha256": "b5266f76c75ec19b17390405b52238b7f68a06d774ad19ec48b1c640cb81d3ae",
+          "abi": {
+            "params": [
+              "object",
+              "object",
+              "tobject",
+              "object",
+              "tobject",
+              "tagged"
+            ],
+            "borrowed": [
+              false,
+              false,
+              false,
+              false,
+              false,
+              false
+            ],
+            "result": "object"
+          }
+        },
+        {
+          "name": [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "str",
+                  [
+                    "anonymous"
+                  ],
+                  "Lean"
+                ],
+                "Meta"
+              ],
+              "inferTypeImp"
+            ],
+            "_boxed"
+          ],
+          "label": "Lean.Meta.inferTypeImp._boxed",
+          "sha256": "635d11c2c83eeaa5e0548477d403c7c34fd0cf4d9a157aeee04547f8511e214d",
+          "abi": {
+            "params": [
+              "object",
+              "object",
+              "tobject",
+              "object",
+              "tobject",
+              "tagged"
+            ],
+            "borrowed": [
+              false,
+              false,
+              false,
+              false,
+              false,
+              false
+            ],
+            "result": "object"
+          }
+        }
+      ],
+      "source": {
+        "path": "src/Lean/Meta/InferType.lean",
+        "line": 237
+      },
+      "status": "selected-reachable"
+    }
+  ],
+  "files": {
+    "pairs.json": "a95c6cafe34af4ad86f1511b34df1c06e4da180c360a6df6f2c5a6dc9d4dc381",
+    "header-projections.json": "866d66852e2916b43d4db39c1e866b021646d688bbe026d24eba6ab08860b7fe",
+    "inventory.json": "a95c6cafe34af4ad86f1511b34df1c06e4da180c360a6df6f2c5a6dc9d4dc381",
+    "per-pair-closure.json": "2b892dd59e8c0678de538f9f58f474c7903f8d1ebf3ae9c40a80cee204768583",
+    "extern-classification.json": "f03dc6c21d48e678a4ec3f1037c4b8e15a5fca441e09dab91683b1031ce906d8",
+    "prior-alias-inputs.json": "a072ed240a68451dd5dbe5e2de8985b5223ce6d7f10c5a2d484365741ab1e68c",
+    "policy-edges.json": "1db8d1bd8eea87da662eb32a41ebb7a22a5f89044e18597af4667ae46207ca84",
+    "source-receipt.json": "71d357d120b7a0547d48bc8b8674cc63f12484f4af035930ba9bae9f649c45d7",
+    "direct-rows.jsonl": "08fcd392aaaf7240034853742a0a14ea34a71f92156d4cf0f385f36db704256c",
+    "summary.json": "1981de08607b5a7e75595463710807ea7cef602e5a5e72b6f83ba992e5b19c0b",
+    "build.py": "f1b8853c08675a2e4eb375336d4cdd262a77b4176150a1d2cbd86b1958512ba4",
+    "state-frontier.json": "56250ac4f27da57a7e9cb0cec7c153b3dd9bea450491a5280184c29bd4c7dcd2",
+    "source-notes.md": "64401464a621d39ca9c80a8250cc5cf04792897c64f1a8330f6df07915450ea6",
+    "verify.py": "95ca5f6b315fcb85dd447ce13fa5944ea5b42201c316b2299dbbd7b0e15c6ee0",
+    "finalize.py": "f440d25b3bbc4b9c8835dcdc86cb17cb67885f4d9077aa71fe108b75ae0fb44c"
+  },
+  "unresolved-externs": [
+    {
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "anonymous"
+          ],
+          "Nat"
+        ],
+        "gcd"
+      ],
+      "label": "Nat.gcd",
+      "sha256": "4eecb6c689a1269a736da3770366cd40b62d5fcee2631c27b29ddb2d1f5b0921",
+      "symbols": [
+        "lean_nat_gcd"
+      ],
+      "abi": {
+        "params": [
+          "tobject",
+          "tobject"
+        ],
+        "borrowed": [
+          true,
+          true
+        ],
+        "result": "tobject"
+      },
+      "status": [
+        "unresolved"
+      ]
+    },
+    {
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "anonymous"
+          ],
+          "Nat"
+        ],
+        "xor"
+      ],
+      "label": "Nat.xor",
+      "sha256": "6e179f86ab59022611293dc7b4396b80aba51ae433f62b4fd4b0736ac08c1d85",
+      "symbols": [
+        "lean_nat_lxor"
+      ],
+      "abi": {
+        "params": [
+          "tobject",
+          "tobject"
+        ],
+        "borrowed": [
+          true,
+          true
+        ],
+        "result": "tobject"
+      },
+      "status": [
+        "unresolved"
+      ]
+    },
+    {
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "anonymous"
+          ],
+          "Nat"
+        ],
+        "land"
+      ],
+      "label": "Nat.land",
+      "sha256": "5c396db57cc6991d23abcaa5be60e99c6fc2356c712a8d4fc79a6f1200e665fd",
+      "symbols": [
+        "lean_nat_land"
+      ],
+      "abi": {
+        "params": [
+          "tobject",
+          "tobject"
+        ],
+        "borrowed": [
+          true,
+          true
+        ],
+        "result": "tobject"
+      },
+      "status": [
+        "unresolved"
+      ]
+    },
+    {
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "anonymous"
+          ],
+          "IO"
+        ],
+        "monoNanosNow"
+      ],
+      "label": "IO.monoNanosNow",
+      "sha256": "26b5945207b0512aaa28869c7c12abe7b0ad81f09d44ff4d15a85ec9cddc8b5b",
+      "symbols": [
+        "lean_io_mono_nanos_now"
+      ],
+      "abi": {
+        "params": [
+          "void"
+        ],
+        "borrowed": [
+          false
+        ],
+        "result": "tobject"
+      },
+      "status": [
+        "unresolved"
+      ]
+    },
+    {
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "anonymous"
+          ],
+          "IO"
+        ],
+        "setNumHeartbeats"
+      ],
+      "label": "IO.setNumHeartbeats",
+      "sha256": "cc0f4e805fbf4747f541433bfbc3fbd0e59cc29a0cd016e93425a0440455d5e7",
+      "symbols": [
+        "lean_io_set_heartbeats"
+      ],
+      "abi": {
+        "params": [
+          "tobject",
+          "void"
+        ],
+        "borrowed": [
+          false,
+          false
+        ],
+        "result": "tagged"
+      },
+      "status": [
+        "unresolved"
+      ]
+    },
+    {
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "anonymous"
+          ],
+          "IO"
+        ],
+        "setStdin"
+      ],
+      "label": "IO.setStdin",
+      "sha256": "441c2f2b3b898912b02642d78197c8cdbefb6c0b0a8024429cea3229d35f8586",
+      "symbols": [
+        "lean_get_set_stdin"
+      ],
+      "abi": {
+        "params": [
+          "object",
+          "void"
+        ],
+        "borrowed": [
+          false,
+          false
+        ],
+        "result": "object"
+      },
+      "status": [
+        "unresolved"
+      ]
+    },
+    {
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "anonymous"
+          ],
+          "ByteArray"
+        ],
+        "emptyWithCapacity"
+      ],
+      "label": "ByteArray.emptyWithCapacity",
+      "sha256": "adcec717e8278218a20186c21ea0f4a32876d8c72f3979abac9800ff6bf0afb2",
+      "symbols": [
+        "lean_mk_empty_byte_array"
+      ],
+      "abi": {
+        "params": [
+          "tobject"
+        ],
+        "borrowed": [
+          true
+        ],
+        "result": "object"
+      },
+      "status": [
+        "unresolved"
+      ]
+    },
+    {
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "num",
+              [
+                "str",
+                [
+                  "str",
+                  [
+                    "str",
+                    [
+                      "anonymous"
+                    ],
+                    "_private"
+                  ],
+                  "Lean"
+                ],
+                "Environment"
+              ],
+              "0"
+            ],
+            "Lean"
+          ],
+          "Environment"
+        ],
+        "evalConstCore"
+      ],
+      "label": "_private.Lean.Environment.0.Lean.Environment.evalConstCore",
+      "sha256": "0fa39cb3318dcb8eaf7ed7c9aca72717e2603b28b4467ff4443cad10e2f74c3c",
+      "symbols": [
+        "lean_eval_const"
+      ],
+      "abi": {
+        "params": [
+          "erased",
+          "object",
+          "object",
+          "tobject"
+        ],
+        "borrowed": [
+          false,
+          true,
+          true,
+          true
+        ],
+        "result": "object"
+      },
+      "status": [
+        "unresolved"
+      ]
+    },
+    {
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "Lean"
+          ],
+          "Expr"
+        ],
+        "dbgToString"
+      ],
+      "label": "Lean.Expr.dbgToString",
+      "sha256": "8d228561c320c057599a1ef77f7f0225f8b1684279b342f0044155562520f77a",
+      "symbols": [
+        "lean_expr_dbg_to_string"
+      ],
+      "abi": {
+        "params": [
+          "object"
+        ],
+        "borrowed": [
+          true
+        ],
+        "result": "object"
+      },
+      "status": [
+        "unresolved"
+      ]
+    },
+    {
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "anonymous"
+          ],
+          "String"
+        ],
+        "toList"
+      ],
+      "label": "String.toList",
+      "sha256": "f6f633e1027034ab6a7179ca577395a564380ae05502fc75932ec21aa85d39b4",
+      "symbols": [
+        "lean_string_data"
+      ],
+      "abi": {
+        "params": [
+          "object"
+        ],
+        "borrowed": [
+          false
+        ],
+        "result": "tobject"
+      },
+      "status": [
+        "unresolved"
+      ]
+    },
+    {
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "anonymous"
+          ],
+          "ByteArray"
+        ],
+        "validateUTF8"
+      ],
+      "label": "ByteArray.validateUTF8",
+      "sha256": "c977442147fc94063986091817e39a31b4f5efd6092e0fd79630ddcb9f56b45c",
+      "symbols": [
+        "lean_string_validate_utf8"
+      ],
+      "abi": {
+        "params": [
+          "object"
+        ],
+        "borrowed": [
+          true
+        ],
+        "result": "uint8"
+      },
+      "status": [
+        "unresolved"
+      ]
+    },
+    {
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "anonymous"
+          ],
+          "IO"
+        ],
+        "setStdout"
+      ],
+      "label": "IO.setStdout",
+      "sha256": "2ce52a9c454be4963a613ca59276c4d2849bdc047347664f003114581ce02625",
+      "symbols": [
+        "lean_get_set_stdout"
+      ],
+      "abi": {
+        "params": [
+          "object",
+          "void"
+        ],
+        "borrowed": [
+          false,
+          false
+        ],
+        "result": "object"
+      },
+      "status": [
+        "unresolved"
+      ]
+    },
+    {
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "anonymous"
+          ],
+          "ByteArray"
+        ],
+        "get!"
+      ],
+      "label": "ByteArray.get!",
+      "sha256": "4ed4c7387fe8561b580ae83628252560821401449046852e4156a2bcaf259360",
+      "symbols": [
+        "lean_byte_array_get"
+      ],
+      "abi": {
+        "params": [
+          "object",
+          "tobject"
+        ],
+        "borrowed": [
+          true,
+          true
+        ],
+        "result": "uint8"
+      },
+      "status": [
+        "unresolved"
+      ]
+    },
+    {
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "anonymous"
+          ],
+          "String"
+        ],
+        "length"
+      ],
+      "label": "String.length",
+      "sha256": "9165b5a49d9af7adf5b9c0295d4bf8458dbe2ccde31a0d941274e3ccec7ade16",
+      "symbols": [
+        "lean_string_length"
+      ],
+      "abi": {
+        "params": [
+          "object"
+        ],
+        "borrowed": [
+          true
+        ],
+        "result": "tagged"
+      },
+      "status": [
+        "unresolved"
+      ]
+    },
+    {
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "anonymous"
+          ],
+          "ByteArray"
+        ],
+        "copySlice"
+      ],
+      "label": "ByteArray.copySlice",
+      "sha256": "98e9c322e342dae4a5eff0d8ec887bac77e24fbf6c1d6b9d7d413c4f99aa6a08",
+      "symbols": [
+        "lean_byte_array_copy_slice"
+      ],
+      "abi": {
+        "params": [
+          "object",
+          "tobject",
+          "object",
+          "tobject",
+          "tobject",
+          "uint8"
+        ],
+        "borrowed": [
+          true,
+          false,
+          false,
+          false,
+          false,
+          false
+        ],
+        "result": "object"
+      },
+      "status": [
+        "unresolved"
+      ]
+    },
+    {
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "anonymous"
+          ],
+          "String"
+        ],
+        "ofByteArray"
+      ],
+      "label": "String.ofByteArray",
+      "sha256": "64b1eb0d5e0e0e4becead81ee4523f78f5b62332aa88890776367aed7928ad7c",
+      "symbols": [
+        "lean_string_from_utf8_unchecked"
+      ],
+      "abi": {
+        "params": [
+          "object",
+          "erased"
+        ],
+        "borrowed": [
+          false,
+          false
+        ],
+        "result": "object"
+      },
+      "status": [
+        "unresolved"
+      ]
+    },
+    {
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "anonymous"
+          ],
+          "IO"
+        ],
+        "setStderr"
+      ],
+      "label": "IO.setStderr",
+      "sha256": "351e678e3ec96ff5603f11fe92ba3dd121a14864874ccc82e118703c8a791fcb",
+      "symbols": [
+        "lean_get_set_stderr"
+      ],
+      "abi": {
+        "params": [
+          "object",
+          "void"
+        ],
+        "borrowed": [
+          false,
+          false
+        ],
+        "result": "object"
+      },
+      "status": [
+        "unresolved"
+      ]
+    },
+    {
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "anonymous"
+          ],
+          "IO"
+        ],
+        "getNumHeartbeats"
+      ],
+      "label": "IO.getNumHeartbeats",
+      "sha256": "e0f4a8124b87c424e380aa9a90db4bb8bc650581d0c3d026fb9067161456db99",
+      "symbols": [
+        "lean_io_get_num_heartbeats"
+      ],
+      "abi": {
+        "params": [
+          "void"
+        ],
+        "borrowed": [
+          false
+        ],
+        "result": "tobject"
+      },
+      "status": [
+        "unresolved"
+      ]
+    },
+    {
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "anonymous"
+          ],
+          "String"
+        ],
+        "toUTF8"
+      ],
+      "label": "String.toUTF8",
+      "sha256": "3f3cdeba3c7ec52bb7bd4a5d331564413af32cbbbb4bc1437e93d337dcbb2f97",
+      "symbols": [
+        "lean_string_to_utf8"
+      ],
+      "abi": {
+        "params": [
+          "object"
+        ],
+        "borrowed": [
+          true
+        ],
+        "result": "object"
+      },
+      "status": [
+        "unresolved"
+      ]
+    }
+  ],
+  "assumptions": {
+    "prior-alias-inputs-required": true,
+    "native-registry-match-is-not-runtime-execution": true,
+    "dynamic-input-callback-authority-is-caller-owned": true
+  },
+  "guest-instructions-executed": 0,
+  "initialized-modules-executed": 0,
+  "generated-ir-authority": false,
+  "runtime-state-closure-verified-here": false
+}

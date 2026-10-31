@@ -23,7 +23,9 @@
         "Compiled layout directory is explicit in parent policy/store descriptor and validated before child fork; removes implicit ignored-target path.",
         "Add explicit prepare-general-source-child! selecting the general512 driver before closure capture; keep finite entry unchanged.",
         "Route five actual supported-build queries through the pinned pure provider with actual receipt/branch guards, including when no extra service is installed.",
-        "Attach the actual CodeReceipt before fresh parent/child wrapper capture; pass exact additional source overlays explicitly to lineage."
+        "Attach the actual CodeReceipt before fresh parent/child wrapper capture; pass exact additional source overlays explicitly to lineage.",
+        "Add an explicit optional companion importer callback for independently pinned bootstrap preflight; default production importer unchanged.",
+        "Optional trusted child observer receives the actual forked child before module/setup effects; clean bootstrap privately latches its engine for real retirement checks."
       ]
     },
     {
