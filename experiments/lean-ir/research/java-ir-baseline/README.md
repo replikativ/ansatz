@@ -234,3 +234,7 @@ The [private delayed foundation](../JAVA_EXPR_DELAYED_FOUNDATION.md) adds the
 generation cache, semantic pending analysis and forward substitution restoration
 protocols. Full delayed transformation and original Expr native admission remain
 separate stages.
+
+The explicit [FoldConsts pointer-hash profile](../JAVA_POINTER_HASH_RUNTIME.md)
+authorizes only the authenticated source cohort with its target-built empty seed.
+Default local equality and raw-address fences retain their previous scope.

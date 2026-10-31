@@ -470,3 +470,15 @@
 (defn configure-expr-transforms! [basis engine policy]
   (.invoke (.getMethod ^Class (:class basis) "configureExprTransforms" (into-array Class [(class policy)]))
            engine (object-array [policy])))
+
+(defn pointer-hash-policy
+  "Exact contains/insert/rehash Headers in that order. Caller authenticates the
+   original source cohort and target-built empty FoldConsts seed protocol."
+  [basis headers]
+  (when-not (= 3 (count headers))
+    (throw (ex-info "Three original FoldConsts hash role Headers required" {})))
+  (let [cls (Class/forName "ansatz.research.ir.Interpreter$PointerHashPolicy" true (:loader basis))]
+    (invoke-static (.getMethod cls "originalFoldConsts" (into-array Class (map class headers))) headers)))
+(defn configure-pointer-hashes! [basis engine policy]
+  (.invoke (.getMethod ^Class (:class basis) "configurePointerHashes" (into-array Class [(class policy)]))
+           engine (object-array [policy])))
