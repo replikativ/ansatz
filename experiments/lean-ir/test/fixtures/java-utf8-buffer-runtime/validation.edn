@@ -1,0 +1,14 @@
+{:schema :utf8-buffer-focused-validation/1
+ :lean-commit "819816b2e0a3bf405af45ae5c7af2491d8f5bee6"
+ :runtime-source-sha256 "e59cab0ef21f19fbc553d3da622814c71f9e90b1a0aa14962b8947f5cb8f502c"
+ :runtime-jar-sha256 "0ebad4888584a5316a8012b8051071ad7f93cae72583960137231f07420b1124"
+ :test-source-sha256 "04aa26d62bb5c07a2615aa15ca168477ea304a38ba419fb66758f7ef9c6f8f3c"
+ :external-focused-log "target/java-utf8-buffer-runtime-v1/focused-v3.log"
+ :external-focused-log-sha256 "413040fbad2a693ba6341bd7cb487578bde57657b2dc2d0fc6146b18dbd678fc"
+ :coordinator-execution {:retained-repl true :heap-mib 384 :isolated-class-loader true
+                         :tests 20 :assertions 784 :failures 0 :errors 0
+                         :malformed-case-alone {:tests 1 :assertions 192 :failures 0 :errors 0}}
+ :author-jvm-or-native-execution false
+ :full-interpreter-regression :pending-root-integration
+ :combined-stdio-and-frontend-acceptance :pending-root-integration
+ :runtime-source-changes-after-first-checkpoint false}
