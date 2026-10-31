@@ -19,7 +19,7 @@ import java.util.*;
 import java.util.concurrent.atomic.AtomicLong;
 
 public final class Interpreter implements AutoCloseable {
-    private static final int OBJ=0, U8=1, U32=2, USIZE=3, U64=4, F64=5, U16=6;
+    private static final int OBJ=0, U8=1, U32=2, USIZE=3, U64=4, F64=5, U16=6, F32=7;
     private static final int VDECL=0,JDECL=1,SET=2,SSET=3,INC=4,DEC=5,DEL=6,CASE=7,RET=8,JMP=9,UNREACHABLE=10,SETTAG=11,USET=12;
     private static final int MAP_APPLY=13,MAP_WRAP=14;
     private static final int CTOR=0,PROJ=1,SPROJ=2,FAP=3,PAP=4,AP=5,BOX=6,UNBOX=7,LIT=8,SHARED=9,UPROJ=10;
@@ -1069,7 +1069,6 @@ public final class Interpreter implements AutoCloseable {
         }
     }
     private static int metadataLane(String raw) {
-        if(raw.equals("float32")) return -1;
         return type(raw);
     }
     /** Source-local graph identity, never a native pointer or runtime Node. */
@@ -6119,7 +6118,7 @@ public final class Interpreter implements AutoCloseable {
             copies.put(source,target); pending.addLast(new Object[]{source,target});
         }
         Object value(Object source) {
-            if(source==null||source instanceof Long||source instanceof BigInteger||source instanceof String||source instanceof F64Bits||source instanceof Double) return source;
+            if(source==null||source instanceof Long||source instanceof BigInteger||source instanceof String||source instanceof F64Bits||source instanceof F32Bits||source instanceof Double||source instanceof Float) return source;
             Object prior=copies.get(source); if(prior!=null) return prior;
             if(source instanceof Node) {
                 Node old=(Node)source;
@@ -6653,6 +6652,7 @@ public final class Interpreter implements AutoCloseable {
         if("usize".equals(x)) return USIZE;
         if("uint64".equals(x)) return U64;
         if("float".equals(x)) return F64;
+        if("float32".equals(x)) return F32;
         if("object".equals(x)||"tobject".equals(x)||"tagged".equals(x)||"erased".equals(x)||"void".equals(x)) return OBJ;
         throw error("Unsupported baseline IR type: "+x);
     }
@@ -6841,7 +6841,7 @@ public final class Interpreter implements AutoCloseable {
                 switch(e.op) {
                     case CTOR: require(b.type==OBJ,"Constructor requires object result"); for(int a:e.args) require(lane(env,a)==OBJ,"Object constructor argument required"); break;
                     case PROJ: require(b.type==OBJ&&lane(env,e.a)==OBJ,"Projection lane mismatch"); break;
-                    case SPROJ: require((b.type==U8||b.type==U16||b.type==U32||b.type==U64||b.type==F64)&&lane(env,e.a)==OBJ,"Scalar projection lane mismatch"); break;
+                    case SPROJ: require((b.type==U8||b.type==U16||b.type==U32||b.type==U64||b.type==F64||b.type==F32)&&lane(env,e.a)==OBJ,"Scalar projection lane mismatch"); break;
                     case UPROJ: require(b.type==USIZE&&lane(env,e.a)==OBJ,"USize projection lane mismatch"); break;
                     case FAP: requireExecutableAbi(e.target); checkArgs(env,e.args,e.target.paramTypes); require(b.type==e.target.resultType,"Call result lane mismatch"); break;
                     case PAP: requireExecutableAbi(e.target); require(e.target.intrinsic!=PROFILE_IT,"Borrowed profiling primitive requires an owned guest wrapper"); require(!borrowedTaskPrimitive(e.target.intrinsic),"Borrowed task primitive requires owned closure wrapper"); require(b.type==OBJ&&e.args.length<e.target.params.length,"Invalid partial application"); require(!borrowedArrayPrimitive(e.target.intrinsic),"Borrowed array primitive requires owned closure wrapper"); require(!borrowedIntPrimitive(e.target.intrinsic),"Borrowed Int primitive requires owned closure wrapper"); require(!borrowedStringPositionPrimitive(e.target.intrinsic),"Borrowed String position primitive requires owned closure wrapper"); require(!borrowedStringCompletionPrimitive(e.target.intrinsic),"Borrowed String range primitive requires owned closure wrapper"); require(!borrowedBytePrimitive(e.target.intrinsic),"Borrowed ByteArray primitive requires owned closure wrapper"); require(!e.target.borrowedUtf8,"Borrowed UTF8 conversion requires owned closure wrapper"); require(e.target.intrinsic!=NAME_EQ,"Borrowed Name equality requires an owned guest wrapper"); require(e.target.intrinsic!=EXPR_CACHE,"Borrowed Expr data requires an owned guest wrapper"); require(!borrowedExprEquality(e.target.intrinsic),"Borrowed Expr equality requires an owned guest wrapper"); require(e.target.intrinsic!=LEVEL_EQUAL,"Borrowed Level equality requires an owned guest wrapper"); require(!borrowedExprLooseQuery(e.target.intrinsic),"Borrowed Expr loose search requires an owned guest wrapper"); require(!borrowedExprOrder(e.target.intrinsic),"Borrowed Expr quick ordering requires an owned guest wrapper"); require(!findPrimitive(e.target.intrinsic),"Borrowed Expr.find requires an owned guest wrapper"); require(e.target.intrinsic!=SHARECOMMON_QUICK,"Borrowed ShareCommon requires an owned guest wrapper"); require(e.target.intrinsic!=EXPR_REPLACE,"Borrowed Expr.replace requires an owned guest wrapper"); require(!abstractPrimitive(e.target.intrinsic),"Borrowed Expr abstraction requires an owned guest wrapper"); require(!pureExprTransform(e.target.intrinsic),"Borrowed Expr instantiation/lift requires an owned guest wrapper"); require(e.target.intrinsic!=POINTER_IDENTITY,"Pointer identity requires a certified direct FAP site"); require(!borrowedRefPrimitive(e.target.intrinsic),"Borrowed ref primitive requires owned closure wrapper"); for(int i=0;i<e.target.paramTypes.length;i++) require(e.target.paramTypes[i]==OBJ,"Unboxed partial target unsupported; boxed wrapper required"); for(int a:e.args) require(lane(env,a)==OBJ,"Partial argument must be boxed"); break;
@@ -6850,6 +6850,7 @@ public final class Interpreter implements AutoCloseable {
                     case UNBOX: require(b.type!=OBJ&&lane(env,e.a)==OBJ,"Unbox lane mismatch"); break;
                     case SHARED: require(b.type==U8&&lane(env,e.a)==OBJ,"Sharing-test lane mismatch"); break;
                     case LIT: if(b.type==F64) e.literal=Long.valueOf(Double.doubleToRawLongBits(nat(e.literal).doubleValue()));
+                              else if(b.type==F32) e.literal=Long.valueOf(Integer.toUnsignedLong(Float.floatToRawIntBits(nat(e.literal).floatValue())));
                               else if(b.type==U64) e.literal=Long.valueOf(nat(e.literal).longValue());
                               else if(b.type!=OBJ) e.literal=Long.valueOf(inputScalar(e.literal,b.type)); break;
                     default: throw error("Invalid expression opcode");
@@ -6865,10 +6866,10 @@ public final class Interpreter implements AutoCloseable {
                 validateBody(b.next,f,env,next,seen); break;
             }
             case JMP: { Body target=joins.get(b.a); require(target!=null,"Unknown lexical join"); checkArgs(env,b.args,target.tags); break; }
-            case CASE: require(b.type!=F64,"Float case outside execution profile"); require(lane(env,b.a)==b.type,"Case lane mismatch"); for(Body alt:b.alternatives) validateBody(alt,f,env,joins,seen); break;
+            case CASE: require(b.type!=F64&&b.type!=F32,"Float case outside execution profile"); require(lane(env,b.a)==b.type,"Case lane mismatch"); for(Body alt:b.alternatives) validateBody(alt,f,env,joins,seen); break;
             case RET: require(lane(env,b.a)==f.resultType,"Return lane mismatch"); break;
             case SET: require(lane(env,b.a)==OBJ&&lane(env,b.args[0])==OBJ,"Field store lane mismatch"); validateBody(b.next,f,env,joins,seen); break;
-            case SSET: require(lane(env,b.a)==OBJ&&(b.type==U8||b.type==U16||b.type==U32||b.type==U64||b.type==F64)&&lane(env,b.args[0])==b.type,"Scalar store lane mismatch"); validateBody(b.next,f,env,joins,seen); break;
+            case SSET: require(lane(env,b.a)==OBJ&&(b.type==U8||b.type==U16||b.type==U32||b.type==U64||b.type==F64||b.type==F32)&&lane(env,b.args[0])==b.type,"Scalar store lane mismatch"); validateBody(b.next,f,env,joins,seen); break;
             case USET: require(lane(env,b.a)==OBJ&&lane(env,b.args[0])==USIZE,"USize store lane mismatch"); validateBody(b.next,f,env,joins,seen); break;
             case INC: case DEC: case DEL: case SETTAG: require(lane(env,b.a)==OBJ,"Object instruction lane mismatch"); validateBody(b.next,f,env,joins,seen); break;
             case UNREACHABLE: break;
@@ -7131,6 +7132,10 @@ public final class Interpreter implements AutoCloseable {
     }
     private static Object normalize(BigInteger n) { if(n.signum()<0) throw error("Negative Nat"); return n.compareTo(SMALL_MAX)<=0?Long.valueOf(n.longValue()):n; }
     private static long inputScalar(Object value,int type) {
+        if(type==F32) {
+            require(value instanceof Float,"Expected Float Float32 scalar");
+            return Integer.toUnsignedLong(Float.floatToRawIntBits((Float)value));
+        }
         if(type==F64) {
             require(value instanceof Double,"Expected Double Float scalar");
             return Double.doubleToRawLongBits((Double)value);
@@ -7145,6 +7150,7 @@ public final class Interpreter implements AutoCloseable {
         return n.longValue();
     }
     private static Object externalScalar(long value,int type) {
+        if(type==F32) return Float.valueOf(Float.intBitsToFloat((int)value));
         if(type==F64) return Double.valueOf(Double.longBitsToDouble(value));
         if((type==USIZE||type==U64)&&value<0) return BigInteger.valueOf(value&Long.MAX_VALUE).setBit(63);
         return Long.valueOf(value);
@@ -7154,19 +7160,24 @@ public final class Interpreter implements AutoCloseable {
         final long bits;
         F64Bits(long bits) { this.bits=bits; }
     }
+    private static final class F32Bits {
+        final int bits;
+        F32Bits(int bits) { this.bits=bits; }
+    }
     private static Object saveScalar(long bits,int lane) {
-        return lane==F64?new F64Bits(bits):externalScalar(bits,lane);
+        return lane==F32?new F32Bits((int)bits):lane==F64?new F64Bits(bits):externalScalar(bits,lane);
     }
     private static long readSavedScalar(Object value,int lane) {
+        if(lane==F32&&value instanceof F32Bits) return Integer.toUnsignedLong(((F32Bits)value).bits);
         return lane==F64&&value instanceof F64Bits?((F64Bits)value).bits:inputScalar(value,lane);
     }
     private static Object[] argumentViews(Function function,Object[] arguments) {
         Object[] views=arguments.clone();
-        for(int i=0;i<views.length;i++) if(function.paramTypes[i]==F64)
-            views[i]=externalScalar(readSavedScalar(views[i],F64),F64);
+        for(int i=0;i<views.length;i++) if(function.paramTypes[i]==F64||function.paramTypes[i]==F32)
+            views[i]=externalScalar(readSavedScalar(views[i],function.paramTypes[i]),function.paramTypes[i]);
         return views;
     }
-    private static int scalarWidth(int type) { return type==U8?1:type==U16?2:type==U32?4:8; }
+    private static int scalarWidth(int type) { return type==U8?1:type==U16?2:(type==U32||type==F32)?4:8; }
     private static int rawOffset(Node n,int word,int extra) {
         return Math.addExact(Math.multiplyExact(Math.subtractExact(word,n.fields.length),8),extra);
     }
@@ -7185,12 +7196,20 @@ public final class Interpreter implements AutoCloseable {
         for(int i=0;i<width;i++) n.scalars[offset+i]=(byte)(value>>>(8*i));
     }
     private Object boxScalar(long value,int type) {
+        if(type==F32) {
+            Node n=new Node(0,0,4); writeScalar(n,0,type,value); allocations++; return n;
+        }
         if(type==USIZE||type==U64||type==F64) {
             Node n=new Node(0,0,8); writeScalar(n,0,type,value); allocations++; return n;
         }
         return Long.valueOf(type==U8?value&255:type==U16?value&65535:value&0xffffffffL);
     }
     private long unboxScalar(Object value,int type) {
+        if(type==F32) {
+            Node n=constructorNode(value);
+            require(n.tag==0&&n.fields.length==0&&n.scalars.length==4&&n.closure==null,"Expected boxed Float32");
+            return readScalar(n,0,type);
+        }
         if(type==USIZE||type==U64||type==F64) {
             Node n=constructorNode(value);
             require(n.tag==0&&n.fields.length==0&&n.scalars.length==8&&n.closure==null,type==USIZE?"Expected boxed USize":type==F64?"Expected boxed Float":"Expected boxed UInt64");
@@ -10020,7 +10039,7 @@ public final class Interpreter implements AutoCloseable {
         else if(actionPrimitive(function)) validateNative(function,args);
         for(int i=0;i<args.length;i++) {
             if(function.paramTypes[i]!=OBJ) { if(saved) readSavedScalar(args[i],function.paramTypes[i]); else inputScalar(args[i],function.paramTypes[i]); }
-            else if(args[i] instanceof Double||args[i] instanceof F64Bits) throw error("Float scalar is not an OBJ value");
+            else if(args[i] instanceof Double||args[i] instanceof F64Bits||args[i] instanceof Float||args[i] instanceof F32Bits) throw error("Float scalar is not an OBJ value");
             else if(args[i] instanceof Node) {
                 Node value=node(args[i]);
                 if(value.closure!=null) acceptsClosure(value);
