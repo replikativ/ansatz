@@ -77,6 +77,16 @@
                     nil))]
       (try
         (require! (= (set (keys expected)) @seen) "Java parser source domain differs" {})
+        (let [state (:parser-state parsed)
+              ^ExprStore expressions (:exprs state)
+              ^java.util.ArrayList names (:names state)
+              ^java.util.ArrayList levels (:levels state)]
+          (require! (and (= (:expressions audit) (.maxId expressions))
+                         (= (:names audit) (.size names))
+                         (= (:levels audit) (.size levels))
+                         (every? some? names) (every? some? levels))
+                    "Java parser DAG table counts differ from pinned pair audit"
+                    {:expressions (.maxId expressions) :names (.size names) :levels (.size levels)}))
         (finally (.close ^ExprStore (get-in parsed [:parser-state :exprs])))))
     (.mkdirs output)
     (let [sm (storage/open-store (str output) {:sync-blob? false :write-format 2})]
@@ -88,6 +98,11 @@
                           "writer did not return all actual captured roots" {:roots roots})
               _ (require! (and (= 2314 (:env-count roots)) (:quot-enabled roots))
                           "stored domain or quotient mismatch" {:roots roots})
+              _ (require! (= [(:expressions audit) (:names audit) (:levels audit)]
+                              [(:exprs-count roots) (:names-count roots) (:levels-count roots)])
+                          "stored DAG table counts differ from pinned pair audit"
+                          {:expected (select-keys audit [:expressions :names :levels])
+                           :actual (select-keys roots [:exprs-count :names-count :levels-count])})
               _ (doseq [[name evidence] (:files audit)]
                   (require! (= (:sha256 evidence) (sha256 (file (clojure.core/name name))))
                             "paired input changed during conversion" {:file name}))
