@@ -6,7 +6,7 @@
             [prototype.kernel-bridge :as bridge]
             [prototype.kernel-projection-snapshot :as snapshot]
             [prototype.imported-kernel :as imported]
-            [java-matched-artifact-base-v1 :as base])
+            [java-composite-artifact-base-v1 :as base])
   (:import [ansatz.kernel Env ConstantInfo] [java.util LinkedHashMap]))
 (defn- reject [message] (throw (ex-info message {:profile :artifact-checked-declaration-v4})))
 (defn- need [condition message] (when-not condition (reject message)))

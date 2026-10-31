@@ -7,7 +7,7 @@
             [ansatz.research.ir.source-setup :as source]
             [ansatz.research.ir.authenticated-demand :as demand]
             [artifact-checked-declaration-adapter-v4 :as adapter]
-            [java-matched-artifact-base-v1 :as base]
+            [java-composite-artifact-base-v1 :as base]
             [general-frontend-source-provider-v1 :as provider]
             [general-command-receipt-v1 :as command]
             [general-generated-batch-v1 :as batch])

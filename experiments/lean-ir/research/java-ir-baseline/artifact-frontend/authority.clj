@@ -1,6 +1,7 @@
 (ns artifact-declaration-authority-v4
   "Artifact-relative helper/source authority only; no Java Env, checking or base issuance."
-  (:require [clojure.data.json :as json] [clojure.java.io :as io]
+  (:require [java-composite-artifact-base-v1 :as composite]
+            [clojure.data.json :as json] [clojure.java.io :as io]
             [java-ir-baseline :as j] [ansatz.research.ir.catalogue :as cat]
             [ansatz.research.ir.source-setup :as source]
             [java-prelude-finalizer-lineage-v1 :as finalized])
@@ -161,11 +162,11 @@
 (defn- prefix! [state]
   ;; The real Run retains all original occurrences. This authority never takes
   ;; them and cannot outlive its retirement. No public witness map substitutes.
-  (let [actual (finalized/inspect! (:finalized-run state)) driver (:driver state)]
+  (let [actual (composite/finalized-view (:finalized-run state)) driver (:driver state)]
     (need (and (identical? (:engine driver) (:engine actual))
                (identical? (:source driver) (:source actual))
                (identical? (:code-receipt state) (:code-receipt actual))
-               (= :actual-original-finalizer-only (:basis actual))
+               (= (composite/finalized-basis (:finalized-run state)) (:basis actual))
                (= 1 (:quot actual)) (= 0 (:empty actual))) "Foreign or unsealed finalizer Run")
     (doseq [key [:environment :kernel-root :constant-map :constants]]
       (need (identical? (get (:prefix state) key) (get actual key)) "Protected finalizer occurrence changed"))
@@ -241,11 +242,11 @@
   [driver {:keys [code-receipt finalized-run layout-directory]}]
   (live-driver! driver code-receipt)
   (let [data (read-layout! layout-directory)
-        prefix (finalized/inspect! finalized-run)
+        prefix (composite/finalized-view finalized-run)
         _ (need (and (identical? (:engine driver) (:engine prefix))
                      (identical? (:source driver) (:source prefix))
                      (identical? code-receipt (:code-receipt prefix))
-                     (= :actual-original-finalizer-only (:basis prefix))
+                     (= (composite/finalized-basis finalized-run) (:basis prefix))
                      (= 1 (:quot prefix)) (= 0 (:empty prefix))) "Actual matching finalized Run required")
         initial (kernel-view! driver data (:kernel-root prefix))
         env-view (environment-view! driver data (:environment prefix))

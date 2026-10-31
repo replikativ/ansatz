@@ -379,3 +379,26 @@ The nine general-file model families are mocked structural/control tests, not
 actual parser outputs or runtime acceptance. Coordinated definition loading,
 model execution and fresh guest-file acceptance remain pending for this source
 checkpoint. Earlier acceptance records are not changed by the new source files.
+
+
+## Closed Base dispatch source checkpoint
+
+`composite-base.clj` preserves the exact fixed Prelude Base operations. The
+adapter and general-file controller use this closed dispatcher; the strict
+`base.clj` store/Module/Run/domain checks are unchanged. Unknown maps, Java Envs
+and public empty Base constructors still reach the fixed issuer's rejection.
+There is no provider registration or arbitrary Env factory.
+
+The source route names only `java-source-module-base-v1` and
+`java-source-module-exchange-v1`. Their actual opaque issuer registries must
+accept each token; a type name is only a dispatch hint. These future units are
+not loaded or enabled by this checkpoint. Their post-cohort loader and complete
+source/finalized-map proofs are a separate unit. The authority keeps all existing
+protected root/map/quot/header checks and selects the exact expected finalizer
+basis from the actual issuer class. Fixed Prelude Runs retain the original path.
+
+Four closed-dispatch model families are prepared without guest execution.
+The deferred source implementation cannot reuse a revoked fixed Base: old
+adapter retirement revokes its Base, so reconstruction needs a freshly issued
+strict Base against the same still-live ModuleLease/original Run/store. No
+revocation or fixed Prelude check is relaxed for this purpose.
