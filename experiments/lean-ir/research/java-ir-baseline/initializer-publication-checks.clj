@@ -14,8 +14,10 @@
 (defn pending [engine] (g/field engine "result"))
 (defn fields [ctx value] (.get ^java.lang.reflect.Field (:fields ctx) value))
 (defn body [tag]
-  (c/let-ir 2 "object" (c/ctor 7 [] 0)
-    (c/let-ir 3 "object" (c/ctor tag [(c/v 2)] 0) (c/ret 3))))
+  ;; A nullary ctor is an immediate in Lean; give the payload a real owning field.
+  (c/let-ir 2 "object" (c/lit 0)
+    (c/let-ir 3 "object" (c/ctor 7 [(c/v 2)] 0)
+      (c/let-ir 4 "object" (c/ctor tag [(c/v 3)] 0) (c/ret 4)))))
 (defn lab
   ([] (lab (body 0) {} {} false))
   ([body global-edit action-edit foreign?]
@@ -63,6 +65,23 @@
         (is (g/bad? #(begin! e global action)))
         (finish! e)
         (is (false? (method e "isInitializing" [] []))))
+      (finally (j/close! ctx e)))))
+
+(deftest immediate-payload-is-published-without-inventing-node-ownership
+  (let [immediate-body (c/let-ir 2 "object" (c/ctor 7 [] 0)
+                         (c/let-ir 3 "object" (c/ctor 0 [(c/v 2)] 0) (c/ret 3)))
+        {:keys [ctx global action]} (lab immediate-body {} {} false) e (j/machine ctx)]
+    (try
+      (begin! e global action) (run! ctx e)
+      (let [wrapper (pending e) payload (aget (fields ctx wrapper) 0)
+            status (complete! e)]
+        (is (instance? Long payload))
+        (is (= 7 payload))
+        (is (identical? payload (j/call ctx e "global" [])))
+        (is (true? (g/field wrapper "dead")))
+        (is (nil? (aget (fields ctx wrapper) 0)))
+        (j/release! ctx e status))
+      (finish! e)
       (finally (j/close! ctx e)))))
 
 (deftest shared-result-wrapper-loses-one-credit-without-clearing-surviving-alias
