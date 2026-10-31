@@ -19,16 +19,14 @@
                  (:value ((:projector scope) (:world scope) :name (aget ^objects f 0))))
               "Parsed module differs from the finalized import")
       (finally ((:close! scope))))))
-(defn setup-prelude!
- ([driver real-env text filename]
-  (setup-prelude! driver real-env text filename ["Hosted" "SequentialProbe"]))
- ([driver real-env text filename module-segments]
+(defn- setup-classic* [driver real-env text filename module-segments validate-imports! runtime-step!]
   (assert (and (vector? module-segments) (<= 1 (count module-segments) 256)
                (every? #(and (string? %) (seq %) (not (re-find #"[.\\/\u0000]" %))) module-segments)))
-  (let [s {:driver driver :owners (atom {}) :observations (atom []) :calls (atom []) :in-flight (atom nil)
+  (let [s (cond-> {:driver driver :owners (atom {}) :observations (atom []) :calls (atom []) :in-flight (atom nil)
            :deadline-nanos (+ (System/nanoTime) 60000000000)
            :limits {:instructions 3000000 :code-requests 3000 :turns 50000 :commands 3}
-           :used (atom {:instructions 0 :code-requests 0 :turns 0 :commands 0})}]
+           :used (atom {:instructions 0 :code-requests 0 :turns 0 :commands 0})}
+                   runtime-step! (assoc :runtime-step! runtime-step!))]
     (try
       ;; FIRST check: no guest call, retain or reflective allocation before this.
       (preflight-real-env! s real-env)
@@ -52,7 +50,7 @@
         (assert (not (bool! (call! s "Lean.Elab.HeaderSyntax.isModule" [(facade-owner! s :header)])))
                 "This fixed first profile requires Lean legacy/private mode")
         (hold! s :imports (call! s "Lean.Elab.HeaderSyntax.imports" [(facade-owner! s :header) 1]))
-        (validate-prelude-imports! s (owned s :imports))
+        (validate-imports! s (owned s :imports))
         (drop! s :imports)
         (drop! s :header)
         (hold! s :module-name (call! s "Lean.Name.mkStr1" [(first module-segments)]))
@@ -86,4 +84,9 @@
         {:status :prepared :session s :initial-observation (snapshot! s 0)
          :adapter-allocations 1 :checked-declaration-established false})
       (catch Throwable error
-        (failure s error))))))
+        (failure s error)))))
+(defn setup-prelude!
+ ([driver real-env text filename]
+  (setup-prelude! driver real-env text filename ["Hosted" "SequentialProbe"]))
+ ([driver real-env text filename module-segments]
+  (setup-classic* driver real-env text filename module-segments validate-prelude-imports! nil)))

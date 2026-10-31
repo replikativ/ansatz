@@ -2,7 +2,8 @@
   "Pure routing models; no real engine, source grant or HostRequest claim."
   (:require [clojure.test :refer [deftest is]] [allocation-heartbeat-cohort-v1 :as c]
             [artifact-declaration-driver-v4 :as checked-driver]
-            [allocation-heartbeat-lab-v1 :as hb] [java-ir-baseline :as j]))
+            [allocation-heartbeat-lab-v1 :as hb] [java-ir-baseline :as j]
+            [original-build-identity-provider-v1 :as build]))
 (deftest explicit-service-shape-and-parent-driver-agreement
   (let [service {:handles? (constantly false) :serve! identity}
         attached (c/attach-runtime-service {:driver {}} service)]
@@ -78,3 +79,42 @@
     (is (identical? checked-driver/open-driver (ffirst @seen)))
     (is (identical? checked-driver/open-general-driver (first (second @seen))))
     (is (every? #(= args (vec (second %))) @seen))))
+
+(deftest build-query-router-uses-explicit-current-receipt
+  (let [receipt (Object.) seen (atom [])
+        driver {:engine (Object.) :current-ctx (atom {}) :code-receipt receipt}
+        session {:driver driver}]
+    (with-redefs [j/host-request (fn [& _] :request) j/phase (fn [& _] "host-call")
+                  j/request-value (fn [& _] "lean_version_get_special_desc")
+                  build/serve! (fn [actual s]
+                                 (is (identical? receipt actual))
+                                 (is (identical? session s))
+                                 (swap! seen conj :build))]
+      (c/runtime-service-step! session)
+      (c/runtime-service-step! receipt session)
+      (is (= [:build :build] @seen)))))
+
+(deftest strict-build-query-guards-branch-even-without-extra-service
+  (doseq [service [nil {:handles? (fn [_] (throw (ex-info "Catchall must not shadow build query" {})))
+                        :serve! (fn [_] (throw (ex-info "Wrong extra provider" {})))}]]
+    (let [receipt (Object.) e (Object.) ctx (atom {}) events (atom []) phase (atom :idle) ticks (atom 0)
+          d {:engine e :source :source :current-ctx ctx :code-receipt receipt :additional-runtime-service service}
+          child {:driver d :code-receipt receipt :additional-runtime-service service :lab-heartbeat-provider (Object.)}
+          admission {:adapter {:phase phase} :ticks ticks
+                     :authority {:check-source! (fn [_ _] (swap! events conj :source))}
+                     :runtime-step! (fn [_] (swap! events conj :wrong-original))}]
+      (with-redefs [hb/wrap-step (fn [_ a] (:runtime-step! a))
+                    j/phase (fn [& _] "host-call") j/host-request (fn [& _] :request)
+                    j/request-value (fn [& _] "lean_version_get_special_desc")
+                    build/serve! (fn [actual _]
+                                   (is (identical? receipt actual))
+                                   (swap! events conj :build))]
+        (let [step (c/wrap-runtime-step child admission)]
+          (step {:driver d})
+          (is (= [:source :build] @events)) (is (= 1 @ticks))
+          (reset! events [])
+          (is (thrown? Exception (step {:driver (assoc d :engine (Object.))})))
+          (is (empty? @events)) (is (= 1 @ticks))
+          (reset! phase :retired)
+          (is (thrown? Exception (step {:driver d})))
+          (is (empty? @events)) (is (= 1 @ticks)))))))

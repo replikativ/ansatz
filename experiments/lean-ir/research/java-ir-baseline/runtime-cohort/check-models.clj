@@ -16,4 +16,4 @@
       result (apply clojure.test/run-tests names)]
   (println :packaged-model-results result)
   (shutdown-agents)
-  (System/exit (if (and (= 30 (:test result)) (zero? (+ (:fail result) (:error result)))) 0 1)))
+  (System/exit (if (and (= 32 (:test result)) (zero? (+ (:fail result) (:error result)))) 0 1)))

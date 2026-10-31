@@ -37,7 +37,7 @@ for item in sources['files']:
 # No silent addition/removal of code/model files outside explicit loader lists.
 loader = (P / 'loader.clj').read_text()
 units = re.findall(r'\["([^"]+\.clj)" ([^\]\s]+)\]', loader)
-assert len(units) == 15
+assert len(units) == 17
 for path, namespace in units:
     assert re.search(r'\(ns\s+' + re.escape(namespace) + r'(?:\s|\))', (P/path).read_text()), path
 assert {path for path, _ in units} | {'loader.clj', 'check-models.clj'} == {p for p in files if p.endswith('.clj')}
@@ -59,6 +59,6 @@ assert 'System/exit' in runner and 'run-tests' in runner and 'smoke!' not in run
 assert 'check-models.clj' not in loader
 assert 'allocation-heartbeat-lab-v1' in loader and 'Namespace already loaded' in loader
 print(json.dumps({'files': len(files), 'source-origins': len(sources['files']),
-                  'ordered-definition-units': 8, 'model-units': 7,
+                  'ordered-definition-units': 9, 'model-units': 7, 'explicit-runtime-model-units': 1,
                   'extern-fixture-rows': 961, 'machine-paths': 0,
                   'JVM-or-guest-executed': False}))

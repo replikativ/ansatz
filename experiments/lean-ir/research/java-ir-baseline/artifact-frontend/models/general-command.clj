@@ -104,4 +104,40 @@
       (is (nil? (#'command/selected-version-live! state session)))
       (swap! (:versions session) conj {:id 4 :parent 2}) (reset! (:published-count session) 4)
       (is (thrown? Exception (#'command/selected-version-live! state session))))))
+
+(deftest failed-retirement-transfers-only-known-idle-occurrences-once
+  (let [engine (Object.) program (Object.) source (Object.) value (Object.)
+        a (object-array [value :owned]) b (object-array [value :owned])
+        owners (doto (java.util.LinkedHashMap.) (.put :a a) (.put :b b))
+        session {:engine engine :source source :phase (atom :replied) :invocation (atom nil)}
+        holder (atom {:status :failed :stage :retirement-failed :thread (Thread/currentThread)
+                      :source source :owners owners :frontend {:driver {:engine engine
+                          :current-ctx (atom {:program program :class (class engine)})} :in-flight (atom nil)}
+                      :strict-driver {:adapter session :authority {:check-source! (fn [& _])}}})
+        run (command/->CommandRun)]
+    (#'command/put! @#'command/runs run holder)
+    (with-redefs-fn
+      {#'j/phase (fn [& _] "idle")
+       #'command/field (fn [_ k] (cond (= k "program") program
+                               (contains? #{"closed" "disposed" "untrackedFailure" "advancing"} k) false
+                               :else nil))
+       #'command/observe! (fn [& _]) #'adapter/validate-versions! (fn [& _])
+       #'command/selected-version-live! (fn [& _])}
+      #(do
+         (doseq [state [:pending :retain-pending :release-pending :start-pending :take-pending]]
+           (aset b 1 state)
+           (is (thrown? Exception (command/take-failed-retirement-owners! run)))
+           (is (= :owned (aget a 1))))
+         (aset b 1 :owned)
+         (swap! holder assoc :operation {:kind :release})
+         (is (thrown? Exception (command/take-failed-retirement-owners! run)))
+         (swap! holder assoc :operation nil)
+         (let [packet (command/take-failed-retirement-owners! run)]
+           (is (= 2 (count packet))) (is (every? (fn [x] (identical? value x)) packet)))
+         (is (= [:external-retirement :external-retirement] [(aget a 1) (aget b 1)]))
+         (is (= #{:status :stage :summary :retirement-output} (set (keys @holder))))
+         (is (identical? (:retirement-output @holder)
+                         (:retirement-output (command/owner-packet run))))
+         (is (thrown? Exception (command/take-failed-retirement-owners! run)))))))
+
 (defn check! [] (run-tests 'general-command-receipt-checks-v1))

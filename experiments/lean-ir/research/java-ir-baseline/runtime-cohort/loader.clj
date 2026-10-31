@@ -17,6 +17,7 @@
     ["heartbeat-provider.clj" allocation-heartbeat-lab-v1]
     ["extern-bootstrap.clj" original-extern-bootstrap-v1]
     ["limits.clj" original-runtime-limits-provider-v1]
+    ["build-identity.clj" original-build-identity-provider-v1]
     ["row-cache.clj" authenticated-raw-row-cache-v1]
     ["cohort.clj" allocation-heartbeat-cohort-v1]
     ["stdin.clj" original-stdin-configuration-v1]])
@@ -28,6 +29,8 @@
     ["models/row-cache.clj" authenticated-raw-row-cache-checks-v1]
     ["models/extern-bootstrap.clj" original-extern-bootstrap-checks-v1]
     ["models/stdin.clj" original-stdin-configuration-checks-v1]])
+(def runtime-models
+  '[["models/build-identity.clj" original-build-identity-provider-checks-v1]])
 (defn- sha-file [path]
   (with-open [input (io/input-stream path)]
     (let [digest (java.security.MessageDigest/getInstance "SHA-256") buffer (byte-array 65536)]
@@ -56,6 +59,11 @@
    model source callbacks use scoped with-redefs. Optional smoke! is NOT a test."
   ([] (load-models! directory))
   ([root] (load-units! root models (map second units))))
+(defn load-runtime-models!
+  "Define tiny actual-engine tests separately from pure packaged models. Caller
+   explicitly supplies the accepted basis to each model namespace's check!."
+  ([] (load-runtime-models! directory))
+  ([root] (load-units! root runtime-models (map second units))))
 (defn load-missing-models!
   "Retained-REPL option: implementation namespaces must ALREADY be present.
    Load only missing model namespaces, skipping existing models without replacing

@@ -343,7 +343,7 @@
           {:status :failed :run run :stage (:stage @holder) :failure (:failure @holder)}))
       (finally (revoke-generated-scope! holder)))))
 (defn owner-packet [run]
-  (let [s @(issued runs run)] (select-keys s [:status :stage :operation :gate :owners :failure])))
+  (let [s @(issued runs run)] (select-keys s [:status :stage :operation :gate :owners :failure :retirement-output])))
 (defn with-command!
   "Internal trusted batch adapter lease. Never accept caller-supplied rows or a
    public summary in its place. No bare Env is a portable checking certificate."
@@ -406,3 +406,41 @@
       (reset! holder {:status :retired :stage :retired :summary (:summary s)})
       {:status :retired}
       (catch Throwable error (swap! holder assoc :status :failed :stage :retirement-failed :failure (failure-summary error)) (throw error)))))
+
+(defn take-failed-retirement-owners!
+  "Transfer known occurrences from an actual failed retirement at an idle,
+   pre-release boundary. Never resume a failed command or unwind a pending call.
+   Caller must journal and release every returned occurrence explicitly."
+  [run]
+  (let [holder (issued runs run) s @holder f (:frontend s)
+        session (get-in s [:strict-driver :adapter])
+        _ (need (and (= :failed (:status s)) (= :retirement-failed (:stage s))
+                     (identical? (:thread s) (Thread/currentThread))
+                     (nil? (:operation s)) f (nil? @(:in-flight f)))
+                "Failed retirement has pending command work or foreign custody")
+        e (engine holder) c (ctx holder)
+        entries (vec (.entrySet ^LinkedHashMap (:owners s)))]
+    (need (and (identical? e (:engine session)) (identical? (:class c) (class e))
+               (identical? (:program c) (field e "program"))
+               (identical? (:source s) (:source session))
+               (= "idle" (j/phase c e))
+               (contains? #{:idle :replied} @(:phase session)) (nil? @(:invocation session))
+               (every? #(false? (field e %)) ["closed" "disposed" "untrackedFailure" "advancing"])
+               (every? #(nil? (field e %)) ["runtimeAction" "hostCompletion" "hostGuestRecord"])
+               (every? #(contains? #{:owned :transferred :immediate-consumed}
+                                   (aget ^objects (.getValue %) 1)) entries))
+          "Failed retirement is not a healthy idle known-owner boundary")
+    ((get-in s [:strict-driver :authority :check-source!]) e (:source s))
+    (observe! holder :check! {:engine e :source (:source s) :frontend f})
+    (#'adapter/validate-versions! session)
+    (selected-version-live! s session)
+    (let [owned (filterv #(= :owned (aget ^objects (.getValue %) 1)) entries)
+          packet (mapv #(aget ^objects (.getValue %) 0) owned)
+          output (object-array [packet])]
+      ;; Publish before transfer. Preserve distinct credits even for equal values.
+      (swap! holder assoc :retirement-output output)
+      (doseq [entry owned] (aset ^objects (.getValue entry) 1 :external-retirement))
+      (locking busy (.remove busy e))
+      (reset! holder {:status :retired :stage :retired :summary (:summary s)
+                      :retirement-output output})
+      packet)))
