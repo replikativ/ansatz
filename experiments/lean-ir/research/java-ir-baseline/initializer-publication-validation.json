@@ -5,34 +5,35 @@
     "leanCommit": "819816b2e0a3bf405af45ae5c7af2491d8f5bee6",
     "implementationBaseCommit": "ffe3f44972a38a8474cad28e9ea43c6c2209b41e",
     "landingBaseCommit": "f1045fa680ce96d1ae46c8f5b97209ceb9972693",
-    "reviewedSourceCommit": "fa1a6bbe",
-    "correctedModelsCommit": "06144050"
+    "reviewedSourceCommit": "6587849b709951c7402b2bb13d7838b323dfcdde",
+    "correctedModelsCommit": "6587849b709951c7402b2bb13d7838b323dfcdde"
   },
   "sourceInventory": [
     {
       "path": "experiments/lean-ir/research/java-ir-baseline/src/ansatz/research/ir/Interpreter.java",
-      "bytes": 743124,
-      "sha256": "805885c4aaacbba64e4a44716484ee10f7435cad9b392e5b699b4ce5f6eb2a0e"
+      "bytes": 743189,
+      "sha256": "28cd4296572af05d1800eb0c2f2414b9c22bb954f6fd4303792620fa3d27ce77"
     },
     {
       "path": "experiments/lean-ir/research/java-ir-baseline/initializer-publication-checks.clj",
-      "bytes": 8920,
-      "sha256": "c9158847e11558574f9cc09ea7af431bb7dd6001ce3c15e7b27cd628dd071f34"
+      "bytes": 9885,
+      "sha256": "8759071d1b8c7c295190e464877d319b04e333864437d5f330975ab600e400f7"
     },
     {
       "path": "experiments/lean-ir/research/java-ir-baseline/initializer-publication-notes.md",
-      "bytes": 8441,
-      "sha256": "7c2c8ab51aa5320cc34d150b4a4aaa22cf0fb49414ba541634c61cd99935f6e2"
+      "bytes": 8912,
+      "sha256": "b7db9bdf944ff44688088f3721181b436ce423ef88ac6de88baf8bc120d9a219"
     }
   ],
   "compiler": {
     "javacMajor": 25,
     "release": 17,
     "heapMiB": 384,
-    "interpreterCompilations": 1,
+    "interpreterCompilations": 2,
     "exit": 0,
-    "command": "javac -J-Xmx384m --release 17 -d target/initializer-publication-v1/classes experiments/lean-ir/research/java-ir-baseline/src/ansatz/research/ir/Interpreter.java",
-    "warnings": "Existing strictfp warning"
+    "command": "javac -J-Xmx384m --release 17 -d target/initializer-publication-v2/classes experiments/lean-ir/research/java-ir-baseline/src/ansatz/research/ir/Interpreter.java",
+    "warnings": "Existing strictfp warning",
+    "compilationNote": "One compilation per frozen source revision, latest result uses v2 classes; no worker JVM"
   },
   "runtime": {
     "reusedExistingRepl": true,
@@ -45,8 +46,8 @@
   "checks": [
     {
       "namespace": "java-ir-initializer-publication-checks",
-      "tests": 9,
-      "assertions": 72,
+      "tests": 10,
+      "assertions": 85,
       "failures": 0,
       "errors": 0
     },
@@ -87,8 +88,8 @@
     }
   ],
   "total": {
-    "tests": 67,
-    "assertions": 7264,
+    "tests": 68,
+    "assertions": 7277,
     "failures": 0,
     "errors": 0
   },
@@ -105,6 +106,11 @@
         "path": "target/java-source-exchange-v1/initializer-publication-models-v2.edn",
         "bytes": 54,
         "sha256": "499d8d7d258cb9fc316efaff4db3bcf95b9d7ce3d2ccefa92d19568af8dd028c"
+      },
+      {
+        "path": "target/java-source-exchange-v1/initializer-publication-final-gates-v1.edn",
+        "bytes": 524,
+        "sha256": "4026e02fe30efdca09a4b5e7e9dc58048d72314d977cca71ed7d15e8c0c9900c"
       }
     ],
     "authorCheckout": [
@@ -122,13 +128,18 @@
         "path": "target/initializer-publication-v1/release-v1.log",
         "bytes": 107,
         "sha256": "2a7aecebd6965a47176fcb8493ff82df9caa311452a14d628cddf2095c0d92bb"
+      },
+      {
+        "path": "target/initializer-publication-v2/all-gates-v1.log",
+        "bytes": 601,
+        "sha256": "9048c810053bdc3a6003de2f360b62e9602f074cafdf5941a2a5640e7f43cb0c"
       }
     ]
   },
   "independentSourceReview": {
-    "reviewedModelsCommit": "06144050",
+    "reviewedModelsCommit": "6587849b",
     "result": "clear",
-    "sourceMatches": "fa1a6bbe",
+    "sourceMatches": "6587849b",
     "basis": "Pinned run_init / InitAttr / IO.Result semantics"
   },
   "notEstablished": [
@@ -142,5 +153,14 @@
     "persistent result wrapper",
     "payload to result-wrapper cycle",
     "descendant code-demand resume with post-success fork"
-  ]
+  ],
+  "historicalGate": {
+    "reviewedSourceCommit": "fa1a6bbe",
+    "correctedModelsCommit": "06144050",
+    "tests": 67,
+    "assertions": 7264,
+    "failures": 0,
+    "errors": 0,
+    "scope": "Object-only guard before actual tobject global ABI correction; superseded by complete final rerun"
+  }
 }

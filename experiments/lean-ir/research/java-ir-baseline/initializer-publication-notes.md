@@ -88,21 +88,23 @@ This commit registers no entropy extern and supplies no random bytes.
 wrapper handling, exact pair binding and ABI rejection, incomplete/stale
 completion, post-boot refusal, error ownership and at-most-once behavior,
 interrupted/invalid completion atomicity, and terminal guest failure.
-The root compiled the single Interpreter source once using `javac 25` with
+The root compiled each frozen Interpreter revision using `javac 25` with
 `--release 17` and a 384 MiB compiler heap. The compiler emitted the existing
 strictfp warning. The root loaded the new classes in the existing retained
 512 MiB REPL through a new class basis; the old engine jar remained unchanged.
 No worker JVM or native process was launched for this feature.
 
-The corrected initializer models passed 9 tests / 72 assertions. Existing
+The final object/tobject initializer models passed 10 tests / 85 assertions. Existing
 initialization, fork, header, generation and release-transaction suites passed
 58 tests / 7,192 assertions against the same new class basis. Combined result:
-67 tests / 7,264 assertions, zero failures and zero errors. Initial model tests
+68 tests / 7,277 assertions, zero failures and zero errors. The earlier
+object-only implementation passed 67 tests / 7,264 assertions; those historical
+results do not validate the later tobject change, which received a full rerun. Initial model tests
 had four errors because a nullary constructor payload is an immediate Long;
 test-only commit `06144050` corrected the heap payload and added an explicit
 immediate-payload case. Java source did not change between those runs.
 
-The independent source review cleared `06144050` against the pinned upstream
+The independent source review cleared `6587849b` against the pinned upstream
 initializer semantics. Additional persistent-wrapper, payload-to-wrapper cycle,
 and code-demand/fork scenarios are useful future tests; they were not executed
 by this validation. No native initializer, random extern, actual Init startup,
@@ -117,7 +119,7 @@ repository-relative equivalents of the root's worktree paths; no build command
 was run in the landing checkout.
 
 ```sh
-javac -J-Xmx384m --release 17 -d target/initializer-publication-v1/classes experiments/lean-ir/research/java-ir-baseline/src/ansatz/research/ir/Interpreter.java
+javac -J-Xmx384m --release 17 -d target/initializer-publication-v2/classes experiments/lean-ir/research/java-ir-baseline/src/ansatz/research/ir/Interpreter.java
 ```
 
 In the existing REPL with the repository's usual check namespaces/dependencies
@@ -125,23 +127,24 @@ already loaded, the root used a new class basis and loaded the corrected model
 file. Here `j` is the existing alias for `java-ir-baseline`.
 
 ```clojure
-(def initializer-publication-basis-v1
-  (j/class-basis "target/initializer-publication-v1/classes"))
+(def initializer-publication-basis-v2
+  (j/class-basis "target/initializer-publication-v2/classes"))
 (load-file "experiments/lean-ir/research/java-ir-baseline/initializer-publication-checks.clj")
-(with-open [writer (clojure.java.io/writer "target/initializer-publication-v1/models-v2.log")]
+(with-open [writer (clojure.java.io/writer "target/initializer-publication-v2/all-gates-v1.log")]
   (binding [clojure.test/*test-out* writer]
-    (java-ir-initializer-publication-checks/check! initializer-publication-basis-v1)))
+    (java-ir-initializer-publication-checks/check! initializer-publication-basis-v2)))
 ```
 
-The root then invoked these existing checks with the same class basis, binding
-`clojure.test/*test-out*` to `regressions-v1.log` for the first four suites and
-`release-v1.log` for the release suite. Existing check dependencies were loaded
-from the primary checkout, including byte-array/pointer/release dependencies.
+The final rerun invoked all six checks against the final source/new class basis,
+with `clojure.test/*test-out*` bound to `all-gates-v1.log`. The earlier run wrote
+separate model/regression/release logs; their digests remain historical records.
+Existing check dependencies were loaded from the primary checkout, including
+byte-array/pointer/release dependencies.
 
 ```clojure
-(java-ir-initialization-checks/check! initializer-publication-basis-v1)
-(java-ir-fork-checks/check! initializer-publication-basis-v1)
-(java-ir-header-checks/check! initializer-publication-basis-v1)
-(java-ir-generation-checks/check! initializer-publication-basis-v1)
-(java-ir-release-transaction-checks/check! initializer-publication-basis-v1)
+(java-ir-initialization-checks/check! initializer-publication-basis-v2)
+(java-ir-fork-checks/check! initializer-publication-basis-v2)
+(java-ir-header-checks/check! initializer-publication-basis-v2)
+(java-ir-generation-checks/check! initializer-publication-basis-v2)
+(java-ir-release-transaction-checks/check! initializer-publication-basis-v2)
 ```
