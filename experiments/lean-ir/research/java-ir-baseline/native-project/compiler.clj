@@ -184,8 +184,8 @@
           (or (#{"Z" "X" "x"} state) (not alive?)) 0
           :else (throw (ex-info "Live process RSS unavailable"
                                 {:profile profile :pid pid :kernel-state state
-                                 :process-alive? alive? :status text})))))
-(defn- handle-rss-kib [^ProcessHandle process]
+                                 :process-alive? alive? :status text :rss-unavailable true})))))
+(defn- sample-handle-rss-kib [^ProcessHandle process]
   (try
     (let [text (proc-text! (str "/proc/" (.pid process) "/status"))]
       (rss-from-status! (.pid process) text (.isAlive process)))
@@ -194,6 +194,27 @@
         (throw (ex-info "Live process status vanished"
                         {:profile profile :pid (.pid process) :process-alive? true :status-unavailable true} error))
         0))))
+(defn- pause-rss-sample! []
+  (try (Thread/sleep 1)
+       (catch InterruptedException error
+         (.interrupt (Thread/currentThread))
+         (throw error))))
+(defn- handle-rss-kib [^ProcessHandle process]
+  ;; proc_pid_status samples task state before obtaining mm. An exiting task
+  ;; can therefore have a live-looking state and no VmRSS in one snapshot.
+  ;; Resample evidence only; never retry the native command or infer zero.
+  (loop [sample 1 initial nil]
+    (let [result (try {:rss (sample-handle-rss-kib process)}
+                     (catch clojure.lang.ExceptionInfo error
+                       (if (:rss-unavailable (ex-data error)) {:missing error} (throw error))))]
+      (if (contains? result :rss) (:rss result)
+        (let [error (:missing result) latest (ex-data error) first-status (or initial (:status latest))]
+          (if (< sample 3)
+            (do (pause-rss-sample!) (recur (inc sample) first-status))
+            (throw (ex-info "Live process RSS unavailable after bounded status resampling"
+                            (assoc latest :first-status first-status :latest-status (:status latest)
+                                   :status-samples sample)
+                            error))))))))
 (defn- remember-process! [handles handle]
   ;; Publish each handle before a bound can fail, so cancellation retains it.
   (swap! handles #(if (some #{handle} %) % (conj % handle)))

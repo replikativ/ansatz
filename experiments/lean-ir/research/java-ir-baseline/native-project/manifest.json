@@ -9,19 +9,19 @@
     },
     {
       "file": "JVM_COMPILER.md",
-      "sha256": "9ad2cd7164627d52bbf09d1b360622a4c56c0c387983d1af0f2ac6fcefbfd289"
+      "sha256": "4487ca22241e013845e55d7837bbf1a429e64dd934037adf6fecc8de932270ec"
     },
     {
       "file": "README.md",
-      "sha256": "3a2d48a82ceb445d90d88f716e10582642f35b58b5504391f351e2b41a87ff99"
+      "sha256": "a109d3b50835d0b5bfa63aca60c84ad96fffec011cc389e1a960ddc0948766f1"
     },
     {
       "file": "compiler-models.clj",
-      "sha256": "cca9e6e154e20066ae22e0afe56029532f2f81cf79966c602338f9cfbd1464e2"
+      "sha256": "bdb93babb548a2ee145420077fea4eb5cad335d269008df592a4a2f11caf6bf4"
     },
     {
       "file": "compiler.clj",
-      "sha256": "76043d8f24c595f08499b8a4ef40d10e152fc24e3cb3262b88e10859f3699a2f"
+      "sha256": "4d41b16468ba4be6439ccb9ef9ea63c9548e0e7f18569a0a9621eeefdf843da3"
     },
     {
       "file": "loader.clj",
@@ -73,7 +73,7 @@
     "fullInitImported": false
   },
   "pending": [
-    "New default JVM Loader adapter integration (direct Compiler cold/hit/entry already passed)",
+    "Current bounded RSS-resampling source model/cold/hit/entry gate; earlier default Loader checkpoint passed",
     "Cold compilation through the JVM wrapper (not started below its 2 GiB memory floor)",
     "Hosted default Init and Java kernel rechecking",
     "Generic bounded project compilation and checked entry type evidence beyond exact tutorial profile",
@@ -193,21 +193,21 @@
     "reuse": "Existing Java kernel and lazy PSS/fetch APIs; no default full Init/Mathlib replay"
   },
   "internal-jvm-compiler": {
-    "status": "historical-direct-compiler-pass; post-close-race-fix-validation-pending",
+    "status": "historical-default-loader-pass; bounded-RSS-resampling-validation-pending",
     "defaultBackend": "jvm",
     "PythonInvoked": false,
-    "sourceSHA256": "76043d8f24c595f08499b8a4ef40d10e152fc24e3cb3262b88e10859f3699a2f",
+    "sourceSHA256": "4d41b16468ba4be6439ccb9ef9ea63c9548e0e7f18569a0a9621eeefdf843da3",
     "nativeCompilerTokenIssued": true,
     "nativeJobStarted": true,
     "modelGate": {
-      "tests": 11,
-      "assertions": 55,
+      "tests": 12,
+      "assertions": 63,
       "failures": 0,
       "errors": 0,
-      "testedCompilerSourceSHA256": "de40356610fd69987d89d24c55c6b1713f9eb88af6b54cde7cf1608285de00b2",
+      "testedCompilerSourceSHA256": "76043d8f24c595f08499b8a4ef40d10e152fc24e3cb3262b88e10859f3699a2f",
       "receipt": {
-        "file": "target/java-source-exchange-v1/native-jvm-compiler-models-v4.edn",
-        "sha256": "7c475bd5b38f02a52dc98c2a3ca843262187d7b79cdab16c97689a02679cc6ff"
+        "file": "target/java-source-exchange-v1/native-jvm-compiler-models-v5.edn",
+        "sha256": "f3409b18148629e5b7293331ac36c77f2352aea703d666ba8a8fb5f3d8cb01c3"
       }
     },
     "processProfile": {
@@ -237,7 +237,29 @@
       "reason": "live handle but missing VmRSS; fast-exit no-mm state suspected",
       "fix": "actual Z/X/x status or already-dead handle only; no unknown-state fallback"
     },
-    "defaultLoaderAdapterIntegration": "pending",
+    "defaultLoaderAdapterIntegration": {
+      "testedCompilerSourceSHA256": "76043d8f24c595f08499b8a4ef40d10e152fc24e3cb3262b88e10859f3699a2f",
+      "status": "actual-cold-hit-and-entry-pass",
+      "cacheKey": "14541d4bd43c8b51631d7ec8deb1a50026aa33948010fe56dd4ec1e31079c068",
+      "manifestSHA256": "5ff4b099d5ba9682f23cab55f6148c409115c489fb37c5f5fec7ca2457b9518b",
+      "coldProcesses": 9,
+      "coldNativeSecondsSummed": 4.698827957,
+      "peakSampledRSSKiB": 681156,
+      "hitProcesses": 2,
+      "hitSourceCompilation": false,
+      "result": "IO.ok Unit",
+      "PythonInvocations": 0,
+      "nativeReferenceMatch": true,
+      "engine": "synchronous-closed",
+      "coldReceipt": {
+        "file": "target/java-source-exchange-v1/native-default-loader-acceptance-v3.edn",
+        "sha256": "5672ea92e62dd8a80aeee70e14238460030c5ad1eaaa8327d677860217cb7aec"
+      },
+      "hitReceipt": {
+        "file": "target/java-source-exchange-v1/native-default-loader-hit-v3.edn",
+        "sha256": "d834067bf5460329b551852c27ef4f5680f846597b091f19a2684259bd6c7108"
+      }
+    },
     "actualAcceptance": {
       "receipt": {
         "file": "target/java-source-exchange-v1/native-jvm-compiler-acceptance-v1.edn",
@@ -261,10 +283,17 @@
       "testedCompilerSourceSHA256": "de40356610fd69987d89d24c55c6b1713f9eb88af6b54cde7cf1608285de00b2"
     },
     "followupModels": {
-      "families": 1,
+      "families": 2,
       "status": "pending parent execution",
-      "scope": "deterministic waiting compile versus completed close; no native process"
+      "scope": "bounded RSS resampling, transitions, persistent failure, interruption"
     },
-    "currentSourceColdHitExecution": "pending"
+    "currentSourceColdHitExecution": "pending",
+    "transientRSSFailure": {
+      "testedCompilerSourceSHA256": "76043d8f24c595f08499b8a4ef40d10e152fc24e3cb3262b88e10859f3699a2f",
+      "status": "failed closed before later successful manual attempt",
+      "rawStatusCaptured": false,
+      "exactKernelState": "unknown",
+      "nativeCommandAutomaticRetry": false
+    }
   }
 }

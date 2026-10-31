@@ -115,11 +115,12 @@ reported as a tested wrapper cold run.
 
 The earlier JVM compiler checkpoint passed eleven model families / 55 assertions, then actual
 cold compilation, a cache hit with identity probes only, and entry execution to
-the same native output with zero Python invocations. The new default Loader
-adapter's own integration call remains separate. See the
+the same native output with zero Python invocations. The later default Loader
+also passed cold compilation, a cache hit and entry execution on its exact
+source checkpoint. See the
 [compiler checkpoint](JVM_COMPILER.md) for exact source/receipt pins, measured
-resource use and the preserved earlier failure history. A final close/compile
-race fix changes the source/cache identity and awaits its own validation.
+resource use and preserved failure history. A bounded RSS-resampling follow-up
+changes source/cache identity again and awaits its own validation.
 
 Portable validation summaries, source hashes and external research-receipt
 locators are recorded in `manifest.json`. This landing work introduces no

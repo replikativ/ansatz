@@ -163,6 +163,38 @@
           (is (= "Actual configured internal Compiler required" (.getMessage ^Throwable @outcome)))
           (is (locking registry (not (.containsKey registry token))))))
       (finally (locking registry (.remove registry token))))))
+(deftest missing-live-rss-is-resampled-with-a-strict-bound-and-diagnostics
+  (let [process (ProcessHandle/current)
+        missing "Name:\tfirst\nState:\tR (running)\n"
+        valid "State:\tR (running)\nVmRSS:\t321 kB\n"
+        dead "State:\tZ (zombie)\n"
+        latest "Name:\tlast\nState:\tS (sleeping)\n"
+        observe (fn [texts]
+                  (let [calls (atom 0)]
+                    (with-redefs-fn {#'compiler/proc-text! (fn [_] (nth texts (min (dec (swap! calls inc)) (dec (count texts)))))
+                                    #'compiler/pause-rss-sample! (fn [] nil)}
+                      #(try {:rss (#'compiler/handle-rss-kib process) :calls @calls}
+                            (catch clojure.lang.ExceptionInfo error {:error error :calls @calls})))))]
+    (is (= {:rss 321 :calls 2} (observe [missing valid])))
+    (is (= {:rss 0 :calls 2} (observe [missing dead])))
+    (let [{:keys [error calls]} (observe [missing missing latest])]
+      (is (= 3 calls))
+      (is (= 3 (:status-samples (ex-data error))))
+      (is (= missing (:first-status (ex-data error))))
+      (is (= latest (:latest-status (ex-data error))))
+      (is (:rss-unavailable (ex-data error))))))
+(deftest interrupted-rss-resampling-preserves-interruption
+  (let [prior (Thread/interrupted)]
+    (try
+      (with-redefs-fn {#'compiler/proc-text! (fn [_] "State:\tR (running)\n")}
+        #(do (.interrupt (Thread/currentThread))
+             (let [error (try (#'compiler/handle-rss-kib (ProcessHandle/current))
+                              nil (catch InterruptedException e e))
+                   interrupted (.isInterrupted (Thread/currentThread))]
+               (Thread/interrupted)
+               (is (instance? InterruptedException error))
+               (is interrupted))))
+      (finally (Thread/interrupted) (when prior (.interrupt (Thread/currentThread)))))))
 (defn check! [workspace]
   (binding [*directory* (.toRealPath (.toPath (io/file (str workspace))) (make-array java.nio.file.LinkOption 0))]
     (run-tests 'native-project-compiler-models-v1)))
