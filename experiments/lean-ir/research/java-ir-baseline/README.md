@@ -229,3 +229,8 @@ The [private direct Expr assignment pass](../JAVA_EXPR_DIRECT_PASS.md) extends
 the reusable MVar session with original helper calls and owned direct-pass
 traversal. Its research report is not the original ExprMVars ABI; that extern
 remains unavailable.
+
+The [private delayed foundation](../JAVA_EXPR_DELAYED_FOUNDATION.md) adds the
+generation cache, semantic pending analysis and forward substitution restoration
+protocols. Full delayed transformation and original Expr native admission remain
+separate stages.
