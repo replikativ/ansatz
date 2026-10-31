@@ -66,8 +66,12 @@ has not been established under the current cap.
 ## Project-path prototype
 
 Load the separate `service.clj` definitions once after the runner. Configure
-`native-project-service-v1/configure!` once with the Java basis, installed Python,
-pinned service file/hash, installed official sysroot/exporter and private cache.
+`native-project-service-v1/configure!` once with the Java basis, installed
+official sysroot/exporter and private cache. New Loaders default to the internal
+JVM compiler backend and invoke no Python. The loader defines the compiler
+namespace before the service; do not reload either opaque registry beneath
+live tokens. The [JVM compiler checkpoint](JVM_COMPILER.md) records its process
+limits and separate validation status.
 Then `load-project!` accepts only that Loader and the unchanged project directory;
 it owns the actual subprocess/cache invocation and artifact authentication.
 Execute the returned `:artifact` through `execute-io-unit!`. Callers do not run
@@ -76,8 +80,10 @@ export commands or manage module build order themselves.
 The optional `:native-reference?` flag requests a native comparison execution as
 part of this selected tutorial's validation build; default false does not run
 the native program. Its absence must not be read as fresh native parity evidence.
-This prototype uses Python internally; moving orchestration to Java and bundling
-the helper is release packaging work, not an additional public dependency promise.
+Explicit `:backend :python` retains the older research service and requires its
+pinned Python/helper inputs. Already-issued Python Loaders retain their original
+backend. No failure falls back between implementations. Bundling the native
+helper and a public Java facade remain separate release work.
 
 The loader invokes pinned code without a shell, confines returned artifacts to
 its private cache, bounds process wait/output and checks semantic `ready` before
@@ -97,7 +103,7 @@ models passed four tests / 14 assertions. The Python service's seven metadata,
 cache and small-process checks also passed. These model results are separate
 from program execution evidence.
 
-The actual project-path client selected a validated cache hit, authenticated and
+The earlier Python-backed project-path client selected a validated cache hit, authenticated and
 prepared the canonical Program, then ran main to IO.ok Unit, exact native output
 parity and ordinary synchronous close. No manual export step was required by
 that call. The standalone Python service had previously passed a real cold
@@ -106,6 +112,15 @@ peak RSS 672,284 KiB. The complete cold path through the JVM wrapper was **not
 run**: its preflight found about 1.7 GiB available, below the 2 GiB floor, and no
 native job was started. A service cold run plus a wrapper cache hit must not be
 reported as a tested wrapper cold run.
+
+The earlier JVM compiler checkpoint passed eleven model families / 55 assertions, then actual
+cold compilation, a cache hit with identity probes only, and entry execution to
+the same native output with zero Python invocations. The later default Loader
+also passed cold compilation, a cache hit and entry execution on its exact
+source checkpoint. See the
+[compiler checkpoint](JVM_COMPILER.md) for exact source/receipt pins, measured
+resource use and preserved failure history. A bounded RSS-resampling follow-up
+changes source/cache identity again and awaits its own validation.
 
 Portable validation summaries, source hashes and external research-receipt
 locators are recorded in `manifest.json`. This landing work introduces no

@@ -22,6 +22,8 @@
   ([root]
    (when-not (find-ns 'native-project-entry-v1) (throw (ex-info "Load native entry definitions first" {})))
    (when (find-ns 'native-project-service-v1) (throw (ex-info "Do not replace live configured Loaders" {})))
+   (when-not (find-ns 'native-project-compiler-v1)
+     (load-file (.getPath (io/file root "compiler.clj"))))
    (load-file (.getPath (io/file root "service.clj")))
    {:scope :service-definitions-only :compiler-processes 0 :guest-calls 0}))
 (defn load-service-models!
@@ -30,4 +32,11 @@
    (when-not (find-ns 'native-project-service-v1) (throw (ex-info "Load native service definitions first" {})))
    (when (find-ns 'native-project-service-models-v1) (throw (ex-info "Service models already loaded" {})))
    (load-file (.getPath (io/file root "service-models.clj")))
+   {:scope :model-definitions-only :compiler-processes 0 :guest-calls 0}))
+(defn load-compiler-models!
+  ([] (load-compiler-models! directory))
+  ([root]
+   (when-not (find-ns 'native-project-compiler-v1) (throw (ex-info "Load compiler definitions first" {})))
+   (when (find-ns 'native-project-compiler-models-v1) (throw (ex-info "Compiler models already loaded" {})))
+   (load-file (.getPath (io/file root "compiler-models.clj")))
    {:scope :model-definitions-only :compiler-processes 0 :guest-calls 0}))
