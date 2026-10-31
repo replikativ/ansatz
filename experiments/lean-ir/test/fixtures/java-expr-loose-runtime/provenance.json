@@ -1,0 +1,35 @@
+{
+  "schema": "original-expr-loose-pair/1",
+  "lean-commit": "819816b2e0a3bf405af45ae5c7af2491d8f5bee6",
+  "source-index-sha256": "74d833d577923821b982e8a9e872a38b5cad011513eb18870b51417e13397f0e",
+  "plan-sha256": "1c6b91fca4fbe1e855d52e165865423ea68f09bf227e1774ed2c9a99723ffc8d",
+  "original-rows-sha256": "5e00b6003fb957639da15df77c64f9b407d17bcb65c80dbb36e0e1e4bf0dc054",
+  "helper-closure-sha256": "23bbcaf6abee7f72cd26660cb06b35d178da8bd0a85e424d6f6cbbf134a49c8e",
+  "helper-closure-rows": 55,
+  "initialized-dependencies": [],
+  "quickLt-enabled-by-this-unit": false,
+  "scope": "Exact first-two-native raw/boxed roots plus nine original constructor roles, static closure. Full75-row source envelope and quickLt remain distinct.",
+  "status": "Parent retained focused JVM gates pass; independent source review clear. Combined integration pending.",
+  "java-sha256": "fd7bea79adf3bf4f93c32e6ddefb24cc0e863aaf5e59c2efc3c63a680b2076a7",
+  "jar-sha256": "697fda825983ae551f12bb7d5804797ebbf3e7507273473db99acda8cad7cb71",
+  "focused-gates": [
+    {
+      "tests": 11,
+      "assertions": 76,
+      "runs": "each driver; lower remains active explicit"
+    },
+    {
+      "tests": 5,
+      "assertions": 40,
+      "runs": "each driver; lower remains active explicit"
+    },
+    {
+      "tests": 2,
+      "assertions": 18,
+      "runs": "active explicit admission"
+    }
+  ],
+  "failures": 0,
+  "errors": 0,
+  "native-receipt-sha256": "41c7a8595aff250fea0cbc739b680a24d7aa411e3fedcb9665af74ef23508211"
+}

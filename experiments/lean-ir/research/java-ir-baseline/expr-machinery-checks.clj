@@ -87,11 +87,11 @@
 (defn materialize [{:keys [ctx headers rows]} label]
   (let [row (rows label) by-name (into {} (for [[label h] headers] [(get (rows label) "name") h]))]
     (j/materialize-body ctx (headers label) row (mapv by-name (find/direct row)))))
-(deftest exact-original-constructor-fixture-and-native-is-still-unavailable
+(deftest exact-original-constructor-fixture-and-native-metadata-recognized
   (let [rs (records) native (native-row) p (json/read-str (slurp (str directory "provenance.json")))]
     (is (= 10 (count rs))) (is (= (get p "original-rows-sha256") (corpus/sha256 (str directory "original-rows.json"))))
     (is (= "7e53092b477181a60a5e66f6cf2e2f33827b9f05411b294359b860431fc8a9ef" (get native "sha256")))
-    (is (re-find #"Unsupported baseline extern" (c/failure #(j/prepare-host-program *basis* [(get native "row")] []))))))
+    (is (some? (:program (j/prepare-host-program *basis* [(get native "row")] []))))))
 (deftest identity-fast-paths-preserve-exact-input-and-data
   (doseq [mode [:lift-zero :lift-cutoff :sub-empty :beta-empty]]
     (let [{:keys [ctx] :as lab} (context {:defer (set roles)}) e (j/machine ctx)

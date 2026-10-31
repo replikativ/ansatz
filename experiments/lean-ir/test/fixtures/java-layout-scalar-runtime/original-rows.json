@@ -1,0 +1,2257 @@
+[
+  {
+    "label": "Lean.IR.Checker.getMaxCtorFields",
+    "sha256": "5a3f38637dd5406c9b49d17b44e6d73bf96611286e72f54e5838372ed04a3ba4",
+    "kind": "extern",
+    "abi": {
+      "params": [
+        "tagged"
+      ],
+      "borrowed": [
+        false
+      ],
+      "result": "tobject"
+    },
+    "row": {
+      "dependencies": [],
+      "ir": {
+        "extern": {
+          "ext": {
+            "entries": [
+              {
+                "standard": {
+                  "backend": [
+                    "str",
+                    [
+                      "anonymous"
+                    ],
+                    "all"
+                  ],
+                  "fn": "lean_get_max_ctor_fields"
+                }
+              }
+            ]
+          },
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "str",
+                  [
+                    "anonymous"
+                  ],
+                  "Lean"
+                ],
+                "IR"
+              ],
+              "Checker"
+            ],
+            "getMaxCtorFields"
+          ],
+          "type": "tobject",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "tagged",
+              "x": {
+                "idx": 1
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Lean"
+            ],
+            "IR"
+          ],
+          "Checker"
+        ],
+        "getMaxCtorFields"
+      ],
+      "pretty": "extern Lean.IR.Checker.getMaxCtorFields (x_1 : tagged) : tobj",
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Lean"
+            ],
+            "Compiler"
+          ],
+          "IR"
+        ],
+        "Checker"
+      ]
+    }
+  },
+  {
+    "label": "Lean.IR.Checker.getMaxCtorFields._boxed",
+    "sha256": "b3ac3dc14b897c536d9d171370c705391dfa2e88f10bb48a6d0b0d6a8dba82b4",
+    "kind": "fdecl",
+    "abi": {
+      "params": [
+        "tagged"
+      ],
+      "borrowed": [
+        false
+      ],
+      "result": "tobject"
+    },
+    "row": {
+      "dependencies": [
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "Lean"
+              ],
+              "IR"
+            ],
+            "Checker"
+          ],
+          "getMaxCtorFields"
+        ]
+      ],
+      "ir": {
+        "fdecl": {
+          "body": [
+            "vdecl",
+            {
+              "idx": 2
+            },
+            "tobject",
+            {
+              "fap": {
+                "c": [
+                  "str",
+                  [
+                    "str",
+                    [
+                      "str",
+                      [
+                        "str",
+                        [
+                          "anonymous"
+                        ],
+                        "Lean"
+                      ],
+                      "IR"
+                    ],
+                    "Checker"
+                  ],
+                  "getMaxCtorFields"
+                ],
+                "ys": [
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 1
+                      }
+                    }
+                  }
+                ]
+              }
+            },
+            [
+              "ret",
+              {
+                "var": {
+                  "id": {
+                    "idx": 2
+                  }
+                }
+              }
+            ]
+          ],
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "str",
+                  [
+                    "str",
+                    [
+                      "anonymous"
+                    ],
+                    "Lean"
+                  ],
+                  "IR"
+                ],
+                "Checker"
+              ],
+              "getMaxCtorFields"
+            ],
+            "_boxed"
+          ],
+          "info": {},
+          "type": "tobject",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "tagged",
+              "x": {
+                "idx": 1
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "Lean"
+              ],
+              "IR"
+            ],
+            "Checker"
+          ],
+          "getMaxCtorFields"
+        ],
+        "_boxed"
+      ],
+      "pretty": "def Lean.IR.Checker.getMaxCtorFields._boxed (x_1 : tagged) : tobj :=\n  let x_2 : tobj := Lean.IR.Checker.getMaxCtorFields x_1;\n  ret x_2",
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Lean"
+            ],
+            "Compiler"
+          ],
+          "IR"
+        ],
+        "Checker"
+      ]
+    }
+  },
+  {
+    "label": "Lean.IR.Checker.getMaxCtorScalarsSize",
+    "sha256": "114d1fc5a4eb49f92ac13ef30111daff1b55534ec30df9c38c9a296256dec52f",
+    "kind": "extern",
+    "abi": {
+      "params": [
+        "tagged"
+      ],
+      "borrowed": [
+        false
+      ],
+      "result": "tobject"
+    },
+    "row": {
+      "dependencies": [],
+      "ir": {
+        "extern": {
+          "ext": {
+            "entries": [
+              {
+                "standard": {
+                  "backend": [
+                    "str",
+                    [
+                      "anonymous"
+                    ],
+                    "all"
+                  ],
+                  "fn": "lean_get_max_ctor_scalars_size"
+                }
+              }
+            ]
+          },
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "str",
+                  [
+                    "anonymous"
+                  ],
+                  "Lean"
+                ],
+                "IR"
+              ],
+              "Checker"
+            ],
+            "getMaxCtorScalarsSize"
+          ],
+          "type": "tobject",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "tagged",
+              "x": {
+                "idx": 1
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Lean"
+            ],
+            "IR"
+          ],
+          "Checker"
+        ],
+        "getMaxCtorScalarsSize"
+      ],
+      "pretty": "extern Lean.IR.Checker.getMaxCtorScalarsSize (x_1 : tagged) : tobj",
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Lean"
+            ],
+            "Compiler"
+          ],
+          "IR"
+        ],
+        "Checker"
+      ]
+    }
+  },
+  {
+    "label": "Lean.IR.Checker.getMaxCtorScalarsSize._boxed",
+    "sha256": "4c97398fa4fac7c0511e358728f7ada07b60dfedf811a256806c19048a7c87d0",
+    "kind": "fdecl",
+    "abi": {
+      "params": [
+        "tagged"
+      ],
+      "borrowed": [
+        false
+      ],
+      "result": "tobject"
+    },
+    "row": {
+      "dependencies": [
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "Lean"
+              ],
+              "IR"
+            ],
+            "Checker"
+          ],
+          "getMaxCtorScalarsSize"
+        ]
+      ],
+      "ir": {
+        "fdecl": {
+          "body": [
+            "vdecl",
+            {
+              "idx": 2
+            },
+            "tobject",
+            {
+              "fap": {
+                "c": [
+                  "str",
+                  [
+                    "str",
+                    [
+                      "str",
+                      [
+                        "str",
+                        [
+                          "anonymous"
+                        ],
+                        "Lean"
+                      ],
+                      "IR"
+                    ],
+                    "Checker"
+                  ],
+                  "getMaxCtorScalarsSize"
+                ],
+                "ys": [
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 1
+                      }
+                    }
+                  }
+                ]
+              }
+            },
+            [
+              "ret",
+              {
+                "var": {
+                  "id": {
+                    "idx": 2
+                  }
+                }
+              }
+            ]
+          ],
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "str",
+                  [
+                    "str",
+                    [
+                      "anonymous"
+                    ],
+                    "Lean"
+                  ],
+                  "IR"
+                ],
+                "Checker"
+              ],
+              "getMaxCtorScalarsSize"
+            ],
+            "_boxed"
+          ],
+          "info": {},
+          "type": "tobject",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "tagged",
+              "x": {
+                "idx": 1
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "Lean"
+              ],
+              "IR"
+            ],
+            "Checker"
+          ],
+          "getMaxCtorScalarsSize"
+        ],
+        "_boxed"
+      ],
+      "pretty": "def Lean.IR.Checker.getMaxCtorScalarsSize._boxed (x_1 : tagged) : tobj :=\n  let x_2 : tobj := Lean.IR.Checker.getMaxCtorScalarsSize x_1;\n  ret x_2",
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Lean"
+            ],
+            "Compiler"
+          ],
+          "IR"
+        ],
+        "Checker"
+      ]
+    }
+  },
+  {
+    "label": "Lean.IR.Checker.getMaxCtorTag",
+    "sha256": "4cc557c0012495597b3ceab1b5862a47fd2fb5d3975e31324e45f45211b0562b",
+    "kind": "extern",
+    "abi": {
+      "params": [
+        "tagged"
+      ],
+      "borrowed": [
+        false
+      ],
+      "result": "tobject"
+    },
+    "row": {
+      "dependencies": [],
+      "ir": {
+        "extern": {
+          "ext": {
+            "entries": [
+              {
+                "standard": {
+                  "backend": [
+                    "str",
+                    [
+                      "anonymous"
+                    ],
+                    "all"
+                  ],
+                  "fn": "lean_get_max_ctor_tag"
+                }
+              }
+            ]
+          },
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "str",
+                  [
+                    "anonymous"
+                  ],
+                  "Lean"
+                ],
+                "IR"
+              ],
+              "Checker"
+            ],
+            "getMaxCtorTag"
+          ],
+          "type": "tobject",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "tagged",
+              "x": {
+                "idx": 1
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Lean"
+            ],
+            "IR"
+          ],
+          "Checker"
+        ],
+        "getMaxCtorTag"
+      ],
+      "pretty": "extern Lean.IR.Checker.getMaxCtorTag (x_1 : tagged) : tobj",
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Lean"
+            ],
+            "Compiler"
+          ],
+          "IR"
+        ],
+        "Checker"
+      ]
+    }
+  },
+  {
+    "label": "Lean.IR.Checker.getMaxCtorTag._boxed",
+    "sha256": "05d94daaeb17de5db6512b8c9f75f322c5c73e4d41464e1ca41b4fcb6c31540c",
+    "kind": "fdecl",
+    "abi": {
+      "params": [
+        "tagged"
+      ],
+      "borrowed": [
+        false
+      ],
+      "result": "tobject"
+    },
+    "row": {
+      "dependencies": [
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "Lean"
+              ],
+              "IR"
+            ],
+            "Checker"
+          ],
+          "getMaxCtorTag"
+        ]
+      ],
+      "ir": {
+        "fdecl": {
+          "body": [
+            "vdecl",
+            {
+              "idx": 2
+            },
+            "tobject",
+            {
+              "fap": {
+                "c": [
+                  "str",
+                  [
+                    "str",
+                    [
+                      "str",
+                      [
+                        "str",
+                        [
+                          "anonymous"
+                        ],
+                        "Lean"
+                      ],
+                      "IR"
+                    ],
+                    "Checker"
+                  ],
+                  "getMaxCtorTag"
+                ],
+                "ys": [
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 1
+                      }
+                    }
+                  }
+                ]
+              }
+            },
+            [
+              "ret",
+              {
+                "var": {
+                  "id": {
+                    "idx": 2
+                  }
+                }
+              }
+            ]
+          ],
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "str",
+                  [
+                    "str",
+                    [
+                      "anonymous"
+                    ],
+                    "Lean"
+                  ],
+                  "IR"
+                ],
+                "Checker"
+              ],
+              "getMaxCtorTag"
+            ],
+            "_boxed"
+          ],
+          "info": {},
+          "type": "tobject",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "tagged",
+              "x": {
+                "idx": 1
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "Lean"
+              ],
+              "IR"
+            ],
+            "Checker"
+          ],
+          "getMaxCtorTag"
+        ],
+        "_boxed"
+      ],
+      "pretty": "def Lean.IR.Checker.getMaxCtorTag._boxed (x_1 : tagged) : tobj :=\n  let x_2 : tobj := Lean.IR.Checker.getMaxCtorTag x_1;\n  ret x_2",
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Lean"
+            ],
+            "Compiler"
+          ],
+          "IR"
+        ],
+        "Checker"
+      ]
+    }
+  },
+  {
+    "label": "Lean.IR.Checker.getUSizeSize",
+    "sha256": "fe16b5a0dafef083732b9c7f91b59c704038400c40b2e2ae4f92a2d28476384a",
+    "kind": "extern",
+    "abi": {
+      "params": [
+        "tagged"
+      ],
+      "borrowed": [
+        false
+      ],
+      "result": "tobject"
+    },
+    "row": {
+      "dependencies": [],
+      "ir": {
+        "extern": {
+          "ext": {
+            "entries": [
+              {
+                "standard": {
+                  "backend": [
+                    "str",
+                    [
+                      "anonymous"
+                    ],
+                    "all"
+                  ],
+                  "fn": "lean_get_usize_size"
+                }
+              }
+            ]
+          },
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "str",
+                  [
+                    "anonymous"
+                  ],
+                  "Lean"
+                ],
+                "IR"
+              ],
+              "Checker"
+            ],
+            "getUSizeSize"
+          ],
+          "type": "tobject",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "tagged",
+              "x": {
+                "idx": 1
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Lean"
+            ],
+            "IR"
+          ],
+          "Checker"
+        ],
+        "getUSizeSize"
+      ],
+      "pretty": "extern Lean.IR.Checker.getUSizeSize (x_1 : tagged) : tobj",
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Lean"
+            ],
+            "Compiler"
+          ],
+          "IR"
+        ],
+        "Checker"
+      ]
+    }
+  },
+  {
+    "label": "Lean.IR.Checker.getUSizeSize._boxed",
+    "sha256": "6a8ab7b1fc656b6bc28018dc12f332b7be6546cbc28179e82018fb84a44f3f3c",
+    "kind": "fdecl",
+    "abi": {
+      "params": [
+        "tagged"
+      ],
+      "borrowed": [
+        false
+      ],
+      "result": "tobject"
+    },
+    "row": {
+      "dependencies": [
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "Lean"
+              ],
+              "IR"
+            ],
+            "Checker"
+          ],
+          "getUSizeSize"
+        ]
+      ],
+      "ir": {
+        "fdecl": {
+          "body": [
+            "vdecl",
+            {
+              "idx": 2
+            },
+            "tobject",
+            {
+              "fap": {
+                "c": [
+                  "str",
+                  [
+                    "str",
+                    [
+                      "str",
+                      [
+                        "str",
+                        [
+                          "anonymous"
+                        ],
+                        "Lean"
+                      ],
+                      "IR"
+                    ],
+                    "Checker"
+                  ],
+                  "getUSizeSize"
+                ],
+                "ys": [
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 1
+                      }
+                    }
+                  }
+                ]
+              }
+            },
+            [
+              "ret",
+              {
+                "var": {
+                  "id": {
+                    "idx": 2
+                  }
+                }
+              }
+            ]
+          ],
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "str",
+                  [
+                    "str",
+                    [
+                      "anonymous"
+                    ],
+                    "Lean"
+                  ],
+                  "IR"
+                ],
+                "Checker"
+              ],
+              "getUSizeSize"
+            ],
+            "_boxed"
+          ],
+          "info": {},
+          "type": "tobject",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "tagged",
+              "x": {
+                "idx": 1
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "Lean"
+              ],
+              "IR"
+            ],
+            "Checker"
+          ],
+          "getUSizeSize"
+        ],
+        "_boxed"
+      ],
+      "pretty": "def Lean.IR.Checker.getUSizeSize._boxed (x_1 : tagged) : tobj :=\n  let x_2 : tobj := Lean.IR.Checker.getUSizeSize x_1;\n  ret x_2",
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Lean"
+            ],
+            "Compiler"
+          ],
+          "IR"
+        ],
+        "Checker"
+      ]
+    }
+  },
+  {
+    "label": "UInt32.decLt",
+    "sha256": "8ccf8209984fd20d47111da07fea9894e060318a03518eea2bd0b6a26e55479d",
+    "kind": "extern",
+    "abi": {
+      "params": [
+        "uint32",
+        "uint32"
+      ],
+      "borrowed": [
+        false,
+        false
+      ],
+      "result": "uint8"
+    },
+    "row": {
+      "dependencies": [],
+      "ir": {
+        "extern": {
+          "ext": {
+            "entries": [
+              {
+                "standard": {
+                  "backend": [
+                    "str",
+                    [
+                      "anonymous"
+                    ],
+                    "all"
+                  ],
+                  "fn": "lean_uint32_dec_lt"
+                }
+              }
+            ]
+          },
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "UInt32"
+            ],
+            "decLt"
+          ],
+          "type": "uint8",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "uint32",
+              "x": {
+                "idx": 1
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "uint32",
+              "x": {
+                "idx": 2
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "anonymous"
+          ],
+          "UInt32"
+        ],
+        "decLt"
+      ],
+      "pretty": "extern UInt32.decLt (x_1 : u32) (x_2 : u32) : u8",
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "anonymous"
+          ],
+          "Init"
+        ],
+        "Prelude"
+      ]
+    }
+  },
+  {
+    "label": "UInt32.decLt._boxed",
+    "sha256": "f21e154fc2a0422508fd7cc95647d3b8bde4e82c3ed11ee35fc8684dc923567e",
+    "kind": "fdecl",
+    "abi": {
+      "params": [
+        "tobject",
+        "tobject"
+      ],
+      "borrowed": [
+        false,
+        false
+      ],
+      "result": "tagged"
+    },
+    "row": {
+      "dependencies": [
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "UInt32"
+          ],
+          "decLt"
+        ]
+      ],
+      "ir": {
+        "fdecl": {
+          "body": [
+            "vdecl",
+            {
+              "idx": 3
+            },
+            "uint32",
+            {
+              "unbox": {
+                "x": {
+                  "idx": 1
+                }
+              }
+            },
+            [
+              "dec",
+              {
+                "idx": 1
+              },
+              1,
+              true,
+              false,
+              [
+                "vdecl",
+                {
+                  "idx": 4
+                },
+                "uint32",
+                {
+                  "unbox": {
+                    "x": {
+                      "idx": 2
+                    }
+                  }
+                },
+                [
+                  "dec",
+                  {
+                    "idx": 2
+                  },
+                  1,
+                  true,
+                  false,
+                  [
+                    "vdecl",
+                    {
+                      "idx": 5
+                    },
+                    "uint8",
+                    {
+                      "fap": {
+                        "c": [
+                          "str",
+                          [
+                            "str",
+                            [
+                              "anonymous"
+                            ],
+                            "UInt32"
+                          ],
+                          "decLt"
+                        ],
+                        "ys": [
+                          {
+                            "var": {
+                              "id": {
+                                "idx": 3
+                              }
+                            }
+                          },
+                          {
+                            "var": {
+                              "id": {
+                                "idx": 4
+                              }
+                            }
+                          }
+                        ]
+                      }
+                    },
+                    [
+                      "vdecl",
+                      {
+                        "idx": 6
+                      },
+                      "tagged",
+                      {
+                        "box": {
+                          "ty": "uint8",
+                          "x": {
+                            "idx": 5
+                          }
+                        }
+                      },
+                      [
+                        "ret",
+                        {
+                          "var": {
+                            "id": {
+                              "idx": 6
+                            }
+                          }
+                        }
+                      ]
+                    ]
+                  ]
+                ]
+              ]
+            ]
+          ],
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "UInt32"
+              ],
+              "decLt"
+            ],
+            "_boxed"
+          ],
+          "info": {},
+          "type": "tagged",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 1
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 2
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "UInt32"
+          ],
+          "decLt"
+        ],
+        "_boxed"
+      ],
+      "pretty": "def UInt32.decLt._boxed (x_1 : tobj) (x_2 : tobj) : tagged :=\n  let x_3 : u32 := unbox x_1;\n  dec x_1;\n  let x_4 : u32 := unbox x_2;\n  dec x_2;\n  let x_5 : u8 := UInt32.decLt x_3 x_4;\n  let x_6 : tagged := box x_5;\n  ret x_6",
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "anonymous"
+          ],
+          "Init"
+        ],
+        "Prelude"
+      ]
+    }
+  },
+  {
+    "label": "UInt64.toNat",
+    "sha256": "1d1927ab93d589889deb80a4784e495d6c6806f9a39e5ab45e0928913fcad17e",
+    "kind": "extern",
+    "abi": {
+      "params": [
+        "uint64"
+      ],
+      "borrowed": [
+        false
+      ],
+      "result": "tobject"
+    },
+    "row": {
+      "dependencies": [],
+      "ir": {
+        "extern": {
+          "ext": {
+            "entries": [
+              {
+                "standard": {
+                  "backend": [
+                    "str",
+                    [
+                      "anonymous"
+                    ],
+                    "all"
+                  ],
+                  "fn": "lean_uint64_to_nat"
+                }
+              }
+            ]
+          },
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "UInt64"
+            ],
+            "toNat"
+          ],
+          "type": "tobject",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "uint64",
+              "x": {
+                "idx": 1
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "anonymous"
+          ],
+          "UInt64"
+        ],
+        "toNat"
+      ],
+      "pretty": "extern UInt64.toNat (x_1 : u64) : tobj",
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Init"
+            ],
+            "Data"
+          ],
+          "UInt"
+        ],
+        "BasicAux"
+      ]
+    }
+  },
+  {
+    "label": "UInt64.toNat._boxed",
+    "sha256": "c2b622b81f1408349c25eee61d7362b1acea8d44538e1add9924f469bdd62bf4",
+    "kind": "fdecl",
+    "abi": {
+      "params": [
+        "object"
+      ],
+      "borrowed": [
+        false
+      ],
+      "result": "tobject"
+    },
+    "row": {
+      "dependencies": [
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "UInt64"
+          ],
+          "toNat"
+        ]
+      ],
+      "ir": {
+        "fdecl": {
+          "body": [
+            "vdecl",
+            {
+              "idx": 2
+            },
+            "uint64",
+            {
+              "unbox": {
+                "x": {
+                  "idx": 1
+                }
+              }
+            },
+            [
+              "dec",
+              {
+                "idx": 1
+              },
+              1,
+              false,
+              false,
+              [
+                "vdecl",
+                {
+                  "idx": 3
+                },
+                "tobject",
+                {
+                  "fap": {
+                    "c": [
+                      "str",
+                      [
+                        "str",
+                        [
+                          "anonymous"
+                        ],
+                        "UInt64"
+                      ],
+                      "toNat"
+                    ],
+                    "ys": [
+                      {
+                        "var": {
+                          "id": {
+                            "idx": 2
+                          }
+                        }
+                      }
+                    ]
+                  }
+                },
+                [
+                  "ret",
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 3
+                      }
+                    }
+                  }
+                ]
+              ]
+            ]
+          ],
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "UInt64"
+              ],
+              "toNat"
+            ],
+            "_boxed"
+          ],
+          "info": {},
+          "type": "tobject",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "object",
+              "x": {
+                "idx": 1
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "UInt64"
+          ],
+          "toNat"
+        ],
+        "_boxed"
+      ],
+      "pretty": "def UInt64.toNat._boxed (x_1 : obj) : tobj :=\n  let x_2 : u64 := unbox x_1;\n  dec x_1;\n  let x_3 : tobj := UInt64.toNat x_2;\n  ret x_3",
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Init"
+            ],
+            "Data"
+          ],
+          "UInt"
+        ],
+        "BasicAux"
+      ]
+    }
+  },
+  {
+    "label": "UInt16.decEq",
+    "sha256": "979ac0d8d5fe906901d5d44ffdab712de3b12b18b8033e4749a145c413c0fda9",
+    "kind": "extern",
+    "abi": {
+      "params": [
+        "uint16",
+        "uint16"
+      ],
+      "borrowed": [
+        false,
+        false
+      ],
+      "result": "uint8"
+    },
+    "row": {
+      "dependencies": [],
+      "ir": {
+        "extern": {
+          "ext": {
+            "entries": [
+              {
+                "standard": {
+                  "backend": [
+                    "str",
+                    [
+                      "anonymous"
+                    ],
+                    "all"
+                  ],
+                  "fn": "lean_uint16_dec_eq"
+                }
+              }
+            ]
+          },
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "UInt16"
+            ],
+            "decEq"
+          ],
+          "type": "uint8",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "uint16",
+              "x": {
+                "idx": 1
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "uint16",
+              "x": {
+                "idx": 2
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "anonymous"
+          ],
+          "UInt16"
+        ],
+        "decEq"
+      ],
+      "pretty": "extern UInt16.decEq (x_1 : u16) (x_2 : u16) : u8",
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "anonymous"
+          ],
+          "Init"
+        ],
+        "Prelude"
+      ]
+    }
+  },
+  {
+    "label": "UInt16.decEq._boxed",
+    "sha256": "da0de62bfda656fe92179523259dce6e6ab6a96d4c613644fa9529447a3af7c8",
+    "kind": "fdecl",
+    "abi": {
+      "params": [
+        "tagged",
+        "tagged"
+      ],
+      "borrowed": [
+        false,
+        false
+      ],
+      "result": "tagged"
+    },
+    "row": {
+      "dependencies": [
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "UInt16"
+          ],
+          "decEq"
+        ]
+      ],
+      "ir": {
+        "fdecl": {
+          "body": [
+            "vdecl",
+            {
+              "idx": 3
+            },
+            "uint16",
+            {
+              "unbox": {
+                "x": {
+                  "idx": 1
+                }
+              }
+            },
+            [
+              "vdecl",
+              {
+                "idx": 4
+              },
+              "uint16",
+              {
+                "unbox": {
+                  "x": {
+                    "idx": 2
+                  }
+                }
+              },
+              [
+                "vdecl",
+                {
+                  "idx": 5
+                },
+                "uint8",
+                {
+                  "fap": {
+                    "c": [
+                      "str",
+                      [
+                        "str",
+                        [
+                          "anonymous"
+                        ],
+                        "UInt16"
+                      ],
+                      "decEq"
+                    ],
+                    "ys": [
+                      {
+                        "var": {
+                          "id": {
+                            "idx": 3
+                          }
+                        }
+                      },
+                      {
+                        "var": {
+                          "id": {
+                            "idx": 4
+                          }
+                        }
+                      }
+                    ]
+                  }
+                },
+                [
+                  "vdecl",
+                  {
+                    "idx": 6
+                  },
+                  "tagged",
+                  {
+                    "box": {
+                      "ty": "uint8",
+                      "x": {
+                        "idx": 5
+                      }
+                    }
+                  },
+                  [
+                    "ret",
+                    {
+                      "var": {
+                        "id": {
+                          "idx": 6
+                        }
+                      }
+                    }
+                  ]
+                ]
+              ]
+            ]
+          ],
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "UInt16"
+              ],
+              "decEq"
+            ],
+            "_boxed"
+          ],
+          "info": {},
+          "type": "tagged",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "tagged",
+              "x": {
+                "idx": 1
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "tagged",
+              "x": {
+                "idx": 2
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "UInt16"
+          ],
+          "decEq"
+        ],
+        "_boxed"
+      ],
+      "pretty": "def UInt16.decEq._boxed (x_1 : tagged) (x_2 : tagged) : tagged :=\n  let x_3 : u16 := unbox x_1;\n  let x_4 : u16 := unbox x_2;\n  let x_5 : u8 := UInt16.decEq x_3 x_4;\n  let x_6 : tagged := box x_5;\n  ret x_6",
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "anonymous"
+          ],
+          "Init"
+        ],
+        "Prelude"
+      ]
+    }
+  },
+  {
+    "label": "UInt16.toNat",
+    "sha256": "ea543968cd4ef18a8d204f48673dfebe4be90bd79a98c5cd4e8ae922a9d7a858",
+    "kind": "extern",
+    "abi": {
+      "params": [
+        "uint16"
+      ],
+      "borrowed": [
+        false
+      ],
+      "result": "tagged"
+    },
+    "row": {
+      "dependencies": [],
+      "ir": {
+        "extern": {
+          "ext": {
+            "entries": [
+              {
+                "standard": {
+                  "backend": [
+                    "str",
+                    [
+                      "anonymous"
+                    ],
+                    "all"
+                  ],
+                  "fn": "lean_uint16_to_nat"
+                }
+              }
+            ]
+          },
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "UInt16"
+            ],
+            "toNat"
+          ],
+          "type": "tagged",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "uint16",
+              "x": {
+                "idx": 1
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "anonymous"
+          ],
+          "UInt16"
+        ],
+        "toNat"
+      ],
+      "pretty": "extern UInt16.toNat (x_1 : u16) : tagged",
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Init"
+            ],
+            "Data"
+          ],
+          "UInt"
+        ],
+        "BasicAux"
+      ]
+    }
+  },
+  {
+    "label": "UInt16.toNat._boxed",
+    "sha256": "fa85f7542487b4e2b0960bbea0d31d43294ee2568a57608f5447c6a317aa2539",
+    "kind": "fdecl",
+    "abi": {
+      "params": [
+        "tagged"
+      ],
+      "borrowed": [
+        false
+      ],
+      "result": "tagged"
+    },
+    "row": {
+      "dependencies": [
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "UInt16"
+          ],
+          "toNat"
+        ]
+      ],
+      "ir": {
+        "fdecl": {
+          "body": [
+            "vdecl",
+            {
+              "idx": 2
+            },
+            "uint16",
+            {
+              "unbox": {
+                "x": {
+                  "idx": 1
+                }
+              }
+            },
+            [
+              "vdecl",
+              {
+                "idx": 3
+              },
+              "tagged",
+              {
+                "fap": {
+                  "c": [
+                    "str",
+                    [
+                      "str",
+                      [
+                        "anonymous"
+                      ],
+                      "UInt16"
+                    ],
+                    "toNat"
+                  ],
+                  "ys": [
+                    {
+                      "var": {
+                        "id": {
+                          "idx": 2
+                        }
+                      }
+                    }
+                  ]
+                }
+              },
+              [
+                "ret",
+                {
+                  "var": {
+                    "id": {
+                      "idx": 3
+                    }
+                  }
+                }
+              ]
+            ]
+          ],
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "UInt16"
+              ],
+              "toNat"
+            ],
+            "_boxed"
+          ],
+          "info": {},
+          "type": "tagged",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "tagged",
+              "x": {
+                "idx": 1
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "UInt16"
+          ],
+          "toNat"
+        ],
+        "_boxed"
+      ],
+      "pretty": "def UInt16.toNat._boxed (x_1 : tagged) : tagged :=\n  let x_2 : u16 := unbox x_1;\n  let x_3 : tagged := UInt16.toNat x_2;\n  ret x_3",
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Init"
+            ],
+            "Data"
+          ],
+          "UInt"
+        ],
+        "BasicAux"
+      ]
+    }
+  }
+]

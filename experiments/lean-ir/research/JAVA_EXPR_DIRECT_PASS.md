@@ -159,4 +159,5 @@ on that same artifact. The separate 384 MiB combined gate exited zero:
 **121 groups / 1,228 tests / 55,012 assertions**, with no failures or errors.
 The initial gate launch lacked the documented TypedLongMemo classpath helper
 and stopped before tests; compiling that unchanged helper fixed the harness.
-The original Expr native remains unavailable pending the complete second pass.
+At this direct-pass checkpoint the original Expr native remained unavailable.
+The later complete two-pass API is documented in [JAVA_EXPR_FULL_RUNTIME.md](JAVA_EXPR_FULL_RUNTIME.md); its configured source-policy and entry gates are separate.

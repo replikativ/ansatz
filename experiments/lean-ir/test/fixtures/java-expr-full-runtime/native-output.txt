@@ -1,0 +1,12 @@
+closed:true
+bare:true
+direct-chain:true
+level:true
+exact:true
+zero-fvars-beta:true
+binder-lift:true
+duplicate-fvars:true
+too-few:true
+unassigned-pending:true
+nested:true
+writeback:true

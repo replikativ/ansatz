@@ -24,11 +24,13 @@ public final class Interpreter implements AutoCloseable {
     private static final int MAP_APPLY=13,MAP_WRAP=14;
     private static final int CTOR=0,PROJ=1,SPROJ=2,FAP=3,PAP=4,AP=5,BOX=6,UNBOX=7,LIT=8,SHARED=9,UPROJ=10;
     private static final int ADD=1,SUB=2,MOD=3,EQ=4,LT=5,MUL=6,DIV=7,POW=8;
+    private static final int LAYOUT_FIELDS=531,LAYOUT_SCALARS=532,LAYOUT_TAG=533,LAYOUT_USIZE=534,U32_LT=535,U64_TO_NAT=536;
     private static final int USIZE_NAT=9,USIZE_REPR=10,U32_NAT=11,U32_EQ=12,U32_LE=13,PLATFORM_BITS=14;
     private static final int STR_POS_SET=260;
     private static final int VOID_MK=516,LEVEL_INSTANTIATE=517,EXPR_FIND_EXT=519;
     private static final int ARRAY_CHECKED_SET=518,SHARECOMMON_QUICK=520,EXPR_REPLACE=521,EXPR_ABSTRACT_RANGE=522,EXPR_ABSTRACT=523;
-    private static final int EXPR_INSTANTIATE=524,EXPR_INSTANTIATE1=525,EXPR_INSTANTIATE_RANGE=526,EXPR_INSTANTIATE_REV=527,EXPR_INSTANTIATE_REV_RANGE=528,EXPR_LIFT=529;
+    private static final int EXPR_INSTANTIATE=524,EXPR_INSTANTIATE1=525,EXPR_INSTANTIATE_RANGE=526,EXPR_INSTANTIATE_REV=527,EXPR_INSTANTIATE_REV_RANGE=528,EXPR_LIFT=529,EXPR_INSTANTIATE_MVARS=530;
+    private static final int EXPR_HAS_LOOSE=537,EXPR_LOWER=538;
     private static final int EXPR_DATA=400,EXPR_APP_DATA=401,LEVEL_DATA=402,EXPR_CACHE=403,EXPR_EQV=404,EXPR_EQUAL=405,U8_TO_U32=406,U64_TO_U8=407,EXPR_FIND=408,LEVEL_EQUAL=409;
     private static final int PROFILE_IT=410;
     private static final int STR_PUSH=15,STR_LIST=16,STR_GET=17,STR_NEXT=18,STR_APPEND=19,STR_SIZE=20,
@@ -274,6 +276,12 @@ public final class Interpreter implements AutoCloseable {
         register(registry,new ExternSpec("lean_uint32_dec_eq",U32_EQ,"uint8",new String[]{"uint32","uint32"},new boolean[]{false,false}));
         register(registry,new ExternSpec("lean_uint32_dec_le",U32_LE,"uint8",new String[]{"uint32","uint32"},new boolean[]{false,false}));
         register(registry,new ExternSpec("lean_system_platform_nbits",PLATFORM_BITS,"tobject",new String[]{"tagged"},new boolean[]{false}));
+        register(registry,new ExternSpec("lean_get_max_ctor_fields",LAYOUT_FIELDS,"tobject",new String[]{"tagged"},new boolean[]{false}));
+        register(registry,new ExternSpec("lean_get_max_ctor_scalars_size",LAYOUT_SCALARS,"tobject",new String[]{"tagged"},new boolean[]{false}));
+        register(registry,new ExternSpec("lean_get_max_ctor_tag",LAYOUT_TAG,"tobject",new String[]{"tagged"},new boolean[]{false}));
+        register(registry,new ExternSpec("lean_get_usize_size",LAYOUT_USIZE,"tobject",new String[]{"tagged"},new boolean[]{false}));
+        register(registry,new ExternSpec("lean_uint32_dec_lt",U32_LT,"uint8",new String[]{"uint32","uint32"},new boolean[]{false,false}));
+        register(registry,new ExternSpec("lean_uint64_to_nat",U64_TO_NAT,"tobject",new String[]{"uint64"},new boolean[]{false}));
         register(registry,new ExternSpec("lean_string_push",STR_PUSH,"object",new String[]{"object","uint32"},new boolean[]{false,false}));
         register(registry,new ExternSpec("lean_string_mk",STR_LIST,"object",new String[]{"tobject"},new boolean[]{false}));
         register(registry,new ExternSpec("lean_string_utf8_get_fast",STR_GET,"uint32",new String[]{"object","tobject","erased"},new boolean[]{true,true,false}));
@@ -440,6 +448,8 @@ public final class Interpreter implements AutoCloseable {
                 new String[]{"erased","object","object","tobject","tobject"},new boolean[]{false,true,true,false,false}));
         register(registry,new ExternSpec("lean_instantiate_level_mvars",LEVEL_INSTANTIATE,"object",
                 new String[]{"object","tobject"},new boolean[]{false,false}));
+        if(EXPR_INSTANTIATION_NATIVE_READY) register(registry,new ExternSpec("lean_instantiate_expr_mvars",EXPR_INSTANTIATE_MVARS,"object",
+                new String[]{"object","object"},new boolean[]{false,false}));
         register(registry,new ExternSpec("lean_void_mk",VOID_MK,"void",
                 new String[]{"erased","tobject"},new boolean[]{false,false}));
         register(registry,new ExternSpec("lean_find_ext_expr",EXPR_FIND_EXT,"tobject",
@@ -472,6 +482,10 @@ public final class Interpreter implements AutoCloseable {
                 new String[]{"tobject","tobject"},new boolean[]{true,true}));
         register(registry,new ExternSpec("lean_expr_equal",EXPR_EQUAL,"uint8",
                 new String[]{"object","object"},new boolean[]{true,true}));
+        register(registry,new ExternSpec("lean_expr_has_loose_bvar",EXPR_HAS_LOOSE,"uint8",
+                new String[]{"object","tobject"},new boolean[]{true,true}));
+        register(registry,new ExternSpec("lean_expr_lower_loose_bvars",EXPR_LOWER,"object",
+                new String[]{"object","tobject","tobject"},new boolean[]{true,true,true}));
         register(registry,new ExternSpec("lean_expr_data",EXPR_CACHE,"uint64",
                 new String[]{"object"},new boolean[]{true}));
         register(registry,new ExternSpec("lean_expr_mk_data",EXPR_DATA,"uint64",
@@ -1535,7 +1549,7 @@ public final class Interpreter implements AutoCloseable {
         for(int lane:f.paramTypes) require(lane==OBJ,"Expr constructor requires OBJ parameters");
         return preflightCallable(f,true);
     }
-    private static final int EXPR_LIFT_JOB=0,EXPR_SUBST_JOB=1,EXPR_BETA_JOB=2,EXPR_ABSTRACT_JOB=3,EXPR_CALLBACK_JOB=4;
+    private static final int EXPR_LIFT_JOB=0,EXPR_SUBST_JOB=1,EXPR_BETA_JOB=2,EXPR_ABSTRACT_JOB=3,EXPR_CALLBACK_JOB=4,EXPR_LOWER_JOB=5;
     private static final int MAX_EXPR_JOB_FRAMES=100_000,MAX_EXPR_JOB_CACHE=100_000,MAX_EXPR_JOB_OFFSET=1_048_575;
     private static final boolean EXPR_MACHINERY_READY=true;
     private static final class ExprCredit {
@@ -1573,7 +1587,7 @@ public final class Interpreter implements AutoCloseable {
     private static final class ExprPacket {
         Function function; Object[] arguments,expectedFields; boolean[] owned;
         int role,expectedTag,expectedFlag; boolean started,entered;
-        ExprReplaceFrame replaceFrame; BetaJob beta; ExprDirectTask directTarget;
+        ExprReplaceFrame replaceFrame; BetaJob beta; ExprDirectTask directTarget; DelayedTransformTask delayedTarget;
     }
     private static final int MAX_INSTANTIATION_WORK=1_000_000;
     private static final class InstantiationBudget { long work; }
@@ -1767,8 +1781,85 @@ public final class Interpreter implements AutoCloseable {
     private static Object exprSubstitutionAt(ReplaceJob job,int relative) { return job.slice==null?job.substitutions[relative]:job.slice.at(relative); }
     private static boolean pureExprTransform(int op) {
         return op==EXPR_INSTANTIATE||op==EXPR_INSTANTIATE1||op==EXPR_INSTANTIATE_RANGE
-                ||op==EXPR_INSTANTIATE_REV||op==EXPR_INSTANTIATE_REV_RANGE||op==EXPR_LIFT;
+                ||op==EXPR_INSTANTIATE_REV||op==EXPR_INSTANTIATE_REV_RANGE||op==EXPR_LIFT||op==EXPR_LOWER;
     }
+    private static final int MAX_EXPR_LOOSE_WORK=1_000_000,MAX_EXPR_LOOSE_STACK=100_000,MAX_EXPR_LOOSE_KEYS=100_000;
+    private static final class LooseSearchFrame {
+        final Node node; final int offset; final boolean exit;
+        LooseSearchFrame(Node node,int offset,boolean exit) { this.node=node; this.offset=offset; this.exit=exit; }
+    }
+    /** Borrowed atomic search: no helper call, RC change or persisted memo.
+     * Native likely-unshared is rc==1, deliberately ignoring logical MT. */
+    private final class LooseBVarSearch {
+        final ArrayDeque<LooseSearchFrame> stack=new ArrayDeque<>();
+        final IdentityHashMap<Node,HashSet<Integer>> visited=new IdentityHashMap<>(),active=new IdentityHashMap<>();
+        long work; int keys;
+        void charge(long amount) {
+            require(amount>=0&&amount<=MAX_EXPR_LOOSE_WORK-work,"Expr loose search work outside bounded runtime profile");
+            long before=work; work+=amount;
+            if((before>>>10)!=(work>>>10)&&Thread.currentThread().isInterrupted()) throw error("Expr loose search interrupted");
+        }
+        void push(Node node,int offset,boolean exit) {
+            require(offset>=0&&offset<=MAX_EXPR_JOB_OFFSET,"Expr loose search binder offset outside profile");
+            require(stack.size()<MAX_EXPR_LOOSE_STACK,"Expr loose search stack outside profile");
+            stack.push(new LooseSearchFrame(node,offset,exit));
+        }
+        boolean apply(Object value,Object indexValue) {
+            Node root=exprNode(value); BigInteger index=pureExprNat(indexValue);
+            charge(1);
+            if(index.compareTo(SMALL_MAX)>0||(exprCachedData(root)>>>44)==0) return false;
+            long wanted=index.longValue()&0xffffffffL; push(root,0,false);
+            while(!stack.isEmpty()) {
+                charge(1); LooseSearchFrame frame=stack.pop(); Node node=exprNode(frame.node); int offset=frame.offset;
+                if(frame.exit) {
+                    HashSet<Integer> offsets=active.get(node);
+                    require(offsets!=null&&offsets.remove(offset),"Expr loose search active ledger differs");
+                    if(offsets.isEmpty()) active.remove(node); continue;
+                }
+                HashSet<Integer> current=active.get(node);
+                require(current==null||!current.contains(offset),"Cyclic Expr loose search outside source profile");
+                if(node.tag!=0&&node.tag!=3&&node.tag!=4&&node.rc!=1) {
+                    HashSet<Integer> offsets=visited.get(node);
+                    if(offsets!=null&&offsets.contains(offset)) continue;
+                    require(keys<MAX_EXPR_LOOSE_KEYS,"Expr loose search visited key bound"); keys++; charge(1);
+                    if(offsets==null) { offsets=new HashSet<>(); visited.put(node,offsets); }
+                    offsets.add(offset);
+                }
+                long target=(wanted+offset)&0xffffffffL;
+                if(target<wanted||target>=(exprCachedData(node)>>>44)) continue;
+                if(node.tag==0) {
+                    BigInteger actual=pureExprNat(node.fields[0]); charge(1+(actual.bitLength()+63L)/64);
+                    if(actual.equals(BigInteger.valueOf(target))) return true;
+                    continue;
+                }
+                int count=exprChildCount(node.tag); if(count==0) continue;
+                if(current==null) { current=new HashSet<>(); active.put(node,current); }
+                require(current.add(offset),"Expr loose search active duplicate");
+                push(node,offset,true);
+                for(int i=count-1;i>=0;i--) {
+                    boolean body=(node.tag==6||node.tag==7)&&i==1||node.tag==8&&i==2;
+                    require(!body||offset<MAX_EXPR_JOB_OFFSET,"Expr loose search binder offset bound");
+                    push(exprNode(node.fields[exprChildField(node.tag,i)]),offset+(body?1:0),false);
+                }
+            }
+            return false;
+        }
+    }
+    private static boolean borrowedExprLooseQuery(int op) { return op==EXPR_HAS_LOOSE; }
+    /** Preserve the full immediate comparison before C++ unsigned32 narrowing.
+     * Only the continued assertion domain is rejected; earlier source identity
+     * shortcuts remain identity even if narrowed cutoff<delta. */
+    private long[] lowerExprParameters(Object input,Object cutoffValue,Object deltaValue) {
+        BigInteger cutoff=pureExprNat(cutoffValue),delta=pureExprNat(deltaValue);
+        long s=0,d=0;
+        if(cutoff.compareTo(SMALL_MAX)<=0&&delta.compareTo(SMALL_MAX)<=0&&cutoff.compareTo(delta)>=0) {
+            s=cutoff.longValue()&0xffffffffL; d=delta.longValue()&0xffffffffL;
+            if(d==0||s>=(exprCachedData(input)>>>44)) { s=0; d=0; }
+            else require(s>=d,"Expr lower narrowed assertion domain outside bounded profile");
+        }
+        return new long[]{s,d};
+    }
+
     private static BigInteger pureExprNat(Object value) {
         require(!(value instanceof BigInteger)||value.getClass()==BigInteger.class,"Expr transform Nat requires exact immutable BigInteger");
         return nat(value);
@@ -1796,16 +1887,21 @@ public final class Interpreter implements AutoCloseable {
     }
     private void validatePureExprTransform(Function function,Object[] args) {
         exprTransformsProfile(function);
-        int op=function.intrinsic,arity=op==EXPR_LIFT?3:op==EXPR_INSTANTIATE_RANGE||op==EXPR_INSTANTIATE_REV_RANGE?4:2;
+        int op=function.intrinsic,arity=op==EXPR_LIFT||op==EXPR_LOWER?3:op==EXPR_INSTANTIATE_RANGE||op==EXPR_INSTANTIATE_REV_RANGE?4:2;
         require(args!=null&&args.length==arity,"Pure Expr transform native arity mismatch");
         exprNode(args[0]);
-        if(op==EXPR_LIFT) { pureExprNat(args[1]); pureExprNat(args[2]); }
+        if(op==EXPR_LOWER) lowerExprParameters(args[0],args[1],args[2]);
+        else if(op==EXPR_LIFT) { pureExprNat(args[1]); pureExprNat(args[2]); }
         else pureExprSlice(function,args);
     }
     private void preparePureExprTransform(RuntimeAction action,Function function,Object[] args) {
         ExprMachineryState state=new ExprMachineryState(); state.policy=exprTransformsProfile(function);
         state.budget=new InstantiationBudget();
-        if(function.intrinsic==EXPR_LIFT) {
+        if(function.intrinsic==EXPR_LOWER) {
+            long[] parameters=lowerExprParameters(args[0],args[1],args[2]);
+            require(parameters[0]<=MAX_EXPR_JOB_OFFSET,"Expr lower continued cutoff outside profile");
+            pushReplaceJob(state,EXPR_LOWER_JOB,args[0],(int)parameters[0],parameters[1],new Object[0]);
+        } else if(function.intrinsic==EXPR_LIFT) {
             BigInteger cutoff=pureExprNat(args[1]),delta=pureExprNat(args[2]);
             long s=0,d=0;
             // Typed canonical Nat values above signed63 are native heap Nats.
@@ -1895,7 +1991,7 @@ public final class Interpreter implements AutoCloseable {
             if(job.mode==EXPR_CALLBACK_JOB) { job.stage=1; pushExprFrame(state,job,job.input,0); return; }
             Node input=exprNode(job.input); long range=exprCachedData(input)>>>44;
             boolean shortcut=job.mode==EXPR_ABSTRACT_JOB?!abstractFlags(input):
-                    job.mode==EXPR_LIFT_JOB?(job.amount==0||job.cutoff>=range):((exprSubstitutionCount(job)==0&&(job.slice==null||!job.slice.reverse))||range==0);
+                    (job.mode==EXPR_LIFT_JOB||job.mode==EXPR_LOWER_JOB)?(job.amount==0||job.cutoff>=range):((exprSubstitutionCount(job)==0&&(job.slice==null||!job.slice.reverse))||range==0);
             if(shortcut) {
                 job.result=exprCredit(input); acquireExpr(job.result); job.stage=2; return;
             }
@@ -1925,11 +2021,13 @@ public final class Interpreter implements AutoCloseable {
                 }
             } else {
                 long threshold=(long)job.cutoff+frame.offset;
+                if(job.mode==EXPR_LOWER_JOB&&threshold>0xffffffffL) { selectExpr(frame,node); return; }
                 if(threshold>=(exprCachedData(node)>>>44)) { selectExpr(frame,node); return; }
                 if(node.tag==0) {
                     BigInteger index=nat(node.fields[0]); exprJobWork(state,1+(index.bitLength()+63L)/64);
                     if(index.compareTo(BigInteger.valueOf(threshold))>=0) {
                         if(job.mode==EXPR_LIFT_JOB) { requestBVar(action,state,frame,index.add(BigInteger.valueOf(job.amount))); return; }
+                        if(job.mode==EXPR_LOWER_JOB) { requestBVar(action,state,frame,index.subtract(BigInteger.valueOf(job.amount))); return; }
                         BigInteger at=index.subtract(BigInteger.valueOf(frame.offset));
                         if(at.compareTo(BigInteger.valueOf(exprSubstitutionCount(job)))<0) {
                             frame.stage=XR_LIFT_WAIT;
@@ -2135,14 +2233,14 @@ public final class Interpreter implements AutoCloseable {
 
     /** Complete nineteen-role source binding for private pass-one research.
      * Descriptive Header hashes are not source authentication. */
-    private static final class ExprInstantiationPolicy {
+    public static final class ExprInstantiationPolicy {
         final LevelInstantiationPolicy levels;
         final ExprConstructorPolicy constructors;
         final Header[] helpers;
         private ExprInstantiationPolicy(LevelInstantiationPolicy levels,ExprConstructorPolicy constructors,Header[] helpers) {
             this.levels=levels; this.constructors=constructors; this.helpers=helpers.clone();
         }
-        static ExprInstantiationPolicy originalHelpers(LevelInstantiationPolicy levels,Header[] helpers,Header[] constructors) {
+        public static ExprInstantiationPolicy originalHelpers(LevelInstantiationPolicy levels,Header[] helpers,Header[] constructors) {
             require(levels!=null&&helpers!=null&&helpers.length==5,"Five original Expr helper Headers required");
             ExprConstructorPolicy ctor=ExprConstructorPolicy.originalHeaders(constructors);
             require(ctor.helpers[0].source==levels.helpers[0].source,"Expr/Level constructor source bindings differ");
@@ -2285,8 +2383,9 @@ public final class Interpreter implements AutoCloseable {
     }
     private void directHelperEntry(Function function,Object[] arguments) {
         RuntimeAction action=runtimeAction;
-        if(action==null||action.exprDirect==null) return;
-        DirectHelperPacket packet=action.exprDirect.session.call;
+        ExprDirectSession session=currentDirectSession(action);
+        if(session==null||session.phase!=DS_RUNNING) return;
+        DirectHelperPacket packet=session.call;
         if(packet==null||packet.entered||packet.function!=function||packet.arguments!=arguments) return;
         require(packet.started,"Direct Expr helper entered before packet publication");
         packet.entered=true; Arrays.fill(packet.owned,false);
@@ -2873,7 +2972,7 @@ public final class Interpreter implements AutoCloseable {
     }
     private static final class DelayedHelperPacket {
         Function function; Object[] arguments; boolean[] owned;
-        ResolverTask target; int role; boolean started,entered;
+        ResolverTask target; DelayedTransformTask transformTarget; int role; boolean started,entered;
     }
     private static final class DelayedSession {
         MVarContextCell context; InstantiationBudget budget; ExprInstantiationPolicy policy;
@@ -2881,6 +2980,9 @@ public final class Interpreter implements AutoCloseable {
         final IdentityHashMap<Node,Boolean> resolvableExpressions=new IdentityHashMap<>();
         final HashMap<Integer,ArrayList<PendingNameEntry>> pending=new HashMap<>();
         final ArrayList<PendingNameEntry> pendingOwners=new ArrayList<>();
+        final ArrayList<ExprCredit> saved=new ArrayList<>();
+        final HashMap<Integer,ArrayList<DirectNameEntry>> normalized=new HashMap<>();
+        final ArrayList<DirectNameEntry> nameOwners=new ArrayList<>();
         final HashMap<Integer,ArrayList<SubstitutionEntry>> substitutions=new HashMap<>();
         final ArrayList<SubstitutionEntry> substitutionOwners=new ArrayList<>();
         final ArrayDeque<ResolverTask> resolver=new ArrayDeque<>();
@@ -2900,6 +3002,591 @@ public final class Interpreter implements AutoCloseable {
         int mode,commandCursor,stage,cleanup,outputFields;
         final ArrayList<Long> observations=new ArrayList<>();
     }
+    /* Stage five: private complete transform scaffold. Native530 is RESERVED,
+     * not registered. No operation can claim input while READY remains false. */
+    private static final boolean EXPR_FULL_RESEARCH_READY=true;
+    private static final boolean EXPR_INSTANTIATION_NATIVE_READY=true;
+    private static final int DT_IDLE=0,DT_RUNNING=1,DT_RESULT=2,DT_SEALED=3,DT_DRAINED=4;
+    private abstract static class DelayedTransformTask {
+        DelayedTransformTask child;
+        ExprCredit result,received;
+        int stage,cleanup;
+        boolean completed,helperDone;
+    }
+    /** NORMAL snapshots sharing and the caller watermark before child work.
+     * Child occurrences stay owned until their literal case-block boundaries. */
+    private static final class DelayedVisitFrame extends DelayedTransformTask {
+        Node original;
+        int entryDepth,savedWatermark,cursor;
+        boolean shared,cacheHit,skipInsert;
+        final ExprCredit[] children=new ExprCredit[3];
+        DelayedVisitFrame(Node original) { this.original=original; }
+    }
+    private static final class DelayedFVarFrame extends DelayedTransformTask {
+        Node original; Object name;
+        DelayedFVarFrame(Node original) { this.original=original; }
+    }
+    /** A private optional result: present/result, never a fabricated guest Some. */
+    private static final class DelayedAssignmentFrame extends DelayedTransformTask {
+        Object name;
+        ExprCredit option,assigned,newValue;
+        boolean present,outer;
+        DelayedAssignmentFrame(Object name) { this.name=name; }
+    }
+    private static final class DelayedAppFrame extends DelayedTransformTask {
+        Node original; Object head,cursor;
+        int argumentCount;
+        ExprCredit option,recordTemporary,fvars,pendingName,discardedAssignment;
+        DelayedAppFrame(Node original) { this.original=original; }
+    }
+    /** Prefix function Apps bypass NORMAL cache in both lookup and insertion. */
+    private static final class DelayedPrefixFrame extends DelayedTransformTask {
+        Node original;
+        ExprCredit argument,function;
+        DelayedPrefixFrame(Node original) { this.original=original; }
+    }
+    private static final class DelayedResolveFrame extends DelayedTransformTask {
+        Node original;
+        Object cursor,fvars,pendingName;
+        final ArrayList<ExprCredit> arguments=new ArrayList<>();
+        ExprCredit argumentTemporary,option,expressionTemporary,newValue,betaParameter;
+        SubstitutionFrame substitutions;
+        int argumentCount,extraCount;
+        DelayedResolveFrame(Node original,Object fvars,Object pendingName) {
+            this.original=original; this.fvars=fvars; this.pendingName=pendingName;
+        }
+    }
+    /** This phase is independent of foundation.phase: the foundation may be
+     * running its resolver/cache/substitution operation inside a live transform. */
+    private static final class DelayedTransform {
+        DelayedSession foundation;
+        final ArrayDeque<DelayedTransformTask> tasks=new ArrayDeque<>();
+        Object input;
+        ExprCredit result;
+        int phase;
+    }
+    /** One cell and budget span both passes. Direct members survive through
+     * delayed work and pair construction; e1 and e2 are separate occurrences. */
+    private static final class ExprFullResearchState {
+        MVarContextCell context;
+        InstantiationBudget budget;
+        ExprDirectSession direct;
+        DelayedTransform delayed;
+        ExprCredit input,e1,e2,pair;
+        int stage,pairFields;
+    }
+    /** Fixed private research entry; native530 remains unregistered. */
+    private void startExprFullResearch(Header[] helpers,Header[] constructors,Object ownedContext,Object ownedExpr) {
+        explicitOnly(); require(EXPR_FULL_RESEARCH_READY,"Private complete Expr transform is not yet enabled");
+        require(taskRuntime!=null,"Complete Expr research requires active explicit runtime");
+        if(closed||disposed||untrackedFailure||advancing||phase!=IDLE||pendingOwnedResult||sp!=0||continuationDepth!=0
+                ||runtimeAction!=null||hostCompletion!=null||hostGuestRecord!=null||quietCurrent!=null||releasePending!=0
+                ||releaseTransaction!=null||releaseRoot) throw new IllegalStateException("Complete Expr research requires open idle engine");
+        ExprInstantiationPolicy policy=ExprInstantiationPolicy.originalHelpers(levelInstantiationPolicy,helpers,constructors);
+        for(int role=0;role<5;role++) { levelInstantiationHelper(policy.levels,role); exprInstantiationHelper(policy,role); }
+        for(int role=0;role<9;role++) exprConstructor(policy.constructors,role);
+        validateHostObject(ownedContext); Node root=exprNode(ownedExpr);
+        if(ownedContext==ownedExpr) require(root.rc==0||root.rc>=2,"Complete Expr input owner aliases differ");
+        RuntimeAction action=newAction(ACTION_EXPR_FULL_RESEARCH,null,null,0,ROOT,null);
+        prepareExprFullAction(action,policy,ownedContext,root);
+        objects[action.slot]=null; publishAction(action);
+        callsLeft=10_000_000; instructions=0; entry=null; result=null; releaseRoot=false; phase=RUNNING;
+    }
+    private void prepareExprFullAction(RuntimeAction action,ExprInstantiationPolicy policy,Object ownedContext,Node root) {
+        ExprFullResearchState state=new ExprFullResearchState(); action.exprFull=state;
+        state.context=new MVarContextCell(); state.context.current=new LevelCredit(ownedContext,true); state.budget=new InstantiationBudget();
+        state.input=new ExprCredit(root,true); ExprDirectSession direct=new ExprDirectSession(); state.direct=direct;
+        direct.context=state.context; direct.budget=state.budget; direct.policy=policy;
+        direct.levels=newLevelSession(state.context,state.budget,policy.levels);
+        direct.tasks.addLast(new DirectVisitFrame(root)); direct.phase=DS_RUNNING;
+        objects[action.slot]=null;
+    }
+    private ExprInstantiationPolicy exprInstantiationPolicy;
+    /** One actual configured Level policy plus nineteen exact ordinary Headers.
+     * Source acceptance remains the caller's trusted-loader obligation. */
+    public void configureExprInstantiation(ExprInstantiationPolicy policy) {
+        explicitOnly(); require(taskRuntime!=null&&policy!=null,"Expr instantiation requires active runtime and actual policy");
+        if(closed||disposed||untrackedFailure||advancing||phase!=IDLE||pendingOwnedResult||sp!=0||continuationDepth!=0
+                ||runtimeAction!=null||hostCompletion!=null||hostGuestRecord!=null||quietCurrent!=null||releasePending!=0
+                ||releaseTransaction!=null||releaseRoot) throw new IllegalStateException("Expr instantiation configuration requires open idle engine");
+        require(exprInstantiationPolicy==null,"Expr instantiation policy already configured");
+        require(policy.levels==levelInstantiationPolicy,"Expr policy must use actual configured Level policy");
+        for(int role=0;role<5;role++) { levelInstantiationHelper(policy.levels,role); exprInstantiationHelper(policy,role); }
+        for(int role=0;role<9;role++) exprConstructor(policy.constructors,role);
+        exprInstantiationPolicy=policy;
+    }
+    private ExprInstantiationPolicy exprInstantiationProfile(Function function) {
+        require(EXPR_INSTANTIATION_NATIVE_READY,"Full Expr native is not yet enabled");
+        require(explicit&&taskRuntime!=null&&exprInstantiationPolicy!=null,"Expr instantiation requires active explicit runtime and configured original helpers");
+        ExprInstantiationPolicy policy=exprInstantiationPolicy;
+        require(policy.levels==levelInstantiationPolicy,"Expr/Level configured policy identity differs");
+        Header origin=function.header;
+        require(origin!=null&&origin.source==policy.helpers[0].source&&origin.kind.equals("extern")
+                &&origin.originalSha256.equals("7e53092b477181a60a5e66f6cf2e2f33827b9f05411b294359b860431fc8a9ef"),
+                "Expr instantiation native source Header differs");
+        Object name=Arrays.asList("str",Arrays.asList("str",Arrays.asList("anonymous"),"Lean"),"instantiateExprMVarsImp");
+        require(origin.exactName.equals(frozenName(name)),"Expr instantiation native typed Name differs");
+        for(int role=0;role<5;role++) { levelInstantiationHelper(policy.levels,role); exprInstantiationHelper(policy,role); }
+        for(int role=0;role<9;role++) exprConstructor(policy.constructors,role);
+        return policy;
+    }
+    private void validateExprInstantiationArguments(Function function,Object[] args) {
+        exprInstantiationProfile(function);
+        require(args!=null&&args.length==2,"Expr instantiation native arity differs");
+        validateHostObject(args[0]); Node root=exprNode(args[1]);
+        if(args[0]==args[1]) require(root.rc==0||root.rc>=2,"Expr instantiation input alias credits differ");
+    }
+    private ExprDirectSession currentDirectSession(RuntimeAction action) {
+        return action==null?null:action.exprDirect!=null?action.exprDirect.session:
+                action.exprFull!=null&&(action.exprFull.stage==0||action.exprFull.stage>=5)?action.exprFull.direct:null;
+    }
+    private DelayedSession currentDelayedSession(RuntimeAction action) {
+        return action==null?null:action.delayedResearch!=null?action.delayedResearch.session:
+                action.exprFull!=null&&action.exprFull.delayed!=null&&action.exprFull.stage>=3&&action.exprFull.stage<=4
+                        ?action.exprFull.delayed.foundation:null;
+    }
+    private boolean delayedOuterMode(DelayedSession session) { return session.substitutions.isEmpty(); }
+    private boolean delayedNormalizedContains(DelayedSession session,Object name) {
+        int hash=delayedNameHash(session,name); ArrayList<DirectNameEntry> bucket=session.normalized.get(hash);
+        if(bucket!=null) for(DirectNameEntry entry:bucket) {
+            delayedWork(session,1); require(entry.name.owned,"Delayed normalized Name owner missing");
+            if(mvarNameEqual(session.budget,name,entry.name.value)) return true;
+        }
+        return false;
+    }
+    private void delayedNormalizedInsert(DelayedSession session,Object name) {
+        int hash=delayedNameHash(session,name); ArrayList<DirectNameEntry> bucket=session.normalized.get(hash);
+        if(bucket!=null) for(DirectNameEntry entry:bucket) {
+            delayedWork(session,1); if(mvarNameEqual(session.budget,name,entry.name.value)) return;
+        }
+        require(session.nameOwners.size()<MAX_DELAYED_NAMES,"Delayed normalized Name bound");
+        DirectNameEntry entry=new DirectNameEntry(hash,exprCredit(name)); session.nameOwners.add(entry);
+        if(bucket==null) { bucket=new ArrayList<>(); session.normalized.put(hash,bucket); }
+        bucket.add(entry); acquireExpr(entry.name);
+    }
+    private void pushTransform(DelayedTransform transform,DelayedTransformTask task) {
+        require(transform.phase==DT_RUNNING&&transform.tasks.size()<MAX_DELAYED_FRAMES,"Delayed transform task bound");
+        transform.tasks.addLast(task);
+    }
+    private ExprCredit takeTransformChild(DelayedTransformTask parent,Class<?> expected) {
+        DelayedTransformTask child=parent.child;
+        require(child!=null&&child.completed&&expected.isInstance(child)&&child.result!=null&&child.result.owned,
+                "Delayed transform child receiver differs");
+        ExprCredit result=child.result; child.result=null; parent.child=null; return result;
+    }
+    private DelayedAssignmentFrame takeTransformAssignment(DelayedTransformTask parent) {
+        require(parent.child instanceof DelayedAssignmentFrame&&parent.child.completed,"Delayed optional assignment not ready");
+        DelayedAssignmentFrame child=(DelayedAssignmentFrame)parent.child; parent.child=null;
+        require(!child.present||child.result!=null&&child.result.owned,"Delayed private optional result owner missing"); return child;
+    }
+    private void transformSelect(DelayedTransformTask frame,Object value) { frame.result=exprCredit(value); acquireExpr(frame.result); }
+    private void callTransformHelper(RuntimeAction action,DelayedSession session,DelayedTransformTask target,int role,Object name,Object record,ExprCredit newValue) {
+        delayedWork(session,1); require(role>=0&&role<=4,"Delayed transform helper role differs"); requireDelayedReceiverFree(action,session);
+        Function helper=exprInstantiationHelper(session.policy,role);
+        DelayedHelperPacket packet=new DelayedHelperPacket(); packet.function=helper; packet.role=role; packet.transformTarget=target;
+        packet.arguments=new Object[helper.params.length]; packet.owned=new boolean[packet.arguments.length];
+        if(role==2||role==3) packet.arguments[0]=record;
+        else {
+            require(session.context.current!=null&&session.context.current.owned,"Delayed transform context absent");
+            packet.arguments[0]=session.context.current.value; packet.arguments[1]=name; nameNode(name);
+            if(role==4) { require(newValue!=null&&newValue.owned,"Delayed setter value absent"); packet.arguments[2]=newValue.value; exprNode(newValue.value); }
+        }
+        for(Object argument:packet.arguments) validateHostObject(argument);
+        session.call=packet;
+        for(int i=0;i<packet.arguments.length;i++) {
+            if(role==4&&i==0) { packet.owned[i]=true; session.context.current.owned=false; session.context.current=null; }
+            else { inc(packet.arguments[i],1); packet.owned[i]=true; }
+        }
+        IdentityHashMap<Node,Integer> known=new IdentityHashMap<>();
+        for(Object argument:packet.arguments) if(argument instanceof Node) known.merge((Node)argument,1,Integer::sum);
+        for(Map.Entry<Node,Integer> entry:known.entrySet()) require(entry.getKey().rc==0||entry.getKey().rc>=entry.getValue(),"Delayed helper owner aliases differ");
+        packet.started=true; enterExplicit(helper,null,packet.arguments,ACTION_BODY,action.slot,ASSIGN,null);
+        require(packet.entered,"Delayed transform helper did not publish frame/CodeRequest");
+    }
+    private void receiveTransformHelper(RuntimeAction action,DelayedSession session) {
+        DelayedHelperPacket packet=session.call;
+        require(packet!=null&&packet.entered&&packet.target==null&&packet.transformTarget!=null,"Delayed transform helper target differs");
+        Object value=objects[action.slot]; DelayedTransformTask target=packet.transformTarget;
+        if(packet.role==4) {
+            validateHostObject(value); require(session.context.current==null,"Delayed setter replaces owned context");
+            session.context.current=new LevelCredit(value,true); objects[action.slot]=null; target.helperDone=true;
+        } else {
+            require(target.received==null,"Delayed transform helper receiver occupied");
+            if(packet.role<=1) validateDirectOption(value,packet.role==0);
+            else if(packet.role==2) { Node array=pureExprArray(value); require(array.arraySize()<=MAX_DELAYED_NAMES,"Delayed fvars Array bound"); }
+            else nameNode(value);
+            target.received=new ExprCredit(value,true); objects[action.slot]=null;
+        }
+        session.call=null;
+    }
+    private void callTransformConstructor(RuntimeAction action,DelayedSession session,DelayedTransformTask target,int role,Object[] values) {
+        delayedWork(session,1); requireDelayedReceiverFree(action,session);
+        ExprPacket packet=prepareExprConstructorPacket(session.policy.constructors,role,values); packet.delayedTarget=target;
+        session.constructorCall=packet; acquireExprConstructorPacket(packet); packet.started=true;
+        enterExplicit(packet.function,null,packet.arguments,ACTION_BODY,action.slot,ASSIGN,null);
+        require(packet.entered,"Delayed constructor did not publish frame/CodeRequest");
+    }
+    private void receiveTransformConstructor(RuntimeAction action,DelayedSession session) {
+        ExprPacket packet=session.constructorCall;
+        require(packet!=null&&packet.entered&&packet.delayedTarget!=null&&packet.delayedTarget.received==null,"Delayed constructor receiver differs");
+        ExprCredit result=takeExprConstructorResult(action,packet); packet.delayedTarget.received=result; session.constructorCall=null;
+    }
+    private void stepTransformFVar(RuntimeAction action,DelayedTransform transform,DelayedFVarFrame frame) {
+        DelayedSession session=transform.foundation;
+        if(frame.stage==0) {
+            require(session.lookup==null,"Delayed FVar lookup occupied"); SubstitutionLookup lookup=new SubstitutionLookup();
+            lookup.name=frame.original.fields[0]; lookup.depth=session.depth; session.lookup=lookup; frame.stage=1; return;
+        }
+        SubstitutionLookup lookup=session.lookup; require(lookup!=null,"Delayed FVar lookup missing");
+        stepSubstitutionLookup(action,session,lookup); if(!lookup.completed) return;
+        if(lookup.present) { require(lookup.returned!=null&&lookup.returned.owned,"Delayed FVar returned owner absent"); frame.result=lookup.returned; lookup.returned=null; }
+        else transformSelect(frame,frame.original);
+        session.lookup=null; frame.completed=true;
+    }
+    private void stepTransformAssignment(RuntimeAction action,DelayedTransform transform,DelayedAssignmentFrame frame) {
+        DelayedSession session=transform.foundation;
+        if(frame.stage==0) { frame.stage=1; callTransformHelper(action,session,frame,0,frame.name,null,null); return; }
+        if(frame.stage==1) {
+            require(frame.received!=null&&frame.received.owned,"Delayed assignment Option absent"); frame.option=frame.received; frame.received=null;
+            if(ERASED.equals(frame.option.value)) { frame.present=false; frame.stage=20; return; }
+            frame.assigned=exprCredit(((Node)frame.option.value).fields[0]); acquireExpr(frame.assigned); frame.outer=delayedOuterMode(session);
+            if(frame.outer&&delayedNormalizedContains(session,frame.name)) {
+                transformSelect(frame,frame.assigned.value); frame.present=true; frame.stage=20; return;
+            }
+            if(frame.outer) delayedNormalizedInsert(session,frame.name);
+            frame.stage=2; pushTransform(transform,new DelayedVisitFrame(exprNode(frame.assigned.value))); return;
+        }
+        if(frame.stage==2) {
+            frame.newValue=takeTransformChild(frame,DelayedVisitFrame.class);
+            if(frame.outer&&frame.newValue.value!=frame.assigned.value) {
+                require(session.saved.size()<MAX_DIRECT_SAVED,"Delayed saved assignment bound");
+                ExprCredit saved=exprCredit(frame.assigned.value); session.saved.add(saved); acquireExpr(saved);
+                frame.stage=3; callTransformHelper(action,session,frame,4,frame.name,null,frame.newValue); return;
+            }
+            frame.stage=4;
+        }
+        if(frame.stage==3) { require(frame.helperDone,"Delayed setter completion absent"); frame.stage=4; }
+        if(frame.stage==4) {
+            if(frame.outer) transformSelect(frame,frame.newValue.value);
+            else { frame.result=frame.newValue; frame.newValue=null; }
+            frame.present=true; frame.stage=20;
+        }
+        if(frame.stage==20) { frame.stage=21; releaseDelayed(action,session,frame.newValue); return; }
+        if(frame.stage==21) { frame.stage=22; releaseDelayed(action,session,frame.assigned); return; }
+        if(frame.stage==22) { frame.stage=23; releaseDelayed(action,session,frame.option); return; }
+        require(frame.stage==23,"Delayed assignment continuation differs");
+        frame.newValue=null; frame.assigned=null; frame.option=null; frame.completed=true;
+    }
+    private void stepTransformPrefix(RuntimeAction action,DelayedTransform transform,DelayedPrefixFrame frame) {
+        DelayedSession session=transform.foundation;
+        if(frame.stage==0) { frame.stage=1; pushTransform(transform,new DelayedVisitFrame(exprNode(frame.original.fields[1]))); return; }
+        if(frame.stage==1) {
+            frame.argument=takeTransformChild(frame,DelayedVisitFrame.class); Node f=exprNode(frame.original.fields[0]); frame.stage=2;
+            pushTransform(transform,f.tag==5?new DelayedPrefixFrame(f):new DelayedVisitFrame(f)); return;
+        }
+        if(frame.stage==2) {
+            frame.function=takeTransformChild(frame,exprNode(frame.original.fields[0]).tag==5?DelayedPrefixFrame.class:DelayedVisitFrame.class);
+            if(frame.function.value==frame.original.fields[0]&&frame.argument.value==frame.original.fields[1]) { transformSelect(frame,frame.original); frame.stage=4; }
+            else { frame.stage=3; callTransformConstructor(action,session,frame,3,new Object[]{frame.function.value,frame.argument.value}); return; }
+        }
+        if(frame.stage==3) { require(frame.received!=null&&frame.received.owned,"Delayed App constructor result absent"); frame.result=frame.received; frame.received=null; frame.stage=4; }
+        if(frame.stage==4) { frame.stage=5; releaseDelayed(action,session,frame.function); return; }
+        if(frame.stage==5) { frame.stage=6; releaseDelayed(action,session,frame.argument); return; }
+        require(frame.stage==6,"Delayed prefix continuation differs"); frame.function=null; frame.argument=null; frame.completed=true;
+    }
+    private void stepTransformApp(RuntimeAction action,DelayedTransform transform,DelayedAppFrame frame) {
+        DelayedSession session=transform.foundation;
+        if(frame.stage==0) {
+            frame.head=frame.original; frame.argumentCount=0; frame.stage=1;
+        }
+        if(frame.stage==1) {
+            Node head=exprNode(frame.head);
+            if(head.tag==5) { require(frame.argumentCount<MAX_DIRECT_ARGUMENTS,"Delayed App spine bound"); frame.argumentCount++; frame.head=head.fields[0]; return; }
+            if(head.tag!=2) { frame.stage=20; pushTransform(transform,new DelayedPrefixFrame(frame.original)); return; }
+            frame.stage=2; callTransformHelper(action,session,frame,1,head.fields[0],null,null); return;
+        }
+        if(frame.stage==2) {
+            require(frame.received!=null&&frame.received.owned,"Delayed App Option absent"); frame.option=frame.received; frame.received=null;
+            if(ERASED.equals(frame.option.value)) { frame.stage=20; pushTransform(transform,new DelayedPrefixFrame(frame.original)); return; }
+            frame.recordTemporary=exprCredit(((Node)frame.option.value).fields[0]); acquireExpr(frame.recordTemporary);
+            frame.stage=3; callTransformHelper(action,session,frame,2,null,frame.recordTemporary.value,null); return;
+        }
+        if(frame.stage==3) {
+            require(frame.received!=null&&frame.received.owned,"Delayed App fvars absent"); frame.fvars=frame.received; frame.received=null;
+            frame.stage=4; releaseDelayed(action,session,frame.recordTemporary); return;
+        }
+        if(frame.stage==4) {
+            frame.recordTemporary=exprCredit(((Node)frame.option.value).fields[0]); acquireExpr(frame.recordTemporary);
+            frame.stage=5; callTransformHelper(action,session,frame,3,null,frame.recordTemporary.value,null); return;
+        }
+        if(frame.stage==5) {
+            require(frame.received!=null&&frame.received.owned,"Delayed App pending Name absent"); frame.pendingName=frame.received; frame.received=null;
+            frame.stage=6; releaseDelayed(action,session,frame.recordTemporary); return;
+        }
+        if(frame.stage==6) {
+            frame.recordTemporary=null;
+            if(((Node)frame.fvars.value).arraySize()>frame.argumentCount) { frame.stage=20; pushTransform(transform,new DelayedPrefixFrame(frame.original)); return; }
+            require(session.phase==DELAYED_IDLE&&session.resolver.isEmpty(),"Delayed pending resolver occupied");
+            session.phase=DELAYED_RUNNING; pushResolver(session,new ResolvablePendingFrame(frame.pendingName.value)); frame.stage=7; return;
+        }
+        if(frame.stage==7) {
+            stepResolver(action,session); if(session.phase!=DELAYED_RESULT) return;
+            if(takeResolverResult(session)) {
+                frame.stage=21; pushTransform(transform,new DelayedResolveFrame(frame.original,frame.fvars.value,frame.pendingName.value)); return;
+            }
+            require(delayedOuterMode(session),"Unresolvable delayed App in inner mode outside source profile");
+            frame.stage=8; pushTransform(transform,new DelayedAssignmentFrame(frame.pendingName.value)); return;
+        }
+        if(frame.stage==8) {
+            DelayedAssignmentFrame assignment=takeTransformAssignment(frame); frame.discardedAssignment=assignment.result; assignment.result=null;
+            frame.stage=9; releaseDelayed(action,session,frame.discardedAssignment); return;
+        }
+        if(frame.stage==9) { frame.discardedAssignment=null; frame.stage=20; pushTransform(transform,new DelayedPrefixFrame(frame.original)); return; }
+        if(frame.stage==20||frame.stage==21) { frame.result=takeTransformChild(frame,frame.stage==20?DelayedPrefixFrame.class:DelayedResolveFrame.class); frame.stage=30; }
+        if(frame.stage==30) { frame.stage=31; releaseDelayed(action,session,frame.pendingName); return; }
+        if(frame.stage==31) { frame.stage=32; releaseDelayed(action,session,frame.fvars); return; }
+        if(frame.stage==32) { frame.stage=33; releaseDelayed(action,session,frame.option); return; }
+        require(frame.stage==33,"Delayed App continuation differs"); frame.pendingName=null; frame.fvars=null; frame.option=null; frame.completed=true;
+    }
+    private void enterTransformBeta(RuntimeAction parent,DelayedTransform transform,DelayedResolveFrame frame) {
+        DelayedSession session=transform.foundation;
+        require(runtimeAction==parent&&objects[parent.slot]==null&&session.call==null&&session.constructorCall==null&&session.retiring==null,
+                "Delayed beta receiver occupied");
+        require(frame.betaParameter!=null&&frame.betaParameter.owned,"Delayed beta parameter absent");
+        for(int role=0;role<9;role++) exprConstructor(session.policy.constructors,role);
+        RuntimeAction child=newAction(ACTION_EXPR_MACHINERY,null,ACTION_BODY,parent.slot,ASSIGN,null);
+        ExprMachineryState worker=new ExprMachineryState(); worker.policy=session.policy.constructors; worker.budget=session.budget;
+        BetaJob beta=new BetaJob(); beta.function=frame.betaParameter; beta.reverseArgs=new Object[frame.extraCount];
+        for(int i=0;i<beta.reverseArgs.length;i++) {
+            ExprCredit arg=frame.arguments.get(i); require(arg.owned,"Delayed beta reverse argument backing absent"); beta.reverseArgs[i]=arg.value;
+        }
+        worker.jobs.addLast(beta); child.exprMachinery=worker; objects[child.slot]=null;
+        publishAction(child); frame.betaParameter=null;
+    }
+    private void stepTransformResolve(RuntimeAction action,DelayedTransform transform,DelayedResolveFrame frame) {
+        DelayedSession session=transform.foundation;
+        if(frame.stage==0) {
+            if(frame.cursor==null) frame.cursor=frame.original;
+            Node cursor=exprNode(frame.cursor);
+            if(cursor.tag==5) { frame.stage=1; pushTransform(transform,new DelayedVisitFrame(exprNode(cursor.fields[1]))); return; }
+            Node fvars=pureExprArray(frame.fvars); int n=fvars.arraySize();
+            require(n<=frame.arguments.size(),"Delayed resolve argument arity differs"); frame.extraCount=frame.arguments.size()-n;
+            require(session.substitution==null&&session.substitutionFrames.size()<MAX_DELAYED_FRAMES,"Delayed resolve substitution receiver occupied");
+            SubstitutionFrame install=new SubstitutionFrame(); frame.substitutions=install;
+            install.fvars=fvars; install.depth=session.depth; install.ownsArguments=false; install.arguments.addAll(frame.arguments);
+            install.stage=SF_ENTER; session.substitution=install; frame.stage=3; return;
+        }
+        if(frame.stage==1) {
+            frame.argumentTemporary=takeTransformChild(frame,DelayedVisitFrame.class);
+            require(frame.arguments.size()<MAX_DIRECT_ARGUMENTS,"Delayed reverse argument buffer bound");
+            ExprCredit copy=exprCredit(frame.argumentTemporary.value); frame.arguments.add(copy); acquireExpr(copy);
+            frame.stage=2; releaseDelayed(action,session,frame.argumentTemporary); return;
+        }
+        if(frame.stage==2) { frame.argumentTemporary=null; frame.cursor=exprNode(frame.cursor).fields[0]; frame.stage=0; return; }
+        if(frame.stage==3) {
+            SubstitutionFrame install=frame.substitutions; require(session.substitution==install,"Delayed install current frame differs");
+            stepSubstitutionInstall(action,session,install); if(!install.completed) return;
+            session.substitution=null; session.substitutionFrames.addLast(install);
+            frame.stage=4; callTransformHelper(action,session,frame,0,frame.pendingName,null,null); return;
+        }
+        if(frame.stage==4) {
+            require(frame.received!=null&&frame.received.owned,"Delayed pending Option absent"); frame.option=frame.received; frame.received=null;
+            require(!ERASED.equals(frame.option.value),"Resolvable pending assignment missing outside source profile");
+            frame.expressionTemporary=exprCredit(((Node)frame.option.value).fields[0]); acquireExpr(frame.expressionTemporary);
+            frame.stage=5; pushTransform(transform,new DelayedVisitFrame(exprNode(frame.expressionTemporary.value))); return;
+        }
+        if(frame.stage==5) {
+            frame.newValue=takeTransformChild(frame,DelayedVisitFrame.class); frame.stage=6;
+            releaseDelayed(action,session,frame.expressionTemporary); return;
+        }
+        if(frame.stage==6) {
+            frame.expressionTemporary=null;
+            require(session.substitution==null&&session.substitutionFrames.peekLast()==frame.substitutions,"Delayed scope restore order differs");
+            session.substitution=frame.substitutions; beginSubstitutionRestore(session,frame.substitutions); frame.stage=7; return;
+        }
+        if(frame.stage==7) {
+            stepSubstitutionRestore(action,session,frame.substitutions); if(!frame.substitutions.completed) return;
+            session.substitution=null; require(session.substitutionFrames.removeLast()==frame.substitutions,"Delayed restored scope differs");
+            frame.betaParameter=exprCredit(frame.newValue.value); acquireExpr(frame.betaParameter); frame.stage=8;
+            enterTransformBeta(action,transform,frame); return;
+        }
+        if(frame.stage==8) {
+            Object value=objects[action.slot]; exprNode(value); frame.result=new ExprCredit(value,true); objects[action.slot]=null;
+            frame.stage=9; releaseDelayed(action,session,frame.newValue); return;
+        }
+        if(frame.stage==9) { frame.newValue=null; frame.stage=10; releaseDelayed(action,session,frame.option); return; }
+        if(frame.stage==10) {
+            frame.option=null; stepSubstitutionFrameDrain(action,session,frame.substitutions);
+            if(!frame.substitutions.completed||frame.substitutions.stage!=SF_DRAINED) return;
+            frame.substitutions=null; frame.cleanup=0; frame.stage=11; return;
+        }
+        if(frame.stage==11) {
+            if(frame.cleanup<frame.arguments.size()) { ExprCredit arg=frame.arguments.get(frame.cleanup++); releaseDelayed(action,session,arg); return; }
+            frame.arguments.clear(); frame.fvars=null; frame.pendingName=null; frame.cursor=null; frame.completed=true; return;
+        }
+        throw error("Delayed resolution continuation differs");
+    }
+    private void transformCompositeResult(RuntimeAction action,DelayedTransform transform,DelayedVisitFrame frame) {
+        Node original=frame.original; Object[] values=original.fields.clone(); boolean changed=false;
+        int count=exprChildCount(original.tag);
+        for(int i=0;i<count;i++) {
+            require(frame.children[i]!=null&&frame.children[i].owned,"Delayed composite child owner absent");
+            int at=exprChildField(original.tag,i); values[at]=frame.children[i].value; changed|=values[at]!=original.fields[at];
+        }
+        if(!changed) { transformSelect(frame,original); frame.stage=30; return; }
+        if(original.tag>=6&&original.tag<=8) { values=Arrays.copyOf(values,values.length+1); values[values.length-1]=Long.valueOf(original.scalars[8]&255); }
+        frame.stage=21; callTransformConstructor(action,transform.foundation,frame,exprCtorRole(original.tag),values);
+    }
+    private void stepTransformVisit(RuntimeAction action,DelayedTransform transform,DelayedVisitFrame frame) {
+        DelayedSession session=transform.foundation; Node original=frame.original;
+        if(frame.stage==0) {
+            frame.entryDepth=session.depth; long word=exprCachedData(original);
+            if(((word&(1L<<40))==0||delayedOuterMode(session))&&(word&(1L<<41))==0) {
+                transformSelect(frame,original); frame.stage=51; return;
+            }
+            frame.shared=!exclusive(original);
+            if(frame.shared) { startScopedOperation(session,DC_LOOKUP,original,frame.entryDepth,null,0); frame.stage=1; return; }
+            frame.stage=2;
+        }
+        if(frame.stage==1) {
+            ScopedCacheOperation op=session.cacheOperation; require(op!=null,"Delayed lookup operation absent");
+            stepScopedCache(action,session); if(!op.completed) return;
+            session.cacheOperation=null;
+            if(op.hit) { require(op.returned!=null&&op.returned.owned,"Delayed cache hit return absent"); frame.result=op.returned; op.returned=null; frame.cacheHit=true; frame.stage=51; return; }
+            frame.stage=2;
+        }
+        if(frame.stage==2) {
+            frame.savedWatermark=session.resultScope; session.resultScope=0;
+            switch(original.tag) {
+                case 1: frame.skipInsert=true; frame.stage=10; pushTransform(transform,new DelayedFVarFrame(original)); return;
+                case 2:
+                    require(delayedOuterMode(session),"Bare Expr MVar in inner mode outside source profile");
+                    frame.skipInsert=true; transformSelect(frame,original); frame.stage=40; return;
+                case 5: frame.stage=10; pushTransform(transform,new DelayedAppFrame(original)); return;
+                case 6: case 7: case 8: case 10: case 11: frame.stage=20; break;
+                default: throw error("Contradictory delayed Expr flags on atomic storage");
+            }
+        }
+        if(frame.stage==10) {
+            frame.result=takeTransformChild(frame,original.tag==1?DelayedFVarFrame.class:DelayedAppFrame.class); frame.stage=40;
+        }
+        if(frame.stage==20) {
+            int count=exprChildCount(original.tag);
+            if(frame.child!=null) {
+                require(frame.cursor<count,"Delayed child cursor outside layout"); frame.children[frame.cursor]=takeTransformChild(frame,DelayedVisitFrame.class); frame.cursor++;
+            }
+            if(frame.cursor<count) {
+                boolean body=original.tag>=6&&original.tag<=8&&frame.cursor==count-1;
+                require(frame.entryDepth<MAX_EXPR_JOB_OFFSET||!body,"Delayed binder depth bound");
+                session.depth=frame.entryDepth+(body?1:0);
+                pushTransform(transform,new DelayedVisitFrame(exprNode(original.fields[exprChildField(original.tag,frame.cursor)]))); return;
+            }
+            session.depth=frame.entryDepth; transformCompositeResult(action,transform,frame); return;
+        }
+        if(frame.stage==21) {
+            require(frame.received!=null&&frame.received.owned,"Delayed composite constructor return absent");
+            frame.result=frame.received; frame.received=null; frame.stage=30;
+        }
+        if(frame.stage==30) {
+            int count=exprChildCount(original.tag);
+            if(frame.cleanup<count) { ExprCredit child=frame.children[count-1-frame.cleanup++]; releaseDelayed(action,session,child); return; }
+            Arrays.fill(frame.children,null); frame.stage=40;
+        }
+        if(frame.stage==40) {
+            require(session.depth==frame.entryDepth&&frame.result!=null&&frame.result.owned,"Delayed insertion depth/result differs");
+            if(frame.shared&&!frame.skipInsert) {
+                ExprCredit computed=frame.result;
+                // The operation aliases this exact moved occurrence, not a new credit.
+                startScopedOperation(session,DC_INSERT,original,frame.entryDepth,computed,session.resultScope); frame.result=null; frame.stage=41; return;
+            }
+            frame.stage=50;
+        }
+        if(frame.stage==41) {
+            ScopedCacheOperation op=session.cacheOperation; require(op!=null,"Delayed insertion operation absent");
+            stepScopedCache(action,session); if(!op.completed) return;
+            require(op.returned!=null&&op.returned.owned,"Delayed insertion returned owner absent");
+            frame.result=op.returned; op.returned=null; session.cacheOperation=null; frame.stage=50;
+        }
+        if(frame.stage==50) { session.resultScope=Math.max(frame.savedWatermark,session.resultScope); frame.stage=51; }
+        require(frame.stage==51&&frame.result!=null&&frame.result.owned,"Delayed NORMAL result absent"); frame.completed=true;
+    }
+    private void stepDelayedTransform(RuntimeAction action,DelayedTransform transform) {
+        DelayedSession session=transform.foundation; delayedWork(session,1); resumeDelayedRetiring(action,session);
+        require(transform.phase==DT_RUNNING,"Delayed transform not running");
+        if(session.call!=null&&session.call.transformTarget!=null) { receiveTransformHelper(action,session); return; }
+        if(session.constructorCall!=null) { receiveTransformConstructor(action,session); return; }
+        DelayedTransformTask task=transform.tasks.peekLast(); require(task!=null,"Delayed transform frame absent");
+        if(!task.completed) {
+            if(task instanceof DelayedVisitFrame) stepTransformVisit(action,transform,(DelayedVisitFrame)task);
+            else if(task instanceof DelayedFVarFrame) stepTransformFVar(action,transform,(DelayedFVarFrame)task);
+            else if(task instanceof DelayedAssignmentFrame) stepTransformAssignment(action,transform,(DelayedAssignmentFrame)task);
+            else if(task instanceof DelayedAppFrame) stepTransformApp(action,transform,(DelayedAppFrame)task);
+            else if(task instanceof DelayedPrefixFrame) stepTransformPrefix(action,transform,(DelayedPrefixFrame)task);
+            else stepTransformResolve(action,transform,(DelayedResolveFrame)task);
+            return;
+        }
+        Iterator<DelayedTransformTask> iterator=transform.tasks.descendingIterator(); iterator.next();
+        DelayedTransformTask parent=iterator.hasNext()?iterator.next():null;
+        if(parent==null) {
+            require(task instanceof DelayedVisitFrame&&task.result!=null&&task.result.owned&&transform.result==null
+                    &&session.context.current!=null&&session.context.current.owned&&session.phase==DELAYED_IDLE,
+                    "Delayed transform root ownership differs");
+            transform.result=task.result; task.result=null; transform.phase=DT_RESULT;
+        } else { require(parent.child==null,"Delayed transform parent receiver occupied"); parent.child=task; }
+        transform.tasks.removeLast();
+    }
+    private ExprCredit takeDelayedTransformResult(DelayedTransform transform) {
+        require(transform.phase==DT_RESULT&&transform.tasks.isEmpty()&&transform.result!=null&&transform.result.owned,
+                "Delayed transform result unavailable");
+        ExprCredit result=transform.result; transform.result=null; transform.input=null; transform.phase=DT_IDLE; return result;
+    }
+    private void stepExprFullResearch(RuntimeAction action) {
+        ExprFullResearchState state=action.exprFull; require(state!=null,"Complete Expr root state absent");
+        ExprDirectSession direct=state.direct;
+        if(state.stage==0) {
+            stepExprDirectJob(action,direct);
+            if(direct.phase==DS_RESULT) { state.e1=takeExprDirectResult(direct); sealExprDirectSession(direct); state.stage=1; }
+            return;
+        }
+        if(state.stage==3) {
+            stepDelayedTransform(action,state.delayed);
+            if(state.delayed.phase!=DT_RESULT) return;
+            state.e2=takeDelayedTransformResult(state.delayed); sealDelayedSession(state.delayed.foundation);
+            state.delayed.phase=DT_SEALED; state.stage=4; return;
+        }
+        if(state.stage==4) {
+            stepDelayedDrain(action,state.delayed.foundation);
+            if(state.delayed.foundation.phase!=DELAYED_DRAINED) return;
+            state.delayed.phase=DT_DRAINED; state.stage=5; return;
+        }
+        if(state.stage==7) { stepExprDirectDrain(action,direct); if(direct.phase!=DS_DRAINED) return; state.stage=8; }
+        else { directWork(direct,1); resumeDirectRetiring(action,direct); }
+        if(state.stage==1) { state.stage=2; releaseDirect(action,direct,state.input); return; }
+        if(state.stage==2) {
+            require(state.e1!=null&&state.e1.owned,"Complete Expr pass-one result absent");
+            if(!direct.hasUpdateableDelayed) { state.e2=exprCredit(state.e1.value); acquireExpr(state.e2); state.stage=5; return; }
+            DelayedTransform delayed=new DelayedTransform(); state.delayed=delayed;
+            DelayedSession session=new DelayedSession(); delayed.foundation=session;
+            session.context=state.context; session.budget=state.budget; session.policy=direct.policy; session.phase=DELAYED_IDLE;
+            delayed.input=state.e1.value; delayed.phase=DT_RUNNING;
+            pushTransform(delayed,new DelayedVisitFrame(exprNode(delayed.input))); state.stage=3; return;
+        }
+        if(state.stage==5) {
+            require(state.context.current!=null&&state.context.current.owned&&state.e2!=null&&state.e2.owned
+                    &&state.pair==null,"Complete Expr pair inputs absent");
+            Node pair=new Node(0,2,0); state.pair=new ExprCredit(pair,true); allocations++;
+            pair.fields[0]=state.context.current.value; state.context.current.owned=false; state.context.current=null; state.pairFields=1;
+            pair.fields[1]=state.e2.value; state.e2.owned=false; state.pairFields=2; state.stage=6; return;
+        }
+        if(state.stage==6) { state.stage=7; releaseDirect(action,direct,state.e1); return; }
+        require(state.stage==8&&direct.phase==DS_DRAINED&&state.pair!=null&&state.pair.owned&&state.pairFields==2
+                &&state.context.current==null&&!state.input.owned&&!state.e1.owned&&!state.e2.owned,
+                "Complete Expr root final ownership differs");
+        Object output=state.pair.value; state.pair.owned=false; action.output=output;
+        state.input=null; state.e1=null; state.e2=null; state.pair=null; state.context=null; state.budget=null; state.direct=null; state.delayed=null;
+        action.exprFull=null; action.arguments=null; finishAction(action,output);
+    }
+
     private void delayedWork(DelayedSession session,long amount) {
         instantiationWork(session.budget,amount,"Delayed Expr work outside bounded runtime profile","Delayed Expr interrupted");
     }
@@ -2976,14 +3663,15 @@ public final class Interpreter implements AutoCloseable {
         callsLeft=10_000_000; instructions=0; entry=null; result=null; releaseRoot=false; phase=RUNNING;
     }
     private void requireDelayedReceiverFree(RuntimeAction action,DelayedSession session) {
-        require(runtimeAction==action&&action.delayedResearch!=null&&action.delayedResearch.session==session
+        require(runtimeAction==action&&currentDelayedSession(action)==session
                 &&session.call==null&&session.constructorCall==null&&objects[action.slot]==null,
                 "Multiple outstanding delayed helper/constructor packets");
     }
     private void delayedHelperEntry(Function function,Object[] arguments) {
         RuntimeAction action=runtimeAction;
-        if(action==null||action.delayedResearch==null) return;
-        DelayedHelperPacket packet=action.delayedResearch.session.call;
+        DelayedSession session=currentDelayedSession(action);
+        if(session==null) return;
+        DelayedHelperPacket packet=session.call;
         if(packet==null||packet.entered||packet.function!=function||packet.arguments!=arguments) return;
         require(packet.started,"Delayed helper entered before packet publication");
         packet.entered=true; Arrays.fill(packet.owned,false);
@@ -3460,7 +4148,7 @@ public final class Interpreter implements AutoCloseable {
         require(session.phase==DELAYED_IDLE&&session.resolver.isEmpty()&&session.call==null&&session.constructorCall==null
                 &&session.cacheOperation==null&&session.substitution==null&&session.lookup==null&&session.substitutionFrames.isEmpty()
                 &&session.retiring==null&&session.result==null&&session.cache.scope==0,"Delayed session is not idle for seal");
-        session.resolvableExpressions.clear(); session.pending.clear(); session.substitutions.clear(); session.cache.index.clear();
+        session.resolvableExpressions.clear(); session.pending.clear(); session.normalized.clear(); session.substitutions.clear(); session.cache.index.clear();
         for(ScopedBucket bucket:session.cache.buckets) bucket.key=null;
         session.cache.sealed=true; session.phase=DELAYED_SEALED;
     }
@@ -3471,6 +4159,14 @@ public final class Interpreter implements AutoCloseable {
             session.pendingOwners.clear(); session.drainCursor=0; session.drainStage=1; return;
         }
         if(session.drainStage==1) {
+            if(session.drainCursor<session.saved.size()) { ExprCredit credit=session.saved.get(session.saved.size()-1-session.drainCursor++); releaseDelayed(action,session,credit); return; }
+            session.saved.clear(); session.drainCursor=0; session.drainStage=2; return;
+        }
+        if(session.drainStage==2) {
+            if(session.drainCursor<session.nameOwners.size()) { ExprCredit credit=session.nameOwners.get(session.nameOwners.size()-1-session.drainCursor++).name; releaseDelayed(action,session,credit); return; }
+            session.nameOwners.clear(); session.normalized.clear(); session.drainCursor=0; session.drainStage=3; return;
+        }
+        if(session.drainStage==3) {
             ScopedExprCache cache=session.cache;
             if(cache.retiringEntry!=null) {
                 ScopedEntry entry=cache.retiringEntry; require(entry.result!=null&&!entry.result.owned,"Scoped member owner not drained");
@@ -3483,9 +4179,9 @@ public final class Interpreter implements AutoCloseable {
                 cache.retiringEntry=bucket.entries.remove(bucket.entries.size()-1); releaseDelayed(action,session,cache.retiringEntry.result); return;
             }
             require(cache.liveEntries==0,"Scoped member drain leaked reservations"); cache.buckets.clear(); cache.current=null;
-            session.drainStage=2; session.drainCursor=0; return;
+            session.drainStage=4; session.drainCursor=0; return;
         }
-        if(session.drainStage==2) {
+        if(session.drainStage==4) {
             if(session.drainCursor<session.substitutionOwners.size()*2) {
                 SubstitutionEntry entry=session.substitutionOwners.get(session.drainCursor/2);
                 ExprCredit credit=(session.drainCursor++&1)==0?entry.value:entry.name; releaseDelayed(action,session,credit); return;
@@ -3734,7 +4430,7 @@ public final class Interpreter implements AutoCloseable {
     private HostGuestRecord hostGuestRecord;
     private HostCall hostCompletion;
     private RuntimeAction runtimeAction,failedRuntimeAction;
-    private static final int ACTION_RELEASE=1,ACTION_DISPOSE=2,ACTION_NATIVE=3,ACTION_HOST=4,ACTION_TASK=5,ACTION_RESOLVE=6,ACTION_RUN_TASK=7,ACTION_PROFILE=8,ACTION_FIND=9,ACTION_LEVEL_MVARS=10,ACTION_EXPR_MACHINERY=11,ACTION_MVAR_SESSION_RESEARCH=12,ACTION_SHARECOMMON=13,ACTION_EXPR_DIRECT_RESEARCH=14,ACTION_EXPR_REPLACE=15,ACTION_EXPR_ABSTRACT=16,ACTION_DELAYED_FOUNDATION_RESEARCH=17,ACTION_EXPR_PURE=18,ACTION_HOST_GUEST=20;
+    private static final int ACTION_RELEASE=1,ACTION_DISPOSE=2,ACTION_NATIVE=3,ACTION_HOST=4,ACTION_TASK=5,ACTION_RESOLVE=6,ACTION_RUN_TASK=7,ACTION_PROFILE=8,ACTION_FIND=9,ACTION_LEVEL_MVARS=10,ACTION_EXPR_MACHINERY=11,ACTION_MVAR_SESSION_RESEARCH=12,ACTION_SHARECOMMON=13,ACTION_EXPR_DIRECT_RESEARCH=14,ACTION_EXPR_REPLACE=15,ACTION_EXPR_ABSTRACT=16,ACTION_DELAYED_FOUNDATION_RESEARCH=17,ACTION_EXPR_PURE=18,ACTION_EXPR_FULL_RESEARCH=19,ACTION_HOST_GUEST=20;
     private static final Body ACTION_BODY=new Body();
     /** Typed ownership/control state, separate from NodeMetadata. The output
      * scratch slot is reserved before callbacks may enter generic AP. */
@@ -3748,6 +4444,7 @@ public final class Interpreter implements AutoCloseable {
         MVarSessionResearchState mvarSessionResearch;
         ExprDirectResearchState exprDirect;
         DelayedResearchState delayedResearch;
+        ExprFullResearchState exprFull;
         int operation,stage,savedSp,slot,dest,kind,cursor,limit,pending;
         Function function;
         Body next;
@@ -3934,7 +4631,7 @@ public final class Interpreter implements AutoCloseable {
     }
     private boolean actionPrimitive(Function function) {
         int op=function.intrinsic;
-        return taskRuntime!=null&&(pureExprTransform(op)||abstractPrimitive(op)||op==EXPR_REPLACE||op==SHARECOMMON_QUICK||op==LEVEL_INSTANTIATE||op==VOID_MK||op==PROFILE_IT||findPrimitive(op)||taskPrimitive(op)||op==TASK_MAP||op==REF_SET||op==ARRAY_POP||op==ARRAY_FSET||op==ARRAY_USET||op==ARRAY_CHECKED_SET||op==ARRAY_REPLICATE);
+        return taskRuntime!=null&&(pureExprTransform(op)||abstractPrimitive(op)||op==EXPR_REPLACE||op==SHARECOMMON_QUICK||op==LEVEL_INSTANTIATE||op==EXPR_INSTANTIATE_MVARS||op==VOID_MK||op==PROFILE_IT||findPrimitive(op)||taskPrimitive(op)||op==TASK_MAP||op==REF_SET||op==ARRAY_POP||op==ARRAY_FSET||op==ARRAY_USET||op==ARRAY_CHECKED_SET||op==ARRAY_REPLICATE);
     }
     private Object[] savedArguments(Function function,int[] slots) {
         Object[] args=new Object[slots.length];
@@ -4020,6 +4717,7 @@ public final class Interpreter implements AutoCloseable {
             shareKind(args[1]); return;
         }
         if(function.intrinsic==LEVEL_INSTANTIATE) { validateLevelArguments(function,args); return; }
+        if(function.intrinsic==EXPR_INSTANTIATE_MVARS) { validateExprInstantiationArguments(function,args); return; }
         if(function.intrinsic==ARRAY_CHECKED_SET) { validateCheckedArraySet(args); return; }
         if(function.intrinsic==VOID_MK) {
             require(args!=null&&args.length==2,"Void.mk native arity mismatch");
@@ -4046,9 +4744,10 @@ public final class Interpreter implements AutoCloseable {
     }
     private void enterNative(Function function,Object[] args,Body next,int dest,int kind,Object[] surplus) {
         validateNative(function,args);
-        RuntimeAction action=newAction(pureExprTransform(function.intrinsic)?ACTION_EXPR_PURE:abstractPrimitive(function.intrinsic)?ACTION_EXPR_ABSTRACT:function.intrinsic==EXPR_REPLACE?ACTION_EXPR_REPLACE:function.intrinsic==SHARECOMMON_QUICK?ACTION_SHARECOMMON:function.intrinsic==LEVEL_INSTANTIATE?ACTION_LEVEL_MVARS:findPrimitive(function.intrinsic)?ACTION_FIND:function.intrinsic==PROFILE_IT?ACTION_PROFILE:
+        RuntimeAction action=newAction(function.intrinsic==EXPR_INSTANTIATE_MVARS?ACTION_EXPR_FULL_RESEARCH:pureExprTransform(function.intrinsic)?ACTION_EXPR_PURE:abstractPrimitive(function.intrinsic)?ACTION_EXPR_ABSTRACT:function.intrinsic==EXPR_REPLACE?ACTION_EXPR_REPLACE:function.intrinsic==SHARECOMMON_QUICK?ACTION_SHARECOMMON:function.intrinsic==LEVEL_INSTANTIATE?ACTION_LEVEL_MVARS:findPrimitive(function.intrinsic)?ACTION_FIND:function.intrinsic==PROFILE_IT?ACTION_PROFILE:
                 taskPrimitive(function.intrinsic)||function.intrinsic==TASK_MAP?ACTION_TASK:ACTION_NATIVE,function,next,dest,kind,surplus);
         action.arguments=args;
+        if(function.intrinsic==EXPR_INSTANTIATE_MVARS) prepareExprFullAction(action,exprInstantiationPolicy,args[0],exprNode(args[1]));
         if(pureExprTransform(function.intrinsic)) preparePureExprTransform(action,function,args);
         if(abstractPrimitive(function.intrinsic)) prepareAbstractAction(action,function,args);
         if(function.intrinsic==EXPR_REPLACE) {
@@ -4393,12 +5092,10 @@ public final class Interpreter implements AutoCloseable {
         RuntimeAction action=runtimeAction;
         if(action==null) return;
         ExprPacket packet=action.exprMachinery==null?null:action.exprMachinery.call;
-        if(action.exprDirect!=null) {
-            require(packet==null,"Multiple current Expr constructor packets"); packet=action.exprDirect.session.constructorCall;
-        }
-        if(action.delayedResearch!=null) {
-            require(packet==null,"Multiple current delayed constructor packets"); packet=action.delayedResearch.session.constructorCall;
-        }
+        ExprDirectSession direct=currentDirectSession(action);
+        if(direct!=null) { require(packet==null,"Multiple current Expr constructor packets"); packet=direct.constructorCall; }
+        DelayedSession delayed=currentDelayedSession(action);
+        if(delayed!=null) { require(packet==null,"Multiple current delayed constructor packets"); packet=delayed.constructorCall; }
         if(packet==null||packet.entered||packet.function!=function||packet.arguments!=arguments) return;
         require(packet.started,"Expr constructor entered before packet publication");
         packet.entered=true; Arrays.fill(packet.owned,false);
@@ -4673,7 +5370,7 @@ public final class Interpreter implements AutoCloseable {
     private LevelSession currentLevelSession(RuntimeAction action) {
         return action==null?null:action.levelMvars!=null?action.levelMvars.session:
                 action.mvarSessionResearch!=null?action.mvarSessionResearch.session:
-                action.exprDirect!=null?action.exprDirect.session.levels:null;
+                currentDirectSession(action)!=null?currentDirectSession(action).levels:null;
     }
     /** Caller anchors all original cache keys through seal. No input retain. */
     private void startLevelJob(LevelSession session,Object borrowedInput) {
@@ -5065,6 +5762,7 @@ public final class Interpreter implements AutoCloseable {
         else if(action.operation==ACTION_MVAR_SESSION_RESEARCH) stepMVarSessionResearch(action);
         else if(action.operation==ACTION_EXPR_DIRECT_RESEARCH) stepExprDirectResearch(action);
         else if(action.operation==ACTION_DELAYED_FOUNDATION_RESEARCH) stepDelayedFoundationResearch(action);
+        else if(action.operation==ACTION_EXPR_FULL_RESEARCH) stepExprFullResearch(action);
         else if(action.operation==ACTION_HOST_GUEST) stepHostGuest(action);
         else if(action.operation==ACTION_HOST) {
             try { stepHostCompletion(action); }
@@ -5151,7 +5849,7 @@ public final class Interpreter implements AutoCloseable {
         // phase RUNNING between advance calls is a paused dispatch/release-work
         // boundary. No Java call frame is captured in that state.
         Interpreter child=new Interpreter(program,explicit,initializing,buildIdentity,taskRuntime,profilingPolicy);
-        child.pointerHashPolicy=pointerHashPolicy; child.levelInstantiationPolicy=levelInstantiationPolicy; child.shareCommonLayout=shareCommonLayout; child.exprTransformPolicy=exprTransformPolicy;
+        child.pointerHashPolicy=pointerHashPolicy; child.levelInstantiationPolicy=levelInstantiationPolicy; child.exprInstantiationPolicy=exprInstantiationPolicy; child.shareCommonLayout=shareCommonLayout; child.exprTransformPolicy=exprTransformPolicy;
         ForkCopy copy=new ForkCopy(child);
         copy.bind(constants,child.constants);
         child.objects=(Object[])copy.value(objects);
@@ -5255,6 +5953,13 @@ public final class Interpreter implements AutoCloseable {
                 HostGuestOperation out=new HostGuestOperation(child.runtimeIdentity,(HostGuestRecord)value(old.record));
                 copies.put(source,out); return out;
             }
+            if(source instanceof ExprFullResearchState||source instanceof DelayedTransform||source instanceof DelayedTransformTask) {
+                Object out=source instanceof ExprFullResearchState?new ExprFullResearchState():source instanceof DelayedTransform?new DelayedTransform():
+                        source instanceof DelayedVisitFrame?new DelayedVisitFrame(null):source instanceof DelayedFVarFrame?new DelayedFVarFrame(null):
+                        source instanceof DelayedAssignmentFrame?new DelayedAssignmentFrame(null):source instanceof DelayedAppFrame?new DelayedAppFrame(null):
+                        source instanceof DelayedPrefixFrame?new DelayedPrefixFrame(null):new DelayedResolveFrame(null,null,null);
+                copies.put(source,out); pending.addLast(new Object[]{source,out}); return out;
+            }
             if(source instanceof ScopeGeneration||source instanceof DelayedCommand) return source;
             if(source instanceof DelayedResearchState||source instanceof DelayedSession||source instanceof ScopedExprCache||source instanceof ScopedBucket
                     ||source instanceof ScopedEntry||source instanceof ScopedCacheOperation||source instanceof PendingNameEntry||source instanceof SubstitutionEntry
@@ -5357,7 +6062,7 @@ public final class Interpreter implements AutoCloseable {
                     for(int i=0;i<from.length;i++) to[i]=value(from[i]);
                 } else if(source instanceof RuntimeAction) {
                     RuntimeAction old=(RuntimeAction)source,out=(RuntimeAction)target;
-                    out.parent=(RuntimeAction)value(old.parent); out.guest=(HostGuestRecord)value(old.guest); out.find=(FindState)value(old.find); out.share=(ShareState)value(old.share); out.levelMvars=(LevelInstantiationState)value(old.levelMvars); out.exprMachinery=(ExprMachineryState)value(old.exprMachinery); out.mvarSessionResearch=(MVarSessionResearchState)value(old.mvarSessionResearch); out.exprDirect=(ExprDirectResearchState)value(old.exprDirect); out.delayedResearch=(DelayedResearchState)value(old.delayedResearch); out.operation=old.operation; out.stage=old.stage;
+                    out.parent=(RuntimeAction)value(old.parent); out.guest=(HostGuestRecord)value(old.guest); out.find=(FindState)value(old.find); out.share=(ShareState)value(old.share); out.levelMvars=(LevelInstantiationState)value(old.levelMvars); out.exprMachinery=(ExprMachineryState)value(old.exprMachinery); out.mvarSessionResearch=(MVarSessionResearchState)value(old.mvarSessionResearch); out.exprDirect=(ExprDirectResearchState)value(old.exprDirect); out.delayedResearch=(DelayedResearchState)value(old.delayedResearch); out.exprFull=(ExprFullResearchState)value(old.exprFull); out.operation=old.operation; out.stage=old.stage;
                     out.savedSp=old.savedSp; out.slot=old.slot; out.dest=old.dest; out.kind=old.kind;
                     out.cursor=old.cursor; out.limit=old.limit; out.pending=old.pending;
                     out.function=(Function)value(old.function); out.next=old.next;
@@ -5367,6 +6072,44 @@ public final class Interpreter implements AutoCloseable {
                     out.task=(TaskRecord)value(old.task); out.scope=(TaskRecord)value(old.scope); out.batch=(DependencyList)value(old.batch);
                     out.output=value(old.output); out.retiring=value(old.retiring); out.releaseClaimed=old.releaseClaimed; out.current=(Node)value(old.current); out.origin=(Node)value(old.origin);
 
+                } else if(source instanceof ExprFullResearchState) {
+                    ExprFullResearchState old=(ExprFullResearchState)source,out=(ExprFullResearchState)target;
+                    out.context=(MVarContextCell)value(old.context); out.budget=(InstantiationBudget)value(old.budget);
+                    out.direct=(ExprDirectSession)value(old.direct); out.delayed=(DelayedTransform)value(old.delayed);
+                    out.input=(ExprCredit)value(old.input); out.e1=(ExprCredit)value(old.e1); out.e2=(ExprCredit)value(old.e2); out.pair=(ExprCredit)value(old.pair);
+                    out.stage=old.stage; out.pairFields=old.pairFields;
+                } else if(source instanceof DelayedTransform) {
+                    DelayedTransform old=(DelayedTransform)source,out=(DelayedTransform)target;
+                    out.foundation=(DelayedSession)value(old.foundation); out.input=value(old.input); out.result=(ExprCredit)value(old.result); out.phase=old.phase;
+                    for(DelayedTransformTask frame:old.tasks) out.tasks.addLast((DelayedTransformTask)value(frame));
+                } else if(source instanceof DelayedTransformTask) {
+                    DelayedTransformTask old=(DelayedTransformTask)source,out=(DelayedTransformTask)target;
+                    out.child=(DelayedTransformTask)value(old.child); out.result=(ExprCredit)value(old.result); out.received=(ExprCredit)value(old.received);
+                    out.stage=old.stage; out.cleanup=old.cleanup; out.completed=old.completed; out.helperDone=old.helperDone;
+                    if(source instanceof DelayedVisitFrame) {
+                        DelayedVisitFrame a=(DelayedVisitFrame)old,b=(DelayedVisitFrame)out; b.original=(Node)value(a.original);
+                        b.entryDepth=a.entryDepth; b.savedWatermark=a.savedWatermark; b.cursor=a.cursor; b.shared=a.shared; b.cacheHit=a.cacheHit; b.skipInsert=a.skipInsert;
+                        for(int i=0;i<3;i++) b.children[i]=(ExprCredit)value(a.children[i]);
+                    } else if(source instanceof DelayedFVarFrame) {
+                        DelayedFVarFrame a=(DelayedFVarFrame)old,b=(DelayedFVarFrame)out; b.original=(Node)value(a.original); b.name=value(a.name);
+                    } else if(source instanceof DelayedAssignmentFrame) {
+                        DelayedAssignmentFrame a=(DelayedAssignmentFrame)old,b=(DelayedAssignmentFrame)out; b.name=value(a.name);
+                        b.option=(ExprCredit)value(a.option); b.assigned=(ExprCredit)value(a.assigned); b.newValue=(ExprCredit)value(a.newValue); b.present=a.present; b.outer=a.outer;
+                    } else if(source instanceof DelayedAppFrame) {
+                        DelayedAppFrame a=(DelayedAppFrame)old,b=(DelayedAppFrame)out; b.original=(Node)value(a.original); b.head=value(a.head); b.cursor=value(a.cursor);
+                        b.argumentCount=a.argumentCount; b.option=(ExprCredit)value(a.option); b.recordTemporary=(ExprCredit)value(a.recordTemporary);
+                        b.fvars=(ExprCredit)value(a.fvars); b.pendingName=(ExprCredit)value(a.pendingName); b.discardedAssignment=(ExprCredit)value(a.discardedAssignment);
+                    } else if(source instanceof DelayedPrefixFrame) {
+                        DelayedPrefixFrame a=(DelayedPrefixFrame)old,b=(DelayedPrefixFrame)out; b.original=(Node)value(a.original);
+                        b.argument=(ExprCredit)value(a.argument); b.function=(ExprCredit)value(a.function);
+                    } else {
+                        DelayedResolveFrame a=(DelayedResolveFrame)old,b=(DelayedResolveFrame)out; b.original=(Node)value(a.original); b.cursor=value(a.cursor);
+                        b.fvars=value(a.fvars); b.pendingName=value(a.pendingName); b.argumentTemporary=(ExprCredit)value(a.argumentTemporary);
+                        b.option=(ExprCredit)value(a.option); b.expressionTemporary=(ExprCredit)value(a.expressionTemporary); b.newValue=(ExprCredit)value(a.newValue);
+                        b.betaParameter=(ExprCredit)value(a.betaParameter); b.substitutions=(SubstitutionFrame)value(a.substitutions);
+                        b.argumentCount=a.argumentCount; b.extraCount=a.extraCount;
+                        for(ExprCredit argument:a.arguments) b.arguments.add((ExprCredit)value(argument));
+                    }
                 } else if(source instanceof DelayedResearchState) {
                     DelayedResearchState old=(DelayedResearchState)source,out=(DelayedResearchState)target;
                     out.context=(MVarContextCell)value(old.context); out.budget=(InstantiationBudget)value(old.budget); out.session=(DelayedSession)value(old.session);
@@ -5384,6 +6127,12 @@ public final class Interpreter implements AutoCloseable {
                         out.pending.put(bucket.getKey(),entries);
                     }
                     for(PendingNameEntry entry:old.pendingOwners) out.pendingOwners.add((PendingNameEntry)value(entry));
+                    for(ExprCredit credit:old.saved) out.saved.add((ExprCredit)value(credit));
+                    for(DirectNameEntry entry:old.nameOwners) out.nameOwners.add((DirectNameEntry)value(entry));
+                    for(Map.Entry<Integer,ArrayList<DirectNameEntry>> item:old.normalized.entrySet()) {
+                        ArrayList<DirectNameEntry> entries=new ArrayList<>(); for(DirectNameEntry entry:item.getValue()) entries.add((DirectNameEntry)value(entry));
+                        out.normalized.put(item.getKey(),entries);
+                    }
                     for(Map.Entry<Integer,ArrayList<SubstitutionEntry>> bucket:old.substitutions.entrySet()) {
                         ArrayList<SubstitutionEntry> entries=new ArrayList<>(); for(SubstitutionEntry entry:bucket.getValue()) entries.add((SubstitutionEntry)value(entry));
                         out.substitutions.put(bucket.getKey(),entries);
@@ -5440,7 +6189,7 @@ public final class Interpreter implements AutoCloseable {
                     out.depth=old.depth; out.stage=old.stage; out.present=old.present; out.completed=old.completed;
                 } else if(source instanceof DelayedHelperPacket) {
                     DelayedHelperPacket old=(DelayedHelperPacket)source,out=(DelayedHelperPacket)target;
-                    out.function=(Function)value(old.function); out.arguments=(Object[])value(old.arguments); out.owned=old.owned.clone(); out.target=(ResolverTask)value(old.target);
+                    out.function=(Function)value(old.function); out.arguments=(Object[])value(old.arguments); out.owned=old.owned.clone(); out.target=(ResolverTask)value(old.target); out.transformTarget=(DelayedTransformTask)value(old.transformTarget);
                     out.role=old.role; out.started=old.started; out.entered=old.entered;
                 } else if(source instanceof ResolverTask) {
                     ResolverTask old=(ResolverTask)source,out=(ResolverTask)target; out.child=(ResolverTask)value(old.child); out.received=(ExprCredit)value(old.received);
@@ -5533,7 +6282,7 @@ public final class Interpreter implements AutoCloseable {
                     ExprPacket old=(ExprPacket)source,out=(ExprPacket)target; out.function=(Function)value(old.function);
                     out.arguments=(Object[])value(old.arguments); out.expectedFields=(Object[])value(old.expectedFields); out.owned=old.owned.clone();
                     out.role=old.role; out.expectedTag=old.expectedTag; out.expectedFlag=old.expectedFlag;
-                    out.started=old.started; out.entered=old.entered; out.replaceFrame=(ExprReplaceFrame)value(old.replaceFrame); out.beta=(BetaJob)value(old.beta); out.directTarget=(ExprDirectTask)value(old.directTarget);
+                    out.started=old.started; out.entered=old.entered; out.replaceFrame=(ExprReplaceFrame)value(old.replaceFrame); out.beta=(BetaJob)value(old.beta); out.directTarget=(ExprDirectTask)value(old.directTarget); out.delayedTarget=(DelayedTransformTask)value(old.delayedTarget);
                 } else if(source instanceof ExprJob) {
                     ExprJob old=(ExprJob)source,out=(ExprJob)target;
                     out.result=(ExprCredit)value(old.result); out.childResult=(ExprCredit)value(old.childResult); out.completed=old.completed; out.cleanup=old.cleanup;
@@ -5881,7 +6630,7 @@ public final class Interpreter implements AutoCloseable {
                     case SPROJ: require((b.type==U8||b.type==U32||b.type==U64||b.type==F64)&&lane(env,e.a)==OBJ,"Scalar projection lane mismatch"); break;
                     case UPROJ: require(b.type==USIZE&&lane(env,e.a)==OBJ,"USize projection lane mismatch"); break;
                     case FAP: requireExecutableAbi(e.target); checkArgs(env,e.args,e.target.paramTypes); require(b.type==e.target.resultType,"Call result lane mismatch"); break;
-                    case PAP: requireExecutableAbi(e.target); require(e.target.intrinsic!=PROFILE_IT,"Borrowed profiling primitive requires an owned guest wrapper"); require(!borrowedTaskPrimitive(e.target.intrinsic),"Borrowed task primitive requires owned closure wrapper"); require(b.type==OBJ&&e.args.length<e.target.params.length,"Invalid partial application"); require(!borrowedArrayPrimitive(e.target.intrinsic),"Borrowed array primitive requires owned closure wrapper"); require(!borrowedIntPrimitive(e.target.intrinsic),"Borrowed Int primitive requires owned closure wrapper"); require(!borrowedStringPositionPrimitive(e.target.intrinsic),"Borrowed String position primitive requires owned closure wrapper"); require(!borrowedStringCompletionPrimitive(e.target.intrinsic),"Borrowed String range primitive requires owned closure wrapper"); require(!borrowedBytePrimitive(e.target.intrinsic),"Borrowed ByteArray primitive requires owned closure wrapper"); require(e.target.intrinsic!=NAME_EQ,"Borrowed Name equality requires an owned guest wrapper"); require(e.target.intrinsic!=EXPR_CACHE,"Borrowed Expr data requires an owned guest wrapper"); require(!borrowedExprEquality(e.target.intrinsic),"Borrowed Expr equality requires an owned guest wrapper"); require(e.target.intrinsic!=LEVEL_EQUAL,"Borrowed Level equality requires an owned guest wrapper"); require(!findPrimitive(e.target.intrinsic),"Borrowed Expr.find requires an owned guest wrapper"); require(e.target.intrinsic!=SHARECOMMON_QUICK,"Borrowed ShareCommon requires an owned guest wrapper"); require(e.target.intrinsic!=EXPR_REPLACE,"Borrowed Expr.replace requires an owned guest wrapper"); require(!abstractPrimitive(e.target.intrinsic),"Borrowed Expr abstraction requires an owned guest wrapper"); require(!pureExprTransform(e.target.intrinsic),"Borrowed Expr instantiation/lift requires an owned guest wrapper"); require(e.target.intrinsic!=POINTER_IDENTITY,"Pointer identity requires a certified direct FAP site"); require(!borrowedRefPrimitive(e.target.intrinsic),"Borrowed ref primitive requires owned closure wrapper"); for(int i=0;i<e.target.paramTypes.length;i++) require(e.target.paramTypes[i]==OBJ,"Unboxed partial target unsupported; boxed wrapper required"); for(int a:e.args) require(lane(env,a)==OBJ,"Partial argument must be boxed"); break;
+                    case PAP: requireExecutableAbi(e.target); require(e.target.intrinsic!=PROFILE_IT,"Borrowed profiling primitive requires an owned guest wrapper"); require(!borrowedTaskPrimitive(e.target.intrinsic),"Borrowed task primitive requires owned closure wrapper"); require(b.type==OBJ&&e.args.length<e.target.params.length,"Invalid partial application"); require(!borrowedArrayPrimitive(e.target.intrinsic),"Borrowed array primitive requires owned closure wrapper"); require(!borrowedIntPrimitive(e.target.intrinsic),"Borrowed Int primitive requires owned closure wrapper"); require(!borrowedStringPositionPrimitive(e.target.intrinsic),"Borrowed String position primitive requires owned closure wrapper"); require(!borrowedStringCompletionPrimitive(e.target.intrinsic),"Borrowed String range primitive requires owned closure wrapper"); require(!borrowedBytePrimitive(e.target.intrinsic),"Borrowed ByteArray primitive requires owned closure wrapper"); require(e.target.intrinsic!=NAME_EQ,"Borrowed Name equality requires an owned guest wrapper"); require(e.target.intrinsic!=EXPR_CACHE,"Borrowed Expr data requires an owned guest wrapper"); require(!borrowedExprEquality(e.target.intrinsic),"Borrowed Expr equality requires an owned guest wrapper"); require(e.target.intrinsic!=LEVEL_EQUAL,"Borrowed Level equality requires an owned guest wrapper"); require(!borrowedExprLooseQuery(e.target.intrinsic),"Borrowed Expr loose search requires an owned guest wrapper"); require(!findPrimitive(e.target.intrinsic),"Borrowed Expr.find requires an owned guest wrapper"); require(e.target.intrinsic!=SHARECOMMON_QUICK,"Borrowed ShareCommon requires an owned guest wrapper"); require(e.target.intrinsic!=EXPR_REPLACE,"Borrowed Expr.replace requires an owned guest wrapper"); require(!abstractPrimitive(e.target.intrinsic),"Borrowed Expr abstraction requires an owned guest wrapper"); require(!pureExprTransform(e.target.intrinsic),"Borrowed Expr instantiation/lift requires an owned guest wrapper"); require(e.target.intrinsic!=POINTER_IDENTITY,"Pointer identity requires a certified direct FAP site"); require(!borrowedRefPrimitive(e.target.intrinsic),"Borrowed ref primitive requires owned closure wrapper"); for(int i=0;i<e.target.paramTypes.length;i++) require(e.target.paramTypes[i]==OBJ,"Unboxed partial target unsupported; boxed wrapper required"); for(int a:e.args) require(lane(env,a)==OBJ,"Partial argument must be boxed"); break;
                     case AP: require(b.type==OBJ&&lane(env,e.a)==OBJ&&e.args.length>0,"Unsupported closure application"); for(int a:e.args) require(lane(env,a)==OBJ,"Closure argument must be boxed"); break;
                     case BOX: require(b.type==OBJ&&e.b!=OBJ&&lane(env,e.a)==e.b,"Box lane mismatch"); break;
                     case UNBOX: require(b.type!=OBJ&&lane(env,e.a)==OBJ,"Unbox lane mismatch"); break;
@@ -6259,6 +7008,7 @@ public final class Interpreter implements AutoCloseable {
         if(borrowedExprEquality(f.intrinsic)) { scalarResult=new ExprEquality(f.intrinsic==EXPR_EQUAL).apply(obj(slots[0]),obj(slots[1]))?1:0; return; }
         if(f.intrinsic==LEVEL_EQUAL) { scalarResult=new ExprEquality(false).applyLevel(obj(slots[0]),obj(slots[1]))?1:0; return; }
         if(f.intrinsic==EXPR_CACHE) { scalarResult=exprCachedData(obj(slots[0])); return; }
+        if(f.intrinsic==EXPR_HAS_LOOSE) { scalarResult=new LooseBVarSearch().apply(obj(slots[0]),obj(slots[1]))?1:0; return; }
         if(f.intrinsic==EXPR_DATA) {
             exprData(numbers[bp+slots[0]],obj(slots[1]),numbers[bp+slots[2]],numbers[bp+slots[3]],
                     numbers[bp+slots[4]],numbers[bp+slots[5]],numbers[bp+slots[6]]); return;
@@ -6302,6 +7052,7 @@ public final class Interpreter implements AutoCloseable {
         if(borrowedExprEquality(f.intrinsic)) { scalarResult=new ExprEquality(f.intrinsic==EXPR_EQUAL).apply(args[0],args[1])?1:0; return; }
         if(f.intrinsic==LEVEL_EQUAL) { scalarResult=new ExprEquality(false).applyLevel(args[0],args[1])?1:0; return; }
         if(f.intrinsic==EXPR_CACHE) { scalarResult=exprCachedData(args[0]); return; }
+        if(f.intrinsic==EXPR_HAS_LOOSE) { scalarResult=new LooseBVarSearch().apply(args[0],args[1])?1:0; return; }
         if(f.intrinsic==EXPR_DATA) {
             exprData(inputScalar(args[0],U64),args[1],inputScalar(args[2],U32),inputScalar(args[3],U8),
                     inputScalar(args[4],U8),inputScalar(args[5],U8),inputScalar(args[6],U8)); return;
@@ -7527,6 +8278,7 @@ public final class Interpreter implements AutoCloseable {
     /** Explicit membership: later IDs need not lie beside the original scalar group. */
     private static boolean u64ScalarPrimitive(int op) {
         switch(op) {
+            case LAYOUT_FIELDS: case LAYOUT_SCALARS: case LAYOUT_TAG: case LAYOUT_USIZE: case U32_LT: case U64_TO_NAT:
             case STR_HASH: case U64_MIX: case U64_NAT: case U64_SHR: case U64_XOR: case U64_USIZE:
             case U64_LT: case U64_EQ: case U64_OWNED_NAT: case U64_TO_U32:
             case BOOL_U64: case U64_ADD: case U64_SUB: case U64_MUL: case U64_DIV: case U64_MOD:
@@ -7547,6 +8299,11 @@ public final class Interpreter implements AutoCloseable {
             case USIZE_REPR: result=Long.toUnsignedString((Long)a); break;
             case U32_NAT: result=a; break;
             case U32_EQ: scalarResult=((Long)a).longValue()==((Long)b).longValue()?1:0; break;
+            case U32_LT: scalarResult=(Long)a<(Long)b?1:0; break;
+            case U64_TO_NAT: result=externalScalar((Long)a,U64); break;
+            case LAYOUT_FIELDS: case LAYOUT_SCALARS: case LAYOUT_TAG: case LAYOUT_USIZE:
+                requireLayoutUnit(a);
+                result=Long.valueOf(f.intrinsic==LAYOUT_FIELDS?256:f.intrinsic==LAYOUT_SCALARS?1024:f.intrinsic==LAYOUT_TAG?243:8); break;
             case U32_LE: scalarResult=(Long)a<=(Long)b?1:0; break;
             case PLATFORM_BITS: require(a instanceof Long&&(Long)a==0,"Expected Unit for platform bits"); result=Long.valueOf(64); break;
             case USIZE_LT: scalarResult=Long.compareUnsigned((Long)a,(Long)b)<0?1:0; break;
@@ -7676,6 +8433,11 @@ public final class Interpreter implements AutoCloseable {
         for(int i=0;i<function.paramTypes.length;i++) if(function.paramTypes[i]<0)
             throw error("Unsupported execution lane "+header.paramTypes[i]+" in "+function.label+" ["+header.originalSha256+"]");
     }
+    /** Pinned 64-bit Lean target layout, not Java object dimensions. */
+    private static boolean layoutPrimitive(int op) { return op>=LAYOUT_FIELDS&&op<=LAYOUT_USIZE; }
+    private static void requireLayoutUnit(Object value) {
+        require(value instanceof Long&&((Long)value).longValue()==0,"Layout query requires canonical Unit zero");
+    }
     private static boolean buildIdentityPrimitive(int op) { return op==BUILD_GITHASH||op==BUILD_TARGET; }
     private void requireBuildIdentity() { require(buildIdentity!=null,"Producer build identity unavailable"); }
     private static void requireBuildUnit(Object value) {
@@ -7701,6 +8463,7 @@ public final class Interpreter implements AutoCloseable {
         if(function.intrinsic==PROFILE_IT) profilingGetter(function);
         if(findPrimitive(function.intrinsic)) require(explicit&&taskRuntime!=null,"Expr.find requires the active explicit runtime");
         if(function.intrinsic==LEVEL_INSTANTIATE) levelInstantiationProfile(function);
+        if(function.intrinsic==EXPR_INSTANTIATE_MVARS) exprInstantiationProfile(function);
         if(function.intrinsic==SHARECOMMON_QUICK) shareCommonProfile();
         if(function.intrinsic==EXPR_REPLACE) exprTransformsProfile(function);
         if(abstractPrimitive(function.intrinsic)||pureExprTransform(function.intrinsic)) exprTransformsProfile(function);
@@ -7762,6 +8525,7 @@ public final class Interpreter implements AutoCloseable {
         if(closure.fields.length+args.length>=f.params.length) {
             called=preflightCallable(f);
             if(buildIdentityPrimitive(f.intrinsic)) requireBuildUnit(closure.fields.length==0?args[0]:closure.fields[0]);
+            if(layoutPrimitive(f.intrinsic)) requireLayoutUnit(closure.fields.length==0?args[0]:closure.fields[0]);
             if(f.intrinsic==BOOL_U64) requireBoolScalar(closure.fields.length==0?args[0]:closure.fields[0]);
         }
         Object[] combined=new Object[closure.fields.length+args.length];
@@ -7853,7 +8617,7 @@ public final class Interpreter implements AutoCloseable {
         require(function!=null,"Expected closure");
         require(!borrowedTaskPrimitive(function.intrinsic),"Borrowed task primitive requires owned guest wrapper");
         require(function.intrinsic!=NAME_EQ,"Borrowed Name equality cannot be admitted as a first-class closure");
-        require(function.intrinsic!=EXPR_CACHE,"Borrowed Expr data requires an owned guest wrapper"); require(!borrowedExprEquality(function.intrinsic),"Borrowed Expr equality requires an owned guest wrapper"); require(function.intrinsic!=LEVEL_EQUAL,"Borrowed Level equality requires an owned guest wrapper"); require(!findPrimitive(function.intrinsic),"Borrowed Expr.find requires an owned guest wrapper"); require(function.intrinsic!=SHARECOMMON_QUICK,"Borrowed ShareCommon requires an owned guest wrapper"); require(function.intrinsic!=EXPR_REPLACE,"Borrowed Expr.replace requires an owned guest wrapper"); require(!abstractPrimitive(function.intrinsic),"Borrowed Expr abstraction requires an owned guest wrapper"); require(!pureExprTransform(function.intrinsic),"Borrowed Expr instantiation/lift requires an owned guest wrapper");
+        require(function.intrinsic!=EXPR_CACHE,"Borrowed Expr data requires an owned guest wrapper"); require(!borrowedExprEquality(function.intrinsic),"Borrowed Expr equality requires an owned guest wrapper"); require(function.intrinsic!=LEVEL_EQUAL,"Borrowed Level equality requires an owned guest wrapper"); require(!borrowedExprLooseQuery(function.intrinsic),"Borrowed Expr loose search requires an owned guest wrapper"); require(!findPrimitive(function.intrinsic),"Borrowed Expr.find requires an owned guest wrapper"); require(function.intrinsic!=SHARECOMMON_QUICK,"Borrowed ShareCommon requires an owned guest wrapper"); require(function.intrinsic!=EXPR_REPLACE,"Borrowed Expr.replace requires an owned guest wrapper"); require(!abstractPrimitive(function.intrinsic),"Borrowed Expr abstraction requires an owned guest wrapper"); require(!pureExprTransform(function.intrinsic),"Borrowed Expr instantiation/lift requires an owned guest wrapper");
         require(function.intrinsic!=POINTER_IDENTITY,"Pointer identity cannot be admitted as a first-class closure");
         if(!(kindMetadata(closure) instanceof Generation)||!program.generation.accepts((Generation)kindMetadata(closure))) throw error("Closure belongs to another code image");
         if(function.privateOwner!=null) {
@@ -7987,7 +8751,7 @@ public final class Interpreter implements AutoCloseable {
                 require(!borrowedStringCompletionPrimitive(target.intrinsic),"Borrowed String range primitive requires owned closure wrapper");
                 require(!borrowedBytePrimitive(target.intrinsic),"Borrowed ByteArray primitive requires owned closure wrapper");
                 require(target.intrinsic!=NAME_EQ,"Borrowed Name equality requires an owned guest wrapper");
-                require(target.intrinsic!=EXPR_CACHE,"Borrowed Expr data requires an owned guest wrapper"); require(!borrowedExprEquality(target.intrinsic),"Borrowed Expr equality requires an owned guest wrapper"); require(target.intrinsic!=LEVEL_EQUAL,"Borrowed Level equality requires an owned guest wrapper"); require(!findPrimitive(target.intrinsic),"Borrowed Expr.find requires an owned guest wrapper"); require(target.intrinsic!=SHARECOMMON_QUICK,"Borrowed ShareCommon requires an owned guest wrapper"); require(target.intrinsic!=EXPR_REPLACE,"Borrowed Expr.replace requires an owned guest wrapper"); require(!abstractPrimitive(target.intrinsic),"Borrowed Expr abstraction requires an owned guest wrapper"); require(!pureExprTransform(target.intrinsic),"Borrowed Expr instantiation/lift requires an owned guest wrapper");
+                require(target.intrinsic!=EXPR_CACHE,"Borrowed Expr data requires an owned guest wrapper"); require(!borrowedExprEquality(target.intrinsic),"Borrowed Expr equality requires an owned guest wrapper"); require(target.intrinsic!=LEVEL_EQUAL,"Borrowed Level equality requires an owned guest wrapper"); require(!borrowedExprLooseQuery(target.intrinsic),"Borrowed Expr loose search requires an owned guest wrapper"); require(!findPrimitive(target.intrinsic),"Borrowed Expr.find requires an owned guest wrapper"); require(target.intrinsic!=SHARECOMMON_QUICK,"Borrowed ShareCommon requires an owned guest wrapper"); require(target.intrinsic!=EXPR_REPLACE,"Borrowed Expr.replace requires an owned guest wrapper"); require(!abstractPrimitive(target.intrinsic),"Borrowed Expr abstraction requires an owned guest wrapper"); require(!pureExprTransform(target.intrinsic),"Borrowed Expr instantiation/lift requires an owned guest wrapper");
                 require(target.intrinsic!=POINTER_IDENTITY,"Pointer identity requires a certified direct FAP site");
                 require(!borrowedRefPrimitive(target.intrinsic),"Borrowed ref primitive requires owned closure wrapper");
                 closureTargets[i]=target;
@@ -8071,7 +8835,7 @@ public final class Interpreter implements AutoCloseable {
         require(!borrowedStringCompletionPrimitive(target.intrinsic),"Borrowed String range primitive requires owned closure wrapper");
         require(!borrowedBytePrimitive(target.intrinsic),"Borrowed ByteArray primitive requires owned closure wrapper");
         require(target.intrinsic!=NAME_EQ,"Borrowed Name equality requires an owned guest wrapper");
-        require(target.intrinsic!=EXPR_CACHE,"Borrowed Expr data requires an owned guest wrapper"); require(!borrowedExprEquality(target.intrinsic),"Borrowed Expr equality requires an owned guest wrapper"); require(target.intrinsic!=LEVEL_EQUAL,"Borrowed Level equality requires an owned guest wrapper"); require(!findPrimitive(target.intrinsic),"Borrowed Expr.find requires an owned guest wrapper"); require(target.intrinsic!=SHARECOMMON_QUICK,"Borrowed ShareCommon requires an owned guest wrapper"); require(target.intrinsic!=EXPR_REPLACE,"Borrowed Expr.replace requires an owned guest wrapper"); require(!abstractPrimitive(target.intrinsic),"Borrowed Expr abstraction requires an owned guest wrapper"); require(!pureExprTransform(target.intrinsic),"Borrowed Expr instantiation/lift requires an owned guest wrapper");
+        require(target.intrinsic!=EXPR_CACHE,"Borrowed Expr data requires an owned guest wrapper"); require(!borrowedExprEquality(target.intrinsic),"Borrowed Expr equality requires an owned guest wrapper"); require(target.intrinsic!=LEVEL_EQUAL,"Borrowed Level equality requires an owned guest wrapper"); require(!borrowedExprLooseQuery(target.intrinsic),"Borrowed Expr loose search requires an owned guest wrapper"); require(!findPrimitive(target.intrinsic),"Borrowed Expr.find requires an owned guest wrapper"); require(target.intrinsic!=SHARECOMMON_QUICK,"Borrowed ShareCommon requires an owned guest wrapper"); require(target.intrinsic!=EXPR_REPLACE,"Borrowed Expr.replace requires an owned guest wrapper"); require(!abstractPrimitive(target.intrinsic),"Borrowed Expr abstraction requires an owned guest wrapper"); require(!pureExprTransform(target.intrinsic),"Borrowed Expr instantiation/lift requires an owned guest wrapper");
         require(target.intrinsic!=POINTER_IDENTITY,"Pointer identity requires a certified direct FAP site");
         require(!borrowedRefPrimitive(target.intrinsic),"Borrowed ref primitive requires owned closure wrapper");
         for(int lane:target.paramTypes) require(lane==OBJ,"Unboxed partial target unsupported; boxed wrapper required");
@@ -8507,6 +9271,7 @@ public final class Interpreter implements AutoCloseable {
     private void validateEntryArguments(Function function,Object[] args,boolean saved) {
         if(args==null||args.length!=function.params.length) throw error("Arity mismatch: "+function.label);
         if(buildIdentityPrimitive(function.intrinsic)) requireBuildUnit(args[0]);
+        if(layoutPrimitive(function.intrinsic)) requireLayoutUnit(args[0]);
         if(function.intrinsic==BOOL_U64) requireBoolScalar(args[0]);
         if(function.intrinsic==TASK_MAP&&taskRuntime==null) validateTaskMap(args);
         if(taskRuntime!=null&&function.intrinsic==TASK_PURE) {
@@ -8605,6 +9370,7 @@ public final class Interpreter implements AutoCloseable {
         if(closure.fields.length+args.length>=f.params.length) {
             called=preflightCallable(f,true);
             if(buildIdentityPrimitive(f.intrinsic)) requireBuildUnit(closure.fields.length==0?args[0]:closure.fields[0]);
+            if(layoutPrimitive(f.intrinsic)) requireLayoutUnit(closure.fields.length==0?args[0]:closure.fields[0]);
             if(f.intrinsic==BOOL_U64) requireBoolScalar(closure.fields.length==0?args[0]:closure.fields[0]);
         }
         Object[] combined=new Object[closure.fields.length+args.length];
@@ -8819,7 +9585,7 @@ public final class Interpreter implements AutoCloseable {
         if(borrowedIntPrimitive(f.intrinsic))
             throw new UnsupportedOperationException("Borrowed Int primitive requires owned guest wrapper at external entry");
         require(f.intrinsic!=NAME_EQ,"Borrowed Name equality requires an owned guest wrapper");
-        require(f.intrinsic!=EXPR_CACHE,"Borrowed Expr data requires an owned guest wrapper"); require(!borrowedExprEquality(f.intrinsic),"Borrowed Expr equality requires an owned guest wrapper"); require(f.intrinsic!=LEVEL_EQUAL,"Borrowed Level equality requires an owned guest wrapper"); require(!findPrimitive(f.intrinsic),"Borrowed Expr.find requires an owned guest wrapper"); require(f.intrinsic!=SHARECOMMON_QUICK,"Borrowed ShareCommon requires an owned guest wrapper"); require(f.intrinsic!=EXPR_REPLACE,"Borrowed Expr.replace requires an owned guest wrapper"); require(!abstractPrimitive(f.intrinsic),"Borrowed Expr abstraction requires an owned guest wrapper"); require(!pureExprTransform(f.intrinsic),"Borrowed Expr instantiation/lift requires an owned guest wrapper");
+        require(f.intrinsic!=EXPR_CACHE,"Borrowed Expr data requires an owned guest wrapper"); require(!borrowedExprEquality(f.intrinsic),"Borrowed Expr equality requires an owned guest wrapper"); require(f.intrinsic!=LEVEL_EQUAL,"Borrowed Level equality requires an owned guest wrapper"); require(!borrowedExprLooseQuery(f.intrinsic),"Borrowed Expr loose search requires an owned guest wrapper"); require(!findPrimitive(f.intrinsic),"Borrowed Expr.find requires an owned guest wrapper"); require(f.intrinsic!=SHARECOMMON_QUICK,"Borrowed ShareCommon requires an owned guest wrapper"); require(f.intrinsic!=EXPR_REPLACE,"Borrowed Expr.replace requires an owned guest wrapper"); require(!abstractPrimitive(f.intrinsic),"Borrowed Expr abstraction requires an owned guest wrapper"); require(!pureExprTransform(f.intrinsic),"Borrowed Expr instantiation/lift requires an owned guest wrapper");
         if(borrowedBytePrimitive(f.intrinsic))
             throw new UnsupportedOperationException("Borrowed ByteArray primitive requires owned guest wrapper at external entry");
         require(f.intrinsic!=POINTER_IDENTITY,"Pointer identity requires a certified direct FAP site");
