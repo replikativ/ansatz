@@ -1,0 +1,81 @@
+{
+  "schema": "observed-general-command-runtime-validation/1",
+  "date": "2026-10-31",
+  "status": "selected-arithmetic-file-pass; general-corpus-pending",
+  "scope": "Actual observed frontend companion/gate, original parser-log helper, one strict checked definition, complete generated Header batch, actual eoi and disposal. Not full general project/import or declaration-kind acceptance.",
+  "runtime": {
+    "heap-cap-mib": 384,
+    "new-composite-source-binding": true,
+    "source-overlays": 3,
+    "runtime-roots": 534,
+    "imported-base-basis": "trusted-matched-Prelude; no imported proof replay"
+  },
+  "file": {
+    "fixture": "experiments/lean-ir/test/fixtures/generated-nat-arithmetic/HostedArithmetic.lean",
+    "bytes": 74,
+    "sha256": "a2602204c14a5b749f2add3faae53ecd3f88bf534f0e97b5ec87689dbc51d2ab",
+    "finite-source-body-recognizer": false,
+    "commands": [
+      "definition",
+      "actual-eoi"
+    ],
+    "strict-publications": 1,
+    "versions": [
+      0,
+      1
+    ],
+    "new-ir-rows": 2,
+    "canonical-generated-Headers-linked": 2,
+    "dynamic-ap-observed": 0,
+    "load-ms": 4167.033245,
+    "invocations": [
+      {
+        "argument": "0",
+        "result": "1"
+      },
+      {
+        "argument": "42",
+        "result": "43"
+      },
+      {
+        "argument": "9223372036854775807",
+        "result": "9223372036854775808"
+      },
+      {
+        "argument": "18446744073709551616",
+        "result": "18446744073709551617"
+      },
+      {
+        "argument": "1606938044258990275541962092341162602522202993782792835301376",
+        "result": "1606938044258990275541962092341162602522202993782792835301377"
+      }
+    ],
+    "retirement": {
+      "status": "disposed-and-closed",
+      "extra-owner-occurrences": 12,
+      "runtime-root-occurrences": 534
+    }
+  },
+  "evidence": [
+    {
+      "file": "target/java-observed-command-v1/generic-file-result-v5.edn",
+      "sha256": "e280d8c511c0a663a823e18430d8cfaca4380668585f56aca38156b7662feefa"
+    },
+    {
+      "file": "target/java-observed-command-v1/actual-idle-baseline-v2.edn",
+      "sha256": "aa92fdd070460903ec1a660c63f8affa4ef43aed825d734e76079cf9e357c303"
+    }
+  ],
+  "not-established": [
+    "Six-file general corpus",
+    "Malformed parser-recovery and protected-option runtime negatives",
+    "Multiple/zero-publication source corpus beyond genuine base-v0 baseline",
+    "AP/PAP/SCC and closed-value runtime corpus",
+    "Initializer/module export and project imports",
+    "Mutual/opaque/inductive declaration admission",
+    "Public standalone provider or ordinary implicit Init compatibility"
+  ],
+  "failure-history": "Earlier decoder ceiling, physical destination, RC-prefix and result-envelope probes failed before receipt issuance; an inspection-idle retirement timeout remained quarantined and was not resumed. Only the scoped v5 whole run is accepted here.",
+  "process-lifetime": "Parent later reported user-terminated JVMs and a fresh single retained 384 MiB JVM reconstruction. That does not turn failed work into successful cleanup or resume old tokens.",
+  "worker-execution": "Source/metadata audits only; no worker JVM/native run"
+}

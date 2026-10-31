@@ -236,7 +236,7 @@ the experimental one-minute file limit; its diagnostic completion was not accept
 as a file result. This finite profile still does not admit arbitrary commands,
 source-module imports or general Lean projects.
 
-## Observed general-command source provider (not runtime accepted)
+## Observed general-command route: selected runtime smoke
 
 `general-source-provider.clj` defines `general-frontend-source-provider-v1`. It
 works with the separately admitted [observed frontend companion](../observed-frontend/README.md)
@@ -293,6 +293,39 @@ nested forbidden effects, typed Name spoofing, UTF-8/ranges/depth/cycles, namesp
 options, unissued tokens and observer effect detection. They are not actual
 parser outputs, valid source capabilities or a hosted frontend acceptance. Run
 `general-frontend-source-provider-models-v1/check!` with the current compiled basis;
-author has not launched a JVM. The original companion/gate, malformed recovery,
-protected local options and complete general file route still require coordinated
-runtime probes.
+author has not launched a JVM. The separate runtime record below covers the
+actual companion/gate on one arithmetic file; malformed recovery, protected local
+options and the broader corpus still require coordinated runtime probes.
+
+
+## General receipt and generated-code source layer
+
+The new [M1/M2 specification](GENERAL_COMMAND_RECEIPTS.md),
+`general-command.clj` and `generated-batch.clj` preserve the finite routes while
+separating successful checked commands from optional executable batches. The
+controller uses the separately authenticated observed companion and actual
+pre-elaboration gate, original parser-log helper, real version-zero association,
+zero/multiple publication journal, both diagnostic logs and genuine eoi. It
+accepts complete compiler IR deltas without a definition-body recognizer. The
+batch preparer stages canonical Headers for all ordinary generated fdecls/SCCs,
+records AP/static frontiers and distinguishes unsupported execution from a
+successful checked command. Source/branch/version, actual owner transfers and
+failure quarantine remain mandatory; this is not a new declaration checker.
+
+The [selected general-route runtime record](general-command-runtime-validation.json)
+reports one 74-byte arithmetic file through actual parser/gate, strict publication,
+two canonical linked IR rows, genuine EOF, five correct Nat calls and normal
+12-extra/534-runtime-root disposal at 384 MiB. This is a selected smoke result;
+the six-file corpus, malformed-source negatives, wider declaration kinds,
+initialization, module reuse and ordinary project imports remain pending. The
+producer-only companion manifest and earlier baseline record retain their own
+historical scopes rather than being rewritten as general acceptance.
+
+[general-command-v1.json](general-command-v1.json) layers explicit source changes
+and a complete current inventory over the unchanged v25 acceptance and finite
+arithmetic layer. The source verifier checks all three records and the exact
+loader order; it never updates hashes. A new source edit requires an explained
+layer update. Source verification and definition loading do not execute a guest,
+replay proof checking or recreate the selected runtime result. Runtime resources,
+raw ignored receipts and the source export bundle remain external prerequisites.
+Do not reload opaque registries/types underneath live contexts or receipts.

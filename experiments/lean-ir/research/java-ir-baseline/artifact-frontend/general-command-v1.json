@@ -1,0 +1,411 @@
+{
+  "schema": "artifact-frontend-source-delta/1",
+  "base-acceptance-sha256": "d261a55a887a72a573022a39f0ec2dd6c788c1f09d46e6c5c36311643e5c7fb0",
+  "parent-layer": {
+    "file": "nat-arithmetic-v3.json",
+    "sha256": "f4f2fc714cb6aa84498c9e8434076832180c32e5d08da5f2cd246bdd50851342"
+  },
+  "scope": "Observed original command controller, canonical generated fdecl batches, source3-overlay lineage and intentional legacy model/journal integration; preserves finite routes.",
+  "acceptance": "Selected general-route arithmetic file compile/link/invoke/actual-eoi/normal-retirement PASS at 384 MiB; broader corpus pending. See general-command-runtime-validation.json.",
+  "sources": [
+    {
+      "file": "lineage.clj",
+      "base-sha256": "dcc23b801cbd6d0d47e3f0f8130fa062599d7f3b5f7139ff46f4b4d62d4955d2",
+      "sha256": "c994720429d2b58e95bb890ab1473bf4fecff3cfc089855128b1ef49b70fdc22"
+    },
+    {
+      "file": "authority.clj",
+      "base-sha256": "f98586083a27009416bf4ad86fd67bf1797b458420b76df69332871480f2a21f",
+      "sha256": "c954593b6525f1c4a9386d96b3e61b9bcdc284de962d52eab377e9a6b90af877"
+    },
+    {
+      "file": "adapter.clj",
+      "base-sha256": "a14d69229e4c52e8e9eec95fe9608f3bb30a7175907f3e356577f4942d795222",
+      "sha256": "9370873013520e3b7a66f5b16e007587bfcaf628ed17fe4dfc411bedbbf092ef"
+    },
+    {
+      "file": "generated-command.clj",
+      "base-sha256": "257540c0f261a3f5a19492301bba8eb4367a8fd3901d9611de243c5f893f236f",
+      "sha256": "42ee34f8a2cdf79d74a4c0443af23ecc086f42fb70cb3b929426bdc83868d184"
+    },
+    {
+      "file": "loader.clj",
+      "base-sha256": "d10ec5d4909c1c45cf205d7e2aa10a4e90d6fa7400c496143374998e6fb6c1e8",
+      "sha256": "440ee15b500cf17432d6233c334a80a6f55437c1b291dd01f92b7fdc3b64903e"
+    },
+    {
+      "file": "verify-source.py",
+      "base-sha256": "648d82fc8b482aa674865ef3c341c43213eb2ff467c6850fb8d2b46fac788f4e",
+      "sha256": "fc9714def28c8d964ceffbc8fa8ccca62dfd18435c92460790e003d281185cf7"
+    },
+    {
+      "file": "models/lineage.clj",
+      "base-sha256": "32930f4409aaddd1b9e325ef26d7a4a2b33a8fa5c1823722d81d79f2e214ea82",
+      "sha256": "75d02563a5942ab136b44b9937749cafea8020a61556391729dc877edb2eb55c"
+    },
+    {
+      "file": "models/adapter.clj",
+      "base-sha256": "90fe408594d6a5c43b773e47271aa80a53576564630dd5a20ccd09d0ef3635b0",
+      "sha256": "b83351f33b2a963959c01a10160e903cf814f4e87c47aee100badd7f219ce1eb"
+    },
+    {
+      "file": "general-source-provider.clj",
+      "base-sha256": null,
+      "sha256": "28fe4a3e1b8fae02612fc8066402ae826a4254b946885f2996f46a18fc54563b"
+    },
+    {
+      "file": "general-command.clj",
+      "base-sha256": null,
+      "sha256": "a045aa13789902453a6470881b558f7816d8c84ab30a3b45da2b5e8dec9ceaa8"
+    },
+    {
+      "file": "generated-batch.clj",
+      "base-sha256": null,
+      "sha256": "3d27ff20b8fb91f35302428628fed295a45273974ce1bbd7e7b5985c5176780a"
+    },
+    {
+      "file": "models/general-source-provider.clj",
+      "base-sha256": null,
+      "sha256": "22eacf4e72f7835854b49ac20ff1a4c905597e738ca5de5b79bcf28f88255ad2"
+    },
+    {
+      "file": "models/general-foundation.clj",
+      "base-sha256": null,
+      "sha256": "386068f470cb0e0e169b61d4f4f212efa800b313bf111f046f9e28266c25db20"
+    },
+    {
+      "file": "models/general-command.clj",
+      "base-sha256": null,
+      "sha256": "5a08275911b16496f091fc3111f59d2ecad2fb4f787247468eaba97bf718697d"
+    },
+    {
+      "file": "models/generated-batch.clj",
+      "base-sha256": null,
+      "sha256": "18e6f9f66580ff343ad1137ea4fa8a31232339c0116b9ec7772f652af14a46d0"
+    }
+  ],
+  "source-inventory": [
+    {
+      "file": "adapter.clj",
+      "sha256": "9370873013520e3b7a66f5b16e007587bfcaf628ed17fe4dfc411bedbbf092ef"
+    },
+    {
+      "file": "authenticated-demand.clj",
+      "sha256": "5bcec7d3e2549b8cf7d7d91528c38a75e280838bdf95fba8f95f5f17a8e6db02"
+    },
+    {
+      "file": "authority.clj",
+      "sha256": "c954593b6525f1c4a9386d96b3e61b9bcdc284de962d52eab377e9a6b90af877"
+    },
+    {
+      "file": "base.clj",
+      "sha256": "2b46b16d3def8a96ad5d9f55ffbc8f7639143bbf9d7f2e14f7b6a68219acbaf8"
+    },
+    {
+      "file": "driver.clj",
+      "sha256": "9849d52d686e7da9cce15e1d06d47d6997127e0d7db9307b3837f2ef9a0fcd19"
+    },
+    {
+      "file": "filesystem-file.clj",
+      "sha256": "5f071fc402fc4c52beeb25efdc37e7605ce09e45b363904b1f373ff352e22cb4"
+    },
+    {
+      "file": "filesystem-profile.clj",
+      "sha256": "c2e3619f35299d34c3cb2a91c01308f5939b20d900ce3849b211ff1dcadfe095"
+    },
+    {
+      "file": "filesystem-provider.clj",
+      "sha256": "75877eded4ba2301b635968266fb62d841042e05614e7a5693bf39e532096179"
+    },
+    {
+      "file": "general-command.clj",
+      "sha256": "a045aa13789902453a6470881b558f7816d8c84ab30a3b45da2b5e8dec9ceaa8"
+    },
+    {
+      "file": "general-source-provider.clj",
+      "sha256": "28fe4a3e1b8fae02612fc8066402ae826a4254b946885f2996f46a18fc54563b"
+    },
+    {
+      "file": "generated-batch.clj",
+      "sha256": "3d27ff20b8fb91f35302428628fed295a45273974ce1bbd7e7b5985c5176780a"
+    },
+    {
+      "file": "generated-command.clj",
+      "sha256": "42ee34f8a2cdf79d74a4c0443af23ecc086f42fb70cb3b929426bdc83868d184"
+    },
+    {
+      "file": "imported-setup.clj",
+      "sha256": "ba914ffa70907018da49e70d431576d8ee086d3db0efbd9deb9a306d86da24a4"
+    },
+    {
+      "file": "lineage.clj",
+      "sha256": "c994720429d2b58e95bb890ab1473bf4fecff3cfc089855128b1ef49b70fdc22"
+    },
+    {
+      "file": "loader.clj",
+      "sha256": "440ee15b500cf17432d6233c334a80a6f55437c1b291dd01f92b7fdc3b64903e"
+    },
+    {
+      "file": "models/adapter.clj",
+      "sha256": "b83351f33b2a963959c01a10160e903cf814f4e87c47aee100badd7f219ce1eb"
+    },
+    {
+      "file": "models/authority.clj",
+      "sha256": "b0e4eef97ead1adb92bc2c7c79a8db4e8090a905d74ea6793b62c48092285d90"
+    },
+    {
+      "file": "models/capability.clj",
+      "sha256": "e2a4dd37f41e4034ee9c4f2e1bdb6eea01ddf884cf82838ceb39de76b6c5b663"
+    },
+    {
+      "file": "models/demand.clj",
+      "sha256": "1a1c6ab63794e86a9d199c4d783347a7b9c0f888c4a4e555a93876963259845d"
+    },
+    {
+      "file": "models/filesystem-profile.clj",
+      "sha256": "675c1122d59f653ecd9c1d486f74d643f8a00831dd09eb1216935d81567b9fbb"
+    },
+    {
+      "file": "models/general-command.clj",
+      "sha256": "5a08275911b16496f091fc3111f59d2ecad2fb4f787247468eaba97bf718697d"
+    },
+    {
+      "file": "models/general-foundation.clj",
+      "sha256": "386068f470cb0e0e169b61d4f4f212efa800b313bf111f046f9e28266c25db20"
+    },
+    {
+      "file": "models/general-source-provider.clj",
+      "sha256": "22eacf4e72f7835854b49ac20ff1a4c905597e738ca5de5b79bcf28f88255ad2"
+    },
+    {
+      "file": "models/generated-batch.clj",
+      "sha256": "18e6f9f66580ff343ad1137ea4fa8a31232339c0116b9ec7772f652af14a46d0"
+    },
+    {
+      "file": "models/generated-command.clj",
+      "sha256": "1456f6fc0b692d4c40ca1fa82f70a11cda55f6aaa070e78ce279b097d2c48274"
+    },
+    {
+      "file": "models/lineage.clj",
+      "sha256": "75d02563a5942ab136b44b9937749cafea8020a61556391729dc877edb2eb55c"
+    },
+    {
+      "file": "models/nat-arithmetic.clj",
+      "sha256": "35442cd666c3c2c3ebd74ab73504639aab8b8722fa716f88084316c3a26bfe78"
+    },
+    {
+      "file": "models/node-decoder.clj",
+      "sha256": "ec40f4510db9d611a6fb98c0a4ce5814d189058b25bcf8834611d0c795a881f8"
+    },
+    {
+      "file": "module.clj",
+      "sha256": "fe2dfe6b42e8bc0798164a2dcc30592df6ffa025a2e3e61588629bbc9fb72819"
+    },
+    {
+      "file": "node-decoder.clj",
+      "sha256": "7be96c349ebe68c58902fd2bac0bb23d1ab3e3e96d77814428f0dad0c4e52099"
+    },
+    {
+      "file": "options-proof.clj",
+      "sha256": "f07693ee8fb65166990e0ec534cbe932e98a311f0fcc1dc2b0700a6cc5da7779"
+    },
+    {
+      "file": "sequential-probe.clj",
+      "sha256": "e4b1c1235778bc7221381fe6c959f650ba53086bb0009045b51d98e3259fcf50"
+    },
+    {
+      "file": "verify-source.py",
+      "sha256": "fc9714def28c8d964ceffbc8fa8ccca62dfd18435c92460790e003d281185cf7"
+    }
+  ],
+  "ordered-load-units": [
+    [
+      "authenticated-demand.clj",
+      "ansatz.research.ir.authenticated-demand"
+    ],
+    [
+      "module.clj",
+      "java-matched-prelude-module-v4"
+    ],
+    [
+      "lineage.clj",
+      "java-prelude-finalizer-lineage-v1"
+    ],
+    [
+      "base.clj",
+      "java-matched-artifact-base-v1"
+    ],
+    [
+      "authority.clj",
+      "artifact-declaration-authority-v4"
+    ],
+    [
+      "adapter.clj",
+      "artifact-checked-declaration-adapter-v4"
+    ],
+    [
+      "driver.clj",
+      "artifact-declaration-driver-v4"
+    ],
+    [
+      "node-decoder.clj",
+      "ansatz.research.ir.node-decoder-v1"
+    ],
+    [
+      "sequential-probe.clj",
+      "sequential-frontend-probe"
+    ],
+    [
+      "options-proof.clj",
+      "heartbeat-lab-options-proof"
+    ],
+    [
+      "imported-setup.clj",
+      "imported-frontend-setup-v4"
+    ],
+    [
+      "generated-command.clj",
+      "generated-command-receipt-v1"
+    ],
+    [
+      "filesystem-profile.clj",
+      "filesystem-nat-source-profile-v2"
+    ],
+    [
+      "filesystem-provider.clj",
+      "filesystem-nat-source-provider-v2"
+    ],
+    [
+      "general-source-provider.clj",
+      "general-frontend-source-provider-v1"
+    ],
+    [
+      "general-command.clj",
+      "general-command-receipt-v1"
+    ],
+    [
+      "generated-batch.clj",
+      "general-generated-batch-v1"
+    ],
+    [
+      "filesystem-file.clj",
+      "filesystem-nat-file-run-v1"
+    ],
+    [
+      "models/demand.clj",
+      "ansatz.research.ir.authenticated-demand-checks"
+    ],
+    [
+      "models/lineage.clj",
+      "java-prelude-finalizer-lineage-models-v1"
+    ],
+    [
+      "models/capability.clj",
+      "java-matched-prelude-capability-models-v4"
+    ],
+    [
+      "models/authority.clj",
+      "artifact-declaration-authority-v4-models"
+    ],
+    [
+      "models/adapter.clj",
+      "artifact-declaration-adapter-v4-models-v1"
+    ],
+    [
+      "models/node-decoder.clj",
+      "ansatz.research.ir.node-decoder-checks-v1"
+    ],
+    [
+      "models/generated-command.clj",
+      "generated-command-receipt-checks-v1"
+    ],
+    [
+      "models/filesystem-profile.clj",
+      "filesystem-nat-source-profile-v2-checks"
+    ],
+    [
+      "models/nat-arithmetic.clj",
+      "generated-nat-arithmetic-checks-v3"
+    ],
+    [
+      "models/general-source-provider.clj",
+      "general-frontend-source-provider-models-v1"
+    ],
+    [
+      "models/general-foundation.clj",
+      "general-command-foundation-checks-v1"
+    ],
+    [
+      "models/general-command.clj",
+      "general-command-receipt-checks-v1"
+    ],
+    [
+      "models/generated-batch.clj",
+      "general-generated-batch-models-v1"
+    ]
+  ],
+  "tracked-references": [
+    {
+      "file": "experiments/lean-ir/research/java-ir-baseline/artifact-frontend/README.md",
+      "sha256": "978abb2d74f24fc32042168e442bc5255a21362ca2f178774dbf71f01e7fc47d"
+    },
+    {
+      "file": "experiments/lean-ir/research/java-ir-baseline/artifact-frontend/GENERAL_COMMAND_RECEIPTS.md",
+      "sha256": "12b87a3e00c66b4219eeffba8c204db52c3d0d1728c5f552a2cca35491c5effe"
+    },
+    {
+      "file": "experiments/lean-ir/research/java-ir-baseline/artifact-frontend/general-command-runtime-validation.json",
+      "sha256": "7e69193bd505a14700d7cf84fd402ef020484cbe7d8560b089f69eccad760a34"
+    },
+    {
+      "file": "experiments/lean-ir/lean/ObservedFrontendCommand.lean",
+      "sha256": "291b8dbe2298fa2e9310417294a2c442b1f4849f317f07405048c05dce585e27"
+    },
+    {
+      "file": "experiments/lean-ir/scripts/produce-observed-frontend.py",
+      "sha256": "7ae1eec7f4e5780eb308825439d1b6562269f60de835089efb747d94821f9239"
+    },
+    {
+      "file": "experiments/lean-ir/scripts/test-produce-observed-frontend.py",
+      "sha256": "78773879f8d8a22f2f673bc8d9bc29b6800b6fb1c263381a354f25a675cffdb6"
+    },
+    {
+      "file": "experiments/lean-ir/research/java-ir-baseline/observed-frontend/README.md",
+      "sha256": "346bc97692482b65e00ea57ed7e6b19ee2093d321885cde8b981b43cace69217"
+    },
+    {
+      "file": "experiments/lean-ir/research/java-ir-baseline/observed-frontend/contract.json",
+      "sha256": "3284c726fef34645411a5dd832e7b195894ccb6783305b5899ec46e50955770e"
+    },
+    {
+      "file": "experiments/lean-ir/research/java-ir-baseline/observed-frontend/gate-prefix-note.json",
+      "sha256": "66f0d1e4ab42b01a7924403f647ca520e6d7825b599e11a7e05b0b95988ef547"
+    },
+    {
+      "file": "experiments/lean-ir/research/java-ir-baseline/observed-frontend/jvm-baseline-validation.json",
+      "sha256": "703ede66eb7f820329b0890c8b3ea0adc152f73e5c97ee4c0609a2a7691aa3a8"
+    },
+    {
+      "file": "experiments/lean-ir/research/java-ir-baseline/observed-frontend/source-manifest.json",
+      "sha256": "701f4260219ca1c0b2affeec0142ed54473b3e5b0768005f8f8afdf7f1ac64c2"
+    }
+  ],
+  "external-evidence": [
+    {
+      "file": "target/java-observed-command-v1/generic-file-result-v5.edn",
+      "sha256": "e280d8c511c0a663a823e18430d8cfaca4380668585f56aca38156b7662feefa"
+    },
+    {
+      "file": "target/java-observed-command-v1/actual-idle-baseline-v2.edn",
+      "sha256": "aa92fdd070460903ec1a660c63f8affa4ef43aed825d734e76079cf9e357c303"
+    }
+  ],
+  "runtime-authority-boundaries": [
+    "Source files and hashes are reproducibility evidence, not caller-issued checking or initialized-state authority.",
+    "New companion requires its separately authenticated source overlay and actual composite SourceBinding.",
+    "Receipt issuance begins before actual command execution and includes the actual parser gate, ownership and strict version journal.",
+    "Source policy excludes initialization, extern/export effects and unknown privileged command forms; no automatic project capability grant.",
+    "Complete imported matched-Prelude association remains trusted imported checking data, not proof replay.",
+    "Historical acceptance and finite arithmetic records are immutable earlier observations."
+  ]
+}
