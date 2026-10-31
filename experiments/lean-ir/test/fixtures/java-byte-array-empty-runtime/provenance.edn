@@ -1,0 +1,19 @@
+{:schema 1
+ :lean-commit "819816b2e0a3bf405af45ae5c7af2491d8f5bee6"
+ :source-index-sha256 "74d833d577923821b982e8a9e872a38b5cad011513eb18870b51417e13397f0e"
+ :source-index-bytes 120853740
+ :source-index-declarations 375258
+ :byte-array-domain-index-entries 419
+ :source-index-authentication :same-stream-sha256-and-exact-typed-membership
+ :sqlite-role :candidate-accelerator-only
+ :fixture-sha256 "85e0a39700bfcd899083da2be61c8d991d14932a6e17613a5a75691719657251"
+ :extern-inventory-sha256 "e84316c2833b39fa289daafcb27d3e1947b96345513d901605ca662b8803751d"
+ :string-conversion-frontier-sha256 "f19b3e5665a06ccfaf1de54efe6b48a042b3023f077d51ebc688a10a0b4e58cd"
+ :original-row-count 3
+ :upstream-source-sha256 {"src/include/lean/lean.h" "02af0040283143b264e3a44b06b348b6973ae6037fa8f550701c83dd7a062ace"
+ "src/runtime/object.cpp" "e03ea4317ad44fb91a4cc9097abe1601b1e1cf8fb77f5ab7b0620fdfcf348430"
+ "src/Init/Prelude.lean" "56de5780adc4358372fa9cfac270a70f2d03fd4f213a373aea4365483b31a544"
+ "src/Init/Data/ByteArray/Basic.lean" "fa13cc094c11809e935ad2ebe4bfce08666fb04642909cbfee02b08f9d2a1afd"
+ "src/Init/Data/String/Basic.lean" "e42f494b424f6cb5257b921f94709578f5a9581c9eecdc9c42f5036c4da3e0b5"
+ "src/Init/Data/String/Defs.lean" "d5f604f68e1c80928fd146c598ba77ee74b70f84793f7af8ae264c5c43d06a97"}
+ :transformation {:remove-top-level-pretty true :original-bodies-unchanged true}}

@@ -28,7 +28,7 @@ public final class Interpreter implements AutoCloseable {
     private static final int MAX_PERSISTENT_NODES=300_000,MAX_PERSISTENT_EDGES=1_000_000;
     private static final int LAYOUT_FIELDS=531,LAYOUT_SCALARS=532,LAYOUT_TAG=533,LAYOUT_USIZE=534,U32_LT=535,U64_TO_NAT=536;
     private static final int USIZE_NAT=9,USIZE_REPR=10,U32_NAT=11,U32_EQ=12,U32_LE=13,PLATFORM_BITS=14;
-    private static final int FLOAT_LE=543;
+    private static final int FLOAT_LE=543,BYTE_EMPTY=544;
     private static final int STR_POS_SET=260;
     private static final int VOID_MK=516,LEVEL_INSTANTIATE=517,EXPR_FIND_EXT=519;
     private static final int ARRAY_CHECKED_SET=518,SHARECOMMON_QUICK=520,EXPR_REPLACE=521,EXPR_ABSTRACT_RANGE=522,EXPR_ABSTRACT=523;
@@ -560,6 +560,8 @@ public final class Interpreter implements AutoCloseable {
                 new String[]{"uint64","uint64"},new boolean[]{false,false}));
         register(registry,new ExternSpec("lean_uint64_of_nat_mk",U64_OWNED_NAT,"uint64",
                 new String[]{"tobject"},new boolean[]{false}));
+        register(registry,new ExternSpec("lean_mk_empty_byte_array",BYTE_EMPTY,"object",
+                new String[]{"tobject"},new boolean[]{true}));
         register(registry,new ExternSpec("lean_byte_array_mk",BYTE_MK,"object",
                 new String[]{"object"},new boolean[]{false}));
         register(registry,new ExternSpec("lean_byte_array_fget",BYTE_GET,"uint8",
@@ -7595,7 +7597,7 @@ public final class Interpreter implements AutoCloseable {
             default: throw error("Invalid signed Int intrinsic");
         }
     }
-    private static boolean borrowedBytePrimitive(int op) { return op==BYTE_GET||op==BYTE_SIZE; }
+    private static boolean borrowedBytePrimitive(int op) { return op==BYTE_GET||op==BYTE_SIZE||op==BYTE_EMPTY; }
     private Node byteArray(Object value) {
         Node n=node(value);
         require(isByteArray(n)&&!n.array&&!n.ref&&!n.readyTask&&n.closure==null&&n.tag==248
@@ -7608,6 +7610,16 @@ public final class Interpreter implements AutoCloseable {
         Node out=new Node(248,0,capacity); out.metadata=new ByteArrayState(size); allocations++; return out;
     }
     private void byteArrayIntrinsic(Function f,Object a,Object b,Object c) {
+        if(f.intrinsic==BYTE_EMPTY) {
+            // lean.h lean_mk_empty_byte_array borrows Nat capacity, rejects a
+            // non-scalar Nat via OOM, and allocates element-size 1 / live-size 0.
+            // The supported profile bounds scalar capacity to the existing 16MiB
+            // ByteArray limit; reject before allocation or any ownership change.
+            BigInteger capacity=nat(a);
+            require(capacity.compareTo(BigInteger.valueOf(MAX_BYTE_CAPACITY))<=0,
+                    "ByteArray capacity outside bounded runtime profile");
+            result=newByteArray(0,capacity.intValue()); return;
+        }
         if(f.intrinsic==BYTE_MK) {
             Node input=array(a); int size=arrayState(input).size;
             require(size<=MAX_BYTE_CAPACITY,"ByteArray capacity outside bounded runtime profile");
@@ -8478,7 +8490,7 @@ public final class Interpreter implements AutoCloseable {
             requireBuildIdentity(); requireBuildUnit(a);
             result=f.intrinsic==BUILD_GITHASH?buildIdentity.githash():buildIdentity.target(); return;
         }
-        if(f.intrinsic>=BYTE_MK&&f.intrinsic<=BYTE_PUSH) { byteArrayIntrinsic(f,a,b,c); return; }
+        if((f.intrinsic>=BYTE_MK&&f.intrinsic<=BYTE_PUSH)||f.intrinsic==BYTE_EMPTY) { byteArrayIntrinsic(f,a,b,c); return; }
         if(f.intrinsic==IO_INITIALIZING) {
             require(ERASED.equals(a),"IO.initializing world parameter requires erased placeholder");
             scalarResult=initializing?1:0; return;
