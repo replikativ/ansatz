@@ -24,6 +24,7 @@ public final class Interpreter implements AutoCloseable {
     private static final int MAP_APPLY=13,MAP_WRAP=14;
     private static final int CTOR=0,PROJ=1,SPROJ=2,FAP=3,PAP=4,AP=5,BOX=6,UNBOX=7,LIT=8,SHARED=9,UPROJ=10;
     private static final int ADD=1,SUB=2,MOD=3,EQ=4,LT=5,MUL=6,DIV=7,POW=8;
+    private static final int LAYOUT_FIELDS=531,LAYOUT_SCALARS=532,LAYOUT_TAG=533,LAYOUT_USIZE=534,U32_LT=535,U64_TO_NAT=536;
     private static final int USIZE_NAT=9,USIZE_REPR=10,U32_NAT=11,U32_EQ=12,U32_LE=13,PLATFORM_BITS=14;
     private static final int STR_POS_SET=260;
     private static final int VOID_MK=516,LEVEL_INSTANTIATE=517,EXPR_FIND_EXT=519;
@@ -274,6 +275,12 @@ public final class Interpreter implements AutoCloseable {
         register(registry,new ExternSpec("lean_uint32_dec_eq",U32_EQ,"uint8",new String[]{"uint32","uint32"},new boolean[]{false,false}));
         register(registry,new ExternSpec("lean_uint32_dec_le",U32_LE,"uint8",new String[]{"uint32","uint32"},new boolean[]{false,false}));
         register(registry,new ExternSpec("lean_system_platform_nbits",PLATFORM_BITS,"tobject",new String[]{"tagged"},new boolean[]{false}));
+        register(registry,new ExternSpec("lean_get_max_ctor_fields",LAYOUT_FIELDS,"tobject",new String[]{"tagged"},new boolean[]{false}));
+        register(registry,new ExternSpec("lean_get_max_ctor_scalars_size",LAYOUT_SCALARS,"tobject",new String[]{"tagged"},new boolean[]{false}));
+        register(registry,new ExternSpec("lean_get_max_ctor_tag",LAYOUT_TAG,"tobject",new String[]{"tagged"},new boolean[]{false}));
+        register(registry,new ExternSpec("lean_get_usize_size",LAYOUT_USIZE,"tobject",new String[]{"tagged"},new boolean[]{false}));
+        register(registry,new ExternSpec("lean_uint32_dec_lt",U32_LT,"uint8",new String[]{"uint32","uint32"},new boolean[]{false,false}));
+        register(registry,new ExternSpec("lean_uint64_to_nat",U64_TO_NAT,"tobject",new String[]{"uint64"},new boolean[]{false}));
         register(registry,new ExternSpec("lean_string_push",STR_PUSH,"object",new String[]{"object","uint32"},new boolean[]{false,false}));
         register(registry,new ExternSpec("lean_string_mk",STR_LIST,"object",new String[]{"tobject"},new boolean[]{false}));
         register(registry,new ExternSpec("lean_string_utf8_get_fast",STR_GET,"uint32",new String[]{"object","tobject","erased"},new boolean[]{true,true,false}));
@@ -8180,6 +8187,7 @@ public final class Interpreter implements AutoCloseable {
     /** Explicit membership: later IDs need not lie beside the original scalar group. */
     private static boolean u64ScalarPrimitive(int op) {
         switch(op) {
+            case LAYOUT_FIELDS: case LAYOUT_SCALARS: case LAYOUT_TAG: case LAYOUT_USIZE: case U32_LT: case U64_TO_NAT:
             case STR_HASH: case U64_MIX: case U64_NAT: case U64_SHR: case U64_XOR: case U64_USIZE:
             case U64_LT: case U64_EQ: case U64_OWNED_NAT: case U64_TO_U32:
             case BOOL_U64: case U64_ADD: case U64_SUB: case U64_MUL: case U64_DIV: case U64_MOD:
@@ -8200,6 +8208,11 @@ public final class Interpreter implements AutoCloseable {
             case USIZE_REPR: result=Long.toUnsignedString((Long)a); break;
             case U32_NAT: result=a; break;
             case U32_EQ: scalarResult=((Long)a).longValue()==((Long)b).longValue()?1:0; break;
+            case U32_LT: scalarResult=(Long)a<(Long)b?1:0; break;
+            case U64_TO_NAT: result=externalScalar((Long)a,U64); break;
+            case LAYOUT_FIELDS: case LAYOUT_SCALARS: case LAYOUT_TAG: case LAYOUT_USIZE:
+                requireLayoutUnit(a);
+                result=Long.valueOf(f.intrinsic==LAYOUT_FIELDS?256:f.intrinsic==LAYOUT_SCALARS?1024:f.intrinsic==LAYOUT_TAG?243:8); break;
             case U32_LE: scalarResult=(Long)a<=(Long)b?1:0; break;
             case PLATFORM_BITS: require(a instanceof Long&&(Long)a==0,"Expected Unit for platform bits"); result=Long.valueOf(64); break;
             case USIZE_LT: scalarResult=Long.compareUnsigned((Long)a,(Long)b)<0?1:0; break;
@@ -8329,6 +8342,11 @@ public final class Interpreter implements AutoCloseable {
         for(int i=0;i<function.paramTypes.length;i++) if(function.paramTypes[i]<0)
             throw error("Unsupported execution lane "+header.paramTypes[i]+" in "+function.label+" ["+header.originalSha256+"]");
     }
+    /** Pinned 64-bit Lean target layout, not Java object dimensions. */
+    private static boolean layoutPrimitive(int op) { return op>=LAYOUT_FIELDS&&op<=LAYOUT_USIZE; }
+    private static void requireLayoutUnit(Object value) {
+        require(value instanceof Long&&((Long)value).longValue()==0,"Layout query requires canonical Unit zero");
+    }
     private static boolean buildIdentityPrimitive(int op) { return op==BUILD_GITHASH||op==BUILD_TARGET; }
     private void requireBuildIdentity() { require(buildIdentity!=null,"Producer build identity unavailable"); }
     private static void requireBuildUnit(Object value) {
@@ -8416,6 +8434,7 @@ public final class Interpreter implements AutoCloseable {
         if(closure.fields.length+args.length>=f.params.length) {
             called=preflightCallable(f);
             if(buildIdentityPrimitive(f.intrinsic)) requireBuildUnit(closure.fields.length==0?args[0]:closure.fields[0]);
+            if(layoutPrimitive(f.intrinsic)) requireLayoutUnit(closure.fields.length==0?args[0]:closure.fields[0]);
             if(f.intrinsic==BOOL_U64) requireBoolScalar(closure.fields.length==0?args[0]:closure.fields[0]);
         }
         Object[] combined=new Object[closure.fields.length+args.length];
@@ -9161,6 +9180,7 @@ public final class Interpreter implements AutoCloseable {
     private void validateEntryArguments(Function function,Object[] args,boolean saved) {
         if(args==null||args.length!=function.params.length) throw error("Arity mismatch: "+function.label);
         if(buildIdentityPrimitive(function.intrinsic)) requireBuildUnit(args[0]);
+        if(layoutPrimitive(function.intrinsic)) requireLayoutUnit(args[0]);
         if(function.intrinsic==BOOL_U64) requireBoolScalar(args[0]);
         if(function.intrinsic==TASK_MAP&&taskRuntime==null) validateTaskMap(args);
         if(taskRuntime!=null&&function.intrinsic==TASK_PURE) {
@@ -9259,6 +9279,7 @@ public final class Interpreter implements AutoCloseable {
         if(closure.fields.length+args.length>=f.params.length) {
             called=preflightCallable(f,true);
             if(buildIdentityPrimitive(f.intrinsic)) requireBuildUnit(closure.fields.length==0?args[0]:closure.fields[0]);
+            if(layoutPrimitive(f.intrinsic)) requireLayoutUnit(closure.fields.length==0?args[0]:closure.fields[0]);
             if(f.intrinsic==BOOL_U64) requireBoolScalar(closure.fields.length==0?args[0]:closure.fields[0]);
         }
         Object[] combined=new Object[closure.fields.length+args.length];
