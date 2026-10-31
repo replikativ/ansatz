@@ -6,7 +6,7 @@
   "origin": "Parent retained 512MiB JVM; worker launched no additional JVM or native process",
   "receipt": {
     "file": "acceptance.edn",
-    "sha256": "507894058b6714786b3ceb59ff820fbe245834be7b4c8b53815ba82dfbf73c5e"
+    "sha256": "ec5764a511ccf784e9a354084f1a077904e3fe908c38a65d8848303fe4806674"
   },
   "models": {
     "tests": 5,
@@ -29,5 +29,7 @@
     "cancellation or active frame abandonment",
     "Java kernel type certificate"
   ],
-  "fixturePolicy": "Four frozen full-stream SHA256 pins in probe.clj; original raw captures stay outside Git. Rebuild with exact pinned helper/toolchain/source exports and fail closed on changed bytes."
+  "fixturePolicy": "Four frozen full-stream SHA256 pins in probe.clj; original raw captures stay outside Git. Rebuild with exact pinned helper/toolchain/source exports and fail closed on changed bytes.",
+  "originalReceiptSHA256": "507894058b6714786b3ceb59ff820fbe245834be7b4c8b53815ba82dfbf73c5e",
+  "receiptEncoding": "Literal NUL rendered as EDN Unicode escape; decoded receipt unchanged"
 }

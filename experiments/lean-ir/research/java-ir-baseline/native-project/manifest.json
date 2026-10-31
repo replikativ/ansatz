@@ -61,7 +61,7 @@
     },
     {
       "file": "typed-bridge/acceptance.edn",
-      "sha256": "507894058b6714786b3ceb59ff820fbe245834be7b4c8b53815ba82dfbf73c5e"
+      "sha256": "ec5764a511ccf784e9a354084f1a077904e3fe908c38a65d8848303fe4806674"
     },
     {
       "file": "typed-bridge/models.clj",
@@ -73,7 +73,7 @@
     },
     {
       "file": "typed-bridge/validation.json",
-      "sha256": "53f894fe48746838e2c06115b1be6be5c3fc6c6b866e07c566baaabadb8556da"
+      "sha256": "d7d8476fcc836f60db8ae99bf0b55fb1b1055c6b5a61a9d364a39856c4babdf3"
     }
   ],
   "producer-artifact": {
