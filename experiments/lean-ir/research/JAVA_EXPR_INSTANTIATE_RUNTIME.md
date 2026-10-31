@@ -78,3 +78,26 @@ observations, exit 0 and empty stderr; its receipt explicitly claims no AOT or
 JVM equivalence. Full combined integration and original frontend completion are
 separate gates. Individual limits and interruption points are not exhaustively
 tested.
+
+## Consolidated integration and original frontend probe
+
+Integrated with the reviewed direct pass and delayed foundation, Java SHA-256 is
+`702ac5e30386865f0b8d188f19ff9d182415076e50b362aedfd9471a8c04a1b5`;
+immutable jar SHA-256 is
+`8a2f669f377098477f064fd3338c3d07ac9a19d43b22c77a19651248588c8557`.
+Independent integration review confirmed all worker methods, fixtures and tests
+match the reviewed unit, and the combined action/fork state retains both existing
+passes. The retained 384 MiB REPL passed pure14/210, controls5/36, direct21/169,
+delayed10/211 and delayed-controls8/129 on that artifact. The separate combined
+384 MiB gate exited zero: **125 groups / 1,265 tests / 55,598 assertions**,
+no failures or errors. Gate receipt SHA-256 is
+`442c6decb9ce20c8942cdbff3504799f2118faf05e76e9cc1438407fe2f83ac3`.
+
+The original frontend retried the prelude-only noncomputable identity definition
+on a fresh admitted 523-global companion with21 source-authenticated Headers.
+It crossed the former unavailable `Lean.Expr.instantiateRevRange` boundary and
+reached original FoldConsts pointer hashing. Its axiom was checked/published;
+the definition itself was not admitted. The stopped child closed its host source
+authorities and dropped references, without claiming failed-guest owner unwind.
+The observed cold run (17.5seconds including demand code materialization) is a
+compatibility receipt, not a performance benchmark or complete file-loading gate.
