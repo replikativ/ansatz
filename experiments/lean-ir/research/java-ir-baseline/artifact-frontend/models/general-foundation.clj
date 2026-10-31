@@ -5,6 +5,7 @@
             [java-ir-baseline :as j]
             [java-matched-artifact-base-v1 :as base]
             [artifact-declaration-authority-v4 :as authority]
+            [artifact-declaration-driver-v4 :as driver]
             [artifact-checked-declaration-adapter-v4 :as adapter]))
 (deftest finite-and-general-session-ceilings-remain-explicit
   (with-redefs-fn {#'adapter/open-session-with-ceiling (fn [ceiling & _] ceiling)}
@@ -75,4 +76,34 @@
        (swap! (:versions s) assoc-in [2 :parent] 1)
        (reset! (:events s) (vec (remove (fn [event] (and (= 2 (:version-id event)) (= :reply-transferred (:phase event)))) events)))
        (is (thrown? Exception (adapter/complete-command-history! s 0))))))
+(deftest driver-factories-capture-the-selected-session-before-routing
+  (let [e (Object.) source (Object.) current (atom {}) seen (atom [])
+        d {:engine e :source source :current-ctx current}
+        auth {:check-source! (fn [actual actual-source]
+                               (is (identical? e actual)) (is (identical? source actual-source)))}
+        session (fn [profile options] {:profile profile :options options :phase (atom :idle)})]
+    (with-redefs [authority/open-authority (fn [& _] auth)
+                  adapter/open-session (fn [_ _ _ _ _ _ opts] (session :finite opts))
+                  adapter/open-general-session (fn [_ _ _ _ _ _ opts] (session :general opts))
+                  adapter/begin! (fn [actual _] (swap! seen conj [:begin actual]) (reset! (:phase actual) :active))
+                  adapter/poll! (fn [actual] (swap! seen conj [:poll actual]) {:status :active})
+                  j/host-request (fn [& _] :request) j/request-value (fn [& _] "lean_elab_add_decl")]
+      (doseq [[factory profile limit options] [[driver/open-driver :finite 16 {}]
+                                               [driver/open-general-driver :general 512 {}]
+                                               [driver/open-general-driver :general 23 {:max-declarations 23}]]]
+        (let [opened (factory {:driver d} :base :run (assoc options :heartbeat-step! identity))
+              actual (:adapter opened)]
+          (reset! seen [])
+          (is (= profile (:profile actual)))
+          (is (= limit (get-in actual [:options :max-declarations])))
+          ((:runtime-step! opened) {:driver d})
+          (is (= [:begin :poll] (mapv first @seen)))
+          (is (every? #(identical? actual (second %)) @seen))
+          (is (= 1 @(:begun opened) @(:ticks opened))))))))
+(deftest general-driver-invalid-policy-rejects-before-authority-opening
+  (with-redefs [authority/open-authority (fn [& _] (throw (AssertionError. "must reject before authority")))]
+    (doseq [limit [nil 0 -1 513 1.5]]
+      (is (thrown? clojure.lang.ExceptionInfo
+            (driver/open-general-driver nil nil nil {:max-declarations limit :heartbeat-step! identity}))))
+    (is (thrown? clojure.lang.ExceptionInfo (driver/open-general-driver nil nil nil {})))))
 (defn check! [] (run-tests 'general-command-foundation-checks-v1))

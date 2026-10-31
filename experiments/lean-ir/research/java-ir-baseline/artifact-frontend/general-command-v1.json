@@ -36,7 +36,7 @@
     {
       "file": "verify-source.py",
       "base-sha256": "648d82fc8b482aa674865ef3c341c43213eb2ff467c6850fb8d2b46fac788f4e",
-      "sha256": "fc9714def28c8d964ceffbc8fa8ccca62dfd18435c92460790e003d281185cf7"
+      "sha256": "f6d3a1ffac7210da3744ec71dbb4536d97fa0991e1aad15587d4cd6bcd76ce39"
     },
     {
       "file": "models/lineage.clj",
@@ -61,7 +61,7 @@
     {
       "file": "generated-batch.clj",
       "base-sha256": null,
-      "sha256": "3d27ff20b8fb91f35302428628fed295a45273974ce1bbd7e7b5985c5176780a"
+      "sha256": "caf8c296c372a644c0c19b144381f2cd590f0f0489ac395000185d6db2b1d7b8"
     },
     {
       "file": "models/general-source-provider.clj",
@@ -71,7 +71,7 @@
     {
       "file": "models/general-foundation.clj",
       "base-sha256": null,
-      "sha256": "386068f470cb0e0e169b61d4f4f212efa800b313bf111f046f9e28266c25db20"
+      "sha256": "b8772362ca9c09ba044809b280a108988e2d5183229518e08c5e96d929d0cb66"
     },
     {
       "file": "models/general-command.clj",
@@ -81,7 +81,12 @@
     {
       "file": "models/generated-batch.clj",
       "base-sha256": null,
-      "sha256": "18e6f9f66580ff343ad1137ea4fa8a31232339c0116b9ec7772f652af14a46d0"
+      "sha256": "9298bc10902bae937c274e7ac2051a219c0df9db840f7b25d63e7279c3af7e3d"
+    },
+    {
+      "file": "driver.clj",
+      "base-sha256": "9849d52d686e7da9cce15e1d06d47d6997127e0d7db9307b3837f2ef9a0fcd19",
+      "sha256": "371b4f10838eaf018b83186dd2714eee0e1a82320dc8870a5001a64d3eb97542"
     }
   ],
   "source-inventory": [
@@ -103,7 +108,7 @@
     },
     {
       "file": "driver.clj",
-      "sha256": "9849d52d686e7da9cce15e1d06d47d6997127e0d7db9307b3837f2ef9a0fcd19"
+      "sha256": "371b4f10838eaf018b83186dd2714eee0e1a82320dc8870a5001a64d3eb97542"
     },
     {
       "file": "filesystem-file.clj",
@@ -127,7 +132,7 @@
     },
     {
       "file": "generated-batch.clj",
-      "sha256": "3d27ff20b8fb91f35302428628fed295a45273974ce1bbd7e7b5985c5176780a"
+      "sha256": "caf8c296c372a644c0c19b144381f2cd590f0f0489ac395000185d6db2b1d7b8"
     },
     {
       "file": "generated-command.clj",
@@ -171,7 +176,7 @@
     },
     {
       "file": "models/general-foundation.clj",
-      "sha256": "386068f470cb0e0e169b61d4f4f212efa800b313bf111f046f9e28266c25db20"
+      "sha256": "b8772362ca9c09ba044809b280a108988e2d5183229518e08c5e96d929d0cb66"
     },
     {
       "file": "models/general-source-provider.clj",
@@ -179,7 +184,7 @@
     },
     {
       "file": "models/generated-batch.clj",
-      "sha256": "18e6f9f66580ff343ad1137ea4fa8a31232339c0116b9ec7772f652af14a46d0"
+      "sha256": "9298bc10902bae937c274e7ac2051a219c0df9db840f7b25d63e7279c3af7e3d"
     },
     {
       "file": "models/generated-command.clj",
@@ -215,7 +220,7 @@
     },
     {
       "file": "verify-source.py",
-      "sha256": "fc9714def28c8d964ceffbc8fa8ccca62dfd18435c92460790e003d281185cf7"
+      "sha256": "f6d3a1ffac7210da3744ec71dbb4536d97fa0991e1aad15587d4cd6bcd76ce39"
     }
   ],
   "ordered-load-units": [
@@ -347,7 +352,7 @@
   "tracked-references": [
     {
       "file": "experiments/lean-ir/research/java-ir-baseline/artifact-frontend/README.md",
-      "sha256": "978abb2d74f24fc32042168e442bc5255a21362ca2f178774dbf71f01e7fc47d"
+      "sha256": "3ac3e2d0dad7bb1bbb09f6a937dba528e09fc449b3ca72559f9d505c0985e938"
     },
     {
       "file": "experiments/lean-ir/research/java-ir-baseline/artifact-frontend/GENERAL_COMMAND_RECEIPTS.md",
@@ -388,6 +393,10 @@
     {
       "file": "experiments/lean-ir/research/java-ir-baseline/observed-frontend/source-manifest.json",
       "sha256": "701f4260219ca1c0b2affeec0142ed54473b3e5b0768005f8f8afdf7f1ac64c2"
+    },
+    {
+      "file": "experiments/lean-ir/research/java-ir-baseline/artifact-frontend/API_CONSOLIDATION.md",
+      "sha256": "f432559f565d0c1f05fe37173a7cfb932248601320cd897fafbfcac2f7e961ce"
     }
   ],
   "external-evidence": [
@@ -407,5 +416,10 @@
     "Source policy excludes initialization, extern/export effects and unknown privileged command forms; no automatic project capability grant.",
     "Complete imported matched-Prelude association remains trusted imported checking data, not proof replay.",
     "Historical acceptance and finite arithmetic records are immutable earlier observations."
+  ],
+  "source-notes": [
+    "General driver construction is additive: finite16/default remains unchanged; fresh general512 selects its session before closure capture.",
+    "M2 full-row/frontier bounds precede digest and Header serialization; source update from reviewed 122232e.",
+    "New constructor/selection models and API consolidation slices are source checkpoints, not fresh runtime acceptance."
   ]
 }

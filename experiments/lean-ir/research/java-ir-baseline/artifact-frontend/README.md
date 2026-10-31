@@ -329,3 +329,17 @@ layer update. Source verification and definition loading do not execute a guest,
 replay proof checking or recreate the selected runtime result. Runtime resources,
 raw ignored receipts and the source export bundle remain external prerequisites.
 Do not reload opaque registries/types underneath live contexts or receipts.
+
+
+## Finite and general checked-driver construction
+
+`driver/open-driver` and `cohort/prepare-source-child!` retain the finite
+sixteen-admission profile. General command callers explicitly use
+`driver/open-general-driver` or `cohort/prepare-general-source-child!`, which
+construct the512-admission session before its runtime closure is captured.
+Never swap `:adapter` beneath an already constructed `:runtime-step!`. The
+existing heartbeat/extra-service wrapper is shared; parser, command, instruction
+and checker limits remain separate. The new factory/model source is prepared
+for coordinated runtime validation and does not expand the accepted source
+language. [API_CONSOLIDATION.md](API_CONSOLIDATION.md) specifies the subsequent
+file, session, runtime-boundary and module integration slices.

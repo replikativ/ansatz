@@ -359,11 +359,11 @@
       (catch Throwable error
         (sp/failure s error))))))
 
-(defn prepare-source-child!
+(defn- prepare-source-child-with!
   "Journal child custody before activation. Store descriptor is explicit borrowed
    host input, not inferred by this unit; existing Module/Run/Base issuers validate.
    STORE contains :path and actual :manifest. All phases keep one branch Provider."
-  [journal parent prepared-module text filename module-segments store]
+  [open-checked-driver journal parent prepared-module text filename module-segments store]
   (let [layout-directory (or (:layout-directory store) (:layout-directory parent))
         _ (need (and (string? layout-directory) (seq layout-directory)) "Explicit authenticated layout artifact directory required")
         child0 (fork-seed! parent) _ (swap! journal assoc :child child0)
@@ -394,11 +394,24 @@
         setup (setup! d (:environment (lineage/inspect! run)) text filename module-segments)
         _ (swap! journal assoc :setup setup)
         _ (need (= :prepared (:status setup)) "Frontend setup paused/failed; preserve journal")
-        admission (checked-driver/open-driver child matched run
+        admission (open-checked-driver child matched run
                     {:layout-directory layout-directory :heartbeat-step! hb/serve-current!})
         frontend (assoc (:session setup) :runtime-step! (wrap-runtime-step child admission))]
     (swap! journal assoc :admission admission :frontend frontend)
     :prepared))
+(defn prepare-source-child!
+  "Legacy finite checked child, sixteen-admission driver captured once."
+  [journal parent prepared-module text filename module-segments store]
+  (prepare-source-child-with! checked-driver/open-driver journal parent prepared-module
+                             text filename module-segments store))
+(defn prepare-general-source-child!
+  "General-command child,512-admission driver captured before runtime wrapping.
+   This is a fresh child factory, not a session replacement on an existing driver.
+   Startup, module/base/Run custody, heartbeat and extra-service routing match
+   prepare-source-child!; parser/command limits remain separately explicit."
+  [journal parent prepared-module text filename module-segments store]
+  (prepare-source-child-with! checked-driver/open-general-driver journal parent prepared-module
+                             text filename module-segments store))
 (defn retire-engine!
   "Only healthy explicit root retirement; Provider stays live through every
    callback-capable release/disposal, then revokes after actual disposal and close."

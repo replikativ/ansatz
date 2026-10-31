@@ -219,3 +219,16 @@ normal cleanup. The arithmetic profile owns its separate acceptance record. This
 source consolidation has no worker JVM/native run; its parent-executed definition
 and model portability checks are recorded above, without new end-to-end acceptance. Source hashes identify code; they do not
 mint receipts.
+
+
+### General checked child construction
+
+`prepare-general-source-child!` is an additive fresh-child entry point. It uses
+`artifact-declaration-driver-v4/open-general-driver` during initial construction,
+before the runtime closure is wrapped, selecting the explicit512-admission
+adapter. Existing `prepare-source-child!` still selects the sixteen-admission
+profile. Both use the same startup, Module/Run/Base custody, heartbeat provider
+and additional-service wrappers. Command/parser/runtime/checker budgets are
+separate; this selection grants no new declaration kind or import capability.
+The constructor-selection models are source additions pending coordinated JVM
+execution; earlier runtime acceptance records keep their original scope.

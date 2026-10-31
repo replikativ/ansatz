@@ -2,16 +2,16 @@
   "schema": "runtime-cohort-package/1",
   "files": {
     "README.md": {
-      "sha256": "0151977b066da93501c13a9a03ad99a733033a1c2b37b563bd2f09f1344734c9",
-      "bytes": 14152
+      "sha256": "ae831f1e9541169f43b70084d1ee6377f4df99b604cfbe80cdd14a6a6baf7013",
+      "bytes": 14894
     },
     "check-models.clj": {
-      "sha256": "10849f58ab1405f90cadd91b54d5f26707e0a2b12205d85a2e0bfadce3c9d3ea",
+      "sha256": "f0a7ab3ed20d7286c404a5cc0c259f2ad3591559a8c5ba4a96d80a5b0372afb7",
       "bytes": 1073
     },
     "cohort.clj": {
-      "sha256": "9378adff6a33f07f031c7989cc6d5af2dbe291c91177882bc3afb50bf7da517a",
-      "bytes": 30066
+      "sha256": "bf479121c2bdc3834ff3f92c395fa4fccc4f7692f59f9e5fe9d23bcf32fc82ee",
+      "bytes": 31001
     },
     "data/externs/collect.py": {
       "sha256": "2acb7608be45f1118efac4dbed1774bb81470d9b455e29dbd159459cbaa4948d",
@@ -74,8 +74,8 @@
       "bytes": 2460
     },
     "models/router.clj": {
-      "sha256": "44b016036279eaad6afa35ebf9d8033b5c11c2723725f39cccbe1bf22f750a07",
-      "bytes": 4824
+      "sha256": "194e43093c242fd0ac72b32f993408f6e3e3e6c207925927e12421252c60f2a4",
+      "bytes": 5512
     },
     "models/row-cache.clj": {
       "sha256": "3bec0fe3cb819bd63fc45462e5f03f928a5e51e5b57cb6603510ae212242ab29",
@@ -94,8 +94,8 @@
       "bytes": 7473
     },
     "sources.json": {
-      "sha256": "a4c02606396393ae0fea4c2e4e5eeef58f47c5488d06e312f014d9cac6e06246",
-      "bytes": 5576
+      "sha256": "e970877b9c990188d884b4ad6726116c90e12e953c8940ae99132b01d9408f74",
+      "bytes": 5952
     },
     "stdin.clj": {
       "sha256": "7c3dbceb1c2213055241842b3a10871a03eb90be309332ed76021727fa9dceb6",

@@ -20,7 +20,8 @@
       "origin": "target/java-allocation-heartbeat-lab-v1/cohort.clj",
       "origin_sha256": "781fa7d58ac00565d011208b8390d353eefd0957719d77f3b55256c8cd6b09fc",
       "changes": [
-        "Compiled layout directory is explicit in parent policy/store descriptor and validated before child fork; removes implicit ignored-target path."
+        "Compiled layout directory is explicit in parent policy/store descriptor and validated before child fork; removes implicit ignored-target path.",
+        "Add explicit prepare-general-source-child! selecting the general512 driver before closure capture; keep finite entry unchanged."
       ]
     },
     {
@@ -71,7 +72,9 @@
       "file": "models/router.clj",
       "origin": "target/java-allocation-heartbeat-lab-v1/cohort-router-checks.clj",
       "origin_sha256": "44b016036279eaad6afa35ebf9d8033b5c11c2723725f39cccbe1bf22f750a07",
-      "changes": []
+      "changes": [
+        "Add mocked finite/general constructor selection before activation; no engine or authority minted."
+      ]
     },
     {
       "file": "models/limits.clj",
@@ -129,7 +132,9 @@
       "file": "check-models.clj",
       "origin": "target/java-runtime-cohort-package-v1/fresh-check.clj",
       "origin_sha256": "10849f58ab1405f90cadd91b54d5f26707e0a2b12205d85a2e0bfadce3c9d3ea",
-      "changes": []
+      "changes": [
+        "Expect30 model families after the additive general-child constructor selection model; existing29 remain."
+      ]
     }
   ]
 }
