@@ -63,6 +63,7 @@
 (load-file "research/java-ir-baseline/mvars-session-checks.clj")
 (load-file "research/java-ir-baseline/pointer-hash-checks.clj")
 (load-file "research/java-ir-baseline/pointer-hash-control-checks.clj")
+(load-file "research/java-ir-baseline/pointer-hash-followup-checks.clj")
 (load-file "research/java-ir-baseline/expr-transform-policy-checks.clj")
 (load-file "research/java-ir-baseline/expr-replace-checks.clj")
 (load-file "research/java-ir-baseline/expr-abstract-checks.clj")
@@ -173,6 +174,8 @@
                (java-ir-pointer-hash-checks/check! (assoc basis :explicit true))
                (java-ir-pointer-hash-control-checks/check! basis)
                (java-ir-pointer-hash-control-checks/check! (assoc basis :explicit true))
+               (java-ir-pointer-hash-followup-checks/check! basis)
+               (java-ir-pointer-hash-followup-checks/check! (assoc basis :explicit true))
                (java-ir-logical-sharing-checks/check! basis)
                (java-ir-logical-sharing-checks/check! (assoc basis :explicit true))
                (java-ir-release-transaction-checks/check! (assoc basis :explicit true))
@@ -235,5 +238,5 @@
                (clojure.test/run-tests 'prototype.resident-init-prefix-test)
                (clojure.test/run-tests 'prototype.coherent-jvm-slice-test)]]
   (shutdown-agents)
-  (System/exit (if (and (= [9 9 8 6 5 5 6 6 9 9 4 7 9 4 13 18 17 10 10 18 18 7 10 10 8 8 6 6 13 13 6 6 9 9 10 10 8 8 19 19 6 6 6 6 10 10 3 3 6 6 5 5 9 9 7 7 15 15 9 9 11 11 16 16 5 5 6 6 21 21 12 43 11 21 10 15 20 20 11 5 18 19 21 10 8 14 5 7 7 9 13 5 13 12 8 8 11 11 8 8 7 7 7 7 10 10 6 12 9 15 11 11 7 9 4 15 7 10 17 8 4 6 10 9 5 3 4 6 13] (mapv :test results))
+  (System/exit (if (and (= [9 9 8 6 5 5 6 6 9 9 4 7 9 4 13 18 17 10 10 18 18 7 10 10 8 8 6 6 13 13 6 6 9 9 10 10 8 8 19 19 6 6 6 6 10 10 3 3 6 6 5 5 9 9 7 7 15 15 9 9 11 11 16 16 5 5 6 6 4 4 21 21 12 43 11 21 10 15 20 20 11 5 18 19 21 10 8 14 5 7 7 9 13 5 13 12 8 8 11 11 8 8 7 7 7 7 10 10 6 12 9 15 11 11 7 9 4 15 7 10 17 8 4 6 10 9 5 3 4 6 13] (mapv :test results))
                        (every? #(zero? (+ (:fail %) (:error %))) results)) 0 1)))

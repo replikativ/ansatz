@@ -78,11 +78,21 @@ pointer source and concurrent runtime/private units: source `d29ee127…`, jar
 `439b902…`, 128 groups / 1,286 test executions / 55,709 assertions at384 MiB,
 exit0. This is separate integration evidence; the final count-guarded pointer
 runner wiring and any later controls still require the final combined gate.
-This branch adds four groups (5/5/6/6) after legacy pointer checks and loads them
-after their Expr machinery dependency. The local runner has124 groups on its
+This branch adds six groups (5/5/6/6/4/4) after legacy pointer checks and loads them
+after their Expr machinery dependency. The local runner has126 groups on its
 PR335 base; concurrent branch counts can differ after integration.
 
 The oracle fixture's `verify-oracle.py` checks hard-pinned source/stdout hashes
 and an optional newly observed stdout file. It never executes a compiler or
 rewrites goldens. The author ran this file check and repository diff/path audits;
 all runtime/native observations above were supplied by the parent.
+
+The four follow-on cases passed on the same frozen source and jar in both
+drivers: recursive 137 assertions and explicit 159, zero failures/errors. They
+compare all fifteen observed native-oracle lines with original JVM FoldConsts
+and getUsedConstants calls, suspend/fork a callback through Code and Host, fork
+original rehash of a populated map, and exercise guaranteed bucket collisions.
+The callback body and collision selection are explicitly research models; the
+table operations and hash bodies remain the authenticated original rows.
+Receipt: `target/java-pointer-hash-runtime-v1/followup-v1.out`, SHA
+`cccc7fdabc54040896959ca6d0ba71c7d2bcf6aa8c694568d0a5122304bc5551`. No Java change or native numeric-hash golden was introduced.
