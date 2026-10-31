@@ -537,7 +537,11 @@
     },
     {
       "file": "experiments/lean-ir/research/java-ir-baseline/artifact-frontend/SOURCE_MODULE_LANDING.md",
-      "sha256": "b2c616be27d7a2c168413d124c325e12f27991f91f5f0d2410c0921cc16aa879"
+      "sha256": "f64719e5cc2c9bc1fd71f7042288ca1999adb4a1d4f04c4e1e9832e3a1a21c22"
+    },
+    {
+      "file": "experiments/lean-ir/research/java-ir-baseline/artifact-frontend/source-module-landing-validation.json",
+      "sha256": "a4caaa8750750501d80ed06f75c6f0bc2da5bd7801fb517195337a46fd4aff61"
     }
   ],
   "validation": {
@@ -616,6 +620,15 @@
         "tests": 8,
         "assertions": 44
       }
+    },
+    "landing-model-gate": {
+      "source": "source-module-landing-validation.json",
+      "tests": 80,
+      "assertions": 538,
+      "failures": 0,
+      "errors": 0,
+      "accepted-source-model-report": "v2",
+      "worker-JVM-executed": false
     }
   },
   "source-notes": [
@@ -634,6 +647,14 @@
     {
       "file": "target/java-source-exchange-v1/source-base-model-results-v2.edn",
       "sha256": "31f7860fd8eaceba9f394bac3bee47de4bc7048b3157a19c612f131f895c659b"
+    },
+    {
+      "file": "target/java-source-exchange-v1/source-module-landing-models-v2.edn",
+      "sha256": "da95ff17ac2177951ba8616dac9e746ded8f2dba4813d5d72489ce390a7cfe2d"
+    },
+    {
+      "file": "target/java-source-exchange-v1/source-module-build-router-models-v1.edn",
+      "sha256": "5eb3f90e1a0848a6ce1414b508ac60196ec881f797303418e737664478759945"
     }
   ]
 }

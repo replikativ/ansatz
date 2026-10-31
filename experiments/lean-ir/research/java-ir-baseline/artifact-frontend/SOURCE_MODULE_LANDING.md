@@ -41,3 +41,11 @@ historical files. `runtime-cohort/verify-source.py` audits the separate provider
 package. Both are metadata-only checks; parent retained-JVM model evidence and
 the actual chain receipts remain separately identified in
 `source-module-v1.json`.
+
+The exact staged implementation additionally passed the parent retained-JVM
+model gate: 80 tests / 538 assertions, zero failures or errors. The
+[source-module landing validation](source-module-landing-validation.json) pins
+the accepted v2 source-model report and build/router report. The initial run's
+stale retained SourceExchange definitions were corrected by loading the complete
+exact staged function set; no implementation change was needed. That initial
+failed report remains history and is not accepted as a passing gate.

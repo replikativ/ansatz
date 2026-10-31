@@ -1,0 +1,119 @@
+{
+  "schema": "source-module-landing-validation/1",
+  "source-commit": "72465d2b3ed5d845be48d8b9a2738a12ce437bbc",
+  "base-commit": "89d45546338dd4e3dd58b35051037fb99a8f69e1",
+  "executor": "Parent retained JVM; author launched no JVM/native process.",
+  "method": "Function-only load of all twelve exact landing runtime units; existing opaque classes/registries retained. Model namespaces evaluated from staged source files.",
+  "accepted-models": {
+    "source-module": {
+      "namespaces": 9,
+      "tests": 70,
+      "assertions": 430,
+      "failures": 0,
+      "errors": 0
+    },
+    "build": {
+      "tests": 3,
+      "assertions": 52,
+      "failures": 0,
+      "errors": 0
+    },
+    "router": {
+      "tests": 7,
+      "assertions": 56,
+      "failures": 0,
+      "errors": 0
+    },
+    "total": {
+      "tests": 80,
+      "assertions": 538,
+      "failures": 0,
+      "errors": 0
+    }
+  },
+  "external-evidence": [
+    {
+      "file": "target/java-source-exchange-v1/source-module-landing-models-v2.edn",
+      "sha256": "da95ff17ac2177951ba8616dac9e746ded8f2dba4813d5d72489ce390a7cfe2d"
+    },
+    {
+      "file": "target/java-source-exchange-v1/source-module-build-router-models-v1.edn",
+      "sha256": "5eb3f90e1a0848a6ce1414b508ac60196ec881f797303418e737664478759945"
+    }
+  ],
+  "earlier-report-disposition": "The initial source-model run used retained stale SourceExchange function definitions and reported three failures. Parent retained that history, loaded all exact landing function definitions and obtained the accepted v2 report without source edits. Only v2 is acceptance evidence.",
+  "source-pins": {
+    "adapter.clj": "3c248f22ec238f0f191656da9a092e088247a594ab8ea75ab34b9eaac2f6c1dc",
+    "authenticated-demand.clj": "5bcec7d3e2549b8cf7d7d91528c38a75e280838bdf95fba8f95f5f17a8e6db02",
+    "authority.clj": "494c03ba875128a0d77de70d78ad8a9f2e35deb975dd8ac3fa6ae38d58f636c5",
+    "base.clj": "2b46b16d3def8a96ad5d9f55ffbc8f7639143bbf9d7f2e14f7b6a68219acbaf8",
+    "composite-base.clj": "79938649dab35b10f62f5ea88d3ee733de0d5b452399e647aa55437432a4e379",
+    "driver.clj": "371b4f10838eaf018b83186dd2714eee0e1a82320dc8870a5001a64d3eb97542",
+    "filesystem-file.clj": "5f071fc402fc4c52beeb25efdc37e7605ce09e45b363904b1f373ff352e22cb4",
+    "filesystem-profile.clj": "c2e3619f35299d34c3cb2a91c01308f5939b20d900ce3849b211ff1dcadfe095",
+    "filesystem-provider.clj": "75877eded4ba2301b635968266fb62d841042e05614e7a5693bf39e532096179",
+    "general-command.clj": "beb8ff164402bf239ec87685c150f63b35349926b6c61904927721a9343a7b86",
+    "general-file.clj": "2bf07bd77ceaeb27371dbb7019626b63beccd2ff050dce8864e112ace428eda8",
+    "general-source-provider.clj": "8b46fa412234dd2ce80811bc5c2a3fd487cf0dca7ffbd5aed9bf194275d3eb0d",
+    "generated-batch.clj": "18f472282caeae772b93961a223284c15172a6d6a6b427c04f6b918bfd2eef9e",
+    "generated-command.clj": "42ee34f8a2cdf79d74a4c0443af23ecc086f42fb70cb3b929426bdc83868d184",
+    "imported-setup.clj": "f384dc4d0e40310b1d996d371ed6f163950f1f457c50c1fc0f61149b43a3ad75",
+    "lineage.clj": "c994720429d2b58e95bb890ab1473bf4fecff3cfc089855128b1ef49b70fdc22",
+    "loader.clj": "d2261ab05d5e84a3a8c1f39733da6d3f53eef7c1377293969a307607b6f36943",
+    "models/adapter.clj": "b83351f33b2a963959c01a10160e903cf814f4e87c47aee100badd7f219ce1eb",
+    "models/authority.clj": "b0e4eef97ead1adb92bc2c7c79a8db4e8090a905d74ea6793b62c48092285d90",
+    "models/capability.clj": "e2a4dd37f41e4034ee9c4f2e1bdb6eea01ddf884cf82838ceb39de76b6c5b663",
+    "models/composite-base.clj": "0ca22fb76d787e05a834c455f750646289eaf20702e4f2166cd50877eb04fc26",
+    "models/demand.clj": "1a1c6ab63794e86a9d199c4d783347a7b9c0f888c4a4e555a93876963259845d",
+    "models/filesystem-profile.clj": "675c1122d59f653ecd9c1d486f74d643f8a00831dd09eb1216935d81567b9fbb",
+    "models/general-command.clj": "12bb5c58d0873a38638a46cac7b910bb7c91ebb5d2eba666b98a9e854d53d264",
+    "models/general-file.clj": "b851e61c2bef392d68c7432ba77959e8572e833dedbd5dda456b9e7211a3097f",
+    "models/general-foundation.clj": "8cbceca258fa212aa4f3b06ebec0b4c7088b7f9316cfed5f566ff17240b62985",
+    "models/general-source-provider.clj": "22eacf4e72f7835854b49ac20ff1a4c905597e738ca5de5b79bcf28f88255ad2",
+    "models/generated-batch.clj": "58c585adcea5a91b8e196d4a1b254c569df78bd74bfd65dfa6a9e0b30b8c88ac",
+    "models/generated-command.clj": "1456f6fc0b692d4c40ca1fa82f70a11cda55f6aaa070e78ce279b097d2c48274",
+    "models/lineage.clj": "75d02563a5942ab136b44b9937749cafea8020a61556391729dc877edb2eb55c",
+    "models/mutual-declaration.clj": "1d88b3b3a9bee1bebe2706f0464812b853511de402d1d8008a95ccc4e13697ff",
+    "models/nat-arithmetic.clj": "35442cd666c3c2c3ebd74ab73504639aab8b8722fa716f88084316c3a26bfe78",
+    "models/node-decoder.clj": "ec40f4510db9d611a6fb98c0a4ce5814d189058b25bcf8834611d0c795a881f8",
+    "models/sequential-retirement.clj": "e1dd90e6527a17393ee6e5c9988256f001c61e711a3396c10984bf44398dd14d",
+    "models/source-base.clj": "c7f56e8e2cd08054859e0a2b0522438c6d7e9c46d5e4684c8dda084f3ffee236",
+    "models/source-closure.clj": "080784313f670571c76d1058cce1d08de3248a11c7c5b187e4d4d9415864df37",
+    "models/source-data-snapshot.clj": "4dec278ea114436bb8c7d68d3f8c2a8bdbbad0a1e109e5ee351ac7fc9bd90458",
+    "models/source-exchange.clj": "cfa499c24e6906460e984a9ce4c934455826b22473d68af4e091605b1948a80b",
+    "models/source-import-setup.clj": "c399d55844086b8ab73e324e5fb1684ac4597442ae71f138911f2427739f24f7",
+    "models/source-project.clj": "8b1c7f44dbfd890c53587985cf000075ec952264cb69c84c032b674dc1683d97",
+    "module.clj": "fe2dfe6b42e8bc0798164a2dcc30592df6ffa025a2e3e61588629bbc9fb72819",
+    "node-decoder.clj": "7be96c349ebe68c58902fd2bac0bb23d1ab3e3e96d77814428f0dad0c4e52099",
+    "options-proof.clj": "f07693ee8fb65166990e0ec534cbe932e98a311f0fcc1dc2b0700a6cc5da7779",
+    "sequential-probe.clj": "56812358f0ac839186c6f022b09c9da179f8e2d775cb67f747a4a1f786b627a8",
+    "source-base.clj": "c5389f60586155f6cd030acb8e6f25e86563acd52b72d8c129cd71216cb93af5",
+    "source-closure.clj": "434f1ec5bb09d266310e14bd673c864e6c8218c1e941d8700ae73e8d4069d9ba",
+    "source-data-snapshot.clj": "b27b7b51cb16e85ebf361b8324d4f738ba32a545e8c74e138eef2618e1782cb4",
+    "source-exchange.clj": "fabbd87acfbde5bc8ceb581f86d2fdea3deec3534e2106515a73c60b937ca16e",
+    "source-import-setup.clj": "3aed45309d8466272a33e10267ac4125e060b283cb6ddcbddc99ade0adf4e9d8",
+    "source-project.clj": "501f4c18554e6035b3780713ee0851cfb46bf88589989465ef0443a640fe1556"
+  },
+  "runtime-cohort-source-pins": {
+    "build-identity.clj": "0b3bd6461a145572a1c2ccc06bdfb658f3360ef1d89c7363afaaf7fafe09f110",
+    "check-models.clj": "de97566a8da2e769b9ee0026e83f9b517a8995e666db552fec1ebab43fdfe4f4",
+    "cohort.clj": "e2074eb5c9f86b1d81f57d8243d24c9ee80c3ea4fcd5edd169e6e78e0e96a066",
+    "extern-bootstrap.clj": "7452eb5f5d60463ebd6f505d759e0f90f0f55e79ee28cdd81ef678ddb4246406",
+    "heartbeat-counter.clj": "bb5b1763c26e8e226068a9cabfe8c17bbceda6d6cd8ec7a39dcae2a0ddd23533",
+    "heartbeat-provider.clj": "8da93cac1d871470c1898a2e98ab9bd3d1230a3bbeecb9db87884f089e8e92c8",
+    "limits.clj": "eb6ee44fb14aaeae452f673fb5da1fddf05edef187fb10490eb015b888d84e5d",
+    "loader.clj": "c6e8cf3fb3a5e7031711bad3fba17289402bff15fe1d8a5918a6fd6374a5a948",
+    "models/build-identity.clj": "f70b9a880df920415238365db71dc9ad2002c7deeb841e4f6876a5282356d621",
+    "models/extern-bootstrap.clj": "b6068146a44369fdaf3f60f8e3795675e3eefa8a26922257d282a9417853c6a5",
+    "models/heartbeat-counter.clj": "4213b97be4fa2697724b135156c84856eaa14659c0dc08f6a34be3f015fe5466",
+    "models/heartbeat-provider.clj": "4715a7a52f80a23b85617f91654d8d742a5f1cd0dea6b0ab24a0ef89a4302024",
+    "models/limits.clj": "5787ccf54b909f23a03857e984801bf210226218ac6b1f2f963c145235bf260d",
+    "models/router.clj": "8301fbff69dd5f425030a2bb175da224438ea16e7cc407fd96a50d97fd86d069",
+    "models/row-cache.clj": "3bec0fe3cb819bd63fc45462e5f03f928a5e51e5b57cb6603510ae212242ab29",
+    "models/stdin.clj": "d1cbc5c946eab0f2fcd05ba5ddd49accd9e10962fa4118f376a4a9d49c223850",
+    "native-init.clj": "b3c6e13bf99543a5d1b1d0dfba893e22aebddc41841607d68da7824e0b8600c3",
+    "row-cache.clj": "70764537c0180dd00f1c4f7870046a4965cbd50ac891f73fbff80d5af6c6c718",
+    "stdin.clj": "7c3dbceb1c2213055241842b3a10871a03eb90be309332ed76021727fa9dceb6"
+  },
+  "scope": "Model acceptance for the staged implementation. Genuine A-to-B-to-C execution/retirement evidence remains separately pinned in source-module-v1.json. No new guest execution, full Init, arbitrary native initialization, generic project or public Java API claim."
+}
