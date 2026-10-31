@@ -1,0 +1,200 @@
+# Explicit runtime-cohort research components
+
+This package consolidates reviewed host definitions used with the artifact-relative
+Lean frontend. It is research code, not a released backend, general project loader,
+bootstrap image, or independent kernel replay of the imported Prelude. It changes
+no Java runtime, kernel, Nat source profile, or historical frontend acceptance file.
+
+The components retain their existing namespaces and opaque lifecycle. The heartbeat
+Provider registry is issued once; copying a source file does not permit reloading it
+under live tokens. A new actual CodeReceipt gets its own source binding, Headers,
+cache policy and service callbacks. A class-binary rollover also needs a new class
+basis and same-class ModuleData preparation. No source hash, manifest or descriptor
+in this directory is itself an admission capability.
+
+## Load definitions explicitly
+
+First load the current baseline and the existing artifact-frontend package. The
+prerequisites are listed in `loader.clj`; baseline definitions must include the
+reviewed StdIO installer bridge. No Interpreter jar is automatically found or loaded.
+
+```clojure
+(load-file "research/java-ir-baseline/runtime-cohort/loader.clj")
+(ansatz.research.ir.runtime-cohort-loader/load!)
+```
+
+`load!` preflights every file hash and rejects **any already loaded unit namespace**
+before loading anything. It opens no catalogue/store, mints no receipt, constructs
+no engine/image, installs no provider/default, and runs no test. It must not be used
+in a retained REPL where these namespaces were already loaded from ignored files.
+Use the already loaded functions there; do not use `:reload`, re-evaluate a `deftype`,
+or reset an opaque registry to make the loader pass.
+
+| File | Namespace | Responsibility |
+| --- | --- | --- |
+| native-init.clj | java-prelude-no-native-init | Explicit empty native-symbol policy; real interpreted fallback |
+| heartbeat-counter.clj | allocation-heartbeat-counter-v1 | Pure UInt64 offset arithmetic |
+| heartbeat-provider.clj | allocation-heartbeat-lab-v1 | Exact source-bound BaseIO get/set, branch state and claim journal |
+| extern-bootstrap.clj | original-extern-bootstrap-v1 | Additional early original ABI descriptors, no implementations |
+| limits.clj | original-runtime-limits-provider-v1 | Two original pure Unit-to-Nat queries for the pinned target |
+| row-cache.clj | authenticated-raw-row-cache-v1 | Receipt-scoped bounded immutable raw-row lookup cache |
+| cohort.clj | allocation-heartbeat-cohort-v1 | Explicit orchestration and consistent runtime-service routing |
+| stdin.clj | original-stdin-configuration-v1 | Genuine original Buffer/Ref/Stream construction on each child |
+
+The loader hashes detect source drift, not source or runtime trust. `sources.json`
+records every copied input hash and the documented portability changes. `manifest.json`
+records the complete current payload. Run the independent source audit without a VM:
+
+```sh
+python3 research/java-ir-baseline/runtime-cohort/verify-source.py
+```
+
+## Heartbeat and pure runtime queries
+
+The heartbeat pair follows pinned Lean `819816b2e0a3bf405af45ae5c7af2491d8f5bee6`,
+`src/Init/System/IO.lean:594/600` and `src/runtime/io.cpp:956/961`. Both are **BaseIO**:
+get returns a direct Nat, set returns direct Unit0. They do not construct `IO.ok`.
+An owned Nat is an exact immutable JVM Long or BigInteger carrier; the setter's
+native decrement has no JVM Node/RC effect. Subclasses/proxies and negative values
+reject before effect; setter input is explicitly bounded to 4096 bits.
+
+Each actual engine branch has its own offset: get is `(unsigned64(allocations) -
+offset) mod 2^64`, set changes the offset to produce `Nat mod 2^64`. The cumulative
+engine allocation field is never overwritten. Synchronous callbacks share that
+branch context, even when currentTask changes. Fork captures the parent's virtual
+count and calibrates the child's offset against its actual raw allocation mark.
+This is logical guest allocation accounting, not native allocator, JVM heap, elapsed
+time, host kernel work, or physical parity. Existing fuel/deadline limits remain.
+
+`bootstrap-specification!` authenticates the setter metadata before its first Header.
+`install!` adopts an existing canonical HOST setter or registers Header+spec when the
+Name is absent. It rejects an already unavailable immutable Function rather than
+pretending later registry metadata upgrades it. Actual current request, Header,
+source, ABI, immutable argument and reply credits are validated before effect.
+Post-effect completion failure keeps the journal and quarantines the Provider.
+Keep the Provider live through callback-capable release/disposal; `revoke!` requires
+an actual disposed/closed idle engine and releases only host metadata anchors.
+
+The limits provider authenticates `Lean.maxSmallNatFn` and `Lean.closureMaxArgsFn`,
+including actual target BuildIdentity, caller Header, Unit0, raw ABI and claim token.
+For the accepted x86_64 target it returns Long/MAX_VALUE and 16. These are direct pure
+query results, not `IO.Result`. It captures the supplied new receipt and inspects the
+actual session each call; it does not retain an old engine or create source authority.
+
+## Early descriptors and future guest exports
+
+`data/externs` contains the reviewed 961-row metadata inventory. Its original manifest
+SHA is `225d3d9e506730ffa4f6a6319ca91e6d52b46145cd6058422748b93424b5fd11`.
+The complete collector checked all 375,258 index entries and 1,389,150,335 raw CAS
+bytes against source index `74d833d577923821b982e8a9e872a38b5cad011513eb18870b51417e13397f0e`.
+Only extern rows are retained, with original SHA pins and pretty text removed.
+The portable collector takes an explicit CAS root and output directory:
+
+```sh
+python3 research/java-ir-baseline/runtime-cohort/data/externs/collect.py CAS_ROOT --output OUTPUT_DIRECTORY
+```
+
+It requires the POSIX resource-limit support used by the reviewed scan. The original
+manifest records the historical collector hash and observed bounds; the adapted
+collector has a new source hash and future timing/RSS/manifest bytes will differ.
+Reproduction should compare index/count/row bytes, not invent equality of timings.
+No collector or catalogue is automatically invoked by loading this package.
+
+Call `original-extern-bootstrap-v1/build!` with an actual healthy parent, the explicit
+inventory directory, its independently accepted manifest pin, and future guest-symbol
+reservations. It reauthenticates every original row via the actual CodeReceipt and
+reads actual same-class EXTERNS/current Program registries. Native and guest origin
+symbols are excluded symbol-wide. Existing host ABIs are skipped exactly; other
+supported overloads remain distinct. Unsupported lanes/backends and native ABI gaps
+remain explicit coverage, not compatibility claims. The observed parent metadata
+snapshot produced 595 additional distinct ABIs; that count depends on actual policies.
+
+Pass descriptors through configured basis `:early-host-specifications` **before the
+first captured Header registration**. The cohort appends its HB setter separately;
+do not duplicate known host ABIs. An early descriptor only creates a real HostRequest
+boundary. It grants no handler, success value, IO permission, compiler action or
+semantics. Unknown services stop unclaimed. Later guest exports under a reserved host
+symbol conflict; reserve planned origin symbols up front or reconstruct another seed.
+
+## Explicit cohort orchestration
+
+`open-parent!` accepts an already configured finalizer basis, new actual receipt,
+explicit companion artifact directory, and trusted policy functions:
+
+- `:open-driver! [live]` returns the actual source-bound authenticated demand driver.
+- `:configure! [driver]` returns `{:driver same-driver :native-init actual-cap}` after
+  the existing zero-work source policies, Substring8/Meta2 and audit21. Do not call a
+  second parent importer inside this function.
+- `:census!` is the existing bounded runtime-root census reader.
+- Optional `:configure-child! [child journal]` constructs original stdin only after
+  genuine local startup and before logical assembly/finalization/frontend work.
+- `:layout-directory` is the explicit authenticated compiled-layout artifact path.
+- Optional `:additional-runtime-service` is the same trusted `{:handles? fn :serve! fn}`
+  map on parent/driver. Its pure classifier and handler capture the **new receipt**.
+- Optional `:journal` records actual engine/source/root custody through failures.
+
+Native-init, both heartbeat symbols, and reviewed extra queries have consistent
+routing through startup, assembly, finalizer callbacks, setup's first guest call,
+options proofs, checked frontend, execution and disposal. The strict wrapper keeps
+actual engine/source/current-ctx/service identity, terminal/source guards and one
+tick charge. Checked declaration symbols cannot be intercepted by a catch-all extra
+service. Other host boundaries stop; this wrapper does not implement them.
+
+`prepare-source-child!` takes explicit text, captured filename/module, new-class
+PreparedModule, and `{:path store-path :manifest actual-manifest :layout-directory
+layout-path}`. The layout path may instead come from parent policy. It is checked
+before creating a child. No ignored target path is silently substituted. The stdin
+callback uses original `_closed_0`, `IO.mkRef._boxed` and `IO.FS.Stream.ofBuffer`, not
+a fabricated stream or an extra graph-import slot. Its construction owners are
+journaled, the native default borrows/retains one credit, and the external construction
+stream owner is released normally. The pristine parent stays instruction0.
+
+Existing Module/Run/Base/declaration issuers remain responsible for source and logical
+association authority. Healthy retirement transfers all owner occurrences, drives
+release/disposal with the same runtime services, closes the engine, then revokes the
+HB Provider and store lease. Unknown/failed/paused execution is not automatically
+unwound or accepted. A thrown unknown service can quarantine its CommandRun even
+though its actual request remains unclaimed; no resumable certificate API is claimed.
+
+## Bounded raw-row cache
+
+Create one `authenticated-raw-row-cache-v1/open-policy` per actual new receipt and
+inject its resolve/check callbacks into the new driver. It calls the actual source
+lease guard before access and in finally, including hits/errors. Entries hold only
+recursively admitted immutable row/SHA/key/charge/LRU data; Header, Program, engine,
+guest Nodes and SourceBinding are not entries. The policy intentionally retains its
+receipt until close. Exact collection classes, nil metadata, string keys and immutable
+scalar classes prevent hidden owner aliases, lazy realization and comparator retention.
+
+The 256-entry/4 MiB conservative charge is an estimate, not a measured JVM heap cap.
+Oversize or unsupported rows use the original lookup uncached. Typed Name keys preserve
+tags/components; unsupported inputs retain original lookup behavior. Close drops row
+and receipt anchors without closing caller resources. A closed/foreign lease cannot
+serve cached data. The initial 16-body measurements were pressure-confounded; no
+speedup claim follows from this cache.
+
+## Verification and retained-REPL safety
+
+`load-models!` loads definitions only, refusing model namespace replacement. Run tests
+only while host/source activity is quiescent because several models temporarily
+replace source callbacks. **Do not call load! in a REPL with live runtime namespaces.**
+To use the frozen packaged models against already loaded identical implementations,
+use `load-missing-models!`; it hashes each missing model before loading, skips existing
+model namespaces, and never loads/replaces implementation namespaces. Existing model
+functions remain usable; changed fixture paths should be tested in a separate fresh
+source-only process, not by resetting opaque registries.
+
+The copied models have parent-reported passes: heartbeat9/47, provider terminal2/4,
+router4/28, limits3/16, cache6/111. New extern/backend/ABI and stdin early-rejection
+models are source-only additions awaiting coordinated evaluation. The optional
+`allocation-heartbeat-provider-checks-v1/smoke!` is NOT automatically a test: it creates
+four tiny engines and must be invoked separately with a borrowed actual parent. Parent
+reported its authentic-source smoke passed24 assertions and normal disposal. Neither
+pure models nor source audits establish a new full runtime or bootstrap acceptance.
+
+Historical artifact-frontend acceptance remains untouched. Parent reported the ignored
+cohort components preparing actual 534-root parents and fresh Prelude-backed arithmetic
+files in 384 MiB with strict publication, original compilation/IR execution, EOF and
+normal cleanup. The arithmetic profile owns its separate acceptance record. This
+source consolidation has no worker JVM/native run and no new end-to-end acceptance
+for the portability deltas. Source hashes identify code; they do not mint receipts.

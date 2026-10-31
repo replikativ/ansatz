@@ -1,0 +1,65 @@
+{
+  "schema": "runtime-cohort-validation-checkpoint/1",
+  "scope": "Reviewed source consolidation; parent reports refer to ignored source hashes, not a new packaged-runtime acceptance.",
+  "worker_execution": {
+    "JVM_launched": false,
+    "guest_or_native_executed": false
+  },
+  "reported_models": [
+    {
+      "namespace": "allocation-heartbeat-counter-checks-v1",
+      "tests": 9,
+      "assertions": 47
+    },
+    {
+      "namespace": "allocation-heartbeat-provider-checks-v1",
+      "tests": 2,
+      "assertions": 4
+    },
+    {
+      "namespace": "allocation-heartbeat-cohort-router-checks-v1",
+      "tests": 4,
+      "assertions": 28
+    },
+    {
+      "namespace": "original-runtime-limits-provider-checks-v1",
+      "tests": 3,
+      "assertions": 16
+    },
+    {
+      "namespace": "authenticated-raw-row-cache-checks-v1",
+      "tests": 6,
+      "assertions": 111
+    }
+  ],
+  "reported_smokes": [
+    {
+      "scope": "Authentic source heartbeat get/set/fork/request smoke, no full image",
+      "assertions": 24,
+      "tiny_engines": 4,
+      "retirement": "normal disposal and close"
+    },
+    {
+      "scope": "Actual original runtime-limit HostRequests",
+      "requests": 2,
+      "values": [
+        "9223372036854775807",
+        "16"
+      ],
+      "retirement": "normal disposal and close"
+    },
+    {
+      "scope": "Additional early original ABI metadata",
+      "extern_rows": 961,
+      "additional_distinct_ABIs": 595,
+      "empty_Program_dry_prepare": "passed; metadata only"
+    }
+  ],
+  "pending_packaged_checks": [
+    "Fresh definition loading with current artifact-frontend prerequisites",
+    "All frozen fixture models with portable paths",
+    "No new full runtime acceptance is inferred from this consolidation"
+  ],
+  "performance": "No cache speedup or process-heap bound claimed. Early timings were pressure-confounded.",
+  "historical_acceptance": "Existing artifact-frontend acceptance and separate Nat arithmetic records are unchanged."
+}

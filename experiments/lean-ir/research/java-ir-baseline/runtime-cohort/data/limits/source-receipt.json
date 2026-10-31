@@ -1,0 +1,22 @@
+{
+  "schema": "pinned-runtime-limits-source/1",
+  "lean-commit": "819816b2e0a3bf405af45ae5c7af2491d8f5bee6",
+  "source-index-sha256": "74d833d577923821b982e8a9e872a38b5cad011513eb18870b51417e13397f0e",
+  "original-rows": {
+    "maxSmallNatFn": "7d18f28382b82388fe76f41b71ff6c626f60cfd1583a05820c36ad4de38b7f1d",
+    "closureMaxArgsFn": "6a8f4a7abe6f57dd8f0c2af46d0d7fd120313ffa6c171236874404e2c38b654e"
+  },
+  "pinned-source-sha256": {
+    "src/Lean/Runtime.lean": "abc12a1d30004da2b8d98dfa2aecbdad2a4a38941814d95a750bbf932f8000d6",
+    "src/runtime/object.cpp": "e03ea4317ad44fb91a4cc9097abe1601b1e1cf8fb77f5ab7b0620fdfcf348430",
+    "src/include/lean/lean.h": "02af0040283143b264e3a44b06b348b6973ae6037fa8f550701c83dd7a062ace"
+  },
+  "target": "x86_64-unknown-linux-gnu",
+  "word-bits": 64,
+  "values": {
+    "lean_max_small_nat": 9223372036854775807,
+    "lean_closure_max_args": 16
+  },
+  "scope": "Source facts only. Host descriptors do not issue CodeReceipt/source authentication.",
+  "execution": "No worker JVM/native run"
+}

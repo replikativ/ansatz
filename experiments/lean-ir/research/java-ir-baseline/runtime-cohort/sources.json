@@ -1,0 +1,129 @@
+{
+  "schema": "runtime-cohort-source-migration/1",
+  "lean_commit": "819816b2e0a3bf405af45ae5c7af2491d8f5bee6",
+  "origin_scope": "Parent-reviewed ignored prototype definitions; source paths describe inputs, not runtime discovery.",
+  "files": [
+    {
+      "file": "heartbeat-counter.clj",
+      "origin": "target/java-allocation-heartbeat-lab-v1/counter.clj",
+      "origin_sha256": "bb5b1763c26e8e226068a9cabfe8c17bbceda6d6cd8ec7a39dcae2a0ddd23533",
+      "changes": []
+    },
+    {
+      "file": "heartbeat-provider.clj",
+      "origin": "target/java-allocation-heartbeat-lab-v1/provider.clj",
+      "origin_sha256": "8da93cac1d871470c1898a2e98ab9bd3d1230a3bbeecb9db87884f089e8e92c8",
+      "changes": []
+    },
+    {
+      "file": "cohort.clj",
+      "origin": "target/java-allocation-heartbeat-lab-v1/cohort.clj",
+      "origin_sha256": "781fa7d58ac00565d011208b8390d353eefd0957719d77f3b55256c8cd6b09fc",
+      "changes": [
+        "Compiled layout directory is explicit in parent policy/store descriptor and validated before child fork; removes implicit ignored-target path."
+      ]
+    },
+    {
+      "file": "native-init.clj",
+      "origin": "target/java-prelude-finalizer-v1/no-native-init.clj",
+      "origin_sha256": "b3c6e13bf99543a5d1b1d0dfba893e22aebddc41841607d68da7824e0b8600c3",
+      "changes": []
+    },
+    {
+      "file": "stdin.clj",
+      "origin": "target/java-original-stdin-configuration-v1/configure.clj",
+      "origin_sha256": "7c3dbceb1c2213055241842b3a10871a03eb90be309332ed76021727fa9dceb6",
+      "changes": []
+    },
+    {
+      "file": "extern-bootstrap.clj",
+      "origin": "target/java-extern-bootstrap-v1/builder.clj",
+      "origin_sha256": "00c2f033e3c72d0e85ee86a4ecf260e68ac813664fad0723e016018337b81b4e",
+      "changes": [
+        "Use the same lowercase SHA-256 hex encoding without Java17-only HexFormat; supports the baseline Java11 host profile."
+      ]
+    },
+    {
+      "file": "limits.clj",
+      "origin": "target/java-runtime-limits-provider-v1/provider.clj",
+      "origin_sha256": "eb6ee44fb14aaeae452f673fb5da1fddf05edef187fb10490eb015b888d84e5d",
+      "changes": []
+    },
+    {
+      "file": "row-cache.clj",
+      "origin": "target/java-authenticated-row-cache-v1/cache.clj",
+      "origin_sha256": "70764537c0180dd00f1c4f7870046a4965cbd50ac891f73fbff80d5af6c6c718",
+      "changes": []
+    },
+    {
+      "file": "models/heartbeat-counter.clj",
+      "origin": "target/java-allocation-heartbeat-lab-v1/counter-checks.clj",
+      "origin_sha256": "4213b97be4fa2697724b135156c84856eaa14659c0dc08f6a34be3f015fe5466",
+      "changes": []
+    },
+    {
+      "file": "models/heartbeat-provider.clj",
+      "origin": "target/java-allocation-heartbeat-lab-v1/provider-checks.clj",
+      "origin_sha256": "4715a7a52f80a23b85617f91654d8d742a5f1cd0dea6b0ab24a0ef89a4302024",
+      "changes": []
+    },
+    {
+      "file": "models/router.clj",
+      "origin": "target/java-allocation-heartbeat-lab-v1/cohort-router-checks.clj",
+      "origin_sha256": "44b016036279eaad6afa35ebf9d8033b5c11c2723725f39cccbe1bf22f750a07",
+      "changes": []
+    },
+    {
+      "file": "models/limits.clj",
+      "origin": "target/java-runtime-limits-provider-v1/checks.clj",
+      "origin_sha256": "d846be15c73beeb7aa479ce78ccaa6e72868cf887cd4d14a9a3e6fb0bc1d77ac",
+      "changes": [
+        "Fixture directory resolves relative to the model source file; no ignored target or working-directory dependency."
+      ]
+    },
+    {
+      "file": "models/row-cache.clj",
+      "origin": "target/java-authenticated-row-cache-v1/checks.clj",
+      "origin_sha256": "3bec0fe3cb819bd63fc45462e5f03f928a5e51e5b57cb6603510ae212242ab29",
+      "changes": []
+    },
+    {
+      "file": "data/externs/manifest.json",
+      "origin": "target/java-extern-bootstrap-v1/manifest.json",
+      "origin_sha256": "225d3d9e506730ffa4f6a6319ca91e6d52b46145cd6058422748b93424b5fd11",
+      "changes": []
+    },
+    {
+      "file": "data/externs/extern-rows.jsonl",
+      "origin": "target/java-extern-bootstrap-v1/extern-rows.jsonl",
+      "origin_sha256": "878bc96a9dc8661b5ca2ec93449d1062ecc0dc2d5b97a1f6689c8be909006c59",
+      "changes": []
+    },
+    {
+      "file": "data/externs/collect.py",
+      "origin": "target/java-extern-bootstrap-v1/collect.py",
+      "origin_sha256": "6a7f4bb181c6c4d7d8b8942048ed0cc871295a36f218f8e77451c3e13dd558cb",
+      "changes": [
+        "Portable CLI takes explicit CAS root/output directory; original index/hash/byte/name/CAS validation algorithm is unchanged. Original manifest retains historical collector hash."
+      ]
+    },
+    {
+      "file": "data/limits/source-receipt.json",
+      "origin": "target/java-runtime-limits-provider-v1/source-receipt.json",
+      "origin_sha256": "07e57a5682f1b51f20859c797fe28eff4e77a4b2da57642dc3002991f037613a",
+      "changes": []
+    },
+    {
+      "file": "data/limits/maxSmallNatFn.json",
+      "origin": "target/java-runtime-limits-provider-v1/maxSmallNatFn.json",
+      "origin_sha256": "7d18f28382b82388fe76f41b71ff6c626f60cfd1583a05820c36ad4de38b7f1d",
+      "changes": []
+    },
+    {
+      "file": "data/limits/closureMaxArgsFn.json",
+      "origin": "target/java-runtime-limits-provider-v1/closureMaxArgsFn.json",
+      "origin_sha256": "6a8f4a7abe6f57dd8f0c2af46d0d7fd120313ffa6c171236874404e2c38b654e",
+      "changes": []
+    }
+  ]
+}
