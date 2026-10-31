@@ -12,22 +12,27 @@
 (def ^:dynamic *basis* nil)
 (def directory "test/fixtures/java-stdio-runtime/")
 (defn records [] (json/read-str (slurp (str directory "original-rows.json"))))
+(defn original-fap [label arguments]
+  (let [record (first (filter #(= label (get % "label")) (records)))
+        name (get-in record ["row" "name"])]
+    (assert name "Original qualified stdio Name absent from fixture")
+    {:fap {:c name :ys arguments}}))
 (defn helper-rows []
   [(c/decl "stdio-apply0" [(c/p 1 "object")] "object"
      (c/let-ir 2 "object" {:ap {:x {:idx 1} :ys ["erased"]}} (c/ret 2)))
    (c/decl "stdio-apply1" [(c/p 1 "object") (c/p 2 "object")] "object"
      (c/let-ir 3 "object" {:ap {:x {:idx 1} :ys [(c/v 2) "erased"]}} (c/ret 3)))
    (c/decl "stdio-observe-install" [(c/p 1 "object") (c/p 2 "object") (c/p 3 "object")] "object"
-     (c/let-ir 4 "object" (c/fap "IO.getStdout" ["erased"])
-       (c/let-ir 5 "object" (c/fap "IO.setStdout" [(c/v 1) "erased"])
+     (c/let-ir 4 "object" (original-fap "IO.getStdout" ["erased"])
+       (c/let-ir 5 "object" (original-fap "IO.setStdout" [(c/v 1) "erased"])
          ["dec" {:idx 5} 1 true false ["dec" {:idx 2} 1 true false (c/ret 4)]])))
    (c/decl "stdio-recreate" [(c/p 1 "object") (c/p 2 "object")] "object"
      ["dec" {:idx 1} 1 true false
-      (c/let-ir 3 "object" (c/fap "IO.getStdin" ["erased"])
+      (c/let-ir 3 "object" (original-fap "IO.getStdin" ["erased"])
         ["dec" {:idx 3} 1 true false
-         (c/let-ir 4 "object" (c/fap "IO.getStdout" ["erased"])
+         (c/let-ir 4 "object" (original-fap "IO.getStdout" ["erased"])
            ["dec" {:idx 4} 1 true false
-            (c/let-ir 5 "object" (c/fap "IO.getStderr" ["erased"])
+            (c/let-ir 5 "object" (original-fap "IO.getStderr" ["erased"])
               ["dec" {:idx 5} 1 true false
                (c/let-ir 6 "object" (c/lit 0) (c/ret 6))])])])])
    (c/decl "stdio-hold-promise" [(c/p 1 "object") (c/p 2 "object")] "object"
@@ -43,7 +48,7 @@
                         (if (and (get-in r ["row" "ir" "fdecl"])
                                  (not (.contains ^String (get r "label") "._lam_")))
                           (j/materialize-body ctx (get hs (get r "label")) (get r "row")
-                            (mapv #(get by-name (json/write-str %)) (get-in r ["row" "dependencies"]))) ctx)) registered rs)
+                            (mapv #(get by-name (json/write-str %)) (distinct (get-in r ["row" "dependencies"])))) ctx)) registered rs)
         extra (concat (map #(get % "row") (json/read-str (slurp "test/fixtures/java-task-sync-runtime/original-rows.json")))
                       (map #(get % "row") (ref/originals)) (map #(get % "row") (array/originals))
                       (x/raw (helper-rows)))
