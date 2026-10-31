@@ -93,3 +93,7 @@ the tested jar SHA256 is
 `cfe1ff1bfd51c4e7c8e5f688117e9c70e214ff18d760fbc69c1b56d554aac23d`.
 This validates the original empty-ByteArray caller, not the full Nat-arithmetic
 frontend route, which still requires a new admitted runtime cohort.
+An extra run of the older oversized-import stress test exhausted the warmed
+384 MiB REPL while allocating a large descriptor buffer. That attempt is separate
+from the tiny constructor checks and the successful fresh complete gate; the
+complete gate includes both existing ByteArray test groups.
