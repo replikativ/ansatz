@@ -1001,6 +1001,37 @@
         rel (case hs "==" 'Eq ("<" ">") 'lt 'le)]
     (elab-term est (list rel T a b))))
 
+(defn- elab-if-branches
+  "Elaborate the branches of `if` form `sexpr`. Their type is the declared
+   result type when the `if` is the definition body (as for `match`), else the
+   type of the first branch that is not a bare Nat literal. A literal branch
+   takes that type as Lean's OfNat does, so `(if c i 0)` with `i : Int` is an
+   Int conditional. The branches of a definition-body `if` are in that
+   position too. Returns [then else type]."
+  [est sexpr t-form e-form]
+  (let [declared (when (and (:definition-ret est) (= sexpr (:definition-body est)))
+                   (:definition-ret est))
+        at (fn [form] (if declared (assoc est :definition-body form) est))
+        t0 (elab-term (at t-form) t-form)
+        e0 (elab-term (at e-form) e-form)
+        T (or declared (infer-with-mvars est (if (e/lit-nat? t0) e0 t0)))
+        tn (type-head-name est T)]
+    [(num-lit-at-type est T tn t0) (num-lit-at-type est T tn e0) T]))
+
+(defn- comparison-carrier
+  "The carrier of a 2-arg comparison: the head constant of the type of the
+   first operand that is not a Nat literal (a literal takes the other
+   operand's type), \"Nat\" when both are literals."
+  [est a0 b0]
+  (or (some (fn [x]
+              (when-not (e/lit-nat? x)
+                (let [t (zonk est (infer-with-mvars est x))
+                      [th _] (when t (e/get-app-fn-args t))]
+                  (when (and th (e/const? th))
+                    (name/->string (e/const-name th))))))
+            [a0 b0])
+      "Nat"))
+
 (defn- elab-bool-comparison
   "Computational comparisons. Equality follows Init/Prelude.lean's decEq/decide
    through the registered dictionary; order retains the native Nat/Int/Float encoding."
@@ -1013,14 +1044,7 @@
                               (">=" "≥") [:le (nth sexpr 2) (nth sexpr 1)])
         a0 (elab-term est a-form)
         b0 (elab-term est b-form)
-        tn (or (some (fn [x]
-                       (when-not (e/lit-nat? x)
-                         (let [t (zonk est (infer-with-mvars est x))
-                               [th _] (when t (e/get-app-fn-args t))]
-                           (when (and th (e/const? th))
-                             (name/->string (e/const-name th))))))
-                     [a0 b0])
-               "Nat")
+        tn (comparison-carrier est a0 b0)
         coerce (fn [x] (if (e/lit-nat? x)
                          (case tn
                            "Int"   (e/app (e/const' (name/from-string "Int.ofNat") []) x)
@@ -1213,30 +1237,47 @@
                                  ">"  ["lt" "Nat.decLt" true]
                                  ("<=" "≤") ["le" "Nat.decLe" false]
                                  (">=" "≥") ["le" "Nat.decLe" true]
-                                 nil))]
-                     (if cmp
-                       (let [[prop-head dec-name swap?] cmp
-                             [a b] (if swap? [(nth c 2) (nth c 1)] [(nth c 1) (nth c 2)])
-                             a* (elab-term est a)
-                             b* (elab-term est b)
-                           ;; Build the Prop with the CONCRETE canonical Nat instance
-                           ;; (instLTNat/instLENat), not via (lt Nat a b) — that path
-                           ;; leaves an instance MVAR which the paired Nat.decLt/decLe
-                           ;; (whose type mentions the canonical instance) cannot match
-                           ;; under a strict mid-elaboration infer (e.g. as an argument
-                           ;; of List.map, before the synthesis pass runs).
-                             prop (case prop-head
-                                    "Eq" (elab-term est (list 'Eq 'Nat a b))
-                                    "lt" (e/app* (e/const' (name/from-string "LT.lt") [lvl/zero])
-                                                 (e/const' (name/from-string "Nat") [])
-                                                 (e/const' (name/from-string "instLTNat") []) a* b*)
-                                    "le" (e/app* (e/const' (name/from-string "LE.le") [lvl/zero])
-                                                 (e/const' (name/from-string "Nat") [])
-                                                 (e/const' (name/from-string "instLENat") []) a* b*))
+                                 nil))
+                         [a b] (when cmp (if (nth cmp 2) [(nth c 2) (nth c 1)] [(nth c 1) (nth c 2)]))
+                         a0 (when cmp (elab-term est a))
+                         b0 (when cmp (elab-term est b))
+                         ;; the carrier as for a Bool comparison: only Nat and Int lift to
+                         ;; dite; any other carrier takes the Bool path below
+                         carrier (when cmp (comparison-carrier est a0 b0))
+                         ;; a literal operand takes Int as Lean's OfNat does
+                         int-lit (fn [x] (num-lit-at-type est (e/const' (name/from-string "Int") []) "Int" x))]
+                     (if (and cmp (contains? #{"Nat" "Int"} carrier))
+                       (let [[prop-head dec-name _] cmp
+                             int? (= carrier "Int")
+                             a* (if int? (int-lit a0) a0)
+                             b* (if int? (int-lit b0) b0)
+                             dec-name (if int? (case prop-head "Eq" "Int.decEq" "lt" "Int.decLt" "le" "Int.decLe") dec-name)
+                           ;; Build the Prop with the CONCRETE canonical instance
+                           ;; (instLTNat/instLENat, Int.instLTInt/instLEInt), not via
+                           ;; (lt Nat a b) — that path leaves an instance MVAR which the
+                           ;; paired decLt/decLe (whose type mentions the canonical
+                           ;; instance) cannot match under a strict mid-elaboration infer
+                           ;; (e.g. as an argument of List.map, before the synthesis pass runs).
+                             prop (if int?
+                                    (case prop-head
+                                      "Eq" (e/app* (e/const' (name/from-string "Eq") [(lvl/succ lvl/zero)])
+                                                   (e/const' (name/from-string "Int") []) a* b*)
+                                      "lt" (e/app* (e/const' (name/from-string "LT.lt") [lvl/zero])
+                                                   (e/const' (name/from-string "Int") [])
+                                                   (e/const' (name/from-string "Int.instLTInt") []) a* b*)
+                                      "le" (e/app* (e/const' (name/from-string "LE.le") [lvl/zero])
+                                                   (e/const' (name/from-string "Int") [])
+                                                   (e/const' (name/from-string "Int.instLEInt") []) a* b*))
+                                    (case prop-head
+                                      "Eq" (elab-term est (list 'Eq 'Nat a b))
+                                      "lt" (e/app* (e/const' (name/from-string "LT.lt") [lvl/zero])
+                                                   (e/const' (name/from-string "Nat") [])
+                                                   (e/const' (name/from-string "instLTNat") []) a* b*)
+                                      "le" (e/app* (e/const' (name/from-string "LE.le") [lvl/zero])
+                                                   (e/const' (name/from-string "Nat") [])
+                                                   (e/const' (name/from-string "instLENat") []) a* b*)))
                              inst (e/app* (e/const' (name/from-string dec-name) []) a* b*)
-                             then-expr (elab-term est t)
-                             else-expr (elab-term est e)
-                             ret-type (infer-with-mvars est then-expr)
+                             [then-expr else-expr ret-type] (elab-if-branches est sexpr t e)
                              ret-sort (infer-with-mvars est ret-type)
                              u (if (e/sort? ret-sort) (e/sort-level ret-sort) (lvl/succ lvl/zero))
                              not-prop (e/app (e/const' (name/from-string "Not") []) prop)]
@@ -1245,9 +1286,7 @@
                                  (e/lam "h" prop (e/lift then-expr 1 0) :default)
                                  (e/lam "h" not-prop (e/lift else-expr 1 0) :default)))
                        (let [cond-expr (elab-term est c)
-                             then-expr (elab-term est t)
-                             else-expr (elab-term est e)
-                             ret-type (infer-with-mvars est then-expr)]
+                             [then-expr else-expr ret-type] (elab-if-branches est sexpr t e)]
                          (e/app* (e/const' (name/from-string "Bool.rec") [(lvl/succ lvl/zero)])
                                  (e/lam "_" (e/const' (name/from-string "Bool") []) ret-type :default)
                                  else-expr then-expr cond-expr))))
