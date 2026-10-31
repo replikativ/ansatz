@@ -1573,7 +1573,7 @@ public final class Interpreter implements AutoCloseable {
     private static final class ExprPacket {
         Function function; Object[] arguments,expectedFields; boolean[] owned;
         int role,expectedTag,expectedFlag; boolean started,entered;
-        ExprReplaceFrame replaceFrame; BetaJob beta; ExprDirectTask directTarget;
+        ExprReplaceFrame replaceFrame; BetaJob beta; ExprDirectTask directTarget; DelayedTransformTask delayedTarget;
     }
     private static final int MAX_INSTANTIATION_WORK=1_000_000;
     private static final class InstantiationBudget { long work; }
@@ -2285,8 +2285,9 @@ public final class Interpreter implements AutoCloseable {
     }
     private void directHelperEntry(Function function,Object[] arguments) {
         RuntimeAction action=runtimeAction;
-        if(action==null||action.exprDirect==null) return;
-        DirectHelperPacket packet=action.exprDirect.session.call;
+        ExprDirectSession session=currentDirectSession(action);
+        if(session==null||session.phase!=DS_RUNNING) return;
+        DirectHelperPacket packet=session.call;
         if(packet==null||packet.entered||packet.function!=function||packet.arguments!=arguments) return;
         require(packet.started,"Direct Expr helper entered before packet publication");
         packet.entered=true; Arrays.fill(packet.owned,false);
@@ -2873,7 +2874,7 @@ public final class Interpreter implements AutoCloseable {
     }
     private static final class DelayedHelperPacket {
         Function function; Object[] arguments; boolean[] owned;
-        ResolverTask target; int role; boolean started,entered;
+        ResolverTask target; DelayedTransformTask transformTarget; int role; boolean started,entered;
     }
     private static final class DelayedSession {
         MVarContextCell context; InstantiationBudget budget; ExprInstantiationPolicy policy;
@@ -2881,6 +2882,9 @@ public final class Interpreter implements AutoCloseable {
         final IdentityHashMap<Node,Boolean> resolvableExpressions=new IdentityHashMap<>();
         final HashMap<Integer,ArrayList<PendingNameEntry>> pending=new HashMap<>();
         final ArrayList<PendingNameEntry> pendingOwners=new ArrayList<>();
+        final ArrayList<ExprCredit> saved=new ArrayList<>();
+        final HashMap<Integer,ArrayList<DirectNameEntry>> normalized=new HashMap<>();
+        final ArrayList<DirectNameEntry> nameOwners=new ArrayList<>();
         final HashMap<Integer,ArrayList<SubstitutionEntry>> substitutions=new HashMap<>();
         final ArrayList<SubstitutionEntry> substitutionOwners=new ArrayList<>();
         final ArrayDeque<ResolverTask> resolver=new ArrayDeque<>();
@@ -2900,6 +2904,551 @@ public final class Interpreter implements AutoCloseable {
         int mode,commandCursor,stage,cleanup,outputFields;
         final ArrayList<Long> observations=new ArrayList<>();
     }
+    /* Stage five: private complete transform scaffold. Native530 is RESERVED,
+     * not registered. No operation can claim input while READY remains false. */
+    private static final boolean EXPR_FULL_RESEARCH_READY=true;
+    private static final int DT_IDLE=0,DT_RUNNING=1,DT_RESULT=2,DT_SEALED=3,DT_DRAINED=4;
+    private abstract static class DelayedTransformTask {
+        DelayedTransformTask child;
+        ExprCredit result,received;
+        int stage,cleanup;
+        boolean completed,helperDone;
+    }
+    /** NORMAL snapshots sharing and the caller watermark before child work.
+     * Child occurrences stay owned until their literal case-block boundaries. */
+    private static final class DelayedVisitFrame extends DelayedTransformTask {
+        Node original;
+        int entryDepth,savedWatermark,cursor;
+        boolean shared,cacheHit,skipInsert;
+        final ExprCredit[] children=new ExprCredit[3];
+        DelayedVisitFrame(Node original) { this.original=original; }
+    }
+    private static final class DelayedFVarFrame extends DelayedTransformTask {
+        Node original; Object name;
+        DelayedFVarFrame(Node original) { this.original=original; }
+    }
+    /** A private optional result: present/result, never a fabricated guest Some. */
+    private static final class DelayedAssignmentFrame extends DelayedTransformTask {
+        Object name;
+        ExprCredit option,assigned,newValue;
+        boolean present,outer;
+        DelayedAssignmentFrame(Object name) { this.name=name; }
+    }
+    private static final class DelayedAppFrame extends DelayedTransformTask {
+        Node original; Object head,cursor;
+        int argumentCount;
+        ExprCredit option,recordTemporary,fvars,pendingName,discardedAssignment;
+        DelayedAppFrame(Node original) { this.original=original; }
+    }
+    /** Prefix function Apps bypass NORMAL cache in both lookup and insertion. */
+    private static final class DelayedPrefixFrame extends DelayedTransformTask {
+        Node original;
+        ExprCredit argument,function;
+        DelayedPrefixFrame(Node original) { this.original=original; }
+    }
+    private static final class DelayedResolveFrame extends DelayedTransformTask {
+        Node original;
+        Object cursor,fvars,pendingName;
+        final ArrayList<ExprCredit> arguments=new ArrayList<>();
+        ExprCredit argumentTemporary,option,expressionTemporary,newValue,betaParameter;
+        SubstitutionFrame substitutions;
+        int argumentCount,extraCount;
+        DelayedResolveFrame(Node original,Object fvars,Object pendingName) {
+            this.original=original; this.fvars=fvars; this.pendingName=pendingName;
+        }
+    }
+    /** This phase is independent of foundation.phase: the foundation may be
+     * running its resolver/cache/substitution operation inside a live transform. */
+    private static final class DelayedTransform {
+        DelayedSession foundation;
+        final ArrayDeque<DelayedTransformTask> tasks=new ArrayDeque<>();
+        Object input;
+        ExprCredit result;
+        int phase;
+    }
+    /** One cell and budget span both passes. Direct members survive through
+     * delayed work and pair construction; e1 and e2 are separate occurrences. */
+    private static final class ExprFullResearchState {
+        MVarContextCell context;
+        InstantiationBudget budget;
+        ExprDirectSession direct;
+        DelayedTransform delayed;
+        ExprCredit input,e1,e2,pair;
+        int stage,pairFields;
+    }
+    /** Fixed private research entry; native530 remains unregistered. */
+    private void startExprFullResearch(Header[] helpers,Header[] constructors,Object ownedContext,Object ownedExpr) {
+        explicitOnly(); require(EXPR_FULL_RESEARCH_READY,"Private complete Expr transform is not yet enabled");
+        require(taskRuntime!=null,"Complete Expr research requires active explicit runtime");
+        if(closed||disposed||untrackedFailure||advancing||phase!=IDLE||pendingOwnedResult||sp!=0||continuationDepth!=0
+                ||runtimeAction!=null||hostCompletion!=null||hostGuestRecord!=null||quietCurrent!=null||releasePending!=0
+                ||releaseTransaction!=null||releaseRoot) throw new IllegalStateException("Complete Expr research requires open idle engine");
+        ExprInstantiationPolicy policy=ExprInstantiationPolicy.originalHelpers(levelInstantiationPolicy,helpers,constructors);
+        for(int role=0;role<5;role++) { levelInstantiationHelper(policy.levels,role); exprInstantiationHelper(policy,role); }
+        for(int role=0;role<9;role++) exprConstructor(policy.constructors,role);
+        validateHostObject(ownedContext); Node root=exprNode(ownedExpr);
+        if(ownedContext==ownedExpr) require(root.rc==0||root.rc>=2,"Complete Expr input owner aliases differ");
+        RuntimeAction action=newAction(ACTION_EXPR_FULL_RESEARCH,null,null,0,ROOT,null);
+        ExprFullResearchState state=new ExprFullResearchState(); action.exprFull=state;
+        state.context=new MVarContextCell(); state.context.current=new LevelCredit(ownedContext,true); state.budget=new InstantiationBudget();
+        state.input=new ExprCredit(ownedExpr,true); ExprDirectSession direct=new ExprDirectSession(); state.direct=direct;
+        direct.context=state.context; direct.budget=state.budget; direct.policy=policy;
+        direct.levels=newLevelSession(state.context,state.budget,policy.levels);
+        direct.tasks.addLast(new DirectVisitFrame(root)); direct.phase=DS_RUNNING;
+        objects[action.slot]=null; publishAction(action);
+        callsLeft=10_000_000; instructions=0; entry=null; result=null; releaseRoot=false; phase=RUNNING;
+    }
+    private ExprDirectSession currentDirectSession(RuntimeAction action) {
+        return action==null?null:action.exprDirect!=null?action.exprDirect.session:
+                action.exprFull!=null&&(action.exprFull.stage==0||action.exprFull.stage>=5)?action.exprFull.direct:null;
+    }
+    private DelayedSession currentDelayedSession(RuntimeAction action) {
+        return action==null?null:action.delayedResearch!=null?action.delayedResearch.session:
+                action.exprFull!=null&&action.exprFull.delayed!=null&&action.exprFull.stage>=3&&action.exprFull.stage<=4
+                        ?action.exprFull.delayed.foundation:null;
+    }
+    private boolean delayedOuterMode(DelayedSession session) { return session.substitutions.isEmpty(); }
+    private boolean delayedNormalizedContains(DelayedSession session,Object name) {
+        int hash=delayedNameHash(session,name); ArrayList<DirectNameEntry> bucket=session.normalized.get(hash);
+        if(bucket!=null) for(DirectNameEntry entry:bucket) {
+            delayedWork(session,1); require(entry.name.owned,"Delayed normalized Name owner missing");
+            if(mvarNameEqual(session.budget,name,entry.name.value)) return true;
+        }
+        return false;
+    }
+    private void delayedNormalizedInsert(DelayedSession session,Object name) {
+        int hash=delayedNameHash(session,name); ArrayList<DirectNameEntry> bucket=session.normalized.get(hash);
+        if(bucket!=null) for(DirectNameEntry entry:bucket) {
+            delayedWork(session,1); if(mvarNameEqual(session.budget,name,entry.name.value)) return;
+        }
+        require(session.nameOwners.size()<MAX_DELAYED_NAMES,"Delayed normalized Name bound");
+        DirectNameEntry entry=new DirectNameEntry(hash,exprCredit(name)); session.nameOwners.add(entry);
+        if(bucket==null) { bucket=new ArrayList<>(); session.normalized.put(hash,bucket); }
+        bucket.add(entry); acquireExpr(entry.name);
+    }
+    private void pushTransform(DelayedTransform transform,DelayedTransformTask task) {
+        require(transform.phase==DT_RUNNING&&transform.tasks.size()<MAX_DELAYED_FRAMES,"Delayed transform task bound");
+        transform.tasks.addLast(task);
+    }
+    private ExprCredit takeTransformChild(DelayedTransformTask parent,Class<?> expected) {
+        DelayedTransformTask child=parent.child;
+        require(child!=null&&child.completed&&expected.isInstance(child)&&child.result!=null&&child.result.owned,
+                "Delayed transform child receiver differs");
+        ExprCredit result=child.result; child.result=null; parent.child=null; return result;
+    }
+    private DelayedAssignmentFrame takeTransformAssignment(DelayedTransformTask parent) {
+        require(parent.child instanceof DelayedAssignmentFrame&&parent.child.completed,"Delayed optional assignment not ready");
+        DelayedAssignmentFrame child=(DelayedAssignmentFrame)parent.child; parent.child=null;
+        require(!child.present||child.result!=null&&child.result.owned,"Delayed private optional result owner missing"); return child;
+    }
+    private void transformSelect(DelayedTransformTask frame,Object value) { frame.result=exprCredit(value); acquireExpr(frame.result); }
+    private void callTransformHelper(RuntimeAction action,DelayedSession session,DelayedTransformTask target,int role,Object name,Object record,ExprCredit newValue) {
+        delayedWork(session,1); require(role>=0&&role<=4,"Delayed transform helper role differs"); requireDelayedReceiverFree(action,session);
+        Function helper=exprInstantiationHelper(session.policy,role);
+        DelayedHelperPacket packet=new DelayedHelperPacket(); packet.function=helper; packet.role=role; packet.transformTarget=target;
+        packet.arguments=new Object[helper.params.length]; packet.owned=new boolean[packet.arguments.length];
+        if(role==2||role==3) packet.arguments[0]=record;
+        else {
+            require(session.context.current!=null&&session.context.current.owned,"Delayed transform context absent");
+            packet.arguments[0]=session.context.current.value; packet.arguments[1]=name; nameNode(name);
+            if(role==4) { require(newValue!=null&&newValue.owned,"Delayed setter value absent"); packet.arguments[2]=newValue.value; exprNode(newValue.value); }
+        }
+        for(Object argument:packet.arguments) validateHostObject(argument);
+        session.call=packet;
+        for(int i=0;i<packet.arguments.length;i++) {
+            if(role==4&&i==0) { packet.owned[i]=true; session.context.current.owned=false; session.context.current=null; }
+            else { inc(packet.arguments[i],1); packet.owned[i]=true; }
+        }
+        IdentityHashMap<Node,Integer> known=new IdentityHashMap<>();
+        for(Object argument:packet.arguments) if(argument instanceof Node) known.merge((Node)argument,1,Integer::sum);
+        for(Map.Entry<Node,Integer> entry:known.entrySet()) require(entry.getKey().rc==0||entry.getKey().rc>=entry.getValue(),"Delayed helper owner aliases differ");
+        packet.started=true; enterExplicit(helper,null,packet.arguments,ACTION_BODY,action.slot,ASSIGN,null);
+        require(packet.entered,"Delayed transform helper did not publish frame/CodeRequest");
+    }
+    private void receiveTransformHelper(RuntimeAction action,DelayedSession session) {
+        DelayedHelperPacket packet=session.call;
+        require(packet!=null&&packet.entered&&packet.target==null&&packet.transformTarget!=null,"Delayed transform helper target differs");
+        Object value=objects[action.slot]; DelayedTransformTask target=packet.transformTarget;
+        if(packet.role==4) {
+            validateHostObject(value); require(session.context.current==null,"Delayed setter replaces owned context");
+            session.context.current=new LevelCredit(value,true); objects[action.slot]=null; target.helperDone=true;
+        } else {
+            require(target.received==null,"Delayed transform helper receiver occupied");
+            if(packet.role<=1) validateDirectOption(value,packet.role==0);
+            else if(packet.role==2) { Node array=pureExprArray(value); require(array.arraySize()<=MAX_DELAYED_NAMES,"Delayed fvars Array bound"); }
+            else nameNode(value);
+            target.received=new ExprCredit(value,true); objects[action.slot]=null;
+        }
+        session.call=null;
+    }
+    private void callTransformConstructor(RuntimeAction action,DelayedSession session,DelayedTransformTask target,int role,Object[] values) {
+        delayedWork(session,1); requireDelayedReceiverFree(action,session);
+        ExprPacket packet=prepareExprConstructorPacket(session.policy.constructors,role,values); packet.delayedTarget=target;
+        session.constructorCall=packet; acquireExprConstructorPacket(packet); packet.started=true;
+        enterExplicit(packet.function,null,packet.arguments,ACTION_BODY,action.slot,ASSIGN,null);
+        require(packet.entered,"Delayed constructor did not publish frame/CodeRequest");
+    }
+    private void receiveTransformConstructor(RuntimeAction action,DelayedSession session) {
+        ExprPacket packet=session.constructorCall;
+        require(packet!=null&&packet.entered&&packet.delayedTarget!=null&&packet.delayedTarget.received==null,"Delayed constructor receiver differs");
+        ExprCredit result=takeExprConstructorResult(action,packet); packet.delayedTarget.received=result; session.constructorCall=null;
+    }
+    private void stepTransformFVar(RuntimeAction action,DelayedTransform transform,DelayedFVarFrame frame) {
+        DelayedSession session=transform.foundation;
+        if(frame.stage==0) {
+            require(session.lookup==null,"Delayed FVar lookup occupied"); SubstitutionLookup lookup=new SubstitutionLookup();
+            lookup.name=frame.original.fields[0]; lookup.depth=session.depth; session.lookup=lookup; frame.stage=1; return;
+        }
+        SubstitutionLookup lookup=session.lookup; require(lookup!=null,"Delayed FVar lookup missing");
+        stepSubstitutionLookup(action,session,lookup); if(!lookup.completed) return;
+        if(lookup.present) { require(lookup.returned!=null&&lookup.returned.owned,"Delayed FVar returned owner absent"); frame.result=lookup.returned; lookup.returned=null; }
+        else transformSelect(frame,frame.original);
+        session.lookup=null; frame.completed=true;
+    }
+    private void stepTransformAssignment(RuntimeAction action,DelayedTransform transform,DelayedAssignmentFrame frame) {
+        DelayedSession session=transform.foundation;
+        if(frame.stage==0) { frame.stage=1; callTransformHelper(action,session,frame,0,frame.name,null,null); return; }
+        if(frame.stage==1) {
+            require(frame.received!=null&&frame.received.owned,"Delayed assignment Option absent"); frame.option=frame.received; frame.received=null;
+            if(ERASED.equals(frame.option.value)) { frame.present=false; frame.stage=20; return; }
+            frame.assigned=exprCredit(((Node)frame.option.value).fields[0]); acquireExpr(frame.assigned); frame.outer=delayedOuterMode(session);
+            if(frame.outer&&delayedNormalizedContains(session,frame.name)) {
+                transformSelect(frame,frame.assigned.value); frame.present=true; frame.stage=20; return;
+            }
+            if(frame.outer) delayedNormalizedInsert(session,frame.name);
+            frame.stage=2; pushTransform(transform,new DelayedVisitFrame(exprNode(frame.assigned.value))); return;
+        }
+        if(frame.stage==2) {
+            frame.newValue=takeTransformChild(frame,DelayedVisitFrame.class);
+            if(frame.outer&&frame.newValue.value!=frame.assigned.value) {
+                require(session.saved.size()<MAX_DIRECT_SAVED,"Delayed saved assignment bound");
+                ExprCredit saved=exprCredit(frame.assigned.value); session.saved.add(saved); acquireExpr(saved);
+                frame.stage=3; callTransformHelper(action,session,frame,4,frame.name,null,frame.newValue); return;
+            }
+            frame.stage=4;
+        }
+        if(frame.stage==3) { require(frame.helperDone,"Delayed setter completion absent"); frame.stage=4; }
+        if(frame.stage==4) {
+            if(frame.outer) transformSelect(frame,frame.newValue.value);
+            else { frame.result=frame.newValue; frame.newValue=null; }
+            frame.present=true; frame.stage=20;
+        }
+        if(frame.stage==20) { frame.stage=21; releaseDelayed(action,session,frame.newValue); return; }
+        if(frame.stage==21) { frame.stage=22; releaseDelayed(action,session,frame.assigned); return; }
+        if(frame.stage==22) { frame.stage=23; releaseDelayed(action,session,frame.option); return; }
+        require(frame.stage==23,"Delayed assignment continuation differs");
+        frame.newValue=null; frame.assigned=null; frame.option=null; frame.completed=true;
+    }
+    private void stepTransformPrefix(RuntimeAction action,DelayedTransform transform,DelayedPrefixFrame frame) {
+        DelayedSession session=transform.foundation;
+        if(frame.stage==0) { frame.stage=1; pushTransform(transform,new DelayedVisitFrame(exprNode(frame.original.fields[1]))); return; }
+        if(frame.stage==1) {
+            frame.argument=takeTransformChild(frame,DelayedVisitFrame.class); Node f=exprNode(frame.original.fields[0]); frame.stage=2;
+            pushTransform(transform,f.tag==5?new DelayedPrefixFrame(f):new DelayedVisitFrame(f)); return;
+        }
+        if(frame.stage==2) {
+            frame.function=takeTransformChild(frame,exprNode(frame.original.fields[0]).tag==5?DelayedPrefixFrame.class:DelayedVisitFrame.class);
+            if(frame.function.value==frame.original.fields[0]&&frame.argument.value==frame.original.fields[1]) { transformSelect(frame,frame.original); frame.stage=4; }
+            else { frame.stage=3; callTransformConstructor(action,session,frame,3,new Object[]{frame.function.value,frame.argument.value}); return; }
+        }
+        if(frame.stage==3) { require(frame.received!=null&&frame.received.owned,"Delayed App constructor result absent"); frame.result=frame.received; frame.received=null; frame.stage=4; }
+        if(frame.stage==4) { frame.stage=5; releaseDelayed(action,session,frame.function); return; }
+        if(frame.stage==5) { frame.stage=6; releaseDelayed(action,session,frame.argument); return; }
+        require(frame.stage==6,"Delayed prefix continuation differs"); frame.function=null; frame.argument=null; frame.completed=true;
+    }
+    private void stepTransformApp(RuntimeAction action,DelayedTransform transform,DelayedAppFrame frame) {
+        DelayedSession session=transform.foundation;
+        if(frame.stage==0) {
+            frame.head=frame.original; frame.argumentCount=0; frame.stage=1;
+        }
+        if(frame.stage==1) {
+            Node head=exprNode(frame.head);
+            if(head.tag==5) { require(frame.argumentCount<MAX_DIRECT_ARGUMENTS,"Delayed App spine bound"); frame.argumentCount++; frame.head=head.fields[0]; return; }
+            if(head.tag!=2) { frame.stage=20; pushTransform(transform,new DelayedPrefixFrame(frame.original)); return; }
+            frame.stage=2; callTransformHelper(action,session,frame,1,head.fields[0],null,null); return;
+        }
+        if(frame.stage==2) {
+            require(frame.received!=null&&frame.received.owned,"Delayed App Option absent"); frame.option=frame.received; frame.received=null;
+            if(ERASED.equals(frame.option.value)) { frame.stage=20; pushTransform(transform,new DelayedPrefixFrame(frame.original)); return; }
+            frame.recordTemporary=exprCredit(((Node)frame.option.value).fields[0]); acquireExpr(frame.recordTemporary);
+            frame.stage=3; callTransformHelper(action,session,frame,2,null,frame.recordTemporary.value,null); return;
+        }
+        if(frame.stage==3) {
+            require(frame.received!=null&&frame.received.owned,"Delayed App fvars absent"); frame.fvars=frame.received; frame.received=null;
+            frame.stage=4; releaseDelayed(action,session,frame.recordTemporary); return;
+        }
+        if(frame.stage==4) {
+            frame.recordTemporary=exprCredit(((Node)frame.option.value).fields[0]); acquireExpr(frame.recordTemporary);
+            frame.stage=5; callTransformHelper(action,session,frame,3,null,frame.recordTemporary.value,null); return;
+        }
+        if(frame.stage==5) {
+            require(frame.received!=null&&frame.received.owned,"Delayed App pending Name absent"); frame.pendingName=frame.received; frame.received=null;
+            frame.stage=6; releaseDelayed(action,session,frame.recordTemporary); return;
+        }
+        if(frame.stage==6) {
+            frame.recordTemporary=null;
+            if(((Node)frame.fvars.value).arraySize()>frame.argumentCount) { frame.stage=20; pushTransform(transform,new DelayedPrefixFrame(frame.original)); return; }
+            require(session.phase==DELAYED_IDLE&&session.resolver.isEmpty(),"Delayed pending resolver occupied");
+            session.phase=DELAYED_RUNNING; pushResolver(session,new ResolvablePendingFrame(frame.pendingName.value)); frame.stage=7; return;
+        }
+        if(frame.stage==7) {
+            stepResolver(action,session); if(session.phase!=DELAYED_RESULT) return;
+            if(takeResolverResult(session)) {
+                frame.stage=21; pushTransform(transform,new DelayedResolveFrame(frame.original,frame.fvars.value,frame.pendingName.value)); return;
+            }
+            require(delayedOuterMode(session),"Unresolvable delayed App in inner mode outside source profile");
+            frame.stage=8; pushTransform(transform,new DelayedAssignmentFrame(frame.pendingName.value)); return;
+        }
+        if(frame.stage==8) {
+            DelayedAssignmentFrame assignment=takeTransformAssignment(frame); frame.discardedAssignment=assignment.result; assignment.result=null;
+            frame.stage=9; releaseDelayed(action,session,frame.discardedAssignment); return;
+        }
+        if(frame.stage==9) { frame.discardedAssignment=null; frame.stage=20; pushTransform(transform,new DelayedPrefixFrame(frame.original)); return; }
+        if(frame.stage==20||frame.stage==21) { frame.result=takeTransformChild(frame,frame.stage==20?DelayedPrefixFrame.class:DelayedResolveFrame.class); frame.stage=30; }
+        if(frame.stage==30) { frame.stage=31; releaseDelayed(action,session,frame.pendingName); return; }
+        if(frame.stage==31) { frame.stage=32; releaseDelayed(action,session,frame.fvars); return; }
+        if(frame.stage==32) { frame.stage=33; releaseDelayed(action,session,frame.option); return; }
+        require(frame.stage==33,"Delayed App continuation differs"); frame.pendingName=null; frame.fvars=null; frame.option=null; frame.completed=true;
+    }
+    private void enterTransformBeta(RuntimeAction parent,DelayedTransform transform,DelayedResolveFrame frame) {
+        DelayedSession session=transform.foundation;
+        require(runtimeAction==parent&&objects[parent.slot]==null&&session.call==null&&session.constructorCall==null&&session.retiring==null,
+                "Delayed beta receiver occupied");
+        require(frame.betaParameter!=null&&frame.betaParameter.owned,"Delayed beta parameter absent");
+        for(int role=0;role<9;role++) exprConstructor(session.policy.constructors,role);
+        RuntimeAction child=newAction(ACTION_EXPR_MACHINERY,null,ACTION_BODY,parent.slot,ASSIGN,null);
+        ExprMachineryState worker=new ExprMachineryState(); worker.policy=session.policy.constructors; worker.budget=session.budget;
+        BetaJob beta=new BetaJob(); beta.function=frame.betaParameter; beta.reverseArgs=new Object[frame.extraCount];
+        for(int i=0;i<beta.reverseArgs.length;i++) {
+            ExprCredit arg=frame.arguments.get(i); require(arg.owned,"Delayed beta reverse argument backing absent"); beta.reverseArgs[i]=arg.value;
+        }
+        worker.jobs.addLast(beta); child.exprMachinery=worker; objects[child.slot]=null;
+        publishAction(child); frame.betaParameter=null;
+    }
+    private void stepTransformResolve(RuntimeAction action,DelayedTransform transform,DelayedResolveFrame frame) {
+        DelayedSession session=transform.foundation;
+        if(frame.stage==0) {
+            if(frame.cursor==null) frame.cursor=frame.original;
+            Node cursor=exprNode(frame.cursor);
+            if(cursor.tag==5) { frame.stage=1; pushTransform(transform,new DelayedVisitFrame(exprNode(cursor.fields[1]))); return; }
+            Node fvars=pureExprArray(frame.fvars); int n=fvars.arraySize();
+            require(n<=frame.arguments.size(),"Delayed resolve argument arity differs"); frame.extraCount=frame.arguments.size()-n;
+            require(session.substitution==null&&session.substitutionFrames.size()<MAX_DELAYED_FRAMES,"Delayed resolve substitution receiver occupied");
+            SubstitutionFrame install=new SubstitutionFrame(); frame.substitutions=install;
+            install.fvars=fvars; install.depth=session.depth; install.ownsArguments=false; install.arguments.addAll(frame.arguments);
+            install.stage=SF_ENTER; session.substitution=install; frame.stage=3; return;
+        }
+        if(frame.stage==1) {
+            frame.argumentTemporary=takeTransformChild(frame,DelayedVisitFrame.class);
+            require(frame.arguments.size()<MAX_DIRECT_ARGUMENTS,"Delayed reverse argument buffer bound");
+            ExprCredit copy=exprCredit(frame.argumentTemporary.value); frame.arguments.add(copy); acquireExpr(copy);
+            frame.stage=2; releaseDelayed(action,session,frame.argumentTemporary); return;
+        }
+        if(frame.stage==2) { frame.argumentTemporary=null; frame.cursor=exprNode(frame.cursor).fields[0]; frame.stage=0; return; }
+        if(frame.stage==3) {
+            SubstitutionFrame install=frame.substitutions; require(session.substitution==install,"Delayed install current frame differs");
+            stepSubstitutionInstall(action,session,install); if(!install.completed) return;
+            session.substitution=null; session.substitutionFrames.addLast(install);
+            frame.stage=4; callTransformHelper(action,session,frame,0,frame.pendingName,null,null); return;
+        }
+        if(frame.stage==4) {
+            require(frame.received!=null&&frame.received.owned,"Delayed pending Option absent"); frame.option=frame.received; frame.received=null;
+            require(!ERASED.equals(frame.option.value),"Resolvable pending assignment missing outside source profile");
+            frame.expressionTemporary=exprCredit(((Node)frame.option.value).fields[0]); acquireExpr(frame.expressionTemporary);
+            frame.stage=5; pushTransform(transform,new DelayedVisitFrame(exprNode(frame.expressionTemporary.value))); return;
+        }
+        if(frame.stage==5) {
+            frame.newValue=takeTransformChild(frame,DelayedVisitFrame.class); frame.stage=6;
+            releaseDelayed(action,session,frame.expressionTemporary); return;
+        }
+        if(frame.stage==6) {
+            frame.expressionTemporary=null;
+            require(session.substitution==null&&session.substitutionFrames.peekLast()==frame.substitutions,"Delayed scope restore order differs");
+            session.substitution=frame.substitutions; beginSubstitutionRestore(session,frame.substitutions); frame.stage=7; return;
+        }
+        if(frame.stage==7) {
+            stepSubstitutionRestore(action,session,frame.substitutions); if(!frame.substitutions.completed) return;
+            session.substitution=null; require(session.substitutionFrames.removeLast()==frame.substitutions,"Delayed restored scope differs");
+            frame.betaParameter=exprCredit(frame.newValue.value); acquireExpr(frame.betaParameter); frame.stage=8;
+            enterTransformBeta(action,transform,frame); return;
+        }
+        if(frame.stage==8) {
+            Object value=objects[action.slot]; exprNode(value); frame.result=new ExprCredit(value,true); objects[action.slot]=null;
+            frame.stage=9; releaseDelayed(action,session,frame.newValue); return;
+        }
+        if(frame.stage==9) { frame.newValue=null; frame.stage=10; releaseDelayed(action,session,frame.option); return; }
+        if(frame.stage==10) {
+            frame.option=null; stepSubstitutionFrameDrain(action,session,frame.substitutions);
+            if(!frame.substitutions.completed||frame.substitutions.stage!=SF_DRAINED) return;
+            frame.substitutions=null; frame.cleanup=0; frame.stage=11; return;
+        }
+        if(frame.stage==11) {
+            if(frame.cleanup<frame.arguments.size()) { ExprCredit arg=frame.arguments.get(frame.cleanup++); releaseDelayed(action,session,arg); return; }
+            frame.arguments.clear(); frame.fvars=null; frame.pendingName=null; frame.cursor=null; frame.completed=true; return;
+        }
+        throw error("Delayed resolution continuation differs");
+    }
+    private void transformCompositeResult(RuntimeAction action,DelayedTransform transform,DelayedVisitFrame frame) {
+        Node original=frame.original; Object[] values=original.fields.clone(); boolean changed=false;
+        int count=exprChildCount(original.tag);
+        for(int i=0;i<count;i++) {
+            require(frame.children[i]!=null&&frame.children[i].owned,"Delayed composite child owner absent");
+            int at=exprChildField(original.tag,i); values[at]=frame.children[i].value; changed|=values[at]!=original.fields[at];
+        }
+        if(!changed) { transformSelect(frame,original); frame.stage=30; return; }
+        if(original.tag>=6&&original.tag<=8) { values=Arrays.copyOf(values,values.length+1); values[values.length-1]=Long.valueOf(original.scalars[8]&255); }
+        frame.stage=21; callTransformConstructor(action,transform.foundation,frame,exprCtorRole(original.tag),values);
+    }
+    private void stepTransformVisit(RuntimeAction action,DelayedTransform transform,DelayedVisitFrame frame) {
+        DelayedSession session=transform.foundation; Node original=frame.original;
+        if(frame.stage==0) {
+            frame.entryDepth=session.depth; long word=exprCachedData(original);
+            if(((word&(1L<<40))==0||delayedOuterMode(session))&&(word&(1L<<41))==0) {
+                transformSelect(frame,original); frame.stage=51; return;
+            }
+            frame.shared=!exclusive(original);
+            if(frame.shared) { startScopedOperation(session,DC_LOOKUP,original,frame.entryDepth,null,0); frame.stage=1; return; }
+            frame.stage=2;
+        }
+        if(frame.stage==1) {
+            ScopedCacheOperation op=session.cacheOperation; require(op!=null,"Delayed lookup operation absent");
+            stepScopedCache(action,session); if(!op.completed) return;
+            session.cacheOperation=null;
+            if(op.hit) { require(op.returned!=null&&op.returned.owned,"Delayed cache hit return absent"); frame.result=op.returned; op.returned=null; frame.cacheHit=true; frame.stage=51; return; }
+            frame.stage=2;
+        }
+        if(frame.stage==2) {
+            frame.savedWatermark=session.resultScope; session.resultScope=0;
+            switch(original.tag) {
+                case 1: frame.skipInsert=true; frame.stage=10; pushTransform(transform,new DelayedFVarFrame(original)); return;
+                case 2:
+                    require(delayedOuterMode(session),"Bare Expr MVar in inner mode outside source profile");
+                    frame.skipInsert=true; transformSelect(frame,original); frame.stage=40; return;
+                case 5: frame.stage=10; pushTransform(transform,new DelayedAppFrame(original)); return;
+                case 6: case 7: case 8: case 10: case 11: frame.stage=20; break;
+                default: throw error("Contradictory delayed Expr flags on atomic storage");
+            }
+        }
+        if(frame.stage==10) {
+            frame.result=takeTransformChild(frame,original.tag==1?DelayedFVarFrame.class:DelayedAppFrame.class); frame.stage=40;
+        }
+        if(frame.stage==20) {
+            int count=exprChildCount(original.tag);
+            if(frame.child!=null) {
+                require(frame.cursor<count,"Delayed child cursor outside layout"); frame.children[frame.cursor]=takeTransformChild(frame,DelayedVisitFrame.class); frame.cursor++;
+            }
+            if(frame.cursor<count) {
+                boolean body=original.tag>=6&&original.tag<=8&&frame.cursor==count-1;
+                require(frame.entryDepth<MAX_EXPR_JOB_OFFSET||!body,"Delayed binder depth bound");
+                session.depth=frame.entryDepth+(body?1:0);
+                pushTransform(transform,new DelayedVisitFrame(exprNode(original.fields[exprChildField(original.tag,frame.cursor)]))); return;
+            }
+            session.depth=frame.entryDepth; transformCompositeResult(action,transform,frame); return;
+        }
+        if(frame.stage==21) {
+            require(frame.received!=null&&frame.received.owned,"Delayed composite constructor return absent");
+            frame.result=frame.received; frame.received=null; frame.stage=30;
+        }
+        if(frame.stage==30) {
+            int count=exprChildCount(original.tag);
+            if(frame.cleanup<count) { ExprCredit child=frame.children[count-1-frame.cleanup++]; releaseDelayed(action,session,child); return; }
+            Arrays.fill(frame.children,null); frame.stage=40;
+        }
+        if(frame.stage==40) {
+            require(session.depth==frame.entryDepth&&frame.result!=null&&frame.result.owned,"Delayed insertion depth/result differs");
+            if(frame.shared&&!frame.skipInsert) {
+                ExprCredit computed=frame.result;
+                // The operation aliases this exact moved occurrence, not a new credit.
+                startScopedOperation(session,DC_INSERT,original,frame.entryDepth,computed,session.resultScope); frame.result=null; frame.stage=41; return;
+            }
+            frame.stage=50;
+        }
+        if(frame.stage==41) {
+            ScopedCacheOperation op=session.cacheOperation; require(op!=null,"Delayed insertion operation absent");
+            stepScopedCache(action,session); if(!op.completed) return;
+            require(op.returned!=null&&op.returned.owned,"Delayed insertion returned owner absent");
+            frame.result=op.returned; op.returned=null; session.cacheOperation=null; frame.stage=50;
+        }
+        if(frame.stage==50) { session.resultScope=Math.max(frame.savedWatermark,session.resultScope); frame.stage=51; }
+        require(frame.stage==51&&frame.result!=null&&frame.result.owned,"Delayed NORMAL result absent"); frame.completed=true;
+    }
+    private void stepDelayedTransform(RuntimeAction action,DelayedTransform transform) {
+        DelayedSession session=transform.foundation; delayedWork(session,1); resumeDelayedRetiring(action,session);
+        require(transform.phase==DT_RUNNING,"Delayed transform not running");
+        if(session.call!=null&&session.call.transformTarget!=null) { receiveTransformHelper(action,session); return; }
+        if(session.constructorCall!=null) { receiveTransformConstructor(action,session); return; }
+        DelayedTransformTask task=transform.tasks.peekLast(); require(task!=null,"Delayed transform frame absent");
+        if(!task.completed) {
+            if(task instanceof DelayedVisitFrame) stepTransformVisit(action,transform,(DelayedVisitFrame)task);
+            else if(task instanceof DelayedFVarFrame) stepTransformFVar(action,transform,(DelayedFVarFrame)task);
+            else if(task instanceof DelayedAssignmentFrame) stepTransformAssignment(action,transform,(DelayedAssignmentFrame)task);
+            else if(task instanceof DelayedAppFrame) stepTransformApp(action,transform,(DelayedAppFrame)task);
+            else if(task instanceof DelayedPrefixFrame) stepTransformPrefix(action,transform,(DelayedPrefixFrame)task);
+            else stepTransformResolve(action,transform,(DelayedResolveFrame)task);
+            return;
+        }
+        Iterator<DelayedTransformTask> iterator=transform.tasks.descendingIterator(); iterator.next();
+        DelayedTransformTask parent=iterator.hasNext()?iterator.next():null;
+        if(parent==null) {
+            require(task instanceof DelayedVisitFrame&&task.result!=null&&task.result.owned&&transform.result==null
+                    &&session.context.current!=null&&session.context.current.owned&&session.phase==DELAYED_IDLE,
+                    "Delayed transform root ownership differs");
+            transform.result=task.result; task.result=null; transform.phase=DT_RESULT;
+        } else { require(parent.child==null,"Delayed transform parent receiver occupied"); parent.child=task; }
+        transform.tasks.removeLast();
+    }
+    private ExprCredit takeDelayedTransformResult(DelayedTransform transform) {
+        require(transform.phase==DT_RESULT&&transform.tasks.isEmpty()&&transform.result!=null&&transform.result.owned,
+                "Delayed transform result unavailable");
+        ExprCredit result=transform.result; transform.result=null; transform.input=null; transform.phase=DT_IDLE; return result;
+    }
+    private void stepExprFullResearch(RuntimeAction action) {
+        ExprFullResearchState state=action.exprFull; require(state!=null,"Complete Expr root state absent");
+        ExprDirectSession direct=state.direct;
+        if(state.stage==0) {
+            stepExprDirectJob(action,direct);
+            if(direct.phase==DS_RESULT) { state.e1=takeExprDirectResult(direct); sealExprDirectSession(direct); state.stage=1; }
+            return;
+        }
+        if(state.stage==3) {
+            stepDelayedTransform(action,state.delayed);
+            if(state.delayed.phase!=DT_RESULT) return;
+            state.e2=takeDelayedTransformResult(state.delayed); sealDelayedSession(state.delayed.foundation);
+            state.delayed.phase=DT_SEALED; state.stage=4; return;
+        }
+        if(state.stage==4) {
+            stepDelayedDrain(action,state.delayed.foundation);
+            if(state.delayed.foundation.phase!=DELAYED_DRAINED) return;
+            state.delayed.phase=DT_DRAINED; state.stage=5; return;
+        }
+        if(state.stage==7) { stepExprDirectDrain(action,direct); if(direct.phase!=DS_DRAINED) return; state.stage=8; }
+        else { directWork(direct,1); resumeDirectRetiring(action,direct); }
+        if(state.stage==1) { state.stage=2; releaseDirect(action,direct,state.input); return; }
+        if(state.stage==2) {
+            require(state.e1!=null&&state.e1.owned,"Complete Expr pass-one result absent");
+            if(!direct.hasUpdateableDelayed) { state.e2=exprCredit(state.e1.value); acquireExpr(state.e2); state.stage=5; return; }
+            DelayedTransform delayed=new DelayedTransform(); state.delayed=delayed;
+            DelayedSession session=new DelayedSession(); delayed.foundation=session;
+            session.context=state.context; session.budget=state.budget; session.policy=direct.policy; session.phase=DELAYED_IDLE;
+            delayed.input=state.e1.value; delayed.phase=DT_RUNNING;
+            pushTransform(delayed,new DelayedVisitFrame(exprNode(delayed.input))); state.stage=3; return;
+        }
+        if(state.stage==5) {
+            require(state.context.current!=null&&state.context.current.owned&&state.e2!=null&&state.e2.owned
+                    &&state.pair==null,"Complete Expr pair inputs absent");
+            Node pair=new Node(0,2,0); state.pair=new ExprCredit(pair,true); allocations++;
+            pair.fields[0]=state.context.current.value; state.context.current.owned=false; state.context.current=null; state.pairFields=1;
+            pair.fields[1]=state.e2.value; state.e2.owned=false; state.pairFields=2; state.stage=6; return;
+        }
+        if(state.stage==6) { state.stage=7; releaseDirect(action,direct,state.e1); return; }
+        require(state.stage==8&&direct.phase==DS_DRAINED&&state.pair!=null&&state.pair.owned&&state.pairFields==2
+                &&state.context.current==null&&!state.input.owned&&!state.e1.owned&&!state.e2.owned,
+                "Complete Expr root final ownership differs");
+        Object output=state.pair.value; state.pair.owned=false; action.output=output;
+        state.input=null; state.e1=null; state.e2=null; state.pair=null; state.context=null; state.budget=null; state.direct=null; state.delayed=null;
+        action.exprFull=null; finishAction(action,output);
+    }
+
     private void delayedWork(DelayedSession session,long amount) {
         instantiationWork(session.budget,amount,"Delayed Expr work outside bounded runtime profile","Delayed Expr interrupted");
     }
@@ -2976,14 +3525,15 @@ public final class Interpreter implements AutoCloseable {
         callsLeft=10_000_000; instructions=0; entry=null; result=null; releaseRoot=false; phase=RUNNING;
     }
     private void requireDelayedReceiverFree(RuntimeAction action,DelayedSession session) {
-        require(runtimeAction==action&&action.delayedResearch!=null&&action.delayedResearch.session==session
+        require(runtimeAction==action&&currentDelayedSession(action)==session
                 &&session.call==null&&session.constructorCall==null&&objects[action.slot]==null,
                 "Multiple outstanding delayed helper/constructor packets");
     }
     private void delayedHelperEntry(Function function,Object[] arguments) {
         RuntimeAction action=runtimeAction;
-        if(action==null||action.delayedResearch==null) return;
-        DelayedHelperPacket packet=action.delayedResearch.session.call;
+        DelayedSession session=currentDelayedSession(action);
+        if(session==null) return;
+        DelayedHelperPacket packet=session.call;
         if(packet==null||packet.entered||packet.function!=function||packet.arguments!=arguments) return;
         require(packet.started,"Delayed helper entered before packet publication");
         packet.entered=true; Arrays.fill(packet.owned,false);
@@ -3460,7 +4010,7 @@ public final class Interpreter implements AutoCloseable {
         require(session.phase==DELAYED_IDLE&&session.resolver.isEmpty()&&session.call==null&&session.constructorCall==null
                 &&session.cacheOperation==null&&session.substitution==null&&session.lookup==null&&session.substitutionFrames.isEmpty()
                 &&session.retiring==null&&session.result==null&&session.cache.scope==0,"Delayed session is not idle for seal");
-        session.resolvableExpressions.clear(); session.pending.clear(); session.substitutions.clear(); session.cache.index.clear();
+        session.resolvableExpressions.clear(); session.pending.clear(); session.normalized.clear(); session.substitutions.clear(); session.cache.index.clear();
         for(ScopedBucket bucket:session.cache.buckets) bucket.key=null;
         session.cache.sealed=true; session.phase=DELAYED_SEALED;
     }
@@ -3471,6 +4021,14 @@ public final class Interpreter implements AutoCloseable {
             session.pendingOwners.clear(); session.drainCursor=0; session.drainStage=1; return;
         }
         if(session.drainStage==1) {
+            if(session.drainCursor<session.saved.size()) { ExprCredit credit=session.saved.get(session.saved.size()-1-session.drainCursor++); releaseDelayed(action,session,credit); return; }
+            session.saved.clear(); session.drainCursor=0; session.drainStage=2; return;
+        }
+        if(session.drainStage==2) {
+            if(session.drainCursor<session.nameOwners.size()) { ExprCredit credit=session.nameOwners.get(session.nameOwners.size()-1-session.drainCursor++).name; releaseDelayed(action,session,credit); return; }
+            session.nameOwners.clear(); session.normalized.clear(); session.drainCursor=0; session.drainStage=3; return;
+        }
+        if(session.drainStage==3) {
             ScopedExprCache cache=session.cache;
             if(cache.retiringEntry!=null) {
                 ScopedEntry entry=cache.retiringEntry; require(entry.result!=null&&!entry.result.owned,"Scoped member owner not drained");
@@ -3483,9 +4041,9 @@ public final class Interpreter implements AutoCloseable {
                 cache.retiringEntry=bucket.entries.remove(bucket.entries.size()-1); releaseDelayed(action,session,cache.retiringEntry.result); return;
             }
             require(cache.liveEntries==0,"Scoped member drain leaked reservations"); cache.buckets.clear(); cache.current=null;
-            session.drainStage=2; session.drainCursor=0; return;
+            session.drainStage=4; session.drainCursor=0; return;
         }
-        if(session.drainStage==2) {
+        if(session.drainStage==4) {
             if(session.drainCursor<session.substitutionOwners.size()*2) {
                 SubstitutionEntry entry=session.substitutionOwners.get(session.drainCursor/2);
                 ExprCredit credit=(session.drainCursor++&1)==0?entry.value:entry.name; releaseDelayed(action,session,credit); return;
@@ -3734,7 +4292,7 @@ public final class Interpreter implements AutoCloseable {
     private HostGuestRecord hostGuestRecord;
     private HostCall hostCompletion;
     private RuntimeAction runtimeAction,failedRuntimeAction;
-    private static final int ACTION_RELEASE=1,ACTION_DISPOSE=2,ACTION_NATIVE=3,ACTION_HOST=4,ACTION_TASK=5,ACTION_RESOLVE=6,ACTION_RUN_TASK=7,ACTION_PROFILE=8,ACTION_FIND=9,ACTION_LEVEL_MVARS=10,ACTION_EXPR_MACHINERY=11,ACTION_MVAR_SESSION_RESEARCH=12,ACTION_SHARECOMMON=13,ACTION_EXPR_DIRECT_RESEARCH=14,ACTION_EXPR_REPLACE=15,ACTION_EXPR_ABSTRACT=16,ACTION_DELAYED_FOUNDATION_RESEARCH=17,ACTION_EXPR_PURE=18,ACTION_HOST_GUEST=20;
+    private static final int ACTION_RELEASE=1,ACTION_DISPOSE=2,ACTION_NATIVE=3,ACTION_HOST=4,ACTION_TASK=5,ACTION_RESOLVE=6,ACTION_RUN_TASK=7,ACTION_PROFILE=8,ACTION_FIND=9,ACTION_LEVEL_MVARS=10,ACTION_EXPR_MACHINERY=11,ACTION_MVAR_SESSION_RESEARCH=12,ACTION_SHARECOMMON=13,ACTION_EXPR_DIRECT_RESEARCH=14,ACTION_EXPR_REPLACE=15,ACTION_EXPR_ABSTRACT=16,ACTION_DELAYED_FOUNDATION_RESEARCH=17,ACTION_EXPR_PURE=18,ACTION_EXPR_FULL_RESEARCH=19,ACTION_HOST_GUEST=20;
     private static final Body ACTION_BODY=new Body();
     /** Typed ownership/control state, separate from NodeMetadata. The output
      * scratch slot is reserved before callbacks may enter generic AP. */
@@ -3748,6 +4306,7 @@ public final class Interpreter implements AutoCloseable {
         MVarSessionResearchState mvarSessionResearch;
         ExprDirectResearchState exprDirect;
         DelayedResearchState delayedResearch;
+        ExprFullResearchState exprFull;
         int operation,stage,savedSp,slot,dest,kind,cursor,limit,pending;
         Function function;
         Body next;
@@ -4393,12 +4952,10 @@ public final class Interpreter implements AutoCloseable {
         RuntimeAction action=runtimeAction;
         if(action==null) return;
         ExprPacket packet=action.exprMachinery==null?null:action.exprMachinery.call;
-        if(action.exprDirect!=null) {
-            require(packet==null,"Multiple current Expr constructor packets"); packet=action.exprDirect.session.constructorCall;
-        }
-        if(action.delayedResearch!=null) {
-            require(packet==null,"Multiple current delayed constructor packets"); packet=action.delayedResearch.session.constructorCall;
-        }
+        ExprDirectSession direct=currentDirectSession(action);
+        if(direct!=null) { require(packet==null,"Multiple current Expr constructor packets"); packet=direct.constructorCall; }
+        DelayedSession delayed=currentDelayedSession(action);
+        if(delayed!=null) { require(packet==null,"Multiple current delayed constructor packets"); packet=delayed.constructorCall; }
         if(packet==null||packet.entered||packet.function!=function||packet.arguments!=arguments) return;
         require(packet.started,"Expr constructor entered before packet publication");
         packet.entered=true; Arrays.fill(packet.owned,false);
@@ -4673,7 +5230,7 @@ public final class Interpreter implements AutoCloseable {
     private LevelSession currentLevelSession(RuntimeAction action) {
         return action==null?null:action.levelMvars!=null?action.levelMvars.session:
                 action.mvarSessionResearch!=null?action.mvarSessionResearch.session:
-                action.exprDirect!=null?action.exprDirect.session.levels:null;
+                currentDirectSession(action)!=null?currentDirectSession(action).levels:null;
     }
     /** Caller anchors all original cache keys through seal. No input retain. */
     private void startLevelJob(LevelSession session,Object borrowedInput) {
@@ -5065,6 +5622,7 @@ public final class Interpreter implements AutoCloseable {
         else if(action.operation==ACTION_MVAR_SESSION_RESEARCH) stepMVarSessionResearch(action);
         else if(action.operation==ACTION_EXPR_DIRECT_RESEARCH) stepExprDirectResearch(action);
         else if(action.operation==ACTION_DELAYED_FOUNDATION_RESEARCH) stepDelayedFoundationResearch(action);
+        else if(action.operation==ACTION_EXPR_FULL_RESEARCH) stepExprFullResearch(action);
         else if(action.operation==ACTION_HOST_GUEST) stepHostGuest(action);
         else if(action.operation==ACTION_HOST) {
             try { stepHostCompletion(action); }
@@ -5255,6 +5813,13 @@ public final class Interpreter implements AutoCloseable {
                 HostGuestOperation out=new HostGuestOperation(child.runtimeIdentity,(HostGuestRecord)value(old.record));
                 copies.put(source,out); return out;
             }
+            if(source instanceof ExprFullResearchState||source instanceof DelayedTransform||source instanceof DelayedTransformTask) {
+                Object out=source instanceof ExprFullResearchState?new ExprFullResearchState():source instanceof DelayedTransform?new DelayedTransform():
+                        source instanceof DelayedVisitFrame?new DelayedVisitFrame(null):source instanceof DelayedFVarFrame?new DelayedFVarFrame(null):
+                        source instanceof DelayedAssignmentFrame?new DelayedAssignmentFrame(null):source instanceof DelayedAppFrame?new DelayedAppFrame(null):
+                        source instanceof DelayedPrefixFrame?new DelayedPrefixFrame(null):new DelayedResolveFrame(null,null,null);
+                copies.put(source,out); pending.addLast(new Object[]{source,out}); return out;
+            }
             if(source instanceof ScopeGeneration||source instanceof DelayedCommand) return source;
             if(source instanceof DelayedResearchState||source instanceof DelayedSession||source instanceof ScopedExprCache||source instanceof ScopedBucket
                     ||source instanceof ScopedEntry||source instanceof ScopedCacheOperation||source instanceof PendingNameEntry||source instanceof SubstitutionEntry
@@ -5357,7 +5922,7 @@ public final class Interpreter implements AutoCloseable {
                     for(int i=0;i<from.length;i++) to[i]=value(from[i]);
                 } else if(source instanceof RuntimeAction) {
                     RuntimeAction old=(RuntimeAction)source,out=(RuntimeAction)target;
-                    out.parent=(RuntimeAction)value(old.parent); out.guest=(HostGuestRecord)value(old.guest); out.find=(FindState)value(old.find); out.share=(ShareState)value(old.share); out.levelMvars=(LevelInstantiationState)value(old.levelMvars); out.exprMachinery=(ExprMachineryState)value(old.exprMachinery); out.mvarSessionResearch=(MVarSessionResearchState)value(old.mvarSessionResearch); out.exprDirect=(ExprDirectResearchState)value(old.exprDirect); out.delayedResearch=(DelayedResearchState)value(old.delayedResearch); out.operation=old.operation; out.stage=old.stage;
+                    out.parent=(RuntimeAction)value(old.parent); out.guest=(HostGuestRecord)value(old.guest); out.find=(FindState)value(old.find); out.share=(ShareState)value(old.share); out.levelMvars=(LevelInstantiationState)value(old.levelMvars); out.exprMachinery=(ExprMachineryState)value(old.exprMachinery); out.mvarSessionResearch=(MVarSessionResearchState)value(old.mvarSessionResearch); out.exprDirect=(ExprDirectResearchState)value(old.exprDirect); out.delayedResearch=(DelayedResearchState)value(old.delayedResearch); out.exprFull=(ExprFullResearchState)value(old.exprFull); out.operation=old.operation; out.stage=old.stage;
                     out.savedSp=old.savedSp; out.slot=old.slot; out.dest=old.dest; out.kind=old.kind;
                     out.cursor=old.cursor; out.limit=old.limit; out.pending=old.pending;
                     out.function=(Function)value(old.function); out.next=old.next;
@@ -5367,6 +5932,44 @@ public final class Interpreter implements AutoCloseable {
                     out.task=(TaskRecord)value(old.task); out.scope=(TaskRecord)value(old.scope); out.batch=(DependencyList)value(old.batch);
                     out.output=value(old.output); out.retiring=value(old.retiring); out.releaseClaimed=old.releaseClaimed; out.current=(Node)value(old.current); out.origin=(Node)value(old.origin);
 
+                } else if(source instanceof ExprFullResearchState) {
+                    ExprFullResearchState old=(ExprFullResearchState)source,out=(ExprFullResearchState)target;
+                    out.context=(MVarContextCell)value(old.context); out.budget=(InstantiationBudget)value(old.budget);
+                    out.direct=(ExprDirectSession)value(old.direct); out.delayed=(DelayedTransform)value(old.delayed);
+                    out.input=(ExprCredit)value(old.input); out.e1=(ExprCredit)value(old.e1); out.e2=(ExprCredit)value(old.e2); out.pair=(ExprCredit)value(old.pair);
+                    out.stage=old.stage; out.pairFields=old.pairFields;
+                } else if(source instanceof DelayedTransform) {
+                    DelayedTransform old=(DelayedTransform)source,out=(DelayedTransform)target;
+                    out.foundation=(DelayedSession)value(old.foundation); out.input=value(old.input); out.result=(ExprCredit)value(old.result); out.phase=old.phase;
+                    for(DelayedTransformTask frame:old.tasks) out.tasks.addLast((DelayedTransformTask)value(frame));
+                } else if(source instanceof DelayedTransformTask) {
+                    DelayedTransformTask old=(DelayedTransformTask)source,out=(DelayedTransformTask)target;
+                    out.child=(DelayedTransformTask)value(old.child); out.result=(ExprCredit)value(old.result); out.received=(ExprCredit)value(old.received);
+                    out.stage=old.stage; out.cleanup=old.cleanup; out.completed=old.completed; out.helperDone=old.helperDone;
+                    if(source instanceof DelayedVisitFrame) {
+                        DelayedVisitFrame a=(DelayedVisitFrame)old,b=(DelayedVisitFrame)out; b.original=(Node)value(a.original);
+                        b.entryDepth=a.entryDepth; b.savedWatermark=a.savedWatermark; b.cursor=a.cursor; b.shared=a.shared; b.cacheHit=a.cacheHit; b.skipInsert=a.skipInsert;
+                        for(int i=0;i<3;i++) b.children[i]=(ExprCredit)value(a.children[i]);
+                    } else if(source instanceof DelayedFVarFrame) {
+                        DelayedFVarFrame a=(DelayedFVarFrame)old,b=(DelayedFVarFrame)out; b.original=(Node)value(a.original); b.name=value(a.name);
+                    } else if(source instanceof DelayedAssignmentFrame) {
+                        DelayedAssignmentFrame a=(DelayedAssignmentFrame)old,b=(DelayedAssignmentFrame)out; b.name=value(a.name);
+                        b.option=(ExprCredit)value(a.option); b.assigned=(ExprCredit)value(a.assigned); b.newValue=(ExprCredit)value(a.newValue); b.present=a.present; b.outer=a.outer;
+                    } else if(source instanceof DelayedAppFrame) {
+                        DelayedAppFrame a=(DelayedAppFrame)old,b=(DelayedAppFrame)out; b.original=(Node)value(a.original); b.head=value(a.head); b.cursor=value(a.cursor);
+                        b.argumentCount=a.argumentCount; b.option=(ExprCredit)value(a.option); b.recordTemporary=(ExprCredit)value(a.recordTemporary);
+                        b.fvars=(ExprCredit)value(a.fvars); b.pendingName=(ExprCredit)value(a.pendingName); b.discardedAssignment=(ExprCredit)value(a.discardedAssignment);
+                    } else if(source instanceof DelayedPrefixFrame) {
+                        DelayedPrefixFrame a=(DelayedPrefixFrame)old,b=(DelayedPrefixFrame)out; b.original=(Node)value(a.original);
+                        b.argument=(ExprCredit)value(a.argument); b.function=(ExprCredit)value(a.function);
+                    } else {
+                        DelayedResolveFrame a=(DelayedResolveFrame)old,b=(DelayedResolveFrame)out; b.original=(Node)value(a.original); b.cursor=value(a.cursor);
+                        b.fvars=value(a.fvars); b.pendingName=value(a.pendingName); b.argumentTemporary=(ExprCredit)value(a.argumentTemporary);
+                        b.option=(ExprCredit)value(a.option); b.expressionTemporary=(ExprCredit)value(a.expressionTemporary); b.newValue=(ExprCredit)value(a.newValue);
+                        b.betaParameter=(ExprCredit)value(a.betaParameter); b.substitutions=(SubstitutionFrame)value(a.substitutions);
+                        b.argumentCount=a.argumentCount; b.extraCount=a.extraCount;
+                        for(ExprCredit argument:a.arguments) b.arguments.add((ExprCredit)value(argument));
+                    }
                 } else if(source instanceof DelayedResearchState) {
                     DelayedResearchState old=(DelayedResearchState)source,out=(DelayedResearchState)target;
                     out.context=(MVarContextCell)value(old.context); out.budget=(InstantiationBudget)value(old.budget); out.session=(DelayedSession)value(old.session);
@@ -5384,6 +5987,12 @@ public final class Interpreter implements AutoCloseable {
                         out.pending.put(bucket.getKey(),entries);
                     }
                     for(PendingNameEntry entry:old.pendingOwners) out.pendingOwners.add((PendingNameEntry)value(entry));
+                    for(ExprCredit credit:old.saved) out.saved.add((ExprCredit)value(credit));
+                    for(DirectNameEntry entry:old.nameOwners) out.nameOwners.add((DirectNameEntry)value(entry));
+                    for(Map.Entry<Integer,ArrayList<DirectNameEntry>> item:old.normalized.entrySet()) {
+                        ArrayList<DirectNameEntry> entries=new ArrayList<>(); for(DirectNameEntry entry:item.getValue()) entries.add((DirectNameEntry)value(entry));
+                        out.normalized.put(item.getKey(),entries);
+                    }
                     for(Map.Entry<Integer,ArrayList<SubstitutionEntry>> bucket:old.substitutions.entrySet()) {
                         ArrayList<SubstitutionEntry> entries=new ArrayList<>(); for(SubstitutionEntry entry:bucket.getValue()) entries.add((SubstitutionEntry)value(entry));
                         out.substitutions.put(bucket.getKey(),entries);
@@ -5440,7 +6049,7 @@ public final class Interpreter implements AutoCloseable {
                     out.depth=old.depth; out.stage=old.stage; out.present=old.present; out.completed=old.completed;
                 } else if(source instanceof DelayedHelperPacket) {
                     DelayedHelperPacket old=(DelayedHelperPacket)source,out=(DelayedHelperPacket)target;
-                    out.function=(Function)value(old.function); out.arguments=(Object[])value(old.arguments); out.owned=old.owned.clone(); out.target=(ResolverTask)value(old.target);
+                    out.function=(Function)value(old.function); out.arguments=(Object[])value(old.arguments); out.owned=old.owned.clone(); out.target=(ResolverTask)value(old.target); out.transformTarget=(DelayedTransformTask)value(old.transformTarget);
                     out.role=old.role; out.started=old.started; out.entered=old.entered;
                 } else if(source instanceof ResolverTask) {
                     ResolverTask old=(ResolverTask)source,out=(ResolverTask)target; out.child=(ResolverTask)value(old.child); out.received=(ExprCredit)value(old.received);
@@ -5533,7 +6142,7 @@ public final class Interpreter implements AutoCloseable {
                     ExprPacket old=(ExprPacket)source,out=(ExprPacket)target; out.function=(Function)value(old.function);
                     out.arguments=(Object[])value(old.arguments); out.expectedFields=(Object[])value(old.expectedFields); out.owned=old.owned.clone();
                     out.role=old.role; out.expectedTag=old.expectedTag; out.expectedFlag=old.expectedFlag;
-                    out.started=old.started; out.entered=old.entered; out.replaceFrame=(ExprReplaceFrame)value(old.replaceFrame); out.beta=(BetaJob)value(old.beta); out.directTarget=(ExprDirectTask)value(old.directTarget);
+                    out.started=old.started; out.entered=old.entered; out.replaceFrame=(ExprReplaceFrame)value(old.replaceFrame); out.beta=(BetaJob)value(old.beta); out.directTarget=(ExprDirectTask)value(old.directTarget); out.delayedTarget=(DelayedTransformTask)value(old.delayedTarget);
                 } else if(source instanceof ExprJob) {
                     ExprJob old=(ExprJob)source,out=(ExprJob)target;
                     out.result=(ExprCredit)value(old.result); out.childResult=(ExprCredit)value(old.childResult); out.completed=old.completed; out.cleanup=old.cleanup;
