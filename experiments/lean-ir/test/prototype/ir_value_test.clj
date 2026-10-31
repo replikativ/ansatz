@@ -127,3 +127,41 @@
         (is (= 4096 (get-in result [:manifest :input :depth])))
         (is (eval-const/ir-equal? expected actual))
         (is (empty? (:heap world)))))))
+
+
+(deftest readonly-storage-reader-is-independent-of-world-reference-carrier
+  ;; MODEL opaque tokens and detached storage views: no engine/source authority.
+  (let [scope (Object.) token (Object.)
+        view {:kind :ctor :tag 0 :fields [123 7]
+              :layout {:objects 2 :usize 0 :ssize 1} :scalar-bytes {16 1}}
+        open? (atom true) reads (atom 0)
+        operations {:ref? #(identical? token %)
+                    :node (fn [world value]
+                            (when-not (and @open? (identical? scope world) (identical? token value))
+                              (throw (ex-info "Closed or foreign model storage scope" {})))
+                            (swap! reads inc) view)}
+        read (ir/specification-reader operations scope)]
+    (with-redefs [m/node (fn [& _] (throw (ex-info "World lookup is forbidden for this carrier" {})))]
+      (let [shape (read :param token)]
+        (is (= [[:var-id 123] [:bool 1] [:ir-type 7]] (:children shape)))
+        (is (= {:x {:idx 123} :borrow true :ty "object"}
+               ((:build shape) [{:idx 123} true "object"])))
+        (is (= "object" ((:build (read :ir-type 7)) [])))
+        (is (pos? @reads)))
+      (reset! open? false)
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Closed or foreign" (read :param token))))))
+
+(deftest readonly-storage-reader-retains-pinned-layout-and-operation-checks
+  (doseq [operations [nil {} {:ref? identity} {:ref? identity :node nil}]]
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"explicit readonly storage operations"
+                         (ir/specification-reader operations (Object.)))))
+  (let [token (Object.)
+        read (ir/specification-reader
+               {:ref? #(identical? token %)
+                :node (fn [_ _] {:kind :ctor :tag 0 :fields [123 7]
+                                 :layout {:objects 2 :usize 0 :ssize 1}
+                                 :scalar-bytes {16 2}})} (Object.))
+        shape (read :param token)]
+    (is (= [:bool 2] (second (:children shape))))
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Invalid typed IR packed Bool" (read :bool 2)))
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Invalid typed IR constructor layout" (read :name token)))))
