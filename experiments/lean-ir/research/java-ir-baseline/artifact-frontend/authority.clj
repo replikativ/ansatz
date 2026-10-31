@@ -22,6 +22,7 @@
    "5ce56dbb8300eeed780eeac1fd41519fe8fad49b6ec7d469dea7844c28ce328f" :publish-axiom
    "52a0a1806c39f6d73e845131d725a56e3e06097df412dcf9241fde218ffc41e4" :publish-theorem
    "c60b8d00d76b49cfff180d19b49347dbb4db49ef7710f349bfa368dc9eb17e08" :publish-definition
+   "207d5e16f064f53671ef724b88884d10de17b762021631371842069739805536" :publish-mutual
    "abd01742636f91481a888ec089678e9bc1ff4bc40441d7085885f0e097da4152" :constants})
 (defn- reject [message data] (throw (ex-info message (assoc data :profile :artifact-declaration-authority-v4))))
 (defn- need [condition message] (when-not condition (reject message {})))
@@ -119,15 +120,15 @@
                (= 1 (alength ^objects (.get ^java.lang.reflect.Field (:fields ctx) node)))
                (zero? (alength ^bytes (.get ^java.lang.reflect.Field (:scalars ctx) node))))
           "Unsupported publication Declaration carrier")
-    (case tag 0 :publish-axiom 1 :publish-definition 2 :publish-theorem
+    (case tag 0 :publish-axiom 1 :publish-definition 2 :publish-theorem 5 :publish-mutual
       (reject "Unsupported publication Declaration kind" {}))))
 (defn- helper-abi! [driver header kind]
   (actual-header! driver header)
   (need (and (identical? (:source driver) (j/request-value header "source"))
              (= "fdecl" (j/request-value header "kind"))
-             (= (if (contains? #{:publish-axiom :publish-theorem :publish-definition} kind) ["object" "tobject"] ["object"])
+             (= (if (contains? #{:publish-axiom :publish-theorem :publish-definition :publish-mutual} kind) ["object" "tobject"] ["object"])
                 (vec (j/request-value header "paramTypes")))
-             (= (if (contains? #{:publish-axiom :publish-theorem :publish-definition} kind) [false false] [false]) (vec (j/request-value header "borrowed")))
+             (= (if (contains? #{:publish-axiom :publish-theorem :publish-definition :publish-mutual} kind) [false false] [false]) (vec (j/request-value header "borrowed")))
              (= (if (contains? #{:quot :empty} kind) "tagged" "object") (j/request-value header "resultType")))
         "Shim helper ABI/source differs"))
 (defn- observe-result! [state]
@@ -150,8 +151,8 @@
               (let [header (.helperHeader token) kind (get helper-pins (j/request-value header "originalSha256"))
                     args (vec (.arguments token))]
                 (need kind "Unrecognized helper source hash") (helper-abi! driver header kind)
-                (need (= (if (contains? #{:publish-axiom :publish-theorem :publish-definition} kind) 2 1) (count args)) "Helper argument count differs")
-                (when (contains? #{:publish-axiom :publish-theorem :publish-definition} kind)
+                (need (= (if (contains? #{:publish-axiom :publish-theorem :publish-definition :publish-mutual} kind) 2 1) (count args)) "Helper argument count differs")
+                (when (contains? #{:publish-axiom :publish-theorem :publish-definition :publish-mutual} kind)
                   (need (= kind (publication-kind! driver outer)) "Publisher kind differs from the actual outer Declaration")
                   (let [outer-args (vec (.arguments outer))]
                     (need (and (identical? (first args) (first outer-args))

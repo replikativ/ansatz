@@ -11,10 +11,13 @@
 (deftype SourceCaptures [])
 (deftype CommandRun [])
 (deftype CommandReceipt [])
+(deftype GeneratedAdmissionScope [])
 (defonce ^:private providers (WeakHashMap.))
 (defonce ^:private runs (WeakHashMap.))
 (defonce ^:private receipts (WeakHashMap.))
 (defonce ^:private busy (WeakHashMap.))
+(defonce ^:private generated-scopes (WeakHashMap.))
+(def ^:dynamic ^:private *generated-admission* nil)
 (def ^:private entry-label "ObservedFrontendCommand.processCommandObserved._boxed")
 (def ^:private header-contract
   {:entry [entry-label "113a457b6e4cf7826300e2e19c0dcdd627139a4faf4c3f4bae4701cb4e58b8cd"]
@@ -58,6 +61,38 @@
 (defn- engine [holder] (#'finite/engine @holder))
 (defn- live! [holder] (#'finite/live! holder))
 (defn- observe! [holder key argument] (#'finite/observe! holder key argument))
+(defn- issue-generated-scope! [holder]
+  (let [s @holder token (GeneratedAdmissionScope.)
+        entry {:holder (java.lang.ref.WeakReference. holder) :file-marker (:file-marker s)
+               :command-index (get-in s [:capture :description :command-index])}]
+    (put! generated-scopes token entry)
+    (swap! holder assoc :generated-admission-scope token)))
+(defn- revoke-generated-scope! [holder]
+  (when-let [token (:generated-admission-scope @holder)]
+    (locking generated-scopes (.remove generated-scopes token))
+    (swap! holder dissoc :generated-admission-scope)))
+(defn assert-generated-admission!
+  "Internal adapter borrow of the ACTUAL currently dispatched M1 command. No
+   public option, token constructor or function-name heuristic grants admission."
+  [session request]
+  (let [{:keys [holder file-marker command-index]} (issued generated-scopes *generated-admission*)
+        holder (.get ^java.lang.ref.WeakReference holder)]
+    (need holder "Generated command scope is no longer live")
+    (let [s (live! holder) e (engine holder) c (ctx holder) gate (:gate s)]
+      (need (and (= :running (:status s)) (= :process-command (:stage s)) (= :replied (:stage gate))
+                 (identical? *generated-admission* (:generated-admission-scope s))
+                 (identical? file-marker (:file-marker s))
+                 (= command-index (get-in s [:capture :description :command-index]))
+                 (identical? session (get-in s [:strict-driver :adapter]))
+                 (identical? e (:engine session)) (identical? (:source s) (:source session))
+                 (= "host-call" (j/phase c e)) (identical? request (j/host-request c e))
+                 (not (field (field request "call") "replyClaimed"))
+                 (true? (field (field (:request gate) "call") "replyClaimed"))
+                 (identical? (get-in s [:headers :entry]) (field (field e "entry") "header")))
+            "Generated group is outside its actual active source command/ELAB scope")
+      ((requiring-resolve 'general-frontend-source-provider-v1/assert-command-gate!)
+        (:receipt gate) e (:source s) (:capture s))
+      nil)))
 (defn- decode-limits []
   {:deadline-nanos (+ (System/nanoTime) 10000000000)
    :max-nodes (min 100000 (:max-nodes decoder/defaults))
@@ -168,7 +203,8 @@
         (swap! holder assoc-in [:gate :receipt] receipt)
         (swap! holder assoc-in [:gate :stage] :reply-pending)
         (j/resume-host! c e (:request gate) (long 0))
-        (swap! holder assoc-in [:gate :stage] :replied)))))
+        (swap! holder assoc-in [:gate :stage] :replied)
+        (issue-generated-scope! holder)))))
 (defn- drain! [holder slot]
   (loop []
     (let [s (live! holder) f (:frontend s) c (ctx holder) e (engine holder) phase (j/phase c e)
@@ -190,7 +226,8 @@
              (identical? (aget ^objects (get-in s [:gate :token-slot]) 0) (j/host-guest-result c e)))
         (do (finish-gate! holder) (recur))
         (and (contains? #{"host-call" "host-guest-result"} phase) (:runtime-step! f))
-        (do (sp/charge! f :turns 1) ((:runtime-step! f) f) (recur))
+        (do (sp/charge! f :turns 1)
+            (binding [*generated-admission* (:generated-admission-scope s)] ((:runtime-step! f) f)) (recur))
         :else (throw (ex-info "Unsupported observed-command runtime boundary; preserve exact operation" {:phase phase :stage (:stage s)}))))))
 (defn open-command!
   [frontend strict-driver captures {:keys [layout-directory quantum row-limit]
@@ -287,7 +324,8 @@
       (catch Throwable error
         (do
           (swap! holder assoc :status :failed :failure (failure-summary error))
-          {:status :failed :run run :stage (:stage @holder) :failure (:failure @holder)})))))
+          {:status :failed :run run :stage (:stage @holder) :failure (:failure @holder)}))
+      (finally (revoke-generated-scope! holder)))))
 (defn owner-packet [run]
   (let [s @(issued runs run)] (select-keys s [:status :stage :operation :gate :owners :failure])))
 (defn with-command!

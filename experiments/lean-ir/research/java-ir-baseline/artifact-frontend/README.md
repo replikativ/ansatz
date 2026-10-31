@@ -402,3 +402,25 @@ The deferred source implementation cannot reuse a revoked fixed Base: old
 adapter retirement revokes its Base, so reconstruction needs a freshly issued
 strict Base against the same still-live ModuleLease/original Run/store. No
 revocation or fixed Prelude check is relaxed for this purpose.
+
+
+## Generated mutual declaration source checkpoint
+
+[MUTUAL_DECLARATIONS.md](MUTUAL_DECLARATIONS.md) describes the separately gated
+original tag5 group path. It uses the existing strict Java mutual checker and
+the already authenticated original Shim publication helper, commits the whole
+group in one version, and checks every original payload in full readback.
+Permission is an actual active M1/parser-gate scope, not a broad unsafe option.
+Unsafe/partial surface commands remain rejected; existing finite/safe-single
+routes and unsupported declaration families are unchanged.
+
+The eight new model families are prepared for coordinated execution. This source
+checkpoint does not claim actual recursive-source or native publication success.
+
+
+The separately authored same-engine source exchange definitions are deferred:
+after the runtime-cohort package is loaded, call
+`ansatz.research.ir.artifact-frontend-loader/load-source-modules!` and optionally
+`load-source-module-models!`. The ordinary artifact loader intentionally does
+not load a unit that depends on runtime-cohort. These source files are pinned in
+the complete inventory; definition loading does not issue a reconstructed Base.
