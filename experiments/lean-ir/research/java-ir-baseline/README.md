@@ -13,6 +13,11 @@ The [explicit continuation experiment](CONTINUATIONS.md) adds a second mode with
 instruction-boundary pause/resume. Recursive execution remains the control/default;
 the heap is still mutable and neither mode is forkable.
 
+The [artifact-relative frontend research package](artifact-frontend/README.md)
+tracks the stable finalizer/module/base/declaration and decoder definitions with
+explicit source-only loading. It still requires separately admitted runtime and
+paired artifacts; loading definitions does not bootstrap a frontend.
+
 ## Representation
 
 - Immutable prepared functions and instruction nodes resolve calls and supported
