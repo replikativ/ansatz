@@ -239,7 +239,9 @@
     (require! (and (identical? source (:source entry))
                    (identical? (:profile entry) (j/request-value source "acceptedCatalogueSnapshot")))
               "Composite source binding differs")
-    (cat/lookup (:catalogue entry) ["anonymous"])
+    ;; source-token checks the same live channel/index stamp under its lock.
+    ;; A lease check needs no Name hashing, binary index reads or row lookup.
+    (cat/source-token (:catalogue entry))
     receipt))
 (defn configuration-callback [receipt catalogue]
   (fn
