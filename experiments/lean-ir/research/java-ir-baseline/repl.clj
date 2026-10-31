@@ -506,3 +506,12 @@
 (defn configure-expr-instantiation! [basis engine policy]
   (.invoke (.getMethod ^Class (:class basis) "configureExprInstantiation" (into-array Class [(class policy)]))
            engine (object-array [policy])))
+
+(defn install-stdio-defaults!
+  "Trusted opt-in profile: borrow actual original empty guest Stream.ofBuffer.
+   Engine validates fixed original Header/method identities and bounded quiet
+   graph before acquiring one default owner. Does not invoke guest code."
+  [basis engine of-buffer-header stdin]
+  (.invoke (.getMethod ^Class (:class basis) "installStdioDefaults"
+             (into-array Class [(class of-buffer-header) Object]))
+           engine (object-array [of-buffer-header stdin])))
