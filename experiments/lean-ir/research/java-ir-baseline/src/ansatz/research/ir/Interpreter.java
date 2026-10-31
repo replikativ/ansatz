@@ -1396,6 +1396,36 @@ public final class Interpreter implements AutoCloseable {
             return new ExprConstructorPolicy(helpers);
         }
     }
+    /** Immutable constructor-role binding for native expression transformations.
+     * Source bytes remain the trusted loader's obligation, not a caller flag. */
+    public static final class ExprTransformPolicy {
+        private final ExprConstructorPolicy constructors;
+        private ExprTransformPolicy(ExprConstructorPolicy constructors) { this.constructors=constructors; }
+        public static ExprTransformPolicy originalHelpers(Header[] helpers) {
+            return new ExprTransformPolicy(ExprConstructorPolicy.originalHeaders(helpers));
+        }
+    }
+    private ExprTransformPolicy exprTransformPolicy;
+    public void configureExprTransforms(ExprTransformPolicy policy) {
+        explicitOnly();
+        require(taskRuntime!=null&&policy!=null,"Expr transforms require active runtime and original constructor policy");
+        if(closed||disposed||untrackedFailure||advancing||phase!=IDLE||pendingOwnedResult||sp!=0||continuationDepth!=0
+                ||runtimeAction!=null||hostCompletion!=null||hostGuestRecord!=null||quietCurrent!=null||releasePending!=0
+                ||releaseTransaction!=null||releaseRoot)
+            throw new IllegalStateException("Expr transform configuration requires an open idle engine");
+        require(exprTransformPolicy==null,"Expr transform policy is already configured");
+        for(int i=0;i<9;i++) exprConstructor(policy.constructors,i);
+        exprTransformPolicy=policy;
+    }
+    private ExprConstructorPolicy exprTransformsProfile(Function nativeFunction) {
+        require(explicit&&taskRuntime!=null&&exprTransformPolicy!=null,
+                "Expr transforms require active explicit runtime and original constructor policy");
+        ExprConstructorPolicy policy=exprTransformPolicy.constructors;
+        require(nativeFunction!=null&&nativeFunction.header!=null
+                &&nativeFunction.header.source==policy.helpers[0].source,"Expr transform native/constructor source differs");
+        for(int i=0;i<9;i++) exprConstructor(policy,i);
+        return policy;
+    }
     private Function exprConstructor(ExprConstructorPolicy policy,int role) {
         Header header=policy.helpers[role]; int id=program.functionId(header); Function f=program.functions[id];
         require(f.header==header&&f.intrinsic==0&&f.hostExtern==null&&program.guestExports[id]==null,
@@ -3319,7 +3349,7 @@ public final class Interpreter implements AutoCloseable {
         // phase RUNNING between advance calls is a paused dispatch/release-work
         // boundary. No Java call frame is captured in that state.
         Interpreter child=new Interpreter(program,explicit,initializing,buildIdentity,taskRuntime,profilingPolicy);
-        child.levelInstantiationPolicy=levelInstantiationPolicy; child.shareCommonLayout=shareCommonLayout;
+        child.levelInstantiationPolicy=levelInstantiationPolicy; child.shareCommonLayout=shareCommonLayout; child.exprTransformPolicy=exprTransformPolicy;
         ForkCopy copy=new ForkCopy(child);
         copy.bind(constants,child.constants);
         child.objects=(Object[])copy.value(objects);
