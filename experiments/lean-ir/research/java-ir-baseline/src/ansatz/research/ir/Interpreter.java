@@ -1477,7 +1477,7 @@ public final class Interpreter implements AutoCloseable {
     private static final class ExprPacket {
         Function function; Object[] arguments,expectedFields; boolean[] owned;
         int role,expectedTag,expectedFlag; boolean started,entered;
-        ExprReplaceFrame replaceFrame; BetaJob beta;
+        ExprReplaceFrame replaceFrame; BetaJob beta; ExprDirectTask directTarget;
     }
     private static final int MAX_INSTANTIATION_WORK=1_000_000;
     private static final class InstantiationBudget { long work; }
@@ -1573,11 +1573,10 @@ public final class Interpreter implements AutoCloseable {
     private static boolean sameExprField(Object left,Object right) {
         return left==right||!(left instanceof Node)&&left!=null&&left.equals(right);
     }
-    private void callExprConstructor(RuntimeAction action,ExprMachineryState state,int role,Object[] values,ExprReplaceFrame frame,BetaJob beta) {
-        exprJobWork(state,1); require(state.call==null&&objects[action.slot]==null,"Expr constructor receiver occupied");
-        Function helper=exprConstructor(state.policy,role);
+    private ExprPacket prepareExprConstructorPacket(ExprConstructorPolicy policy,int role,Object[] values) {
+        Function helper=exprConstructor(policy,role);
         require(helper.params.length==values.length,"Expr constructor packet arity differs");
-        ExprPacket packet=new ExprPacket(); packet.function=helper; packet.role=role; packet.replaceFrame=frame; packet.beta=beta;
+        ExprPacket packet=new ExprPacket(); packet.function=helper; packet.role=role;
         packet.arguments=values.clone(); packet.owned=new boolean[values.length]; packet.expectedTag=EXPR_CTOR_TAGS[role]; packet.expectedFlag=-1;
         int fields=packet.expectedTag==6||packet.expectedTag==7?3:packet.expectedTag==8?4:values.length;
         packet.expectedFields=Arrays.copyOf(values,fields);
@@ -1586,26 +1585,38 @@ public final class Interpreter implements AutoCloseable {
             long flag=(Long)values[fields]; require(flag>=0&&flag<=(packet.expectedTag==8?1:4),"Expr constructor flag outside profile");
             packet.expectedFlag=(int)flag;
         }
-        state.call=packet;
+        return packet;
+    }
+    private void acquireExprConstructorPacket(ExprPacket packet) {
         IdentityHashMap<Node,Integer> owners=new IdentityHashMap<>();
-        for(int i=0;i<values.length;i++) { validateHostObject(values[i]); inc(values[i],1); packet.owned[i]=true;
-            if(values[i] instanceof Node) owners.merge((Node)values[i],1,Integer::sum); }
+        for(int i=0;i<packet.arguments.length;i++) {
+            Object value=packet.arguments[i]; validateHostObject(value); inc(value,1); packet.owned[i]=true;
+            if(value instanceof Node) owners.merge((Node)value,1,Integer::sum);
+        }
         for(Map.Entry<Node,Integer> entry:owners.entrySet())
             require(entry.getKey().rc==0||entry.getKey().rc>=entry.getValue(),"Expr constructor packet owner occurrences differ");
-        packet.started=true; enterExplicit(helper,null,packet.arguments,ACTION_BODY,action.slot,ASSIGN,null);
-        require(packet.entered,"Expr constructor did not publish frame or CodeRequest");
     }
-    private void receiveExprConstructor(RuntimeAction action,ExprMachineryState state) {
-        ExprPacket packet=state.call; require(packet.entered,"Expr constructor receiver precedes entry");
-        // The receiver owns even a malformed result before any typed local flag.
+    private ExprCredit takeExprConstructorResult(RuntimeAction action,ExprPacket packet) {
         Object value=objects[action.slot]; Node node=exprNode(value);
         require(node.tag==packet.expectedTag&&node.fields.length==packet.expectedFields.length,"Expr constructor returned unexpected head");
         for(int i=0;i<node.fields.length;i++) require(sameExprField(node.fields[i],packet.expectedFields[i]),"Expr constructor returned unexpected child");
         if(packet.expectedFlag>=0) require((node.scalars[8]&255)==packet.expectedFlag,"Expr constructor returned unexpected flag");
-        ExprCredit credit=new ExprCredit(value,true);
+        ExprCredit credit=new ExprCredit(value,true); objects[action.slot]=null; return credit;
+    }
+    private void callExprConstructor(RuntimeAction action,ExprMachineryState state,int role,Object[] values,ExprReplaceFrame frame,BetaJob beta) {
+        exprJobWork(state,1); require(state.call==null&&objects[action.slot]==null,"Expr constructor receiver occupied");
+        ExprPacket packet=prepareExprConstructorPacket(state.policy,role,values); packet.replaceFrame=frame; packet.beta=beta;
+        state.call=packet; acquireExprConstructorPacket(packet); packet.started=true;
+        enterExplicit(packet.function,null,packet.arguments,ACTION_BODY,action.slot,ASSIGN,null);
+        require(packet.entered,"Expr constructor did not publish frame or CodeRequest");
+    }
+    private void receiveExprConstructor(RuntimeAction action,ExprMachineryState state) {
+        ExprPacket packet=state.call; require(packet.entered,"Expr constructor receiver precedes entry");
+        require(packet.replaceFrame!=null||packet.beta!=null&&packet.beta.replacement==null,"Missing Expr beta receiver");
+        ExprCredit credit=takeExprConstructorResult(action,packet);
         if(packet.replaceFrame!=null) { packet.replaceFrame.result=credit; packet.replaceFrame.stage=XR_FINISH; }
-        else { require(packet.beta!=null&&packet.beta.replacement==null,"Missing Expr beta receiver"); packet.beta.replacement=credit; }
-        objects[action.slot]=null; state.call=null;
+        else packet.beta.replacement=credit;
+        state.call=null;
     }
     private void requestBVar(RuntimeAction action,ExprMachineryState state,ExprReplaceFrame frame,BigInteger index) {
         exprJobWork(state,1+(index.bitLength()+63L)/64);
@@ -1949,6 +1960,662 @@ public final class Interpreter implements AutoCloseable {
         // entry, argument vector, root reset or additional input INC is used.
     }
 
+    /** Complete nineteen-role source binding for private pass-one research.
+     * Descriptive Header hashes are not source authentication. */
+    private static final class ExprInstantiationPolicy {
+        final LevelInstantiationPolicy levels;
+        final ExprConstructorPolicy constructors;
+        final Header[] helpers;
+        private ExprInstantiationPolicy(LevelInstantiationPolicy levels,ExprConstructorPolicy constructors,Header[] helpers) {
+            this.levels=levels; this.constructors=constructors; this.helpers=helpers.clone();
+        }
+        static ExprInstantiationPolicy originalHelpers(LevelInstantiationPolicy levels,Header[] helpers,Header[] constructors) {
+            require(levels!=null&&helpers!=null&&helpers.length==5,"Five original Expr helper Headers required");
+            ExprConstructorPolicy ctor=ExprConstructorPolicy.originalHeaders(constructors);
+            require(ctor.helpers[0].source==levels.helpers[0].source,"Expr/Level constructor source bindings differ");
+            String[] names={"Lean.MetavarContext.getExprAssignmentExp","Lean.MetavarContext.getDelayedMVarAssignmentExp","Lean.DelayedMetavarAssignment.fvarsExp","Lean.DelayedMetavarAssignment.mvarIdPendingExp","Lean.assignExp"},hashes={"eb558d18534d428bed55ddcbd54ff3ecdd2a357fe0ba865207a4176371b7b245","b2d125daab51fea96bc30d98915fc44af6a6879e8ab2996b2a3f6e23b415adca","b8515ae5926efd9f89b76b380588e4ba207aea6a4410bc0a3651890ad3fecd07","5f3e1d6a21afae8eedeb06a73dfc9ab5f7564494bd085ca44a38f28e9e3752fb","70435776e368ed0723d6159b1599c6c1f67eb7cfd3a12853ee417cb7d1807026"},results={"tobject","tobject","object","tobject","object"};
+            String[][] parameters={new String[]{"object","tobject"},new String[]{"object","tobject"},new String[]{"object"},new String[]{"object"},new String[]{"object","tobject","object"}};
+            for(int role=0;role<5;role++) {
+                Header h=helpers[role];
+                require(h!=null&&h.kind.equals("fdecl")&&h.originalSha256.equals(hashes[role]),"Expr helper role/source hash differs");
+                require(h.source==levels.helpers[0].source,"Expr helper source bindings differ");
+                Object name=Arrays.asList("anonymous");
+                for(String segment:names[role].split("\\.")) name=Arrays.asList("str",name,segment);
+                require(h.exactName.equals(frozenName(name)),"Expr helper typed Name differs");
+                Map<String,Object> d=h.declaration;
+                require(d.keySet().equals(new HashSet<>(Arrays.asList("f","info","type","xs")))
+                        &&map(d.get("info")).isEmpty()&&d.get("f").equals(h.exactName)
+                        &&results[role].equals(d.get("type")),"Expr helper declaration differs");
+                List<Object> xs=list(d.get("xs")); require(xs.size()==parameters[role].length,"Expr helper raw arity differs");
+                for(int i=0;i<xs.size();i++) {
+                    Map<String,Object> p=map(xs.get(i)),x=map(p.get("x"));
+                    require(p.keySet().equals(new HashSet<>(Arrays.asList("borrow","ty","x")))
+                            &&x.keySet().equals(Collections.singleton("idx"))&&number(x.get("idx"))==i+1
+                            &&Boolean.FALSE.equals(p.get("borrow"))&&parameters[role][i].equals(p.get("ty")),
+                            "Expr helper raw parameter differs");
+                }
+                Map<String,Object> runtime=map(h.evidence.get("runtime"));
+                require(runtime.keySet().equals(new HashSet<>(Arrays.asList("initializer","role")))
+                        &&runtime.get("initializer")==null&&"ordinary".equals(runtime.get("role")),"Expr helper is not ordinary");
+            }
+            return new ExprInstantiationPolicy(levels,ctor,helpers);
+        }
+    }
+    private Function exprInstantiationHelper(ExprInstantiationPolicy policy,int role) {
+        Header header=policy.helpers[role]; int id=program.functionId(header); Function f=program.functions[id];
+        require(f.header==header&&f.intrinsic==0&&f.hostExtern==null&&program.guestExports[id]==null,
+                "Expr helper is not the current exact ordinary Function");
+        requireExecutableAbi(f); require(f.resultType==OBJ,"Expr helper requires OBJ result");
+        for(int lane:f.paramTypes) require(lane==OBJ,"Expr helper requires OBJ parameters");
+        return preflightCallable(f,true);
+    }
+    private static final boolean EXPR_DIRECT_RESEARCH_READY=true;
+    private static final int DS_IDLE=0,DS_RUNNING=1,DS_RESULT=2,DS_SEALED=3,DS_DRAINING=4,DS_DRAINED=5;
+    private static final int MAX_DIRECT_FRAMES=100_000,MAX_DIRECT_CACHE=100_000,MAX_DIRECT_SAVED=100_000,
+            MAX_DIRECT_NAMES=100_000,MAX_DIRECT_ARGUMENTS=100_000,MAX_DIRECT_LEVELS=100_000;
+    private abstract static class ExprDirectTask {
+        ExprDirectTask child;
+        ExprCredit result,received;
+        int stage,cleanup;
+        boolean completed,helperDone;
+    }
+    private static final class DirectVisitFrame extends ExprDirectTask {
+        Node original; boolean shared; int cursor;
+        ExprCredit cacheTemporary;
+        final ExprCredit[] children=new ExprCredit[3];
+        LevelCredit level; ExprCredit levels;
+        DirectVisitFrame(Node original) { this.original=original; }
+    }
+    private static final class DirectMVarFrame extends ExprDirectTask {
+        Node original; Object name; ExprCredit assigned,delayed;
+        DirectMVarFrame(Node original) { this.original=original; }
+    }
+    private static final class DirectAssignmentFrame extends ExprDirectTask {
+        Object name; ExprCredit option,assigned,newValue;
+        boolean present;
+        DirectAssignmentFrame(Object name) { this.name=name; }
+    }
+    private static final class DirectDelayedFrame extends ExprDirectTask {
+        Object name; ExprCredit option,recordTemporary,pendingName,conditionResult;
+        DirectDelayedFrame(Object name) { this.name=name; }
+    }
+    private static final class DirectAppFrame extends ExprDirectTask {
+        Node original; Object cursor,name; ExprCredit assigned,delayed;
+        DirectAppFrame(Node original) { this.original=original; }
+    }
+    private static final class DirectNonMvarAppFrame extends ExprDirectTask {
+        Node original; ExprCredit argument,function;
+        DirectNonMvarAppFrame(Node original) { this.original=original; }
+    }
+    private static final class DirectAppBetaFrame extends ExprDirectTask {
+        Object cursor; ExprCredit functionOptional,betaParameter,argumentTemporary;
+        final ArrayList<ExprCredit> arguments=new ArrayList<>();
+        DirectAppBetaFrame(Object input,ExprCredit function) { this.cursor=input; this.functionOptional=function; }
+    }
+    private static final class DirectLevelFrame extends ExprDirectTask {
+        Object input; LevelCredit levelResult;
+        DirectLevelFrame(Object input) { this.input=input; }
+    }
+    private static final class DirectLevelsFrame extends ExprDirectTask {
+        Object original,cursor; final ArrayList<Node> cells=new ArrayList<>();
+        LevelCredit firstChanged,currentHead,headLoan;
+        ExprCredit list,replacement,tailLoan,consCredit;
+        Node building; int index,builtFields;
+        DirectLevelsFrame(Object original) { this.original=original; }
+    }
+    private static final class DirectNameEntry {
+        int hash; ExprCredit name;
+        DirectNameEntry(int hash,ExprCredit name) { this.hash=hash; this.name=name; }
+    }
+    private static final class DirectHelperPacket {
+        Function function; int role; Object[] arguments; boolean[] owned;
+        boolean started,entered;
+        ExprDirectTask target;
+    }
+    private static final class ExprDirectSession {
+        MVarContextCell context; InstantiationBudget budget; LevelSession levels; ExprInstantiationPolicy policy;
+        final ArrayDeque<ExprDirectTask> tasks=new ArrayDeque<>();
+        final IdentityHashMap<Node,ExprCredit> cache=new IdentityHashMap<>();
+        final ArrayList<ExprCredit> cacheValues=new ArrayList<>(),saved=new ArrayList<>();
+        final HashMap<Integer,ArrayList<DirectNameEntry>> normalized=new HashMap<>();
+        final ArrayList<DirectNameEntry> nameOwners=new ArrayList<>();
+        DirectHelperPacket call; ExprPacket constructorCall;
+        ExprCredit result,retiring;
+        boolean hasUpdateableDelayed; int phase,drainStage,drainCursor;
+    }
+    private static final class ExprDirectResearchState {
+        MVarContextCell context; InstantiationBudget budget; ExprDirectSession session;
+        ExprCredit input,e1,output,reportExprLoan;
+        int stage,outputFields;
+    }
+    /** Research pass-one report only, NEVER the original Expr instantiation ABI. */
+    private void startExprDirectResearch(Header[] helpers,Header[] constructors,Object ownedContext,Object ownedExpr) {
+        explicitOnly(); require(EXPR_DIRECT_RESEARCH_READY,"Private direct Expr pass is not yet complete");
+        require(taskRuntime!=null,"Private direct Expr pass requires active explicit runtime");
+        if(closed||disposed||untrackedFailure||advancing||phase!=IDLE||pendingOwnedResult||sp!=0||continuationDepth!=0
+                ||runtimeAction!=null||hostCompletion!=null||hostGuestRecord!=null||quietCurrent!=null||releasePending!=0
+                ||releaseTransaction!=null||releaseRoot)
+            throw new IllegalStateException("Private direct Expr pass requires an open idle engine");
+        ExprInstantiationPolicy policy=ExprInstantiationPolicy.originalHelpers(levelInstantiationPolicy,helpers,constructors);
+        for(int role=0;role<5;role++) { levelInstantiationHelper(policy.levels,role); exprInstantiationHelper(policy,role); }
+        for(int role=0;role<9;role++) exprConstructor(policy.constructors,role);
+        validateHostObject(ownedContext); Node root=exprNode(ownedExpr);
+        if(ownedContext==ownedExpr) require(root.rc==0||root.rc>=2,"Private direct Expr input alias credits differ");
+        RuntimeAction action=newAction(ACTION_EXPR_DIRECT_RESEARCH,null,null,0,ROOT,null);
+        ExprDirectResearchState state=new ExprDirectResearchState(); state.context=new MVarContextCell();
+        state.context.current=new LevelCredit(ownedContext,true); state.budget=new InstantiationBudget();
+        ExprDirectSession session=new ExprDirectSession(); state.session=session; session.context=state.context; session.budget=state.budget;
+        session.policy=policy; session.levels=newLevelSession(state.context,state.budget,policy.levels);
+        state.input=new ExprCredit(ownedExpr,true); session.tasks.addLast(new DirectVisitFrame(root)); session.phase=DS_RUNNING;
+        action.exprDirect=state; objects[action.slot]=null; publishAction(action);
+        callsLeft=10_000_000; instructions=0; entry=null; result=null; releaseRoot=false; phase=RUNNING;
+    }
+    private void directHelperEntry(Function function,Object[] arguments) {
+        RuntimeAction action=runtimeAction;
+        if(action==null||action.exprDirect==null) return;
+        DirectHelperPacket packet=action.exprDirect.session.call;
+        if(packet==null||packet.entered||packet.function!=function||packet.arguments!=arguments) return;
+        require(packet.started,"Direct Expr helper entered before packet publication");
+        packet.entered=true; Arrays.fill(packet.owned,false);
+    }
+    private void directWork(ExprDirectSession session,long amount) {
+        instantiationWork(session.budget,amount,"Direct Expr work outside bounded profile","Direct Expr interrupted");
+    }
+    private void pushDirect(ExprDirectSession session,ExprDirectTask task) {
+        require(session.phase==DS_RUNNING&&session.tasks.size()<MAX_DIRECT_FRAMES,"Direct Expr task/frame limit outside profile");
+        session.tasks.addLast(task);
+    }
+    private void directSelect(ExprDirectTask task,Object value) { task.result=exprCredit(value); acquireExpr(task.result); }
+    private boolean releaseDirect(RuntimeAction action,ExprDirectSession session,ExprCredit credit) {
+        if(credit==null||!credit.owned) return false;
+        require(session.levels.retiring==null,"Simultaneous direct/Level retiring owners");
+        session.retiring=credit; action.retiring=credit.value; action.releaseClaimed=false;
+        boolean dispatch;
+        try { dispatch=beginRelease(credit.value,1,ACTION_BODY); credit.owned=false; }
+        finally { if(action.releaseClaimed) credit.owned=false; }
+        if(!dispatch) { session.retiring=null; action.retiring=null; action.releaseClaimed=false; }
+        return dispatch;
+    }
+    private void resumeDirectRetiring(RuntimeAction action,ExprDirectSession session) {
+        require(session.retiring==null||session.levels.retiring==null,"Simultaneous direct/Level retiring owners");
+        if(session.retiring!=null) {
+            require(!session.retiring.owned,"Direct Expr retiring owner was not claimed");
+            session.retiring=null; action.retiring=null; action.releaseClaimed=false;
+        }
+        resumeLevelRetiring(action,session.levels);
+    }
+    private ExprDirectTask takeDirectChild(ExprDirectTask parent,Class<?> expected) {
+        require(parent.child!=null&&parent.child.completed&&expected.isInstance(parent.child),"Direct Expr child completion kind differs");
+        return parent.child;
+    }
+    private ExprCredit takeDirectExprChild(ExprDirectTask parent,Class<?> expected) {
+        ExprDirectTask child=takeDirectChild(parent,expected);
+        require(child.result!=null&&child.result.owned,"Direct Expr child result owner missing");
+        ExprCredit result=child.result; child.result=null; parent.child=null; return result;
+    }
+    private boolean directNameEqual(ExprDirectSession session,Object left,Object right) {
+        ExprEquality comparison=new ExprEquality(false); comparison.work=session.budget.work;
+        try { return nameEquals(left,right,comparison); }
+        finally { session.budget.work=comparison.work; }
+    }
+    private int directNameHash(ExprDirectSession session,Object value) {
+        directWork(session,1); Node node=nameNode(value); return (int)(node==null?1723:readScalar(node,0,U64));
+    }
+    private boolean directNameContains(ExprDirectSession session,Object value) {
+        int hash=directNameHash(session,value); ArrayList<DirectNameEntry> bucket=session.normalized.get(hash);
+        if(bucket==null) return false;
+        for(DirectNameEntry entry:bucket) {
+            directWork(session,1); require(entry.name.owned,"Normalized Name key owner missing");
+            if(directNameEqual(session,value,entry.name.value)) return true;
+        }
+        return false;
+    }
+    private void directNameInsert(ExprDirectSession session,Object value) {
+        int hash=directNameHash(session,value); ArrayList<DirectNameEntry> bucket=session.normalized.get(hash);
+        if(bucket!=null) for(DirectNameEntry entry:bucket) {
+            directWork(session,1); if(directNameEqual(session,value,entry.name.value)) return;
+        }
+        require(session.nameOwners.size()<MAX_DIRECT_NAMES,"Direct Expr normalized Name limit");
+        DirectNameEntry entry=new DirectNameEntry(hash,exprCredit(value)); session.nameOwners.add(entry);
+        if(bucket==null) { bucket=new ArrayList<>(); session.normalized.put(hash,bucket); }
+        bucket.add(entry); acquireExpr(entry.name);
+    }
+    private static boolean exprHasMVars(long word) { return (word&((1L<<41)|(1L<<42)))!=0; }
+    private void requireDirectReceiverFree(RuntimeAction action,ExprDirectSession session) {
+        require(session.call==null&&session.constructorCall==null&&session.levels.call==null&&objects[action.slot]==null,
+                "Multiple outstanding direct/constructor/Level packets");
+    }
+    private void callDirectHelper(RuntimeAction action,ExprDirectSession session,ExprDirectTask target,int role) {
+        directWork(session,1); require(role!=2,"Pass one does not call delayed fvars accessor"); requireDirectReceiverFree(action,session);
+        Function helper=exprInstantiationHelper(session.policy,role);
+        DirectHelperPacket packet=new DirectHelperPacket(); packet.function=helper; packet.role=role; packet.target=target;
+        packet.arguments=new Object[helper.params.length]; packet.owned=new boolean[packet.arguments.length]; session.call=packet;
+        if(role==3) {
+            DirectDelayedFrame frame=(DirectDelayedFrame)target;
+            require(frame.recordTemporary!=null&&frame.recordTemporary.owned,"Delayed accessor temporary owner missing");
+            packet.arguments[0]=frame.recordTemporary.value; validateHostObject(packet.arguments[0]); inc(packet.arguments[0],1); packet.owned[0]=true;
+        } else {
+            LevelCredit context=session.context.current;
+            require(context!=null&&context.owned,"Direct Expr current context owner missing"); packet.arguments[0]=context.value;
+            if(role==4) { packet.owned[0]=true; context.owned=false; session.context.current=null; }
+            else { inc(packet.arguments[0],1); packet.owned[0]=true; }
+            Object name=role==1?((DirectDelayedFrame)target).name:((DirectAssignmentFrame)target).name;
+            packet.arguments[1]=name; nameNode(name); inc(name,1); packet.owned[1]=true;
+            if(role==4) {
+                DirectAssignmentFrame frame=(DirectAssignmentFrame)target; require(frame.newValue!=null&&frame.newValue.owned,"Direct assignment result missing");
+                packet.arguments[2]=frame.newValue.value; exprNode(packet.arguments[2]); inc(packet.arguments[2],1); packet.owned[2]=true;
+            }
+        }
+        IdentityHashMap<Node,Integer> known=new IdentityHashMap<>();
+        for(int i=0;i<packet.arguments.length;i++) {
+            require(packet.owned[i],"Direct Expr helper argument not owned"); validateHostObject(packet.arguments[i]);
+            if(packet.arguments[i] instanceof Node) known.merge((Node)packet.arguments[i],1,Integer::sum);
+        }
+        for(Map.Entry<Node,Integer> entry:known.entrySet()) require(entry.getKey().rc==0||entry.getKey().rc>=entry.getValue(),"Direct Expr helper alias credits differ");
+        packet.started=true; enterExplicit(helper,null,packet.arguments,ACTION_BODY,action.slot,ASSIGN,null);
+        require(packet.entered,"Direct Expr helper did not publish frame or CodeRequest");
+    }
+    private void validateDirectOption(Object value,boolean expression) {
+        if(ERASED.equals(value)) return;
+        Node option=constructorNode(value);
+        require(option.tag==1&&option.fields.length==1&&option.scalars.length==0,"Direct Expr helper returned malformed Option");
+        if(expression) exprNode(option.fields[0]); else validateHostObject(option.fields[0]);
+    }
+    private void receiveDirectHelper(RuntimeAction action,ExprDirectSession session) {
+        DirectHelperPacket packet=session.call; require(packet.entered,"Direct Expr helper returned before entry");
+        Object value=objects[action.slot]; ExprDirectTask target=packet.target;
+        if(packet.role==4) {
+            validateHostObject(value); require(session.context.current==null,"Direct Expr setter replaces a live context owner");
+            session.context.current=new LevelCredit(value,true); objects[action.slot]=null; target.helperDone=true;
+        } else {
+            require(target.received==null,"Direct Expr helper result receiver occupied");
+            if(packet.role==0||packet.role==1) validateDirectOption(value,packet.role==0);
+            else if(packet.role==3) nameNode(value); else throw error("Unsupported direct Expr helper role");
+            target.received=new ExprCredit(value,true); objects[action.slot]=null;
+        }
+        session.call=null;
+    }
+    private void callDirectConstructor(RuntimeAction action,ExprDirectSession session,ExprDirectTask target,int role,Object[] values) {
+        directWork(session,1); requireDirectReceiverFree(action,session);
+        ExprPacket packet=prepareExprConstructorPacket(session.policy.constructors,role,values); packet.directTarget=target;
+        session.constructorCall=packet; acquireExprConstructorPacket(packet); packet.started=true;
+        enterExplicit(packet.function,null,packet.arguments,ACTION_BODY,action.slot,ASSIGN,null);
+        require(packet.entered,"Direct Expr constructor did not publish frame or CodeRequest");
+    }
+    private void receiveDirectConstructor(RuntimeAction action,ExprDirectSession session) {
+        ExprPacket packet=session.constructorCall;
+        require(packet.entered&&packet.directTarget!=null&&packet.directTarget.received==null,"Direct Expr constructor completion differs");
+        ExprCredit result=takeExprConstructorResult(action,packet);
+        packet.directTarget.received=result; session.constructorCall=null;
+    }
+    private void stepDirectAssignment(RuntimeAction action,ExprDirectSession session,DirectAssignmentFrame frame) {
+        if(frame.stage==0) { frame.stage=1; callDirectHelper(action,session,frame,0); return; }
+        if(frame.stage==1) {
+            require(frame.received!=null&&frame.received.owned,"Direct getter Option missing"); frame.option=frame.received; frame.received=null;
+            if(ERASED.equals(frame.option.value)) { frame.present=false; frame.stage=10; return; }
+            frame.assigned=exprCredit(((Node)frame.option.value).fields[0]); acquireExpr(frame.assigned);
+            if(!exprHasMVars(exprCachedData(frame.assigned.value))||directNameContains(session,frame.name)) {
+                directSelect(frame,frame.assigned.value); frame.present=true; frame.stage=10; return;
+            }
+            directNameInsert(session,frame.name); frame.stage=2; pushDirect(session,new DirectVisitFrame(exprNode(frame.assigned.value))); return;
+        }
+        if(frame.stage==2) {
+            frame.newValue=takeDirectExprChild(frame,DirectVisitFrame.class);
+            if(frame.newValue.value!=frame.assigned.value) {
+                require(session.saved.size()<MAX_DIRECT_SAVED,"Direct Expr saved assignment limit");
+                ExprCredit saved=exprCredit(frame.assigned.value); session.saved.add(saved); acquireExpr(saved);
+                frame.stage=3; callDirectHelper(action,session,frame,4); return;
+            }
+            frame.stage=4;
+        }
+        if(frame.stage==3) { require(frame.helperDone,"Direct setter has no completed return"); frame.helperDone=false; frame.stage=4; }
+        if(frame.stage==4) { directSelect(frame,frame.newValue.value); frame.present=true; frame.stage=10; }
+        require(frame.stage==10,"Invalid direct assignment continuation");
+        if(frame.cleanup<3) {
+            ExprCredit credit=frame.cleanup==0?frame.newValue:frame.cleanup==1?frame.assigned:frame.option;
+            frame.cleanup++; releaseDirect(action,session,credit); return;
+        }
+        frame.option=null; frame.assigned=null; frame.newValue=null; frame.completed=true;
+    }
+    private void stepDirectDelayed(RuntimeAction action,ExprDirectSession session,DirectDelayedFrame frame) {
+        if(frame.stage==0) { frame.stage=1; callDirectHelper(action,session,frame,1); return; }
+        if(frame.stage==1) {
+            require(frame.received!=null&&frame.received.owned,"Delayed getter Option missing"); frame.option=frame.received; frame.received=null;
+            if(ERASED.equals(frame.option.value)) { frame.result=frame.option; frame.option=null; frame.completed=true; return; }
+            // option_ref::get_val returns by value; accessor then receives its own copy.
+            frame.recordTemporary=exprCredit(((Node)frame.option.value).fields[0]); acquireExpr(frame.recordTemporary);
+            frame.stage=2; callDirectHelper(action,session,frame,3); return;
+        }
+        if(frame.stage==2) {
+            require(frame.received!=null&&frame.received.owned,"Delayed pending Name missing"); frame.pendingName=frame.received; frame.received=null;
+            frame.stage=3; releaseDirect(action,session,frame.recordTemporary); return;
+        }
+        if(frame.stage==3) { frame.stage=4; pushDirect(session,new DirectAssignmentFrame(frame.pendingName.value)); return; }
+        if(frame.stage==4) {
+            DirectAssignmentFrame assignment=(DirectAssignmentFrame)takeDirectChild(frame,DirectAssignmentFrame.class);
+            if(assignment.present) { require(assignment.result!=null&&assignment.result.owned,"Pending optional Expr owner missing");
+                frame.conditionResult=assignment.result; assignment.result=null; session.hasUpdateableDelayed=true; }
+            frame.child=null; frame.stage=5; releaseDirect(action,session,frame.conditionResult); return;
+        }
+        if(frame.stage==5) { frame.stage=6; releaseDirect(action,session,frame.pendingName); return; }
+        require(frame.stage==6&&frame.option!=null&&frame.option.owned,"Delayed probe Option lifetime differs");
+        frame.result=frame.option; frame.option=null; frame.recordTemporary=null; frame.pendingName=null; frame.conditionResult=null; frame.completed=true;
+    }
+    private void stepDirectMVar(RuntimeAction action,ExprDirectSession session,DirectMVarFrame frame) {
+        if(frame.stage==0) { frame.name=frame.original.fields[0]; frame.stage=1; pushDirect(session,new DirectAssignmentFrame(frame.name)); return; }
+        if(frame.stage==1) {
+            DirectAssignmentFrame assignment=(DirectAssignmentFrame)takeDirectChild(frame,DirectAssignmentFrame.class);
+            if(assignment.present) {
+                require(assignment.result!=null&&assignment.result.owned,"Direct optional Expr missing"); frame.assigned=assignment.result; assignment.result=null;
+                frame.child=null; directSelect(frame,frame.assigned.value); frame.stage=10;
+            } else { frame.child=null; frame.stage=2; pushDirect(session,new DirectDelayedFrame(frame.name)); return; }
+        }
+        if(frame.stage==2) {
+            frame.delayed=takeDirectExprChild(frame,DirectDelayedFrame.class); directSelect(frame,frame.original); frame.stage=10;
+        }
+        require(frame.stage==10,"Invalid direct MVar continuation");
+        if(frame.cleanup<2) { ExprCredit credit=frame.cleanup++==0?frame.assigned:frame.delayed; releaseDirect(action,session,credit); return; }
+        frame.assigned=null; frame.delayed=null; frame.completed=true;
+    }
+    private void stepDirectApp(RuntimeAction action,ExprDirectSession session,DirectAppFrame frame) {
+        if(frame.stage==0) {
+            if(frame.cursor==null) frame.cursor=frame.original;
+            Node head=exprNode(frame.cursor);
+            if(head.tag==5) { frame.cursor=head.fields[0]; return; }
+            if(head.tag!=2) { frame.stage=5; pushDirect(session,new DirectNonMvarAppFrame(frame.original)); return; }
+            frame.name=head.fields[0]; frame.stage=1; pushDirect(session,new DirectAssignmentFrame(frame.name)); return;
+        }
+        if(frame.stage==1) {
+            DirectAssignmentFrame assignment=(DirectAssignmentFrame)takeDirectChild(frame,DirectAssignmentFrame.class);
+            if(assignment.present) {
+                require(assignment.result!=null&&assignment.result.owned,"Assigned function optional owner missing");
+                ExprCredit function=assignment.result;
+                DirectAppBetaFrame beta=new DirectAppBetaFrame(frame.original,function);
+                pushDirect(session,beta); assignment.result=null; frame.child=null; frame.stage=4; return;
+            }
+            frame.child=null; frame.stage=2; pushDirect(session,new DirectDelayedFrame(frame.name)); return;
+        }
+        if(frame.stage==2) {
+            frame.delayed=takeDirectExprChild(frame,DirectDelayedFrame.class);
+            frame.stage=5; pushDirect(session,new DirectNonMvarAppFrame(frame.original)); return;
+        }
+        if(frame.stage==4) { frame.result=takeDirectExprChild(frame,DirectAppBetaFrame.class); frame.completed=true; return; }
+        if(frame.stage==5) { frame.result=takeDirectExprChild(frame,DirectNonMvarAppFrame.class); frame.stage=6; releaseDirect(action,session,frame.delayed); return; }
+        require(frame.stage==6,"Invalid direct App continuation"); frame.delayed=null; frame.completed=true;
+    }
+    private void stepDirectNonMvarApp(RuntimeAction action,ExprDirectSession session,DirectNonMvarAppFrame frame) {
+        if(frame.stage==0) { frame.stage=1; pushDirect(session,new DirectVisitFrame(exprNode(frame.original.fields[1]))); return; }
+        if(frame.stage==1) {
+            frame.argument=takeDirectExprChild(frame,DirectVisitFrame.class); Node function=exprNode(frame.original.fields[0]); frame.stage=2;
+            pushDirect(session,function.tag==5?new DirectNonMvarAppFrame(function):new DirectVisitFrame(function)); return;
+        }
+        if(frame.stage==2) {
+            frame.function=takeDirectExprChild(frame,exprNode(frame.original.fields[0]).tag==5?DirectNonMvarAppFrame.class:DirectVisitFrame.class);
+            if(frame.function.value==frame.original.fields[0]&&frame.argument.value==frame.original.fields[1]) { directSelect(frame,frame.original); frame.stage=4; }
+            else { frame.stage=3; callDirectConstructor(action,session,frame,3,new Object[]{frame.function.value,frame.argument.value}); return; }
+        }
+        if(frame.stage==3) { require(frame.received!=null&&frame.received.owned,"App constructor result missing"); frame.result=frame.received; frame.received=null; frame.stage=4; }
+        if(frame.stage==4) {
+            if(frame.cleanup<2) { ExprCredit credit=frame.cleanup++==0?frame.function:frame.argument; releaseDirect(action,session,credit); return; }
+            frame.function=null; frame.argument=null; frame.completed=true; return;
+        }
+        throw error("Invalid non-MVar App continuation");
+    }
+    private void enterDirectBetaChild(RuntimeAction parent,ExprDirectSession session,DirectAppBetaFrame frame) {
+        require(runtimeAction==parent&&frame.stage==3&&objects[parent.slot]==null&&session.call==null&&session.constructorCall==null
+                &&session.levels.call==null&&session.levels.retiring==null&&session.retiring==null,"Direct beta parent is not ready");
+        require(frame.betaParameter!=null&&frame.betaParameter.owned,"Direct beta parameter owner missing");
+        for(int role=0;role<9;role++) exprConstructor(session.policy.constructors,role);
+        RuntimeAction child=newAction(ACTION_EXPR_MACHINERY,null,ACTION_BODY,parent.slot,ASSIGN,null);
+        ExprMachineryState worker=new ExprMachineryState(); worker.policy=session.policy.constructors; worker.budget=session.budget;
+        BetaJob beta=new BetaJob(); beta.function=frame.betaParameter; beta.reverseArgs=new Object[frame.arguments.size()];
+        for(int i=0;i<beta.reverseArgs.length;i++) { require(frame.arguments.get(i).owned,"Direct reverse argument owner missing"); beta.reverseArgs[i]=frame.arguments.get(i).value; }
+        worker.jobs.addLast(beta); child.exprMachinery=worker; objects[child.slot]=null;
+        publishAction(child); frame.betaParameter=null;
+    }
+    private void stepDirectAppBeta(RuntimeAction action,ExprDirectSession session,DirectAppBetaFrame frame) {
+        if(frame.stage==0) {
+            Node cursor=exprNode(frame.cursor);
+            if(cursor.tag==5) { frame.stage=1; pushDirect(session,new DirectVisitFrame(exprNode(cursor.fields[1]))); return; }
+            require(frame.functionOptional!=null&&frame.functionOptional.owned,"Assigned optional function owner missing");
+            frame.betaParameter=exprCredit(frame.functionOptional.value); acquireExpr(frame.betaParameter);
+            frame.stage=3; enterDirectBetaChild(action,session,frame); return;
+        }
+        if(frame.stage==1) {
+            frame.argumentTemporary=takeDirectExprChild(frame,DirectVisitFrame.class);
+            require(frame.arguments.size()<MAX_DIRECT_ARGUMENTS,"Direct Expr argument buffer limit");
+            ExprCredit entry=exprCredit(frame.argumentTemporary.value); frame.arguments.add(entry); acquireExpr(entry);
+            frame.stage=2; releaseDirect(action,session,frame.argumentTemporary); return;
+        }
+        if(frame.stage==2) { frame.argumentTemporary=null; frame.cursor=exprNode(frame.cursor).fields[0]; frame.stage=0; return; }
+        if(frame.stage==3) {
+            Object result=objects[action.slot]; exprNode(result); frame.result=new ExprCredit(result,true); objects[action.slot]=null;
+            frame.stage=4; frame.cleanup=0;
+        }
+        if(frame.stage==4) {
+            // runtime::buffer destroys forward, including its outermost-first args.
+            if(frame.cleanup<frame.arguments.size()) { ExprCredit entry=frame.arguments.get(frame.cleanup++); releaseDirect(action,session,entry); return; }
+            frame.stage=5; releaseDirect(action,session,frame.functionOptional); return;
+        }
+        require(frame.stage==5,"Invalid assigned App beta continuation"); frame.arguments.clear(); frame.functionOptional=null; frame.completed=true;
+    }
+    private void stepDirectLevel(RuntimeAction action,ExprDirectSession session,DirectLevelFrame frame) {
+        if(frame.stage==0) { requireDirectReceiverFree(action,session); startLevelJob(session.levels,frame.input); frame.stage=1; return; }
+        stepLevelJob(action,session.levels);
+        if(session.levels.phase==LS_RESULT) { frame.levelResult=takeLevelJobResult(session.levels); frame.completed=true; }
+    }
+    private ExprCredit buildDirectCons(ExprDirectSession session,DirectLevelsFrame frame,Object head,Object tail) {
+        directWork(session,1); require(frame.consCredit==null,"Direct list cons escrow occupied");
+        Node cons=new Node(1,2,0); frame.building=cons; frame.consCredit=new ExprCredit(cons,true); frame.builtFields=0; allocations++;
+        frame.headLoan=new LevelCredit(head,false); ownLevelCredit(frame.headLoan);
+        cons.fields[0]=head; frame.headLoan.owned=false; frame.builtFields=1;
+        frame.tailLoan=exprCredit(tail); acquireExpr(frame.tailLoan);
+        cons.fields[1]=tail; frame.tailLoan.owned=false; frame.builtFields=2;
+        ExprCredit result=frame.consCredit; frame.consCredit=null; frame.building=null; frame.headLoan=null; frame.tailLoan=null; return result;
+    }
+    private void stepDirectLevels(RuntimeAction action,ExprDirectSession session,DirectLevelsFrame frame) {
+        if(frame.stage==0) {
+            if(frame.cursor==null) frame.cursor=frame.original;
+            if(ERASED.equals(frame.cursor)) { frame.index=frame.cells.size()-1; frame.stage=1; return; }
+            Node cell=constructorNode(frame.cursor);
+            require(cell.tag==1&&cell.fields.length==2&&cell.scalars.length==0,"Invalid Const Level list layout");
+            require(frame.cells.size()<MAX_DIRECT_LEVELS,"Direct Const Level list length/cycle outside profile");
+            levelNode(cell.fields[0]); frame.cells.add(cell); frame.cursor=cell.fields[1]; return;
+        }
+        if(frame.stage==1) {
+            if(frame.index<0) {
+                if(frame.list==null) directSelect(frame,frame.original);
+                else { frame.result=frame.list; frame.list=null; }
+                frame.stage=8; releaseLevelCredit(action,session.levels,frame.firstChanged); return;
+            }
+            frame.stage=2; pushDirect(session,new DirectLevelFrame(frame.cells.get(frame.index).fields[0])); return;
+        }
+        if(frame.stage==2) {
+            DirectLevelFrame child=(DirectLevelFrame)takeDirectChild(frame,DirectLevelFrame.class);
+            require(child.levelResult!=null&&child.levelResult.owned,"Const Level result missing");
+            frame.currentHead=child.levelResult; child.levelResult=null; frame.child=null;
+            Node cell=frame.cells.get(frame.index);
+            if(frame.list==null) {
+                if(sameLevel(frame.currentHead.value,cell.fields[0])) {
+                    frame.stage=3; releaseLevelCredit(action,session.levels,frame.currentHead); return;
+                }
+                frame.firstChanged=frame.currentHead; frame.currentHead=null;
+                frame.list=buildDirectCons(session,frame,frame.firstChanged.value,cell.fields[1]);
+                frame.index--; frame.stage=1; return;
+            }
+            frame.replacement=buildDirectCons(session,frame,frame.currentHead.value,frame.list.value);
+            frame.stage=4; releaseDirect(action,session,frame.list); return;
+        }
+        if(frame.stage==3) { frame.currentHead=null; frame.index--; frame.stage=1; return; }
+        if(frame.stage==4) {
+            require(frame.replacement!=null&&frame.replacement.owned,"Const prefix replacement list missing");
+            frame.list=frame.replacement; frame.replacement=null; frame.stage=5;
+            releaseLevelCredit(action,session.levels,frame.currentHead); return;
+        }
+        if(frame.stage==5) { frame.currentHead=null; frame.index--; frame.stage=1; return; }
+        require(frame.stage==8&&frame.result!=null&&frame.result.owned,"Invalid Const Level list completion");
+        frame.firstChanged=null; frame.currentHead=null; frame.cells.clear(); frame.cursor=null; frame.original=null; frame.completed=true;
+    }
+    private void stepDirectVisit(RuntimeAction action,ExprDirectSession session,DirectVisitFrame frame) {
+        Node original=frame.original;
+        if(frame.stage==0) {
+            if(!exprHasMVars(exprCachedData(original))) { directSelect(frame,original); frame.stage=91; return; }
+            frame.shared=!exclusive(original);
+            ExprCredit cached=frame.shared?session.cache.get(original):null;
+            if(cached!=null) { require(cached.owned,"Direct Expr cache owner missing"); directSelect(frame,cached.value); frame.shared=false; frame.stage=91; return; }
+            switch(original.tag) {
+                case 2: frame.shared=false; frame.stage=10; pushDirect(session,new DirectMVarFrame(original)); return;
+                case 3: frame.stage=11; pushDirect(session,new DirectLevelFrame(original.fields[0])); return;
+                case 4: frame.stage=12; pushDirect(session,new DirectLevelsFrame(original.fields[1])); return;
+                case 5: frame.stage=10; pushDirect(session,new DirectAppFrame(original)); return;
+                case 6: case 7: case 8: case 10: case 11: frame.stage=1; break;
+                default: throw error("Inconsistent cached mvars on atomic Expr outside profile");
+            }
+        }
+        if(frame.stage==1) {
+            if(frame.child!=null) {
+                require(frame.cursor<frame.children.length,"Direct Expr child cursor exceeds profile layout");
+                frame.children[frame.cursor]=takeDirectExprChild(frame,DirectVisitFrame.class); frame.cursor++;
+            }
+            int count=exprChildCount(original.tag);
+            if(frame.cursor<count) { pushDirect(session,new DirectVisitFrame(exprNode(original.fields[exprChildField(original.tag,frame.cursor)]))); return; }
+            Object[] values=original.fields.clone(); boolean changed=false;
+            for(int i=0;i<count;i++) {
+                require(frame.children[i]!=null&&frame.children[i].owned,"Direct Expr child result missing");
+                int at=exprChildField(original.tag,i); values[at]=frame.children[i].value; changed|=values[at]!=original.fields[at];
+            }
+            if(!changed) { directSelect(frame,original); frame.stage=90; }
+            else {
+                if(original.tag>=6&&original.tag<=8) { values=Arrays.copyOf(values,values.length+1); values[values.length-1]=Long.valueOf(original.scalars[8]&255); }
+                frame.stage=3; callDirectConstructor(action,session,frame,exprCtorRole(original.tag),values); return;
+            }
+        }
+        if(frame.stage==3) {
+            require(frame.received!=null&&frame.received.owned,"Direct Expr constructor result missing"); frame.result=frame.received; frame.received=null; frame.stage=90;
+        }
+        if(frame.stage==10) { frame.result=takeDirectExprChild(frame,original.tag==2?DirectMVarFrame.class:DirectAppFrame.class); frame.stage=90; }
+        if(frame.stage==11) {
+            DirectLevelFrame child=(DirectLevelFrame)takeDirectChild(frame,DirectLevelFrame.class);
+            require(child.levelResult!=null&&child.levelResult.owned,"Sort Level result missing"); frame.level=child.levelResult; child.levelResult=null; frame.child=null;
+            if(sameLevel(frame.level.value,original.fields[0])) { directSelect(frame,original); frame.stage=90; }
+            else { frame.stage=3; callDirectConstructor(action,session,frame,1,new Object[]{frame.level.value}); return; }
+        }
+        if(frame.stage==12) {
+            frame.levels=takeDirectExprChild(frame,DirectLevelsFrame.class);
+            if(sameExprField(frame.levels.value,original.fields[1])) { directSelect(frame,original); frame.stage=90; }
+            else { frame.stage=3; callDirectConstructor(action,session,frame,2,new Object[]{original.fields[0],frame.levels.value}); return; }
+        }
+        if(frame.stage==90) {
+            require(frame.result!=null&&frame.result.owned,"Direct Expr computed result missing"); frame.stage=91;
+            if(frame.shared) {
+                // Reentrant assignment normalization may already have inserted
+                // this key: native insert keeps the first value, returns our r.
+                ExprCredit copy=exprCredit(frame.result.value);
+                if(session.cache.containsKey(original)) {
+                    frame.cacheTemporary=copy; acquireExpr(copy); releaseDirect(action,session,copy); return;
+                }
+                require(session.cacheValues.size()<MAX_DIRECT_CACHE,"Direct Expr cache limit");
+                session.cacheValues.add(copy); session.cache.put(original,copy); acquireExpr(copy);
+            }
+        }
+        require(frame.stage==91,"Invalid direct Expr visit continuation");
+        if(frame.cleanup<5) {
+            int at=frame.cleanup++;
+            if(at<3) releaseDirect(action,session,frame.children[2-at]);
+            else if(at==3) releaseLevelCredit(action,session.levels,frame.level);
+            else releaseDirect(action,session,frame.levels);
+            return;
+        }
+        Arrays.fill(frame.children,null); frame.level=null; frame.levels=null; frame.cacheTemporary=null; frame.completed=true;
+    }
+    private void stepExprDirectJob(RuntimeAction action,ExprDirectSession session) {
+        require(session.phase==DS_RUNNING,"Direct Expr session has no running job"); directWork(session,1); resumeDirectRetiring(action,session);
+        int packets=(session.call==null?0:1)+(session.constructorCall==null?0:1)+(session.levels.call==null?0:1);
+        require(packets<=1,"Multiple outstanding direct/constructor/Level packets");
+        if(session.call!=null) { receiveDirectHelper(action,session); return; }
+        if(session.constructorCall!=null) { receiveDirectConstructor(action,session); return; }
+        ExprDirectTask task=session.tasks.peekLast(); require(task!=null,"Missing direct Expr task");
+        if(!task.completed) {
+            if(task instanceof DirectVisitFrame) stepDirectVisit(action,session,(DirectVisitFrame)task);
+            else if(task instanceof DirectAssignmentFrame) stepDirectAssignment(action,session,(DirectAssignmentFrame)task);
+            else if(task instanceof DirectDelayedFrame) stepDirectDelayed(action,session,(DirectDelayedFrame)task);
+            else if(task instanceof DirectMVarFrame) stepDirectMVar(action,session,(DirectMVarFrame)task);
+            else if(task instanceof DirectAppFrame) stepDirectApp(action,session,(DirectAppFrame)task);
+            else if(task instanceof DirectNonMvarAppFrame) stepDirectNonMvarApp(action,session,(DirectNonMvarAppFrame)task);
+            else if(task instanceof DirectAppBetaFrame) stepDirectAppBeta(action,session,(DirectAppBetaFrame)task);
+            else if(task instanceof DirectLevelFrame) stepDirectLevel(action,session,(DirectLevelFrame)task);
+            else stepDirectLevels(action,session,(DirectLevelsFrame)task);
+            return;
+        }
+        Iterator<ExprDirectTask> ancestors=session.tasks.descendingIterator(); ancestors.next();
+        ExprDirectTask parent=ancestors.hasNext()?ancestors.next():null;
+        if(parent==null) {
+            require(task instanceof DirectVisitFrame&&task.result!=null&&task.result.owned&&session.result==null
+                    &&session.context.current!=null&&session.context.current.owned&&session.levels.phase==LS_IDLE,
+                    "Direct root completion ownership differs");
+            session.result=task.result; task.result=null; session.phase=DS_RESULT;
+        } else { require(parent.child==null,"Direct Expr child receiver occupied"); parent.child=task; }
+        session.tasks.removeLast();
+    }
+    private ExprCredit takeExprDirectResult(ExprDirectSession session) {
+        require(session.phase==DS_RESULT&&session.tasks.isEmpty()&&session.result!=null&&session.result.owned
+                &&session.call==null&&session.constructorCall==null&&session.retiring==null&&session.levels.retiring==null,
+                "Direct Expr result is not ready");
+        ExprCredit result=session.result; session.result=null; session.phase=DS_IDLE; return result;
+    }
+    private void sealExprDirectSession(ExprDirectSession session) {
+        require(session.phase==DS_IDLE&&session.result==null&&session.tasks.isEmpty()&&session.call==null
+                &&session.constructorCall==null&&session.retiring==null&&session.levels.retiring==null,
+                "Direct Expr session is not idle with result taken");
+        sealLevelSession(session.levels); session.cache.clear(); session.phase=DS_SEALED;
+    }
+    private void stepExprDirectDrain(RuntimeAction action,ExprDirectSession session) {
+        require(session.phase==DS_SEALED||session.phase==DS_DRAINING,"Direct Expr session is not sealed for drain");
+        directWork(session,1); resumeDirectRetiring(action,session); session.phase=DS_DRAINING;
+        if(session.drainStage<3) {
+            int size=session.drainStage==0?session.saved.size():session.drainStage==1?session.cacheValues.size():session.nameOwners.size();
+            if(session.drainStage==2) session.normalized.clear();
+            if(session.drainCursor<size) {
+                int at=size-1-session.drainCursor++;
+                ExprCredit credit=session.drainStage==0?session.saved.get(at):session.drainStage==1?session.cacheValues.get(at):session.nameOwners.get(at).name;
+                releaseDirect(action,session,credit); return;
+            }
+            session.drainStage++; session.drainCursor=0; return;
+        }
+        stepLevelSessionDrain(action,session.levels);
+        if(session.levels.phase!=LS_DRAINED) return;
+        session.saved.clear(); session.cacheValues.clear(); session.nameOwners.clear(); session.normalized.clear(); session.phase=DS_DRAINED;
+    }
+    private void stepExprDirectResearch(RuntimeAction action) {
+        ExprDirectResearchState state=action.exprDirect; require(state!=null,"Missing private direct Expr state");
+        ExprDirectSession session=state.session;
+        if(state.stage==0) {
+            stepExprDirectJob(action,session);
+            if(session.phase==DS_RESULT) { state.e1=takeExprDirectResult(session); sealExprDirectSession(session); state.stage=1; }
+            return;
+        }
+        if(state.stage==4) { stepExprDirectDrain(action,session); if(session.phase!=DS_DRAINED) return; state.stage=5; }
+        else { directWork(session,1); resumeDirectRetiring(action,session); }
+        if(state.stage==1) { state.stage=2; releaseDirect(action,session,state.input); return; }
+        if(state.stage==2) {
+            require(state.e1!=null&&state.e1.owned&&state.context.current!=null&&state.context.current.owned&&session.phase==DS_SEALED,
+                    "Private direct report inputs missing");
+            Node report=new Node(0,3,0); state.output=new ExprCredit(report,true); allocations++;
+            report.fields[0]=state.context.current.value; state.context.current.owned=false; state.context.current=null; state.outputFields=1;
+            state.reportExprLoan=exprCredit(state.e1.value); acquireExpr(state.reportExprLoan);
+            report.fields[1]=state.reportExprLoan.value; state.reportExprLoan.owned=false; state.outputFields=2;
+            report.fields[2]=session.hasUpdateableDelayed?Long.valueOf(1):ERASED; state.outputFields=3;
+            state.stage=3; return;
+        }
+        if(state.stage==3) { state.stage=4; releaseDirect(action,session,state.e1); return; }
+        require(state.stage==5&&session.phase==DS_DRAINED&&state.output!=null&&state.output.owned&&state.outputFields==3
+                &&state.context.current==null,"Private direct report is incomplete");
+        Object output=state.output.value; state.output.owned=false; action.output=output;
+        state.input=null; state.e1=null; state.output=null; state.reportExprLoan=null; state.context=null; state.budget=null; state.session=null;
+        action.exprDirect=null; finishAction(action,output);
+    }
+
+
     /** Five exact source-authenticated ordinary helper roles, without guest values,
      * Program bodies or catalogue resources. SHA identities remain descriptive;
      * the trusted source adapter authenticates the original bytes. */
@@ -2093,7 +2760,7 @@ public final class Interpreter implements AutoCloseable {
     private HostGuestRecord hostGuestRecord;
     private HostCall hostCompletion;
     private RuntimeAction runtimeAction,failedRuntimeAction;
-    private static final int ACTION_RELEASE=1,ACTION_DISPOSE=2,ACTION_NATIVE=3,ACTION_HOST=4,ACTION_TASK=5,ACTION_RESOLVE=6,ACTION_RUN_TASK=7,ACTION_PROFILE=8,ACTION_FIND=9,ACTION_LEVEL_MVARS=10,ACTION_EXPR_MACHINERY=11,ACTION_MVAR_SESSION_RESEARCH=12,ACTION_SHARECOMMON=13,ACTION_EXPR_REPLACE=15,ACTION_EXPR_ABSTRACT=16,ACTION_HOST_GUEST=20;
+    private static final int ACTION_RELEASE=1,ACTION_DISPOSE=2,ACTION_NATIVE=3,ACTION_HOST=4,ACTION_TASK=5,ACTION_RESOLVE=6,ACTION_RUN_TASK=7,ACTION_PROFILE=8,ACTION_FIND=9,ACTION_LEVEL_MVARS=10,ACTION_EXPR_MACHINERY=11,ACTION_MVAR_SESSION_RESEARCH=12,ACTION_SHARECOMMON=13,ACTION_EXPR_DIRECT_RESEARCH=14,ACTION_EXPR_REPLACE=15,ACTION_EXPR_ABSTRACT=16,ACTION_HOST_GUEST=20;
     private static final Body ACTION_BODY=new Body();
     /** Typed ownership/control state, separate from NodeMetadata. The output
      * scratch slot is reserved before callbacks may enter generic AP. */
@@ -2105,6 +2772,7 @@ public final class Interpreter implements AutoCloseable {
         LevelInstantiationState levelMvars;
         ExprMachineryState exprMachinery;
         MVarSessionResearchState mvarSessionResearch;
+        ExprDirectResearchState exprDirect;
         int operation,stage,savedSp,slot,dest,kind,cursor,limit,pending;
         Function function;
         Body next;
@@ -2743,9 +3411,13 @@ public final class Interpreter implements AutoCloseable {
      * tick/guest work. Until then the native packet remains the owner escrow. */
     private void actionHelperEntry(Function function,Object[] arguments) {
         levelHelperEntry(function,arguments);
+        directHelperEntry(function,arguments);
         RuntimeAction action=runtimeAction;
-        if(action==null||action.exprMachinery==null) return;
-        ExprPacket packet=action.exprMachinery.call;
+        if(action==null) return;
+        ExprPacket packet=action.exprMachinery==null?null:action.exprMachinery.call;
+        if(action.exprDirect!=null) {
+            require(packet==null,"Multiple current Expr constructor packets"); packet=action.exprDirect.session.constructorCall;
+        }
         if(packet==null||packet.entered||packet.function!=function||packet.arguments!=arguments) return;
         require(packet.started,"Expr constructor entered before packet publication");
         packet.entered=true; Arrays.fill(packet.owned,false);
@@ -3019,7 +3691,8 @@ public final class Interpreter implements AutoCloseable {
     }
     private LevelSession currentLevelSession(RuntimeAction action) {
         return action==null?null:action.levelMvars!=null?action.levelMvars.session:
-                action.mvarSessionResearch!=null?action.mvarSessionResearch.session:null;
+                action.mvarSessionResearch!=null?action.mvarSessionResearch.session:
+                action.exprDirect!=null?action.exprDirect.session.levels:null;
     }
     /** Caller anchors all original cache keys through seal. No input retain. */
     private void startLevelJob(LevelSession session,Object borrowedInput) {
@@ -3409,6 +4082,7 @@ public final class Interpreter implements AutoCloseable {
         else if(action.operation==ACTION_LEVEL_MVARS) stepLevelInstantiation(action);
         else if(action.operation==ACTION_EXPR_MACHINERY||action.operation==ACTION_EXPR_REPLACE||action.operation==ACTION_EXPR_ABSTRACT) stepExprMachinery(action);
         else if(action.operation==ACTION_MVAR_SESSION_RESEARCH) stepMVarSessionResearch(action);
+        else if(action.operation==ACTION_EXPR_DIRECT_RESEARCH) stepExprDirectResearch(action);
         else if(action.operation==ACTION_HOST_GUEST) stepHostGuest(action);
         else if(action.operation==ACTION_HOST) {
             try { stepHostCompletion(action); }
@@ -3599,6 +4273,16 @@ public final class Interpreter implements AutoCloseable {
                 HostGuestOperation out=new HostGuestOperation(child.runtimeIdentity,(HostGuestRecord)value(old.record));
                 copies.put(source,out); return out;
             }
+            if(source instanceof ExprDirectResearchState||source instanceof ExprDirectSession||source instanceof DirectHelperPacket
+                    ||source instanceof DirectNameEntry||source instanceof ExprDirectTask) {
+                Object out=source instanceof ExprDirectResearchState?new ExprDirectResearchState():source instanceof ExprDirectSession?new ExprDirectSession():
+                        source instanceof DirectHelperPacket?new DirectHelperPacket():source instanceof DirectNameEntry?new DirectNameEntry(0,null):
+                        source instanceof DirectVisitFrame?new DirectVisitFrame(null):source instanceof DirectMVarFrame?new DirectMVarFrame(null):
+                        source instanceof DirectAssignmentFrame?new DirectAssignmentFrame(null):source instanceof DirectDelayedFrame?new DirectDelayedFrame(null):
+                        source instanceof DirectAppFrame?new DirectAppFrame(null):source instanceof DirectNonMvarAppFrame?new DirectNonMvarAppFrame(null):
+                        source instanceof DirectAppBetaFrame?new DirectAppBetaFrame(null,null):source instanceof DirectLevelFrame?new DirectLevelFrame(null):new DirectLevelsFrame(null);
+                copies.put(source,out); pending.addLast(new Object[]{source,out}); return out;
+            }
             if(source instanceof ExprMachineryState||source instanceof ReplaceJob||source instanceof BetaJob
                     ||source instanceof ExprReplaceFrame||source instanceof ExprBetaFrame||source instanceof ExprPacket||source instanceof ExprCallbackPacket||source instanceof ExprCredit) {
                 Object out=source instanceof ExprMachineryState?new ExprMachineryState():source instanceof ReplaceJob?new ReplaceJob():
@@ -3674,7 +4358,7 @@ public final class Interpreter implements AutoCloseable {
                     for(int i=0;i<from.length;i++) to[i]=value(from[i]);
                 } else if(source instanceof RuntimeAction) {
                     RuntimeAction old=(RuntimeAction)source,out=(RuntimeAction)target;
-                    out.parent=(RuntimeAction)value(old.parent); out.guest=(HostGuestRecord)value(old.guest); out.find=(FindState)value(old.find); out.share=(ShareState)value(old.share); out.levelMvars=(LevelInstantiationState)value(old.levelMvars); out.exprMachinery=(ExprMachineryState)value(old.exprMachinery); out.mvarSessionResearch=(MVarSessionResearchState)value(old.mvarSessionResearch); out.operation=old.operation; out.stage=old.stage;
+                    out.parent=(RuntimeAction)value(old.parent); out.guest=(HostGuestRecord)value(old.guest); out.find=(FindState)value(old.find); out.share=(ShareState)value(old.share); out.levelMvars=(LevelInstantiationState)value(old.levelMvars); out.exprMachinery=(ExprMachineryState)value(old.exprMachinery); out.mvarSessionResearch=(MVarSessionResearchState)value(old.mvarSessionResearch); out.exprDirect=(ExprDirectResearchState)value(old.exprDirect); out.operation=old.operation; out.stage=old.stage;
                     out.savedSp=old.savedSp; out.slot=old.slot; out.dest=old.dest; out.kind=old.kind;
                     out.cursor=old.cursor; out.limit=old.limit; out.pending=old.pending;
                     out.function=(Function)value(old.function); out.next=old.next;
@@ -3684,6 +4368,67 @@ public final class Interpreter implements AutoCloseable {
                     out.task=(TaskRecord)value(old.task); out.scope=(TaskRecord)value(old.scope); out.batch=(DependencyList)value(old.batch);
                     out.output=value(old.output); out.retiring=value(old.retiring); out.releaseClaimed=old.releaseClaimed; out.current=(Node)value(old.current); out.origin=(Node)value(old.origin);
 
+                } else if(source instanceof ExprDirectResearchState) {
+                    ExprDirectResearchState old=(ExprDirectResearchState)source,out=(ExprDirectResearchState)target;
+                    out.context=(MVarContextCell)value(old.context); out.budget=(InstantiationBudget)value(old.budget);
+                    out.session=(ExprDirectSession)value(old.session); out.input=(ExprCredit)value(old.input); out.e1=(ExprCredit)value(old.e1);
+                    out.output=(ExprCredit)value(old.output); out.reportExprLoan=(ExprCredit)value(old.reportExprLoan); out.stage=old.stage; out.outputFields=old.outputFields;
+                } else if(source instanceof ExprDirectSession) {
+                    ExprDirectSession old=(ExprDirectSession)source,out=(ExprDirectSession)target;
+                    out.context=(MVarContextCell)value(old.context); out.budget=(InstantiationBudget)value(old.budget); out.levels=(LevelSession)value(old.levels); out.policy=old.policy;
+                    for(ExprDirectTask directTask:old.tasks) out.tasks.addLast((ExprDirectTask)value(directTask));
+                    for(Map.Entry<Node,ExprCredit> item:old.cache.entrySet()) out.cache.put((Node)value(item.getKey()),(ExprCredit)value(item.getValue()));
+                    for(ExprCredit credit:old.cacheValues) out.cacheValues.add((ExprCredit)value(credit));
+                    for(ExprCredit credit:old.saved) out.saved.add((ExprCredit)value(credit));
+                    for(Map.Entry<Integer,ArrayList<DirectNameEntry>> bucket:old.normalized.entrySet()) {
+                        ArrayList<DirectNameEntry> entries=new ArrayList<>(); for(DirectNameEntry entry:bucket.getValue()) entries.add((DirectNameEntry)value(entry));
+                        out.normalized.put(bucket.getKey(),entries);
+                    }
+                    for(DirectNameEntry entry:old.nameOwners) out.nameOwners.add((DirectNameEntry)value(entry));
+                    out.call=(DirectHelperPacket)value(old.call); out.constructorCall=(ExprPacket)value(old.constructorCall);
+                    out.result=(ExprCredit)value(old.result); out.retiring=(ExprCredit)value(old.retiring);
+                    out.hasUpdateableDelayed=old.hasUpdateableDelayed; out.phase=old.phase; out.drainStage=old.drainStage; out.drainCursor=old.drainCursor;
+                } else if(source instanceof DirectHelperPacket) {
+                    DirectHelperPacket old=(DirectHelperPacket)source,out=(DirectHelperPacket)target;
+                    out.function=(Function)value(old.function); out.role=old.role; out.arguments=(Object[])value(old.arguments); out.owned=old.owned.clone();
+                    out.started=old.started; out.entered=old.entered; out.target=(ExprDirectTask)value(old.target);
+                } else if(source instanceof DirectNameEntry) {
+                    DirectNameEntry old=(DirectNameEntry)source,out=(DirectNameEntry)target; out.hash=old.hash; out.name=(ExprCredit)value(old.name);
+                } else if(source instanceof ExprDirectTask) {
+                    ExprDirectTask old=(ExprDirectTask)source,out=(ExprDirectTask)target;
+                    out.child=(ExprDirectTask)value(old.child); out.result=(ExprCredit)value(old.result); out.received=(ExprCredit)value(old.received);
+                    out.stage=old.stage; out.cleanup=old.cleanup; out.completed=old.completed; out.helperDone=old.helperDone;
+                    if(source instanceof DirectVisitFrame) {
+                        DirectVisitFrame a=(DirectVisitFrame)old,b=(DirectVisitFrame)out; b.original=(Node)value(a.original); b.shared=a.shared; b.cursor=a.cursor; b.cacheTemporary=(ExprCredit)value(a.cacheTemporary);
+                        for(int i=0;i<3;i++) b.children[i]=(ExprCredit)value(a.children[i]); b.level=(LevelCredit)value(a.level); b.levels=(ExprCredit)value(a.levels);
+                    } else if(source instanceof DirectMVarFrame) {
+                        DirectMVarFrame a=(DirectMVarFrame)old,b=(DirectMVarFrame)out; b.original=(Node)value(a.original); b.name=value(a.name);
+                        b.assigned=(ExprCredit)value(a.assigned); b.delayed=(ExprCredit)value(a.delayed);
+                    } else if(source instanceof DirectAssignmentFrame) {
+                        DirectAssignmentFrame a=(DirectAssignmentFrame)old,b=(DirectAssignmentFrame)out; b.name=value(a.name); b.option=(ExprCredit)value(a.option);
+                        b.assigned=(ExprCredit)value(a.assigned); b.newValue=(ExprCredit)value(a.newValue); b.present=a.present;
+                    } else if(source instanceof DirectDelayedFrame) {
+                        DirectDelayedFrame a=(DirectDelayedFrame)old,b=(DirectDelayedFrame)out; b.name=value(a.name); b.option=(ExprCredit)value(a.option);
+                        b.recordTemporary=(ExprCredit)value(a.recordTemporary); b.pendingName=(ExprCredit)value(a.pendingName); b.conditionResult=(ExprCredit)value(a.conditionResult);
+                    } else if(source instanceof DirectAppFrame) {
+                        DirectAppFrame a=(DirectAppFrame)old,b=(DirectAppFrame)out; b.original=(Node)value(a.original); b.cursor=value(a.cursor); b.name=value(a.name);
+                        b.assigned=(ExprCredit)value(a.assigned); b.delayed=(ExprCredit)value(a.delayed);
+                    } else if(source instanceof DirectNonMvarAppFrame) {
+                        DirectNonMvarAppFrame a=(DirectNonMvarAppFrame)old,b=(DirectNonMvarAppFrame)out; b.original=(Node)value(a.original);
+                        b.argument=(ExprCredit)value(a.argument); b.function=(ExprCredit)value(a.function);
+                    } else if(source instanceof DirectAppBetaFrame) {
+                        DirectAppBetaFrame a=(DirectAppBetaFrame)old,b=(DirectAppBetaFrame)out; b.cursor=value(a.cursor); b.functionOptional=(ExprCredit)value(a.functionOptional);
+                        b.betaParameter=(ExprCredit)value(a.betaParameter); b.argumentTemporary=(ExprCredit)value(a.argumentTemporary);
+                        for(ExprCredit credit:a.arguments) b.arguments.add((ExprCredit)value(credit));
+                    } else if(source instanceof DirectLevelFrame) {
+                        DirectLevelFrame a=(DirectLevelFrame)old,b=(DirectLevelFrame)out; b.input=value(a.input); b.levelResult=(LevelCredit)value(a.levelResult);
+                    } else {
+                        DirectLevelsFrame a=(DirectLevelsFrame)old,b=(DirectLevelsFrame)out; b.original=value(a.original); b.cursor=value(a.cursor);
+                        for(Node node:a.cells) b.cells.add((Node)value(node)); b.firstChanged=(LevelCredit)value(a.firstChanged);
+                        b.currentHead=(LevelCredit)value(a.currentHead); b.headLoan=(LevelCredit)value(a.headLoan);
+                        b.list=(ExprCredit)value(a.list); b.replacement=(ExprCredit)value(a.replacement); b.tailLoan=(ExprCredit)value(a.tailLoan); b.consCredit=(ExprCredit)value(a.consCredit);
+                        b.building=(Node)value(a.building); b.index=a.index; b.builtFields=a.builtFields;
+                    }
                 } else if(source instanceof ExprCredit) {
                     ExprCredit old=(ExprCredit)source,out=(ExprCredit)target; out.value=value(old.value); out.owned=old.owned;
                 } else if(source instanceof ExprReplaceFrame) {
@@ -3702,7 +4447,7 @@ public final class Interpreter implements AutoCloseable {
                     ExprPacket old=(ExprPacket)source,out=(ExprPacket)target; out.function=(Function)value(old.function);
                     out.arguments=(Object[])value(old.arguments); out.expectedFields=(Object[])value(old.expectedFields); out.owned=old.owned.clone();
                     out.role=old.role; out.expectedTag=old.expectedTag; out.expectedFlag=old.expectedFlag;
-                    out.started=old.started; out.entered=old.entered; out.replaceFrame=(ExprReplaceFrame)value(old.replaceFrame); out.beta=(BetaJob)value(old.beta);
+                    out.started=old.started; out.entered=old.entered; out.replaceFrame=(ExprReplaceFrame)value(old.replaceFrame); out.beta=(BetaJob)value(old.beta); out.directTarget=(ExprDirectTask)value(old.directTarget);
                 } else if(source instanceof ExprJob) {
                     ExprJob old=(ExprJob)source,out=(ExprJob)target;
                     out.result=(ExprCredit)value(old.result); out.childResult=(ExprCredit)value(old.childResult); out.completed=old.completed; out.cleanup=old.cleanup;

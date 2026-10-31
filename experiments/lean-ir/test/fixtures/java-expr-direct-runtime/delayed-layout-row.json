@@ -1,0 +1,856 @@
+{
+  "label": "Lean.assignDelayedMVar constructor layout evidence",
+  "sha256": "e340ec731fe0423fc8c81cb107093dac384829593d9b23c06e3f9296dffd79ad",
+  "row": {
+    "dependencies": [
+      [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Lean"
+            ],
+            "PersistentHashMap"
+          ],
+          "insert"
+        ],
+        "_redArg"
+      ]
+    ],
+    "ir": {
+      "fdecl": {
+        "body": [
+          "vdecl",
+          {
+            "idx": 7
+          },
+          "tobject",
+          {
+            "proj": {
+              "i": 0,
+              "x": {
+                "idx": 6
+              }
+            }
+          },
+          [
+            "vdecl",
+            {
+              "idx": 8
+            },
+            "tobject",
+            {
+              "proj": {
+                "i": 1,
+                "x": {
+                  "idx": 6
+                }
+              }
+            },
+            [
+              "vdecl",
+              {
+                "idx": 9
+              },
+              "tobject",
+              {
+                "proj": {
+                  "i": 2,
+                  "x": {
+                    "idx": 6
+                  }
+                }
+              },
+              [
+                "vdecl",
+                {
+                  "idx": 10
+                },
+                "tobject",
+                {
+                  "proj": {
+                    "i": 3,
+                    "x": {
+                      "idx": 6
+                    }
+                  }
+                },
+                [
+                  "vdecl",
+                  {
+                    "idx": 11
+                  },
+                  "object",
+                  {
+                    "proj": {
+                      "i": 4,
+                      "x": {
+                        "idx": 6
+                      }
+                    }
+                  },
+                  [
+                    "vdecl",
+                    {
+                      "idx": 12
+                    },
+                    "object",
+                    {
+                      "proj": {
+                        "i": 5,
+                        "x": {
+                          "idx": 6
+                        }
+                      }
+                    },
+                    [
+                      "vdecl",
+                      {
+                        "idx": 13
+                      },
+                      "object",
+                      {
+                        "proj": {
+                          "i": 6,
+                          "x": {
+                            "idx": 6
+                          }
+                        }
+                      },
+                      [
+                        "vdecl",
+                        {
+                          "idx": 14
+                        },
+                        "object",
+                        {
+                          "proj": {
+                            "i": 7,
+                            "x": {
+                              "idx": 6
+                            }
+                          }
+                        },
+                        [
+                          "vdecl",
+                          {
+                            "idx": 15
+                          },
+                          "object",
+                          {
+                            "proj": {
+                              "i": 8,
+                              "x": {
+                                "idx": 6
+                              }
+                            }
+                          },
+                          [
+                            "vdecl",
+                            {
+                              "idx": 16
+                            },
+                            "object",
+                            {
+                              "proj": {
+                                "i": 9,
+                                "x": {
+                                  "idx": 6
+                                }
+                              }
+                            },
+                            [
+                              "jdecl",
+                              {
+                                "idx": 17
+                              },
+                              [
+                                {
+                                  "borrow": false,
+                                  "ty": "tobject",
+                                  "x": {
+                                    "idx": 18
+                                  }
+                                },
+                                {
+                                  "borrow": false,
+                                  "ty": "uint8",
+                                  "x": {
+                                    "idx": 19
+                                  }
+                                }
+                              ],
+                              [
+                                "vdecl",
+                                {
+                                  "idx": 20
+                                },
+                                "object",
+                                {
+                                  "ctor": {
+                                    "i": {
+                                      "cidx": 0,
+                                      "name": [
+                                        "str",
+                                        [
+                                          "str",
+                                          [
+                                            "str",
+                                            [
+                                              "anonymous"
+                                            ],
+                                            "Lean"
+                                          ],
+                                          "DelayedMetavarAssignment"
+                                        ],
+                                        "mk"
+                                      ],
+                                      "size": 2,
+                                      "ssize": 0,
+                                      "usize": 0
+                                    },
+                                    "ys": [
+                                      {
+                                        "var": {
+                                          "id": {
+                                            "idx": 1
+                                          }
+                                        }
+                                      },
+                                      {
+                                        "var": {
+                                          "id": {
+                                            "idx": 2
+                                          }
+                                        }
+                                      }
+                                    ]
+                                  }
+                                },
+                                [
+                                  "vdecl",
+                                  {
+                                    "idx": 21
+                                  },
+                                  "object",
+                                  {
+                                    "fap": {
+                                      "c": [
+                                        "str",
+                                        [
+                                          "str",
+                                          [
+                                            "str",
+                                            [
+                                              "str",
+                                              [
+                                                "anonymous"
+                                              ],
+                                              "Lean"
+                                            ],
+                                            "PersistentHashMap"
+                                          ],
+                                          "insert"
+                                        ],
+                                        "_redArg"
+                                      ],
+                                      "ys": [
+                                        {
+                                          "var": {
+                                            "id": {
+                                              "idx": 3
+                                            }
+                                          }
+                                        },
+                                        {
+                                          "var": {
+                                            "id": {
+                                              "idx": 4
+                                            }
+                                          }
+                                        },
+                                        {
+                                          "var": {
+                                            "id": {
+                                              "idx": 16
+                                            }
+                                          }
+                                        },
+                                        {
+                                          "var": {
+                                            "id": {
+                                              "idx": 5
+                                            }
+                                          }
+                                        },
+                                        {
+                                          "var": {
+                                            "id": {
+                                              "idx": 20
+                                            }
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  },
+                                  [
+                                    "jdecl",
+                                    {
+                                      "idx": 22
+                                    },
+                                    [
+                                      {
+                                        "borrow": false,
+                                        "ty": "object",
+                                        "x": {
+                                          "idx": 23
+                                        }
+                                      }
+                                    ],
+                                    [
+                                      "ret",
+                                      {
+                                        "var": {
+                                          "id": {
+                                            "idx": 23
+                                          }
+                                        }
+                                      }
+                                    ],
+                                    [
+                                      "case",
+                                      [
+                                        "str",
+                                        [
+                                          "anonymous"
+                                        ],
+                                        "UInt8"
+                                      ],
+                                      {
+                                        "idx": 19
+                                      },
+                                      "uint8",
+                                      [
+                                        [
+                                          "ctor",
+                                          {
+                                            "cidx": 0,
+                                            "name": [
+                                              "str",
+                                              [
+                                                "str",
+                                                [
+                                                  "anonymous"
+                                                ],
+                                                "Bool"
+                                              ],
+                                              "false"
+                                            ],
+                                            "size": 0,
+                                            "ssize": 0,
+                                            "usize": 0
+                                          },
+                                          [
+                                            "set",
+                                            {
+                                              "idx": 18
+                                            },
+                                            9,
+                                            {
+                                              "var": {
+                                                "id": {
+                                                  "idx": 21
+                                                }
+                                              }
+                                            },
+                                            [
+                                              "jmp",
+                                              {
+                                                "idx": 22
+                                              },
+                                              [
+                                                {
+                                                  "var": {
+                                                    "id": {
+                                                      "idx": 18
+                                                    }
+                                                  }
+                                                }
+                                              ]
+                                            ]
+                                          ]
+                                        ],
+                                        [
+                                          "ctor",
+                                          {
+                                            "cidx": 1,
+                                            "name": [
+                                              "str",
+                                              [
+                                                "str",
+                                                [
+                                                  "anonymous"
+                                                ],
+                                                "Bool"
+                                              ],
+                                              "true"
+                                            ],
+                                            "size": 0,
+                                            "ssize": 0,
+                                            "usize": 0
+                                          },
+                                          [
+                                            "vdecl",
+                                            {
+                                              "idx": 24
+                                            },
+                                            "object",
+                                            {
+                                              "ctor": {
+                                                "i": {
+                                                  "cidx": 0,
+                                                  "name": [
+                                                    "str",
+                                                    [
+                                                      "str",
+                                                      [
+                                                        "str",
+                                                        [
+                                                          "anonymous"
+                                                        ],
+                                                        "Lean"
+                                                      ],
+                                                      "MetavarContext"
+                                                    ],
+                                                    "mk"
+                                                  ],
+                                                  "size": 10,
+                                                  "ssize": 0,
+                                                  "usize": 0
+                                                },
+                                                "ys": [
+                                                  {
+                                                    "var": {
+                                                      "id": {
+                                                        "idx": 7
+                                                      }
+                                                    }
+                                                  },
+                                                  {
+                                                    "var": {
+                                                      "id": {
+                                                        "idx": 8
+                                                      }
+                                                    }
+                                                  },
+                                                  {
+                                                    "var": {
+                                                      "id": {
+                                                        "idx": 9
+                                                      }
+                                                    }
+                                                  },
+                                                  {
+                                                    "var": {
+                                                      "id": {
+                                                        "idx": 10
+                                                      }
+                                                    }
+                                                  },
+                                                  {
+                                                    "var": {
+                                                      "id": {
+                                                        "idx": 11
+                                                      }
+                                                    }
+                                                  },
+                                                  {
+                                                    "var": {
+                                                      "id": {
+                                                        "idx": 12
+                                                      }
+                                                    }
+                                                  },
+                                                  {
+                                                    "var": {
+                                                      "id": {
+                                                        "idx": 13
+                                                      }
+                                                    }
+                                                  },
+                                                  {
+                                                    "var": {
+                                                      "id": {
+                                                        "idx": 14
+                                                      }
+                                                    }
+                                                  },
+                                                  {
+                                                    "var": {
+                                                      "id": {
+                                                        "idx": 15
+                                                      }
+                                                    }
+                                                  },
+                                                  {
+                                                    "var": {
+                                                      "id": {
+                                                        "idx": 21
+                                                      }
+                                                    }
+                                                  }
+                                                ]
+                                              }
+                                            },
+                                            [
+                                              "jmp",
+                                              {
+                                                "idx": 22
+                                              },
+                                              [
+                                                {
+                                                  "var": {
+                                                    "id": {
+                                                      "idx": 24
+                                                    }
+                                                  }
+                                                }
+                                              ]
+                                            ]
+                                          ]
+                                        ]
+                                      ]
+                                    ]
+                                  ]
+                                ]
+                              ],
+                              [
+                                "vdecl",
+                                {
+                                  "idx": 25
+                                },
+                                "uint8",
+                                {
+                                  "isShared": {
+                                    "x": {
+                                      "idx": 6
+                                    }
+                                  }
+                                },
+                                [
+                                  "case",
+                                  [
+                                    "str",
+                                    [
+                                      "anonymous"
+                                    ],
+                                    "UInt8"
+                                  ],
+                                  {
+                                    "idx": 25
+                                  },
+                                  "uint8",
+                                  [
+                                    [
+                                      "ctor",
+                                      {
+                                        "cidx": 0,
+                                        "name": [
+                                          "str",
+                                          [
+                                            "str",
+                                            [
+                                              "anonymous"
+                                            ],
+                                            "Bool"
+                                          ],
+                                          "false"
+                                        ],
+                                        "size": 0,
+                                        "ssize": 0,
+                                        "usize": 0
+                                      },
+                                      [
+                                        "jmp",
+                                        {
+                                          "idx": 17
+                                        },
+                                        [
+                                          {
+                                            "var": {
+                                              "id": {
+                                                "idx": 6
+                                              }
+                                            }
+                                          },
+                                          {
+                                            "var": {
+                                              "id": {
+                                                "idx": 25
+                                              }
+                                            }
+                                          }
+                                        ]
+                                      ]
+                                    ],
+                                    [
+                                      "ctor",
+                                      {
+                                        "cidx": 1,
+                                        "name": [
+                                          "str",
+                                          [
+                                            "str",
+                                            [
+                                              "anonymous"
+                                            ],
+                                            "Bool"
+                                          ],
+                                          "true"
+                                        ],
+                                        "size": 0,
+                                        "ssize": 0,
+                                        "usize": 0
+                                      },
+                                      [
+                                        "inc",
+                                        {
+                                          "idx": 16
+                                        },
+                                        1,
+                                        true,
+                                        false,
+                                        [
+                                          "inc",
+                                          {
+                                            "idx": 15
+                                          },
+                                          1,
+                                          true,
+                                          false,
+                                          [
+                                            "inc",
+                                            {
+                                              "idx": 14
+                                            },
+                                            1,
+                                            true,
+                                            false,
+                                            [
+                                              "inc",
+                                              {
+                                                "idx": 13
+                                              },
+                                              1,
+                                              true,
+                                              false,
+                                              [
+                                                "inc",
+                                                {
+                                                  "idx": 12
+                                                },
+                                                1,
+                                                true,
+                                                false,
+                                                [
+                                                  "inc",
+                                                  {
+                                                    "idx": 11
+                                                  },
+                                                  1,
+                                                  true,
+                                                  false,
+                                                  [
+                                                    "inc",
+                                                    {
+                                                      "idx": 10
+                                                    },
+                                                    1,
+                                                    true,
+                                                    false,
+                                                    [
+                                                      "inc",
+                                                      {
+                                                        "idx": 9
+                                                      },
+                                                      1,
+                                                      true,
+                                                      false,
+                                                      [
+                                                        "inc",
+                                                        {
+                                                          "idx": 8
+                                                        },
+                                                        1,
+                                                        true,
+                                                        false,
+                                                        [
+                                                          "inc",
+                                                          {
+                                                            "idx": 7
+                                                          },
+                                                          1,
+                                                          true,
+                                                          false,
+                                                          [
+                                                            "dec",
+                                                            {
+                                                              "idx": 6
+                                                            },
+                                                            1,
+                                                            true,
+                                                            false,
+                                                            [
+                                                              "jmp",
+                                                              {
+                                                                "idx": 17
+                                                              },
+                                                              [
+                                                                "erased",
+                                                                {
+                                                                  "var": {
+                                                                    "id": {
+                                                                      "idx": 25
+                                                                    }
+                                                                  }
+                                                                }
+                                                              ]
+                                                            ]
+                                                          ]
+                                                        ]
+                                                      ]
+                                                    ]
+                                                  ]
+                                                ]
+                                              ]
+                                            ]
+                                          ]
+                                        ]
+                                      ]
+                                    ]
+                                  ]
+                                ]
+                              ]
+                            ]
+                          ]
+                        ]
+                      ]
+                    ]
+                  ]
+                ]
+              ]
+            ]
+          ]
+        ],
+        "f": [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "Lean"
+              ],
+              "assignDelayedMVar"
+            ],
+            "_redArg"
+          ],
+          "_lam_0"
+        ],
+        "info": {},
+        "type": "object",
+        "xs": [
+          {
+            "borrow": false,
+            "ty": "object",
+            "x": {
+              "idx": 1
+            }
+          },
+          {
+            "borrow": false,
+            "ty": "tobject",
+            "x": {
+              "idx": 2
+            }
+          },
+          {
+            "borrow": false,
+            "ty": "object",
+            "x": {
+              "idx": 3
+            }
+          },
+          {
+            "borrow": false,
+            "ty": "object",
+            "x": {
+              "idx": 4
+            }
+          },
+          {
+            "borrow": false,
+            "ty": "tobject",
+            "x": {
+              "idx": 5
+            }
+          },
+          {
+            "borrow": false,
+            "ty": "object",
+            "x": {
+              "idx": 6
+            }
+          }
+        ]
+      }
+    },
+    "kind": "decl",
+    "name": [
+      "str",
+      [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "Lean"
+          ],
+          "assignDelayedMVar"
+        ],
+        "_redArg"
+      ],
+      "_lam_0"
+    ],
+    "redirect": null,
+    "runtime": {
+      "initializer": null,
+      "role": "ordinary"
+    },
+    "sourceLocal": true,
+    "sourceModule": [
+      "str",
+      [
+        "str",
+        [
+          "anonymous"
+        ],
+        "Lean"
+      ],
+      "MetavarContext"
+    ]
+  }
+}

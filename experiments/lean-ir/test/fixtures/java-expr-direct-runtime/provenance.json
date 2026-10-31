@@ -1,0 +1,80 @@
+{
+  "schema": "original-expr-direct/1",
+  "lean-commit": "819816b2e0a3bf405af45ae5c7af2491d8f5bee6",
+  "source-index-sha256": "74d833d577923821b982e8a9e872a38b5cad011513eb18870b51417e13397f0e",
+  "roles": {
+    "level": [
+      "Lean.getLevelMVarAssignmentExp",
+      "Lean.assignLevelMVarExp",
+      "Lean.Level.succ._override",
+      "Lean.Level.max._override",
+      "Lean.Level.imax._override"
+    ],
+    "constructors": [
+      "Lean.Expr.bvar._override",
+      "Lean.Expr.sort._override",
+      "Lean.Expr.const._override",
+      "Lean.Expr.app._override",
+      "Lean.Expr.lam._override._boxed",
+      "Lean.Expr.forallE._override._boxed",
+      "Lean.Expr.letE._override._boxed",
+      "Lean.Expr.mdata._override",
+      "Lean.Expr.proj._override"
+    ],
+    "expr": [
+      "Lean.MetavarContext.getExprAssignmentExp",
+      "Lean.MetavarContext.getDelayedMVarAssignmentExp",
+      "Lean.DelayedMetavarAssignment.fvarsExp",
+      "Lean.DelayedMetavarAssignment.mvarIdPendingExp",
+      "Lean.assignExp"
+    ]
+  },
+  "rows": 20,
+  "original-rows-sha256": "8b082311d688a62fb76b6d1295fb57c00d2bebc8b7b17243beb270c1d90fbc21",
+  "source-sha256": {
+    "src/library/instantiate_mvars.cpp": "3f7a084db583754149090964308eefead0debc62a3d0e63cfbf83ab96f400b14",
+    "src/runtime/list_ref.h": "7982bc536e7a039395e08689676a4ea414196804a6a05ab4e4b5709cfcc27f61",
+    "src/runtime/option_ref.h": "e4664b6095c48f86afe33af03bfbd99c1322453c48c7a59742963f2dc476aa41",
+    "src/runtime/buffer.h": "9fac1c6513f865a514d62c6773c3a44b651d9179841bcb03cf57572da9e57f1b",
+    "src/runtime/object_ref.h": "7acbddd207cf4932f810b6d7f96691aa95d5a1d58a0257b44911281bd10a77d5",
+    "src/kernel/instantiate.cpp": "42527c96f4053fb3cbf4c26fbd544b1c4e0399e5c41b0fd792935d1d42f8916a",
+    "src/kernel/replace_fn.cpp": "2edfa1721059dbb570ba99746f2cd60d1d691071523c129a12b3b9414972ac67",
+    "src/util/name.h": "604f5351cfcd65019f8a30c4c09b917204bc1b9dc53d123d6f530627d75cfd98",
+    "src/util/name_set.h": "8dae7819c11a9c49a56e5d2661a5c56de642f139d73307b3866d4d63a105a886",
+    "src/include/lean/lean.h": "02af0040283143b264e3a44b06b348b6973ae6037fa8f550701c83dd7a062ace",
+    "src/Lean/MetavarContext.lean": "c077803ff87931e95ab13401b9119317a4268206814ace2a2d9586c9786355af"
+  },
+  "scope": "19 canonical helper roles plus original native as negative evidence; native remains unregistered",
+  "normalization": "Only optional top-level pretty removed; each record SHA identifies complete original CAS bytes",
+  "execution-rows": 111,
+  "execution-rows-sha256": "6a33139758d05a8f4692a24d275a8d643f0baf1f0947bce469a7c07266c0204c",
+  "execution-raw-bytes": 310018,
+  "execution-normalized-bytes": 260951,
+  "execution-initialized-dependencies": [],
+  "execution-scope": "exact finite FAP/PAP closure of 19 helper roles; 512decl/8MiBraw/30s/256MiB metadata bounds",
+  "delayed-layout-evidence": {
+    "file": "delayed-layout-row.json",
+    "sha256": "981a439d2a7414f627e39ba9ef1437e195eefd4e555569683bd0c2187b58d9fc",
+    "original-sha256": "e340ec731fe0423fc8c81cb107093dac384829593d9b23c06e3f9296dffd79ad",
+    "name": [
+      "str",
+      [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "Lean"
+          ],
+          "assignDelayedMVar"
+        ],
+        "_redArg"
+      ],
+      "_lam_0"
+    ],
+    "scope": "compiled DelayedMetavarAssignment ctor0/two object fields/no scalars only; not part of execution closure"
+  }
+}
