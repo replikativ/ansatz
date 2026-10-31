@@ -175,3 +175,19 @@ The runner loads the independent model before the two test namespaces and adds
 both count-guarded groups (119 total on this base). Full combined integration and
 existing direct/Level/machinery/session regressions remain required after merge
 with concurrent runtime units; these focused results do not enable full pass two.
+
+## Integration with native expression transforms
+
+The reviewed foundation is integrated with the direct pass and the original
+replacement/abstraction natives. Java SHA-256 is
+`200637089e7b5260061e67205981f973f9dae1a26d1c38ddde48ea76983d0e7b`;
+immutable jar SHA-256 is
+`28dce856d3455b44ee04d646d25c349d2a806a2fa63e279a4b737684493343e3`.
+Independent integration review confirmed the source delta and the action/fork
+unions preserve the previously reviewed implementations. The retained 384 MiB
+REPL passed semantic10/211 and control8/129. The separate combined 384 MiB
+gate exited zero: **123 groups / 1,246 tests / 55,352 assertions**, no failures
+or errors. Its receipt SHA-256 is
+`08efc6b7d36fabd0c4d2ae3a9bd13b379d370345a08be30413f15d0b6494699c`.
+These tests cover private foundation protocols; the complete delayed transform
+and original Expr instantiator native remain separate acceptance gates.
