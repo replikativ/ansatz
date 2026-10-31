@@ -26,7 +26,7 @@ def main():
     commit = subprocess.check_output(['lean', '+leanprover/lean4:v4.33.1', '--githash'], text=True).strip()
     if commit != PIN:
         raise ValueError('wrong Lean compiler')
-    files = {f'producer/{p.name}': digest(p) for p in here.iterdir() if p.is_file() and p.suffix in {'.lean', '.sh', '.py', '.cpp'}}
+    files = {f'producer/{p.name}': digest(p) for p in here.iterdir() if p.is_file() and p.suffix in {'.lean', '.sh', '.py', '.cpp', '.clj'}}
     files.update({
         'lean4export/Export.lean': digest(exporter / 'Export.lean'),
         'native/ModuleDataTransport.cpp': digest(root / 'native/ModuleDataTransport.cpp'),
