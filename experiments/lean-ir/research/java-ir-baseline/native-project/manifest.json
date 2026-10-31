@@ -1,0 +1,182 @@
+{
+  "schema": "native-project-entry-research-package/1",
+  "scope": "Fixed unchanged tutorial native-frontend compilation and JavaIR entry execution; not hosted Init or JavaTC",
+  "tested-runner-sha256": "ea4502d5a9ab79cbd340155142dc8919ccdcb3291ad018ff871dde45793bff76",
+  "sources": [
+    {
+      "file": "JAVA_API_DESIGN.md",
+      "sha256": "ce1f9ca30586f87b9568d06fb1511ee7aebcf5934e3b277c31355872389aee92"
+    },
+    {
+      "file": "README.md",
+      "sha256": "c919b33a347110e36e707675e4ad86a57c486d14270f2bf4ca77d753a9b5a718"
+    },
+    {
+      "file": "loader.clj",
+      "sha256": "3ba83fb3a19030b5a77d5e2aef74545fa5c6dda4f857cd087af0542300b7afb0"
+    },
+    {
+      "file": "models.clj",
+      "sha256": "54bd45cc298e7c74f905b9a432d0ec5dda90ce324864419e911e0c92eaac2e18"
+    },
+    {
+      "file": "runner.clj",
+      "sha256": "ea4502d5a9ab79cbd340155142dc8919ccdcb3291ad018ff871dde45793bff76"
+    },
+    {
+      "file": "service-models.clj",
+      "sha256": "85fff4b3767c1813863bac9d626f033885664cbd56664299e7250f4ecb550da2"
+    },
+    {
+      "file": "service.clj",
+      "sha256": "b0248b4e234bd60110897e9d256033b596ef169bfcdbd5ce4a59af772cedaaaf"
+    },
+    {
+      "file": "verify-source.py",
+      "sha256": "51b587d85e4e08b0b55a4e27c74174daff75b56fc07aed9657485bd1bda50d72"
+    }
+  ],
+  "producer-artifact": {
+    "schema": "native-compiled-project/1",
+    "manifest-sha256": "a0e810c420df4fd10ba2785cae4594d9aaf8b813b14ab342f36844961e73ff55",
+    "execution-stream-sha256": "6e5a4309c6135d9f45784e209e01eafb2c6b08874f9f27c757d4d0c9983c2a6d",
+    "actual-local-initialization-actions": [],
+    "static-rows": 6,
+    "dynamic-AP-sites": 1,
+    "native-stdout-sha256": "d9014c4624844aa5bac314773d6b689ad467fa4e1d1a50a1b8a99d5a95f72ff5"
+  },
+  "acceptance": {
+    "origin": "Parent retained 512MiB JVM profile gate; worker launched no JVM/Lean process",
+    "receipt": {
+      "file": "target/java-source-exchange-v1/native-tutorial-profile-result-v1.edn",
+      "sha256": "2f9b09bfdc8b62312d7513c281b6ebdd8619bf098edd59cc99f2f47ebd8beb9c"
+    },
+    "actualIOResult": "IO.ok Unit",
+    "stdoutUTF8": "Hello, world!\n",
+    "stderrUTF8": "",
+    "nativeReferenceMatch": true,
+    "engine": "synchronous-closed",
+    "hostedFrontend": false,
+    "javaKernelChecked": false,
+    "fullInitImported": false
+  },
+  "pending": [
+    "Cold compilation through the JVM wrapper (not started below its 2 GiB memory floor)",
+    "Hosted default Init and Java kernel rechecking",
+    "Generic bounded project compilation and checked entry type evidence beyond exact tutorial profile",
+    "Public Java API proposal review, persistent project lifetime and Python-free bundled helper packaging"
+  ],
+  "prototype-build-service": {
+    "source": "tutorial-demo/service.py (producer separate unit)",
+    "sha256": "cced99b38c7c8d7bcae0ef256c790c0d59a45380dd6d31174470cd8f450f03fb",
+    "authority": "Trusted installed official toolchain; no full library byte attestation",
+    "producer-reported-cold-hit": "Actual standalone service cold build and cache hit PASS; no landing-assembly native/JVM execution",
+    "producer-reported-manifest-sha256": "bb3f1f21544c7284411105cae2a388eb48d7ee078bb42026dbf315c5a9eb525b"
+  },
+  "validation": {
+    "schema": "native-project-landing-validation/1",
+    "baseCommit": "89d45546338dd4e3dd58b35051037fb99a8f69e1",
+    "sourceScope": {
+      "tutorialFiles": 4,
+      "nativeProjectFiles": 9,
+      "kernelSourceChanged": false,
+      "storeOrImageBundled": false,
+      "bootstrapIncluded": false
+    },
+    "entryModels": {
+      "tests": 6,
+      "assertions": 29,
+      "failures": 0,
+      "errors": 0,
+      "receipt": {
+        "file": "target/java-source-exchange-v1/native-profile-models-v1.edn",
+        "sha256": "8e25364a6049bd31c28d8d58ccb3737cd9af41ac22a92e3a72ec5f7e89d2107f"
+      }
+    },
+    "clientModels": {
+      "tests": 4,
+      "assertions": 14,
+      "failures": 0,
+      "errors": 0,
+      "receipt": {
+        "file": "target/java-source-exchange-v1/native-project-service-models-v2.edn",
+        "sha256": "db0f14f0ab8e62248bb5923195860ca3e70c7b7b08542bd27f9cb0bec0add587"
+      }
+    },
+    "pythonServiceChecks": {
+      "tests": 7,
+      "failures": 0,
+      "errors": 0,
+      "leanExecuted": false,
+      "JVMStarted": false,
+      "scope": "metadata/cache and small Python process models"
+    },
+    "standaloneServiceColdAndHit": {
+      "status": "PASS",
+      "nativeStageSeconds": 6.600747922027949,
+      "peakSampledRSSKiB": 672284,
+      "cacheKey": "29b51cf1d26bf65dc29ab0630656807155776a92995aa0927e285cb24b02e03f",
+      "manifestSHA256": "bb3f1f21544c7284411105cae2a388eb48d7ee078bb42026dbf315c5a9eb525b",
+      "IRSHA256": "6e5a4309c6135d9f45784e209e01eafb2c6b08874f9f27c757d4d0c9983c2a6d",
+      "nativeStdoutBytes": 14,
+      "nativeStdoutSHA256": "d9014c4624844aa5bac314773d6b689ad467fa4e1d1a50a1b8a99d5a95f72ff5"
+    },
+    "JVMClientCacheHit": {
+      "status": "project-path-cache-hit-executed",
+      "heapCapMiB": 512,
+      "manualExportStep": false,
+      "sourceFilesUnchanged": 3,
+      "actualResult": "IO.ok Unit",
+      "stdoutBytes": 14,
+      "stdoutSHA256": "d9014c4624844aa5bac314773d6b689ad467fa4e1d1a50a1b8a99d5a95f72ff5",
+      "nativeReferenceMatch": true,
+      "engine": "synchronous-closed",
+      "receipt": {
+        "file": "target/java-source-exchange-v1/native-project-path-acceptance-v1.edn",
+        "sha256": "e5df2bf7eba2ff0bf64b08ee0920c95afbe84190b7b805c78905f9e32da830d1"
+      }
+    },
+    "JVMClientColdCompile": {
+      "status": "not-run",
+      "nativeJobStarted": false,
+      "reason": "Preflight MemAvailable about 1.7 GiB, below the 2 GiB floor"
+    },
+    "repeatedTinyEntry": {
+      "preparedProgramReused": true,
+      "freshEnginePerCall": true,
+      "resultValidationAndCloseIncluded": true,
+      "warmup": 30,
+      "samples": 100,
+      "medianMicroseconds": 69.415,
+      "p95Microseconds": 457.489,
+      "meanMicroseconds": 125.54383,
+      "threadAllocatedBytesPerCall": 26592.4,
+      "compilerIncluded": false,
+      "generalLeanPerformanceComparison": false,
+      "receipt": {
+        "file": "target/java-source-exchange-v1/native-tutorial-call-cost-v1.edn",
+        "sha256": "e1eb90a61b821d6ae8f1a4bbb2a060abb35aaf684ac0f323549813dab6b80b6b"
+      }
+    },
+    "nonClaims": {
+      "hostedFrontend": false,
+      "javaKernelRechecked": false,
+      "fullInitImported": false,
+      "genericProjects": false,
+      "publicJavaAPI": false,
+      "mandatoryPublicPythonDependency": false
+    },
+    "tutorialSourcePins": {
+      "README.md": "9094336e32e72b5a7031495131eacb16922423af62967a595e077e9fe0044631",
+      "corpus.json": "ae0d03a6bf2a2df5a977d66f8ffad839a4abdb3ea5667c23be653b7a959a3483",
+      "service.py": "cced99b38c7c8d7bcae0ef256c790c0d59a45380dd6d31174470cd8f450f03fb",
+      "service_checks.py": "46ae8026d3a29738728980593baa10e6db300b6018b36ec64d294c7825f895ac"
+    }
+  },
+  "public-api-design": {
+    "file": "JAVA_API_DESIGN.md",
+    "status": "proposal only; no public implementation",
+    "production-reference": "Ansatz662ac21",
+    "reuse": "Existing Java kernel and lazy PSS/fetch APIs; no default full Init/Mathlib replay"
+  }
+}
