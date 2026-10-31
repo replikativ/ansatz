@@ -1,0 +1,11 @@
+{
+  "schema": "lean-native-entry-requests/1",
+  "module": ["str", ["anonymous"], "NativeEntryCases"],
+  "entries": [
+    {"name": ["str", ["str", ["anonymous"], "NativeEntryCases"], "natStep"], "signature": "nat-to-nat"},
+    {"name": ["str", ["str", ["anonymous"], "NativeEntryCases"], "aliasIdentity"], "signature": "nat-to-nat"},
+    {"name": ["str", ["str", ["anonymous"], "NativeEntryCases"], "stringCase"], "signature": "string-to-string"},
+    {"name": ["str", ["str", ["anonymous"], "NativeEntryCases"], "action"], "signature": "io-unit"},
+    {"name": ["str", ["str", ["anonymous"], "NativeEntryCases"], "7"], "signature": "nat-to-nat"}
+  ]
+}

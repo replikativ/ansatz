@@ -32,6 +32,19 @@ Diagnostic severity/positions come from the actual frontend message log/file
 map when available; retain raw diagnostics otherwise rather than inventing spans
 or categories from exception-message text.
 
+Provide two deployment paths, with names still subject to API discussion:
+`loadProject(path)` owns native source compilation/cache for development, while
+`loadArtifact(resource)` loads a previously built bounded compiled artifact using
+only the JVM. A Maven/Gradle build plugin can compile `src/main/lean` with the
+configured official compiler and packaged helper, then put IR, typed entry
+evidence and provenance in the application JAR. Production applications need
+only ordinary runtime dependencies: no Lean installation, Python, compiler or
+manual export step. Current artifact preparation already demonstrates loading
+without invoking Lean in the JVM process. The native checker remains a build-time
+trust boundary; artifact loading still validates bytes, format, target, exact ABI
+and runtime capabilities. A compiled artifact is not a JavaTC proof certificate.
+This reduces deployment friction independently of the hosted frontend roadmap.
+
 For a separately implemented typed-function gate:
 
 ```java
@@ -82,6 +95,25 @@ cause and diagnostics. A normal close or a safe engine-abandonment policy must
 be validated for the admitted v1 value/IO profile before release. It must not
 pretend unknown callback/finalizer stages were discharged. Expired host-idle
 budgets are rebased before retirement effects; argument rejection is pre-effect.
+
+Generic execution must use explicit/resumable Engine start/advance/take with
+cooperative instruction/work, deadline and output limits plus cancellation at
+host-controlled quanta. The accepted fixed six-row synchronous `j.call` is not
+the general implementation: total Lean functions can take impractical time and
+partial IO programs can loop indefinitely. Cancellation must remain available
+without launching another JVM or restarting a frontend.
+
+Before generic release, establish a restricted pure-JVM-value/captured-stdio
+abandonment policy for budget/failure boundaries. After advance returns, an
+admitted branch with no external handles/tasks/callback resources may have a
+separately reviewed host-reference abandonment path. That must be reported as
+abandonment, not normal guest RC/finalizer discharge. Active frames cannot simply
+be passed to close and called disposed. Profiles with external resources require
+their actual owner-aware teardown or retained quarantine. Captured output may be
+partial; neither cancellation nor close rolls back IO or retries an entry.
+The failed/cancelled runtime branch becomes unusable while immutable code and
+independent persistent kernel metadata can remain available. Public defaults can
+be simple; these lifecycle guarantees must exist underneath them.
 
 ## Existing facade: preserve it, do not mislabel its backend
 
@@ -242,12 +274,14 @@ or reuse Header objects from another classloader/runtime binary.
 ## Smallest coherent release gates
 
 1. JVM-owned native build/cache path, bundled helper and ordinary Java-only
-   Maven/Gradle consumer; Python remains a prototype until replaced.
+   Maven/Gradle consumer; Python remains a prototype until replaced. Also an
+   artifact/resource-only runtime consumer with no toolchain/compiler installed.
 2. General bounded local project discovery/export beyond the pinned greeting,
    exact initializer/capability refusal and actual entry CI type evidence.
 3. One reusable Project runtime/world, runMain, at least unary Nat/String typed
    handles, repeated-call behavior, exact immutable value conversion and normal
-   close/failure tests. No arbitrary unsafe type bridge.
+   close/failure tests. Explicit budget/cancellation and the restricted value/
+   captured-stdio abandonment gate are required; no arbitrary unsafe type bridge.
 4. Jar-only API consumption plus actual greeting and additional independent
    projects; cold/cache-hit compilation and runtime timing reported separately.
 5. Optional lazy kernel-store facade reusing current stores, with no default
