@@ -1,7 +1,7 @@
 (ns java-ir-kernel-projection-checks
   "Borrowed checking projection from actual Java Nodes, not a frontend result."
   (:require [clojure.test :refer [deftest is run-tests]] [clojure.data.json :as json]
-            [prototype.kernel-bridge :as bridge] [ansatz.kernel.env :as env]
+            [prototype.kernel-bridge :as bridge] [prototype.imported-kernel :as imported] [ansatz.kernel.env :as env]
             [ansatz.kernel.name :as name] [java-ir-baseline :as j]
             [java-ir-baseline-checks :as c] [java-ir-extern-checks :as x] [java-ir-host-checks :as h]
             [ansatz.research.ir.kernel-projection :as projection]
@@ -167,3 +167,36 @@
         (is (= {:open? false :borrowed-views 0 :projected-values 0} ((:stats scope))))))))
 
 (defn check! [basis] (binding [*basis* basis] (run-tests 'java-ir-kernel-projection-checks)))
+
+
+(deftest imported-ci-carrier-reuses-actual-node-scope-and-rejects-closed-memo-hits
+  (let [{:keys [ctx engine root]} (context) scope (open ctx engine)
+        project (imported/make-constant-projector (:world scope) (:carrier-ops scope)
+                  {:max-visits 10000 :max-rule-nodes 100})
+        counts (counters engine)]
+    (try
+      (let [ci (project (:world scope) root)
+            inventory (imported/project-constant-name-kind (:world scope) root
+                        {:max-nodes 20 :max-chars 100} (:carrier-ops scope))]
+        (is (= (name/from-string "HostedSort") (.name ci)))
+        (is (= {:name (.name ci) :kind 0} inventory))
+        (is (= counts (counters engine))))
+      ((:prototype.kernel-bridge/clear-memo! (meta project)))
+      ((:close! scope))
+      (is (thrown-with-msg? Exception #"closed" (project (:world scope) root)))
+      (finally
+        ((:prototype.kernel-bridge/clear-memo! (meta project)))
+        ((:close! scope)) (j/release! ctx engine root) (j/close! ctx engine)))))
+
+(deftest imported-ci-carrier-cannot-bypass-node-or-total-visit-limits
+  (let [{:keys [ctx engine root]} (context)]
+    (try
+      (doseq [[max-nodes max-visits message] [[1 10000 #"source-node limit"]
+                                            [100 1 #"total visit limit"]]]
+        (let [scope (open ctx engine max-nodes)
+              project (imported/make-constant-projector (:world scope) (:carrier-ops scope)
+                        {:max-visits max-visits :max-rule-nodes 100})]
+          (try
+            (is (thrown-with-msg? Exception message (project (:world scope) root)))
+            (finally ((:prototype.kernel-bridge/clear-memo! (meta project))) ((:close! scope))))))
+      (finally (j/release! ctx engine root) (j/close! ctx engine)))))

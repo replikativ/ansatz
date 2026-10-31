@@ -24,9 +24,11 @@ public final class Interpreter implements AutoCloseable {
     private static final int MAP_APPLY=13,MAP_WRAP=14;
     private static final int CTOR=0,PROJ=1,SPROJ=2,FAP=3,PAP=4,AP=5,BOX=6,UNBOX=7,LIT=8,SHARED=9,UPROJ=10;
     private static final int ADD=1,SUB=2,MOD=3,EQ=4,LT=5,MUL=6,DIV=7,POW=8;
-    private static final int U16_EQ=540,U16_NAT=541;
+    private static final int U16_EQ=540,U16_NAT=541,MARK_PERSISTENT=542;
+    private static final int MAX_PERSISTENT_NODES=300_000,MAX_PERSISTENT_EDGES=1_000_000;
     private static final int LAYOUT_FIELDS=531,LAYOUT_SCALARS=532,LAYOUT_TAG=533,LAYOUT_USIZE=534,U32_LT=535,U64_TO_NAT=536;
     private static final int USIZE_NAT=9,USIZE_REPR=10,U32_NAT=11,U32_EQ=12,U32_LE=13,PLATFORM_BITS=14;
+    private static final int FLOAT_LE=543;
     private static final int STR_POS_SET=260;
     private static final int VOID_MK=516,LEVEL_INSTANTIATE=517,EXPR_FIND_EXT=519;
     private static final int ARRAY_CHECKED_SET=518,SHARECOMMON_QUICK=520,EXPR_REPLACE=521,EXPR_ABSTRACT_RANGE=522,EXPR_ABSTRACT=523;
@@ -447,6 +449,8 @@ public final class Interpreter implements AutoCloseable {
                 new String[]{"usize","usize"},new boolean[]{false,false}));
         register(registry,new ExternSpec("lean_string_hash",STR_HASH,"uint64",
                 new String[]{"object"},new boolean[]{true}));
+        register(registry,new ExternSpec("lean_runtime_mark_persistent",MARK_PERSISTENT,"tobject",
+                new String[]{"erased","tobject","void"},new boolean[]{false,false,false}));
         register(registry,new ExternSpec("lean_profileit",PROFILE_IT,"tobject",
                 new String[]{"erased","object","object","tobject","tobject"},new boolean[]{false,true,true,false,false}));
         register(registry,new ExternSpec("lean_instantiate_level_mvars",LEVEL_INSTANTIATE,"object",
@@ -607,6 +611,7 @@ public final class Interpreter implements AutoCloseable {
         register(registry,new ExternSpec("lean_float_div",FLOAT_DIV,"float",new String[]{"float","float"},new boolean[]{false,false}));
         register(registry,new ExternSpec("lean_float_beq",FLOAT_EQ,"uint8",new String[]{"float","float"},new boolean[]{false,false}));
         register(registry,new ExternSpec("lean_float_decLt",FLOAT_LT,"uint8",new String[]{"float","float"},new boolean[]{false,false}));
+        register(registry,new ExternSpec("lean_float_decLe",FLOAT_LE,"uint8",new String[]{"float","float"},new boolean[]{false,false}));
         register(registry,new ExternSpec("lean_float_to_string",FLOAT_STRING,"object",new String[]{"float"},new boolean[]{false}));
         registry.replaceAll((symbol,entries)->Collections.unmodifiableList(entries));
         return Collections.unmodifiableMap(registry);
@@ -726,6 +731,63 @@ public final class Interpreter implements AutoCloseable {
                 if(child instanceof Node) todo.push((Node)child);
             }
         }
+    }
+    /** Pinned object.cpp lean_mark_persistent / io.cpp wrapper. Native RC zero
+     * is a traversal stop, not an inferred transitive property of Ref contents.
+     * Read-only bounded preflight precedes a nonthrowing rc-only commit so an
+     * unsupported object, stale source closure, interrupt or bound cannot leave
+     * a partially persistent graph. Runtime Task/Promise lifetime remains the
+     * existing positive-RC policy; no waiting, callback or task execution occurs.
+     */
+    private ArrayList<Node> persistentPreflight(Object value) {
+        validateHostObject(value);
+        ArrayList<Node> commit=new ArrayList<>();
+        if(!(value instanceof Node)) return commit;
+        IdentityHashMap<Node,Boolean> seen=new IdentityHashMap<>();
+        ArrayDeque<Node> todo=new ArrayDeque<>(); todo.push((Node)value);
+        int edges=0;
+        while(!todo.isEmpty()) {
+            Node current=todo.pop(); validateHostObject(current);
+            if(current.rc==0||seen.containsKey(current)) continue;
+            require(seen.size()<MAX_PERSISTENT_NODES,"markPersistent node bound exceeded");
+            seen.put(current,Boolean.TRUE);
+            NodeMetadata kind=kindMetadata(current);
+            require(!(kind instanceof TaskMetadata),"markPersistent rejects runtime-created Task/Promise lifecycle");
+            if(current.array) {
+                require(kind instanceof ArrayState&&!current.ref&&!current.readyTask&&current.closure==null,
+                        "markPersistent unknown Array kind");
+                array(current);
+            } else if(isByteArray(current)) byteArray(current);
+            else if(current.ref) reference(current);
+            else if(current.readyTask) readyTaskNode(current);
+            else if(current.closure!=null) {
+                require(current.tag==245&&current.scalars.length==0,"markPersistent unknown closure kind");
+                acceptsClosure(current);
+            } else require(kind==null&&current.tag>=0&&current.tag<=243,
+                           "markPersistent unsupported external/thunk/object kind");
+            int live=owningFieldCount(current);
+            require(live>=0&&live<=current.fields.length,"markPersistent invalid owning extent");
+            require(edges<=MAX_PERSISTENT_EDGES-live,"markPersistent edge bound exceeded"); edges+=live;
+            if(Thread.currentThread().isInterrupted()) throw error("markPersistent preflight interrupted");
+            commit.add(current);
+            for(int i=0;i<live;i++) {
+                Object child=current.fields[i];
+                if(child==null) { require(current.ref,"markPersistent absent owning field"); continue; }
+                if(child instanceof Node) todo.push((Node)child); else validateHostObject(child);
+            }
+        }
+        return commit;
+    }
+    private ArrayList<Node> validatePersistentArguments(Object erased,Object value,Object world) {
+        require(ERASED.equals(erased)&&ERASED.equals(world),"markPersistent erased/world placeholders required");
+        return persistentPreflight(value);
+    }
+    private void persistentIntrinsic(Object erased,Object value,Object world) {
+        ArrayList<Node> commit=validatePersistentArguments(erased,value,world);
+        // All allocation, source/shape validation and cancellation checks are
+        // complete. Thread confinement forbids observation inside this commit.
+        for(int i=0;i<commit.size();i++) commit.get(i).rc=0;
+        result=value; // owned input is returned unchanged; no INC, DEC or MT mark
     }
     private void checkPointerOwner(Node node) {
         if(node.metadata instanceof PointerMetadata)
@@ -967,7 +1029,7 @@ public final class Interpreter implements AutoCloseable {
             return new ImportNode(id,sourceRC,CLOSURE,245,captures,new byte[0],header);
         }
     }
-    private enum GraphImportProfile { DEFAULT_RC0, SELECTED_OWNERS, PERSISTENT_REF_PAYLOAD_MT }
+    private enum GraphImportProfile { DEFAULT_RC0, SELECTED_OWNERS, PERSISTENT_REF_PAYLOAD_MT, MODULE_DATA_RC0 }
     /** Trusted adapter's accepted state recipe, not cryptographic admission.
      * Source/state tokens must be lightweight immutable authority/lease tokens.
      * Arrays and byte payloads are copied; no existing runtime Nodes are input.
@@ -999,15 +1061,33 @@ public final class Interpreter implements AutoCloseable {
                               ImportNode[] nodes,Header[] globals,Object[] globalValues,Object[] ownedRoots) {
             return new PreparedGraph(binding,acceptedStateToken,nodes,globals,globalValues,ownedRoots,GraphImportProfile.PERSISTENT_REF_PAYLOAD_MT);
         }
+        /** Separate bounded source-data envelope for one complete ModuleData DAG.
+         * No globals, closures, Refs, signed carriers or positive source RC.
+         * Authentication and scalar-domain evidence belong to the trusted adapter.
+         * This is not an increase to the ordinary runtime-companion import cap. */
+        public static PreparedGraph moduleData(SourceBinding binding,Object acceptedStateToken,
+                                               ImportNode[] nodes,Object[] ownedRoots) {
+            require(nodes!=null&&ownedRoots!=null,"Explicit ModuleData nodes/roots required");
+            require(ownedRoots.length==1,"ModuleData requires its authentic aggregate root");
+            for(ImportNode node:nodes) {
+                require(node!=null&&(node.kind==ImportNode.CONSTRUCTOR||node.kind==ImportNode.ARRAY),
+                        "ModuleData only supports constructor/Array recipes");
+                require(node.sourceRC==0,"ModuleData requires persistent source RC zero");
+                requireDefaultGraphValues(node.fields);
+            }
+            requireDefaultGraphValues(ownedRoots);
+            return new PreparedGraph(binding,acceptedStateToken,nodes,new Header[0],new Object[0],
+                                     ownedRoots,GraphImportProfile.MODULE_DATA_RC0);
+        }
         private PreparedGraph(SourceBinding binding,Object acceptedStateToken,ImportNode[] nodes,
                               Header[] globals,Object[] globalValues,Object[] ownedRoots,GraphImportProfile profile) {
             require(binding!=null&&acceptedStateToken!=null,"Actual accepted source/state tokens required");
             require(nodes!=null&&globals!=null&&globalValues!=null&&ownedRoots!=null,
                     "Explicit prepared graph tables and roots required");
-            require(nodes.length<=MAX_IMPORT_NODES,"Prepared graph exceeds research node limit");
+            require(nodes.length<=(profile==GraphImportProfile.MODULE_DATA_RC0?150_000:MAX_IMPORT_NODES),"Prepared graph exceeds selected profile node limit");
             require(globals.length<=MAX_IMPORT_ROOTS&&ownedRoots.length<=MAX_IMPORT_ROOTS,"Prepared graph exceeds root/global limit");
             require(globals.length==globalValues.length,"Prepared global table length mismatch");
-            checkGraphProfile(nodes,globalValues,ownedRoots,profile!=GraphImportProfile.DEFAULT_RC0);
+            checkGraphProfile(nodes,globalValues,ownedRoots,profile!=GraphImportProfile.DEFAULT_RC0&&profile!=GraphImportProfile.MODULE_DATA_RC0);
             checkGraphBudget(nodes,globalValues,ownedRoots);
             this.profile=profile;
             this.binding=binding; this.acceptedStateToken=acceptedStateToken;
@@ -4383,7 +4463,8 @@ public final class Interpreter implements AutoCloseable {
     private boolean[] constantReady;
     private boolean[] constantRetired;
     private boolean disposed;
-    private boolean graphInstalled;
+    private boolean graphInstalled,moduleGraphInstalled;
+    private PreparedGlobalSource preparedModuleSource;
     private boolean initializing;
     private Map<Integer,PreparedGlobalSource> preparedGlobalSources=Collections.emptyMap();
     private boolean closed;
@@ -5862,6 +5943,7 @@ public final class Interpreter implements AutoCloseable {
         System.arraycopy(constantReady,0,child.constantReady,0,constantReady.length);
         child.constantRetired=constantRetired.clone(); child.disposed=disposed;
         child.graphInstalled=graphInstalled; child.preparedGlobalSources=preparedGlobalSources;
+        child.moduleGraphInstalled=moduleGraphInstalled; child.preparedModuleSource=preparedModuleSource;
         child.bp=bp; child.sp=sp; child.jbp=jbp; child.jsp=jsp;
         child.result=copy.value(result); child.scalarResult=scalarResult;
         child.stdoutRoot=(Node)copy.value(stdoutRoot);
@@ -7005,6 +7087,7 @@ public final class Interpreter implements AutoCloseable {
         return value;
     }
     private void intrinsicSlots(Function f,int[] slots) {
+        if(f.intrinsic==MARK_PERSISTENT) { persistentIntrinsic(obj(slots[0]),obj(slots[1]),obj(slots[2])); return; }
         if(f.intrinsic==VOID_MK) { voidIntrinsic(obj(slots[0]),obj(slots[1])); return; }
         require(f.intrinsic!=TASK_MAP,"Task.map requires its runtime frame");
         if(floatPrimitive(f.intrinsic)) {
@@ -7050,6 +7133,7 @@ public final class Interpreter implements AutoCloseable {
         } else scalarIntrinsic(f,a,b);
     }
     private void intrinsicExternal(Function f,Object[] args) {
+        if(f.intrinsic==MARK_PERSISTENT) { persistentIntrinsic(args[0],args[1],args[2]); return; }
         if(f.intrinsic==VOID_MK) { voidIntrinsic(args[0],args[1]); return; }
         require(f.intrinsic!=TASK_MAP,"Task.map requires its runtime frame");
         if(floatPrimitive(f.intrinsic)) {
@@ -7094,7 +7178,7 @@ public final class Interpreter implements AutoCloseable {
             runtimeIntrinsic(f,a,b,c);
         } else scalarIntrinsic(f,a,b);
     }
-    private static boolean floatPrimitive(int op) { return op>=FLOAT_BITS&&op<=FLOAT_STRING; }
+    private static boolean floatPrimitive(int op) { return op>=FLOAT_BITS&&op<=FLOAT_STRING||op==FLOAT_LE; }
     private static boolean nanBits(long bits) { return (bits&0x7ff0000000000000L)==0x7ff0000000000000L&&(bits&0x000fffffffffffffL)!=0; }
     private strictfp void floatIntrinsic(Function f,long a,long b) {
         if(f.intrinsic==FLOAT_BITS) { scalarResult=nanBits(a)?0x7ff8000000000000L:a; return; }
@@ -7109,6 +7193,7 @@ public final class Interpreter implements AutoCloseable {
             case FLOAT_DIV: scalarResult=Double.doubleToRawLongBits(x/y); break;
             case FLOAT_EQ: scalarResult=x==y?1:0; break;
             case FLOAT_LT: scalarResult=x<y?1:0; break;
+            case FLOAT_LE: scalarResult=x<=y?1:0; break;
             case FLOAT_STRING:
                 if(nanBits(a)) result="NaN";
                 else if(Double.isInfinite(x)) result=x<0?"-inf":"inf";
@@ -8767,6 +8852,8 @@ public final class Interpreter implements AutoCloseable {
         Object[] combined=new Object[closure.fields.length+args.length];
         System.arraycopy(closure.fields,0,combined,0,closure.fields.length);
         System.arraycopy(args,0,combined,closure.fields.length,args.length);
+        if(combined.length>=f.params.length&&called.intrinsic==MARK_PERSISTENT)
+            validatePersistentArguments(combined[0],combined[1],combined[2]);
         if(combined.length>=f.params.length&&called.intrinsic==VOID_MK) validateVoidArguments(combined[0],combined[1]);
         if(combined.length>=f.params.length&&called.intrinsic==ARRAY_CHECKED_SET)
             validateCheckedArraySet(combined.length==f.params.length?combined:Arrays.copyOf(combined,f.params.length));
@@ -8960,7 +9047,11 @@ public final class Interpreter implements AutoCloseable {
         if(closed||disposed||advancing||untrackedFailure||phase!=IDLE||pendingOwnedResult||sp!=0)
             throw new IllegalStateException("Prepared graph installation requires an open idle engine");
         require(graph!=null,"Actual PreparedGraph required");
-        require(!graphInstalled,"Prepared graph has already been installed in this engine");
+        // One ordinary companion plus one complete module aggregate. Neither
+        // admission can be repeated/split to evade its selected profile bound.
+        boolean moduleData=graph.profile==GraphImportProfile.MODULE_DATA_RC0;
+        require(moduleData?!moduleGraphInstalled:!graphInstalled,
+                "Selected prepared graph slot has already been installed in this engine");
         Map<Long,Integer> positions=new HashMap<>();
         for(int i=0;i<graph.nodes.length;i++) {
             ImportNode node=graph.nodes[i];
@@ -9011,7 +9102,7 @@ public final class Interpreter implements AutoCloseable {
         while(!pending.isEmpty()) enqueueGraphValues(graph.nodes[pending.removeFirst()].fields,positions,visited,pending);
         for(boolean reachable:visited) require(reachable,"Unreachable object in prepared graph envelope");
         int[] owners=new int[graph.nodes.length];
-        if(graph.profile!=GraphImportProfile.DEFAULT_RC0) {
+        if(graph.profile!=GraphImportProfile.DEFAULT_RC0&&graph.profile!=GraphImportProfile.MODULE_DATA_RC0) {
             for(ImportNode node:graph.nodes) countGraphOwners(node.fields,graph.nodes,positions,owners);
             countGraphOwners(graph.globalValues,graph.nodes,positions,owners);
             countGraphOwners(graph.ownedRoots,graph.nodes,positions,owners);
@@ -9050,6 +9141,7 @@ public final class Interpreter implements AutoCloseable {
         long nextAllocations=Math.addExact(allocations,shells.length);
         constants=nextConstants; constantReady=nextReady; preparedGlobalSources=nextSources;
         allocations=nextAllocations; graphInstalled=true;
+        if(moduleData) { moduleGraphInstalled=true; preparedModuleSource=source; }
         return outputs;
     }
 
@@ -9516,6 +9608,7 @@ public final class Interpreter implements AutoCloseable {
         if(taskRuntime!=null&&function.intrinsic==TASK_GET) {
             require(ERASED.equals(args[0]),"Task.get erased placeholder required"); readyTaskNode(args[1]);
         }
+        if(function.intrinsic==MARK_PERSISTENT) validatePersistentArguments(args[0],args[1],args[2]);
         if(function.intrinsic==ARRAY_CHECKED_SET) validateCheckedArraySet(args);
         else if(function.intrinsic==VOID_MK) validateVoidArguments(args[0],args[1]);
         else if(actionPrimitive(function)) validateNative(function,args);
@@ -9612,9 +9705,10 @@ public final class Interpreter implements AutoCloseable {
         Object[] combined=new Object[closure.fields.length+args.length];
         System.arraycopy(closure.fields,0,combined,0,closure.fields.length);
         System.arraycopy(args,0,combined,closure.fields.length,args.length);
-        if(combined.length>=f.params.length&&(taskRuntime!=null||called.intrinsic==VOID_MK||called.intrinsic==ARRAY_CHECKED_SET)) {
+        if(combined.length>=f.params.length&&(taskRuntime!=null||called.intrinsic==VOID_MK||called.intrinsic==MARK_PERSISTENT||called.intrinsic==ARRAY_CHECKED_SET)) {
             Object[] actual=combined.length==f.params.length?combined:Arrays.copyOf(combined,f.params.length);
-            if(called.intrinsic==ARRAY_CHECKED_SET) validateCheckedArraySet(actual);
+            if(called.intrinsic==MARK_PERSISTENT) validatePersistentArguments(actual[0],actual[1],actual[2]);
+            else if(called.intrinsic==ARRAY_CHECKED_SET) validateCheckedArraySet(actual);
             else if(called.intrinsic==VOID_MK) validateVoidArguments(actual[0],actual[1]);
             else if(actionPrimitive(f)) validateNative(f,actual);
             else if(f.intrinsic==TASK_GET||f.intrinsic==TASK_PURE) validateEntryArguments(f,actual,true);

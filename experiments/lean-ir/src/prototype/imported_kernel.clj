@@ -11,53 +11,75 @@
 
 (def ^:private ops {:ref? m/ref? :node m/node})
 (defn- fail [message data] (throw (ex-info message data)))
-(defn- ctor! [world value tag fields bytes]
-  (when-not (m/ref? value) (fail "Expected imported kernel constructor" {:value value}))
-  (let [node (m/node world value)]
+(defn- carrier-check! [carrier]
+  (when-let [check! (:check! carrier)] (check!)))
+(defn- carrier-ctor! [carrier world value tag fields bytes]
+  (carrier-check! carrier)
+  (when-not ((:ref? carrier) value) (fail "Expected imported kernel constructor" {:value value}))
+  (let [node ((:node carrier) world value)]
     (when-not (and (= tag (:tag node)) (bridge/constructor-layout? node fields bytes))
       (fail "Invalid imported kernel constructor layout" {:value value :expected [tag fields bytes]})) node))
+(defn- ctor! [world value tag fields bytes]
+  (carrier-ctor! ops world value tag fields bytes))
 (defn- field-byte [node i]
   (scalar/read-bytes (:layout node) (:scalar-bytes node)
                     {:index (count (:fields node)) :offset i :type "uint8" :region :scalar}))
 (defn- flag [node i]
   (case (field-byte node i) 0 false 1 true (fail "Invalid imported kernel Bool" {})))
-(defn- index! [world value]
-  (let [n (native/nat-value ops world value)]
+(defn- index! [carrier world value]
+  (carrier-check! carrier)
+  (let [n (native/nat-value carrier world value)]
     (when (> n Integer/MAX_VALUE) (fail "Imported kernel Nat exceeds Java index range" {:value n})) (int n)))
 (defn- nil?* [value]
   (cond (instance? prototype.machine.Tag value) (= 0 (:tag value))
         (native/native-scalar? value) (= 0 (native/payload value))
         :else (= 0 value)))
-(defn- list-values [world value]
+(def ^:private default-max-rule-nodes 100000)
+(defn- list-values [carrier world value maximum]
   (loop [value value seen #{} out []]
+    (carrier-check! carrier)
     (if (nil?* value) out
-      (do (when (contains? seen value) (fail "Cyclic imported kernel list" {}))
-          (let [[head tail] (:fields (ctor! world value 1 2 0))]
+      (do (when (>= (count out) maximum) (fail "Imported recursor rule-list limit exceeded" {:limit maximum}))
+          (when (contains? seen value) (fail "Cyclic imported kernel list" {}))
+          (let [[head tail] (:fields (carrier-ctor! carrier world value 1 2 0))]
             (recur tail (conj seen value) (conj out head)))))))
 (defn- names [world value] (vec (:value (bridge/project-with-stats world :names value))))
 (defn- base [world value] (:value (bridge/project-with-stats world :constant-val value)))
 
-(defn- constant-name-reference
-  "Validate the ConstantInfo envelope and borrow its Name reference."
-  [world value]
-  (let [tag (:tag (m/node world value))
-        [payload] (:fields (ctor! world value tag 1 0))
+(defn- constant-envelope
+  "One shared eight-variant layout ledger; borrow payload without type/body."
+  [carrier world value]
+  (carrier-check! carrier)
+  (when-not ((:ref? carrier) value) (fail "Expected imported kernel constructor" {:value value}))
+  (let [tag (:tag ((:node carrier) world value))
+        [payload] (:fields (carrier-ctor! carrier world value tag 1 0))
         [objects bytes] (case tag 0 [1 1] 1 [4 1] 2 [3 0] 3 [3 1]
                          4 [1 1] 5 [6 3] 6 [5 1] 7 [7 2]
-                         (fail "Unsupported imported ConstantInfo variant" {:tag tag}))
-        [constant] (:fields (ctor! world payload 0 objects bytes))
-        [name] (:fields (ctor! world constant 0 3 0))]
+                         (fail "Unsupported imported ConstantInfo variant" {:tag tag}))]
+    {:tag tag :node (carrier-ctor! carrier world payload 0 objects bytes)}))
+(defn- constant-name-reference [carrier world value]
+  (let [{:keys [node]} (constant-envelope carrier world value)
+        [constant] (:fields node)
+        [name] (:fields (carrier-ctor! carrier world constant 0 3 0))]
     name))
-
-
 (defn- constant-name [world value]
-  (bridge/project-name world (constant-name-reference world value)))
-
+  (bridge/project-name world (constant-name-reference ops world value)))
 (defn project-constant-name
   "Borrow only a validated ConstantInfo name under explicit Name limits.
    No type/body projection, Java ConstantInfo creation, checking or authority."
   [world value limits]
-  (bridge/project-name-bounded world (constant-name-reference world value) limits))
+  (bridge/project-name-bounded world (constant-name-reference ops world value) limits))
+(defn project-constant-name-kind
+  "Bounded inventory of one actual ConstantInfo. Carrier storage and scope guards
+   are shared with the existing Name reader; type/body remain unvisited."
+  ([world value limits] (project-constant-name-kind world value limits ops))
+  ([world value limits carrier]
+   (let [{:keys [tag node]} (constant-envelope carrier world value)
+         [constant] (:fields node)
+         [name] (:fields (carrier-ctor! carrier world constant 0 3 0))
+         name (bridge/project-name-bounded world name limits carrier)]
+     (carrier-check! carrier)
+     {:name name :kind tag})))
 
 (defn- immutable-projection-sources [world]
   ;; Store validates a closed graph: every reference belongs to that same source.
@@ -76,19 +98,14 @@
              (not-any? #(heap/contains-id? source %) (keys (:heap world))))
       current [])))
 
-(defn- project-constant* [world value projector]
-  (let [wrapper (when (m/ref? value) (m/node world value)) tag (:tag wrapper)
-        [payload] (:fields (ctor! world value tag 1 0))
-        [objects bytes] (case tag 0 [1 1] 1 [4 1] 2 [3 0] 3 [3 1]
-                         4 [1 1] 5 [6 3] 6 [5 1] 7 [7 2]
-                         (fail "Unsupported imported ConstantInfo variant" {:tag tag}))
-        node (ctor! world payload 0 objects bytes)
+(defn- project-constant* [carrier world value projector max-rule-nodes]
+  (let [{:keys [tag node]} (constant-envelope carrier world value)
         [constant a b c d e f] (:fields node)
         project #(-> (bridge/project-with-stats world %1 %2 projector) :value)
         {:keys [name params type]} (project :constant-val constant)
         params (object-array params)
         expr #(bridge/project-expr world % projector)
-        n #(index! world %)
+        n #(index! carrier world %)
         names #(vec (project :names %))
         ns #(object-array (names %))]
     (case tag
@@ -110,16 +127,50 @@
       7 (ConstantInfo/mkRecursor name params type (ns a) (n b) (n c) (n d) (n e)
             (into-array ConstantInfo$RecursorRule
               (map (fn [rule]
-                     (let [[constructor fields rhs] (:fields (ctor! world rule 0 3 0))]
+                     (let [[constructor fields rhs] (:fields (carrier-ctor! carrier world rule 0 3 0))]
                        (ConstantInfo$RecursorRule. (bridge/project-name world constructor projector) (n fields) (expr rhs))))
-                   (list-values world f))) (flag node 0) (flag node 1)))))
+                   (list-values carrier world f max-rule-nodes))) (flag node 0) (flag node 1)))))
 
 (defn project-constant
   "Borrow an actual guest ConstantInfo and produce its checking projection.
    An explicit projector shares immutable Java subgraphs only in its exact world.
    Full UInt32 reducibility heights use the exact Java hint API. No admission."
-  ([world value] (project-constant* world value (bridge/make-projector world)))
-  ([world value projector] (project-constant* world value projector)))
+  ([world value] (project-constant* ops world value (bridge/make-projector world) default-max-rule-nodes))
+  ([world value projector] (project-constant* ops world value projector default-max-rule-nodes)))
+
+(defn make-constant-projector
+  "Carrier-parametric imported-CI scope using the existing bridge semantic core.
+   Bounds {:max-visits positive :max-rule-nodes positive} apply cumulatively to
+   this scope, including bridge memo hits and recursor list/record traversal.
+   Carrier :check! runs on every budget tick; no scope may outlive its carrier.
+   The owning host must clear the :prototype.kernel-bridge/clear-memo! metadata
+   hook before closing its carrier, then discard this thread-confined projector.
+   Returns [current-world value] -> ConstantInfo. No admission authority."
+  [world carrier {:keys [max-visits max-rule-nodes] :as limits}]
+  (when-not (and (= #{:max-visits :max-rule-nodes} (set (keys limits)))
+                 (every? #(and (integer? %) (<= 1 % Long/MAX_VALUE)) [max-visits max-rule-nodes])
+                 (map? carrier) (fn? (:ref? carrier)) (fn? (:node carrier))
+                 (every? #{:ref? :node :check!} (keys carrier))
+                 (or (nil? (:check! carrier)) (fn? (:check! carrier))))
+    (fail "Explicit imported-CI carrier and traversal limits required" {}))
+  (let [thread (Thread/currentThread) visits (volatile! 0)
+        bounded (assoc carrier :check!
+                       (fn []
+                         (carrier-check! carrier)
+                         (when (>= @visits max-visits)
+                           (fail "Imported CI total visit limit exceeded" {:limit max-visits}))
+                         (vswap! visits inc)))
+        projector (bridge/make-projector world bounded)]
+    (with-meta
+      (fn [current-world value]
+        (when-not (identical? thread (Thread/currentThread))
+          (fail "Imported CI projector belongs to another thread" {}))
+        (when-not (identical? world current-world) (fail "Imported CI projector belongs to a different world" {}))
+        (carrier-check! bounded)
+        (let [ci (project-constant* bounded world value projector max-rule-nodes)]
+          (carrier-check! bounded)
+          ci))
+      {::bridge/clear-memo! (::bridge/clear-memo! (meta projector))})))
 
 (defn- array-values [world value]
   (when-not (and (m/ref? value) (= :array (:kind (m/node world value))))
