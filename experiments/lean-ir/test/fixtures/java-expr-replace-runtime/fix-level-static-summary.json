@@ -1,0 +1,174 @@
+{
+  "schema": "fix-level-params-static-closure/1",
+  "seeds": [
+    "Lean.Elab.fixLevelParams",
+    "_private.Init.Data.Array.Basic.0.Array.mapMUnsafe.map._at_.Lean.Elab.fixLevelParams.spec_5"
+  ],
+  "proposed_native_helper_edges": {
+    "origin": "Lean.Expr.replaceImpl",
+    "targets": [
+      "Lean.Expr.bvar._override",
+      "Lean.Expr.sort._override",
+      "Lean.Expr.const._override",
+      "Lean.Expr.app._override",
+      "Lean.Expr.lam._override._boxed",
+      "Lean.Expr.forallE._override._boxed",
+      "Lean.Expr.letE._override._boxed",
+      "Lean.Expr.mdata._override",
+      "Lean.Expr.proj._override"
+    ],
+    "status": "source/API proposal only; no runtime policy activation; exact shared constructor policy pins roles"
+  },
+  "baseline_database_sha256": "0a20c5438d73cdd531e30bdf2b21fa07ac782062f79fdde4ccd38e6286235506",
+  "baseline_java_sha256": "67e78024da62a0b3c07c923ea6379ce5ee719801245b02185deb38be563fba15",
+  "known523_source_rows_sha256": "886e873e0f28de1c82748589c65c270812ddbcad852bdb0e362739d6a03f3c01",
+  "script_sha256": "8ced25e37687e0ad3df47625c6a857e8f4100c4f3ffd83b0d44291bbca526844",
+  "complete_for_modeled_edges": false,
+  "rows": 708,
+  "pending": 0,
+  "absent": [
+    [
+      "str",
+      [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "str",
+                  [
+                    "str",
+                    [
+                      "str",
+                      [
+                        "str",
+                        [
+                          "str",
+                          [
+                            "str",
+                            [
+                              "str",
+                              [
+                                "str",
+                                [
+                                  "anonymous"
+                                ],
+                                "_private"
+                              ],
+                              "Init"
+                            ],
+                            "Data"
+                          ],
+                          "Array"
+                        ],
+                        "Basic"
+                      ],
+                      "0"
+                    ],
+                    "Array"
+                  ],
+                  "mapMUnsafe"
+                ],
+                "map"
+              ],
+              "_at_"
+            ],
+            "Lean"
+          ],
+          "Elab"
+        ],
+        "fixLevelParams"
+      ],
+      "spec_5"
+    ],
+    [
+      "str",
+      [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Lean"
+            ],
+            "Expr"
+          ],
+          "lam"
+        ],
+        "_override"
+      ],
+      "_boxed"
+    ],
+    [
+      "str",
+      [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Lean"
+            ],
+            "Expr"
+          ],
+          "forallE"
+        ],
+        "_override"
+      ],
+      "_boxed"
+    ],
+    [
+      "str",
+      [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Lean"
+            ],
+            "Expr"
+          ],
+          "letE"
+        ],
+        "_override"
+      ],
+      "_boxed"
+    ]
+  ],
+  "initialized_global_headers": 9,
+  "not_in_523_source_rows": [],
+  "dynamic_ap_sites": 10,
+  "extern_rows": 119,
+  "literal_abi_matches": 114,
+  "modeled_policy_origin_rows": 0,
+  "unmatched_no_modeled_policy_rows": 5,
+  "unmatched_symbols": [
+    "lean_io_get_num_heartbeats",
+    "lean_io_mono_nanos_now",
+    "lean_replace_expr",
+    "lean_string_foldl",
+    "lean_string_isempty"
+  ],
+  "scope": "Conservative static FAP/PAP/compiler/redirect plus frozen modeled policy edges from exactly two fixLevelParams roots plus nine explicitly proposed native constructor-helper targets; excludes initializer bodies. Does not add captured heap callback roots, dynamic AP/evalConst/plugins, or future native hidden edges; not a new full STATE fixedpoint or execution demand prediction. Registry match is source declaration only, not current selected policy/handler/execution availability. No runtime alias policy or state admission is granted by this metadata receipt."
+}

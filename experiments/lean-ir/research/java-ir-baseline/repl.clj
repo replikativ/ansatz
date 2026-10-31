@@ -459,3 +459,14 @@
 (defn configure-share-common! [basis engine layout]
   (.invoke (.getMethod ^Class (:class basis) "configureShareCommon" (into-array Class [(class layout)]))
            engine (object-array [layout])))
+
+(defn expr-transform-policy
+  "Bind the nine exact original constructor Headers; caller authenticates bytes."
+  [basis headers]
+  (let [cls (Class/forName "ansatz.research.ir.Interpreter$ExprTransformPolicy" true (:loader basis))
+        hc (Class/forName "ansatz.research.ir.Interpreter$Header" true (:loader basis))
+        hs (into-array hc headers)]
+    (invoke-static (.getMethod cls "originalHelpers" (into-array Class [(class hs)])) [hs])))
+(defn configure-expr-transforms! [basis engine policy]
+  (.invoke (.getMethod ^Class (:class basis) "configureExprTransforms" (into-array Class [(class policy)]))
+           engine (object-array [policy])))

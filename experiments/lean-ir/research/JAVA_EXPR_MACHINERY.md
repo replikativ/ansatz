@@ -113,3 +113,20 @@ An earlier retained-REPL search fixture run failed before execution because of a
 relative fixture path; the corrected absolute-path run passed all 10 tests and
 106 assertions on this same artifact. These are JVM regression results, not a
 native differential oracle or a new frontend compatibility claim.
+
+
+## Shared constructor policy for native transformations
+
+`ExprTransformPolicy.originalHelpers(Header[9])` reuses this same exact-role
+validator. `configureExprTransforms` configures an open idle active-explicit
+engine once, verifies the current ordinary Functions without forcing bodies,
+and shares the immutable policy with forks. The native-entry profile checks
+source-cohort identity and revalidates all nine current helpers, including on
+fast paths. The policy contains no guest values and authenticates no source
+bytes by itself; trusted loaders retain that obligation.
+
+Five retained-REPL policy tests passed 20 assertions covering lazy setup, idle
+and inactive guards, foreign Program rejection without partial configuration,
+fork inheritance and modeled post-configuration helper substitution. This
+configuration seam alone registers no new Lean native or executable capability;
+private research entries retain their independent policy and scope.
