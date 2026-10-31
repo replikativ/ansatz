@@ -58,10 +58,10 @@
                         result (c/ret 7))
           {:keys [ctx headers]} (setup [origin-row target])]
       (is (re-find #"raw ABI mismatch" (c/failure #(j/bind-guest-exports ctx [[(headers "forward") (headers "different")]]))))))
-  (let [origin (ext "unsupported" ["float32"] "float32")
-        target (c/decl "unsupported-body" [(c/p 9 "float32")] "float32" (c/ret 9))
+  (let [origin (ext "mixed-float" ["float32"] "float32")
+        target (c/decl "mixed-float-body" [(c/p 9 "float")] "float" (c/ret 9))
         {:keys [ctx headers]} (setup [origin target])]
-    (is (re-find #"Unsupported execution lane" (c/failure #(j/bind-guest-exports ctx [[(headers "unsupported") (headers "unsupported-body")]]))))))
+    (is (re-find #"raw ABI mismatch" (c/failure #(j/bind-guest-exports ctx [[(headers "mixed-float") (headers "mixed-float-body")]]))))))
 
 (deftest exact-registration-source-direct-fdecl-and-nonnullary-profile
   (let [{:keys [ctx headers source]} (setup [origin-row identity-row])

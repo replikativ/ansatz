@@ -134,13 +134,13 @@
                 [(decl "bad" [(p 1 "object") (p 1 "object")] "object" (ret 1))]
                 [(decl "bad" [(p 1.5 "object")] "object" (ret 1))]
                 [(decl "bad" [(p 18446744073709551617N "object")] "object" (ret 1))]
-                [(decl "bad" [] "float32" ["ret" "erased"])]
+                [(decl "bad" [(p 1 "float32")] "float" (ret 1))]
                 [(decl "bad" [] "object" (let-ir 1 "uint8" (ctor 0 [] 0) (ret 1)))]
                 [(decl "bad" [] "object" (let-ir 1 "object" (lit 1) (ret 2)))]
                 [(decl "bad" [] "uint8" (let-ir 1 "uint8" (lit 256) (ret 1)))]
                 [(decl "bad" [(p 1 "object")] "object" (let-ir 2 "object" (fap "bad" []) (ret 2)))]
-                [(decl "bad" [] "object"
-                       ["jdecl" {:idx 1} [(p 2 "float32")] ["ret" "erased"] ["ret" "erased"]])]]]
+                [(decl "bad" [(p 1 "float")] "float32"
+                       ["jdecl" {:idx 3} [(p 2 "float32")] (ret 2) ["jmp" {:idx 3} [(v 1)]]])]]]
     (is (not= "NO ERROR" (failure #(prepare rows)))))
   (let [ctx (prepare [(object-constant "value")]) engine (j/machine ctx)]
     (try (is (re-find #"Arity" (failure #(j/call ctx engine "value" [1]))))

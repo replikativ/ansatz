@@ -125,8 +125,8 @@
       (is (g/bad? #(j/make-closure! ctx engine "float-id" [])))
       (is (g/bad? #(j/call ctx engine "word-box" [1.0])))
       (is (g/bad? #(j/call ctx engine "float-scalar-result" [1.0])))
-      (doseq [ty ["float32"]]
-        (is (g/bad? #(context [(c/decl "unsupported" [(c/p 1 ty)] ty (c/ret 1))]))))
+      ;; Binary32 is a supported distinct transport lane, never an implicit cast.
+      (is (g/bad? #(context [(c/decl "f32-to-f64-mismatch" [(c/p 1 "float32")] "float" (c/ret 1))])))
       (is (g/bad? #(context [(c/decl "float-case" [(c/p 1 "float")] "float" ["case" (c/name-ir "Float") {:idx 1} "float" [["default" (c/ret 1)]]])])))
       (is (g/bad? #(context [(c/decl "mismatch" [(c/p 1 "uint64")] "float" (c/let-ir 2 "float" (c/fap "float-id" [(c/v 1)]) (c/ret 2)))])))
       (finally (j/close! ctx engine)))))

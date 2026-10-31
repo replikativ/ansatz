@@ -91,11 +91,11 @@
       (is (g/bad? #(j/call ctx e "u16-unbox" [bad]))) (is (= before (counters e)))
       (if (:explicit ctx) (is (g/bad? #(j/close! ctx e))) (j/close! ctx e)))))
 
-(deftest preparation-rejects-wide-literals-float32-and-cross-lane-ir
+(deftest preparation-rejects-wide-literals-and-cross-lane-ir
   (doseq [row [(c/decl "wide16" [] "uint16" (c/let-ir 1 "uint16" (c/lit 65536) (c/ret 1)))
                (c/decl "negative16" [] "uint16" (c/let-ir 1 "uint16" (c/lit -1) (c/ret 1)))
                (c/decl "cross-return" [(c/p 1 "uint32")] "uint16" (c/ret 1))
-               (c/decl "f32" [(c/p 1 "float32")] "float32" (c/ret 1))
+               (c/decl "f32-to-u16-mismatch" [(c/p 1 "float32")] "uint16" (c/ret 1))
                (c/decl "cross-call" [(c/p 1 "uint32")] "object"
                  (c/let-ir 2 "object" {:fap {:c (get (nth (originals) 2) "name") :ys [(c/v 1)]}} (c/ret 2)))
                (c/decl "raw-partial" [] "object"

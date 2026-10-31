@@ -115,7 +115,8 @@
       (is (g/bad? #(context [(literal-row "float-le-negative-literal" -1 2)])))
       (is (g/bad? #(context [(c/decl "float-le-u64-mismatch" [(c/p 1 "uint64") (c/p 2 "float")] "uint8"
                                (c/let-ir 3 "uint8" (fap [(c/v 1) (c/v 2)]) (c/ret 3)))])))
-      (is (g/bad? #(context [(c/decl "float-le-f32" [(c/p 1 "float32")] "float32" (c/ret 1))])))
+      (is (g/bad? #(context [(c/decl "float-le-f32-mismatch" [(c/p 1 "float32") (c/p 2 "float")] "uint8"
+                             (c/let-ir 3 "uint8" (fap [(c/v 1) (c/v 2)]) (c/ret 3)))])))
       (finally (j/close! ctx e)))))
 
 (defn check! [basis] (binding [*basis* basis] (run-tests 'java-ir-float-le-checks)))
