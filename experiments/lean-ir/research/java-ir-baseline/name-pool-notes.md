@@ -31,7 +31,7 @@ or eviction that can invalidate sharing. Failed Header issuance may populate thi
 trusted source's cache, but publishes no Header/Program. Source-only validation is
 not a heap-size or throughput acceptance result.
 
-## Verification to run before rollover
+## Verification
 
 Load `name-pool-checks.clj` and call `java-ir-name-pool-checks/check!` with the actual
 new isolated basis. Nine families cover canonical sharing across metadata/prefix/
@@ -43,9 +43,12 @@ drivers. Existing Header/guest-export/native/source/ABI suites remain necessary.
 The standard runner adds this as result group160 with expected9 tests.
 
 `name-pool-benchmark.clj` defines metadata-only `build!`, usable unchanged against
-old and candidate Java bases. Supply a bounded lazy sequence of already authenticated
-actual CAS `{:row row :sha256 raw-sha}` values, not re-exported metadata or candidate
-Names. Use matching row order/count and a scalar source-description. Each call
+old and candidate Java bases. Supply already authenticated actual CAS
+`{:row row :sha256 raw-sha}` values, or explicitly labelled bodyless projections
+of actual Headers for a metadata-only comparison. Projections do not verify the
+original raw-byte digest or authorize code admission. Never use candidate compact
+Names as the input to the legacy side. Use matching row order/count and a scalar
+source-description. Each call
 constructs one Source and retains all issued Headers in its returned benchmark
 root. It reports identity-deduplicated logical List/Map value reachability by class and
 source pool counts. It does not traverse wrapper delegates, backing arrays, map
@@ -59,6 +62,20 @@ Parent HPROF observation motivating the prototype: 12,268 Header exactName/
 declaration/evidence roots reached about179MiB and6.03million objects, excluding
 SourceBinding. About695,924 ArrayLists and695,924 wrappers,690,945 arrays and1.58M
 Strings/backing byte arrays occurred in that shared union. This is not exclusive
-retention attribution and does not predict exact savings. Require original-CAS
-old/candidate metadata benchmark, independent source review and full gate before
-one binary/new-cohort rollover. Author has launched no JVM or compiler for this unit.
+retention attribution and does not predict exact savings.
+
+Coordinated validation passed nine focused families /106 assertions in an isolated
+ClassLoader inside the retained384MiB REPL. The complete160-group Java regression
+passed1536 tests /60386 assertions, zero failures/errors, in a separate384MiB JVM.
+The first full attempt hit system temporary-directory disk quota (one failure and
+61 errors); the unchanged rerun used a task-owned temporary directory.
+
+The same13085 actual bodyless Header projections were streamed independently into
+legacy and candidate constructors. Post-GC resident heap deltas were213161832 bytes
+(legacy) and72625432 bytes (candidate), including Source/pool tables and Header roots:
+about203.3MiB versus69.3MiB, a65.9% reduction for this captured workload. Serialized
+Name/declaration/evidence output digests matched exactly. This is a metadata
+representation experiment, not frontend throughput, full raw-CAS admission, or
+general project-loading acceptance. See name-pool-validation.edn for pins.
+Independent review is clear. The author launched no JVM or compiler; the parent
+coordinated execution. New frontend-cohort acceptance remains a separate gate.
