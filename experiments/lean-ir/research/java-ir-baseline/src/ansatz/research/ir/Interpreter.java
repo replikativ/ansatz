@@ -1357,6 +1357,421 @@ public final class Interpreter implements AutoCloseable {
             return new ProfilingPolicy(getter);
         }
     }
+    /** Private stage-one policy. Source authentication is the research loader's
+     * obligation; this immutable object only binds exact ordinary constructor roles. */
+    private static final class ExprConstructorPolicy {
+        final Header[] helpers;
+        private ExprConstructorPolicy(Header[] helpers) { this.helpers=helpers.clone(); }
+        static ExprConstructorPolicy originalHeaders(Header[] helpers) {
+            require(helpers!=null&&helpers.length==9,"Nine original Expr constructor Headers required");
+            String[] names={"Lean.Expr.bvar._override","Lean.Expr.sort._override","Lean.Expr.const._override","Lean.Expr.app._override","Lean.Expr.lam._override._boxed","Lean.Expr.forallE._override._boxed","Lean.Expr.letE._override._boxed","Lean.Expr.mdata._override","Lean.Expr.proj._override"};
+            String[] hashes={"65c182e597519411555771e582645ee70b608f98413158d2cf3e525eaa689be1","7ef9c9c1c18da89d2811e3c31a516e05106d3ab6e0ac9a972cbe9eb6dde68f6d","729dc14162f591752d010053a082eedfb8d39d3c12db845d49ba2361a6e0bfe3","80d03ae09c95edb7d931e5f36dd67e6d0452a7efb9002b4cff43f5d7cc0d4ef4","6549605db438808e61e47fc97321040ecba177aa36bdf7146656d625f535b40f","93904f8bf3678937186f334bc847b417487ab0132964b32914497b30219bb9ad","3131e7471a4cb37f4cf7b468a3fcc8910ba1026c0f19d9e50b56689765e2dc5e","b0c8524c099135bec06dacbf9abc3eb0ab4b413ffc6004d55ac782290179a7f4","cf155c3f689c3251707318535264965a5482ed40177d2d255d6076331bc668ab"};
+            String[][] parameters={new String[]{"tobject"},new String[]{"tobject"},new String[]{"tobject","tobject"},new String[]{"object","object"},new String[]{"tobject","object","object","tagged"},new String[]{"tobject","object","object","tagged"},new String[]{"tobject","object","object","object","tagged"},new String[]{"tobject","object"},new String[]{"tobject","tobject","object"}};
+            for(int role=0;role<9;role++) {
+                Header h=helpers[role];
+                require(h!=null&&h.kind.equals("fdecl")&&h.originalSha256.equals(hashes[role]),"Expr constructor role/source hash differs");
+                if(role!=0) require(h.source==helpers[0].source,"Expr constructors have different source bindings");
+                Object name=Arrays.asList("anonymous");
+                for(String segment:names[role].split("\\.")) name=Arrays.asList("str",name,segment);
+                require(h.exactName.equals(frozenName(name)),"Expr constructor typed Name differs");
+                Map<String,Object> d=h.declaration;
+                require(d.keySet().equals(new HashSet<>(Arrays.asList("f","info","type","xs")))
+                        &&map(d.get("info")).isEmpty()&&d.get("f").equals(h.exactName)
+                        &&"object".equals(d.get("type")),"Expr constructor declaration differs");
+                List<Object> xs=list(d.get("xs"));
+                require(xs.size()==parameters[role].length,"Expr constructor raw arity differs");
+                for(int i=0;i<xs.size();i++) {
+                    Map<String,Object> p=map(xs.get(i)),x=map(p.get("x"));
+                    require(p.keySet().equals(new HashSet<>(Arrays.asList("borrow","ty","x")))
+                            &&x.keySet().equals(Collections.singleton("idx"))&&number(x.get("idx"))==i+1
+                            &&Boolean.FALSE.equals(p.get("borrow"))&&parameters[role][i].equals(p.get("ty")),
+                            "Expr constructor raw parameter differs");
+                }
+                Map<String,Object> runtime=map(h.evidence.get("runtime"));
+                require(runtime.keySet().equals(new HashSet<>(Arrays.asList("initializer","role")))
+                        &&runtime.get("initializer")==null&&"ordinary".equals(runtime.get("role")),"Expr constructor is not ordinary");
+            }
+            return new ExprConstructorPolicy(helpers);
+        }
+    }
+    private Function exprConstructor(ExprConstructorPolicy policy,int role) {
+        Header header=policy.helpers[role]; int id=program.functionId(header); Function f=program.functions[id];
+        require(f.header==header&&f.intrinsic==0&&f.hostExtern==null&&program.guestExports[id]==null,
+                "Expr constructor is not the current exact ordinary Function");
+        requireExecutableAbi(f); require(f.resultType==OBJ,"Expr constructor requires OBJ result");
+        for(int lane:f.paramTypes) require(lane==OBJ,"Expr constructor requires OBJ parameters");
+        return preflightCallable(f,true);
+    }
+    private static final int EXPR_LIFT_JOB=0,EXPR_SUBST_JOB=1,EXPR_BETA_JOB=2;
+    private static final int MAX_EXPR_JOB_WORK=1_000_000,MAX_EXPR_JOB_FRAMES=100_000,MAX_EXPR_JOB_CACHE=100_000,MAX_EXPR_JOB_OFFSET=1_048_575;
+    private static final boolean EXPR_MACHINERY_READY=true;
+    private static final class ExprCredit {
+        Object value; boolean owned;
+        ExprCredit(Object value,boolean owned) { this.value=value; this.owned=owned; }
+    }
+    private abstract static class ExprJob {
+        ExprCredit result,childResult; boolean completed; int cleanup;
+    }
+    private static final class ReplaceJob extends ExprJob {
+        Object input; int mode,cutoff,amount; Object[] substitutions;
+        final ArrayDeque<ExprReplaceFrame> frames=new ArrayDeque<>();
+        final IdentityHashMap<Node,HashMap<Integer,ExprCredit>> cache=new IdentityHashMap<>();
+        final ArrayList<ExprCredit> cacheValues=new ArrayList<>();
+        final IdentityHashMap<Node,Boolean> active=new IdentityHashMap<>();
+        int stage,reservedCacheEntries;
+    }
+    private static final class ExprReplaceFrame {
+        Node original; int offset,stage,cursor,cleanup; boolean shared,active;
+        ExprCredit[] children=new ExprCredit[3]; ExprCredit result;
+        ExprReplaceFrame(Node original,int offset) { this.original=original; this.offset=offset; }
+    }
+    private static final class BetaJob extends ExprJob {
+        ExprCredit function,temporary,accumulator,replacement;
+        Object[] reverseArgs; int consumed,remaining,stage;
+        final ArrayDeque<ExprBetaFrame> frames=new ArrayDeque<>();
+    }
+    private static final class ExprBetaFrame {
+        ExprCredit expression;
+        ExprBetaFrame(ExprCredit expression) { this.expression=expression; }
+    }
+    private static final class ExprPacket {
+        Function function; Object[] arguments,expectedFields; boolean[] owned;
+        int role,expectedTag,expectedFlag; boolean started,entered;
+        ExprReplaceFrame replaceFrame; BetaJob beta;
+    }
+    private static final class ExprMachineryState {
+        ExprConstructorPolicy policy;
+        final ArrayDeque<ExprJob> jobs=new ArrayDeque<>();
+        ExprCredit input,result,retiring; final ArrayList<ExprCredit> arguments=new ArrayList<>();
+        ExprPacket call; long work; int stage,cleanup,liveFrames,liveCacheEntries;
+    }
+    /** Deliberately private reflection-only research orchestrator. This is not
+     * a Lean native, source capability, generic invoke or public VM entry API. */
+    private void startExprMachineryResearch(Header[] headers,int mode,Object input,Object[] reverseArgs,long cutoff,long amount) {
+        explicitOnly();
+        require(EXPR_MACHINERY_READY,"Private Expr machinery is not yet complete");
+        require(taskRuntime!=null,"Private Expr machinery requires active explicit runtime");
+        if(closed||disposed||untrackedFailure||advancing||phase!=IDLE||pendingOwnedResult||sp!=0||continuationDepth!=0
+                ||runtimeAction!=null||hostCompletion!=null||hostGuestRecord!=null||quietCurrent!=null||releasePending!=0
+                ||releaseTransaction!=null||releaseRoot)
+            throw new IllegalStateException("Private Expr machinery requires an open idle engine");
+        require(mode>=EXPR_LIFT_JOB&&mode<=EXPR_BETA_JOB,"Unknown private Expr job mode");
+        require(cutoff>=0&&cutoff<=MAX_EXPR_JOB_OFFSET&&amount>=0&&amount<=MAX_EXPR_JOB_OFFSET,"Private Expr offset/amount outside profile");
+        require(reverseArgs!=null&&reverseArgs.length<=MAX_EXPR_JOB_FRAMES,"Private Expr substitution vector outside profile");
+        if(mode==EXPR_LIFT_JOB) require(reverseArgs.length==0,"Lift job has no substitution arguments");
+        if(mode!=EXPR_LIFT_JOB) require(cutoff==0&&amount==0,"Non-lift job has no cutoff/amount");
+        ExprConstructorPolicy policy=ExprConstructorPolicy.originalHeaders(headers);
+        for(int i=0;i<9;i++) exprConstructor(policy,i);
+        IdentityHashMap<Node,Integer> owners=new IdentityHashMap<>();
+        Node root=exprNode(input); owners.put(root,1);
+        for(Object value:reverseArgs) owners.merge(exprNode(value),1,Integer::sum);
+        for(Map.Entry<Node,Integer> item:owners.entrySet()) require(item.getKey().rc==0||item.getKey().rc>=item.getValue(),"Private Expr input alias credits differ");
+        RuntimeAction action=newAction(ACTION_EXPR_MACHINERY,null,null,0,ROOT,null);
+        ExprMachineryState state=new ExprMachineryState(); state.policy=policy;
+        state.input=new ExprCredit(input,true);
+        for(Object value:reverseArgs) state.arguments.add(new ExprCredit(value,true));
+        action.exprMachinery=state; publishAction(action); objects[action.slot]=null;
+        callsLeft=10_000_000; instructions=0; phase=RUNNING;
+        entry=null; result=null; releaseRoot=false;
+        if(mode==EXPR_BETA_JOB) {
+            BetaJob beta=new BetaJob(); beta.function=state.input; state.input=null;
+            beta.reverseArgs=reverseArgs.clone(); state.jobs.addLast(beta);
+        } else pushReplaceJob(state,mode,input,(int)cutoff,(int)amount,reverseArgs.clone());
+    }
+    private void exprJobWork(ExprMachineryState state,long amount) {
+        require(amount>=0&&amount<=MAX_EXPR_JOB_WORK-state.work,"Expr machinery work outside bounded profile");
+        long before=state.work; state.work+=amount;
+        if((before>>>10)!=(state.work>>>10)&&Thread.currentThread().isInterrupted()) throw error("Expr machinery interrupted");
+    }
+    private static final int XR_ENTER=0,XR_CHILDREN=1,XR_LIFT_WAIT=2,XR_BUILD=3,XR_HELPER=4,XR_FINISH=5,XR_CLEAN=6;
+    private static int exprChildCount(int tag) {
+        return tag==5||tag==6||tag==7?2:tag==8?3:tag==10||tag==11?1:0;
+    }
+    private static int exprChildField(int tag,int child) {
+        return tag==5?child:tag==6||tag==7||tag==8?child+1:tag==10?1:2;
+    }
+    private static int exprCtorRole(int tag) {
+        switch(tag) { case 0:return 0; case 3:return 1; case 4:return 2; case 5:return 3;
+            case 6:return 4; case 7:return 5; case 8:return 6; case 10:return 7; case 11:return 8;
+            default:throw error("Expr tag has no rebuilding constructor role"); }
+    }
+    private static final int[] EXPR_CTOR_TAGS={0,3,4,5,6,7,8,10,11};
+    private ExprCredit exprCredit(Object value) { return new ExprCredit(value,false); }
+    private void acquireExpr(ExprCredit credit) {
+        require(credit!=null&&!credit.owned,"Expr credit already acquired"); inc(credit.value,1); credit.owned=true;
+    }
+    private void selectExpr(ExprReplaceFrame frame,Object value) {
+        frame.result=exprCredit(value); acquireExpr(frame.result); frame.stage=XR_FINISH;
+    }
+    private boolean releaseExprCredit(RuntimeAction action,ExprMachineryState state,ExprCredit credit) {
+        if(credit==null||!credit.owned) return false;
+        state.retiring=credit; action.retiring=credit.value; action.releaseClaimed=false;
+        boolean dispatch;
+        try { dispatch=beginRelease(credit.value,1,ACTION_BODY); credit.owned=false; }
+        finally { if(action.releaseClaimed) credit.owned=false; }
+        if(!dispatch) { state.retiring=null; action.retiring=null; action.releaseClaimed=false; }
+        return dispatch;
+    }
+    private void pushExprFrame(ExprMachineryState state,ReplaceJob job,Object input,int offset) {
+        require(offset>=0&&offset<=MAX_EXPR_JOB_OFFSET,"Expr binder offset outside bounded profile");
+        require(state.liveFrames<MAX_EXPR_JOB_FRAMES,"Expr machinery frame limit");
+        Node node=exprNode(input); job.frames.addLast(new ExprReplaceFrame(node,offset)); state.liveFrames++;
+    }
+    private void pushReplaceJob(ExprMachineryState state,int mode,Object input,int cutoff,int amount,Object[] substitutions) {
+        require(state.jobs.size()<MAX_EXPR_JOB_FRAMES,"Expr machinery job limit");
+        ReplaceJob job=new ReplaceJob(); job.input=input; job.mode=mode; job.cutoff=cutoff; job.amount=amount;
+        job.substitutions=substitutions; state.jobs.addLast(job);
+    }
+    private static boolean sameExprField(Object left,Object right) {
+        return left==right||!(left instanceof Node)&&left!=null&&left.equals(right);
+    }
+    private void callExprConstructor(RuntimeAction action,ExprMachineryState state,int role,Object[] values,ExprReplaceFrame frame,BetaJob beta) {
+        exprJobWork(state,1); require(state.call==null&&objects[action.slot]==null,"Expr constructor receiver occupied");
+        Function helper=exprConstructor(state.policy,role);
+        require(helper.params.length==values.length,"Expr constructor packet arity differs");
+        ExprPacket packet=new ExprPacket(); packet.function=helper; packet.role=role; packet.replaceFrame=frame; packet.beta=beta;
+        packet.arguments=values.clone(); packet.owned=new boolean[values.length]; packet.expectedTag=EXPR_CTOR_TAGS[role]; packet.expectedFlag=-1;
+        int fields=packet.expectedTag==6||packet.expectedTag==7?3:packet.expectedTag==8?4:values.length;
+        packet.expectedFields=Arrays.copyOf(values,fields);
+        if(packet.expectedTag>=6&&packet.expectedTag<=8) {
+            require(values[fields] instanceof Long,"Expr constructor boxed flag requires Long");
+            long flag=(Long)values[fields]; require(flag>=0&&flag<=(packet.expectedTag==8?1:4),"Expr constructor flag outside profile");
+            packet.expectedFlag=(int)flag;
+        }
+        state.call=packet;
+        IdentityHashMap<Node,Integer> owners=new IdentityHashMap<>();
+        for(int i=0;i<values.length;i++) { validateHostObject(values[i]); inc(values[i],1); packet.owned[i]=true;
+            if(values[i] instanceof Node) owners.merge((Node)values[i],1,Integer::sum); }
+        for(Map.Entry<Node,Integer> entry:owners.entrySet())
+            require(entry.getKey().rc==0||entry.getKey().rc>=entry.getValue(),"Expr constructor packet owner occurrences differ");
+        packet.started=true; enterExplicit(helper,null,packet.arguments,ACTION_BODY,action.slot,ASSIGN,null);
+        require(packet.entered,"Expr constructor did not publish frame or CodeRequest");
+    }
+    private void receiveExprConstructor(RuntimeAction action,ExprMachineryState state) {
+        ExprPacket packet=state.call; require(packet.entered,"Expr constructor receiver precedes entry");
+        // The receiver owns even a malformed result before any typed local flag.
+        Object value=objects[action.slot]; Node node=exprNode(value);
+        require(node.tag==packet.expectedTag&&node.fields.length==packet.expectedFields.length,"Expr constructor returned unexpected head");
+        for(int i=0;i<node.fields.length;i++) require(sameExprField(node.fields[i],packet.expectedFields[i]),"Expr constructor returned unexpected child");
+        if(packet.expectedFlag>=0) require((node.scalars[8]&255)==packet.expectedFlag,"Expr constructor returned unexpected flag");
+        ExprCredit credit=new ExprCredit(value,true);
+        if(packet.replaceFrame!=null) { packet.replaceFrame.result=credit; packet.replaceFrame.stage=XR_FINISH; }
+        else { require(packet.beta!=null&&packet.beta.replacement==null,"Missing Expr beta receiver"); packet.beta.replacement=credit; }
+        objects[action.slot]=null; state.call=null;
+    }
+    private void requestBVar(RuntimeAction action,ExprMachineryState state,ExprReplaceFrame frame,BigInteger index) {
+        exprJobWork(state,1+(index.bitLength()+63L)/64);
+        require(index.signum()>=0&&index.compareTo(BigInteger.valueOf(MAX_EXPR_JOB_OFFSET-1))<=0,"Expr bvar constructor range outside bounded profile");
+        Object logical=index.bitLength()<=63?Long.valueOf(index.longValue()):index;
+        frame.stage=XR_HELPER; callExprConstructor(action,state,0,new Object[]{logical},frame,null);
+    }
+    private void rebuildExpr(RuntimeAction action,ExprMachineryState state,ExprReplaceFrame frame) {
+        Node original=frame.original; int count=exprChildCount(original.tag); boolean changed=false;
+        Object[] fields=original.fields.clone();
+        for(int i=0;i<count;i++) {
+            require(frame.children[i]!=null&&frame.children[i].owned,"Expr replacement child result missing");
+            int at=exprChildField(original.tag,i); fields[at]=frame.children[i].value;
+            changed|=!sameExprField(fields[at],original.fields[at]);
+        }
+        if(!changed) { selectExpr(frame,original); return; }
+        Object[] values=fields;
+        if(original.tag>=6&&original.tag<=8) {
+            values=Arrays.copyOf(fields,fields.length+1); values[fields.length]=Long.valueOf(original.scalars[8]&255);
+        }
+        frame.stage=XR_HELPER; callExprConstructor(action,state,exprCtorRole(original.tag),values,frame,null);
+    }
+    private void completeReplaceFrame(ExprMachineryState state,ReplaceJob job,ExprReplaceFrame frame) {
+        require(frame.result!=null&&frame.result.owned,"Missing Expr replacement result owner");
+        require(job.frames.peekLast()==frame,"Expr replacement frame order differs");
+        Iterator<ExprReplaceFrame> ancestors=job.frames.descendingIterator(); ancestors.next();
+        ExprReplaceFrame parent=ancestors.hasNext()?ancestors.next():null;
+        if(parent!=null) require(parent.stage==XR_CHILDREN&&parent.cursor<parent.children.length&&parent.children[parent.cursor]==null,
+                "Expr parent is not waiting for an empty child receiver");
+        if(frame.active) job.active.remove(frame.original);
+        if(parent==null) { job.result=frame.result; job.stage=2; job.cache.clear(); job.active.clear(); job.cleanup=0; }
+        else parent.children[parent.cursor++]=frame.result;
+        frame.result=null; job.frames.removeLast(); state.liveFrames--;
+    }
+    private void stepReplaceJob(RuntimeAction action,ExprMachineryState state,ReplaceJob job) {
+        if(job.stage==0) {
+            Node input=exprNode(job.input); long range=exprCachedData(input)>>>44;
+            if(job.mode==EXPR_LIFT_JOB?(job.amount==0||job.cutoff>=range):(job.substitutions.length==0||range==0)) {
+                job.result=exprCredit(input); acquireExpr(job.result); job.stage=2; return;
+            }
+            job.stage=1; pushExprFrame(state,job,input,0); return;
+        }
+        if(job.stage==2) {
+            if(job.cleanup<job.cacheValues.size()) {
+                ExprCredit credit=job.cacheValues.get(job.cacheValues.size()-1-job.cleanup++); releaseExprCredit(action,state,credit); return;
+            }
+            require(job.reservedCacheEntries==job.cacheValues.size()&&state.liveCacheEntries>=job.reservedCacheEntries,"Expr cache reservation ledger differs");
+            state.liveCacheEntries-=job.reservedCacheEntries; job.reservedCacheEntries=0;
+            job.cacheValues.clear(); job.input=null; job.substitutions=null; job.completed=true; return;
+        }
+        ExprReplaceFrame frame=job.frames.peekLast(); require(frame!=null,"Missing Expr replacement frame"); Node node=frame.original;
+        if(frame.stage==XR_ENTER) {
+            // Native replace uses likely-unshared RC, intentionally ignoring MT.
+            frame.shared=node.rc!=1;
+            HashMap<Integer,ExprCredit> offsets=frame.shared?job.cache.get(node):null;
+            ExprCredit cached=offsets==null?null:offsets.get(frame.offset);
+            if(cached!=null) { require(cached.owned,"Expr replacement cache owner missing"); selectExpr(frame,cached.value); frame.shared=false; return; }
+            long threshold=(long)job.cutoff+frame.offset;
+            if(threshold>=(exprCachedData(node)>>>44)) { selectExpr(frame,node); return; }
+            if(node.tag==0) {
+                BigInteger index=nat(node.fields[0]); exprJobWork(state,1+(index.bitLength()+63L)/64);
+                if(index.compareTo(BigInteger.valueOf(threshold))>=0) {
+                    if(job.mode==EXPR_LIFT_JOB) { requestBVar(action,state,frame,index.add(BigInteger.valueOf(job.amount))); return; }
+                    BigInteger at=index.subtract(BigInteger.valueOf(frame.offset));
+                    if(at.compareTo(BigInteger.valueOf(job.substitutions.length))<0) {
+                        frame.stage=XR_LIFT_WAIT;
+                        pushReplaceJob(state,EXPR_LIFT_JOB,job.substitutions[at.intValue()],0,frame.offset,new Object[0]); return;
+                    }
+                    requestBVar(action,state,frame,index.subtract(BigInteger.valueOf(job.substitutions.length))); return;
+                }
+            }
+            int count=exprChildCount(node.tag);
+            if(count==0) { selectExpr(frame,node); return; }
+            require(!job.active.containsKey(node),"Expr replacement structural cycle outside profile");
+            job.active.put(node,Boolean.TRUE); frame.active=true; frame.stage=XR_CHILDREN; frame.cursor=0; return;
+        }
+        if(frame.stage==XR_LIFT_WAIT) {
+            require(job.childResult!=null&&job.childResult.owned,"Missing substituted lifted result");
+            frame.result=job.childResult; job.childResult=null; frame.stage=XR_FINISH; return;
+        }
+        if(frame.stage==XR_CHILDREN) {
+            int count=exprChildCount(node.tag);
+            if(frame.cursor<count) {
+                int offset=frame.offset;
+                if((node.tag==6||node.tag==7)&&frame.cursor==1||node.tag==8&&frame.cursor==2) offset=Math.addExact(offset,1);
+                pushExprFrame(state,job,node.fields[exprChildField(node.tag,frame.cursor)],offset); return;
+            }
+            frame.stage=XR_BUILD;
+        }
+        if(frame.stage==XR_BUILD) { rebuildExpr(action,state,frame); return; }
+        if(frame.stage==XR_FINISH) {
+            if(frame.shared) {
+                require(state.liveCacheEntries<MAX_EXPR_JOB_CACHE,"Expr machinery live cache entries outside bounded profile");
+                state.liveCacheEntries++; job.reservedCacheEntries++;
+                ExprCredit stored=exprCredit(frame.result.value); job.cacheValues.add(stored); acquireExpr(stored);
+                HashMap<Integer,ExprCredit> offsets=job.cache.computeIfAbsent(node,key->new HashMap<>());
+                require(offsets.putIfAbsent(frame.offset,stored)==null,"Duplicate Expr replacement cache entry");
+            }
+            frame.stage=XR_CLEAN; frame.cleanup=0;
+        }
+        if(frame.stage==XR_CLEAN) {
+            if(frame.cleanup<3) { ExprCredit credit=frame.children[2-frame.cleanup++]; releaseExprCredit(action,state,credit); return; }
+            completeReplaceFrame(state,job,frame); return;
+        }
+        throw error("Expr replacement constructor continuation did not return");
+    }
+    private static final int XB_INIT=0,XB_DESCEND=1,XB_ZETA_WAIT=2,XB_LAST_WAIT=3,XB_BASE_WAIT=4,
+            XB_APP=5,XB_APP_WAIT=6,XB_DRAIN_TEMP=7,XB_DRAIN_FRAMES=8,XB_DRAIN_FUNCTION=9,XB_DONE=10;
+    private void pushBetaFrame(ExprMachineryState state,BetaJob job,ExprCredit credit,boolean acquire) {
+        require(state.liveFrames<MAX_EXPR_JOB_FRAMES,"Expr machinery frame limit");
+        job.frames.addLast(new ExprBetaFrame(credit)); state.liveFrames++;
+        if(acquire) acquireExpr(credit); else require(credit.owned,"Beta child parameter lacks moved result owner");
+    }
+    private void stepBetaJob(RuntimeAction action,ExprMachineryState state,BetaJob job) {
+        if(job.stage==XB_INIT) {
+            require(job.function!=null&&job.function.owned,"Beta wrapper function owner missing");
+            if(job.reverseArgs.length==0) { job.result=job.function; job.function=null; job.completed=true; return; }
+            pushBetaFrame(state,job,exprCredit(job.function.value),true); job.stage=XB_DESCEND; return;
+        }
+        if(job.stage==XB_DESCEND) {
+            ExprBetaFrame frame=job.frames.peekLast(); require(frame!=null&&frame.expression.owned,"Beta recursive parameter owner missing");
+            Node expression=exprNode(frame.expression.value);
+            if(expression.tag==6) {
+                if(job.consumed+1<job.reverseArgs.length) {
+                    job.consumed++; pushBetaFrame(state,job,exprCredit(expression.fields[2]),true); return;
+                }
+                job.stage=XB_LAST_WAIT; pushReplaceJob(state,EXPR_SUBST_JOB,expression.fields[2],0,0,job.reverseArgs); return;
+            }
+            if(expression.tag==8&&job.consumed<job.reverseArgs.length) {
+                job.stage=XB_ZETA_WAIT;
+                pushReplaceJob(state,EXPR_SUBST_JOB,expression.fields[3],0,0,new Object[]{expression.fields[2]}); return;
+            }
+            if(expression.tag==10) { pushBetaFrame(state,job,exprCredit(expression.fields[1]),true); return; }
+            job.remaining=job.reverseArgs.length-job.consumed;
+            job.stage=XB_BASE_WAIT;
+            pushReplaceJob(state,EXPR_SUBST_JOB,expression,0,0,Arrays.copyOfRange(job.reverseArgs,job.remaining,job.reverseArgs.length)); return;
+        }
+        if(job.stage==XB_ZETA_WAIT) {
+            require(job.childResult!=null&&job.childResult.owned,"Beta zeta replacement owner missing");
+            ExprCredit child=job.childResult;
+            // C++20 prvalue initializes the next by-value parameter directly.
+            // Keep its receiver owner until the frame-cap preflight succeeds.
+            pushBetaFrame(state,job,child,false); job.childResult=null; job.stage=XB_DESCEND; return;
+        }
+        if(job.stage==XB_LAST_WAIT) {
+            require(job.childResult!=null&&job.childResult.owned,"Beta final substitution owner missing");
+            job.result=job.childResult; job.childResult=null; job.stage=XB_DRAIN_FRAMES; return;
+        }
+        if(job.stage==XB_BASE_WAIT) {
+            require(job.childResult!=null&&job.childResult.owned,"Beta application base owner missing");
+            // The instantiate full-expression temporary anchors mk_rev_app's f,
+            // independently from that function's owned accumulator r.
+            job.temporary=job.childResult; job.childResult=null;
+            job.accumulator=exprCredit(job.temporary.value); acquireExpr(job.accumulator); job.stage=XB_APP; return;
+        }
+        if(job.stage==XB_APP) {
+            require(job.accumulator!=null&&job.accumulator.owned,"Beta application accumulator missing");
+            if(job.remaining==0) { job.result=job.accumulator; job.accumulator=null; job.stage=XB_DRAIN_TEMP; return; }
+            job.stage=XB_APP_WAIT;
+            callExprConstructor(action,state,3,new Object[]{job.accumulator.value,job.reverseArgs[job.remaining-1]},null,job); return;
+        }
+        if(job.stage==XB_APP_WAIT) {
+            require(job.replacement!=null&&job.replacement.owned,"Beta application constructor owner missing");
+            ExprCredit old=job.accumulator; job.accumulator=job.replacement; job.replacement=null;
+            job.remaining--; job.stage=XB_APP; releaseExprCredit(action,state,old); return;
+        }
+        if(job.stage==XB_DRAIN_TEMP) { job.stage=XB_DRAIN_FRAMES; releaseExprCredit(action,state,job.temporary); return; }
+        if(job.stage==XB_DRAIN_FRAMES) {
+            if(!job.frames.isEmpty()) {
+                ExprBetaFrame frame=job.frames.removeLast(); state.liveFrames--;
+                releaseExprCredit(action,state,frame.expression); return;
+            }
+            job.stage=XB_DRAIN_FUNCTION;
+        }
+        if(job.stage==XB_DRAIN_FUNCTION) { job.stage=XB_DONE; releaseExprCredit(action,state,job.function); return; }
+        require(job.stage==XB_DONE&&job.result!=null&&job.result.owned,"Incomplete beta job result");
+        job.function=null; job.temporary=null; job.accumulator=null; job.replacement=null; job.reverseArgs=null; job.completed=true;
+    }
+    private void stepExprMachinery(RuntimeAction action) {
+        ExprMachineryState state=action.exprMachinery; require(state!=null,"Missing private Expr machinery state"); exprJobWork(state,1);
+        if(state.retiring!=null) {
+            require(!state.retiring.owned,"Expr cleanup returned without retiring owner claim");
+            state.retiring=null; action.retiring=null; action.releaseClaimed=false;
+        }
+        if(state.call!=null) { receiveExprConstructor(action,state); return; }
+        if(state.stage==0) {
+            ExprJob job=state.jobs.peekLast(); require(job!=null,"Missing private Expr job");
+            if(!job.completed) {
+                if(job instanceof ReplaceJob) stepReplaceJob(action,state,(ReplaceJob)job);
+                else stepBetaJob(action,state,(BetaJob)job);
+                return;
+            }
+            require(job.result!=null&&job.result.owned,"Private Expr job completed without result owner");
+            Iterator<ExprJob> ancestors=state.jobs.descendingIterator(); ancestors.next();
+            ExprJob parent=ancestors.hasNext()?ancestors.next():null;
+            if(parent!=null) require(parent.childResult==null,"Private Expr child receiver occupied");
+            if(parent==null) { state.result=job.result; state.stage=1; }
+            else parent.childResult=job.result;
+            job.result=null; state.jobs.removeLast();
+            return;
+        }
+        if(state.stage==1) { state.stage=2; state.cleanup=0; releaseExprCredit(action,state,state.input); return; }
+        if(state.stage==2) {
+            if(state.cleanup<state.arguments.size()) {
+                ExprCredit credit=state.arguments.get(state.arguments.size()-1-state.cleanup++); releaseExprCredit(action,state,credit); return;
+            }
+            state.stage=3;
+        }
+        require(state.stage==3&&state.result!=null&&state.result.owned&&state.liveFrames==0&&state.liveCacheEntries==0,"Incomplete private Expr output");
+        Object result=state.result.value; action.output=result; state.result.owned=false;
+        state.input=null; state.result=null; state.arguments.clear(); action.exprMachinery=null;
+        finishAction(action,result);
+    }
+
     /** Five exact source-authenticated ordinary helper roles, without guest values,
      * Program bodies or catalogue resources. SHA identities remain descriptive;
      * the trusted source adapter authenticates the original bytes. */
@@ -1501,7 +1916,7 @@ public final class Interpreter implements AutoCloseable {
     private HostGuestRecord hostGuestRecord;
     private HostCall hostCompletion;
     private RuntimeAction runtimeAction,failedRuntimeAction;
-    private static final int ACTION_RELEASE=1,ACTION_DISPOSE=2,ACTION_NATIVE=3,ACTION_HOST=4,ACTION_TASK=5,ACTION_RESOLVE=6,ACTION_RUN_TASK=7,ACTION_PROFILE=8,ACTION_FIND=9,ACTION_LEVEL_MVARS=10,ACTION_HOST_GUEST=20;
+    private static final int ACTION_RELEASE=1,ACTION_DISPOSE=2,ACTION_NATIVE=3,ACTION_HOST=4,ACTION_TASK=5,ACTION_RESOLVE=6,ACTION_RUN_TASK=7,ACTION_PROFILE=8,ACTION_FIND=9,ACTION_LEVEL_MVARS=10,ACTION_EXPR_MACHINERY=11,ACTION_HOST_GUEST=20;
     private static final Body ACTION_BODY=new Body();
     /** Typed ownership/control state, separate from NodeMetadata. The output
      * scratch slot is reserved before callbacks may enter generic AP. */
@@ -1510,6 +1925,7 @@ public final class Interpreter implements AutoCloseable {
         HostGuestRecord guest;
         FindState find;
         LevelInstantiationState levelMvars;
+        ExprMachineryState exprMachinery;
         int operation,stage,savedSp,slot,dest,kind,cursor,limit,pending;
         Function function;
         Body next;
@@ -1861,6 +2277,15 @@ public final class Interpreter implements AutoCloseable {
     }
     /** Both helper entry commit points call this AFTER publication and BEFORE
      * tick/guest work. Until then the native packet remains the owner escrow. */
+    private void actionHelperEntry(Function function,Object[] arguments) {
+        levelHelperEntry(function,arguments);
+        RuntimeAction action=runtimeAction;
+        if(action==null||action.exprMachinery==null) return;
+        ExprPacket packet=action.exprMachinery.call;
+        if(packet==null||packet.entered||packet.function!=function||packet.arguments!=arguments) return;
+        require(packet.started,"Expr constructor entered before packet publication");
+        packet.entered=true; Arrays.fill(packet.owned,false);
+    }
     private void levelHelperEntry(Function function,Object[] arguments) {
         RuntimeAction action=runtimeAction;
         if(action==null||action.levelMvars==null) return;
@@ -2359,6 +2784,7 @@ public final class Interpreter implements AutoCloseable {
         else if(action.operation==ACTION_PROFILE) stepProfile(action);
         else if(action.operation==ACTION_FIND) stepFind(action);
         else if(action.operation==ACTION_LEVEL_MVARS) stepLevelInstantiation(action);
+        else if(action.operation==ACTION_EXPR_MACHINERY) stepExprMachinery(action);
         else if(action.operation==ACTION_HOST_GUEST) stepHostGuest(action);
         else if(action.operation==ACTION_HOST) {
             try { stepHostCompletion(action); }
@@ -2549,6 +2975,13 @@ public final class Interpreter implements AutoCloseable {
                 HostGuestOperation out=new HostGuestOperation(child.runtimeIdentity,(HostGuestRecord)value(old.record));
                 copies.put(source,out); return out;
             }
+            if(source instanceof ExprMachineryState||source instanceof ReplaceJob||source instanceof BetaJob
+                    ||source instanceof ExprReplaceFrame||source instanceof ExprBetaFrame||source instanceof ExprPacket||source instanceof ExprCredit) {
+                Object out=source instanceof ExprMachineryState?new ExprMachineryState():source instanceof ReplaceJob?new ReplaceJob():
+                        source instanceof BetaJob?new BetaJob():source instanceof ExprReplaceFrame?new ExprReplaceFrame(null,0):
+                        source instanceof ExprBetaFrame?new ExprBetaFrame(null):source instanceof ExprPacket?new ExprPacket():new ExprCredit(null,false);
+                copies.put(source,out); pending.addLast(new Object[]{source,out}); return out;
+            }
             if(source instanceof LevelInstantiationState||source instanceof LevelFrame||source instanceof LevelPacket||source instanceof LevelCredit) {
                 Object out=source instanceof LevelInstantiationState?new LevelInstantiationState():source instanceof LevelFrame?new LevelFrame(null):
                         source instanceof LevelPacket?new LevelPacket():new LevelCredit(null,false);
@@ -2609,7 +3042,7 @@ public final class Interpreter implements AutoCloseable {
                     for(int i=0;i<from.length;i++) to[i]=value(from[i]);
                 } else if(source instanceof RuntimeAction) {
                     RuntimeAction old=(RuntimeAction)source,out=(RuntimeAction)target;
-                    out.parent=(RuntimeAction)value(old.parent); out.guest=(HostGuestRecord)value(old.guest); out.find=(FindState)value(old.find); out.levelMvars=(LevelInstantiationState)value(old.levelMvars); out.operation=old.operation; out.stage=old.stage;
+                    out.parent=(RuntimeAction)value(old.parent); out.guest=(HostGuestRecord)value(old.guest); out.find=(FindState)value(old.find); out.levelMvars=(LevelInstantiationState)value(old.levelMvars); out.exprMachinery=(ExprMachineryState)value(old.exprMachinery); out.operation=old.operation; out.stage=old.stage;
                     out.savedSp=old.savedSp; out.slot=old.slot; out.dest=old.dest; out.kind=old.kind;
                     out.cursor=old.cursor; out.limit=old.limit; out.pending=old.pending;
                     out.function=(Function)value(old.function); out.next=old.next;
@@ -2619,6 +3052,47 @@ public final class Interpreter implements AutoCloseable {
                     out.task=(TaskRecord)value(old.task); out.scope=(TaskRecord)value(old.scope); out.batch=(DependencyList)value(old.batch);
                     out.output=value(old.output); out.retiring=value(old.retiring); out.releaseClaimed=old.releaseClaimed; out.current=(Node)value(old.current); out.origin=(Node)value(old.origin);
 
+                } else if(source instanceof ExprCredit) {
+                    ExprCredit old=(ExprCredit)source,out=(ExprCredit)target; out.value=value(old.value); out.owned=old.owned;
+                } else if(source instanceof ExprReplaceFrame) {
+                    ExprReplaceFrame old=(ExprReplaceFrame)source,out=(ExprReplaceFrame)target;
+                    out.original=(Node)value(old.original); out.offset=old.offset; out.stage=old.stage; out.cursor=old.cursor; out.cleanup=old.cleanup;
+                    out.shared=old.shared; out.active=old.active; out.result=(ExprCredit)value(old.result);
+                    for(int i=0;i<old.children.length;i++) out.children[i]=(ExprCredit)value(old.children[i]);
+                } else if(source instanceof ExprBetaFrame) {
+                    ((ExprBetaFrame)target).expression=(ExprCredit)value(((ExprBetaFrame)source).expression);
+                } else if(source instanceof ExprPacket) {
+                    ExprPacket old=(ExprPacket)source,out=(ExprPacket)target; out.function=(Function)value(old.function);
+                    out.arguments=(Object[])value(old.arguments); out.expectedFields=(Object[])value(old.expectedFields); out.owned=old.owned.clone();
+                    out.role=old.role; out.expectedTag=old.expectedTag; out.expectedFlag=old.expectedFlag;
+                    out.started=old.started; out.entered=old.entered; out.replaceFrame=(ExprReplaceFrame)value(old.replaceFrame); out.beta=(BetaJob)value(old.beta);
+                } else if(source instanceof ExprJob) {
+                    ExprJob old=(ExprJob)source,out=(ExprJob)target;
+                    out.result=(ExprCredit)value(old.result); out.childResult=(ExprCredit)value(old.childResult); out.completed=old.completed; out.cleanup=old.cleanup;
+                    if(source instanceof ReplaceJob) {
+                        ReplaceJob r=(ReplaceJob)old,t=(ReplaceJob)out;
+                        t.input=value(r.input); t.mode=r.mode; t.cutoff=r.cutoff; t.amount=r.amount; t.substitutions=(Object[])value(r.substitutions); t.stage=r.stage; t.reservedCacheEntries=r.reservedCacheEntries;
+                        for(ExprReplaceFrame frame:r.frames) t.frames.addLast((ExprReplaceFrame)value(frame));
+                        for(Map.Entry<Node,HashMap<Integer,ExprCredit>> entry:r.cache.entrySet()) {
+                            HashMap<Integer,ExprCredit> offsets=new HashMap<>();
+                            for(Map.Entry<Integer,ExprCredit> item:entry.getValue().entrySet()) offsets.put(item.getKey(),(ExprCredit)value(item.getValue()));
+                            t.cache.put((Node)value(entry.getKey()),offsets);
+                        }
+                        for(ExprCredit credit:r.cacheValues) t.cacheValues.add((ExprCredit)value(credit));
+                        for(Node node:r.active.keySet()) t.active.put((Node)value(node),Boolean.TRUE);
+                    } else {
+                        BetaJob b=(BetaJob)old,t=(BetaJob)out;
+                        t.function=(ExprCredit)value(b.function); t.temporary=(ExprCredit)value(b.temporary);
+                        t.accumulator=(ExprCredit)value(b.accumulator); t.replacement=(ExprCredit)value(b.replacement);
+                        t.reverseArgs=(Object[])value(b.reverseArgs); t.consumed=b.consumed; t.remaining=b.remaining; t.stage=b.stage;
+                        for(ExprBetaFrame frame:b.frames) t.frames.addLast((ExprBetaFrame)value(frame));
+                    }
+                } else if(source instanceof ExprMachineryState) {
+                    ExprMachineryState old=(ExprMachineryState)source,out=(ExprMachineryState)target;
+                    out.policy=old.policy; out.input=(ExprCredit)value(old.input); out.result=(ExprCredit)value(old.result); out.retiring=(ExprCredit)value(old.retiring);
+                    for(ExprJob job:old.jobs) out.jobs.addLast((ExprJob)value(job));
+                    for(ExprCredit credit:old.arguments) out.arguments.add((ExprCredit)value(credit));
+                    out.call=(ExprPacket)value(old.call); out.work=old.work; out.stage=old.stage; out.cleanup=old.cleanup; out.liveFrames=old.liveFrames; out.liveCacheEntries=old.liveCacheEntries;
                 } else if(source instanceof LevelCredit) {
                     LevelCredit old=(LevelCredit)source,out=(LevelCredit)target;
                     out.value=value(old.value); out.owned=old.owned;
@@ -5406,7 +5880,7 @@ public final class Interpreter implements AutoCloseable {
             for(int i=0;i<slots.length;i++) activation.arguments[i]=function.paramTypes[i]==OBJ
                     ?obj(slots[i]):saveScalar(numbers[bp+slots[i]],function.paramTypes[i]);
         }
-        codeRequest=new CodeRequest(runtimeIdentity,activation); pc=next; phase=CODE_CALL; levelHelperEntry(function,args); applicationEntry(kind); hostGuestEntry(function,args);
+        codeRequest=new CodeRequest(runtimeIdentity,activation); pc=next; phase=CODE_CALL; actionHelperEntry(function,args); applicationEntry(kind); hostGuestEntry(function,args);
     }
     public CodeRequest pendingCodeRequest() { return phase==CODE_CALL?codeRequest:null; }
     public CodeRequest failureCodeRequest() { return failedCodeRequest; }
@@ -5587,7 +6061,7 @@ public final class Interpreter implements AutoCloseable {
         k.caller=active; k.callerPrepared=activePrepared; k.next=next; k.bp=bp; k.sp=sp; k.jbp=jbp; k.jsp=jsp;
         k.dest=dest; k.kind=kind; k.surplus=surplus;
         continuationDepth++;
-        bp=sp; sp=newSp; jbp=jsp; jsp=newJsp; active=f; activePrepared=prepared; pc=prepared.body; levelHelperEntry(f,args); applicationEntry(kind); hostGuestEntry(f,args);
+        bp=sp; sp=newSp; jbp=jsp; jsp=newJsp; active=f; activePrepared=prepared; pc=prepared.body; actionHelperEntry(f,args); applicationEntry(kind); hostGuestEntry(f,args);
         tick();
     }
 
@@ -5797,7 +6271,7 @@ public final class Interpreter implements AutoCloseable {
     public Object takeResult() {
         explicitOnly();
         if(phase!=COMPLETE||!pendingOwnedResult) throw new IllegalStateException("No owned result available");
-        Object value=releaseRoot?ERASED:entry.resultType==OBJ?result:externalScalar(scalarResult,entry.resultType);
+        Object value=releaseRoot?ERASED:entry==null||entry.resultType==OBJ?result:externalScalar(scalarResult,entry.resultType);
         pendingOwnedResult=false; result=null; entry=null; releaseRoot=false; phase=IDLE;
         return value;
     }
