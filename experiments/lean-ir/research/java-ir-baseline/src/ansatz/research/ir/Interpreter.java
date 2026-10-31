@@ -59,6 +59,7 @@ public final class Interpreter implements AutoCloseable {
                              U64_AND=506,U64_OR=507,U64_NOT=508,U64_NEG=509,U64_LOG2=510,U64_SHL=511,U64_LE=512;
     private static final int U8_TO_U64=513,U32_TO_U64=514,USIZE_TO_U64=515;
     private static final int BYTE_MK=200,BYTE_GET=201,BYTE_SIZE=202,BYTE_PUSH=203;
+    private static final int BYTE_GET_DEFAULT=557;
     private static final int INT_OF_NAT=210,INT_NEG_SUCC=211,INT_NEG=212,INT_ABS=213,INT_ADD=214,INT_SUB=215,INT_EQ=216,INT_LT=217,INT_LE=218;
     private static final int STR_MEMCMP=230,STR_SUBSTRING_EQ=231,STR_POS_OF=232,STR_OFFSET_OF_POS=233,STR_PUSHN=234;
     private static final int MAX_STRING_OUTPUT_BYTES=16*1024*1024;
@@ -584,6 +585,8 @@ public final class Interpreter implements AutoCloseable {
                 new String[]{"object"},new boolean[]{false}));
         register(registry,new ExternSpec("lean_byte_array_fget",BYTE_GET,"uint8",
                 new String[]{"object","tobject","erased"},new boolean[]{true,true,false}));
+        register(registry,new ExternSpec("lean_byte_array_get",BYTE_GET_DEFAULT,"uint8",
+                new String[]{"object","tobject"},new boolean[]{true,true}));
         register(registry,new ExternSpec("lean_byte_array_size",BYTE_SIZE,"tagged",
                 new String[]{"object"},new boolean[]{true}));
         register(registry,new ExternSpec("lean_byte_array_push",BYTE_PUSH,"object",
@@ -7835,7 +7838,7 @@ public final class Interpreter implements AutoCloseable {
         }
     }
     private static boolean borrowedBytePrimitive(int op) {
-        return op==BYTE_GET||op==BYTE_SIZE||op==BYTE_EMPTY||op==STR_VALIDATE_UTF8||op==BYTE_COPY_SLICE;
+        return op==BYTE_GET||op==BYTE_GET_DEFAULT||op==BYTE_SIZE||op==BYTE_EMPTY||op==STR_VALIDATE_UTF8||op==BYTE_COPY_SLICE;
     }
     private Node byteArray(Object value) {
         Node n=node(value);
@@ -7870,6 +7873,14 @@ public final class Interpreter implements AutoCloseable {
         }
         Node input=byteArray(a); ByteArrayState state=(ByteArrayState)kindMetadata(input);
         if(f.intrinsic==BYTE_SIZE) { result=Long.valueOf(state.size); return; }
+        if(f.intrinsic==BYTE_GET_DEFAULT) {
+            // lean.h lean_byte_array_get returns zero for valid out-of-range
+            // Nat indices, including MPZ values. Both arguments remain borrowed.
+            BigInteger index=nat(b);
+            scalarResult=index.compareTo(BigInteger.valueOf(state.size))<0
+                    ?Byte.toUnsignedInt(input.scalars[index.intValue()]):0;
+            return;
+        }
         if(f.intrinsic==BYTE_GET) {
             require(ERASED.equals(c),"ByteArray proof requires erased placeholder");
             BigInteger index=nat(b);
@@ -8972,7 +8983,7 @@ public final class Interpreter implements AutoCloseable {
             requireBuildIdentity(); requireBuildUnit(a);
             result=f.intrinsic==BUILD_GITHASH?buildIdentity.githash():buildIdentity.target(); return;
         }
-        if((f.intrinsic>=BYTE_MK&&f.intrinsic<=BYTE_PUSH)||f.intrinsic==BYTE_EMPTY) { byteArrayIntrinsic(f,a,b,c); return; }
+        if((f.intrinsic>=BYTE_MK&&f.intrinsic<=BYTE_PUSH)||f.intrinsic==BYTE_EMPTY||f.intrinsic==BYTE_GET_DEFAULT) { byteArrayIntrinsic(f,a,b,c); return; }
         if(f.intrinsic==IO_INITIALIZING) {
             require(ERASED.equals(a),"IO.initializing world parameter requires erased placeholder");
             scalarResult=initializing?1:0; return;

@@ -1,0 +1,12 @@
+{
+  "schema": "source-byte-array-get-default/1",
+  "leanCommit": "819816b2e0a3bf405af45ae5c7af2491d8f5bee6",
+  "sourceIndexSHA256": "74d833d577923821b982e8a9e872a38b5cad011513eb18870b51417e13397f0e",
+  "rows": {
+    "original-raw.json": "4ed4c7387fe8561b580ae83628252560821401449046852e4156a2bcaf259360",
+    "original-boxed.json": "a8d6bd074151549784b3fca65e1a5886fe4180f50ccfab618f0b7b78cc2f246c"
+  },
+  "source": "src/include/lean/lean.h:1182-1190",
+  "semantics": "Borrowed ByteArray and Nat; valid out-of-range/MPZ indices return0; proof-fget remains distinct",
+  "nativeOrJVMExecuted": false
+}
