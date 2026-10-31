@@ -21,7 +21,7 @@
     {
       "file": "adapter.clj",
       "base-sha256": "a14d69229e4c52e8e9eec95fe9608f3bb30a7175907f3e356577f4942d795222",
-      "sha256": "65abf2e37ccfb915a285ecc5e035bc67bc8619c6a9134877325603708ed62fcc"
+      "sha256": "20d058b31bf3c9147b3df8cf8badea208d1c95ac3df733ad5fa419234ef4920b"
     },
     {
       "file": "generated-command.clj",
@@ -127,7 +127,7 @@
   "source-inventory": [
     {
       "file": "adapter.clj",
-      "sha256": "65abf2e37ccfb915a285ecc5e035bc67bc8619c6a9134877325603708ed62fcc"
+      "sha256": "20d058b31bf3c9147b3df8cf8badea208d1c95ac3df733ad5fa419234ef4920b"
     },
     {
       "file": "authenticated-demand.clj",

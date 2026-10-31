@@ -333,7 +333,7 @@
                   ^Env child (:env result) checked (if mutual? (:constants result) [(:constant result)])]
               (need (and (= (count constants) (count checked))
                          (every? true? (map identical? constants checked)) (.sameExternalView child environment)
-                         (.isQuotEnabled child) (= (+ (count constants) (count (:payloads version))) (count (.allConstants child)))
+                         (.isQuotEnabled child) (= (+ (count constants) (count (:payloads version))) (count (.allConstants child))))
                     "Checked child differs from its atomic original local delta")
               (doseq [^ConstantInfo ci constants] (need (identical? ci (.lookupLocal child (.name ci))) "Checked member is not the actual child CI"))
               (let [group (zipmap names constants) segment (snapshot/snapshot-segment group)
@@ -345,7 +345,7 @@
                 (validate-local-view! session candidate)
                 (swap! inv assoc :candidate candidate :stage :publish)
                 (event! session :checked inv {:id (inc @(:published-count session)) :parent (:id version)})))
-            (finally ((:close! scope)))))))))
+            (finally ((:close! scope))))))))
   (validate-versions! session) (validate-candidate! session inv))
 (defn- validate-local-info! [session scope candidate ^Env checked info name]
   (let [descriptor (descriptor! session info) payload (aget ^objects (fields session info) 0)
