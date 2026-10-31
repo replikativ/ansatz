@@ -9,19 +9,19 @@
     },
     {
       "file": "JVM_COMPILER.md",
-      "sha256": "d8348db96a93f6970821c121d77d5f63eebdffcb38f983503c306d2eeb21cf34"
+      "sha256": "9ad2cd7164627d52bbf09d1b360622a4c56c0c387983d1af0f2ac6fcefbfd289"
     },
     {
       "file": "README.md",
-      "sha256": "9db3da9a26cf233c09047c92f470a8f1d0ad5457b2ff9e6f0e3bc3823c147c33"
+      "sha256": "3a2d48a82ceb445d90d88f716e10582642f35b58b5504391f351e2b41a87ff99"
     },
     {
       "file": "compiler-models.clj",
-      "sha256": "3c680e1e3c7cdc1ecaa9e89598f319a834c55af703c72aacc1deb26ba89cd980"
+      "sha256": "cca9e6e154e20066ae22e0afe56029532f2f81cf79966c602338f9cfbd1464e2"
     },
     {
       "file": "compiler.clj",
-      "sha256": "de40356610fd69987d89d24c55c6b1713f9eb88af6b54cde7cf1608285de00b2"
+      "sha256": "76043d8f24c595f08499b8a4ef40d10e152fc24e3cb3262b88e10859f3699a2f"
     },
     {
       "file": "loader.clj",
@@ -193,10 +193,10 @@
     "reuse": "Existing Java kernel and lazy PSS/fetch APIs; no default full Init/Mathlib replay"
   },
   "internal-jvm-compiler": {
-    "status": "actual-cold-hit-and-entry-pass",
+    "status": "historical-direct-compiler-pass; post-close-race-fix-validation-pending",
     "defaultBackend": "jvm",
     "PythonInvoked": false,
-    "sourceSHA256": "de40356610fd69987d89d24c55c6b1713f9eb88af6b54cde7cf1608285de00b2",
+    "sourceSHA256": "76043d8f24c595f08499b8a4ef40d10e152fc24e3cb3262b88e10859f3699a2f",
     "nativeCompilerTokenIssued": true,
     "nativeJobStarted": true,
     "modelGate": {
@@ -257,7 +257,14 @@
       "nativeReferenceMatch": true,
       "PythonInvocations": 0,
       "engine": "synchronous-closed",
-      "scope": "Internal Compiler then canonical entry prepare/execute; default Loader integration separate"
-    }
+      "scope": "Internal Compiler then canonical entry prepare/execute; default Loader integration separate",
+      "testedCompilerSourceSHA256": "de40356610fd69987d89d24c55c6b1713f9eb88af6b54cde7cf1608285de00b2"
+    },
+    "followupModels": {
+      "families": 1,
+      "status": "pending parent execution",
+      "scope": "deterministic waiting compile versus completed close; no native process"
+    },
+    "currentSourceColdHitExecution": "pending"
   }
 }

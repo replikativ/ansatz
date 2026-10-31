@@ -130,6 +130,39 @@
       (is (some? error))
       (is (= 7 (:pid (ex-data error))))
       (is (= text (:status (ex-data error)))))))
+(deftest waiting-compile-cannot-start-after-close-returns
+  (let [token (compiler/->NativeCompiler) lock (Object.) registry @#'compiler/compilers
+        original-issued @#'compiler/issued captured (java.util.concurrent.CountDownLatch. 1)
+        journal (atom {}) outcome (atom nil) filesystem-effects (atom 0)
+        worker (Thread. (fn [] (try (compiler/compile! token "never-resolve-this-project" journal)
+                                   (reset! outcome :unexpected-success)
+                                   (catch Throwable error (reset! outcome error)))))
+        state {:lock lock}]
+    (.setDaemon worker true)
+    (locking registry (.put registry token state))
+    (try
+      (with-redefs-fn
+        {#'compiler/issued (fn [actual]
+                            (let [value (original-issued actual)]
+                              (when (and (identical? actual token) (identical? worker (Thread/currentThread)))
+                                (.countDown captured)) value))
+         #'compiler/path! (fn [_] (swap! filesystem-effects inc)
+                           (throw (ex-info "Model reached forbidden post-close filesystem effect" {})))}
+        (fn []
+          (locking lock
+            (.start worker)
+            (is (.await captured 2 java.util.concurrent.TimeUnit/SECONDS))
+            ;; Reentrant close wins while the compile thread has captured the
+            ;; old registry state but is still waiting on the same monitor.
+            (is (nil? (compiler/close! token))))
+          (.join worker 2000)
+          (is (not (.isAlive worker)))
+          (is (zero? @filesystem-effects))
+          (is (= {} @journal))
+          (is (instance? clojure.lang.ExceptionInfo @outcome))
+          (is (= "Actual configured internal Compiler required" (.getMessage ^Throwable @outcome)))
+          (is (locking registry (not (.containsKey registry token))))))
+      (finally (locking registry (.remove registry token))))))
 (defn check! [workspace]
   (binding [*directory* (.toRealPath (.toPath (io/file (str workspace))) (make-array java.nio.file.LinkOption 0))]
     (run-tests 'native-project-compiler-models-v1)))

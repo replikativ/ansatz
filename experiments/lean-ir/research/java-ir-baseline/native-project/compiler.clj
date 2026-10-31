@@ -136,7 +136,9 @@
 (defn cache-root [compiler] (guard-code!) (:cache (issued compiler)))
 (defn close! [compiler]
   (let [state (issued compiler)]
-    (locking (:lock state) (locking compilers (.remove compilers compiler)))) nil)
+    (locking (:lock state)
+      (need (identical? state (issued compiler)) "Compiler identity changed while closing")
+      (locking compilers (.remove compilers compiler)))) nil)
 
 (defn- source-capture [^Path project]
   (into (sorted-map)
@@ -324,6 +326,7 @@
   (need (and (instance? clojure.lang.IAtom journal) (= {} @journal)) "Fresh compiler journal atom required")
   (let [state (issued compiler)]
     (locking (:lock state)
+      (need (identical? state (issued compiler)) "Compiler identity changed while waiting to compile")
       (let [project (path! project-directory)
             _ (need (Files/isDirectory project no-links) "Project directory required")
             capture (source-capture project) original-records (records capture)
