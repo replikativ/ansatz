@@ -31,12 +31,12 @@
     {
       "file": "loader.clj",
       "base-sha256": "d10ec5d4909c1c45cf205d7e2aa10a4e90d6fa7400c496143374998e6fb6c1e8",
-      "sha256": "440ee15b500cf17432d6233c334a80a6f55437c1b291dd01f92b7fdc3b64903e"
+      "sha256": "67f0bad01de3f456c155afb18aff7b178c403c5f158236c816905898923befb0"
     },
     {
       "file": "verify-source.py",
       "base-sha256": "648d82fc8b482aa674865ef3c341c43213eb2ff467c6850fb8d2b46fac788f4e",
-      "sha256": "f6d3a1ffac7210da3744ec71dbb4536d97fa0991e1aad15587d4cd6bcd76ce39"
+      "sha256": "2bc55b5ae876241d5a90fdcc4813dafa22746b0504ec2c50ff0e1d02335cc3fc"
     },
     {
       "file": "models/lineage.clj",
@@ -87,6 +87,16 @@
       "file": "driver.clj",
       "base-sha256": "9849d52d686e7da9cce15e1d06d47d6997127e0d7db9307b3837f2ef9a0fcd19",
       "sha256": "371b4f10838eaf018b83186dd2714eee0e1a82320dc8870a5001a64d3eb97542"
+    },
+    {
+      "file": "general-file.clj",
+      "base-sha256": null,
+      "sha256": "bf7974bee909d7b49ad003a45906e0118af11392e5a96f7a9a8f8a2cb6df542c"
+    },
+    {
+      "file": "models/general-file.clj",
+      "base-sha256": null,
+      "sha256": "0f886cdb6ae83a92b9e24ab2793b639abafec7bc0c967bbafec3cf113d6a3c7d"
     }
   ],
   "source-inventory": [
@@ -127,6 +137,10 @@
       "sha256": "9cf65ae93cf86c07c61baa76850b74f4f486912b6e0dc7a6f6e339af34c8f18d"
     },
     {
+      "file": "general-file.clj",
+      "sha256": "bf7974bee909d7b49ad003a45906e0118af11392e5a96f7a9a8f8a2cb6df542c"
+    },
+    {
       "file": "general-source-provider.clj",
       "sha256": "28fe4a3e1b8fae02612fc8066402ae826a4254b946885f2996f46a18fc54563b"
     },
@@ -148,7 +162,7 @@
     },
     {
       "file": "loader.clj",
-      "sha256": "440ee15b500cf17432d6233c334a80a6f55437c1b291dd01f92b7fdc3b64903e"
+      "sha256": "67f0bad01de3f456c155afb18aff7b178c403c5f158236c816905898923befb0"
     },
     {
       "file": "models/adapter.clj",
@@ -173,6 +187,10 @@
     {
       "file": "models/general-command.clj",
       "sha256": "fd25bd68b0c69ba250199b28d57887000ed6f8aa5b8a0ba035299a51811e6605"
+    },
+    {
+      "file": "models/general-file.clj",
+      "sha256": "0f886cdb6ae83a92b9e24ab2793b639abafec7bc0c967bbafec3cf113d6a3c7d"
     },
     {
       "file": "models/general-foundation.clj",
@@ -220,7 +238,7 @@
     },
     {
       "file": "verify-source.py",
-      "sha256": "f6d3a1ffac7210da3744ec71dbb4536d97fa0991e1aad15587d4cd6bcd76ce39"
+      "sha256": "2bc55b5ae876241d5a90fdcc4813dafa22746b0504ec2c50ff0e1d02335cc3fc"
     }
   ],
   "ordered-load-units": [
@@ -293,6 +311,10 @@
       "general-generated-batch-v1"
     ],
     [
+      "general-file.clj",
+      "general-frontend-file-v1"
+    ],
+    [
       "filesystem-file.clj",
       "filesystem-nat-file-run-v1"
     ],
@@ -347,12 +369,16 @@
     [
       "models/generated-batch.clj",
       "general-generated-batch-models-v1"
+    ],
+    [
+      "models/general-file.clj",
+      "general-frontend-file-checks-v1"
     ]
   ],
   "tracked-references": [
     {
       "file": "experiments/lean-ir/research/java-ir-baseline/artifact-frontend/README.md",
-      "sha256": "3ac3e2d0dad7bb1bbb09f6a937dba528e09fc449b3ca72559f9d505c0985e938"
+      "sha256": "8e1e56e98f697cbb41bf08c3615090e69675bda9b2b9d13decfc0e3e7f3791c2"
     },
     {
       "file": "experiments/lean-ir/research/java-ir-baseline/artifact-frontend/GENERAL_COMMAND_RECEIPTS.md",
@@ -420,6 +446,7 @@
   "source-notes": [
     "General driver construction is additive: finite16/default remains unchanged; fresh general512 selects its session before closure capture.",
     "M2 full-row/frontier bounds precede digest and Header serialization; source update from reviewed 122232e.",
-    "New constructor/selection models and API consolidation slices are source checkpoints, not fresh runtime acceptance."
+    "New constructor/selection models and API consolidation slices are source checkpoints, not fresh runtime acceptance.",
+    "General FileRun source and nine mocked model families added; no guest acceptance claimed for this checkpoint."
   ]
 }

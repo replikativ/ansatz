@@ -343,3 +343,39 @@ and checker limits remain separate. The new factory/model source is prepared
 for coordinated runtime validation and does not expand the accepted source
 language. [API_CONSOLIDATION.md](API_CONSOLIDATION.md) specifies the subsequent
 file, session, runtime-boundary and module integration slices.
+
+
+## General file controller source checkpoint
+
+`general-file.clj` defines `general-frontend-file-v1`. `open-file!` consumes an
+explicit prepared `:child/:frontend/:admission` bundle, actual captured file,
+authenticated companion/helper Headers, compiled layout directory and trusted
+branch-disposal function. It opens its own original source provider, captures and
+generated-code scope; do not attach a second provider to the same file/branch.
+Preparation failures return a failed FileRun whose `owner-packet` preserves the
+actual branch, active command, pending batch and invocation result slots.
+
+`next-command!` and `load!` run actual commands until eoi or an explicit stop.
+Zero/multiple publications are M1 history, not a guessed command count. Generated
+`:empty`, linked and `:unsupported` code outcomes are recorded separately from
+checking. Actual eoi yields `:ready` or `:unsupported`; exit/import and the command
+limit produce `:stopped`, never EOF. The source provider still rejects privileged
+or unsupported source forms; these states do not authorize module imports.
+Failures are quarantined without retry/unwind. `close!` supports healthy idle
+terminal files, revokes metadata, invokes the captured real retirement hook and
+requires the actual engine to be closed before compacting the holder.
+
+`invoke-nat!` accepts an exact typed Name of a linked owned unary boxed Header
+from this file, at its final actual Program/version. It also inspects the actual
+checked local safe monomorphic Nat-to-Nat ConstantInfo through the guarded base
+view. Inputs/results are exact nonnegative Long/BigInteger values bounded to4096
+bits; a BigInteger subclass is rejected before calling its methods. The selected
+function's result is not predicted from its body. Code/Host boundaries use the
+same source-demand and checked runtime routers. An unexpected result remains in
+the failure owner journal. No new entry codec or source capability is inferred
+from arbitrary ABI-compatible code.
+
+The nine general-file model families are mocked structural/control tests, not
+actual parser outputs or runtime acceptance. Coordinated definition loading,
+model execution and fresh guest-file acceptance remain pending for this source
+checkpoint. Earlier acceptance records are not changed by the new source files.

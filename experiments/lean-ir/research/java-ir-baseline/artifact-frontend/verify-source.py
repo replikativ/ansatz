@@ -18,7 +18,7 @@ baseline={item['file']:item['sha256']for item in acceptance['source-inventory']}
 assert len(baseline)==len(acceptance['source-inventory'])
 expected=dict(baseline)
 allowed_arithmetic={'generated-command.clj','filesystem-profile.clj','filesystem-provider.clj','filesystem-file.clj','loader.clj','verify-source.py','models/nat-arithmetic.clj'}
-allowed_general={'driver.clj','lineage.clj','authority.clj','adapter.clj','generated-command.clj','loader.clj','verify-source.py','models/lineage.clj','models/adapter.clj','general-source-provider.clj','general-command.clj','generated-batch.clj','models/general-source-provider.clj','models/general-foundation.clj','models/general-command.clj','models/generated-batch.clj'}
+allowed_general={'general-file.clj','models/general-file.clj','driver.clj','lineage.clj','authority.clj','adapter.clj','generated-command.clj','loader.clj','verify-source.py','models/lineage.clj','models/adapter.clj','general-source-provider.clj','general-command.clj','generated-batch.clj','models/general-source-provider.clj','models/general-foundation.clj','models/general-command.clj','models/generated-batch.clj'}
 arithmetic=json.loads(local('nat-arithmetic-v3.json').read_text())
 general=json.loads(local('general-command-v1.json').read_text())
 assert general['parent-layer']=={'file':'nat-arithmetic-v3.json','sha256':digest(local('nat-arithmetic-v3.json'))}
@@ -65,7 +65,7 @@ assert '(find-var'not in seq
 loader=local('loader.clj').read_text()
 units=re.findall(r'\["([^"]+\.clj)" ([^\]\s]+)\]',loader)
 assert units==[tuple(item)for item in general['ordered-load-units']]
-assert len(units)==31 and len({name for name,_ in units})==31
+assert len(units)==33 and len({name for name,_ in units})==33
 for file,namespace in units:
  assert re.search(r'\(ns\s+'+re.escape(namespace)+r'(?:\s|\))',local(file).read_text()),(file,namespace)
 assert units.index(('general-command.clj','general-command-receipt-v1'))<units.index(('generated-batch.clj','general-generated-batch-v1'))

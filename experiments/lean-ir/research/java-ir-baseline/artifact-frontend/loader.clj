@@ -23,6 +23,7 @@
     ["general-source-provider.clj" general-frontend-source-provider-v1]
     ["general-command.clj" general-command-receipt-v1]
     ["generated-batch.clj" general-generated-batch-v1]
+    ["general-file.clj" general-frontend-file-v1]
     ["filesystem-file.clj" filesystem-nat-file-run-v1]])
 (def models
   '[["models/demand.clj" ansatz.research.ir.authenticated-demand-checks]
@@ -37,7 +38,8 @@
     ["models/general-source-provider.clj" general-frontend-source-provider-models-v1]
     ["models/general-foundation.clj" general-command-foundation-checks-v1]
     ["models/general-command.clj" general-command-receipt-checks-v1]
-    ["models/generated-batch.clj" general-generated-batch-models-v1]])
+    ["models/generated-batch.clj" general-generated-batch-models-v1]
+    ["models/general-file.clj" general-frontend-file-checks-v1]])
 (defn- load-units! [root entries required]
   (doseq [n required]
     (when-not (find-ns n) (throw (ex-info "Load explicit research prerequisite first" {:namespace n}))))
