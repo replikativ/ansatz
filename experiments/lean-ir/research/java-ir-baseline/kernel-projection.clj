@@ -13,6 +13,30 @@
   (doto (.getDeclaredField cls name) (.setAccessible true)))
 (defn- invoke0 [target name]
   (.invoke (.getMethod (class target) name (make-array Class 0)) target (object-array 0)))
+(defn- guest-stamp [state phase]
+  (let [engine (:engine state)
+        record (.get ^java.lang.reflect.Field (:host-guest-record state) engine)
+        completion (.get ^java.lang.reflect.Field (:host-completion state) engine)
+        read (fn [key] (when record (.get ^java.lang.reflect.Field (get-in state [:guest-fields key]) record)))
+        token (read :token) outer (read :outer) result (read :result)
+        flags (when record (mapv read [:complete :result-owned :taken :arguments-owned]))]
+    (when (= "host-guest-result" phase)
+      ;; This is a completed helper, with its outer request still parked. The
+      ;; result remains owned by the actual record until the one-shot take.
+      ;; A claimed HostCompletion prefix is legal and must remain unchanged.
+      (when-not (and record token outer (some? result)
+                     (= [true true false false] flags)
+                     (identical? token (invoke0 engine "pendingHostGuestResult"))
+                     (identical? record (.get ^java.lang.reflect.Field (:token-record state) token))
+                     (identical? (.get ^java.lang.reflect.Field (:runtime-identity state) engine)
+                                 (.get ^java.lang.reflect.Field (:token-owner state) token))
+                     (identical? completion (read :completion-base))
+                     (nil? (.get ^java.lang.reflect.Field (:host-request state) engine))
+                     (nil? (.get ^java.lang.reflect.Field (:code-request state) engine)))
+        (fail "HostGuest result is not a quiescent owned lending boundary" {})))
+    {:host-guest-record record :host-guest-token token :host-guest-outer outer
+     :host-guest-parent (read :parent) :host-guest-result result
+     :host-completion completion :completion-base (read :completion-base) :guest-flags flags}))
 (defn- stamp [state]
   (let [engine (:engine state)]
     (doseq [key [:closed :untracked-failure :disposed]]
@@ -21,15 +45,16 @@
     (when (.getBoolean ^java.lang.reflect.Field (:advancing state) engine)
       (fail "Kernel projection requires a paused engine" {}))
     (let [phase (invoke0 engine "phase")]
-      (when-not (contains? #{"idle" "host-call" "code-call" "complete" "running"} phase)
+      (when-not (contains? #{"idle" "host-call" "code-call" "complete" "running" "host-guest-result"} phase)
         (fail "Engine phase cannot lend kernel values" {:phase phase}))
-      {:phase phase :instructions (invoke0 engine "instructionCount")
+      (merge (guest-stamp state phase)
+       {:phase phase :instructions (invoke0 engine "instructionCount")
        :program (.get ^java.lang.reflect.Field (:program state) engine)
        :pc (.get ^java.lang.reflect.Field (:pc state) engine)
        :request (.get ^java.lang.reflect.Field (:host-request state) engine)
        :code-request (.get ^java.lang.reflect.Field (:code-request state) engine)
        :runtime-action (.get ^java.lang.reflect.Field (:runtime-action state) engine)
-       :counters (mapv #(.getLong ^java.lang.reflect.Field % engine) (:counters state))})))
+       :counters (mapv #(.getLong ^java.lang.reflect.Field % engine) (:counters state))}))))
 (defn- live! [holder]
   (let [state @holder]
     (when-not state (fail "Kernel projection scope is closed" {}))
@@ -38,10 +63,12 @@
     (when (> (nano-time) (:deadline-nanos state))
       (fail "Kernel projection deadline exceeded" {}))
     (let [now (stamp state) before (:stamp state)]
-      (when-not (and (= (select-keys now [:phase :instructions :counters])
-                       (select-keys before [:phase :instructions :counters]))
+      (when-not (and (= (select-keys now [:phase :instructions :counters :guest-flags])
+                       (select-keys before [:phase :instructions :counters :guest-flags]))
                      (every? #(identical? (get now %) (get before %))
-                             [:program :pc :request :code-request :runtime-action]))
+                             [:program :pc :request :code-request :runtime-action
+                              :host-guest-record :host-guest-token :host-guest-outer :host-guest-parent
+                              :host-guest-result :host-completion :completion-base]))
         (fail "Engine progressed during borrowed kernel projection" {})))
     state))
 (defn- view! [holder ^IdentityHashMap memo token world value]
@@ -91,6 +118,8 @@
   (when-not (identical? (:class basis) (class engine))
     (fail "Interpreter basis/class differs from borrowed engine" {}))
   (let [cls ^Class (:class basis) node-class ^Class (:node-class basis)
+        guest-class (Class/forName "ansatz.research.ir.Interpreter$HostGuestRecord" false (:loader basis))
+        token-class (Class/forName "ansatz.research.ir.Interpreter$HostGuestOperation" false (:loader basis))
         guard (doto (.getDeclaredMethod cls "constructorNode" (into-array Class [Object])) (.setAccessible true))
         state {:engine engine :thread (Thread/currentThread) :node-class node-class
                :max-nodes max-nodes :deadline-nanos deadline-nanos
@@ -99,6 +128,13 @@
                :advancing (private-field cls "advancing") :program (private-field cls "program")
                :pc (private-field cls "pc") :host-request (private-field cls "hostRequest")
                :code-request (private-field cls "codeRequest") :runtime-action (private-field cls "runtimeAction")
+               :host-guest-record (private-field cls "hostGuestRecord") :host-completion (private-field cls "hostCompletion")
+               :runtime-identity (private-field cls "runtimeIdentity")
+               :token-record (private-field token-class "record") :token-owner (private-field token-class "owner")
+               :guest-fields (into {} (map (fn [[k name]] [k (private-field guest-class name)])
+                                   [[:token "token"] [:outer "outer"] [:parent "parent"] [:result "result"]
+                                    [:completion-base "completionBase"] [:complete "complete"] [:result-owned "resultOwned"]
+                                    [:taken "taken"] [:arguments-owned "argumentsOwned"]]))
                :counters (mapv #(private-field cls %) ["allocations" "stores" "retains" "releases" "shellDeletes"])
                :ctor-guard guard :closure (private-field node-class "closure")
                :fields (:fields basis) :scalars (:scalars basis) :tag (:tag basis)}
