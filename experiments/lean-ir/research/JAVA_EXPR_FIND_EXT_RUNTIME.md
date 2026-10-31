@@ -10,4 +10,20 @@ The existing Find RuntimeAction, callback/AP acquisition packet, Code/Host conti
 
 Existing structural Expr guards and source-valid, well-founded storage assumptions apply. These guards do not certify nominal AST identity or validate unvisited graphs. Search limits remain 1,000,000 encounters, 100,000 pending entries and 100,000 visited identities, with periodic interruption checks; skipped function-spine encounters also consume the bounded host work allowance. This is not native heartbeat/timing parity, a native ABI bridge, recursive callback execution, a new graph importer or a complete frontend claim. Failed explicit sessions preserve diagnostics and owners under the existing terminal-failure policy; general failed-frame unwinding is not added.
 
-The [two-row original fixture](../test/fixtures/java-expr-find-ext-runtime/README.md) records typed Names, original CAS hashes and source pins. Focused checks cover enum results, authentic owning wrapper/AP, child order and pruning, skipped shared partial-App caching, ordinary Find regression, cache-excluded leaves, borrowed/inactive entry guards, invalid result escrow, Code/Host pauses and forked mode/alias state. Synthetic predicates and Expr storage model ownership/control only; their labels have no upstream authority. Root compiled frozen source `a493e9bc4f86b872574246665b6d2f8315dda8d5242b864c809702a70b18682d` with Java 11 and a 256 MiB compiler bound. The immutable test jar SHA-256 is `8baba9eb193541b9f3bac47dcb52622ee72ffebe856ccbc9d46e3f939fdf4ece`. Retained-JVM focus passed all 10 FindExt tests / 106 assertions and all 21 unchanged ordinary Find tests / 264 assertions on that same artifact. Independent source review found no blocker. The combined integration gate remains separate. This worker ran bounded source/CAS verification, a delimiter audit and diff checks, with no JVM or native execution.
+The [two-row original fixture](../test/fixtures/java-expr-find-ext-runtime/README.md) records typed Names, original CAS hashes and source pins. Focused checks cover enum results, authentic owning wrapper/AP, child order and pruning, skipped shared partial-App caching, ordinary Find regression, cache-excluded leaves, borrowed/inactive entry guards, invalid result escrow, Code/Host pauses and forked mode/alias state. Synthetic predicates and Expr storage model ownership/control only; their labels have no upstream authority. Root compiled frozen source `a493e9bc4f86b872574246665b6d2f8315dda8d5242b864c809702a70b18682d` with Java 11 and a 256 MiB compiler bound. The immutable test jar SHA-256 is `8baba9eb193541b9f3bac47dcb52622ee72ffebe856ccbc9d46e3f939fdf4ece`. Retained-JVM focus passed all 10 FindExt tests / 106 assertions and all 21 unchanged ordinary Find tests / 264 assertions on that same artifact. Independent source review found no blocker. The combined validation below preserves the existing Array and Level units.
+
+
+Combined Java source SHA-256
+`be76d839c8ff7661ccaa1b6b5d3ebaa1c8d642ac1eb4832f4e7b55f7d5452452`
+compiled to immutable Java 11 jar SHA-256
+`2bbfaebbae92fd4d1232c0f6a16a328c3e5f78a81c0091725d7583ea69dec001`.
+The retained JVM passed FindExt 10/106, ordinary Find 21/264, Array 7/140 in each
+driver, and Level 20/310 on this artifact. Its bounded 384 MiB combined gate exited
+0: 114 result families, 1,119 test executions, 53,946 assertions, zero failures/errors.
+Campaign log `java-find-ext-integration-v1/combined-gate-v2.out` has SHA-256
+`cca0907c968ef622b4cfc06ffe4ebeb064ce6237544af3faee6a79e2d363d3bf`.
+
+The original frontend executed extended search in `MutualClosure.isApplicable`
+and advanced to the distinct `ShareCommon.shareCommon'` native boundary during
+term-theorem processing. Two prior axioms remain strictly checked; no theorem
+publication or complete file/import support is claimed at this boundary.
