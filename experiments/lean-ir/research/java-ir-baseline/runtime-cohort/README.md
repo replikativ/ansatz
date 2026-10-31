@@ -232,3 +232,24 @@ and additional-service wrappers. Command/parser/runtime/checker budgets are
 separate; this selection grants no new declaration kind or import capability.
 The constructor-selection models are source additions pending coordinated JVM
 execution; earlier runtime acceptance records keep their original scope.
+
+## Supported-build query routing
+
+The five original Lean version getters use the source-authenticated pure
+`original-build-identity-provider-v1` handler. It checks the actual engine's
+immutable supported BuildIdentity, exact original Header/ABI and Unit before
+replying. It returns direct pure values. It neither wraps IO results nor
+substitutes a caller-provided version Boolean. Routing carries the actual new
+CodeReceipt and rejects foreign branches even when no additional runtime service
+is installed. Parent-coordinated tiny-engine tests passed 3 tests / 52 assertions;
+the actual source-module export subsequently passed on a genuine Source4 request.
+
+The pure router suite now has seven families and passed 56 assertions in the
+parent's retained JVM. `load-runtime-models!` defines the separate actual-engine
+version tests; invoke their `check!` with the explicitly accepted basis. They
+are excluded from the pure packaged runner. No worker JVM was launched.
+
+Parent and fresh child drivers carry their actual CodeReceipt before native
+or frontend wrapper capture. Finalizer options pass the parent's exact additional
+overlay contract explicitly; the legacy default remains an empty vector.
+Bootstrap-specific importer and child-observer callbacks are a separate unit.

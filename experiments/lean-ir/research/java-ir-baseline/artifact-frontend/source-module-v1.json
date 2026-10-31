@@ -1,0 +1,639 @@
+{
+  "schema": "artifact-frontend-source-delta/1",
+  "base-acceptance-sha256": "d261a55a887a72a573022a39f0ec2dd6c788c1f09d46e6c5c36311643e5c7fb0",
+  "parent-layer": {
+    "file": "general-command-v1.json",
+    "sha256": "3651813d90d1be2b6912c832ecde6023f92e4a35b2b0284740344cde5de13b14"
+  },
+  "scope": "Explicit Prelude source ModuleData export, same-engine closure/finalizer, guarded composite Base and actual closure-derived header setup. Original finite/general routes preserved.",
+  "acceptance": "Parent actual same-engine A-to-B-to-C checked original compilation/result and normal cleanup PASS512MiB. New coordinator models/runtime gate separate; diamond pending.",
+  "sources": [
+    {
+      "file": "general-command.clj",
+      "base-sha256": "2748552479ac7fc488acf828350a6cdc6ed33dcdb2e88f9c9e7b1c056bd738e1",
+      "sha256": "beb8ff164402bf239ec87685c150f63b35349926b6c61904927721a9343a7b86"
+    },
+    {
+      "file": "generated-batch.clj",
+      "base-sha256": "caf8c296c372a644c0c19b144381f2cd590f0f0489ac395000185d6db2b1d7b8",
+      "sha256": "18f472282caeae772b93961a223284c15172a6d6a6b427c04f6b918bfd2eef9e"
+    },
+    {
+      "file": "imported-setup.clj",
+      "base-sha256": "ba914ffa70907018da49e70d431576d8ee086d3db0efbd9deb9a306d86da24a4",
+      "sha256": "f384dc4d0e40310b1d996d371ed6f163950f1f457c50c1fc0f61149b43a3ad75"
+    },
+    {
+      "file": "loader.clj",
+      "base-sha256": "bd524ec97cea97e343c3d4c50127d671aeb0d6acbeba899fd22ec38dada26715",
+      "sha256": "d2261ab05d5e84a3a8c1f39733da6d3f53eef7c1377293969a307607b6f36943"
+    },
+    {
+      "file": "models/general-command.clj",
+      "base-sha256": "18572d4322e762eb12b99cef3711b7c67313f5946525afb26e53c121092256af",
+      "sha256": "12bb5c58d0873a38638a46cac7b910bb7c91ebb5d2eba666b98a9e854d53d264"
+    },
+    {
+      "file": "models/generated-batch.clj",
+      "base-sha256": "9298bc10902bae937c274e7ac2051a219c0df9db840f7b25d63e7279c3af7e3d",
+      "sha256": "58c585adcea5a91b8e196d4a1b254c569df78bd74bfd65dfa6a9e0b30b8c88ac"
+    },
+    {
+      "file": "models/sequential-retirement.clj",
+      "base-sha256": null,
+      "sha256": "e1dd90e6527a17393ee6e5c9988256f001c61e711a3396c10984bf44398dd14d"
+    },
+    {
+      "file": "models/source-base.clj",
+      "base-sha256": null,
+      "sha256": "c7f56e8e2cd08054859e0a2b0522438c6d7e9c46d5e4684c8dda084f3ffee236"
+    },
+    {
+      "file": "models/source-closure.clj",
+      "base-sha256": null,
+      "sha256": "080784313f670571c76d1058cce1d08de3248a11c7c5b187e4d4d9415864df37"
+    },
+    {
+      "file": "models/source-data-snapshot.clj",
+      "base-sha256": null,
+      "sha256": "4dec278ea114436bb8c7d68d3f8c2a8bdbbad0a1e109e5ee351ac7fc9bd90458"
+    },
+    {
+      "file": "models/source-exchange.clj",
+      "base-sha256": null,
+      "sha256": "cfa499c24e6906460e984a9ce4c934455826b22473d68af4e091605b1948a80b"
+    },
+    {
+      "file": "models/source-import-setup.clj",
+      "base-sha256": null,
+      "sha256": "c399d55844086b8ab73e324e5fb1684ac4597442ae71f138911f2427739f24f7"
+    },
+    {
+      "file": "models/source-project.clj",
+      "base-sha256": null,
+      "sha256": "8b1c7f44dbfd890c53587985cf000075ec952264cb69c84c032b674dc1683d97"
+    },
+    {
+      "file": "sequential-probe.clj",
+      "base-sha256": "e4b1c1235778bc7221381fe6c959f650ba53086bb0009045b51d98e3259fcf50",
+      "sha256": "56812358f0ac839186c6f022b09c9da179f8e2d775cb67f747a4a1f786b627a8"
+    },
+    {
+      "file": "source-base.clj",
+      "base-sha256": null,
+      "sha256": "c5389f60586155f6cd030acb8e6f25e86563acd52b72d8c129cd71216cb93af5"
+    },
+    {
+      "file": "source-closure.clj",
+      "base-sha256": null,
+      "sha256": "434f1ec5bb09d266310e14bd673c864e6c8218c1e941d8700ae73e8d4069d9ba"
+    },
+    {
+      "file": "source-data-snapshot.clj",
+      "base-sha256": null,
+      "sha256": "b27b7b51cb16e85ebf361b8324d4f738ba32a545e8c74e138eef2618e1782cb4"
+    },
+    {
+      "file": "source-exchange.clj",
+      "base-sha256": null,
+      "sha256": "fabbd87acfbde5bc8ceb581f86d2fdea3deec3534e2106515a73c60b937ca16e"
+    },
+    {
+      "file": "source-import-setup.clj",
+      "base-sha256": null,
+      "sha256": "3aed45309d8466272a33e10267ac4125e060b283cb6ddcbddc99ade0adf4e9d8"
+    },
+    {
+      "file": "source-project.clj",
+      "base-sha256": null,
+      "sha256": "501f4c18554e6035b3780713ee0851cfb46bf88589989465ef0443a640fe1556"
+    },
+    {
+      "file": "verify-source.py",
+      "base-sha256": "7665f2f4f973e09687b06aa1f3e392e0d93cfea4fdc22ebc6834bed625fd2ead",
+      "sha256": "0202fb0d9cfad82521bb18e470e33cdb1cc7ed0cebeb0a0d0fc976cda4758739"
+    }
+  ],
+  "source-inventory": [
+    {
+      "file": "adapter.clj",
+      "sha256": "3c248f22ec238f0f191656da9a092e088247a594ab8ea75ab34b9eaac2f6c1dc"
+    },
+    {
+      "file": "authenticated-demand.clj",
+      "sha256": "5bcec7d3e2549b8cf7d7d91528c38a75e280838bdf95fba8f95f5f17a8e6db02"
+    },
+    {
+      "file": "authority.clj",
+      "sha256": "494c03ba875128a0d77de70d78ad8a9f2e35deb975dd8ac3fa6ae38d58f636c5"
+    },
+    {
+      "file": "base.clj",
+      "sha256": "2b46b16d3def8a96ad5d9f55ffbc8f7639143bbf9d7f2e14f7b6a68219acbaf8"
+    },
+    {
+      "file": "composite-base.clj",
+      "sha256": "79938649dab35b10f62f5ea88d3ee733de0d5b452399e647aa55437432a4e379"
+    },
+    {
+      "file": "driver.clj",
+      "sha256": "371b4f10838eaf018b83186dd2714eee0e1a82320dc8870a5001a64d3eb97542"
+    },
+    {
+      "file": "filesystem-file.clj",
+      "sha256": "5f071fc402fc4c52beeb25efdc37e7605ce09e45b363904b1f373ff352e22cb4"
+    },
+    {
+      "file": "filesystem-profile.clj",
+      "sha256": "c2e3619f35299d34c3cb2a91c01308f5939b20d900ce3849b211ff1dcadfe095"
+    },
+    {
+      "file": "filesystem-provider.clj",
+      "sha256": "75877eded4ba2301b635968266fb62d841042e05614e7a5693bf39e532096179"
+    },
+    {
+      "file": "general-command.clj",
+      "sha256": "beb8ff164402bf239ec87685c150f63b35349926b6c61904927721a9343a7b86"
+    },
+    {
+      "file": "general-file.clj",
+      "sha256": "2bf07bd77ceaeb27371dbb7019626b63beccd2ff050dce8864e112ace428eda8"
+    },
+    {
+      "file": "general-source-provider.clj",
+      "sha256": "8b46fa412234dd2ce80811bc5c2a3fd487cf0dca7ffbd5aed9bf194275d3eb0d"
+    },
+    {
+      "file": "generated-batch.clj",
+      "sha256": "18f472282caeae772b93961a223284c15172a6d6a6b427c04f6b918bfd2eef9e"
+    },
+    {
+      "file": "generated-command.clj",
+      "sha256": "42ee34f8a2cdf79d74a4c0443af23ecc086f42fb70cb3b929426bdc83868d184"
+    },
+    {
+      "file": "imported-setup.clj",
+      "sha256": "f384dc4d0e40310b1d996d371ed6f163950f1f457c50c1fc0f61149b43a3ad75"
+    },
+    {
+      "file": "lineage.clj",
+      "sha256": "c994720429d2b58e95bb890ab1473bf4fecff3cfc089855128b1ef49b70fdc22"
+    },
+    {
+      "file": "loader.clj",
+      "sha256": "d2261ab05d5e84a3a8c1f39733da6d3f53eef7c1377293969a307607b6f36943"
+    },
+    {
+      "file": "models/adapter.clj",
+      "sha256": "b83351f33b2a963959c01a10160e903cf814f4e87c47aee100badd7f219ce1eb"
+    },
+    {
+      "file": "models/authority.clj",
+      "sha256": "b0e4eef97ead1adb92bc2c7c79a8db4e8090a905d74ea6793b62c48092285d90"
+    },
+    {
+      "file": "models/capability.clj",
+      "sha256": "e2a4dd37f41e4034ee9c4f2e1bdb6eea01ddf884cf82838ceb39de76b6c5b663"
+    },
+    {
+      "file": "models/composite-base.clj",
+      "sha256": "0ca22fb76d787e05a834c455f750646289eaf20702e4f2166cd50877eb04fc26"
+    },
+    {
+      "file": "models/demand.clj",
+      "sha256": "1a1c6ab63794e86a9d199c4d783347a7b9c0f888c4a4e555a93876963259845d"
+    },
+    {
+      "file": "models/filesystem-profile.clj",
+      "sha256": "675c1122d59f653ecd9c1d486f74d643f8a00831dd09eb1216935d81567b9fbb"
+    },
+    {
+      "file": "models/general-command.clj",
+      "sha256": "12bb5c58d0873a38638a46cac7b910bb7c91ebb5d2eba666b98a9e854d53d264"
+    },
+    {
+      "file": "models/general-file.clj",
+      "sha256": "b851e61c2bef392d68c7432ba77959e8572e833dedbd5dda456b9e7211a3097f"
+    },
+    {
+      "file": "models/general-foundation.clj",
+      "sha256": "8cbceca258fa212aa4f3b06ebec0b4c7088b7f9316cfed5f566ff17240b62985"
+    },
+    {
+      "file": "models/general-source-provider.clj",
+      "sha256": "22eacf4e72f7835854b49ac20ff1a4c905597e738ca5de5b79bcf28f88255ad2"
+    },
+    {
+      "file": "models/generated-batch.clj",
+      "sha256": "58c585adcea5a91b8e196d4a1b254c569df78bd74bfd65dfa6a9e0b30b8c88ac"
+    },
+    {
+      "file": "models/generated-command.clj",
+      "sha256": "1456f6fc0b692d4c40ca1fa82f70a11cda55f6aaa070e78ce279b097d2c48274"
+    },
+    {
+      "file": "models/lineage.clj",
+      "sha256": "75d02563a5942ab136b44b9937749cafea8020a61556391729dc877edb2eb55c"
+    },
+    {
+      "file": "models/mutual-declaration.clj",
+      "sha256": "1d88b3b3a9bee1bebe2706f0464812b853511de402d1d8008a95ccc4e13697ff"
+    },
+    {
+      "file": "models/nat-arithmetic.clj",
+      "sha256": "35442cd666c3c2c3ebd74ab73504639aab8b8722fa716f88084316c3a26bfe78"
+    },
+    {
+      "file": "models/node-decoder.clj",
+      "sha256": "ec40f4510db9d611a6fb98c0a4ce5814d189058b25bcf8834611d0c795a881f8"
+    },
+    {
+      "file": "models/sequential-retirement.clj",
+      "sha256": "e1dd90e6527a17393ee6e5c9988256f001c61e711a3396c10984bf44398dd14d"
+    },
+    {
+      "file": "models/source-base.clj",
+      "sha256": "c7f56e8e2cd08054859e0a2b0522438c6d7e9c46d5e4684c8dda084f3ffee236"
+    },
+    {
+      "file": "models/source-closure.clj",
+      "sha256": "080784313f670571c76d1058cce1d08de3248a11c7c5b187e4d4d9415864df37"
+    },
+    {
+      "file": "models/source-data-snapshot.clj",
+      "sha256": "4dec278ea114436bb8c7d68d3f8c2a8bdbbad0a1e109e5ee351ac7fc9bd90458"
+    },
+    {
+      "file": "models/source-exchange.clj",
+      "sha256": "cfa499c24e6906460e984a9ce4c934455826b22473d68af4e091605b1948a80b"
+    },
+    {
+      "file": "models/source-import-setup.clj",
+      "sha256": "c399d55844086b8ab73e324e5fb1684ac4597442ae71f138911f2427739f24f7"
+    },
+    {
+      "file": "models/source-project.clj",
+      "sha256": "8b1c7f44dbfd890c53587985cf000075ec952264cb69c84c032b674dc1683d97"
+    },
+    {
+      "file": "module.clj",
+      "sha256": "fe2dfe6b42e8bc0798164a2dcc30592df6ffa025a2e3e61588629bbc9fb72819"
+    },
+    {
+      "file": "node-decoder.clj",
+      "sha256": "7be96c349ebe68c58902fd2bac0bb23d1ab3e3e96d77814428f0dad0c4e52099"
+    },
+    {
+      "file": "options-proof.clj",
+      "sha256": "f07693ee8fb65166990e0ec534cbe932e98a311f0fcc1dc2b0700a6cc5da7779"
+    },
+    {
+      "file": "sequential-probe.clj",
+      "sha256": "56812358f0ac839186c6f022b09c9da179f8e2d775cb67f747a4a1f786b627a8"
+    },
+    {
+      "file": "source-base.clj",
+      "sha256": "c5389f60586155f6cd030acb8e6f25e86563acd52b72d8c129cd71216cb93af5"
+    },
+    {
+      "file": "source-closure.clj",
+      "sha256": "434f1ec5bb09d266310e14bd673c864e6c8218c1e941d8700ae73e8d4069d9ba"
+    },
+    {
+      "file": "source-data-snapshot.clj",
+      "sha256": "b27b7b51cb16e85ebf361b8324d4f738ba32a545e8c74e138eef2618e1782cb4"
+    },
+    {
+      "file": "source-exchange.clj",
+      "sha256": "fabbd87acfbde5bc8ceb581f86d2fdea3deec3534e2106515a73c60b937ca16e"
+    },
+    {
+      "file": "source-import-setup.clj",
+      "sha256": "3aed45309d8466272a33e10267ac4125e060b283cb6ddcbddc99ade0adf4e9d8"
+    },
+    {
+      "file": "source-project.clj",
+      "sha256": "501f4c18554e6035b3780713ee0851cfb46bf88589989465ef0443a640fe1556"
+    },
+    {
+      "file": "verify-source.py",
+      "sha256": "0202fb0d9cfad82521bb18e470e33cdb1cc7ed0cebeb0a0d0fc976cda4758739"
+    }
+  ],
+  "ordered-load-units": [
+    [
+      "authenticated-demand.clj",
+      "ansatz.research.ir.authenticated-demand"
+    ],
+    [
+      "module.clj",
+      "java-matched-prelude-module-v4"
+    ],
+    [
+      "lineage.clj",
+      "java-prelude-finalizer-lineage-v1"
+    ],
+    [
+      "base.clj",
+      "java-matched-artifact-base-v1"
+    ],
+    [
+      "composite-base.clj",
+      "java-composite-artifact-base-v1"
+    ],
+    [
+      "authority.clj",
+      "artifact-declaration-authority-v4"
+    ],
+    [
+      "adapter.clj",
+      "artifact-checked-declaration-adapter-v4"
+    ],
+    [
+      "driver.clj",
+      "artifact-declaration-driver-v4"
+    ],
+    [
+      "node-decoder.clj",
+      "ansatz.research.ir.node-decoder-v1"
+    ],
+    [
+      "sequential-probe.clj",
+      "sequential-frontend-probe"
+    ],
+    [
+      "options-proof.clj",
+      "heartbeat-lab-options-proof"
+    ],
+    [
+      "imported-setup.clj",
+      "imported-frontend-setup-v4"
+    ],
+    [
+      "generated-command.clj",
+      "generated-command-receipt-v1"
+    ],
+    [
+      "filesystem-profile.clj",
+      "filesystem-nat-source-profile-v2"
+    ],
+    [
+      "filesystem-provider.clj",
+      "filesystem-nat-source-provider-v2"
+    ],
+    [
+      "general-source-provider.clj",
+      "general-frontend-source-provider-v1"
+    ],
+    [
+      "general-command.clj",
+      "general-command-receipt-v1"
+    ],
+    [
+      "generated-batch.clj",
+      "general-generated-batch-v1"
+    ],
+    [
+      "general-file.clj",
+      "general-frontend-file-v1"
+    ],
+    [
+      "filesystem-file.clj",
+      "filesystem-nat-file-run-v1"
+    ],
+    [
+      "models/demand.clj",
+      "ansatz.research.ir.authenticated-demand-checks"
+    ],
+    [
+      "models/lineage.clj",
+      "java-prelude-finalizer-lineage-models-v1"
+    ],
+    [
+      "models/capability.clj",
+      "java-matched-prelude-capability-models-v4"
+    ],
+    [
+      "models/composite-base.clj",
+      "java-composite-base-models-v1"
+    ],
+    [
+      "models/authority.clj",
+      "artifact-declaration-authority-v4-models"
+    ],
+    [
+      "models/adapter.clj",
+      "artifact-declaration-adapter-v4-models-v1"
+    ],
+    [
+      "models/node-decoder.clj",
+      "ansatz.research.ir.node-decoder-checks-v1"
+    ],
+    [
+      "models/generated-command.clj",
+      "generated-command-receipt-checks-v1"
+    ],
+    [
+      "models/filesystem-profile.clj",
+      "filesystem-nat-source-profile-v2-checks"
+    ],
+    [
+      "models/nat-arithmetic.clj",
+      "generated-nat-arithmetic-checks-v3"
+    ],
+    [
+      "models/general-source-provider.clj",
+      "general-frontend-source-provider-models-v1"
+    ],
+    [
+      "models/general-foundation.clj",
+      "general-command-foundation-checks-v1"
+    ],
+    [
+      "models/general-command.clj",
+      "general-command-receipt-checks-v1"
+    ],
+    [
+      "models/mutual-declaration.clj",
+      "generated-mutual-declaration-models-v1"
+    ],
+    [
+      "models/generated-batch.clj",
+      "general-generated-batch-models-v1"
+    ],
+    [
+      "models/general-file.clj",
+      "general-frontend-file-checks-v1"
+    ],
+    [
+      "source-data-snapshot.clj",
+      "ansatz.research.ir.source-data-snapshot"
+    ],
+    [
+      "source-exchange.clj",
+      "java-source-module-exchange-v1"
+    ],
+    [
+      "source-closure.clj",
+      "java-source-closure-v1"
+    ],
+    [
+      "source-base.clj",
+      "java-source-module-base-v1"
+    ],
+    [
+      "source-import-setup.clj",
+      "source-import-frontend-setup-v1"
+    ],
+    [
+      "source-project.clj",
+      "source-module-project-v1"
+    ],
+    [
+      "models/source-data-snapshot.clj",
+      "source-data-snapshot-checks-v1"
+    ],
+    [
+      "models/source-exchange.clj",
+      "source-module-exchange-checks-v1"
+    ],
+    [
+      "models/source-closure.clj",
+      "source-closure-checks-v1"
+    ],
+    [
+      "models/source-base.clj",
+      "java-source-module-base-models-v1"
+    ],
+    [
+      "models/source-import-setup.clj",
+      "source-import-setup-checks-v1"
+    ],
+    [
+      "models/sequential-retirement.clj",
+      "sequential-retirement-checks-v1"
+    ],
+    [
+      "models/source-project.clj",
+      "source-module-project-checks-v1"
+    ]
+  ],
+  "tracked-references": [
+    {
+      "file": "experiments/lean-ir/lean/SourceModuleExchange.lean",
+      "sha256": "54b0a48c3ca041a8ebeddcdee7fa1f23f425bd07b470df6537c03d49e74ee88d"
+    },
+    {
+      "file": "experiments/lean-ir/research/java-ir-baseline/artifact-frontend/SOURCE_MODULE_EXCHANGE.md",
+      "sha256": "90c79851708c8d8f689469d803f93d223a2a57d2c40b6f02afc9a2f879181f2e"
+    },
+    {
+      "file": "experiments/lean-ir/research/java-ir-baseline/artifact-frontend/SOURCE_PROJECT.md",
+      "sha256": "a79360b7d05886657362981ce6754244929aa081167e9152785e849038faa238"
+    },
+    {
+      "file": "experiments/lean-ir/research/java-ir-baseline/artifact-frontend/SOURCE_BASE.md",
+      "sha256": "7836fcc466d4444a6114aafd47b84a76c31e648be464d8553d83b41e8b5f03b9"
+    },
+    {
+      "file": "experiments/lean-ir/research/java-ir-baseline/artifact-frontend/SOURCE_MODULE_LANDING.md",
+      "sha256": "b2c616be27d7a2c168413d124c325e12f27991f91f5f0d2410c0921cc16aa879"
+    }
+  ],
+  "validation": {
+    "worker-JVM-or-native-execution": false,
+    "source-audit": "verify-source.py; no source/receipt/Env issuance",
+    "reported-actual-export": {
+      "origin": "Parent retained runtime report, source-export-journal-v3",
+      "status": "PASS",
+      "elapsed-seconds": 7.3126,
+      "heap-cap-MiB": 512,
+      "checked-source-CIs": 1,
+      "canonical-generated-IR-rows": 2,
+      "actual-eoi": true,
+      "commands-including-eoi": 2,
+      "completed-file-EOF-receipt-held-for-export": true,
+      "full-payload-snapshot-and-CI-shape-validation": "PASS",
+      "module-import-or-entry-execution-claim": false,
+      "subsequent-file-retirement": "Failed before release due host-idle deadline; Env owner retained. Rebase and narrow failed-retirement transfer follow-up pending runtime models."
+    },
+    "reported-helper-native-export": {
+      "origin": "Matched producer bounded native source export",
+      "source-sha256": "54b0a48c3ca041a8ebeddcdee7fa1f23f425bd07b470df6537c03d49e74ee88d",
+      "stream-sha256": "e70f831f3e5717d9c330d7dc8cbce345ef7246d0827f65ce1d30e6556ffb3547",
+      "receipt-sha256": "69dab75408d82cd1d70ace9e4596e603dd1a773c5bb8e48039827b692164794f",
+      "local-rows": 271,
+      "raw-bytes": 1060187,
+      "initialization-actions": [],
+      "native-source-main-executed": false
+    },
+    "pending": [
+      "Multiple files through new coordinator",
+      "Diamond source imports",
+      "Imported static FAP/PAP survival evidence independent of inlining"
+    ],
+    "reported-source-reconstruction": {
+      "origin": "Parent retained source4 A4 runtime report",
+      "source-export": "PASS",
+      "EOF-retirement": "PASS",
+      "genuine-closure-assembly": "PASS",
+      "actual-original-finalizer": "READY",
+      "SourceBase-domain": 2315,
+      "requests": [
+        "Init.Prelude",
+        "A"
+      ],
+      "B-compilation-or-static-imported-code-claim": false
+    },
+    "reported-actual-chain": {
+      "origin": "Parent retained actual-abc-execution-v3.edn report",
+      "source-input": 40,
+      "B-result": 42,
+      "C-result": 43,
+      "C-direct-roots": [
+        "A",
+        "B"
+      ],
+      "genuine-header-EOF-export-finalizer": true,
+      "source-owned-occurrences": 30,
+      "normal-extra-occurrences": 38,
+      "normal-globals": 534,
+      "engine": "disposed-and-closed",
+      "store": "closed",
+      "source-runtime": "closed",
+      "coordinator-executed": false,
+      "static-imported-FAP-PAP-survival": "not claimed"
+    },
+    "reported-coordinator-first-file": {
+      "origin": "Parent retained source-project-acceptance-v1.edn report",
+      "files-executed": 1,
+      "actual-commands-including-EOF": 2,
+      "genuine-export-retirement": "PASS",
+      "normal-extra-occurrences": 10,
+      "normal-globals": 534,
+      "multi-file-coordinator-execution": false,
+      "models": {
+        "tests": 8,
+        "assertions": 44
+      }
+    }
+  },
+  "source-notes": [
+    "Landing base is exact merged89d4554; historical acceptance, arithmetic and general-command layers are frozen.",
+    "Runtime build-version routing and explicit exact overlay contract are included. Future bootstrap importer/observer callbacks and tutorial-native execution are excluded."
+  ],
+  "external-evidence": [
+    {
+      "file": "target/java-source-exchange-v1/actual-abc-execution-v3.edn",
+      "sha256": "5ea34f540588670a2d79fffc799be5065659138a7c46a0383d15a2cf690693d5"
+    },
+    {
+      "file": "target/java-source-exchange-v1/source-project-acceptance-v1.edn",
+      "sha256": "0f66f33f438e96d3af56dbfcb08e48aa6351c8a852cf6be530937300f414d316"
+    },
+    {
+      "file": "target/java-source-exchange-v1/source-base-model-results-v2.edn",
+      "sha256": "31f7860fd8eaceba9f394bac3bee47de4bc7048b3157a19c612f131f895c659b"
+    }
+  ]
+}

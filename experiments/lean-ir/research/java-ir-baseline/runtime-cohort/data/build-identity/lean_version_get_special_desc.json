@@ -1,0 +1,103 @@
+{
+  "name": [
+    "str",
+    [
+      "str",
+      [
+        "str",
+        [
+          "anonymous"
+        ],
+        "Lean"
+      ],
+      "version"
+    ],
+    "getSpecialDesc"
+  ],
+  "sha256": "7f7ca043796ad93976a00dfb51a4c5c9294535683c3a26f3bec0a175ba3f69e2",
+  "row": {
+    "dependencies": [],
+    "ir": {
+      "extern": {
+        "ext": {
+          "entries": [
+            {
+              "standard": {
+                "backend": [
+                  "str",
+                  [
+                    "anonymous"
+                  ],
+                  "all"
+                ],
+                "fn": "lean_version_get_special_desc"
+              }
+            }
+          ]
+        },
+        "f": [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Lean"
+            ],
+            "version"
+          ],
+          "getSpecialDesc"
+        ],
+        "type": "object",
+        "xs": [
+          {
+            "borrow": false,
+            "ty": "tagged",
+            "x": {
+              "idx": 1
+            }
+          }
+        ]
+      }
+    },
+    "kind": "decl",
+    "name": [
+      "str",
+      [
+        "str",
+        [
+          "str",
+          [
+            "anonymous"
+          ],
+          "Lean"
+        ],
+        "version"
+      ],
+      "getSpecialDesc"
+    ],
+    "redirect": null,
+    "runtime": {
+      "initializer": null,
+      "role": "ordinary"
+    },
+    "sourceLocal": true,
+    "sourceModule": [
+      "str",
+      [
+        "str",
+        [
+          "str",
+          [
+            "anonymous"
+          ],
+          "Init"
+        ],
+        "Meta"
+      ],
+      "Defs"
+    ]
+  }
+}

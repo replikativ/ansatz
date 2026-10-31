@@ -21,7 +21,9 @@
       "origin_sha256": "781fa7d58ac00565d011208b8390d353eefd0957719d77f3b55256c8cd6b09fc",
       "changes": [
         "Compiled layout directory is explicit in parent policy/store descriptor and validated before child fork; removes implicit ignored-target path.",
-        "Add explicit prepare-general-source-child! selecting the general512 driver before closure capture; keep finite entry unchanged."
+        "Add explicit prepare-general-source-child! selecting the general512 driver before closure capture; keep finite entry unchanged.",
+        "Route five actual supported-build queries through the pinned pure provider with actual receipt/branch guards, including when no extra service is installed.",
+        "Attach the actual CodeReceipt before fresh parent/child wrapper capture; pass exact additional source overlays explicitly to lineage."
       ]
     },
     {
@@ -135,6 +137,12 @@
       "changes": [
         "Expect30 model families after the additive general-child constructor selection model; existing29 remain."
       ]
+    }
+  ],
+  "new-source-units": [
+    {
+      "file": "build-identity.clj",
+      "basis": "Pinned five original Lean version getter ABI rows and upstream version.h receipt under data/build-identity; independently authored pure host provider, not a byte-copy migration."
     }
   ]
 }

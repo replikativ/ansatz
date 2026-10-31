@@ -1,0 +1,103 @@
+{
+  "name": [
+    "str",
+    [
+      "str",
+      [
+        "str",
+        [
+          "anonymous"
+        ],
+        "Lean"
+      ],
+      "version"
+    ],
+    "getIsRelease"
+  ],
+  "sha256": "5db15bbc78c8f52f541874a479d1be7ac9787403b5b11a7e1a32ec94824a58f3",
+  "row": {
+    "dependencies": [],
+    "ir": {
+      "extern": {
+        "ext": {
+          "entries": [
+            {
+              "standard": {
+                "backend": [
+                  "str",
+                  [
+                    "anonymous"
+                  ],
+                  "all"
+                ],
+                "fn": "lean_version_get_is_release"
+              }
+            }
+          ]
+        },
+        "f": [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Lean"
+            ],
+            "version"
+          ],
+          "getIsRelease"
+        ],
+        "type": "uint8",
+        "xs": [
+          {
+            "borrow": false,
+            "ty": "tagged",
+            "x": {
+              "idx": 1
+            }
+          }
+        ]
+      }
+    },
+    "kind": "decl",
+    "name": [
+      "str",
+      [
+        "str",
+        [
+          "str",
+          [
+            "anonymous"
+          ],
+          "Lean"
+        ],
+        "version"
+      ],
+      "getIsRelease"
+    ],
+    "redirect": null,
+    "runtime": {
+      "initializer": null,
+      "role": "ordinary"
+    },
+    "sourceLocal": true,
+    "sourceModule": [
+      "str",
+      [
+        "str",
+        [
+          "str",
+          [
+            "anonymous"
+          ],
+          "Init"
+        ],
+        "Meta"
+      ],
+      "Defs"
+    ]
+  }
+}

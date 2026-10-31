@@ -34,6 +34,7 @@
       (let [policy (:authenticated-demand d)]
         (need (fn? (:check-source! policy)) "Authenticated original-source resolver required")
         ((:check-source! policy) d))
+      (when-let [imports (:import-binding s)] ((:check! imports)))
       s)))
 (defn- operation! [holder f]
   (live! holder)
@@ -143,17 +144,19 @@
     (need (= row (get (:after-ir view) n)) "Compiler changed an old generated IR declaration"))
   (need (= (:delta view) (apply dissoc (:after-ir view) (keys (:before-ir view)))) "CommandReceipt delta is incomplete")
   (need (:version-marker view) "Actual checked version marker required"))
+(defn- open-scope* [driver adapter import-binding]
+  (let [holder (atom {:status :active :thread (Thread/currentThread) :driver driver :adapter adapter
+                      :engine (:engine driver) :source (:source driver) :file-marker nil :next-command 0
+                      :observed-ir {} :locals {} :pending nil :import-binding import-binding})
+        token (Scope.)]
+    (live! holder) (program-index (:program (context @holder)) (:source @holder))
+    (locking scopes (.put scopes token holder)) token))
 (defn open-scope!
   "One fresh generic file on one actual driver/adapter. Receipts independently
    cross-bind these identities; an empty initial IR interval is required at first
    prepare. Borrows all runtime/source resources and owns host metadata only."
   [driver adapter]
-  (let [holder (atom {:status :active :thread (Thread/currentThread) :driver driver :adapter adapter
-                      :engine (:engine driver) :source (:source driver) :file-marker nil :next-command 0
-                      :observed-ir {} :locals {} :pending nil})
-        token (Scope.)]
-    (live! holder) (program-index (:program (context @holder)) (:source @holder))
-    (locking scopes (.put scopes token holder)) token))
+  (open-scope* driver adapter nil))
 (defn prepare-batch!
   "Read complete compiler IR exclusively through a live CommandReceipt lease.
    Returns :empty, :unsupported, or an opaque :prepared Batch. Successful command
@@ -193,7 +196,8 @@
                                               (do
                                                 (when (contains? (:observed-ir s) n)
                                                   (unsupported! "Earlier local IR dependency was never linked"))
-                                                (or (get @originals n)
+                                                (or (get-in s [:import-binding :entries n :header])
+                                                    (get @originals n)
                                                     (let [h (resolve-original! s n)] (swap! originals assoc n h) h)))))
                                deps (into {} (map (fn [[n f]] [n (mapv resolve! (remove #{n} (:static f)))]) frontiers))
                                ;; All SCC/local/dependency shells precede every body.

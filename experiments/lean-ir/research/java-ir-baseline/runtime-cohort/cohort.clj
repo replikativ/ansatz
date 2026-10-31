@@ -6,6 +6,7 @@
             [ansatz.research.ir.source-setup :as source]
             [ansatz.research.ir.authenticated-demand :as demand]
             [allocation-heartbeat-lab-v1 :as hb]
+            [original-build-identity-provider-v1 :as build]
             [sequential-frontend-probe :as sp]
             [imported-frontend-setup-v4 :as imported-setup]
             [java-prelude-no-native-init :as native-init]
@@ -104,31 +105,35 @@
                 :driver (assoc (:driver parent) :additional-runtime-service service)))
 (defn- reserved-runtime-symbol? [symbol]
   (contains? #{"lean_elab_add_decl" "lean_add_decl" "lean_run_mod_init_core"} symbol))
-(defn runtime-service-step! [session]
+(defn runtime-service-step!
+ ([session] (runtime-service-step! (or (:code-receipt session) (get-in session [:driver :code-receipt])) session))
+ ([actual-code-receipt session]
   (let [d (:driver session) c @(:current-ctx d) e (:engine d) request (j/host-request c e)
         _ (need (and request (= "host-call" (j/phase c e))) "Actual runtime-service HostRequest required")
         symbol (j/request-value request "symbol") service (extra-service session)]
     (cond
       (hb/handles? symbol) (hb/serve-current! session)
+      (build/handles? symbol) (build/serve! actual-code-receipt session)
       (and service (not (reserved-runtime-symbol? symbol)) ((:handles? service) symbol)) ((:serve! service) session)
-      :else (throw (ex-info "Unsupported runtime service; request remains unclaimed" {:symbol symbol})))))
+      :else (throw (ex-info "Unsupported runtime service; request remains unclaimed" {:symbol symbol}))))))
 (defn wrap-runtime-step [child admission]
   (let [original (:runtime-step! admission) service (extra-service child) expected (:driver child)
         step (fn [session]
                (let [d (:driver session) c @(:current-ctx d) e (:engine d)
                      request (when (= "host-call" (j/phase c e)) (j/host-request c e))
                      symbol (when request (j/request-value request "symbol"))]
-                 (when service
+                 (when (or service (build/handles? symbol))
                    (need (and (identical? e (:engine expected)) (identical? (:source d) (:source expected))
                               (identical? (:current-ctx d) (:current-ctx expected))
                               (identical? service (extra-service session))) "Foreign strict runtime service branch")
                    (need (not (contains? #{:failed :retired} @(get-in admission [:adapter :phase]))) "Terminal artifact adapter")
                    ((get-in admission [:authority :check-source!]) e (:source d)))
-                 (if (and service request (not (hb/handles? symbol)) (not (reserved-runtime-symbol? symbol)) ((:handles? service) symbol))
-                   (do
-                     (swap! (:ticks admission) inc)
-                     ((:serve! service) session))
-                   (original session))))]
+                 (cond
+                   (and request (build/handles? symbol))
+                   (do (swap! (:ticks admission) inc) (build/serve! (:code-receipt child) session))
+                   (and service request (not (hb/handles? symbol)) (not (reserved-runtime-symbol? symbol)) ((:handles? service) symbol))
+                   (do (swap! (:ticks admission) inc) ((:serve! service) session))
+                   :else (original session))))]
     ;; HB keeps its existing strict checks/ticks; other unknowns still go to the
     ;; original checked driver, never a default/fake reply.
     (hb/wrap-step (:lab-heartbeat-provider child) (assoc admission :runtime-step! step))))
@@ -140,7 +145,7 @@
     (cond
       (hb/handles? symbol) (hb/serve-current! parent)
       (= "lean_run_mod_init_core" symbol) (native-init/serve! (:native-init parent) d)
-      :else (runtime-service-step! parent))))
+      :else (runtime-service-step! (:code-receipt parent) parent))))
 (defn drive! [parent budget]
   (source/guard-source! (:code-receipt parent) (get-in parent [:driver :source]))
   (loop [left budget]
@@ -181,7 +186,7 @@
         _ (need (and (vector? early) (not-any? #(= hb/set-symbol (:symbol %)) early)) "Do not duplicate early setter policy")
         basis (assoc configured-basis :early-host-specifications (conj early descriptor))
         live (open-companion! basis directory census census! journal)
-        driver (open-driver! live) e (:engine live)
+        driver (assoc (open-driver! live) :code-receipt receipt) e (:engine live)
         _ (swap! journal assoc :driver driver :live live :stage :policy-configuration)
         _ (need (and (identical? e (:engine driver)) (identical? (:source live) (:source driver))) "Driver changed actual live engine/source")
         configured (configure! driver) d (:driver configured)
@@ -273,6 +278,7 @@
     (lineage/begin! parent
       {:finalizer-header header :state-slot (object-array [state :owned]) :imports-slot (object-array [imports :owned])
        :quantum 1000 :max-transitions 20000 :max-instructions 20000000
+       :extra-code-overlays (get parent :extra-code-overlays [])
        :deadline-nanos (+ (System/nanoTime) 60000000000) :expected-constants 2314
        :check-leases! #(module/inspect! module-lease)
        :validate-inputs! (fn [engine source actual-state actual-imports]
@@ -366,7 +372,9 @@
   [open-checked-driver journal parent prepared-module text filename module-segments store]
   (let [layout-directory (or (:layout-directory store) (:layout-directory parent))
         _ (need (and (string? layout-directory) (seq layout-directory)) "Explicit authenticated layout artifact directory required")
-        child0 (fork-seed! parent) _ (swap! journal assoc :child child0)
+        forked (fork-seed! parent)
+        child0 (update forked :driver assoc :code-receipt (:code-receipt forked))
+        _ (swap! journal assoc :child child0)
         d (:driver child0) imported (module/install! prepared-module d)
         _ (swap! journal assoc :module imported)
         _ (startup! child0)

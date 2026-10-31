@@ -180,6 +180,23 @@
         (is (thrown? Exception (batch/link-batch! (:batch prepared))))
         (is (= 1 (count (filter #(= :install (first %)) @events))))))))
 
+
+(deftest selected-imports-resolve-static-fap-and-pap-before-original-catalogue
+  (model
+    (fn [{:keys [driver adapter engine ctx receipt! events]}]
+      (let [imported (n "Imported.sourceStep") local (n "B.answer")
+            header {"name" imported "source" (:source driver)} checked (atom 0)
+            scope (#'batch/open-scope* driver adapter
+                    {:entries {imported {:header header}} :check! #(swap! checked inc)})
+            rows {local (row local [(fap imported) (pap imported)])}]
+        (swap! ctx update-in [:program :functions] conj {"header" header})
+        (swap! engine assoc "program" (:program @ctx))
+        (let [prepared (batch/prepare-batch! scope (receipt! {} rows))]
+          (is (= :prepared (:status prepared)))
+          (is (= [imported] (nth (first (filter #(= :body (first %)) @events)) 2)))
+          (is (= :linked (:status (batch/link-batch! (:batch prepared)))))
+          (is (pos? @checked)))))))
+
 (defn check! [] (run-tests 'general-generated-batch-models-v1))
 
 (deftest weak-registry-values-do-not-retain-issued-scope-or-batch-tokens

@@ -11,6 +11,7 @@ def local(name):
  return p
 assert digest(local('acceptance.json'))=='d261a55a887a72a573022a39f0ec2dd6c788c1f09d46e6c5c36311643e5c7fb0','Historical acceptance was modified'
 assert digest(local('nat-arithmetic-v3.json'))=='f4f2fc714cb6aa84498c9e8434076832180c32e5d08da5f2cd246bdd50851342','Historical arithmetic layer was modified'
+assert digest(local('general-command-v1.json'))=='3651813d90d1be2b6912c832ecde6023f92e4a35b2b0284740344cde5de13b14','Merged general-command layer was modified'
 acceptance=json.loads(local('acceptance.json').read_text())
 M=json.loads(local('migration.json').read_text())
 legacy_changes={'sequential-probe.clj','node-decoder.clj'}
@@ -21,8 +22,12 @@ allowed_arithmetic={'generated-command.clj','filesystem-profile.clj','filesystem
 allowed_general={'models/mutual-declaration.clj','composite-base.clj','models/composite-base.clj','general-file.clj','models/general-file.clj','driver.clj','lineage.clj','authority.clj','adapter.clj','generated-command.clj','loader.clj','verify-source.py','models/lineage.clj','models/adapter.clj','general-source-provider.clj','general-command.clj','generated-batch.clj','models/general-source-provider.clj','models/general-foundation.clj','models/general-command.clj','models/generated-batch.clj'}
 arithmetic=json.loads(local('nat-arithmetic-v3.json').read_text())
 general=json.loads(local('general-command-v1.json').read_text())
+source_modules=json.loads(local('source-module-v1.json').read_text())
 assert general['parent-layer']=={'file':'nat-arithmetic-v3.json','sha256':digest(local('nat-arithmetic-v3.json'))}
-for layer,allowed in [(arithmetic,allowed_arithmetic),(general,allowed_general)]:
+allowed_source_modules={'general-command.clj','generated-batch.clj','imported-setup.clj','loader.clj','models/general-command.clj','models/generated-batch.clj','models/sequential-retirement.clj','models/source-base.clj','models/source-closure.clj','models/source-data-snapshot.clj','models/source-exchange.clj','models/source-import-setup.clj','models/source-project.clj','sequential-probe.clj','source-base.clj','source-closure.clj','source-data-snapshot.clj','source-exchange.clj','source-import-setup.clj','source-project.clj','verify-source.py'}
+assert source_modules['parent-layer']=={'file':'general-command-v1.json','sha256':digest(local('general-command-v1.json'))}
+general_expected=None
+for layer,allowed in [(arithmetic,allowed_arithmetic),(general,allowed_general),(source_modules,allowed_source_modules)]:
  assert layer['schema']=='artifact-frontend-source-delta/1'
  assert layer['base-acceptance-sha256']==digest(local('acceptance.json'))
  entries={item['file']:item for item in layer['sources']}
@@ -30,6 +35,7 @@ for layer,allowed in [(arithmetic,allowed_arithmetic),(general,allowed_general)]
  for name,item in entries.items():
   assert item['base-sha256']==expected.get(name),(name,'unexplained source-layer base')
   expected[name]=item['sha256']
+ if layer is general:general_expected=dict(expected)
 # Migration records keep original review evidence; deliberate changes do not
 # rewrite those earlier claims or permit arbitrary newly changed leaves.
 for item in M['sources']:
@@ -41,7 +47,9 @@ for item in M['sources']:
 actual={str(p.relative_to(P))for p in P.rglob('*.clj')}|{'verify-source.py'}
 assert set(expected)==actual,'Unlisted/missing Clojure source file'
 current={item['file']:item['sha256']for item in general['source-inventory']}
-assert len(current)==len(general['source-inventory']) and current==expected,'Complete source inventory differs from explicit layers'
+assert len(current)==len(general['source-inventory']) and current==general_expected,'General layer inventory was rewritten or is inconsistent'
+current={item['file']:item['sha256']for item in source_modules['source-inventory']}
+assert len(current)==len(source_modules['source-inventory']) and current==expected,'Complete source inventory differs from explicit layers'
 for name,sha in expected.items():assert digest(local(name))==sha,name
 for p in P.rglob('*.clj'):
  s=p.read_text();assert '/home/'not in s and '(find-var (symbol "user"'not in s,p
@@ -64,11 +72,14 @@ assert all('"'+n+'" demand/'+n in seq for n in ['ensure-header!','service-code!'
 assert '(find-var'not in seq
 loader=local('loader.clj').read_text()
 units=re.findall(r'\["([^"]+\.clj)" ([^\]\s]+)\]',loader)
-assert units==[tuple(item)for item in general['ordered-load-units']]
-assert len(units)==36 and len({name for name,_ in units})==36
+assert units==[tuple(item)for item in source_modules['ordered-load-units']]
+assert len(units)==49 and len({name for name,_ in units})==49
+new_units={'models/sequential-retirement.clj','models/source-base.clj','models/source-closure.clj','models/source-data-snapshot.clj','models/source-exchange.clj','models/source-import-setup.clj','models/source-project.clj','source-base.clj','source-closure.clj','source-data-snapshot.clj','source-exchange.clj','source-import-setup.clj','source-project.clj'}
+assert [item for item in units if item[0]not in new_units]==[tuple(item)for item in general['ordered-load-units']]
 for file,namespace in units:
  assert re.search(r'\(ns\s+'+re.escape(namespace)+r'(?:\s|\))',local(file).read_text()),(file,namespace)
 assert units.index(('general-command.clj','general-command-receipt-v1'))<units.index(('generated-batch.clj','general-generated-batch-v1'))
+assert units.index(('source-exchange.clj','java-source-module-exchange-v1'))<units.index(('source-closure.clj','java-source-closure-v1'))<units.index(('source-base.clj','java-source-module-base-v1'))
 for match in re.finditer(r'\]\(([^)]+)\)',local('README.md').read_text()):
  path=match.group(1)
  if '://'not in path and not path.startswith('#'):assert (P/path.split('#')[0]).exists(),path
@@ -77,7 +88,7 @@ corpus=acceptance['corpus'];fixture=root/corpus['file']
 assert fixture.stat().st_size==corpus['bytes'] and digest(fixture)==corpus['sha256'],fixture
 fixture=root/arithmetic['fixture-directory']
 for name,sha in arithmetic['fixture-files'].items():assert digest(fixture/name)==sha,name
-for item in general['tracked-references']:
+for item in general['tracked-references']+source_modules['tracked-references']:
  path=pathlib.Path(item['file'])
  assert not path.is_absolute() and '..'not in path.parts,path
  assert digest(root/path)==item['sha256'],path
@@ -89,7 +100,7 @@ assert digest(lean/companion['contract'])==companion['sourceContractSHA256']
 assert digest(lean/companion['producerRunner'])==companion['runnerSHA256']
 assert digest(lean/'scripts/test-produce-observed-frontend.py')==companion['producerTestSHA256']
 if args.reviewed_root:
- for item in acceptance['external-evidence']+general['external-evidence']:
+ for item in acceptance['external-evidence']+general['external-evidence']+source_modules['external-evidence']:
   assert digest(args.reviewed_root/item['file'])==item['sha256'],item['file']
 identical=[item['file']for item in M['sources']if digest(local(item['file']))==item['reviewed-source-sha256']]
-print(json.dumps({'historical-acceptance-unchanged':True,'source-layers':2,'reviewed-copies':len(M['sources']),'currently-byte-identical-reviewed-copies':len(identical),'intentional-generic-source-deltas':sorted(allowed_general),'ordered-load-units':len(units),'complete-source-files':len(actual),'all-Clojure-delimiters-balanced':True,'machine-paths':0,'generic-runtime-status':general['acceptance'],'JVM-or-native-executed-by-verifier':False}))
+print(json.dumps({'historical-acceptance-unchanged':True,'source-layers':3,'reviewed-copies':len(M['sources']),'currently-byte-identical-reviewed-copies':len(identical),'intentional-generic-source-deltas':sorted(allowed_general),'intentional-source-module-deltas':sorted(allowed_source_modules),'ordered-load-units':len(units),'complete-source-files':len(actual),'all-Clojure-delimiters-balanced':True,'machine-paths':0,'generic-runtime-status':general['acceptance'],'source-module-status':source_modules['acceptance'],'JVM-or-native-executed-by-verifier':False}))

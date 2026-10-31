@@ -101,14 +101,56 @@
     (j/start! c (engine s) label args)
     (swap! (:in-flight s) assoc :stage :started)
     (let [value (drain! s)] (reset! (:in-flight s) nil) value)))
-(defn release-value! [s value]
-  (reset! (:in-flight s) {:operation :release :value value :stage :not-started})
-  (check-time! s)
+(defn- release-field [value key]
+  (.get (doto (.getDeclaredField (class value) key) (.setAccessible true)) value))
+(defn- release-engine! [s]
+  (let [c (ctx s) e (engine s) d (:driver s)]
+    (assert (and (identical? (:class c) (class e))
+                 (identical? (:program c) (release-field e "program"))
+                 (= "idle" (j/phase c e))))
+    (doseq [key ["closed" "disposed" "untrackedFailure" "advancing"]]
+      (assert (false? (release-field e key))))
+    (doseq [key ["runtimeAction" "hostCompletion" "hostGuestRecord"]]
+      (assert (nil? (release-field e key))))
+    (let [check! (get-in d [:authenticated-demand :check-source!])]
+      (assert (fn? check!)) (check! d))))
+(defn- release-preflight! [s]
+  ;; No owner removal or in-flight publication before these rejecting checks.
+  (assert (nil? @(:in-flight s)))
+  (release-engine! s) (check-time! s))
+(defn- release-prepared! [s]
+  (let [value (:value @(:in-flight s))]
   (swap! (:in-flight s) assoc :stage :starting)
   (j/start-release! (ctx s) (engine s) value 1)
   (swap! (:in-flight s) assoc :stage :started)
-  (let [result (drain! s)] (assert (= 0 result)) (reset! (:in-flight s) nil)))
-(defn drop! [s key] (release-value! s (take-owner! s key)))
+  (let [result (drain! s)] (assert (= 0 result)) (reset! (:in-flight s) nil))))
+(defn release-value! [s value]
+  (release-preflight! s)
+  (reset! (:in-flight s) {:operation :release :value value :stage :not-started})
+  (release-prepared! s))
+(defn drop! [s key]
+  (let [value (owned s key)]
+    (release-preflight! s)
+    ;; Publish custody before removal. A failure in removal/publication remains
+    ;; explicitly uncertain rather than silently dropping the occurrence.
+    (reset! (:in-flight s) {:operation :release :value value :stage :owner-transfer-pending})
+    (take-owner! s key)
+    (swap! (:in-flight s) assoc :stage :not-started)
+    (release-prepared! s)))
+(defn take-not-started-release-owner!
+  "Explicit one-credit handoff from a recorded pre-start release only. OUTPUT
+   is caller's empty one-slot Object[] journal, published before clearing custody.
+   Never starts/retries release, resets a deadline, or unwinds pending work."
+  [s output]
+  (assert (and (= (class (object-array 0)) (class output))
+               (= 1 (alength ^objects output)) (nil? (aget ^objects output 0))))
+  (release-engine! s)
+  (let [packet @(:in-flight s)]
+    (assert (and (= :release (:operation packet)) (= :not-started (:stage packet))
+                 (contains? packet :value)))
+    (aset ^objects output 0 (:value packet))
+    (assert (compare-and-set! (:in-flight s) packet nil))
+    (:value packet)))
 (defn take-ok! [s result-key payload-key]
   (let [result (owned s result-key) payload (aget ^objects (ctor! s result 0 1) 0)]
     (retain-as! s payload-key payload) (drop! s result-key) payload))
@@ -256,6 +298,7 @@
   ;; Call ONLY while idle after all results were taken. This does NOT dispose
   ;; the shared driver, caller's original env, catalogue, or captured companion.
   ;; Releasing states may run genuine finalizers via the same bounded driver.
+  (release-preflight! s)
   (doseq [key (vec (keys @(:owners s)))] (drop! s key))
   {:status :session-owners-released :budget @(:used s)})
 
