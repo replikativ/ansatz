@@ -78,3 +78,23 @@ subsequent module-name construction stopped at the unsupported original
 kernel association was issued. Failed execution unwind remains unsupported in
 this profile; the memory-only failed engine was discarded rather than reported
 as successfully disposed.
+
+The next probe bound eight authenticated original Substring exports after an
+exact source/ABI closure audit (138 reachable rows, no additional initialized
+globals). It assembled the requested/effective imports using the original guest
+constructors and ran `JavaModuleImport.finalize._boxed` to an actual `IO.ok`
+environment, with the original extension callbacks enabled. Real shim helpers
+reported quotient initialization enabled, a nonempty environment, and exactly
+2,314 checked constants. All 2,314 constants from that **finalized checked map**
+also matched the paired store's complete checking shapes, in 3.87 seconds.
+The native-symbol provider explicitly reported symbols absent, selecting Lean's
+interpreted initializer fallback. Heartbeats used the existing opt-in lab
+allocation counter; this is not native heartbeat parity.
+
+A pristine runtime seed fork before ModuleData installation/startup took 88 ms.
+The seed and finalized child together used about 199 MiB of live heap after GC
+in the retained 384 MiB JVM. This observation does not measure peak allocation,
+establish production memory requirements, or authorize checked-association
+forking. The next boundary is a sealed finalizer-run lineage and an owner-anchored,
+artifact-relative Java kernel association; source-file checking, compilation,
+project loading and program execution must then pass through that association.
