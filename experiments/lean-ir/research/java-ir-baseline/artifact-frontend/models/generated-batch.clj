@@ -251,3 +251,13 @@
         (is (= 1 (count (filter #(= :install (first %)) @events))))
         (let [holder (.get ^java.util.WeakHashMap @#'batch/scopes scope)]
           (is (= :failed (:status @holder))))))))
+
+(deftest unlinked-local-target-cannot-fall-through-to-original-source-resolution
+  (model
+    (fn [{:keys [scope receipt! original]}]
+      (let [unlinked {original {:kind "extern" :declaration {"f" original}}}
+            next (n "Caller")]
+        (is (= :unsupported (:status (batch/prepare-batch! scope (receipt! {} unlinked)))))
+        (is (= :unsupported
+               (:status (batch/prepare-batch! scope
+                          (receipt! unlinked (assoc unlinked next (row next [(fap original)])))))))))))

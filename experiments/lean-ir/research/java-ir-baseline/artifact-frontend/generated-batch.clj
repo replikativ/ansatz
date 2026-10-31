@@ -176,8 +176,11 @@
                                originals (atom {})
                                resolve! (fn [n]
                                           (or (get headers n) (get-in s [:locals n :header])
-                                              (get @originals n)
-                                              (let [h (resolve-original! s n)] (swap! originals assoc n h) h)))
+                                              (do
+                                                (when (contains? (:observed-ir s) n)
+                                                  (unsupported! "Earlier local IR dependency was never linked"))
+                                                (or (get @originals n)
+                                                    (let [h (resolve-original! s n)] (swap! originals assoc n h) h)))))
                                deps (into {} (map (fn [[n f]] [n (mapv resolve! (remove #{n} (:static f)))]) frontiers))
                                ;; All SCC/local/dependency shells precede every body.
                                registered (j/register-headers base (vec (concat (vals headers) (vals @originals)
