@@ -253,8 +253,13 @@
             (let [_ (.put seen b true) expr (field b "expr")
                   found (and (= 0 (field b "op")) expr (= 3 (field expr "op")) (identical? function (field expr "target")))
                   _ (when found
-                      (let [next (field b "next") ne (field next "expr") target (when ne (field ne "target"))]
+                      (let [prefix (field b "next") next (field prefix "next")
+                            ne (field next "expr") target (when ne (field ne "target"))]
+                        ;; Exactly the source-produced inc Syntax24 by one.
+                        ;; Physical Body omits the raw true/false RC hints;
+                        ;; those remain fixed by authenticated main row17983.
                         (need (and (= 41 (field b "a")) (= [1 4 24 25 26 0] (vec (field expr "args")))
+                                   (= 4 (field prefix "op")) (= 24 (field prefix "a")) (= 1 (field prefix "b"))
                                    (= 0 (field next "op")) (= 42 (field next "a")) ne (= 3 (field ne "op"))
                                    target (= (sp/typed-name "Lean.Elab.Frontend.elabCommandAtFrontend")
                                              (j/lean-name-data (j/request-value (field target "header") "name")))
@@ -364,14 +369,16 @@
                   (main-module! p (:environment current))
                   (locking gates (.put gates token entry))
                   (reset! (:active p) {:capture capture :stage :gated :gate token}) token))))
-          (observed! [p {:keys [engine source result gate-receipt arguments initial-observation final-observation capture]}]
+          (observed! [p {:keys [engine source result result-wrapper gate-receipt arguments initial-observation final-observation capture]}]
             (let [s (:frontend p) g (registered gates gate-receipt "Actual source GateReceipt required") active @(:active p)]
               (need (and (same-issuer? p g) (identical? capture (:capture g))
                          (identical? gate-receipt (:gate active)) (= :gated (:stage active))
                          (identical? engine (:engine p)) (identical? source (:source p))
                          (every? true? (map identical? (:arguments g) arguments)) (= 5 (count arguments)))
                     "Observed result has foreign/replayed gate custody")
-              (let [f (ctor s result 0 8 4) [input before syntax parsed parse-log] (:arguments g)
+              (let [wrapper-fields (ctor s result-wrapper 0 1 0)
+                    _ (need (identical? result (aget ^objects wrapper-fields 0)) "Observation is not the actual owned IO success payload")
+                    f (ctor s result 0 8 4) [input before syntax parsed parse-log] (:arguments g)
                     flags (mapv #(Byte/toUnsignedInt %) (sp/scalars s result)) kind (get-in g [:policy :kind])
                     after (state-view p (:state final-observation))
                     expected [(if (= :command kind) 0 1) (if (= :eoi kind) 1 0) (if (= :exit kind) 1 0) (if (= :import kind) 1 0)]

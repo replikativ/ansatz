@@ -68,8 +68,11 @@ not a rewindable parser state or a successful command. It has no default handler
 
 The provider must verify the current actual request, canonical gate Header,
 Source/receipt/engine/branch/Program and expected original companion invocation.
-`compiled-layout.json` records the unique main FAP site and its successor original
-elaboration call, including exact variable bindings. At suspension the active
+`compiled-layout.json` records the unique main FAP site and the following original
+elaboration call, including exact variable bindings. The exact immediate prefix
+is one `inc` of Syntax variable24 by1 (raw RC flags true/false), followed by the
+original elaborator VDECL42. This is not permission to skip arbitrary RC code.
+The prepared destination41 is an SSA index; HostCall.dest is `engine.bp + 41`. At suspension the active
 canonical main Function/prepared body, request destination and actual next Body
 must match; checking only the extern's symbol or ABI does not prevent a direct or
 spurious gate call. Root and consumer integration must validate the real runtime
@@ -80,7 +83,10 @@ input, before, command, parsed, parserMessages, elaborationMessages, startPos,
 endPos. Booleans at bytes64..67 are terminal/eoi/exit/lateImport. The companion's
 actual declared types and original emitted constructor/stores pin this layout;
 the consumer still checks real liveness/kind/field identity, not only size/tag.
-A successful call returns its original IO/EST result around that owned object.
+A successful call returns its original IO/EST success wrapper (tag0, one object
+field, no scalar bytes) around that owned object. The controller keeps ownership
+of the actual wrapper, while the provider receives its borrowed field0 payload
+and rechecks that exact coupling; the wrapper is not itself an Observation.
 Elaboration exceptions can prevent Observation return; retain the actual parser
 occurrences and request history in the host journal before approval so that
 failure cannot hide diagnostics or fabricate cleanup.
