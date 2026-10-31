@@ -59,3 +59,5 @@ rules. Java Map/List mutations cannot rewrite a previously issued profile or its
 Header selection. Filesystem File/Path inputs are normalized only for private IO
 and are not retained in overlay evidence. Unknown objects, cycles and paths inside
 public evidence are rejected without serialization or stringification fallback.
+Keys or set members that would coalesce under host persistent-collection equality
+are rejected rather than silently changing the supplied evidence.

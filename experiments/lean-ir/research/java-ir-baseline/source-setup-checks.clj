@@ -183,8 +183,19 @@
         (let [catalogue (Object.) overlay (core/authenticate-overlay! catalogue dir spec)
               cycle (java.util.ArrayList.)]
           (.add cycle cycle)
-          (doseq [unsupported [(io/file dir "private-source.lean") (.toPath (io/file dir "private-path")) (Object.) (atom true)]]
+          (doseq [unsupported [(io/file dir "private-source.lean") (.toPath (io/file dir "private-path")) (Object.) (atom true) (java.util.concurrent.atomic.AtomicLong. 1)]]
             (is (thrown-with-msg? Exception #"Unsupported source evidence object"
                   (core/compose! catalogue {"code_index_sha256" "model-index" "unsupported" unsupported} [overlay] {}))))
           (is (thrown-with-msg? Exception #"Cyclic mutable source evidence"
                 (core/compose! catalogue {"code_index_sha256" "model-index" "cycle" cycle} [overlay] {}))))))))
+
+
+(deftest immutable-snapshot-rejects-set-members-that-would-coalesce
+  (with-catalogue
+    (fixture identity
+      (fn [dir spec]
+        (let [catalogue (Object.) overlay (core/authenticate-overlay! catalogue dir spec)
+              numeric-set (doto (java.util.HashSet.) (.add (Integer/valueOf 1)) (.add (Long/valueOf 1)))]
+          (is (= 2 (count numeric-set)))
+          (is (thrown-with-msg? Exception #"set members collide"
+                (core/compose! catalogue {"code_index_sha256" "model-index" "numeric-set" numeric-set} [overlay] {}))))))))

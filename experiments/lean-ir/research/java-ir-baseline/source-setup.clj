@@ -40,7 +40,10 @@
                                   (require! (not (contains? out key)) "Source evidence keys collide after immutable snapshot")
                                   (assoc out key (freeze (.getValue ^java.util.Map$Entry entry) (inc depth)))))
                               {} (.entrySet ^java.util.Map value))
-                      (instance? java.util.Set value) (into #{} (map #(freeze % (inc depth))) value)
+                      (instance? java.util.Set value)
+                      (let [frozen (into #{} (map #(freeze % (inc depth))) value)]
+                        (require! (= (count value) (count frozen)) "Source evidence set members collide after immutable snapshot")
+                        frozen)
                       :else (mapv #(freeze % (inc depth)) value))
                     (finally (.remove active value))))
                 :else (throw (ex-info "Unsupported source evidence object; filesystem paths stay private" {:class (class value)}))))]
