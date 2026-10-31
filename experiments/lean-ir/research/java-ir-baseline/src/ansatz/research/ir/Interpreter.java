@@ -2154,9 +2154,7 @@ public final class Interpreter implements AutoCloseable {
         ExprCredit result=child.result; child.result=null; parent.child=null; return result;
     }
     private boolean directNameEqual(ExprDirectSession session,Object left,Object right) {
-        ExprEquality comparison=new ExprEquality(false); comparison.work=session.budget.work;
-        try { return nameEquals(left,right,comparison); }
-        finally { session.budget.work=comparison.work; }
+        return mvarNameEqual(session.budget,left,right);
     }
     private int directNameHash(ExprDirectSession session,Object value) {
         directWork(session,1); Node node=nameNode(value); return (int)(node==null?1723:readScalar(node,0,U64));
@@ -2616,6 +2614,809 @@ public final class Interpreter implements AutoCloseable {
     }
 
 
+    /* Stage four: private protocol/analysis foundation only. No Expr native
+     * registration, full delayed transformation, or new source authority. */
+    private static final boolean DELAYED_FOUNDATION_RESEARCH_READY=true;
+    private static final int DELAYED_CACHE_PROTOCOL=0,DELAYED_RESOLVER_PROTOCOL=1,DELAYED_SUBSTITUTION_PROTOCOL=2;
+    private static final int DC_PUSH=0,DC_POP=1,DC_LOOKUP=2,DC_INSERT=3,DC_ANALYZE=4,DC_INSTALL=5,DC_RESTORE=6,DC_SUBST_LOOKUP=7;
+    private static final int MAX_DELAYED_KEYS=100_000,MAX_DELAYED_ENTRIES=100_000,MAX_DELAYED_GENERATIONS=100_000;
+    private static final int MAX_DELAYED_FRAMES=100_000,MAX_DELAYED_NAMES=100_000,MAX_DELAYED_COMMANDS=100_000;
+    private static final int PENDING_IN_PROGRESS=0,PENDING_YES=1,PENDING_NO=2;
+    private static final int DELAYED_IDLE=0,DELAYED_RUNNING=1,DELAYED_RESULT=2,DELAYED_SEALED=3,DELAYED_DRAINED=4;
+    /** Immutable and guest-reference-free. Fork may share these chains. */
+    private static final class ScopeGeneration {
+        final int serial; final ScopeGeneration parent;
+        ScopeGeneration(int serial,ScopeGeneration parent) { this.serial=serial; this.parent=parent; }
+    }
+    /** A data-only command: no guest Function, body, capability, or resource. */
+    private static final class DelayedCommand {
+        final int operation,key,depth,value,resultScope;
+        DelayedCommand(int operation,int key,int depth,int value,int resultScope) {
+            this.operation=operation; this.key=key; this.depth=depth; this.value=value; this.resultScope=resultScope;
+        }
+    }
+    private static final class ScopedEntry {
+        ExprCredit result; ScopeGeneration generation;
+        int validLevel,resultScope; boolean reserved;
+    }
+    private static final class ScopedBucket {
+        Node key; int depth; final ArrayList<ScopedEntry> entries=new ArrayList<>();
+    }
+    private static final class ScopedExprCache {
+        final IdentityHashMap<Node,HashMap<Integer,ScopedBucket>> index=new IdentityHashMap<>();
+        final ArrayList<ScopedBucket> buckets=new ArrayList<>();
+        ScopeGeneration current=new ScopeGeneration(0,null);
+        int scope,generationCounter,generationCount=1,liveEntries;
+        boolean sealed; int drainBucket,drainEntry; ScopedEntry retiringEntry;
+    }
+    /** computed aliases its caller's one owner flag; it is NOT another credit.
+     * optional/shared/returned and retiringEntry each represent literal copies
+     * or moved occurrences with distinct, resumable disposition. */
+    private static final class ScopedCacheOperation {
+        ScopedBucket bucket; ScopedEntry top,retiringEntry,newEntry;
+        ScopeGeneration currentCursor,entryCursor;
+        ExprCredit computed,shared,optional,returned,replacement;
+        Node key; int kind,depth,resultScope,stage,walkLevel,rewindStage; boolean hit,completed,rewound;
+    }
+    private static final class PendingNameEntry {
+        ExprCredit name; int hash,state;
+    }
+    private static final class SubstitutionEntry {
+        ExprCredit name,value; int hash,depth,scope; boolean live;
+    }
+    private static final class SavedSubstitution {
+        ExprCredit name,oldValue; int oldDepth,oldScope; boolean hadOld;
+    }
+    /** Shared production maintenance frame. saved records own independent old
+     * copies and survive restoration; oldValue drains before its Name key. */
+    private static final class SubstitutionFrame {
+        Object fvars,sourceArguments; final ArrayList<ExprCredit> arguments=new ArrayList<>();
+        final ArrayList<SavedSubstitution> saved=new ArrayList<>();
+        SubstitutionEntry existing,replacement; ExprCredit newName,newValue,retiringName,retiringValue;
+        int depth,index,stage,cleanup; boolean scopePushed,restored,completed,ownsArguments,erasing;
+    }
+    /** Lookup/lift borrows the map entry value; a nested existing ReplaceJob
+     * has no root input credit and must not INC merely to start the lift. */
+    private static final class SubstitutionLookup {
+        Object name; SubstitutionEntry entry; ExprCredit optional,returned;
+        int depth,stage; boolean present,completed;
+    }
+    private abstract static class ResolverTask {
+        ResolverTask child; ExprCredit received; int stage,cursor,cleanup;
+        boolean result,completed;
+    }
+    private static final class ResolvableExprFrame extends ResolverTask {
+        Node original; boolean entryShared;
+        ResolvableExprFrame(Node original) { this.original=original; }
+    }
+    private static final class ResolvablePendingFrame extends ResolverTask {
+        Object name; PendingNameEntry entry; ExprCredit option,temporary;
+        ResolvablePendingFrame(Object name) { this.name=name; }
+    }
+    private static final class ResolvableAppFrame extends ResolverTask {
+        Node original; Object head,cursor; int argumentCount;
+        ExprCredit option,recordTemporary,fvars,pendingName;
+        ResolvableAppFrame(Node original) { this.original=original; }
+    }
+    private static final class DelayedHelperPacket {
+        Function function; Object[] arguments; boolean[] owned;
+        ResolverTask target; int role; boolean started,entered;
+    }
+    private static final class DelayedSession {
+        MVarContextCell context; InstantiationBudget budget; ExprInstantiationPolicy policy;
+        ScopedExprCache cache=new ScopedExprCache();
+        final IdentityHashMap<Node,Boolean> resolvableExpressions=new IdentityHashMap<>();
+        final HashMap<Integer,ArrayList<PendingNameEntry>> pending=new HashMap<>();
+        final ArrayList<PendingNameEntry> pendingOwners=new ArrayList<>();
+        final HashMap<Integer,ArrayList<SubstitutionEntry>> substitutions=new HashMap<>();
+        final ArrayList<SubstitutionEntry> substitutionOwners=new ArrayList<>();
+        final ArrayDeque<ResolverTask> resolver=new ArrayDeque<>();
+        DelayedHelperPacket call; ExprPacket constructorCall;
+        ScopedCacheOperation cacheOperation; SubstitutionFrame substitution; SubstitutionLookup lookup;
+        final ArrayDeque<SubstitutionFrame> substitutionFrames=new ArrayDeque<>();
+        ExprCredit retiring,result; int depth,resultScope,phase,drainStage,drainCursor;
+        boolean booleanResult;
+    }
+    /** Anchors are OWNED only by this labeled protocol caller. Production
+     * sessions/jobs borrow their source-backed roots; no giant retained visitor
+     * history is introduced. Observation logs must contain primitives only. */
+    private static final class DelayedResearchState {
+        MVarContextCell context; InstantiationBudget budget; DelayedSession session;
+        final ArrayList<ExprCredit> anchors=new ArrayList<>();
+        DelayedCommand[] commands; ExprCredit lastResult,output,pendingInput; long lastObservation;
+        int mode,commandCursor,stage,cleanup,outputFields;
+        final ArrayList<Long> observations=new ArrayList<>();
+    }
+    private void delayedWork(DelayedSession session,long amount) {
+        instantiationWork(session.budget,amount,"Delayed Expr work outside bounded runtime profile","Delayed Expr interrupted");
+    }
+    private static void delayedAnchorIndex(Object[] anchors,int index) {
+        require(index>=0&&index<anchors.length,"Delayed research anchor index outside profile");
+    }
+    private DelayedCommand[] delayedCommands(int mode,int[][] descriptions,Object[] anchors) {
+        require(mode>=DELAYED_CACHE_PROTOCOL&&mode<=DELAYED_SUBSTITUTION_PROTOCOL,"Unknown delayed research protocol");
+        require(descriptions!=null&&descriptions.length>0&&descriptions.length<=MAX_DELAYED_COMMANDS,"Delayed research command bound");
+        DelayedCommand[] result=new DelayedCommand[descriptions.length]; int scope=0; long validationWork=0;
+        for(int i=0;i<result.length;i++) {
+            require(++validationWork<=MAX_INSTANTIATION_WORK,"Delayed research preflight work bound");
+            int[] row=descriptions[i]; require(row!=null&&row.length>0,"Missing delayed research command");
+            int op=row[0],key=-1,depth=0,value=-1,resultScope=0;
+            if(mode==DELAYED_CACHE_PROTOCOL) {
+                if(op==DC_PUSH) { require(row.length==1&&scope<MAX_DELAYED_GENERATIONS,"Invalid scope push command"); scope++; }
+                else if(op==DC_POP) { require(row.length==1&&scope>0,"Invalid scope pop command"); scope--; }
+                else {
+                    require((op==DC_LOOKUP&&row.length==3)||(op==DC_INSERT&&row.length==5),"Invalid scoped cache command");
+                    key=row[1]; depth=row[2]; delayedAnchorIndex(anchors,key); exprNode(anchors[key]);
+                    if(op==DC_INSERT) {
+                        value=row[3]; resultScope=row[4]; delayedAnchorIndex(anchors,value); exprNode(anchors[value]);
+                        require(resultScope>=0&&resultScope<=MAX_DELAYED_GENERATIONS,"Invalid cache result-scope watermark");
+                        // Literal duplicate restoration can yield resultScope > scope.
+                    }
+                }
+            } else if(mode==DELAYED_RESOLVER_PROTOCOL) {
+                require(op==DC_ANALYZE&&row.length==2,"Invalid resolvability command");
+                key=row[1]; delayedAnchorIndex(anchors,key); exprNode(anchors[key]);
+            } else {
+                if(op==DC_INSTALL) {
+                    require(row.length==4&&scope<MAX_DELAYED_GENERATIONS,"Invalid substitution install command");
+                    key=row[1]; value=row[2]; depth=row[3]; delayedAnchorIndex(anchors,key); delayedAnchorIndex(anchors,value);
+                    Node fvars=node(anchors[key]),arguments=node(anchors[value]);
+                    require(fvars.array&&arguments.array,"Substitution research requires object Arrays");
+                    int n=fvars.arraySize(),m=arguments.arraySize(); require(n<=MAX_DELAYED_NAMES&&m>=n&&m<=MAX_DELAYED_NAMES,"Substitution Array extent outside profile");
+                    require(n+m<=MAX_INSTANTIATION_WORK-validationWork,"Delayed research preflight work bound"); validationWork+=n+m;
+                    for(int j=0;j<n;j++) { Node fvar=exprNode(fvars.fields[j]); require(fvar.tag==1,"Delayed substitution element is not an FVar"); nameNode(fvar.fields[0]); }
+                    for(int j=0;j<m;j++) exprNode(arguments.fields[j]); scope++;
+                } else if(op==DC_RESTORE) { require(row.length==1&&scope>0,"Invalid substitution restoration command"); scope--; }
+                else {
+                    require(op==DC_SUBST_LOOKUP&&row.length==3,"Invalid substitution lookup command");
+                    key=row[1]; depth=row[2]; delayedAnchorIndex(anchors,key); nameNode(anchors[key]);
+                }
+            }
+            require(depth>=0&&depth<=MAX_EXPR_JOB_OFFSET,"Delayed research binder depth outside profile");
+            result[i]=new DelayedCommand(op,key,depth,value,resultScope);
+        }
+        require(scope==0,"Delayed research protocol leaves an unbalanced scope"); return result;
+    }
+    /** Private fixed research protocols only; no native/public invocation API.
+     * READY stays false until all typed operations and drains are reviewed. */
+    private void startDelayedFoundationResearch(Header[] helpers,Header[] constructors,int mode,Object ownedContext,Object[] ownedAnchors,int[][] descriptions) {
+        explicitOnly(); require(DELAYED_FOUNDATION_RESEARCH_READY,"Private delayed foundation is not yet complete");
+        require(taskRuntime!=null,"Private delayed foundation requires active explicit runtime");
+        if(closed||disposed||untrackedFailure||advancing||phase!=IDLE||pendingOwnedResult||sp!=0||continuationDepth!=0
+                ||runtimeAction!=null||hostCompletion!=null||hostGuestRecord!=null||quietCurrent!=null||releasePending!=0
+                ||releaseTransaction!=null||releaseRoot) throw new IllegalStateException("Private delayed foundation requires an open idle engine");
+        require(ownedAnchors!=null&&ownedAnchors.length<=MAX_DELAYED_KEYS,"Delayed research anchor bound");
+        ExprInstantiationPolicy policy=ExprInstantiationPolicy.originalHelpers(levelInstantiationPolicy,helpers,constructors);
+        for(int role=0;role<5;role++) { levelInstantiationHelper(policy.levels,role); exprInstantiationHelper(policy,role); }
+        for(int role=0;role<9;role++) exprConstructor(policy.constructors,role);
+        IdentityHashMap<Node,Integer> known=new IdentityHashMap<>(); validateHostObject(ownedContext);
+        if(ownedContext instanceof Node) known.merge((Node)ownedContext,1,Integer::sum);
+        for(Object anchor:ownedAnchors) { validateHostObject(anchor); if(anchor instanceof Node) known.merge((Node)anchor,1,Integer::sum); }
+        DelayedCommand[] commands=delayedCommands(mode,descriptions,ownedAnchors);
+        for(Map.Entry<Node,Integer> entry:known.entrySet()) require(entry.getKey().rc==0||entry.getKey().rc>=entry.getValue(),"Delayed research input alias credits differ");
+        RuntimeAction action=newAction(ACTION_DELAYED_FOUNDATION_RESEARCH,null,null,0,ROOT,null);
+        DelayedResearchState state=new DelayedResearchState(); state.context=new MVarContextCell(); state.context.current=new LevelCredit(ownedContext,true);
+        state.budget=new InstantiationBudget(); state.session=new DelayedSession(); state.session.context=state.context;
+        state.session.budget=state.budget; state.session.policy=policy; state.session.phase=DELAYED_IDLE;
+        state.mode=mode; state.commands=commands; for(Object anchor:ownedAnchors) state.anchors.add(new ExprCredit(anchor,true));
+        action.delayedResearch=state; objects[action.slot]=null; publishAction(action);
+        callsLeft=10_000_000; instructions=0; entry=null; result=null; releaseRoot=false; phase=RUNNING;
+    }
+    private void requireDelayedReceiverFree(RuntimeAction action,DelayedSession session) {
+        require(runtimeAction==action&&action.delayedResearch!=null&&action.delayedResearch.session==session
+                &&session.call==null&&session.constructorCall==null&&objects[action.slot]==null,
+                "Multiple outstanding delayed helper/constructor packets");
+    }
+    private void delayedHelperEntry(Function function,Object[] arguments) {
+        RuntimeAction action=runtimeAction;
+        if(action==null||action.delayedResearch==null) return;
+        DelayedHelperPacket packet=action.delayedResearch.session.call;
+        if(packet==null||packet.entered||packet.function!=function||packet.arguments!=arguments) return;
+        require(packet.started,"Delayed helper entered before packet publication");
+        packet.entered=true; Arrays.fill(packet.owned,false);
+    }
+    private boolean releaseDelayed(RuntimeAction action,DelayedSession session,ExprCredit credit) {
+        if(credit==null||!credit.owned) return false;
+        require(session.retiring==null,"Two delayed retiring occurrences");
+        session.retiring=credit; action.retiring=credit.value; action.releaseClaimed=false;
+        boolean dispatch;
+        try { dispatch=beginRelease(credit.value,1,ACTION_BODY); credit.owned=false; }
+        finally { if(action.releaseClaimed) credit.owned=false; }
+        if(!dispatch) { session.retiring=null; action.retiring=null; action.releaseClaimed=false; }
+        return dispatch;
+    }
+    private void resumeDelayedRetiring(RuntimeAction action,DelayedSession session) {
+        if(session.retiring!=null) {
+            require(!session.retiring.owned,"Delayed retiring occurrence was not claimed");
+            session.retiring=null; action.retiring=null; action.releaseClaimed=false;
+        }
+    }
+    private boolean mvarNameEqual(InstantiationBudget budget,Object left,Object right) {
+        ExprEquality comparison=new ExprEquality(false); comparison.work=budget.work;
+        try { return nameEquals(left,right,comparison); }
+        finally { budget.work=comparison.work; }
+    }
+    private int delayedNameHash(DelayedSession session,Object value) {
+        delayedWork(session,1); Node name=nameNode(value); return (int)(name==null?1723:readScalar(name,0,U64));
+    }
+    private void scopedPush(DelayedSession session) {
+        delayedWork(session,1); ScopedExprCache cache=session.cache;
+        require(!cache.sealed&&cache.generationCount<MAX_DELAYED_GENERATIONS&&cache.scope<MAX_DELAYED_GENERATIONS
+                &&cache.generationCounter<Integer.MAX_VALUE,"Scoped Expr generation bound");
+        ScopeGeneration next=new ScopeGeneration(cache.generationCounter+1,cache.current);
+        cache.current=next; cache.generationCounter++; cache.generationCount++; cache.scope++;
+    }
+    private void scopedPop(DelayedSession session) {
+        delayedWork(session,1); ScopedExprCache cache=session.cache;
+        require(!cache.sealed&&cache.scope>0&&cache.current!=null&&cache.current.parent!=null,"Scoped Expr pop outside active scope");
+        cache.current=cache.current.parent; cache.scope--;
+    }
+    private ScopedBucket scopedBucket(DelayedSession session,Node key,int depth,boolean create) {
+        delayedWork(session,1); ScopedExprCache cache=session.cache;
+        require(!cache.sealed&&depth>=0&&depth<=MAX_EXPR_JOB_OFFSET,"Scoped Expr key outside profile");
+        HashMap<Integer,ScopedBucket> depths=cache.index.get(key); ScopedBucket bucket=depths==null?null:depths.get(depth);
+        if(bucket!=null||!create) return bucket;
+        require(cache.buckets.size()<MAX_DELAYED_KEYS,"Scoped Expr (identity,depth) key bound");
+        bucket=new ScopedBucket(); bucket.key=key; bucket.depth=depth; cache.buckets.add(bucket);
+        if(depths==null) { depths=new HashMap<>(); cache.index.put(key,depths); }
+        depths.put(depth,bucket); return bucket;
+    }
+    private void startScopedOperation(DelayedSession session,int kind,Object key,int depth,ExprCredit computed,int resultScope) {
+        require(session.cacheOperation==null&&session.call==null&&session.constructorCall==null,"Scoped Expr operation already active");
+        require(kind==DC_LOOKUP||kind==DC_INSERT,"Unknown scoped Expr operation");
+        Node original=exprNode(key);
+        if(kind==DC_INSERT) require(computed!=null&&computed.owned&&resultScope>=0&&resultScope<=MAX_DELAYED_GENERATIONS,
+                "Scoped Expr computed/result-scope owner missing");
+        ScopedCacheOperation op=new ScopedCacheOperation(); op.kind=kind; op.key=original; op.depth=depth;
+        op.computed=computed; op.resultScope=resultScope; session.cacheOperation=op;
+        op.bucket=scopedBucket(session,original,depth,kind==DC_INSERT);
+    }
+    private void finishScopedRetiring(DelayedSession session,ScopedCacheOperation op) {
+        if(op.retiringEntry==null) return;
+        ScopedEntry entry=op.retiringEntry;
+        require(entry.result!=null&&!entry.result.owned,"Scoped Expr eviction owner not drained");
+        if(entry.reserved) { require(session.cache.liveEntries>0,"Scoped Expr reservation underflow"); session.cache.liveEntries--; entry.reserved=false; }
+        entry.result=null; op.retiringEntry=null;
+    }
+    private void dropScopedTop(RuntimeAction action,DelayedSession session,ScopedCacheOperation op) {
+        require(op.retiringEntry==null&&op.bucket!=null&&!op.bucket.entries.isEmpty(),"Missing scoped eviction entry");
+        op.retiringEntry=op.bucket.entries.remove(op.bucket.entries.size()-1); op.top=null; op.rewindStage=0;
+        releaseDelayed(action,session,op.retiringEntry.result);
+    }
+    private void stepScopedRewind(RuntimeAction action,DelayedSession session,ScopedCacheOperation op) {
+        ScopedExprCache cache=session.cache;
+        if(op.bucket==null||op.bucket.entries.isEmpty()) { op.rewound=true; return; }
+        if(op.rewindStage==0) {
+            op.top=op.bucket.entries.get(op.bucket.entries.size()-1);
+            if(op.top.resultScope>cache.scope) { dropScopedTop(action,session,op); return; }
+            op.rewindStage=1; return;
+        }
+        ScopedEntry top=op.top; require(top!=null&&top.result!=null&&top.result.owned,"Scoped rewind top owner missing");
+        if(op.rewindStage==1) {
+            if(top.validLevel>cache.scope) {
+                require(top.generation!=null&&top.generation.parent!=null,"Scoped degrade chain exhausted");
+                top.generation=top.generation.parent; top.validLevel--; return;
+            }
+            op.currentCursor=cache.current; op.walkLevel=cache.scope; op.rewindStage=2; return;
+        }
+        if(op.rewindStage==2) {
+            if(op.walkLevel>top.validLevel) { require(op.currentCursor!=null&&op.currentCursor.parent!=null,"Scoped current chain exhausted"); op.currentCursor=op.currentCursor.parent; op.walkLevel--; return; }
+            require(top.generation!=null&&op.currentCursor!=null,"Scoped generation cursor missing");
+            if(top.generation.serial==op.currentCursor.serial) { op.rewound=true; return; }
+            op.entryCursor=top.generation; op.walkLevel=top.validLevel; op.rewindStage=3; return;
+        }
+        require(op.rewindStage==3,"Invalid scoped rewind stage");
+        if(op.walkLevel>top.resultScope) {
+            require(op.entryCursor.parent!=null&&op.currentCursor.parent!=null,"Scoped mismatch chain exhausted");
+            op.entryCursor=op.entryCursor.parent; op.currentCursor=op.currentCursor.parent; op.walkLevel--;
+            if(op.entryCursor.serial==op.currentCursor.serial) { top.validLevel=op.walkLevel; top.generation=op.entryCursor; op.rewound=true; }
+            return;
+        }
+        dropScopedTop(action,session,op);
+    }
+    private void stepScopedCache(RuntimeAction action,DelayedSession session) {
+        delayedWork(session,1); resumeDelayedRetiring(action,session);
+        ScopedCacheOperation op=session.cacheOperation; require(op!=null&&!op.completed,"No running scoped Expr operation");
+        finishScopedRetiring(session,op);
+        if(op.stage==0) { stepScopedRewind(action,session,op); if(op.rewound) op.stage=1; return; }
+        if(op.kind==DC_LOOKUP) {
+            if(op.stage==1) {
+                if(op.bucket==null||op.bucket.entries.isEmpty()) { op.completed=true; return; }
+                ScopedEntry top=op.bucket.entries.get(op.bucket.entries.size()-1);
+                if(top.validLevel!=session.cache.scope) { op.completed=true; return; }
+                session.resultScope=Math.max(session.resultScope,top.resultScope);
+                op.optional=exprCredit(top.result.value); acquireExpr(op.optional); op.hit=true; op.stage=2; return;
+            }
+            if(op.stage==2) { op.returned=exprCredit(op.optional.value); acquireExpr(op.returned); op.stage=3; return; }
+            if(op.stage==3) { op.stage=4; releaseDelayed(action,session,op.optional); return; }
+            require(op.stage==4,"Invalid scoped lookup completion"); op.optional=null; op.completed=true; return;
+        }
+        if(op.stage==1) {
+            require(op.computed!=null&&op.computed.owned,"Scoped insertion computed owner missing");
+            op.shared=exprCredit(op.computed.value); acquireExpr(op.shared); op.stage=10; return;
+        }
+        if(op.stage==10) {
+            if(!op.bucket.entries.isEmpty()&&op.bucket.entries.get(op.bucket.entries.size()-1).resultScope==op.resultScope) {
+                op.replacement=exprCredit(op.bucket.entries.get(op.bucket.entries.size()-1).result.value); acquireExpr(op.replacement); op.stage=11; return;
+            }
+            op.stage=13;
+        }
+        if(op.stage==11) { op.stage=12; releaseDelayed(action,session,op.shared); return; }
+        if(op.stage==12) { op.shared=op.replacement; op.replacement=null; op.stage=13; }
+        if(op.stage==13) {
+            if(!op.bucket.entries.isEmpty()&&op.bucket.entries.get(op.bucket.entries.size()-1).validLevel>=op.resultScope) {
+                dropScopedTop(action,session,op); return;
+            }
+            op.stage=14; return;
+        }
+        if(op.stage==14) {
+            require(session.cache.liveEntries<MAX_DELAYED_ENTRIES,"Scoped Expr live-entry bound");
+            ScopedEntry entry=new ScopedEntry(); op.newEntry=entry; entry.result=op.shared; op.shared=null;
+            entry.validLevel=session.cache.scope; entry.resultScope=op.resultScope; entry.generation=session.cache.current;
+            entry.reserved=true; session.cache.liveEntries++; op.bucket.entries.add(entry); op.stage=15; return;
+        }
+        if(op.stage==15) { op.returned=exprCredit(op.newEntry.result.value); acquireExpr(op.returned); op.stage=16; return; }
+        if(op.stage==16) { op.stage=17; releaseDelayed(action,session,op.computed); return; }
+        require(op.stage==17&&op.returned!=null&&op.returned.owned,"Invalid scoped insert completion");
+        op.computed=null; op.newEntry=null; op.completed=true;
+    }
+
+    private PendingNameEntry pendingEntry(DelayedSession session,Object name,boolean create) {
+        int hash=delayedNameHash(session,name); ArrayList<PendingNameEntry> bucket=session.pending.get(hash);
+        if(bucket!=null) for(PendingNameEntry entry:bucket) {
+            delayedWork(session,1); require(entry.name!=null&&entry.name.owned,"Pending Name key owner missing");
+            if(mvarNameEqual(session.budget,name,entry.name.value)) return entry;
+        }
+        if(!create) return null;
+        require(session.pendingOwners.size()<MAX_DELAYED_NAMES,"Resolvable pending Name bound");
+        PendingNameEntry entry=new PendingNameEntry(); entry.hash=hash; entry.state=PENDING_IN_PROGRESS; entry.name=exprCredit(name);
+        session.pendingOwners.add(entry);
+        if(bucket==null) { bucket=new ArrayList<>(); session.pending.put(hash,bucket); }
+        bucket.add(entry); acquireExpr(entry.name); return entry;
+    }
+    private void pushResolver(DelayedSession session,ResolverTask frame) {
+        require(session.phase==DELAYED_RUNNING&&session.resolver.size()<MAX_DELAYED_FRAMES,"Resolvable Expr frame bound"); session.resolver.addLast(frame);
+    }
+    private boolean takeResolverChild(ResolverTask parent,Class<?> expected) {
+        ResolverTask child=parent.child;
+        require(child!=null&&child.completed&&expected.isInstance(child),"Resolvable child kind/completion differs");
+        boolean result=child.result; parent.child=null; return result;
+    }
+    private void callResolverHelper(RuntimeAction action,DelayedSession session,ResolverTask target,int role) {
+        delayedWork(session,1); require(role>=0&&role<=3,"Resolver does not call assignment setter"); requireDelayedReceiverFree(action,session);
+        Function helper=exprInstantiationHelper(session.policy,role); DelayedHelperPacket packet=new DelayedHelperPacket();
+        packet.function=helper; packet.role=role; packet.target=target; packet.arguments=new Object[helper.params.length]; packet.owned=new boolean[packet.arguments.length];
+        if(role<=1) {
+            require(session.context.current!=null&&session.context.current.owned,"Resolvable context owner missing");
+            packet.arguments[0]=session.context.current.value;
+            packet.arguments[1]=role==0?((ResolvablePendingFrame)target).name:((Node)((ResolvableAppFrame)target).head).fields[0];
+            nameNode(packet.arguments[1]);
+        } else {
+            ExprCredit record=((ResolvableAppFrame)target).recordTemporary;
+            require(record!=null&&record.owned,"Resolvable accessor record temporary missing"); packet.arguments[0]=record.value;
+        }
+        for(Object argument:packet.arguments) validateHostObject(argument);
+        session.call=packet;
+        for(int i=0;i<packet.arguments.length;i++) { inc(packet.arguments[i],1); packet.owned[i]=true; }
+        IdentityHashMap<Node,Integer> known=new IdentityHashMap<>();
+        for(Object argument:packet.arguments) if(argument instanceof Node) known.merge((Node)argument,1,Integer::sum);
+        for(Map.Entry<Node,Integer> entry:known.entrySet()) require(entry.getKey().rc==0||entry.getKey().rc>=entry.getValue(),"Resolvable helper alias credits differ");
+        packet.started=true; enterExplicit(helper,null,packet.arguments,ACTION_BODY,action.slot,ASSIGN,null);
+        require(packet.entered,"Resolvable helper did not publish frame/CodeRequest");
+    }
+    private void receiveResolverHelper(RuntimeAction action,DelayedSession session) {
+        DelayedHelperPacket packet=session.call; require(packet!=null&&packet.entered,"Resolver helper returned before entry");
+        require(packet.target.received==null,"Resolver helper receiver occupied"); Object value=objects[action.slot];
+        if(packet.role<=1) validateDirectOption(value,packet.role==0);
+        else if(packet.role==2) { Node array=node(value); require(array.array&&array.arraySize()<=MAX_DELAYED_NAMES,"Delayed fvars accessor requires bounded object Array"); }
+        else nameNode(value);
+        packet.target.received=new ExprCredit(value,true); objects[action.slot]=null; session.call=null;
+    }
+    private void stepResolvablePending(RuntimeAction action,DelayedSession session,ResolvablePendingFrame frame) {
+        if(frame.stage==0) {
+            frame.entry=pendingEntry(session,frame.name,false);
+            if(frame.entry!=null) { frame.result=frame.entry.state==PENDING_YES; frame.completed=true; return; }
+            frame.entry=pendingEntry(session,frame.name,true); frame.stage=1; callResolverHelper(action,session,frame,0); return;
+        }
+        if(frame.stage==1) {
+            require(frame.received!=null&&frame.received.owned,"Resolvable pending Option missing"); frame.option=frame.received; frame.received=null;
+            if(ERASED.equals(frame.option.value)) { frame.result=false; frame.stage=4; }
+            else {
+                frame.temporary=exprCredit(((Node)frame.option.value).fields[0]); acquireExpr(frame.temporary);
+                frame.stage=2; pushResolver(session,new ResolvableExprFrame(exprNode(frame.temporary.value))); return;
+            }
+        }
+        if(frame.stage==2) { frame.result=takeResolverChild(frame,ResolvableExprFrame.class); frame.stage=3; releaseDelayed(action,session,frame.temporary); return; }
+        if(frame.stage==3) { frame.temporary=null; frame.stage=4; }
+        if(frame.stage==4) { frame.entry.state=frame.result?PENDING_YES:PENDING_NO; frame.stage=5; releaseDelayed(action,session,frame.option); return; }
+        require(frame.stage==5,"Invalid resolvable pending continuation"); frame.option=null; frame.completed=true;
+    }
+    private void stepResolvableApp(RuntimeAction action,DelayedSession session,ResolvableAppFrame frame) {
+        if(frame.stage==0) {
+            if(frame.head==null) frame.head=frame.original;
+            Node head=exprNode(frame.head);
+            if(head.tag==5) { frame.head=head.fields[0]; return; }
+            if(head.tag!=2) { frame.stage=100; pushResolver(session,new ResolvableExprFrame(exprNode(frame.original.fields[0]))); return; }
+            frame.stage=1; callResolverHelper(action,session,frame,1); return;
+        }
+        if(frame.stage==1) {
+            require(frame.received!=null&&frame.received.owned,"Resolvable delayed Option missing"); frame.option=frame.received; frame.received=null;
+            if(ERASED.equals(frame.option.value)) { frame.result=false; frame.stage=200; }
+            else { frame.recordTemporary=exprCredit(((Node)frame.option.value).fields[0]); acquireExpr(frame.recordTemporary);
+                frame.stage=2; callResolverHelper(action,session,frame,2); return; }
+        }
+        if(frame.stage==2) { require(frame.received!=null&&frame.received.owned,"Resolvable fvars Array missing"); frame.fvars=frame.received; frame.received=null;
+            frame.stage=3; releaseDelayed(action,session,frame.recordTemporary); return; }
+        if(frame.stage==3) { frame.recordTemporary=null; frame.cursor=frame.original; frame.argumentCount=0; frame.stage=4; }
+        if(frame.stage==4) {
+            Node current=exprNode(frame.cursor);
+            if(current.tag==5) { require(frame.argumentCount<MAX_DIRECT_ARGUMENTS,"Resolvable application arity bound"); frame.argumentCount++; frame.cursor=current.fields[0]; return; }
+            if(((Node)frame.fvars.value).arraySize()>frame.argumentCount) { frame.result=false; frame.stage=200; }
+            else { frame.recordTemporary=exprCredit(((Node)frame.option.value).fields[0]); acquireExpr(frame.recordTemporary);
+                frame.stage=5; callResolverHelper(action,session,frame,3); return; }
+        }
+        if(frame.stage==5) { require(frame.received!=null&&frame.received.owned,"Resolvable pending Name missing"); frame.pendingName=frame.received; frame.received=null;
+            frame.stage=6; releaseDelayed(action,session,frame.recordTemporary); return; }
+        if(frame.stage==6) { frame.recordTemporary=null; frame.stage=7; pushResolver(session,new ResolvablePendingFrame(frame.pendingName.value)); return; }
+        if(frame.stage==7) {
+            if(!takeResolverChild(frame,ResolvablePendingFrame.class)) { frame.result=false; frame.stage=200; }
+            else { frame.cursor=frame.original; frame.stage=8; }
+        }
+        if(frame.stage==8) {
+            Node current=exprNode(frame.cursor);
+            if(current.tag!=5) { frame.result=true; frame.stage=200; }
+            else { frame.stage=9; pushResolver(session,new ResolvableExprFrame(exprNode(current.fields[1]))); return; }
+        }
+        if(frame.stage==9) {
+            if(!takeResolverChild(frame,ResolvableExprFrame.class)) { frame.result=false; frame.stage=200; }
+            else { frame.cursor=exprNode(frame.cursor).fields[0]; frame.stage=8; return; }
+        }
+        if(frame.stage==100) {
+            if(!takeResolverChild(frame,ResolvableExprFrame.class)) { frame.result=false; frame.completed=true; return; }
+            frame.stage=101; pushResolver(session,new ResolvableExprFrame(exprNode(frame.original.fields[1]))); return;
+        }
+        if(frame.stage==101) { frame.result=takeResolverChild(frame,ResolvableExprFrame.class); frame.completed=true; return; }
+        require(frame.stage==200,"Invalid resolvable App continuation");
+        if(frame.cleanup<3) {
+            ExprCredit credit=frame.cleanup==0?frame.pendingName:frame.cleanup==1?frame.fvars:frame.option;
+            frame.cleanup++; releaseDelayed(action,session,credit); return;
+        }
+        frame.pendingName=null; frame.fvars=null; frame.option=null; require(frame.recordTemporary==null,"Resolvable D temporary not retired"); frame.completed=true;
+    }
+    private void stepResolvableExpr(RuntimeAction action,DelayedSession session,ResolvableExprFrame frame) {
+        Node original=frame.original;
+        if(frame.stage==0) {
+            if((exprCachedData(original)&(1L<<41))==0) { frame.result=true; frame.completed=true; return; }
+            frame.entryShared=!exclusive(original);
+            Boolean cached=frame.entryShared?session.resolvableExpressions.get(original):null;
+            if(cached!=null) { frame.result=cached; frame.completed=true; return; }
+            if(original.tag==2) { frame.result=false; frame.stage=90; }
+            else if(original.tag==5) { frame.stage=10; pushResolver(session,new ResolvableAppFrame(original)); return; }
+            else if(original.tag==6||original.tag==7||original.tag==8||original.tag==10||original.tag==11) frame.stage=1;
+            else { frame.result=true; frame.stage=90; }
+        }
+        if(frame.stage==1) {
+            if(frame.child!=null) { if(!takeResolverChild(frame,ResolvableExprFrame.class)) { frame.result=false; frame.stage=90; } else frame.cursor++; }
+            if(frame.stage==1) {
+                if(frame.cursor<exprChildCount(original.tag)) { pushResolver(session,new ResolvableExprFrame(exprNode(original.fields[exprChildField(original.tag,frame.cursor)]))); return; }
+                frame.result=true; frame.stage=90;
+            }
+        }
+        if(frame.stage==10) { frame.result=takeResolverChild(frame,ResolvableAppFrame.class); frame.stage=90; }
+        require(frame.stage==90,"Invalid resolvable Expr continuation");
+        // Native samples sharing again after analysis, not only at entry.
+        if(!exclusive(original)) {
+            require(session.resolvableExpressions.containsKey(original)||session.resolvableExpressions.size()<MAX_DELAYED_KEYS,"Resolvable Expr key bound");
+            session.resolvableExpressions.put(original,frame.result);
+        }
+        frame.completed=true;
+    }
+    private void startResolver(DelayedSession session,Object input) {
+        require(session.phase==DELAYED_IDLE&&session.resolver.isEmpty()&&session.call==null&&session.constructorCall==null,"Resolvable session is not idle");
+        Node root=exprNode(input); session.phase=DELAYED_RUNNING; pushResolver(session,new ResolvableExprFrame(root));
+    }
+    private void stepResolver(RuntimeAction action,DelayedSession session) {
+        delayedWork(session,1); resumeDelayedRetiring(action,session);
+        require(session.phase==DELAYED_RUNNING&&session.constructorCall==null,"No running resolver or unsupported delayed constructor packet");
+        if(session.call!=null) { receiveResolverHelper(action,session); return; }
+        ResolverTask frame=session.resolver.peekLast(); require(frame!=null,"Missing resolvability frame");
+        if(!frame.completed) {
+            if(frame instanceof ResolvableExprFrame) stepResolvableExpr(action,session,(ResolvableExprFrame)frame);
+            else if(frame instanceof ResolvablePendingFrame) stepResolvablePending(action,session,(ResolvablePendingFrame)frame);
+            else stepResolvableApp(action,session,(ResolvableAppFrame)frame);
+            return;
+        }
+        Iterator<ResolverTask> ancestors=session.resolver.descendingIterator(); ancestors.next(); ResolverTask parent=ancestors.hasNext()?ancestors.next():null;
+        if(parent==null) { session.booleanResult=frame.result; session.phase=DELAYED_RESULT; }
+        else { require(parent.child==null,"Resolver parent receiver occupied"); parent.child=frame; }
+        session.resolver.removeLast();
+    }
+    private boolean takeResolverResult(DelayedSession session) {
+        require(session.phase==DELAYED_RESULT&&session.resolver.isEmpty()&&session.call==null&&session.retiring==null,"Resolver result not ready");
+        boolean result=session.booleanResult; session.phase=DELAYED_IDLE; return result;
+    }
+
+    private SubstitutionEntry substitutionEntry(DelayedSession session,Object name) {
+        int hash=delayedNameHash(session,name); ArrayList<SubstitutionEntry> bucket=session.substitutions.get(hash);
+        if(bucket!=null) for(SubstitutionEntry entry:bucket) {
+            delayedWork(session,1); require(entry.live&&entry.name!=null&&entry.name.owned,"Substitution key owner missing");
+            if(mvarNameEqual(session.budget,name,entry.name.value)) return entry;
+        }
+        return null;
+    }
+    private void publishSubstitution(DelayedSession session,SubstitutionEntry entry) {
+        require(!entry.live&&entry.name!=null&&entry.name.owned&&entry.value!=null&&entry.value.owned,"Incomplete new substitution entry");
+        require(session.substitutionOwners.size()<MAX_DELAYED_NAMES,"Substitution entry allocation bound");
+        session.substitutionOwners.add(entry); ArrayList<SubstitutionEntry> bucket=session.substitutions.get(entry.hash);
+        if(bucket==null) { bucket=new ArrayList<>(); session.substitutions.put(entry.hash,bucket); }
+        bucket.add(entry); entry.live=true;
+    }
+    private void detachSubstitution(DelayedSession session,SubstitutionEntry entry) {
+        ArrayList<SubstitutionEntry> bucket=session.substitutions.get(entry.hash);
+        require(entry.live&&bucket!=null,"Missing substitution erase entry"); delayedWork(session,bucket.size());
+        require(bucket.remove(entry),"Substitution erase index differs"); if(bucket.isEmpty()) session.substitutions.remove(entry.hash); entry.live=false;
+    }
+    private static final int SF_PREPARE=0,SF_ENTER=1,SF_SAVE=2,SF_RELEASE_OLD=3,SF_COMMIT=4,SF_INSTALLED=5;
+    private static final int SF_RESTORE_NEXT=21,SF_RESTORE_VALUE=22,SF_RESTORE_KEY=23,SF_RESTORE_COMMIT=24,SF_RESTORED=25,SF_DRAIN_SAVED=30,SF_DRAIN_ARGS=31,SF_DRAINED=32;
+    private void prepareSubstitutionValue(DelayedSession session,SubstitutionFrame frame,Object name,Object value) {
+        require(frame.newName==null&&frame.newValue==null&&frame.replacement==null,"Substitution replacement escrow occupied");
+        frame.newValue=exprCredit(value); acquireExpr(frame.newValue);
+        if(frame.existing==null) {
+            require(session.substitutionOwners.size()<MAX_DELAYED_NAMES,"Substitution entry allocation bound");
+            frame.replacement=new SubstitutionEntry(); frame.replacement.hash=delayedNameHash(session,name);
+            frame.newName=exprCredit(name); acquireExpr(frame.newName);
+        }
+    }
+    private void commitSubstitutionValue(DelayedSession session,SubstitutionFrame frame,int depth,int scope) {
+        require(frame.newValue!=null&&frame.newValue.owned,"Substitution replacement value missing");
+        SubstitutionEntry entry=frame.existing==null?frame.replacement:frame.existing;
+        require(entry!=null&&entry.value==null,"Substitution old value not retired");
+        if(frame.existing==null) { entry.name=frame.newName; frame.newName=null; }
+        entry.value=frame.newValue; frame.newValue=null; entry.depth=depth; entry.scope=scope;
+        if(frame.existing==null) publishSubstitution(session,entry);
+        frame.existing=null; frame.replacement=null; frame.retiringValue=null; frame.retiringName=null;
+    }
+    private void stepSubstitutionInstall(RuntimeAction action,DelayedSession session,SubstitutionFrame frame) {
+        delayedWork(session,1); resumeDelayedRetiring(action,session);
+        require(!frame.restored&&!frame.completed,"No running substitution install");
+        if(frame.stage==SF_PREPARE) {
+            require(frame.ownsArguments&&frame.sourceArguments instanceof Node,"Missing research argument source");
+            Node arguments=(Node)frame.sourceArguments;
+            if(frame.index<arguments.arraySize()) {
+                ExprCredit argument=exprCredit(arguments.fields[frame.index]); frame.arguments.add(argument); frame.index++; acquireExpr(argument); return;
+            }
+            frame.index=0; frame.stage=SF_ENTER;
+        }
+        if(frame.stage==SF_ENTER) { scopedPush(session); frame.scopePushed=true; frame.stage=SF_SAVE; return; }
+        Node fvars=node(frame.fvars); int count=fvars.arraySize();
+        if(frame.stage==SF_SAVE) {
+            if(frame.index==count) { frame.stage=SF_INSTALLED; frame.completed=true; return; }
+            require(frame.saved.size()<MAX_DELAYED_NAMES&&frame.arguments.size()>=count,"Delayed saved-substitution bound/arity");
+            Node fvar=exprNode(fvars.fields[frame.index]); require(fvar.tag==1,"Delayed substitution requires FVar elements"); Object name=fvar.fields[0]; nameNode(name);
+            frame.existing=substitutionEntry(session,name);
+            SavedSubstitution saved=new SavedSubstitution(); saved.name=exprCredit(name); frame.saved.add(saved); acquireExpr(saved.name);
+            saved.hadOld=frame.existing!=null;
+            if(saved.hadOld) {
+                require(frame.existing.value!=null&&frame.existing.value.owned,"Old substitution value missing");
+                saved.oldDepth=frame.existing.depth; saved.oldScope=frame.existing.scope;
+                saved.oldValue=exprCredit(frame.existing.value.value); acquireExpr(saved.oldValue);
+            }
+            ExprCredit argument=frame.arguments.get(frame.arguments.size()-1-frame.index); require(argument.owned,"Substitution argument backing owner missing");
+            prepareSubstitutionValue(session,frame,name,argument.value); frame.stage=SF_RELEASE_OLD; return;
+        }
+        if(frame.stage==SF_RELEASE_OLD) {
+            frame.stage=SF_COMMIT;
+            if(frame.existing!=null) { frame.retiringValue=frame.existing.value; frame.existing.value=null; releaseDelayed(action,session,frame.retiringValue); }
+            return;
+        }
+        require(frame.stage==SF_COMMIT,"Invalid substitution install continuation");
+        commitSubstitutionValue(session,frame,frame.depth,session.cache.scope); frame.index++; frame.stage=SF_SAVE;
+    }
+    private void beginSubstitutionRestore(DelayedSession session,SubstitutionFrame frame) {
+        require(frame.completed&&frame.stage==SF_INSTALLED&&frame.scopePushed&&!frame.restored,"Substitution scope is not installed");
+        scopedPop(session); session.resultScope=Math.min(session.resultScope,session.cache.scope);
+        frame.scopePushed=false; frame.completed=false; frame.index=0; frame.stage=SF_RESTORE_NEXT;
+    }
+    private void stepSubstitutionRestore(RuntimeAction action,DelayedSession session,SubstitutionFrame frame) {
+        delayedWork(session,1); resumeDelayedRetiring(action,session);
+        require(!frame.completed&&!frame.restored,"No running substitution restoration");
+        if(frame.stage==SF_RESTORE_NEXT) {
+            if(frame.index==frame.saved.size()) { frame.restored=true; frame.completed=true; frame.stage=SF_RESTORED; return; }
+            SavedSubstitution saved=frame.saved.get(frame.index); require(saved.name!=null&&saved.name.owned,"Saved substitution Name owner missing");
+            frame.existing=substitutionEntry(session,saved.name.value); frame.erasing=!saved.hadOld;
+            if(frame.erasing) {
+                if(frame.existing==null) { frame.index++; return; }
+                detachSubstitution(session,frame.existing);
+                frame.retiringValue=frame.existing.value; frame.existing.value=null;
+                frame.retiringName=frame.existing.name; frame.existing.name=null;
+            } else {
+                require(saved.oldValue!=null&&saved.oldValue.owned,"Saved old substitution value missing");
+                prepareSubstitutionValue(session,frame,saved.name.value,saved.oldValue.value);
+                if(frame.existing!=null) { frame.retiringValue=frame.existing.value; frame.existing.value=null; }
+            }
+            frame.stage=SF_RESTORE_VALUE; return;
+        }
+        if(frame.stage==SF_RESTORE_VALUE) { frame.stage=SF_RESTORE_KEY; releaseDelayed(action,session,frame.retiringValue); return; }
+        if(frame.stage==SF_RESTORE_KEY) { frame.stage=SF_RESTORE_COMMIT; releaseDelayed(action,session,frame.retiringName); return; }
+        require(frame.stage==SF_RESTORE_COMMIT,"Invalid substitution restoration continuation");
+        if(!frame.erasing) {
+            SavedSubstitution saved=frame.saved.get(frame.index); commitSubstitutionValue(session,frame,saved.oldDepth,saved.oldScope);
+        } else { frame.existing=null; frame.retiringValue=null; frame.retiringName=null; }
+        frame.index++; frame.stage=SF_RESTORE_NEXT;
+    }
+    private void stepSubstitutionFrameDrain(RuntimeAction action,DelayedSession session,SubstitutionFrame frame) {
+        delayedWork(session,1); resumeDelayedRetiring(action,session);
+        require(frame.restored&&!frame.scopePushed,"Cannot drain an active substitution scope");
+        if(frame.stage==SF_RESTORED) { frame.completed=false; frame.cleanup=0; frame.stage=SF_DRAIN_SAVED; }
+        if(frame.stage==SF_DRAIN_SAVED) {
+            if(frame.cleanup<frame.saved.size()*2) {
+                SavedSubstitution saved=frame.saved.get(frame.cleanup/2); ExprCredit credit=(frame.cleanup++&1)==0?saved.oldValue:saved.name;
+                releaseDelayed(action,session,credit); return;
+            }
+            frame.saved.clear(); frame.cleanup=0; frame.stage=SF_DRAIN_ARGS;
+        }
+        if(frame.stage==SF_DRAIN_ARGS) {
+            if(frame.ownsArguments&&frame.cleanup<frame.arguments.size()) { ExprCredit credit=frame.arguments.get(frame.cleanup++); releaseDelayed(action,session,credit); return; }
+            frame.arguments.clear(); frame.fvars=null; frame.sourceArguments=null; frame.stage=SF_DRAINED; frame.completed=true;
+        }
+        require(frame.stage==SF_DRAINED,"Invalid substitution frame drain");
+    }
+    private void stepSubstitutionLookup(RuntimeAction action,DelayedSession session,SubstitutionLookup frame) {
+        delayedWork(session,1); resumeDelayedRetiring(action,session);
+        if(frame.stage==0) {
+            frame.entry=substitutionEntry(session,frame.name);
+            if(frame.entry==null) { frame.completed=true; return; }
+            require(frame.entry.value!=null&&frame.entry.value.owned&&frame.depth>=frame.entry.depth,"Delayed substitution lookup depth/owner invalid");
+            int delta=frame.depth-frame.entry.depth; require(delta<=MAX_EXPR_JOB_OFFSET,"Delayed substitution lift bound");
+            session.resultScope=Math.max(session.resultScope,frame.entry.scope); frame.present=true;
+            if(delta==0) { frame.optional=exprCredit(frame.entry.value.value); acquireExpr(frame.optional); frame.stage=2; return; }
+            require(runtimeAction==action&&objects[action.slot]==null&&session.call==null&&session.constructorCall==null,"Substitution lift receiver occupied");
+            for(int role=0;role<9;role++) exprConstructor(session.policy.constructors,role);
+            RuntimeAction child=newAction(ACTION_EXPR_MACHINERY,null,ACTION_BODY,action.slot,ASSIGN,null);
+            ExprMachineryState worker=new ExprMachineryState(); worker.policy=session.policy.constructors; worker.budget=session.budget;
+            pushReplaceJob(worker,EXPR_LIFT_JOB,frame.entry.value.value,0,delta,new Object[0]);
+            child.exprMachinery=worker; objects[child.slot]=null; frame.stage=1; publishAction(child); return;
+        }
+        if(frame.stage==1) { Object value=objects[action.slot]; exprNode(value); frame.optional=new ExprCredit(value,true); objects[action.slot]=null; frame.stage=2; }
+        if(frame.stage==2) { frame.returned=exprCredit(frame.optional.value); acquireExpr(frame.returned); frame.stage=3; return; }
+        if(frame.stage==3) { frame.stage=4; releaseDelayed(action,session,frame.optional); return; }
+        require(frame.stage==4,"Invalid substitution lookup completion"); frame.optional=null; frame.completed=true;
+    }
+
+    private void sealDelayedSession(DelayedSession session) {
+        require(session.phase==DELAYED_IDLE&&session.resolver.isEmpty()&&session.call==null&&session.constructorCall==null
+                &&session.cacheOperation==null&&session.substitution==null&&session.lookup==null&&session.substitutionFrames.isEmpty()
+                &&session.retiring==null&&session.result==null&&session.cache.scope==0,"Delayed session is not idle for seal");
+        session.resolvableExpressions.clear(); session.pending.clear(); session.substitutions.clear(); session.cache.index.clear();
+        for(ScopedBucket bucket:session.cache.buckets) bucket.key=null;
+        session.cache.sealed=true; session.phase=DELAYED_SEALED;
+    }
+    private void stepDelayedDrain(RuntimeAction action,DelayedSession session) {
+        delayedWork(session,1); resumeDelayedRetiring(action,session); require(session.phase==DELAYED_SEALED,"Delayed member drain requires sealed session");
+        if(session.drainStage==0) {
+            if(session.drainCursor<session.pendingOwners.size()) { ExprCredit name=session.pendingOwners.get(session.drainCursor++).name; releaseDelayed(action,session,name); return; }
+            session.pendingOwners.clear(); session.drainCursor=0; session.drainStage=1; return;
+        }
+        if(session.drainStage==1) {
+            ScopedExprCache cache=session.cache;
+            if(cache.retiringEntry!=null) {
+                ScopedEntry entry=cache.retiringEntry; require(entry.result!=null&&!entry.result.owned,"Scoped member owner not drained");
+                if(entry.reserved) { require(cache.liveEntries>0,"Scoped drain reservation underflow"); cache.liveEntries--; entry.reserved=false; }
+                entry.result=null; cache.retiringEntry=null;
+            }
+            if(cache.drainBucket<cache.buckets.size()) {
+                ScopedBucket bucket=cache.buckets.get(cache.drainBucket);
+                if(bucket.entries.isEmpty()) { cache.drainBucket++; return; }
+                cache.retiringEntry=bucket.entries.remove(bucket.entries.size()-1); releaseDelayed(action,session,cache.retiringEntry.result); return;
+            }
+            require(cache.liveEntries==0,"Scoped member drain leaked reservations"); cache.buckets.clear(); cache.current=null;
+            session.drainStage=2; session.drainCursor=0; return;
+        }
+        if(session.drainStage==2) {
+            if(session.drainCursor<session.substitutionOwners.size()*2) {
+                SubstitutionEntry entry=session.substitutionOwners.get(session.drainCursor/2);
+                ExprCredit credit=(session.drainCursor++&1)==0?entry.value:entry.name; releaseDelayed(action,session,credit); return;
+            }
+            session.substitutionOwners.clear(); session.phase=DELAYED_DRAINED; return;
+        }
+        throw error("Invalid delayed member drain stage");
+    }
+    private int liveSubstitutions(DelayedSession session) {
+        int count=0; for(ArrayList<SubstitutionEntry> bucket:session.substitutions.values()) { delayedWork(session,bucket.size()); count+=bucket.size(); } return count;
+    }
+    private void finishDelayedCommand(DelayedResearchState state,long observation) {
+        DelayedSession session=state.session; delayedWork(session,1); DelayedCommand command=state.commands[state.commandCursor];
+        state.observations.add((long)command.operation); state.observations.add((long)session.cache.scope);
+        state.observations.add((long)session.resultScope); state.observations.add(observation);
+        state.lastObservation=observation; state.commandCursor++; state.stage=0;
+    }
+    private void launchDelayedCommand(DelayedResearchState state) {
+        DelayedSession session=state.session; DelayedCommand command=state.commands[state.commandCursor];
+        require(session.phase==DELAYED_IDLE&&session.call==null&&session.constructorCall==null&&session.cacheOperation==null
+                &&session.substitution==null&&session.lookup==null,"Delayed protocol has an outstanding operation");
+        if(state.mode==DELAYED_CACHE_PROTOCOL) {
+            if(command.operation==DC_PUSH) { scopedPush(session); finishDelayedCommand(state,session.cache.generationCounter); return; }
+            if(command.operation==DC_POP) { scopedPop(session); finishDelayedCommand(state,session.cache.generationCounter); return; }
+            if(command.operation==DC_INSERT) {
+                state.pendingInput=exprCredit(state.anchors.get(command.value).value); acquireExpr(state.pendingInput);
+            }
+            startScopedOperation(session,command.operation,state.anchors.get(command.key).value,command.depth,state.pendingInput,command.resultScope);
+            state.pendingInput=null; state.stage=2; return;
+        }
+        if(state.mode==DELAYED_RESOLVER_PROTOCOL) { startResolver(session,state.anchors.get(command.key).value); state.stage=2; return; }
+        if(command.operation==DC_INSTALL) {
+            require(session.substitutionFrames.size()<MAX_DELAYED_FRAMES,"Substitution scope/frame bound");
+            SubstitutionFrame frame=new SubstitutionFrame(); frame.fvars=state.anchors.get(command.key).value;
+            frame.sourceArguments=state.anchors.get(command.value).value; frame.depth=command.depth; frame.ownsArguments=true;
+            session.substitution=frame; state.stage=2; return;
+        }
+        if(command.operation==DC_RESTORE) {
+            SubstitutionFrame frame=session.substitutionFrames.peekLast(); require(frame!=null,"No substitution frame to restore");
+            session.substitution=frame; beginSubstitutionRestore(session,frame); state.stage=2; return;
+        }
+        SubstitutionLookup lookup=new SubstitutionLookup(); lookup.name=state.anchors.get(command.key).value; lookup.depth=command.depth;
+        session.lookup=lookup; state.stage=2;
+    }
+    private void stepDelayedFoundationResearch(RuntimeAction action) {
+        DelayedResearchState state=action.delayedResearch; require(state!=null,"Missing private delayed foundation state");
+        DelayedSession session=state.session; delayedWork(session,1); resumeDelayedRetiring(action,session);
+        require(session.constructorCall==null,"Stage four has no typed delayed constructor target");
+        if(state.stage==0) {
+            if(state.commandCursor==state.commands.length) { sealDelayedSession(session); state.stage=10; state.cleanup=0; return; }
+            state.stage=1; releaseDelayed(action,session,state.lastResult); return;
+        }
+        if(state.stage==1) { state.lastResult=null; launchDelayedCommand(state); return; }
+        if(state.stage==2) {
+            DelayedCommand command=state.commands[state.commandCursor];
+            if(state.mode==DELAYED_CACHE_PROTOCOL) {
+                ScopedCacheOperation op=session.cacheOperation; stepScopedCache(action,session);
+                if(op.completed) {
+                    state.lastResult=op.returned; op.returned=null; session.cacheOperation=null;
+                    finishDelayedCommand(state,command.operation==DC_LOOKUP?(op.hit?1:0):session.cache.liveEntries);
+                }
+                return;
+            }
+            if(state.mode==DELAYED_RESOLVER_PROTOCOL) {
+                stepResolver(action,session); if(session.phase==DELAYED_RESULT) finishDelayedCommand(state,takeResolverResult(session)?1:0); return;
+            }
+            if(command.operation==DC_INSTALL) {
+                SubstitutionFrame frame=session.substitution; stepSubstitutionInstall(action,session,frame);
+                if(frame.completed) { session.substitutionFrames.addLast(frame); session.substitution=null; finishDelayedCommand(state,liveSubstitutions(session)); }
+                return;
+            }
+            if(command.operation==DC_RESTORE) {
+                SubstitutionFrame frame=session.substitution; stepSubstitutionRestore(action,session,frame);
+                if(frame.completed) { require(session.substitutionFrames.peekLast()==frame,"Substitution restoration stack differs"); session.substitutionFrames.removeLast(); state.stage=3; }
+                return;
+            }
+            SubstitutionLookup lookup=session.lookup; stepSubstitutionLookup(action,session,lookup);
+            if(lookup.completed) { state.lastResult=lookup.returned; lookup.returned=null; session.lookup=null; finishDelayedCommand(state,lookup.present?1:0); }
+            return;
+        }
+        if(state.stage==3) {
+            SubstitutionFrame frame=session.substitution; stepSubstitutionFrameDrain(action,session,frame);
+            if(frame.completed) { session.substitution=null; finishDelayedCommand(state,liveSubstitutions(session)); } return;
+        }
+        if(state.stage==10) {
+            if(state.cleanup<state.anchors.size()) { ExprCredit anchor=state.anchors.get(state.cleanup++); releaseDelayed(action,session,anchor); return; }
+            state.anchors.clear(); state.stage=11;
+        }
+        if(state.stage==11) { stepDelayedDrain(action,session); if(session.phase==DELAYED_DRAINED) state.stage=12; return; }
+        if(state.stage==12) {
+            require(session.phase==DELAYED_DRAINED&&state.context.current!=null&&state.context.current.owned,"Delayed research report owners missing");
+            Node report=new Node(0,3,0); state.output=new ExprCredit(report,true); allocations++;
+            report.fields[0]=state.context.current.value; state.context.current.owned=false; state.context.current=null; state.outputFields=1;
+            if(state.lastResult!=null) { require(state.lastResult.owned,"Delayed research last result owner missing"); report.fields[1]=state.lastResult.value; state.lastResult.owned=false; }
+            else report.fields[1]=ERASED;
+            state.outputFields=2; report.fields[2]=Long.valueOf(state.lastObservation); state.outputFields=3; state.stage=13; return;
+        }
+        require(state.stage==13&&state.output!=null&&state.output.owned&&state.outputFields==3&&state.context.current==null,"Incomplete delayed protocol report");
+        Object output=state.output.value; state.output.owned=false; action.output=output;
+        state.lastResult=null; state.pendingInput=null; state.output=null; state.session=null; state.context=null; state.budget=null; state.commands=null;
+        action.delayedResearch=null; finishAction(action,output);
+    }
+
+
     /** Five exact source-authenticated ordinary helper roles, without guest values,
      * Program bodies or catalogue resources. SHA identities remain descriptive;
      * the trusted source adapter authenticates the original bytes. */
@@ -2760,7 +3561,7 @@ public final class Interpreter implements AutoCloseable {
     private HostGuestRecord hostGuestRecord;
     private HostCall hostCompletion;
     private RuntimeAction runtimeAction,failedRuntimeAction;
-    private static final int ACTION_RELEASE=1,ACTION_DISPOSE=2,ACTION_NATIVE=3,ACTION_HOST=4,ACTION_TASK=5,ACTION_RESOLVE=6,ACTION_RUN_TASK=7,ACTION_PROFILE=8,ACTION_FIND=9,ACTION_LEVEL_MVARS=10,ACTION_EXPR_MACHINERY=11,ACTION_MVAR_SESSION_RESEARCH=12,ACTION_SHARECOMMON=13,ACTION_EXPR_DIRECT_RESEARCH=14,ACTION_EXPR_REPLACE=15,ACTION_EXPR_ABSTRACT=16,ACTION_HOST_GUEST=20;
+    private static final int ACTION_RELEASE=1,ACTION_DISPOSE=2,ACTION_NATIVE=3,ACTION_HOST=4,ACTION_TASK=5,ACTION_RESOLVE=6,ACTION_RUN_TASK=7,ACTION_PROFILE=8,ACTION_FIND=9,ACTION_LEVEL_MVARS=10,ACTION_EXPR_MACHINERY=11,ACTION_MVAR_SESSION_RESEARCH=12,ACTION_SHARECOMMON=13,ACTION_EXPR_DIRECT_RESEARCH=14,ACTION_EXPR_REPLACE=15,ACTION_EXPR_ABSTRACT=16,ACTION_DELAYED_FOUNDATION_RESEARCH=17,ACTION_HOST_GUEST=20;
     private static final Body ACTION_BODY=new Body();
     /** Typed ownership/control state, separate from NodeMetadata. The output
      * scratch slot is reserved before callbacks may enter generic AP. */
@@ -2773,6 +3574,7 @@ public final class Interpreter implements AutoCloseable {
         ExprMachineryState exprMachinery;
         MVarSessionResearchState mvarSessionResearch;
         ExprDirectResearchState exprDirect;
+        DelayedResearchState delayedResearch;
         int operation,stage,savedSp,slot,dest,kind,cursor,limit,pending;
         Function function;
         Body next;
@@ -3412,11 +4214,15 @@ public final class Interpreter implements AutoCloseable {
     private void actionHelperEntry(Function function,Object[] arguments) {
         levelHelperEntry(function,arguments);
         directHelperEntry(function,arguments);
+        delayedHelperEntry(function,arguments);
         RuntimeAction action=runtimeAction;
         if(action==null) return;
         ExprPacket packet=action.exprMachinery==null?null:action.exprMachinery.call;
         if(action.exprDirect!=null) {
             require(packet==null,"Multiple current Expr constructor packets"); packet=action.exprDirect.session.constructorCall;
+        }
+        if(action.delayedResearch!=null) {
+            require(packet==null,"Multiple current delayed constructor packets"); packet=action.delayedResearch.session.constructorCall;
         }
         if(packet==null||packet.entered||packet.function!=function||packet.arguments!=arguments) return;
         require(packet.started,"Expr constructor entered before packet publication");
@@ -4083,6 +4889,7 @@ public final class Interpreter implements AutoCloseable {
         else if(action.operation==ACTION_EXPR_MACHINERY||action.operation==ACTION_EXPR_REPLACE||action.operation==ACTION_EXPR_ABSTRACT) stepExprMachinery(action);
         else if(action.operation==ACTION_MVAR_SESSION_RESEARCH) stepMVarSessionResearch(action);
         else if(action.operation==ACTION_EXPR_DIRECT_RESEARCH) stepExprDirectResearch(action);
+        else if(action.operation==ACTION_DELAYED_FOUNDATION_RESEARCH) stepDelayedFoundationResearch(action);
         else if(action.operation==ACTION_HOST_GUEST) stepHostGuest(action);
         else if(action.operation==ACTION_HOST) {
             try { stepHostCompletion(action); }
@@ -4273,6 +5080,18 @@ public final class Interpreter implements AutoCloseable {
                 HostGuestOperation out=new HostGuestOperation(child.runtimeIdentity,(HostGuestRecord)value(old.record));
                 copies.put(source,out); return out;
             }
+            if(source instanceof ScopeGeneration||source instanceof DelayedCommand) return source;
+            if(source instanceof DelayedResearchState||source instanceof DelayedSession||source instanceof ScopedExprCache||source instanceof ScopedBucket
+                    ||source instanceof ScopedEntry||source instanceof ScopedCacheOperation||source instanceof PendingNameEntry||source instanceof SubstitutionEntry
+                    ||source instanceof SavedSubstitution||source instanceof SubstitutionFrame||source instanceof SubstitutionLookup||source instanceof DelayedHelperPacket||source instanceof ResolverTask) {
+                Object out=source instanceof DelayedResearchState?new DelayedResearchState():source instanceof DelayedSession?new DelayedSession():
+                        source instanceof ScopedExprCache?new ScopedExprCache():source instanceof ScopedBucket?new ScopedBucket():source instanceof ScopedEntry?new ScopedEntry():
+                        source instanceof ScopedCacheOperation?new ScopedCacheOperation():source instanceof PendingNameEntry?new PendingNameEntry():
+                        source instanceof SubstitutionEntry?new SubstitutionEntry():source instanceof SavedSubstitution?new SavedSubstitution():
+                        source instanceof SubstitutionFrame?new SubstitutionFrame():source instanceof SubstitutionLookup?new SubstitutionLookup():source instanceof DelayedHelperPacket?new DelayedHelperPacket():
+                        source instanceof ResolvableExprFrame?new ResolvableExprFrame(null):source instanceof ResolvablePendingFrame?new ResolvablePendingFrame(null):new ResolvableAppFrame(null);
+                copies.put(source,out); pending.addLast(new Object[]{source,out}); return out;
+            }
             if(source instanceof ExprDirectResearchState||source instanceof ExprDirectSession||source instanceof DirectHelperPacket
                     ||source instanceof DirectNameEntry||source instanceof ExprDirectTask) {
                 Object out=source instanceof ExprDirectResearchState?new ExprDirectResearchState():source instanceof ExprDirectSession?new ExprDirectSession():
@@ -4358,7 +5177,7 @@ public final class Interpreter implements AutoCloseable {
                     for(int i=0;i<from.length;i++) to[i]=value(from[i]);
                 } else if(source instanceof RuntimeAction) {
                     RuntimeAction old=(RuntimeAction)source,out=(RuntimeAction)target;
-                    out.parent=(RuntimeAction)value(old.parent); out.guest=(HostGuestRecord)value(old.guest); out.find=(FindState)value(old.find); out.share=(ShareState)value(old.share); out.levelMvars=(LevelInstantiationState)value(old.levelMvars); out.exprMachinery=(ExprMachineryState)value(old.exprMachinery); out.mvarSessionResearch=(MVarSessionResearchState)value(old.mvarSessionResearch); out.exprDirect=(ExprDirectResearchState)value(old.exprDirect); out.operation=old.operation; out.stage=old.stage;
+                    out.parent=(RuntimeAction)value(old.parent); out.guest=(HostGuestRecord)value(old.guest); out.find=(FindState)value(old.find); out.share=(ShareState)value(old.share); out.levelMvars=(LevelInstantiationState)value(old.levelMvars); out.exprMachinery=(ExprMachineryState)value(old.exprMachinery); out.mvarSessionResearch=(MVarSessionResearchState)value(old.mvarSessionResearch); out.exprDirect=(ExprDirectResearchState)value(old.exprDirect); out.delayedResearch=(DelayedResearchState)value(old.delayedResearch); out.operation=old.operation; out.stage=old.stage;
                     out.savedSp=old.savedSp; out.slot=old.slot; out.dest=old.dest; out.kind=old.kind;
                     out.cursor=old.cursor; out.limit=old.limit; out.pending=old.pending;
                     out.function=(Function)value(old.function); out.next=old.next;
@@ -4368,6 +5187,93 @@ public final class Interpreter implements AutoCloseable {
                     out.task=(TaskRecord)value(old.task); out.scope=(TaskRecord)value(old.scope); out.batch=(DependencyList)value(old.batch);
                     out.output=value(old.output); out.retiring=value(old.retiring); out.releaseClaimed=old.releaseClaimed; out.current=(Node)value(old.current); out.origin=(Node)value(old.origin);
 
+                } else if(source instanceof DelayedResearchState) {
+                    DelayedResearchState old=(DelayedResearchState)source,out=(DelayedResearchState)target;
+                    out.context=(MVarContextCell)value(old.context); out.budget=(InstantiationBudget)value(old.budget); out.session=(DelayedSession)value(old.session);
+                    for(ExprCredit anchor:old.anchors) out.anchors.add((ExprCredit)value(anchor));
+                    out.commands=old.commands==null?null:old.commands.clone(); out.lastResult=(ExprCredit)value(old.lastResult); out.output=(ExprCredit)value(old.output); out.pendingInput=(ExprCredit)value(old.pendingInput); out.lastObservation=old.lastObservation;
+                    out.mode=old.mode; out.commandCursor=old.commandCursor; out.stage=old.stage; out.cleanup=old.cleanup; out.outputFields=old.outputFields;
+                    out.observations.addAll(old.observations);
+                } else if(source instanceof DelayedSession) {
+                    DelayedSession old=(DelayedSession)source,out=(DelayedSession)target;
+                    out.context=(MVarContextCell)value(old.context); out.budget=(InstantiationBudget)value(old.budget); out.policy=old.policy;
+                    out.cache=(ScopedExprCache)value(old.cache);
+                    for(Map.Entry<Node,Boolean> item:old.resolvableExpressions.entrySet()) out.resolvableExpressions.put((Node)value(item.getKey()),item.getValue());
+                    for(Map.Entry<Integer,ArrayList<PendingNameEntry>> bucket:old.pending.entrySet()) {
+                        ArrayList<PendingNameEntry> entries=new ArrayList<>(); for(PendingNameEntry entry:bucket.getValue()) entries.add((PendingNameEntry)value(entry));
+                        out.pending.put(bucket.getKey(),entries);
+                    }
+                    for(PendingNameEntry entry:old.pendingOwners) out.pendingOwners.add((PendingNameEntry)value(entry));
+                    for(Map.Entry<Integer,ArrayList<SubstitutionEntry>> bucket:old.substitutions.entrySet()) {
+                        ArrayList<SubstitutionEntry> entries=new ArrayList<>(); for(SubstitutionEntry entry:bucket.getValue()) entries.add((SubstitutionEntry)value(entry));
+                        out.substitutions.put(bucket.getKey(),entries);
+                    }
+                    for(SubstitutionEntry entry:old.substitutionOwners) out.substitutionOwners.add((SubstitutionEntry)value(entry));
+                    for(ResolverTask frame:old.resolver) out.resolver.addLast((ResolverTask)value(frame));
+                    out.call=(DelayedHelperPacket)value(old.call); out.constructorCall=(ExprPacket)value(old.constructorCall);
+                    out.cacheOperation=(ScopedCacheOperation)value(old.cacheOperation); out.substitution=(SubstitutionFrame)value(old.substitution); out.lookup=(SubstitutionLookup)value(old.lookup);
+                    for(SubstitutionFrame frame:old.substitutionFrames) out.substitutionFrames.addLast((SubstitutionFrame)value(frame));
+                    out.retiring=(ExprCredit)value(old.retiring); out.result=(ExprCredit)value(old.result);
+                    out.depth=old.depth; out.resultScope=old.resultScope; out.phase=old.phase; out.drainStage=old.drainStage; out.drainCursor=old.drainCursor;
+                    out.booleanResult=old.booleanResult;
+                } else if(source instanceof ScopedExprCache) {
+                    ScopedExprCache old=(ScopedExprCache)source,out=(ScopedExprCache)target;
+                    for(Map.Entry<Node,HashMap<Integer,ScopedBucket>> item:old.index.entrySet()) {
+                        HashMap<Integer,ScopedBucket> depths=new HashMap<>();
+                        for(Map.Entry<Integer,ScopedBucket> entry:item.getValue().entrySet()) depths.put(entry.getKey(),(ScopedBucket)value(entry.getValue()));
+                        out.index.put((Node)value(item.getKey()),depths);
+                    }
+                    for(ScopedBucket bucket:old.buckets) out.buckets.add((ScopedBucket)value(bucket));
+                    out.current=old.current; out.scope=old.scope; out.generationCounter=old.generationCounter; out.generationCount=old.generationCount;
+                    out.liveEntries=old.liveEntries; out.sealed=old.sealed; out.drainBucket=old.drainBucket; out.drainEntry=old.drainEntry; out.retiringEntry=(ScopedEntry)value(old.retiringEntry);
+                } else if(source instanceof ScopedBucket) {
+                    ScopedBucket old=(ScopedBucket)source,out=(ScopedBucket)target; out.key=(Node)value(old.key); out.depth=old.depth;
+                    for(ScopedEntry entry:old.entries) out.entries.add((ScopedEntry)value(entry));
+                } else if(source instanceof ScopedEntry) {
+                    ScopedEntry old=(ScopedEntry)source,out=(ScopedEntry)target; out.result=(ExprCredit)value(old.result); out.generation=old.generation;
+                    out.validLevel=old.validLevel; out.resultScope=old.resultScope; out.reserved=old.reserved;
+                } else if(source instanceof ScopedCacheOperation) {
+                    ScopedCacheOperation old=(ScopedCacheOperation)source,out=(ScopedCacheOperation)target;
+                    out.bucket=(ScopedBucket)value(old.bucket); out.top=(ScopedEntry)value(old.top); out.retiringEntry=(ScopedEntry)value(old.retiringEntry); out.newEntry=(ScopedEntry)value(old.newEntry);
+                    out.currentCursor=old.currentCursor; out.entryCursor=old.entryCursor; out.computed=(ExprCredit)value(old.computed); out.shared=(ExprCredit)value(old.shared);
+                    out.optional=(ExprCredit)value(old.optional); out.returned=(ExprCredit)value(old.returned); out.replacement=(ExprCredit)value(old.replacement); out.key=(Node)value(old.key);
+                    out.kind=old.kind; out.depth=old.depth; out.resultScope=old.resultScope; out.stage=old.stage; out.walkLevel=old.walkLevel; out.rewindStage=old.rewindStage; out.hit=old.hit; out.completed=old.completed; out.rewound=old.rewound;
+                } else if(source instanceof PendingNameEntry) {
+                    PendingNameEntry old=(PendingNameEntry)source,out=(PendingNameEntry)target; out.name=(ExprCredit)value(old.name); out.hash=old.hash; out.state=old.state;
+                } else if(source instanceof SubstitutionEntry) {
+                    SubstitutionEntry old=(SubstitutionEntry)source,out=(SubstitutionEntry)target;
+                    out.name=(ExprCredit)value(old.name); out.value=(ExprCredit)value(old.value); out.hash=old.hash; out.depth=old.depth; out.scope=old.scope; out.live=old.live;
+                } else if(source instanceof SavedSubstitution) {
+                    SavedSubstitution old=(SavedSubstitution)source,out=(SavedSubstitution)target;
+                    out.name=(ExprCredit)value(old.name); out.oldValue=(ExprCredit)value(old.oldValue); out.oldDepth=old.oldDepth; out.oldScope=old.oldScope; out.hadOld=old.hadOld;
+                } else if(source instanceof SubstitutionFrame) {
+                    SubstitutionFrame old=(SubstitutionFrame)source,out=(SubstitutionFrame)target;
+                    out.fvars=value(old.fvars); out.sourceArguments=value(old.sourceArguments); for(ExprCredit argument:old.arguments) out.arguments.add((ExprCredit)value(argument));
+                    for(SavedSubstitution saved:old.saved) out.saved.add((SavedSubstitution)value(saved));
+                    out.existing=(SubstitutionEntry)value(old.existing); out.replacement=(SubstitutionEntry)value(old.replacement);
+                    out.newName=(ExprCredit)value(old.newName); out.newValue=(ExprCredit)value(old.newValue); out.retiringName=(ExprCredit)value(old.retiringName); out.retiringValue=(ExprCredit)value(old.retiringValue);
+                    out.depth=old.depth; out.index=old.index; out.stage=old.stage; out.cleanup=old.cleanup;
+                    out.scopePushed=old.scopePushed; out.restored=old.restored; out.completed=old.completed; out.ownsArguments=old.ownsArguments; out.erasing=old.erasing;
+                } else if(source instanceof SubstitutionLookup) {
+                    SubstitutionLookup old=(SubstitutionLookup)source,out=(SubstitutionLookup)target;
+                    out.name=value(old.name); out.entry=(SubstitutionEntry)value(old.entry); out.optional=(ExprCredit)value(old.optional); out.returned=(ExprCredit)value(old.returned);
+                    out.depth=old.depth; out.stage=old.stage; out.present=old.present; out.completed=old.completed;
+                } else if(source instanceof DelayedHelperPacket) {
+                    DelayedHelperPacket old=(DelayedHelperPacket)source,out=(DelayedHelperPacket)target;
+                    out.function=(Function)value(old.function); out.arguments=(Object[])value(old.arguments); out.owned=old.owned.clone(); out.target=(ResolverTask)value(old.target);
+                    out.role=old.role; out.started=old.started; out.entered=old.entered;
+                } else if(source instanceof ResolverTask) {
+                    ResolverTask old=(ResolverTask)source,out=(ResolverTask)target; out.child=(ResolverTask)value(old.child); out.received=(ExprCredit)value(old.received);
+                    out.stage=old.stage; out.cursor=old.cursor; out.cleanup=old.cleanup; out.result=old.result; out.completed=old.completed;
+                    if(source instanceof ResolvableExprFrame) {
+                        ResolvableExprFrame a=(ResolvableExprFrame)old,b=(ResolvableExprFrame)out; b.original=(Node)value(a.original); b.entryShared=a.entryShared;
+                    } else if(source instanceof ResolvablePendingFrame) {
+                        ResolvablePendingFrame a=(ResolvablePendingFrame)old,b=(ResolvablePendingFrame)out; b.name=value(a.name); b.entry=(PendingNameEntry)value(a.entry);
+                        b.option=(ExprCredit)value(a.option); b.temporary=(ExprCredit)value(a.temporary);
+                    } else {
+                        ResolvableAppFrame a=(ResolvableAppFrame)old,b=(ResolvableAppFrame)out; b.original=(Node)value(a.original); b.head=value(a.head); b.cursor=value(a.cursor); b.argumentCount=a.argumentCount;
+                        b.option=(ExprCredit)value(a.option); b.recordTemporary=(ExprCredit)value(a.recordTemporary); b.fvars=(ExprCredit)value(a.fvars); b.pendingName=(ExprCredit)value(a.pendingName);
+                    }
                 } else if(source instanceof ExprDirectResearchState) {
                     ExprDirectResearchState old=(ExprDirectResearchState)source,out=(ExprDirectResearchState)target;
                     out.context=(MVarContextCell)value(old.context); out.budget=(InstantiationBudget)value(old.budget);
