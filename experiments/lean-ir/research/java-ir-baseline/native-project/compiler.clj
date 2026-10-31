@@ -65,10 +65,30 @@
     (with-open [channel (FileChannel/open path (into-array java.nio.file.OpenOption [StandardOpenOption/CREATE_NEW StandardOpenOption/WRITE]))]
       (let [buffer (java.nio.ByteBuffer/wrap data)] (while (.hasRemaining buffer) (.write channel buffer)))
       (.force channel true))) path)
-(def ^:private implementation-file (path! *file*))
-(def ^:private implementation-record (file-record implementation-file (* 2 1024 1024)))
+(defn- implementation-source! [source-name]
+  (let [file (io/file source-name)]
+    (if (.isFile file)
+      {:file (path! source-name)}
+      (let [url (io/resource source-name)]
+        (need (and url
+                   (case (.getProtocol ^java.net.URL url)
+                     "file" true
+                     "jar" (= "file" (.getProtocol (.getJarFileURL ^java.net.JarURLConnection (.openConnection url))))
+                     false))
+              "Compiler source must be present as a file or bundled classpath resource")
+        {:url url}))))
+(defn- source-record! [{:keys [file url]}]
+  (if file (file-record file (* 2 1024 1024))
+    (let [connection (.openConnection ^java.net.URL url)
+          _ (.setUseCaches connection false)
+          bytes (with-open [input (.getInputStream connection)]
+                  (.readNBytes input (inc (* 2 1024 1024))))]
+      (need (<= (alength bytes) (* 2 1024 1024)) "Bundled compiler source extent exceeds bound")
+      {"bytes" (alength bytes) "sha256" (digest bytes)})))
+(def ^:private implementation-source (implementation-source! *file*))
+(def ^:private implementation-record (source-record! implementation-source))
 (defn- guard-code! []
-  (need (= implementation-record (file-record implementation-file (* 2 1024 1024))) "Loaded compiler source changed; configure a new reviewed version"))
+  (need (= implementation-record (source-record! implementation-source)) "Loaded compiler source changed; configure a new reviewed version"))
 (defn- issued [compiler]
   (locking compilers (or (.get compilers compiler) (throw (ex-info "Actual configured internal Compiler required" {})))))
 (defn- available-kib []
@@ -132,16 +152,32 @@
 (defn- abort! [journal cause]
   (let [process (aget ^objects (:process-slot @journal) 0)
         interrupted (or (instance? InterruptedException cause) (.isInterrupted (Thread/currentThread)))
-        stop-error (try (when (and process (.isAlive ^Process process)) (stop-process! process)) nil
+        stop-error (try
+                     ;; Keep observed descendants even if their parent exited.
+                     (when-let [handles (:process-handles @journal)]
+                       (doseq [^ProcessHandle handle @handles]
+                         (when (.isAlive handle) (.destroyForcibly handle))))
+                     (when (and process (.isAlive ^Process process)) (stop-process! process)) nil
                         (catch Throwable error (.getName (class error)))
                         (finally (when interrupted (.interrupt (Thread/currentThread)))))]
     (swap! journal assoc :status :failed :stop-failure-class stop-error)
     (throw (ex-info "Native compilation failed before any Java guest engine; preserve compiler journal" {:journal @journal} cause))))
-(defn- rss-kib [^Process process]
+(defn- handle-rss-kib [^ProcessHandle process]
   (try
     (let [text (slurp (str "/proc/" (.pid process) "/status")) m (re-find #"(?m)^VmRSS:\s+(\d+)\s+kB$" text)]
       (if m (Long/parseLong (second m)) (do (need (not (.isAlive process)) "Live process RSS unavailable") 0)))
     (catch java.io.FileNotFoundException error (if (.isAlive process) (throw error) 0))))
+(defn- remember-process! [handles handle]
+  ;; Publish each handle before a bound can fail, so cancellation retains it.
+  (swap! handles #(if (some #{handle} %) % (conj % handle)))
+  (need (<= (count @handles) 64) "Owned native process count exceeds bound"))
+(defn- owned-rss-kib [handles]
+  (reduce + 0 (map #(if (.isAlive ^ProcessHandle %) (handle-rss-kib %) 0) @handles)))
+(defn- rss-kib [^Process process handles]
+  (remember-process! handles (.toHandle process))
+  (with-open [children (.descendants (.toHandle process))]
+    (doseq [handle (iterator-seq (.iterator children))] (remember-process! handles handle)))
+  (owned-rss-kib handles))
 (defn- run-process! [state journal ^Path directory label arguments env]
   (need (>= (available-kib) (* 2 1024 1024)) "MemAvailable below 2 GiB floor; no native process started")
   (let [stdout (.resolve directory (str label ".jsonl")) stderr (.resolve directory (str label ".stderr"))
@@ -150,23 +186,26 @@
                   (.directory (.toFile ^Path (or (:working-directory state) directory)))
                   (.redirectOutput (.toFile stdout)) (.redirectError (.toFile stderr)))
         _ (.putAll (.environment builder) env)
-        slot (object-array 1) start (System/nanoTime) peak (atom 0)]
-    (swap! journal assoc :stage label :process-slot slot :stdout-file (str stdout) :stderr-file (str stderr))
+        slot (object-array 1) handles (atom []) start (System/nanoTime) peak (atom 0)]
+    (swap! journal assoc :stage label :process-slot slot :process-handles handles :stdout-file (str stdout) :stderr-file (str stderr))
     (try
       (let [^Process process (.start builder)]
         (aset slot 0 process)
+        (remember-process! handles (.toHandle process))
         (loop []
           (when-not (.waitFor process 20 TimeUnit/MILLISECONDS)
-            (swap! peak max (rss-kib process))
+            (swap! peak max (rss-kib process handles))
             (need (<= @peak (* 900 1024)) "Native RSS exceeds 900 MiB")
             (need (>= (available-kib) (* 2 1024 1024)) "Native MemAvailable below 2 GiB")
             (need (<= (- (System/nanoTime) start) 120000000000) "Native wall deadline exceeded")
             (need (and (<= (Files/size stdout) max-bytes) (<= (Files/size stderr) (* 1024 1024))) "Native output extent exceeded")
             (recur)))
+        (need (not-any? #(.isAlive ^ProcessHandle %) @handles) "Owned native descendant still running after compiler exit")
         (let [receipt {"label" label "command" argv "exit" (.exitValue process)
                        "stdout" (str (.getFileName stdout)) "stdoutRecord" (file-record stdout max-bytes)
                        "stderr" (str (.getFileName stderr)) "stderrRecord" (file-record stderr (* 1024 1024))
-                       "elapsedSeconds" (/ (- (System/nanoTime) start) 1.0e9) "peakSampledRSSKiB" @peak}]
+                       "elapsedSeconds" (/ (- (System/nanoTime) start) 1.0e9) "peakSampledRSSKiB" @peak
+                       "RSSScope" "root-and-observed-owned-descendants"}]
           (write-json! (.resolve directory (str label ".receipt.json")) receipt)
           (swap! journal update :processes (fnil conj []) receipt)
           (need (and (zero? (.exitValue process)) (zero? (Files/size stderr))) "Native compiler returned failure/diagnostics")

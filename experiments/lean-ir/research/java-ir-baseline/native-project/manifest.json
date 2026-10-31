@@ -9,7 +9,7 @@
     },
     {
       "file": "JVM_COMPILER.md",
-      "sha256": "b6335ccd69f2c144fd25927ce88320bff242acdd75665c4f2eefada2e89b7150"
+      "sha256": "3c1bfef38164dc93f1961546ff5405b359cdeeed6635780c0b985d234281cc2c"
     },
     {
       "file": "README.md",
@@ -17,11 +17,11 @@
     },
     {
       "file": "compiler-models.clj",
-      "sha256": "a2653586e40bc3bb0d7401fd491ea1d88a7517c3129c0903d2ec2ad3d9e9dbd8"
+      "sha256": "9f661184f8f5f5950d3b6dc959f6b1eff5d2d4a97a08b2dc495b85716e8bebc0"
     },
     {
       "file": "compiler.clj",
-      "sha256": "6661283b10b6ad84756f4f2ce9c9f03a3922330411eb66cbe4b6b5b4e5017510"
+      "sha256": "b0a5c5c5a89cbb94cf494a0409b94db53610293824cd1ce5d48118d867c82d50"
     },
     {
       "file": "loader.clj",
@@ -196,7 +196,7 @@
     "status": "definition-and-pure-model-gate-only",
     "defaultBackend": "jvm",
     "PythonInvoked": false,
-    "sourceSHA256": "6661283b10b6ad84756f4f2ce9c9f03a3922330411eb66cbe4b6b5b4e5017510",
+    "sourceSHA256": "b0a5c5c5a89cbb94cf494a0409b94db53610293824cd1ce5d48118d867c82d50",
     "nativeCompilerTokenIssued": false,
     "nativeJobStarted": false,
     "modelGate": {
@@ -207,7 +207,8 @@
       "receipt": {
         "file": "target/java-source-exchange-v1/native-jvm-compiler-models-v1.edn",
         "sha256": "038e653ea7b924887c5230dd1f0ba095a6feb74a9585191eac4d7fb6d09e5398"
-      }
+      },
+      "testedCompilerSourceSHA256": "6661283b10b6ad84756f4f2ce9c9f03a3922330411eb66cbe4b6b5b4e5017510"
     },
     "processProfile": {
       "hardCPUSeconds": 90,
@@ -216,10 +217,17 @@
       "sampledRSSLimitKiB": 921600,
       "MemAvailableFloorKiB": 2097152,
       "wallSeconds": 120,
-      "launcher": "configured or resolved installed Linux prlimit"
+      "launcher": "configured or resolved installed Linux prlimit",
+      "sampledRSSScope": "root-and-observed-owned-descendants",
+      "ownedProcessCountBound": 64
     },
     "actualColdCompile": "pending",
     "actualCacheHitAndEntryExecution": "pending",
-    "publicJavaAPI": false
+    "publicJavaAPI": false,
+    "followupModels": {
+      "families": 2,
+      "status": "pending parent execution",
+      "scope": "disk/JAR source bytes and aggregate existing-process RSS"
+    }
   }
 }

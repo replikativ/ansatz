@@ -5,6 +5,7 @@
             [clojure.java.io :as io]
             [native-project-compiler-v1 :as compiler])
   (:import [java.nio.file Path Files StandardOpenOption]
+           [java.lang ProcessHandle]
            [java.nio.file.attribute FileAttribute]
            [java.nio.charset StandardCharsets]))
 (def ^:dynamic *directory* nil)
@@ -85,6 +86,33 @@
   (doseq [value [nil {} (compiler/->NativeCompiler)]]
     (is (thrown? Exception (compiler/cache-root value)))
     (is (thrown? Exception (compiler/compile! value "missing" (atom {}))))))
+(deftest implementation-source-record-supports-disk-and-bundled-jar-bytes
+  (let [directory (temp) text "synthetic compiler resource" path (write! directory "compiler-resource.clj" text)
+        expected {"bytes" (alength (.getBytes text StandardCharsets/UTF_8))
+                  "sha256" (#'compiler/digest (.getBytes text StandardCharsets/UTF_8))}
+        jar (.resolve directory "resource.jar")]
+    (is (= expected (#'compiler/source-record! (#'compiler/implementation-source! (str path)))))
+    (with-open [out (java.util.jar.JarOutputStream. (Files/newOutputStream jar (make-array java.nio.file.OpenOption 0)))]
+      (.putNextEntry out (java.util.jar.JarEntry. "compiler-resource.clj"))
+      (.write out (.getBytes text StandardCharsets/UTF_8)) (.closeEntry out))
+    (let [url (java.net.URL. (str "jar:" (.toUri jar) "!/compiler-resource.clj"))]
+      (with-redefs [io/resource (fn [_] url)]
+        (is (= expected (#'compiler/source-record! (#'compiler/implementation-source! "nonexistent-model-resource.clj"))))))
+    (with-redefs [io/resource (fn [_] (java.net.URL. "https://example.invalid/compiler.clj"))]
+      (is (thrown? Exception (#'compiler/implementation-source! "nonexistent-model-resource.clj"))))
+    (with-redefs [io/resource (fn [_] (java.net.URL. "jar:https://example.invalid/compiler.jar!/compiler.clj"))]
+      (is (thrown? Exception (#'compiler/implementation-source! "nonexistent-model-resource.clj"))))))
+(deftest aggregate-process-rss-preserves-known-descendants-and-deduplicates
+  ;; Inspect existing JVM/parent handles only; no process is created or killed.
+  (let [self (ProcessHandle/current) parent (.orElse (.parent self) nil) handles (atom [])]
+    (is (some? parent))
+    (#'compiler/remember-process! handles self)
+    (#'compiler/remember-process! handles self)
+    (#'compiler/remember-process! handles parent)
+    (is (= 2 (count @handles)))
+    (with-redefs-fn {#'compiler/handle-rss-kib (fn [_] 23)}
+      #(is (= 46 (#'compiler/owned-rss-kib handles))))
+    (is (= [self parent] @handles))))
 (defn check! [workspace]
   (binding [*directory* (.toRealPath (.toPath (io/file (str workspace))) (make-array java.nio.file.LinkOption 0))]
     (run-tests 'native-project-compiler-models-v1)))
