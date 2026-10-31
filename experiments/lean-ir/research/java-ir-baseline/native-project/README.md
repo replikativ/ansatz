@@ -113,10 +113,12 @@ run**: its preflight found about 1.7 GiB available, below the 2 GiB floor, and n
 native job was started. A service cold run plus a wrapper cache hit must not be
 reported as a tested wrapper cold run.
 
-The new JVM compiler's definition/model gate passed seven families and thirty
-assertions without native execution. Its actual cold/cache-hit execution gate
-is still pending resource availability and review; the earlier service evidence
-does not imply that new gate has passed.
+The new JVM compiler passed eleven model families / 55 assertions, then actual
+cold compilation, a cache hit with identity probes only, and entry execution to
+the same native output with zero Python invocations. The new default Loader
+adapter's own integration call remains separate. See the
+[compiler checkpoint](JVM_COMPILER.md) for exact source/receipt pins, measured
+resource use and the preserved earlier failure history.
 
 Portable validation summaries, source hashes and external research-receipt
 locators are recorded in `manifest.json`. This landing work introduces no
