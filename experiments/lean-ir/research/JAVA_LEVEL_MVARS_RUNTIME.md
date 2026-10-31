@@ -78,3 +78,13 @@ CodeRequest, Host call and fork. It does not claim that a well-typed Level's own
 input/saved/cache drain has native finalizers, or that this model authenticates a
 producer getter body. Failure cases retain terminal diagnostic/owner packets;
 failed-engine disposal or universal finalizer completion is not claimed.
+
+The final combined gate exited 0 at 384 MiB: 111 result families / 1,095 test
+executions / 53,560 assertions, with zero failures or errors. The frozen log is
+`target/java-level-mvars-v1/combined-gate-v3.out`, SHA-256
+`f30ca784ecde9befb1b9efc40b371177ec2cb89df9d57adc80891d7c5e7161e6`.
+Two earlier invocations failed before tests because the fresh worktree lacked
+`TypedLongMemo` and retained a stale classpath resolved through a class-directory
+symlink. Compiling the documented helper into the ordinary ignored classes
+directory and forcing classpath refresh corrected the build environment; runtime
+source, fixtures and expectations were unchanged.
