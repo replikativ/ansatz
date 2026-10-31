@@ -98,9 +98,13 @@
 (load-file "research/java-ir-baseline/void-checks.clj")
 (load-file "research/java-ir-baseline/catalogue.clj")
 (load-file "research/java-ir-baseline/catalogue-checks.clj")
+(load-file "research/java-ir-baseline/source-setup.clj")
+(load-file "research/java-ir-baseline/composite-source-v4.clj")
+(load-file "research/java-ir-baseline/source-setup-checks.clj")
 (load-file "research/checked-delta.clj")
 (load-file "research/checked-delta-checks.clj")
 (require 'prototype.delta-import-test 'prototype.module-import-test 'prototype.source-import-test
+         'prototype.guarded-kernel-view-test
          'prototype.kernel-artifact-test 'prototype.artifact-association-test
          'prototype.artifact-host-test 'prototype.kernel-host-test
          'prototype.source-import-authorization-test 'prototype.resident-artifact-test
@@ -250,9 +254,11 @@
                (java-ir-void-checks/check! basis)
                (java-ir-void-checks/check! (assoc basis :explicit true))
                (java-ir-catalogue-checks/check!)
+               (java-ir-source-setup-checks/check!)
                (research.checked-delta-checks/check!)
                (clojure.test/run-tests 'prototype.delta-import-test)
                (clojure.test/run-tests 'prototype.imported-kernel-test)
+               (clojure.test/run-tests 'prototype.guarded-kernel-view-test)
                (clojure.test/run-tests 'prototype.module-import-test)
                (clojure.test/run-tests 'prototype.source-import-test)
                (clojure.test/run-tests 'prototype.kernel-artifact-test)
@@ -276,6 +282,9 @@
                (java-ir-layout-scalar-checks/check! (assoc basis :explicit true))
                (java-ir-u16-checks/check! basis)
                (java-ir-u16-checks/check! (assoc basis :explicit true))]]
+  ;; 156 result groups: both ordinary/explicit Native542 and Float543 profiles,
+  ;; plus the source-composition and guarded-view focused metadata suites.
+  ;; Keep these expected namespace test counts aligned with the result order.
   (shutdown-agents)
-  (System/exit (if (and (= [9 9 8 6 5 5 6 6 9 9 4 7 9 4 13 18 17 10 10 18 18 9 4 10 10 8 8 6 6 13 13 6 6 9 9 10 10 8 8 19 19 6 6 6 6 10 10 3 3 6 6 5 5 9 9 7 7 15 15 9 9 11 11 16 16 5 5 6 6 4 4 21 21 12 43 11 21 10 15 20 20 11 5 18 19 21 10 8 14 5 10 5 6 6 7 11 11 5 5 2 7 7 5 5 7 7 9 13 5 13 12 8 8 11 11 8 8 7 7 7 7 10 10 6 12 9 15 11 11 7 9 4 15 7 10 17 8 4 6 10 9 5 3 4 6 13 8 8 10 10] (mapv :test results))
+  (System/exit (if (and (= [9 9 8 6 5 5 6 6 9 9 4 7 9 4 13 18 17 10 10 18 18 9 4 10 10 8 8 6 6 13 13 6 6 9 9 10 10 8 8 19 19 6 6 6 6 10 10 3 3 6 6 5 5 9 9 7 7 15 15 9 9 11 5 5 11 16 16 5 5 6 6 4 4 21 21 12 43 11 11 11 21 10 15 20 20 11 5 18 19 21 10 8 14 5 10 5 6 6 7 11 11 5 5 2 7 7 5 5 7 7 11 13 5 13 12 8 8 11 11 8 8 7 7 7 7 10 10 6 9 12 9 20 10 11 11 7 9 4 15 7 10 17 8 4 6 10 9 5 3 4 6 13 8 8 10 10] (mapv :test results))
                        (every? #(zero? (+ (:fail %) (:error %))) results)) 0 1)))
