@@ -44,7 +44,9 @@
              (doseq [path (reverse (sort-by #(.getNameCount ^java.nio.file.Path %) (iterator-seq (.iterator paths))))]
                (java.nio.file.Files/delete path)))))))
 (defmacro with-catalogue [& body]
-  `(with-redefs [cat/descriptor (fn [_#] {"source-index-sha256" "model-index"}) cat/lookup (fn [& _#] nil)] ~@body))
+  `(with-redefs [cat/descriptor (fn [_#] {"source-index-sha256" "model-index"})
+                 cat/lookup (fn [& _#] nil)
+                 cat/source-token (fn [_#] {:model-lease true})] ~@body))
 (defn setup [catalogue overlay]
   (core/compose! catalogue {"code_index_sha256" "model-index"} [overlay]
                  {:helpers ["SetupModel.helper"] :aliases [] :checked [] :host-symbols []}))
@@ -189,6 +191,29 @@
           (is (thrown-with-msg? Exception #"Cyclic mutable source evidence"
                 (core/compose! catalogue {"code_index_sha256" "model-index" "cycle" cycle} [overlay] {}))))))))
 
+
+(deftest source-guard-rechecks-the-issued-source-and-current-catalogue-lease
+  (with-catalogue
+    (fixture identity
+      (fn [dir spec]
+        (let [catalogue (Object.) receipt (setup catalogue (core/authenticate-overlay! catalogue dir spec))
+              installed (atom 0) calls (atom 0) live (atom true)]
+          (with-model-java installed
+            (let [source (core/source-binding! {} receipt)]
+              (with-redefs [cat/source-token (fn [actual]
+                                              (is (identical? catalogue actual))
+                                              (swap! calls inc)
+                                              (when-not @live (throw (ex-info "Catalogue is closed" {})))
+                                              :live)
+                            cat/lookup (fn [& _] (throw (AssertionError. "A lease check must not look up code")))]
+                (is (identical? receipt (core/guard-source! receipt source)))
+                (is (identical? receipt (core/guard-source! receipt source)))
+                (is (= 2 @calls))
+                (is (thrown? Exception (core/guard-source! receipt (ModelSource. (core/code-profile receipt)))))
+                (is (= 2 @calls))
+                (reset! live false)
+                (is (thrown-with-msg? Exception #"closed" (core/guard-source! receipt source)))
+                (is (= 3 @calls))))))))))
 
 (deftest immutable-snapshot-rejects-set-members-that-would-coalesce
   (with-catalogue
