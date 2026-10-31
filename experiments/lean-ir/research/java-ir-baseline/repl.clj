@@ -322,6 +322,16 @@
   "Explicit target MT reconstruction for a closed positive region below persistent Refs."
   [basis source state-token nodes globals global-values owned-roots]
   (graph-recipe "selectedOwnersWithPersistentRefPayloadSharing" basis source state-token nodes globals global-values owned-roots))
+(defn module-data-graph
+  "Separate bounded persistent aggregate ModuleData profile; no globals."
+  [basis source state-token nodes root]
+  (let [cls (Class/forName "ansatz.research.ir.Interpreter$PreparedGraph" true (:loader basis))
+        node-class (Class/forName "ansatz.research.ir.Interpreter$ImportNode" true (:loader basis))
+        array (java.lang.reflect.Array/newInstance node-class (count nodes))]
+    (doseq [[i node] (map-indexed vector nodes)] (java.lang.reflect.Array/set array i node))
+    (invoke-static (.getMethod cls "moduleData"
+                     (into-array Class [(class source) Object (class array) (class (object-array 0))]))
+                   [source state-token array (object-array [root])])))
 (defn install-graph! [basis engine graph]
   (vec (.invoke (.getMethod ^Class (:class basis) "installGraph" (into-array Class [(class graph)]))
                 engine (object-array [graph]))))

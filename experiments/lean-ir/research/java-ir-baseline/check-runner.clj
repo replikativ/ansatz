@@ -23,6 +23,8 @@
 
 (load-file "research/java-ir-baseline/guest-export-checks.clj")
 (load-file "research/java-ir-baseline/graph-checks.clj")
+(load-file "research/java-ir-baseline/module-data-graph.clj")
+(load-file "research/java-ir-baseline/module-data-graph-checks.clj")
 (load-file "research/java-ir-baseline/ref-checks.clj")
 (load-file "research/java-ir-baseline/array-checks.clj")
 (load-file "research/java-ir-baseline/release-order-checks.clj")
@@ -140,6 +142,7 @@
                (java-ir-guest-export-checks/check! basis)
                (java-ir-guest-export-checks/check! (assoc basis :explicit true))
                (java-ir-graph-checks/check! basis)
+               (clojure.test/run-tests 'java-ir-module-data-graph-checks)
                (java-ir-ref-checks/check! basis)
                (java-ir-ref-checks/check! (assoc basis :explicit true))
                (java-ir-array-checks/check! basis)

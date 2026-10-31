@@ -154,3 +154,36 @@
       (finally (j/close! ctx engine)))))
 
 (defn check! [basis] (binding [*basis* basis] (run-tests 'java-ir-graph-checks)))
+
+(deftest bounded-module-slot-is-additional-once-and-preserved-by-fork
+  (let [{:keys [ctx source]} (setup) engine (j/machine ctx)
+        graph (j/module-data-graph ctx source :module-provenance
+                [(j/graph-node ctx {:kind :array :id 0 :fields [17 17]})]
+                (j/graph-ref ctx 0))]
+    (try
+      (is (= [] (j/install-graph! ctx engine (recipe ctx source [] [] [] []))))
+      (let [[root] (j/install-graph! ctx engine graph)]
+        (is (= [17 17] (vec (fields ctx root))))
+        (is (g/bad? #(j/install-graph! ctx engine graph)))
+        (is (g/bad? #(j/install-graph! ctx engine (recipe ctx source [] [] [] []))))
+        (let [{child :engine roots :roots} (j/fork! ctx engine [root])]
+          (try
+            (is (= [17 17] (vec (fields ctx (first roots)))))
+            (is (g/bad? #(j/install-graph! ctx child graph)))
+            (finally (j/close! ctx child)))))
+      (finally (j/close! ctx engine)))))
+
+(deftest module-profile-does-not-increase-existing-cap-or-admit-other-node-kinds
+  (let [{:keys [ctx source]} (setup)
+        node (j/graph-node ctx {:kind :array :id 0 :fields []})
+        root (j/graph-ref ctx 0)]
+    ;; Repeated descriptors avoid allocating 150k fixtures. This only tests
+    ;; envelope construction; install still rejects duplicate source IDs.
+    (is (g/bad? #(recipe ctx source (vec (repeat 100001 node)) [] [] [root])))
+    (is (some? (j/module-data-graph ctx source :module (vec (repeat 100001 node)) root)))
+    (is (g/bad? #(j/module-data-graph ctx source :module (vec (repeat 150001 node)) root)))
+    (is (g/bad? #(j/module-data-graph ctx source :module
+                  [(j/graph-node ctx {:kind :ref :id 0 :fields [0]})] root)))
+    (is (g/bad? #(j/module-data-graph ctx source :module
+                  [(j/graph-node ctx {:kind :array :id 0 :rc 1 :fields []})] root)))
+    (is (g/bad? #(j/module-data-graph ctx source :module [node] (j/graph-int ctx -1))))))

@@ -967,7 +967,7 @@ public final class Interpreter implements AutoCloseable {
             return new ImportNode(id,sourceRC,CLOSURE,245,captures,new byte[0],header);
         }
     }
-    private enum GraphImportProfile { DEFAULT_RC0, SELECTED_OWNERS, PERSISTENT_REF_PAYLOAD_MT }
+    private enum GraphImportProfile { DEFAULT_RC0, SELECTED_OWNERS, PERSISTENT_REF_PAYLOAD_MT, MODULE_DATA_RC0 }
     /** Trusted adapter's accepted state recipe, not cryptographic admission.
      * Source/state tokens must be lightweight immutable authority/lease tokens.
      * Arrays and byte payloads are copied; no existing runtime Nodes are input.
@@ -999,15 +999,33 @@ public final class Interpreter implements AutoCloseable {
                               ImportNode[] nodes,Header[] globals,Object[] globalValues,Object[] ownedRoots) {
             return new PreparedGraph(binding,acceptedStateToken,nodes,globals,globalValues,ownedRoots,GraphImportProfile.PERSISTENT_REF_PAYLOAD_MT);
         }
+        /** Separate bounded source-data envelope for one complete ModuleData DAG.
+         * No globals, closures, Refs, signed carriers or positive source RC.
+         * Authentication and scalar-domain evidence belong to the trusted adapter.
+         * This is not an increase to the ordinary runtime-companion import cap. */
+        public static PreparedGraph moduleData(SourceBinding binding,Object acceptedStateToken,
+                                               ImportNode[] nodes,Object[] ownedRoots) {
+            require(nodes!=null&&ownedRoots!=null,"Explicit ModuleData nodes/roots required");
+            require(ownedRoots.length==1,"ModuleData requires its authentic aggregate root");
+            for(ImportNode node:nodes) {
+                require(node!=null&&(node.kind==ImportNode.CONSTRUCTOR||node.kind==ImportNode.ARRAY),
+                        "ModuleData only supports constructor/Array recipes");
+                require(node.sourceRC==0,"ModuleData requires persistent source RC zero");
+                requireDefaultGraphValues(node.fields);
+            }
+            requireDefaultGraphValues(ownedRoots);
+            return new PreparedGraph(binding,acceptedStateToken,nodes,new Header[0],new Object[0],
+                                     ownedRoots,GraphImportProfile.MODULE_DATA_RC0);
+        }
         private PreparedGraph(SourceBinding binding,Object acceptedStateToken,ImportNode[] nodes,
                               Header[] globals,Object[] globalValues,Object[] ownedRoots,GraphImportProfile profile) {
             require(binding!=null&&acceptedStateToken!=null,"Actual accepted source/state tokens required");
             require(nodes!=null&&globals!=null&&globalValues!=null&&ownedRoots!=null,
                     "Explicit prepared graph tables and roots required");
-            require(nodes.length<=MAX_IMPORT_NODES,"Prepared graph exceeds research node limit");
+            require(nodes.length<=(profile==GraphImportProfile.MODULE_DATA_RC0?150_000:MAX_IMPORT_NODES),"Prepared graph exceeds selected profile node limit");
             require(globals.length<=MAX_IMPORT_ROOTS&&ownedRoots.length<=MAX_IMPORT_ROOTS,"Prepared graph exceeds root/global limit");
             require(globals.length==globalValues.length,"Prepared global table length mismatch");
-            checkGraphProfile(nodes,globalValues,ownedRoots,profile!=GraphImportProfile.DEFAULT_RC0);
+            checkGraphProfile(nodes,globalValues,ownedRoots,profile!=GraphImportProfile.DEFAULT_RC0&&profile!=GraphImportProfile.MODULE_DATA_RC0);
             checkGraphBudget(nodes,globalValues,ownedRoots);
             this.profile=profile;
             this.binding=binding; this.acceptedStateToken=acceptedStateToken;
@@ -4383,7 +4401,8 @@ public final class Interpreter implements AutoCloseable {
     private boolean[] constantReady;
     private boolean[] constantRetired;
     private boolean disposed;
-    private boolean graphInstalled;
+    private boolean graphInstalled,moduleGraphInstalled;
+    private PreparedGlobalSource preparedModuleSource;
     private boolean initializing;
     private Map<Integer,PreparedGlobalSource> preparedGlobalSources=Collections.emptyMap();
     private boolean closed;
@@ -5862,6 +5881,7 @@ public final class Interpreter implements AutoCloseable {
         System.arraycopy(constantReady,0,child.constantReady,0,constantReady.length);
         child.constantRetired=constantRetired.clone(); child.disposed=disposed;
         child.graphInstalled=graphInstalled; child.preparedGlobalSources=preparedGlobalSources;
+        child.moduleGraphInstalled=moduleGraphInstalled; child.preparedModuleSource=preparedModuleSource;
         child.bp=bp; child.sp=sp; child.jbp=jbp; child.jsp=jsp;
         child.result=copy.value(result); child.scalarResult=scalarResult;
         child.stdoutRoot=(Node)copy.value(stdoutRoot);
@@ -8960,7 +8980,11 @@ public final class Interpreter implements AutoCloseable {
         if(closed||disposed||advancing||untrackedFailure||phase!=IDLE||pendingOwnedResult||sp!=0)
             throw new IllegalStateException("Prepared graph installation requires an open idle engine");
         require(graph!=null,"Actual PreparedGraph required");
-        require(!graphInstalled,"Prepared graph has already been installed in this engine");
+        // One ordinary companion plus one complete module aggregate. Neither
+        // admission can be repeated/split to evade its selected profile bound.
+        boolean moduleData=graph.profile==GraphImportProfile.MODULE_DATA_RC0;
+        require(moduleData?!moduleGraphInstalled:!graphInstalled,
+                "Selected prepared graph slot has already been installed in this engine");
         Map<Long,Integer> positions=new HashMap<>();
         for(int i=0;i<graph.nodes.length;i++) {
             ImportNode node=graph.nodes[i];
@@ -9011,7 +9035,7 @@ public final class Interpreter implements AutoCloseable {
         while(!pending.isEmpty()) enqueueGraphValues(graph.nodes[pending.removeFirst()].fields,positions,visited,pending);
         for(boolean reachable:visited) require(reachable,"Unreachable object in prepared graph envelope");
         int[] owners=new int[graph.nodes.length];
-        if(graph.profile!=GraphImportProfile.DEFAULT_RC0) {
+        if(graph.profile!=GraphImportProfile.DEFAULT_RC0&&graph.profile!=GraphImportProfile.MODULE_DATA_RC0) {
             for(ImportNode node:graph.nodes) countGraphOwners(node.fields,graph.nodes,positions,owners);
             countGraphOwners(graph.globalValues,graph.nodes,positions,owners);
             countGraphOwners(graph.ownedRoots,graph.nodes,positions,owners);
@@ -9050,6 +9074,7 @@ public final class Interpreter implements AutoCloseable {
         long nextAllocations=Math.addExact(allocations,shells.length);
         constants=nextConstants; constantReady=nextReady; preparedGlobalSources=nextSources;
         allocations=nextAllocations; graphInstalled=true;
+        if(moduleData) { moduleGraphInstalled=true; preparedModuleSource=source; }
         return outputs;
     }
 
