@@ -101,11 +101,13 @@
 (defn- take-call! [holder slot]
   ;; drain! transfers directly into this local; publishing into the already
   ;; allocated slot is nonallocating, before any observer/handoff.
-  (let [value (drain! holder slot)]
+  (let [value (if-let [controller-drain (:controller-drain @holder)]
+                (controller-drain holder slot) (drain! holder slot))]
     (aset ^objects slot 0 value) (aset ^objects slot 1 :owned) value))
 (defn- select-header! [holder label]
   (let [s (live! holder) f (:frontend s) d (:driver f)
-        helper (get-in s [:strict-driver :adapter :setup :helper-headers label])
+        helper (or (get-in s [:controller-headers label])
+                   (get-in s [:strict-driver :adapter :setup :helper-headers label]))
         label (if helper label (sp/entry-label f label))
         header (or helper ((sp/host-helper "ensure-header!") d (sp/typed-name label)))
         c (j/register-headers (ctx s) [header])]
@@ -157,7 +159,9 @@
 (defn- release-slot! [holder key]
   (let [s (live! holder) slot (.get ^LinkedHashMap (:owners s) key)
         _ (need (= :owned (aget ^objects slot 1)) "Release occurrence is not owned")
-        value (aget ^objects slot 0) unit (new-slot! holder [key :release-result])
+        value (aget ^objects slot 0)
+        _ (sp/check-time! (:frontend s))
+        unit (new-slot! holder [key :release-result])
         operation {:kind :release :owner-slot slot :result-slot unit :stage :before-start}]
     (swap! holder assoc :operation operation)
     (aset ^objects slot 1 :release-pending)
@@ -178,8 +182,9 @@
       (release-slot! holder key))))
 (defn- decode! [holder root]
   (let [s (live! holder) scope (decoder/open-decoder (ctx s) (engine s)
-                              {:deadline-nanos (+ (System/nanoTime) 10000000000)
-                               :max-nodes 20000 :max-output 50000 :max-depth 1000 :max-chars 1000000})]
+                              (if-let [limits (:controller-decode-limits s)] (limits)
+                                {:deadline-nanos (+ (System/nanoTime) 10000000000)
+                                 :max-nodes 20000 :max-output 50000 :max-depth 1000 :max-chars 1000000}))]
     (try
       ;; JSON conversion creates owner-free host rows and canonical string keys.
       (json/read-str (json/write-str ((:project scope) [:list :decl] root)))

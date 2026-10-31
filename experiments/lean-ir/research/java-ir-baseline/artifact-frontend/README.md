@@ -235,3 +235,147 @@ bootstrap, original-code discovery and child preparation. Cold discovery exceede
 the experimental one-minute file limit; its diagnostic completion was not accepted
 as a file result. This finite profile still does not admit arbitrary commands,
 source-module imports or general Lean projects.
+
+## Observed general-command route: selected runtime smoke
+
+`general-source-provider.clj` defines `general-frontend-source-provider-v1`. It
+works with the separately admitted [observed frontend companion](../observed-frontend/README.md)
+and a generic CommandReceipt controller; it does not change either accepted
+finite Nat profile. Load definitions using the package loader, then explicitly
+open a provider on a genuine idle prepared child and capture:
+
+```clojure
+(def source-provider
+  (general-frontend-source-provider-v1/open-provider!
+    child frontend captured-source {:layout-directory compiled-layout-directory}))
+(def source-hooks (general-frontend-source-provider-v1/callbacks source-provider))
+;; Supply source-hooks to the separately reviewed generic controller's trusted
+;; source-captures constructor. No ambient user Vars or automatic gate reply.
+```
+
+Opening runs the existing genuine idle original-options and main-module getter
+proofs through the frontend journal. Thereafter all seven hooks are read-only:
+actual source lease, captured InputContext/FileMap UTF-8 extent/line starts and
+byte boundaries, immutable protected options across scope records, compiler
+reference/callback provenance, canonical companion/gate Header and unique FAP
+site, parsed Syntax/state/log occurrence, and final Observation identities.
+Guest counter/root stamps detect observer effects; no callback retains, releases,
+advances, replies or installs code. The controller owns all borrowed-argument
+retains, original parser-log error calls, reply and cleanup. The provider's private
+GateReceipt is bound to this source/capture/request and cannot be reconstructed
+from public summaries. Registry values carry a private issuer identity rather
+than their opaque Provider key, avoiding a cross-registry key-retention cycle. Close the provider only to drop host metadata; it grants
+no guest owner retirement or rollback.
+
+The structural policy permits safe standard definition/theorem/axiom roots and
+namespace/section/end, distinguishes eoi/exit/import, and traverses the actual
+Syntax with node/depth/Name/source-range bounds. It rejects all set_option forms
+and unlock_limits, attributes, unsafe/meta/partial and other unsupported effects
+without inspecting source bodies through regexes. Strings or identifiers merely
+spelling those words do not grant or remove permission. It preserves legitimate
+namespace scope changes while requiring unchanged effective Options data and
+empty section attributes/binders/open declarations in this first scope profile.
+New custom command, attribute, initializer, plugin and option policies require
+separate source evidence. This is not a universal proof about arbitrary imported
+macro expansion; the initial imported Prelude/source/consumer policies remain
+mandatory. Unsupported/custom effect paths must not acquire file capability.
+
+The actual parser MessageLog is an independent controller-owned witness. Source
+policy does not infer no parser errors from recovering=false or final messages.
+A successful file additionally requires the controller's genuine parser and
+elaboration hasErrors checks, strict publication history, map/version guards and
+real eoi at the captured byte end. Imported association and executable IR remain
+separate authorities.
+
+Eight model families in `models/general-source-provider.clj` use tiny real Java
+Nodes with deliberately modeled Syntax/scope layouts. They cover general bodies,
+nested forbidden effects, typed Name spoofing, UTF-8/ranges/depth/cycles, namespace
+options, unissued tokens and observer effect detection. They are not actual
+parser outputs, valid source capabilities or a hosted frontend acceptance. Run
+`general-frontend-source-provider-models-v1/check!` with the current compiled basis;
+author has not launched a JVM. The separate runtime record below covers the
+actual companion/gate on one arithmetic file; malformed recovery, protected local
+options and the broader corpus still require coordinated runtime probes.
+
+
+## General receipt and generated-code source layer
+
+The new [M1/M2 specification](GENERAL_COMMAND_RECEIPTS.md),
+`general-command.clj` and `generated-batch.clj` preserve the finite routes while
+separating successful checked commands from optional executable batches. The
+controller uses the separately authenticated observed companion and actual
+pre-elaboration gate, original parser-log helper, real version-zero association,
+zero/multiple publication journal, both diagnostic logs and genuine eoi. It
+accepts complete compiler IR deltas without a definition-body recognizer. The
+batch preparer stages canonical Headers for all ordinary generated fdecls/SCCs,
+records AP/static frontiers and distinguishes unsupported execution from a
+successful checked command. Source/branch/version, actual owner transfers and
+failure quarantine remain mandatory; this is not a new declaration checker.
+
+The [selected general-route runtime record](general-command-runtime-validation.json)
+reports one 74-byte arithmetic file through actual parser/gate, strict publication,
+two canonical linked IR rows, genuine EOF, five correct Nat calls and normal
+12-extra/534-runtime-root disposal at 384 MiB. This is a selected smoke result;
+the six-file corpus, malformed-source negatives, wider declaration kinds,
+initialization, module reuse and ordinary project imports remain pending. The
+producer-only companion manifest and earlier baseline record retain their own
+historical scopes rather than being rewritten as general acceptance.
+
+[general-command-v1.json](general-command-v1.json) layers explicit source changes
+and a complete current inventory over the unchanged v25 acceptance and finite
+arithmetic layer. The source verifier checks all three records and the exact
+loader order; it never updates hashes. A new source edit requires an explained
+layer update. Source verification and definition loading do not execute a guest,
+replay proof checking or recreate the selected runtime result. Runtime resources,
+raw ignored receipts and the source export bundle remain external prerequisites.
+Do not reload opaque registries/types underneath live contexts or receipts.
+
+
+## Finite and general checked-driver construction
+
+`driver/open-driver` and `cohort/prepare-source-child!` retain the finite
+sixteen-admission profile. General command callers explicitly use
+`driver/open-general-driver` or `cohort/prepare-general-source-child!`, which
+construct the512-admission session before its runtime closure is captured.
+Never swap `:adapter` beneath an already constructed `:runtime-step!`. The
+existing heartbeat/extra-service wrapper is shared; parser, command, instruction
+and checker limits remain separate. The new factory/model source is prepared
+for coordinated runtime validation and does not expand the accepted source
+language. [API_CONSOLIDATION.md](API_CONSOLIDATION.md) specifies the subsequent
+file, session, runtime-boundary and module integration slices.
+
+
+## General file controller source checkpoint
+
+`general-file.clj` defines `general-frontend-file-v1`. `open-file!` consumes an
+explicit prepared `:child/:frontend/:admission` bundle, actual captured file,
+authenticated companion/helper Headers, compiled layout directory and trusted
+branch-disposal function. It opens its own original source provider, captures and
+generated-code scope; do not attach a second provider to the same file/branch.
+Preparation failures return a failed FileRun whose `owner-packet` preserves the
+actual branch, active command, pending batch and invocation result slots.
+
+`next-command!` and `load!` run actual commands until eoi or an explicit stop.
+Zero/multiple publications are M1 history, not a guessed command count. Generated
+`:empty`, linked and `:unsupported` code outcomes are recorded separately from
+checking. Actual eoi yields `:ready` or `:unsupported`; exit/import and the command
+limit produce `:stopped`, never EOF. The source provider still rejects privileged
+or unsupported source forms; these states do not authorize module imports.
+Failures are quarantined without retry/unwind. `close!` supports healthy idle
+terminal files, revokes metadata, invokes the captured real retirement hook and
+requires the actual engine to be closed before compacting the holder.
+
+`invoke-nat!` accepts an exact typed Name of a linked owned unary boxed Header
+from this file, at its final actual Program/version. It also inspects the actual
+checked local safe monomorphic Nat-to-Nat ConstantInfo through the guarded base
+view. Inputs/results are exact nonnegative Long/BigInteger values bounded to4096
+bits; a BigInteger subclass is rejected before calling its methods. The selected
+function's result is not predicted from its body. Code/Host boundaries use the
+same source-demand and checked runtime routers. An unexpected result remains in
+the failure owner journal. No new entry codec or source capability is inferred
+from arbitrary ABI-compatible code.
+
+The nine general-file model families are mocked structural/control tests, not
+actual parser outputs or runtime acceptance. Coordinated definition loading,
+model execution and fresh guest-file acceptance remain pending for this source
+checkpoint. Earlier acceptance records are not changed by the new source files.

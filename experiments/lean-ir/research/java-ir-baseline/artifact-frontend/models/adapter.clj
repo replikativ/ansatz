@@ -13,6 +13,10 @@
                    (throw (ex-info "Missing adapter seam" {:symbol s}))))
 (defn message [f] (try (f) nil (catch Throwable t (.getMessage t))))
 (defn slot [v status] (object-array [v status]))
+(defn- model-session [fields]
+  ;; Private seam fixtures must carry the same journals as new real sessions.
+  (merge {:events (atom []) :base-operation (atom nil)
+          :versions (atom []) :options {:max-declarations 16}} fields))
 (defn ci [s]
   (ConstantInfo/mkAxiom (Name/fromString s) (object-array [])
                        (Expr/sort (Level/succ Level/ZERO_LEVEL) false) false))
@@ -37,7 +41,7 @@
       (let [a (ci "ModelIdentity") b (ci "ModelIdentity")
             original (TypeChecker/checkConstant (.enableQuot (Env.)) a 1000000)
             replacement (TypeChecker/checkConstant (.enableQuot (Env.)) b 1000000)
-            entry (local-entry original a) session {:matched-base matched-base}]
+            entry (local-entry original a) session (model-session {:matched-base matched-base})]
         (is (not (identical? a b)))
         (is (nil? ((seam 'validate-local-view!) session entry)))
         ;; Identical checking shape and typed Name do not authenticate member identity.
@@ -92,7 +96,7 @@
       (let [external (atom 0) snapshots (atom 0) a (ci "ModelClosed")
             env (.addConstant (.withExternalLookupUncached (.enableQuot (Env.))
                      (fn [_] (swap! external inc) nil) 2314) a)
-            e (local-entry env a) session {:matched-base matched-base}]
+            e (local-entry env a) session (model-session {:matched-base matched-base})]
         ;; addConstant itself consulted the real external lookup once.
         (reset! external 0) (reset! live false)
         (with-redefs [snapshot/validate-segment-values (fn [_] (swap! snapshots inc))]
@@ -142,9 +146,9 @@
                                                :source-binding source :layout-receipt-sha256 receipt})
                        :diagnostics-disabled! (fn [_ k _] {:kernel-root k :source-binding source
                                                                            :layout-receipt-sha256 receipt :enabled 0})}
-            session {:source source :thread (Thread/currentThread) :engine engine :matched-base matched-base :basis {}
+            session (model-session {:source source :thread (Thread/currentThread) :engine engine :matched-base matched-base :basis {}
                      :authority authority :options {:max-declarations 4 :fuel 1000000 :projection-limits (fn [] {})}
-                     :versions (atom []) :published-count (atom 0)}
+                     :versions (atom []) :published-count (atom 0)})
             seed-owners (doto (LinkedHashMap.) (.put :K0 (slot (Object.) :owned)) (.put :M0 (slot (Object.) :owned)))
             seed-inv (atom {:owners seed-owners})]
         (is (= 2314 (.size base-env)))
@@ -191,13 +195,13 @@
 (deftest retain-release-and-reply-exceptions-preserve-occurrence-disposition
   ;; The ownership protocol is unchanged v3 code. These are controller models;
   ;; the real engine's resumable release and HostCompletion are not manufactured.
-  (let [owners (LinkedHashMap.) inv (atom {:owners owners}) session {:basis {} :engine (Object.)}]
+  (let [owners (LinkedHashMap.) inv (atom {:owners owners}) session (model-session {:basis {} :engine (Object.)})]
     (with-redefs [j/retain! (fn [& _] (throw (ex-info "retain rejected" {})))]
       (is (re-find #"retain rejected" (message #((seam 'retain-into!) session inv :anchor (Object.)))))
       (is (= :unclaimed (aget ^objects (.get owners :anchor) 1)))))
   (let [owners (doto (LinkedHashMap.) (.put :temporary (slot (Object.) :owned)))
         inv (atom {:owners owners :cleanup [:temporary] :cleanup-index 0})
-        session {:basis {} :engine (Object.)}]
+        session (model-session {:basis {} :engine (Object.)})]
     (with-redefs [j/host-owned-argument (fn [& _] :model-owned-description)
                   j/start-host-release! (fn [& _] (throw (ex-info "release publication rejected" {})))]
       (is (re-find #"publication rejected" (message #((seam 'cleanup-next!) session inv)))))
@@ -206,10 +210,11 @@
       (is (nil? (aget ^objects (get-in @inv [:operation :token]) 0))))
   (let [reply (slot (Object.) :owned) outer (Object.) owners (doto (LinkedHashMap.) (.put :reply reply))
         inv (atom {:owners owners :outer outer}) calls (atom [])
-        session {:basis {} :engine (Object.) :source (Object.) :thread (Thread/currentThread)
+        session (model-session {:basis {} :engine (Object.) :source (Object.) :thread (Thread/currentThread)
                  :authority {:check-source! (fn [& _] nil)
                              :finish-request! (fn [& _] (swap! calls conj :finish) (throw (ex-info "finish rejected" {})))}
-                 :phase (atom :active) :invocation (atom inv) :last-request (atom nil)}]
+                 :versions (atom [{:id 1 :parent 0}])
+                 :phase (atom :active) :invocation (atom inv) :last-request (atom nil)})]
     (with-redefs [j/resume-host! (fn [& _] (swap! calls conj :resume))]
       (is (re-find #"finish rejected" (message #((seam 'reply!) session inv)))))
       (is (= [:resume :finish] @calls))

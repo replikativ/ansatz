@@ -1,6 +1,7 @@
 (ns allocation-heartbeat-cohort-router-checks-v1
   "Pure routing models; no real engine, source grant or HostRequest claim."
   (:require [clojure.test :refer [deftest is]] [allocation-heartbeat-cohort-v1 :as c]
+            [artifact-declaration-driver-v4 :as checked-driver]
             [allocation-heartbeat-lab-v1 :as hb] [java-ir-baseline :as j]))
 (deftest explicit-service-shape-and-parent-driver-agreement
   (let [service {:handles? (constantly false) :serve! identity}
@@ -68,3 +69,12 @@
           (is (empty? @events))
           ((c/wrap-runtime-step child admission) {:driver d})
           (is (= [:source :checked-driver] @events)))))))
+
+(deftest finite-and-general-child-select-constructor-before-activation
+  (let [seen (atom []) args [:journal :parent :module :text :filename :segments :store]]
+    (with-redefs-fn {#'c/prepare-source-child-with! (fn [factory & actual] (swap! seen conj [factory actual]) :prepared)}
+      #(do (is (= :prepared (apply c/prepare-source-child! args)))
+           (is (= :prepared (apply c/prepare-general-source-child! args)))))
+    (is (identical? checked-driver/open-driver (ffirst @seen)))
+    (is (identical? checked-driver/open-general-driver (first (second @seen))))
+    (is (every? #(= args (vec (second %))) @seen))))

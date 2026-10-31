@@ -1,0 +1,49 @@
+{
+  "schema": "observed-source-jvm-baseline-validation/1",
+  "date": "2026-10-31",
+  "scope": "Actual startup-neutral source extension, finalization and checked version-zero association; not general command/file acceptance",
+  "runtime": {
+    "retained-repl": true,
+    "heap-cap-mib": 384,
+    "java-source-sha256": "04f0c13055fcf53cabe5ded40b63a6d06eb922178032dce40d1d2e4cdc781f46",
+    "new-source-binding": true,
+    "original-source-overlays-preserved": 2,
+    "explicit-extra-source-overlays": 1,
+    "extra-overlay-startup-actions": 0,
+    "host-guest-policy-captured-once": true,
+    "allowed-outer-headers": 3,
+    "allowed-helper-headers": 9,
+    "original-bodies-reauthenticated-under-new-source": 6376,
+    "original-body-warmup-ms": 45088.531511,
+    "warmup-guest-instructions": 0
+  },
+  "actual-baseline": {
+    "genuine-finalizer": "ready",
+    "finalized-constants": 2314,
+    "association": "base-established",
+    "version-id": 0,
+    "new-publications": 0,
+    "engine-retirement": "disposed-and-closed",
+    "additional-owner-occurrences": 10,
+    "runtime-root-occurrences": 534,
+    "raw-report": "target/java-observed-command-v1/actual-idle-baseline-v2.edn",
+    "raw-report-sha256": "aa92fdd070460903ec1a660c63f8affa4ef43aed825d734e76079cf9e357c303"
+  },
+  "focused-models": {
+    "new-foundation": {"tests": 4, "assertions": 30, "failures": 0, "errors": 0},
+    "legacy-authority-adapter": {"tests": 13, "assertions": 82, "failures": 0, "errors": 0},
+    "lineage-with-explicit-overlay-policy": {"tests": 9, "assertions": 52, "failures": 0, "errors": 0},
+    "structural-source-provider": {"tests": 8, "assertions": 78, "failures": 0, "errors": 0}
+  },
+  "not-executed": [
+    "Observed companion command entry and parser gate",
+    "Generic CommandReceipt and generated Header batches",
+    "General filesystem EOF and project/module imports"
+  ],
+  "integration-observations": [
+    "An initial metadata-only constructor attempt supplied a duplicate gate descriptor and failed before any engine existed; the corrected attempt used a fresh source binding",
+    "The old exact-two-overlay finalizer guard rejected the extra companion before any finalizer start or input transfer; an explicit exact-pin startup-neutral policy was added",
+    "One prewarm attempt minted dependency Headers without registering them; the corrected attempt registered the complete canonical Header frontier before staging bodies",
+    "The pre-start child continued through its first actual finalizer invocation, then established version zero and retired normally"
+  ]
+}

@@ -44,6 +44,26 @@
                (= result (j/request-value header "resultType"))) "Finalizer/helper registered Header ABI differs")
     header))
 (def startup-sha "4f9e45cb51441d02006a0a8404f9feb1d13ecffad196cc95d1642d81ed44f66d")
+(defn- check-code-profile! [profile extra]
+  (let [entries (get profile "overlays")
+        pin-keys #{"source_sha256" "local_ir_sha256" "export_receipt_sha256"
+                   "producer_sha256" "base_index_sha256"}
+        contract-keys (conj pin-keys "module")]
+    (need (and (vector? extra) (<= (count extra) 6)
+               (= (+ 2 (count extra)) (count entries))
+               (= v4/shim-pins (select-keys (first entries) (keys v4/shim-pins)))
+               (= v4/module-pins (select-keys (second entries) (keys v4/module-pins)))
+               (= v4/actions (get profile "local_initialization_actions")))
+          "Wrong fixed composite source/action profile")
+    (doseq [[expected actual] (map vector extra (drop 2 entries))]
+      (need (and (map? expected) (= contract-keys (set (keys expected)))
+                 (every? #(and (string? (get expected %)) (re-matches #"[0-9a-f]{64}" (get expected %))) pin-keys)
+                 (= v4/index-sha (get expected "base_index_sha256"))
+                 (= expected (select-keys actual contract-keys))
+                 (= (get expected "module") (get-in actual ["initializationPlan" "module"]))
+                 (= "lean-init-plan/1" (get-in actual ["initializationPlan" "schema"]))
+                 (= [] (get-in actual ["initializationPlan" "actions"])))
+            "Additional code overlay differs or requires unadmitted startup actions"))))
 (defn- startup-cache! [s]
   (let [header (:startup-header s) ctx (context s) e (:engine s)
         _ (registered-header! s header "JavaModuleImport.finalize._boxed_const_1" startup-sha [] [] "tobject")
@@ -64,11 +84,7 @@
     (doseq [key ["closed" "disposed" "untrackedFailure" "advancing"]]
       (need (false? (field engine key)) "Engine lifecycle cannot lend finalizer lineage"))
     (source/guard-source! (:code-receipt s) (:source d))
-    (let [profile (source/code-profile (:code-receipt s)) entries (get profile "overlays")]
-      (need (and (= 2 (count entries))
-                 (= v4/shim-pins (select-keys (first entries) (keys v4/shim-pins)))
-                 (= v4/module-pins (select-keys (second entries) (keys v4/module-pins)))
-                 (= v4/actions (get profile "local_initialization_actions"))) "Wrong fixed composite source/action profile"))
+    (check-code-profile! (source/code-profile (:code-receipt s)) (:extra-code-overlays s))
     ((:check-leases! (:options s)))
     (need (= (:startup-snapshot s) (select-keys @(:startup-status s) [:state :label :actual-body-executed :result-released])) "Actual startup status changed")
     (startup-cache! s)
@@ -144,14 +160,19 @@
    Input/lease callbacks independently check admitted module/request ownership and
    actual flags; this wrapper fixes neither importAll nor isExported. Callbacks
    may service only the supplied current Code/Host request, never start/take a root.
+   Optional :extra-code-overlays is trusted host allowlist policy: exact module
+   and five byte pins for already authenticated, startup-neutral source overlays.
+   It cannot authenticate bytes or authorize initialization. Default stays fixed.
    Returns a pending opaque Run, or throws before start; never seals an old Env."
   [parent {:keys [finalizer-header state-slot imports-slot check-leases! validate-inputs! service-code! service-host!
                  quantum max-transitions max-instructions deadline-nanos expected-constants] :as options}]
   (need (and (every? fn? [check-leases! validate-inputs! service-code! service-host!])
              (every? #(and (integer? %) (pos? %)) [quantum max-transitions max-instructions deadline-nanos expected-constants])
              (<= quantum 1000) (<= expected-constants 10000)) "Explicit finite root execution/lease/input policy required")
-  (let [d (:driver parent) e (:engine d) startup (:startup-status parent) snapshot (select-keys @startup [:state :label :actual-body-executed :result-released])
+  (let [extra (#'source/snapshot-evidence (get options :extra-code-overlays []))
+        d (:driver parent) e (:engine d) startup (:startup-status parent) snapshot (select-keys @startup [:state :label :actual-body-executed :result-released])
         s {:driver d :engine e :source (:source d) :code-receipt (:code-receipt parent) :parent parent
+           :extra-code-overlays extra
            :thread (Thread/currentThread) :startup-status startup :startup-snapshot snapshot
            :startup-header (first (get-in parent [:configuration :local-action-headers])) :options options
            :status :active :stage :finalizer :owners {} :history [] :call nil :transitions 0}

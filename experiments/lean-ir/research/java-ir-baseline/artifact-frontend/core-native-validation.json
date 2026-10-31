@@ -1,0 +1,54 @@
+{
+  "schema": "general-core-native-reference/1",
+  "toolchain": "leanprover/lean4:v4.33.1",
+  "files": [
+    {
+      "file": "Closed.lean",
+      "exit": 0,
+      "elapsedMs": 907.4885820155032,
+      "output": ""
+    },
+    {
+      "file": "Closures.lean",
+      "exit": 0,
+      "elapsedMs": 159.73948000464588,
+      "output": ""
+    },
+    {
+      "file": "Earlier.lean",
+      "exit": 0,
+      "elapsedMs": 183.15879901638255,
+      "output": ""
+    },
+    {
+      "file": "Empty.lean",
+      "exit": 0,
+      "elapsedMs": 158.54305098764598,
+      "output": ""
+    },
+    {
+      "file": "Lists.lean",
+      "exit": 0,
+      "elapsedMs": 189.52415499370545,
+      "output": ""
+    },
+    {
+      "file": "Proof.lean",
+      "exit": 0,
+      "elapsedMs": 143.9244810026139,
+      "output": ""
+    },
+    {
+      "file": "Recursive.lean",
+      "exit": 0,
+      "elapsedMs": 173.43234998406842,
+      "output": ""
+    },
+    {
+      "file": "Unicode.lean",
+      "exit": 0,
+      "elapsedMs": 200.7769100018777,
+      "output": ""
+    }
+  ]
+}

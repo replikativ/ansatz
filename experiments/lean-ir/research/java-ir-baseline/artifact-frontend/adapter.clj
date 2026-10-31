@@ -106,14 +106,14 @@
     (invoke1 (:engine session) "constructorNode" (aget ^objects (:kernel-root entry) 0))
     (invoke1 (:engine session) "constructorNode" (aget ^objects (:constant-map entry) 0))
     (validate-local-view! session entry)))
-(defn open-session
+(defn- open-session-with-ceiling
   "Authority callbacks validate exact actual input/output helper-token bundles.
    Version storage is private to this transaction; no arbitrary Env association API."
-  [basis engine setup source authority matched-base {:keys [allow-axioms? allow-theorems? allow-definitions? fuel projection-limits max-declarations] :as options}]
+  [ceiling basis engine setup source authority matched-base {:keys [allow-axioms? allow-theorems? allow-definitions? fuel projection-limits max-declarations] :as options}]
   (need (and (boolean? allow-axioms?) (boolean? allow-theorems?) (boolean? allow-definitions?)
              (or allow-axioms? allow-theorems? allow-definitions?)) "Explicit finite declaration permissions required")
   (need (and (integer? fuel) (<= 1 fuel Long/MAX_VALUE) (fn? projection-limits)
-             (integer? max-declarations) (<= 1 max-declarations 16)) "Explicit bounded checker/version policy required")
+             (integer? max-declarations) (<= 1 max-declarations ceiling)) "Explicit bounded checker/version policy required")
   (doseq [key [:check-source! :begin-request! :artifact-environment! :checked-environment!
                :checked-constants! :diagnostics-disabled! :finish-request! :close!]]
     (need (fn? (get authority key)) "Independent source/layout/request witness authority required"))
@@ -124,8 +124,62 @@
   (let [session {:thread (Thread/currentThread) :basis basis :engine engine :setup setup :source source :authority authority
                  :matched-base matched-base
                  :options options :invocation (atom nil) :versions (atom []) :published-count (atom 0)
+                 :base-operation (atom nil) :events (atom [])
                  :last-request (atom nil) :phase (atom :idle)}]
     (source-live! session) session))
+(defn open-session
+  "Existing finite profile: explicit permissions and at most sixteen admissions."
+  [basis engine setup source authority matched-base options]
+  (open-session-with-ceiling 16 basis engine setup source authority matched-base options))
+(defn open-general-session
+  "General command profile, same admitted declaration kinds and ownership rules;
+   explicitly bounded to at most512 admissions. This adds no block constructor."
+  [basis engine setup source authority matched-base options]
+  (need (fn? (:artifact-baseline! authority)) "Actual idle artifact baseline authority required")
+  (open-session-with-ceiling 512 basis engine setup source authority matched-base options))
+(defn establish-base!
+  "Establish genuine version0 before zero-publication commands. ENVIRONMENT is
+   borrowed from the actual owned frontend snapshot, not a serialized map."
+  [session environment]
+  (source-live! session) (base/guard! (:matched-base session))
+  (need (and (= :idle @(:phase session)) (nil? @(:invocation session))
+             (empty? @(:versions session)) (zero? @(:published-count session))
+             (nil? @(:base-operation session))
+             (= "idle" (j/phase (:basis session) (:engine session)))) "Base establishment is once-only before commands")
+  (need (fn? (get-in session [:authority :artifact-baseline!])) "No actual idle baseline witness authority")
+  (let [root-slot (slot nil :pending) map-slot (slot nil :pending)
+        operation {:environment environment :kernel-root root-slot :constant-map map-slot :stage :witness-pending}]
+    (reset! (:base-operation session) operation)
+    (try
+      (let [witness ((get-in session [:authority :artifact-baseline!]) (:engine session) environment)
+            kernel (:kernel-root witness) constant-map (:constant-map witness)
+            _ (readonly-witness! session witness kernel)
+            _ (need (and (identical? environment (:guest-environment witness)) (true? (:quot witness))
+                         (= :authenticated-idle-finalized-artifact-baseline (:origin witness))) "Actual idle base witness differs")]
+        (doseq [[owner value] [[root-slot kernel] [map-slot constant-map]]]
+          (aset ^objects owner 0 value) (state! owner :retain-pending)
+          (j/retain! (:basis session) (:engine session) value) (state! owner :owned))
+        (let [entry (base/with-env! (:matched-base session)
+                      (fn [^Env env]
+                        (need (and (empty? (.allConstants env)) (.isQuotEnabled env)) "Guarded base local view is not empty/quotient-enabled")
+                        {:id 0 :parent nil :kernel-root root-slot :constant-map map-slot :quot true
+                         :env env :segments [] :payloads {} :source (:source session)
+                         :origin (:origin witness) :base-basis :trusted-artifact :base-token (:matched-base session)}))
+              versions [entry]]
+          (state! root-slot :association-owned) (state! map-slot :association-owned)
+          (reset! (:versions session) versions)
+          (reset! (:base-operation session) (assoc operation :stage :established))
+          (validate-versions! session) {:status :base-established :version-id 0}))
+      (catch Throwable failure
+        (swap! (:base-operation session) assoc :stage :failed
+               :failure {:class (.getName (class failure)) :message (.getMessage failure)})
+        (reset! (:phase session) :failed) (throw failure)))))
+(defn- event! [session phase invocation entry]
+  (let [events (:events session)]
+    (need (< (count @events) (* 8 (get-in session [:options :max-declarations]))) "Publication event budget exhausted")
+    (swap! events conj {:phase phase :request (:outer @invocation)
+                        :version-id (:id entry) :parent-id (:parent entry)
+                        :constant (get-in @invocation [:candidate :constant])})))
 (defn begin!
   "Capture a distinct actual unclaimed ELAB request. Multiple requests may occur
    inside one original processCommand call; only retirement requires engine IDLE."
@@ -258,7 +312,8 @@
                                :payloads (assoc (:payloads version) name
                                            {:kind (get-in @inv [:descriptor :kind]) :payload (:payload @inv)})}]
                 (validate-local-view! session candidate)
-                (swap! inv assoc :candidate candidate :stage :publish)))
+                (swap! inv assoc :candidate candidate :stage :publish)
+                (event! session :checked inv {:id (inc @(:published-count session)) :parent (:id version)})))
             (finally ((:close! scope))))))))
   (validate-versions! session) (validate-candidate! session inv))
 (defn- validate-readback! [session inv]
@@ -317,13 +372,16 @@
                            :let [key (.getKey entry) value (.getValue entry)]
                            :when (and (= :owned (slot-state value)) (not= :reply key))] key))]
     ;; K1/M1 are not temporary cleanup owners. Seed K0/M0 are already association-owned.
+    (event! session :published inv entry)
     (state! (:kernel-root entry) :association-owned) (state! (:constant-map entry) :association-owned)
     (reset! (:versions session) versions) (reset! (:published-count session) next-count)
+    (event! session :committed inv entry)
     (swap! inv assoc :cleanup (vec (remove #{:K1 :M1} cleanup)) :cleanup-index 0 :stage :cleanup)))
 (defn- cleanup-next! [session inv]
   (let [s @inv i (:cleanup-index s) keys (:cleanup s)]
     (if (= i (count keys))
-      (swap! inv assoc :stage :reply)
+      (do (event! session :cleanup-finished inv (peek @(:versions session)))
+          (swap! inv assoc :stage :reply))
       (let [key (nth keys i) value (owner! inv key)
             _ (need (= :owned (slot-state value)) "Retirement occurrence was already transferred")
             token-cell (object-array 1) unit-slot (slot nil :pending)
@@ -336,12 +394,45 @@
   (source-live! session) (validate-candidate! session inv)
   (let [reply-slot (owner! inv :reply) value (slot-value reply-slot)]
     (need (= :owned (slot-state reply-slot)) "Reply occurrence was already transferred")
+    ;; A throwing resume may already have claimed its reply. Preserve the exact
+    ;; uncertainty instead of reporting an automatically releasable owned slot.
+    (state! reply-slot :resume-pending)
     (j/resume-host! (:basis session) (:engine session) (:outer @inv) value)
     (state! reply-slot :transferred)
+    (event! session :reply-transferred inv (peek @(:versions session)))
     ;; HostCompletion now owns reply even if subsequent cleanup pauses or fails.
     ((get-in session [:authority :finish-request!]) (:engine session) (:outer @inv))
     (reset! (:last-request session) (:outer @inv))
     (reset! (:phase session) :replied) (reset! (:invocation session) nil)))
+(defn complete-command-history!
+  "Validate one monotone, fully completed root-command interval. This does not
+   infer parse/compiler success or issue a CommandReceipt. No fake requests for
+   zero-publication commands; the genuine retained baseline remains version0."
+  [session prior-id]
+  (source-live! session) (validate-versions! session)
+  (need (and (contains? #{:idle :replied} @(:phase session)) (nil? @(:invocation session))
+             (= "idle" (j/phase (:basis session) (:engine session)))
+             (nil? (private-value (:engine session) "hostCompletion"))
+             (nil? (private-value (:engine session) "hostGuestRecord"))
+             (nil? (private-value (:engine session) "runtimeAction"))) "Command still owns pending native completion work")
+  (let [versions @(:versions session)
+        _ (need (some #(= prior-id (:id %)) versions) "Missing retained initial command version")
+        added (vec (filter #(< prior-id (:id %)) versions))]
+    (loop [parent prior-id entries added]
+      (when-let [entry (first entries)]
+        (need (= parent (:parent entry)) "General command publication ancestry is not monotone")
+        (let [events (filter #(= (:id entry) (:version-id %)) @(:events session))
+              reply (filter #(= :reply-transferred (:phase %)) events)
+              cleanup (filter #(= :cleanup-finished (:phase %)) events)]
+          (need (and (= 1 (count reply) (count cleanup))
+                     (identical? (:request (first reply)) (:request (first cleanup)))
+                     (private-value (private-value (:request (first reply)) "call") "replyClaimed"))
+                "Version lacks its actual cleanup/reply completion")
+          (when-not (some #(= :reply-finished (:phase %)) events)
+            (let [inv (atom {:outer (:request (first reply))})]
+              (event! session :reply-finished inv entry))))
+        (recur (:id entry) (next entries))))
+    (mapv #(select-keys % [:id :parent]) added)))
 (defn poll!
   "One nonrecursive adapter transition. Driver owns advance/Code/other Host servicing.
    A failed receipt remains owned and cannot be retried, forked or silently unwound."
@@ -391,6 +482,8 @@
 (defn owner-packet [session]
   "Borrowed guest-owner diagnostics; no Java Env/CI values escape through this view."
   {:phase @(:phase session) :published @(:published-count session)
+   :base-operation @(:base-operation session)
+   :events (mapv #(select-keys % [:phase :version-id :parent-id :request]) @(:events session))
    :versions (mapv #(select-keys % [:id :parent :kernel-root :constant-map :quot]) @(:versions session))
    :invocation (when-let [inv @(:invocation session)]
                  {:stage (:stage @inv) :operation (:operation @inv) :outer (:outer @inv)
@@ -408,5 +501,6 @@
     ((get-in session [:authority :close!]))
     (base/revoke! (:matched-base session))
     (reset! (:versions session) []) (reset! (:last-request session) nil)
+    (reset! (:base-operation session) nil) (reset! (:events session) [])
     (doseq [slot slots] (state! slot :external-retirement))
     (reset! (:phase session) :retired) packet))

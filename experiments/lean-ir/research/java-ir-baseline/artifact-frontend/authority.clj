@@ -131,7 +131,11 @@
         "Shim helper ABI/source differs"))
 (defn- observe-result! [state]
   (let [driver (:driver state) engine (:engine driver) ctx @(:current-ctx driver)]
-    (when-let [token (j/host-guest-result ctx engine)]
+    ;; Other explicitly authorized host controllers may park their own requests
+    ;; (e.g. the parser-log gate). Without our actual registered ELAB request,
+    ;; no result is ours to observe or turn into a kernel witness.
+    (when @(:request state)
+     (when-let [token (j/host-guest-result ctx engine)]
       (need (and (identical? (field token "owner") (field engine "runtimeIdentity"))
                  (not (.resultTaken token))) "Foreign/taken protocol result")
       (let [outer (outer! driver (.outerRequest token))]
@@ -152,7 +156,7 @@
                     (need (and (identical? (first args) (first outer-args))
                                (identical? (second args) (nth outer-args 3)))
                           "Publication is not the exact outer Env/declaration")))
-                (.put observations token {:kind kind :header header :outer outer :args args :value (.result token)})))))))))
+                (.put observations token {:kind kind :header header :outer outer :args args :value (.result token)}))))))))))
 (declare imported-profile!)
 (defn- prefix! [state]
   ;; The real Run retains all original occurrences. This authority never takes
@@ -254,6 +258,26 @@
     {:layout-receipt-sha256 receipt-pin
      :finalized-run finalized-run ; descriptive identity for actual session cross-binding, never issuance
      :check-source! (fn [engine source] (state! holder engine source) nil)
+     :artifact-baseline!
+     (fn [engine environment]
+       ;; Distinct positive idle constructor: no invented ELAB/HostGuest token.
+       ;; The caller obtains this Env from the actual observed frontend state.
+       (let [state (get-state engine) driver (:driver state)
+             _ (need (and @(:seed-pending? state) (nil? @(:request state))
+                          (zero? (.size ^IdentityHashMap (:observations state)))
+                          (= "idle" (j/phase @(:current-ctx driver) engine)))
+                     "Artifact baseline requires an unused idle authority")
+             prefix (prefix! state)
+             view (imported-profile! state (environment-view! driver (:layout state) environment))]
+         (need (identical? (:constant-map prefix) (:constant-map view))
+               "Initial frontend Env differs from the protected finalized map")
+         ;; This permission is consumed once. A failed later retain is terminal;
+         ;; the adapter preserves its actual pending/owned occurrence slots.
+         (reset! (:seed-pending? state) false)
+         {:guest-environment environment :kernel-root (:kernel-root view)
+          :constant-map (:constant-map view) :quot true
+          :source-binding (:source driver) :layout-receipt-sha256 receipt-pin
+          :origin :authenticated-idle-finalized-artifact-baseline}))
      :begin-request!
      (fn [engine request]
        (let [state (get-state engine) driver (:driver state)]

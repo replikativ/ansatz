@@ -110,6 +110,50 @@
                (is (= :retain-pending (aget ^objects (get-in (l/owner-packet run) [:owners :environment]) 1))))))))
 (defn check! [] (run-tests 'java-prelude-finalizer-lineage-models-v1))
 
+(deftest additional-code-is-explicit-exact-and-startup-neutral
+  (let [contract {"source_sha256" (apply str (repeat 64 "a"))
+                  "local_ir_sha256" (apply str (repeat 64 "b"))
+                  "export_receipt_sha256" (apply str (repeat 64 "c"))
+                  "producer_sha256" v4/producer-sha "base_index_sha256" v4/index-sha
+                  "module" ["str" ["anonymous"] "ObserverModel"]}
+        plan {"schema" "lean-init-plan/1" "module" (get contract "module") "actions" []}
+        base {"overlays" [v4/shim-pins v4/module-pins] "local_initialization_actions" v4/actions}
+        extended (update base "overlays" conj (assoc contract "initializationPlan" plan))]
+    (is (nil? (#'l/check-code-profile! base [])))
+    (is (nil? (#'l/check-code-profile! extended [contract])))
+    (is (thrown? Exception (#'l/check-code-profile! extended [])))
+    (is (thrown? Exception (#'l/check-code-profile! base [contract])))
+    (doseq [changed [(assoc-in extended ["overlays" 2 "local_ir_sha256"] (apply str (repeat 64 "d")))
+                     (assoc-in extended ["overlays" 2 "initializationPlan" "actions"] [::action])
+                     (assoc-in extended ["overlays" 2 "initializationPlan" "module"] ["anonymous"])
+                     (assoc-in extended ["overlays" 2 "initializationPlan" "schema"] "other")
+                     (assoc-in extended ["overlays" 2 "base_index_sha256"] (apply str (repeat 64 "d")))
+                     (assoc-in extended ["overlays" 2 "producer_sha256"] (apply str (repeat 64 "e")))
+                     (assoc extended "local_initialization_actions" [])
+                     (update extended "overlays" conj (last (get extended "overlays")))]]
+      (is (thrown? Exception (#'l/check-code-profile! changed [contract]))))
+    (is (thrown? Exception (#'l/check-code-profile! extended [(assoc contract "unreviewed" true)])))))
+
+(deftest explicit-overlay-policy-is-frozen-before-run-publication
+  (model
+    (fn [{:keys [parent options]}]
+      (let [contract {"source_sha256" (apply str (repeat 64 "a"))
+                      "local_ir_sha256" (apply str (repeat 64 "b"))
+                      "export_receipt_sha256" (apply str (repeat 64 "c"))
+                      "producer_sha256" v4/producer-sha "base_index_sha256" v4/index-sha
+                      "module" ["str" ["anonymous"] "ObserverModel"]}
+            plan {"schema" "lean-init-plan/1" "module" (get contract "module") "actions" []}
+            profile {"overlays" [v4/shim-pins v4/module-pins (assoc contract "initializationPlan" plan)]
+                     "local_initialization_actions" v4/actions}
+            mutable-contract (java.util.HashMap. contract)
+            mutable-list (doto (java.util.ArrayList.) (.add mutable-contract))]
+        (with-redefs [source/code-profile (fn [_] profile)]
+          (let [run (l/begin! parent (assoc options :extra-code-overlays mutable-list))]
+            (.clear mutable-contract)
+            (.clear mutable-list)
+            (is (= :ready (:status (l/poll! run 100))))
+            (is (= 7 (count (l/take-retirement-owners! run))))))))))
+
 
 (deftest start-failure-reserves-pending-inputs-and-forbids-replay
   (model (fn [{:keys [parent options state-slot imports-slot]}]

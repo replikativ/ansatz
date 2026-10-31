@@ -1,0 +1,92 @@
+{
+  "schema": "general-frontend-file-validation/1",
+  "runtimeSourceSHA256": "617e8e63247289ce8a03b0afcc7794b5de17fcaa6f0faf7365c88238b34e1bc2",
+  "heapMiB": 512,
+  "genericModels": {
+    "tests": 45,
+    "assertions": 323,
+    "failures": 0,
+    "errors": 0
+  },
+  "actualFile": {
+    "fixture": "Earlier.lean",
+    "status": "ready-at-actual-eoi",
+    "loadMs": 3597.017215,
+    "entry": "incrementTwice._boxed",
+    "argument": 40,
+    "result": 42,
+    "retirement": {
+      "status": "disposed-and-closed",
+      "extraOwnerOccurrences": 14,
+      "runtimeRootOccurrences": 534
+    }
+  },
+  "acceptance": "Selected hosted file API, not full Lean/project/self-hosting support",
+  "rawReportSHA256": "bebc7d1bc64b3e77f9ea068db1ab56caaec770d489912719d6577c0b54ad233e",
+  "independentSourceReview": {
+    "frozenHead": "62fd0d1",
+    "verdict": "clear",
+    "scope": "FileRun custody, exact Nat codec/type/readback, registry acyclicity, generic command/parser/observation coupling, generated batch installation and healthy-only retirement",
+    "reviewerDidNotRunJVM": true
+  },
+  "files": [
+    {
+      "module": "Proof",
+      "loadMs": 4009.187702,
+      "calls": [
+        {
+          "entry": "projectFirst._boxed",
+          "argument": 42,
+          "result": 42
+        }
+      ],
+      "status": "closed",
+      "retirement": {
+        "status": "disposed-and-closed",
+        "extra-owner-occurrences": 14,
+        "runtime-root-occurrences": 534
+      }
+    },
+    {
+      "module": "Unicode",
+      "loadMs": 2417.706402,
+      "calls": [
+        {
+          "entry": "\u0394.same._boxed",
+          "argument": 42,
+          "result": 42
+        }
+      ],
+      "status": "closed",
+      "retirement": {
+        "status": "disposed-and-closed",
+        "extra-owner-occurrences": 12,
+        "runtime-root-occurrences": 534
+      }
+    },
+    {
+      "module": "Closures",
+      "loadMs": 6864.472909,
+      "calls": [
+        {
+          "entry": "captured._boxed",
+          "argument": 35,
+          "result": 42
+        }
+      ],
+      "status": "closed",
+      "retirement": {
+        "status": "disposed-and-closed",
+        "extra-owner-occurrences": 16,
+        "runtime-root-occurrences": 534
+      }
+    }
+  ],
+  "legacyModels": {
+    "test": 22,
+    "pass": 134,
+    "fail": 0,
+    "error": 0,
+    "type": "summary"
+  }
+}
