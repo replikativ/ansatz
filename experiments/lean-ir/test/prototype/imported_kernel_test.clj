@@ -2,8 +2,9 @@
   (:require [clojure.test :refer [deftest is]] [clojure.set :as set] [prototype.imported-kernel :as imported]
             [prototype.module-data :as data] [prototype.machine :as m]
             [prototype.kernel-bridge-test :as guest] [prototype.scalar :as scalar]
-            [ansatz.kernel.name :as name])
-  (:import [ansatz.kernel Env ConstantInfo]))
+            [ansatz.kernel.name :as name]
+            [prototype.kernel-projection-snapshot :as snapshot])
+  (:import [ansatz.kernel Env ConstantInfo Expr Level Name]))
 
 (def policy {:allow-axioms? true :allow-unsafe? true})
 (defn loaded [] (data/load-file (m/world {}) "fixtures/imported-kernel-native.jsonl"))
@@ -330,3 +331,113 @@
     (is (= ["Unresolved imported kernel dependencies" {:missing #{missing}}]
            (failure #'imported/checking-plan)))
     (is (= (failure historical-checking-plan) (failure #'imported/checking-plan)))))
+
+
+(defrecord AlternateCIRef [id])
+(defn alternate-ci-carrier [world]
+  (let [scope (Object.) live (atom true) reads (atom []) checks (atom 0)
+        encode (fn [v] (if (m/ref? v) (->AlternateCIRef (:id v)) v))
+        operations {:ref? #(instance? AlternateCIRef %)
+                    :check! #(do (swap! checks inc)
+                                 (when-not @live (throw (ex-info "Alternate carrier closed" {}))))
+                    :node (fn [current v]
+                            (when-not (and @live (identical? current scope))
+                              (throw (ex-info "Alternate carrier scope mismatch/closed" {})))
+                            (swap! reads conj (:id v))
+                            (let [node (m/node world (m/->Ref (:id v)))]
+                              (update node :fields #(mapv encode %))))}]
+    {:world scope :operations operations :encode encode :live live :reads reads :checks checks}))
+
+(deftest all-eight-imported-variants-use-the-same-carrier-semantic-core
+  (let [loaded (loaded) world (:world loaded) refs (values loaded)
+        carrier (alternate-ci-carrier world)
+        project (imported/make-constant-projector (:world carrier) (:operations carrier)
+                  {:max-visits 1000000 :max-rule-nodes 1000})]
+    (doseq [guest refs]
+      (let [old (imported/project-constant world guest)
+            alternate (project (:world carrier) ((:encode carrier) guest))
+            inventory (imported/project-constant-name-kind (:world carrier) ((:encode carrier) guest)
+                        {:max-nodes 100 :max-chars 1000} (:operations carrier))]
+        (is (= (imported/checking-shape old) (imported/checking-shape alternate)))
+        (is (= {:name (.name ^ConstantInfo old) :kind (.tag ^ConstantInfo old)} inventory))))
+    (is (pos? @(:checks carrier)))
+    (reset! (:live carrier) false)
+    ;; A prior semantic memo hit must still consult the exact carrier lifetime.
+    (is (thrown-with-msg? Exception #"closed" (project (:world carrier) ((:encode carrier) (first refs)))))
+    (is (thrown-with-msg? Exception #"different world" (project (Object.) ((:encode carrier) (first refs)))))))
+
+(deftest bounded-imported-inventory-does-not-touch-types-or-values
+  (let [loaded (loaded) world (:world loaded) guest (get (by-name loaded) "aliasA")
+        base (first (:fields (m/node world (payload world guest))))
+        type (nth (:fields (m/node world base)) 2)
+        carrier (alternate-ci-carrier world)
+        result (imported/project-constant-name-kind (:world carrier) ((:encode carrier) guest)
+                 {:max-nodes 100 :max-chars 1000} (:operations carrier))]
+    (is (= "aliasA" (str (:name result))))
+    (is (= ConstantInfo/DEF (:kind result)))
+    (is (not (some #{(:id type)} @(:reads carrier))))
+    (is (thrown-with-msg? Exception #"spine-node limit"
+          (imported/project-constant-name-kind (:world carrier) ((:encode carrier) guest)
+            {:max-nodes 1 :max-chars 1000} (:operations carrier))))))
+
+(deftest recursor-rule-list-shares-the-carrier-lifetime-and-total-visit-budget
+  (let [loaded (loaded) world (:world loaded) refs (by-name loaded)
+        guest (get refs "Tiny.rec") carrier (alternate-ci-carrier world)
+        rules (nth (:fields (m/node world (payload world guest))) 6)
+        cyclic (assoc-in world [:heap (:id rules) :fields 1] rules)
+        too-short (imported/make-constant-projector (:world carrier) (:operations carrier)
+                    {:max-visits 1 :max-rule-nodes 1000})]
+    (is (thrown-with-msg? Exception #"total visit limit"
+          (too-short (:world carrier) ((:encode carrier) guest))))
+    (is (thrown-with-msg? Exception #"Cyclic imported kernel list"
+          (imported/project-constant cyclic guest)))
+    ;; Explicitly duplicate the genuine rule entry to exercise the list bound
+    ;; without assuming the fixture has a multi-constructor inductive.
+    (let [rule (first (:fields (m/node world rules)))
+          [extended extra] (guest/ctor world 1 [rule rules] 0)
+          extended (assoc-in extended [:heap (:id (payload world guest)) :fields 6] extra)
+          carrier (alternate-ci-carrier extended)]
+      (is (thrown-with-msg? Exception #"rule-list limit"
+            ((imported/make-constant-projector (:world carrier) (:operations carrier)
+               {:max-visits 1000000 :max-rule-nodes 1})
+             (:world carrier) ((:encode carrier) guest)))))))
+
+(deftest value-only-snapshot-validation-is-safe-inside-uncached-lazy-lookup
+  (let [n (name/from-string "Guarded") levels (object-array [Level/ZERO_LEVEL])
+        type (Expr/mkConst n levels false)
+        ci (ConstantInfo/mkAxiom n (object-array []) type false)
+        segment (snapshot/snapshot-segment {n ci}) lookups (atom 0)
+        guarded (.withExternalLookupUncached (Env.)
+                  (fn [requested]
+                    (swap! lookups inc)
+                    (snapshot/validate-segment-values segment)
+                    (when (= n requested) ci)) 1)]
+    (is (identical? segment (snapshot/validate-segment-values segment)))
+    (is (zero? @lookups))
+    (is (identical? ci (.lookup ^Env guarded n)))
+    (is (= 1 @lookups))
+    (is (identical? segment (snapshot/validate-segment guarded segment)))
+    (is (thrown-with-msg? Exception #"Lazy/external" (snapshot/validate-segments guarded [segment])))
+    (set! (.isUnsafe ci) true)
+    (is (thrown-with-msg? Exception #"checking shape changed" (.lookup ^Env guarded n)))
+    (set! (.isUnsafe ci) false)
+    (aset levels 0 (Level/succ Level/ZERO_LEVEL))
+    (is (thrown-with-msg? Exception #"universe array changed" (snapshot/validate-segment-values segment)))))
+
+(deftest carrier-import-retains-full-hints-mutual-all-and-every-safety-code
+  (doseq [safety [0 1 2] height [0 4294967295]]
+    (let [loaded (loaded) initial (:world loaded) guest (get (by-name loaded) "aliasA")
+          p (payload initial guest)
+          [world hints] (guest/ctor initial 2 [] 4)
+          world (-> world (guest/scalar! hints 0 "uint32" height)
+                    (guest/scalar! p 0 "uint8" safety)
+                    (assoc-in [:heap (:id p) :fields 2] hints))
+          carrier (alternate-ci-carrier world)
+          ^ConstantInfo ci ((imported/make-constant-projector (:world carrier) (:operations carrier)
+                              {:max-visits 1000000 :max-rule-nodes 100})
+                            (:world carrier) ((:encode carrier) guest))]
+      (is (= height (.getHintsCode ci)))
+      (is (= ({0 1, 1 0, 2 2} safety) (.safety ci)))
+      (is (= ["aliasA"] (mapv str (.all ci))))
+      (is (= (imported/checking-shape (imported/project-constant world guest))
+             (imported/checking-shape ci))))))

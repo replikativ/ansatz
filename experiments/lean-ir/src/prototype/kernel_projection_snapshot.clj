@@ -93,6 +93,19 @@
    :shapes (into {} (map (fn [[name ci]] [name (imported/checking-shape ci)])) projected)
    :expression-arrays (expression-array-witnesses {:projected projected})})
 
+(defn ^:no-doc validate-segment-values
+  "Check captured CI/container values only; never call Env.lookup or enumerate
+   a domain. Safe inside a private guarded lazy lookup. Grants no authority."
+  [segment]
+  (require! (map? (:projected segment)) "Captured Java group witnesses required" {})
+  (doseq [[name ^ConstantInfo ci] (:projected segment)]
+    (require! (= (get (:shapes segment) name) (imported/checking-shape ci))
+              "Inherited Java ConstantInfo checking shape changed" {:name name}))
+  (doseq [[levels captured] (:expression-arrays segment)]
+    (require! (= captured (mapv identity levels))
+              "Inherited Java expression universe array changed" {}))
+  segment)
+
 (defn ^:no-doc validate-segment
   "Check one group's witnesses against the current Env, without a base scan."
   [^Env environment segment]
@@ -100,13 +113,8 @@
             "Java Env and captured group witnesses required" {})
   (doseq [[name ^ConstantInfo ci] (:projected segment)]
     (require! (identical? ci (.lookup environment name))
-              "Java witness differs from actual Env declaration" {:name name})
-    (require! (= (get (:shapes segment) name) (imported/checking-shape ci))
-              "Inherited Java ConstantInfo checking shape changed" {:name name}))
-  (doseq [[levels captured] (:expression-arrays segment)]
-    (require! (= captured (mapv identity levels))
-              "Inherited Java expression universe array changed" {}))
-  segment)
+              "Java witness differs from actual Env declaration" {:name name}))
+  (validate-segment-values segment))
 
 (defn ^:no-doc validate-segments
   "Audit complete eager Env witnesses at an explicit admission/recapture boundary.

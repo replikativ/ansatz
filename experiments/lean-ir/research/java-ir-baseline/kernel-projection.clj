@@ -75,7 +75,9 @@
 (defn open-projector
   "Borrow values during ONE paused synchronous checking operation.
    Limits are {:max-nodes positive-int :deadline-nanos absolute-nanoTime}.
-   Return {:world opaque-token :projector fn :close! fn}. Always close in finally.
+   Return {:world opaque-token :projector fn :carrier-ops ops :close! fn}.
+   Alternate imported-CI memos created from carrier-ops must be cleared by their
+   owner before close; no derived scope may survive this scope. Always close in finally.
    Close invalidates first, clears semantic/view memos and clears the only engine
    holder. Retaining a closed scope/projector does not retain guest Nodes/engine.
    Returned kernel values remain ordinary caller values. Name/Expr/Level DAGs
@@ -113,6 +115,6 @@
                  ((:prototype.kernel-bridge/clear-memo! (meta projector)))
                  (.clear views)
                  nil)]
-    {:world token :projector projector :close! close!
+    {:world token :projector projector :carrier-ops ops :close! close!
      :stats (fn [] {:open? (some? @holder) :borrowed-views (.size views)
                     :projected-values ((:prototype.kernel-bridge/memo-size (meta projector)))})}))
