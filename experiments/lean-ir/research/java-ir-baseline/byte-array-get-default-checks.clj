@@ -69,29 +69,46 @@
       (is (g/bad? #(j/make-closure! ctx engine "ByteArray.get!" [])))
       (finally (j/release! ctx engine value) (j/close! ctx engine)))))
 
-(deftest dead-foreign-and-wrong-kind-values-are-not-out-of-range-indices
-  (let [ctx (context)]
-    (doseq [mode [:dead :foreign :wrong-kind :malformed-size]]
-      (let [engine (j/machine ctx) other (when (= mode :foreign) (j/machine ctx))
-            owner (or other engine) value (fixture! ctx owner [9])
-            metadata (let [method (doto (.getDeclaredMethod ^Class (:class ctx) "kindMetadata"
-                                          (into-array Class [(:node-class ctx)])) (.setAccessible true))]
-                       (.invoke method nil (object-array [value])))
-            size-field (when (= mode :malformed-size)
-                         (doto (.getDeclaredField (class metadata) "size") (.setAccessible true)))]
-        (case mode
-          :dead (j/release! ctx owner value)
-          :wrong-kind (.setInt ^java.lang.reflect.Field (:tag ctx) value 0)
-          :malformed-size (.setInt ^java.lang.reflect.Field size-field metadata 2)
-          nil)
-        (is (g/bad? #(j/call ctx engine "ByteArray.get!._boxed" [value 0])))
-        (when-not (= mode :dead)
-          (is (= 1 (c/rc ctx value)))
-          (when (= mode :wrong-kind) (.setInt ^java.lang.reflect.Field (:tag ctx) value 248))
-          (when size-field (.setInt ^java.lang.reflect.Field size-field metadata 1))
-          (j/release! ctx owner value))
-        (when other (j/close! ctx other))
+(deftest same-class-ordinary-byte-array-permits-explicit-owned-transfer
+  (let [ctx (context) source (j/machine ctx) target (j/machine ctx)
+        value (fixture! ctx source [9])]
+    (try
+      ;; Ordinary ByteArrayState has no interpreter-specific realm. The actual
+      ;; owned boxed bridge consumes this occurrence on the destination engine.
+      (is (= 9 (j/call ctx target "ByteArray.get!._boxed" [value 0])))
+      (is (= 0 (c/rc ctx value)))
+      (is (true? (host/private-value value "dead")))
+      (finally
+        ;; Never decrement a call occurrence already consumed by the bridge.
+        (when (pos? (c/rc ctx value)) (j/release! ctx source value))
+        (j/close! ctx target) (j/close! ctx source)))))
+
+(defn rejected-input! [mode]
+  (let [ctx (context) engine (j/machine ctx) value (fixture! ctx engine [9])
+        metadata (let [method (doto (.getDeclaredMethod ^Class (:class ctx) "kindMetadata"
+                                      (into-array Class [(:node-class ctx)])) (.setAccessible true))]
+                   (.invoke method nil (object-array [value])))
+        size-field (when (= mode :malformed-size)
+                     (doto (.getDeclaredField (class metadata) "size") (.setAccessible true)))]
+    (case mode
+      :dead (j/release! ctx engine value)
+      :wrong-kind (.setInt ^java.lang.reflect.Field (:tag ctx) value 0)
+      :malformed-size (.setInt ^java.lang.reflect.Field size-field metadata 2))
+    (try
+      (is (g/bad? #(j/call ctx engine "ByteArray.get!._boxed" [value 0])))
+      (if (= mode :dead)
+        (is (= 0 (c/rc ctx value)))
+        (is (= 1 (c/rc ctx value))))
+      (finally
+        (when (= mode :wrong-kind) (.setInt ^java.lang.reflect.Field (:tag ctx) value 248))
+        (when size-field (.setInt ^java.lang.reflect.Field size-field metadata 1))
+        ;; Unexpected acceptance must be reported by the assertions, rather
+        ;; than causing a second decrement that masks subsequent test families.
+        (when (pos? (c/rc ctx value)) (j/release! ctx engine value))
         (j/close! ctx engine)))))
+(deftest dead-value-is-not-a-valid-out-of-range-index (rejected-input! :dead))
+(deftest wrong-node-kind-is-not-a-valid-out-of-range-index (rejected-input! :wrong-kind))
+(deftest malformed-live-extent-is-not-a-valid-out-of-range-index (rejected-input! :malformed-size))
 
 (defn check!
   ([] (run-tests 'java-ir-byte-array-get-default-checks))

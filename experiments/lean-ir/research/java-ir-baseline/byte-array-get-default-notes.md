@@ -10,7 +10,7 @@ returns the unsigned live byte for an in-bounds scalar Nat and0 otherwise.
 An MPZ index cannot be in bounds in the native valid representation. The JVM
 profile compares its admitted mathematical Nat against the bounded logical size
 before narrowing, so huge BigInteger indices return0 without wrapping. Spare
-capacity does not count as live data. Invalid Nat carriers and dead/foreign/
+capacity does not count as live data. Invalid Nat carriers and dead/wrong-kind/
 malformed ByteArrays remain errors. Neither argument is consumed by the raw
 primitive; the authentic boxed wrapper owns and decrements its arguments.
 
@@ -26,16 +26,19 @@ baseline and byte-array check namespaces, then bind the newly compiled basis:
   actual-new-basis "test/fixtures/java-byte-array-get-default")
 ```
 
-Five test families cover original pins/exact ABI refusal, live bytes/out-of-range/
+Eight test families cover original pins/exact ABI refusal, live bytes/out-of-range/
 huge indices, spare capacity and RC/counters, raw borrowed entry/closure refusal,
-and dead/foreign/wrong-kind/malformed metadata. The worker performed reader and
+ordinary same-class owned transfer, and dead/wrong-kind/malformed metadata. The worker performed reader and
 source checks only; root owns JVM compilation/focused/full validation. No native
 compiler/exporter process or worker JVM was launched for this change.
 
 The fixture directory argument may point into the isolated worktree while the
 retained REPL keeps its normal baseline working directory. The malformed-size
 case starts from an actual tag248 ByteArray, unwraps its genuine ByteArrayState,
-then temporarily sets logical size beyond capacity. Dead and foreign cases use
-actual released/other-engine values. These cases verify rejection and unchanged
-RC before restoring test-only corruption and retiring the known local owner;
+then temporarily sets logical size beyond capacity. Ordinary ByteArrayState has
+no per-interpreter realm marker: a same-classloader ByteArray may be explicitly
+transferred into another internal engine, where the actual boxed wrapper consumes
+that owner. This is not general permission to cross runtime-specific protected
+value boundaries. Dead and malformed cases verify rejection and unchanged RC
+before restoring test-only corruption and retiring any remaining local owner;
 they do not claim recovery of arbitrary failed callback/task ownership.
