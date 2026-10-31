@@ -57,7 +57,25 @@
       (is (= (= i k) (.equals ^Object (names i) (names k)))))
     (is (= String (class (.get ^List (names 0) 2))))
     (is (= Long (class (.get ^List (names 1) 2))))
-    (is (= Integer (class (.get ^List (names 2) 2))))))
+    (is (= Integer (class (.get ^List (names 2) 2)))))
+  (let [source (j/source-binding (base) (Object.))
+        hash-calls (atom 0) signum-calls (atom 0) mutable-hash (atom 17)
+        subclass (proxy [java.math.BigInteger] ["7"]
+                   (hashCode [] (swap! hash-calls inc) @mutable-hash)
+                   (signum [] (swap! signum-calls inc) 1)
+                   (toString [] "7"))
+        proxy-name (nm (issue source (raw ["num" ["anonymous"] subclass])))
+        exact-name (nm (issue source (raw ["num" ["anonymous"] (java.math.BigInteger. "7")])))]
+    (is (not= (.getName (class proxy-name)) (.getName (class exact-name))))
+    (is (identical? subclass (.get ^List proxy-name 2)))
+    (is (zero? @hash-calls)) (is (zero? @signum-calls))
+    ;; No source-pool root retains the extensible leaf. Header metadata still
+    ;; keeps its old generic-freezer occurrence, preserving accepted input.
+    (let [pool (g/field source "names") nodes ^java.util.Map (g/field pool "nodes")]
+      (is (every? #(not (identical? subclass (g/field % "leaf"))) (.values nodes))))
+    (let [before (.hashCode ^Object proxy-name)]
+      (reset! mutable-hash 31)
+      (is (not= before (.hashCode ^Object proxy-name))))))
 
 (deftest compact-names-reject-mutation-including-noops-and-views
   (let [name ^List (nm (issue (j/source-binding (base) (Object.)) (raw (n "entry"))))]

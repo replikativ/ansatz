@@ -23,7 +23,8 @@
    actual CAS. Do not benchmark via already constructed candidate CompactNames.
    No guest engine, Program body or kernel Env is created. Caller releases its
    input sequence before heap measurement; retain this return value for the dump.
-   Counts describe shared metadata graph union, NOT exclusive retained bytes."
+   Counts describe logical List/Map value reachability, NOT physical backing
+   arrays, wrapper delegates, map tables, String bytes or exclusive retained size."
   [basis rows {:keys [max-headers source-description] :or {max-headers 20000}}]
   (when-not (and (integer? max-headers) (<= 1 max-headers 20000)
                  (or (nil? source-description) (string? source-description)))

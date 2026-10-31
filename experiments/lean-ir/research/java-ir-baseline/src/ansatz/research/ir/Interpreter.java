@@ -944,8 +944,13 @@ public final class Interpreter implements AutoCloseable {
             if(name.size()!=3) return null;
             Object tag=name.get(0),leaf=name.get(2);
             boolean str="str".equals(tag),num="num".equals(tag);
-            if(!(str||num)||!(leaf instanceof String||(num&&(leaf instanceof Long||leaf instanceof Integer
-                    ||leaf instanceof Short||leaf instanceof Byte||leaf instanceof BigInteger)))) return null;
+            // BigInteger is extensible: a subclass can override hash/equals or
+            // retain arbitrary owners. Preserve its legacy freezer path instead
+            // of caching its hash or retaining it in the source interner.
+            Class<?> leafClass=leaf==null?null:leaf.getClass();
+            boolean immutableNumber=leafClass==Long.class||leafClass==Integer.class||leafClass==Short.class
+                    ||leafClass==Byte.class||leafClass==BigInteger.class;
+            if(!(str||num)||!(leaf instanceof String||(num&&immutableNumber))) return null;
             CompactName prefix=compact(name.get(1));
             if(prefix==null) return null;
             return intern(str?1:2,prefix,leaf instanceof String?string((String)leaf):leaf);

@@ -14,7 +14,10 @@ including existing static frozenName lookup keys. Integer/Long/String numeric
 leaves remain different keys, as do str/num tags. No normalization is performed.
 
 Only exact anonymous/str/num list spines with immutable supported leaves use compact
-nodes. All other Name trees follow the old frozenName copier and original renderer;
+nodes. Numeric leaves must have exact Long/Integer/Short/Byte/BigInteger class;
+extensible BigInteger subclasses use the legacy path without hash/signum calls
+during canonicalization and never become source-pool leaves. All other Name trees
+follow the old frozenName copier and original renderer;
 existing malformed acceptance/rejection behavior is preserved rather than tightened.
 Header exactName and Name-shaped subtrees throughout declaration/evidence metadata
 use the same pool, including f, dependencies, sourceModule, redirects, initializer
@@ -44,9 +47,10 @@ old and candidate Java bases. Supply a bounded lazy sequence of already authenti
 actual CAS `{:row row :sha256 raw-sha}` values, not re-exported metadata or candidate
 Names. Use matching row order/count and a scalar source-description. Each call
 constructs one Source and retains all issued Headers in its returned benchmark
-root. It reports identity-deduplicated metadata graph union by class and source pool
-counts; these are NOT exclusive retained sizes. Drop the input sequence and earlier
-trial roots before post-GC heap measurement. The returned Headers/Source are model
+root. It reports identity-deduplicated logical List/Map value reachability by class and
+source pool counts. It does not traverse wrapper delegates, backing arrays, map
+tables or String bytes; these are NOT physical HPROF union or retained sizes. Use streaming IReduceInit input to avoid retaining a realized lazy-sequence head.
+Drop input and earlier trial roots before post-GC heap measurement. The returned Headers/Source are model
 benchmark roots, not real admitted code receipts. No guest engine/body is built.
 Include the source pool's HashMap tables/entries in retained-memory comparison,
 not only the Header graph union (the pool is deliberately excluded from that union).
