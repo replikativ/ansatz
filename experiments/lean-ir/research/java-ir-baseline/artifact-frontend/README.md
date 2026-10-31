@@ -263,7 +263,8 @@ Guest counter/root stamps detect observer effects; no callback retains, releases
 advances, replies or installs code. The controller owns all borrowed-argument
 retains, original parser-log error calls, reply and cleanup. The provider's private
 GateReceipt is bound to this source/capture/request and cannot be reconstructed
-from public summaries. Close the provider only to drop host metadata; it grants
+from public summaries. Registry values carry a private issuer identity rather
+than their opaque Provider key, avoiding a cross-registry key-retention cycle. Close the provider only to drop host metadata; it grants
 no guest owner retirement or rollback.
 
 The structural policy permits safe standard definition/theorem/axiom roots and

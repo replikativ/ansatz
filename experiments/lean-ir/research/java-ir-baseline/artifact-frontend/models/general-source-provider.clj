@@ -135,7 +135,35 @@
 (deftest unissued-provider-and-gate-data-grant-no-authority
   (doseq [token [nil {} {:approved true} (provider/->Provider) (provider/->GateReceipt)]]
     (is (rejects? #(provider/callbacks token)))
-    (is (rejects? #(provider/close! token)))))
+    (is (rejects? #(provider/close! token))))
+  (let [issuer (Object.) other (Object.) p {:issuer issuer} gate {:issuer issuer}]
+    (is ((seam 'same-issuer?) p gate))
+    (is (not ((seam 'same-issuer?) {:issuer other} gate)))
+    (is (not ((seam 'same-issuer?) p {:issuer other})))
+    (is (not ((seam 'same-issuer?) {} {}))))
+  ;; Registry-only lifetime model, not a genuine source/provider issuance.
+  ;; Even an externally retained provider value holding its GateReceipt must
+  ;; not keep the Provider key alive through the opposite registry's value.
+  (let [table ^java.util.WeakHashMap @(seam 'providers)
+        gate-table ^java.util.WeakHashMap @(seam 'gates)
+        token (provider/->Provider) gate-token (provider/->GateReceipt) issuer (Object.)
+        other-token (provider/->Provider) other-gate (provider/->GateReceipt) other-issuer (Object.)
+        p {:issuer issuer :active (atom {:gate gate-token})} entry {:issuer issuer}
+        other-entry {:issuer other-issuer}]
+    (try
+      (locking table (.put table token p) (.put table other-token {:issuer other-issuer}))
+      (locking gate-table (.put gate-table gate-token entry) (.put gate-table other-gate other-entry))
+      (is (not (contains? entry :provider)))
+      (is ((seam 'same-issuer?) p entry))
+      (provider/close! token)
+      (is (nil? (.get table token)))
+      (is (nil? (.get gate-table gate-token)))
+      (is (identical? other-entry (.get gate-table other-gate)))
+      (is (some? (.get table other-token)))
+      (provider/close! other-token)
+      (is (nil? (.get gate-table other-gate)))
+      (finally (.remove table token) (.remove gate-table gate-token)
+               (.remove table other-token) (.remove gate-table other-gate)))))
 
 (deftest observer-stamp-detects-owner-effects-and-does-not-claim-rollback
   (with-fixture [f (syntax-fixture (node "namespace"))]

@@ -27,6 +27,8 @@
 (defn- registered [table token message]
   (locking table (or (.get ^WeakHashMap table token) (throw (ex-info message {})))))
 (defn- state [token] (registered providers token "Actual open source Provider required"))
+(defn- same-issuer? [p entry]
+  (and (some? (:issuer p)) (identical? (:issuer p) (:issuer entry))))
 (defn- ctor [s x tag n bytes] (#'finite/ctor s x tag n bytes))
 (defn- array-values [s x] (#'finite/array-values s x))
 (defn- frozen [s x] (#'finite/frozen-data s x))
@@ -280,7 +282,7 @@
         base {:frontend s :engine e :source src :code-receipt code :thread (Thread/currentThread)
               :input input :file-map (aget ^objects inf 2) :state-ref (sp/owned s :state-ref)
               :old-owner-key key :old-owner old :options opts :frozen-options (frozen s opts)
-              :capture capture :active (atom nil)}
+              :capture capture :active (atom nil) :issuer (Object.)}
         auth (fn [h] (authenticate! base h))
         header-for (fn [label] ((sp/host-helper "ensure-header!") d (sp/typed-name label)))
         module-proof (#'finite/prove-main-module! s capture auth header-for layout-directory)
@@ -355,14 +357,14 @@
                       _ (need (or (not= :command (:kind policy)) (< (:pos prior) end)) "Nonterminal parser did not advance")
                       _ (when (= :eoi (:kind policy))
                           (need (= end (get-in p [:capture :byte-count])) "eoi is not at captured UTF-8 end"))
-                      token (GateReceipt.) entry {:provider provider :capture capture :request request :arguments args
+                      token (GateReceipt.) entry {:issuer (:issuer p) :capture capture :request request :arguments args
                                                  :policy policy :start (:pos prior) :end end}]
                   (main-module! p (:environment current))
                   (locking gates (.put gates token entry))
                   (reset! (:active p) {:capture capture :stage :gated :gate token}) token))))
           (observed! [p {:keys [engine source result gate-receipt arguments initial-observation final-observation capture]}]
             (let [s (:frontend p) g (registered gates gate-receipt "Actual source GateReceipt required") active @(:active p)]
-              (need (and (identical? provider (:provider g)) (identical? capture (:capture g))
+              (need (and (same-issuer? p g) (identical? capture (:capture g))
                          (identical? gate-receipt (:gate active)) (= :gated (:stage active))
                          (identical? engine (:engine p)) (identical? source (:source p))
                          (every? true? (map identical? (:arguments g) arguments)) (= 5 (count arguments)))
@@ -411,9 +413,9 @@
   "Drop only private host metadata. This does not release any guest occurrence,
    retire a command, close a Source or grant cleanup of an outstanding request."
   [provider]
-  (state provider)
-  (locking gates
-    (let [it (.iterator (.entrySet gates))]
-      (while (.hasNext it)
-        (when (identical? provider (:provider (.getValue ^java.util.Map$Entry (.next it)))) (.remove it)))))
-  (locking providers (.remove providers provider)) nil)
+  (let [p (state provider)]
+    (locking gates
+      (let [it (.iterator (.entrySet gates))]
+        (while (.hasNext it)
+          (when (same-issuer? p (.getValue ^java.util.Map$Entry (.next it))) (.remove it)))))
+    (locking providers (.remove providers provider))) nil)
