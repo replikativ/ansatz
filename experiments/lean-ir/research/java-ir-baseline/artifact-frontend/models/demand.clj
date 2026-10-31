@@ -47,9 +47,8 @@
         (is (thrown-with-msg? Exception #"foreign SourceBinding"
               (demand/ensure-header! bad ["str" ["anonymous"] "demandIdentity"])))
         (is (empty? @(:headers-by-name driver))) (is (empty? @(:requests driver)))))))
-(deftest original-body-services-the-actual-request-in-both-drivers
-  (doseq [explicit [false true]]
-    (fixture explicit
+(deftest original-body-services-the-actual-request-in-explicit-mode
+    (fixture true
       (fn [{:keys [driver row]}]
         (let [header (demand/ensure-header! driver (get row "name"))
               ctx (j/register-headers @(:current-ctx driver) [header]) e (:engine driver)]
@@ -61,6 +60,16 @@
           (let [ready @(:current-ctx driver)]
             (when (= "running" (j/phase ready e)) (j/advance! ready e 100))
             (is (= "complete" (j/phase ready e)))
-            (is (= 42 (j/take-result! ready e)))))))))
+            (is (= 42 (j/take-result! ready e))))))))
+(deftest synchronous-control-rejects-explicit-demand-start-before-execution
+  (fixture false
+    (fn [{:keys [driver row]}]
+      (let [header (demand/ensure-header! driver (get row "name"))
+            ctx (j/register-headers @(:current-ctx driver) [header]) e (:engine driver)]
+        (j/install-program! ctx e) (reset! (:current-ctx driver) ctx)
+        (is (thrown-with-msg? Exception #"Explicit mode required"
+              (j/start! ctx e "demandIdentity" [42])))
+        (is (= "idle" (j/phase ctx e)))
+        (is (empty? @(:requests driver)))))))
 (defn check! [basis]
   (binding [*basis* basis] (run-tests 'ansatz.research.ir.authenticated-demand-checks)))

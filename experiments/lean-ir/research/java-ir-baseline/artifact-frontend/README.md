@@ -78,7 +78,8 @@ The sequential probe preserves its `host-helper` call facade but dispatches only
 to these namespaced functions, with no ambient `user` Vars. Header memo reuse
 checks actual SourceBinding, CAS SHA, typed Name, full immutable raw declaration
 (including extern entries/info) and evidence metadata. Body materialization uses
-the existing actual CodeRequest and engine lineage checks. This is code demand,
+the existing actual CodeRequest and engine lineage checks. CodeRequest pause/resume
+uses explicit mode; synchronous mode rejects this start API. This is code demand,
 not permission to implement an extern or execute a hidden callback.
 
 ## Verification and limits
@@ -87,7 +88,8 @@ Load existing baseline, array and pointer check definitions, then call
 `load-models!`. Each model namespace exposes `check!`; demand and node decoder checks take the
 caller's actual compiled `basis` argument. Decoder checks use the existing
 `fixtures/` directory when run from `experiments/lean-ir`. Model definitions do not execute tests on load.
-They cover actual tiny Header/CodeRequest demand and memo rejection, issuance
+They cover actual tiny explicit-mode Header/CodeRequest demand, synchronous
+start rejection and memo rejection, issuance
 refusals, lifecycle/owner transitions, base/domain/CI identity,
 strict local branch checking and bounded borrowed decoding. Model capability
 stubs grant no real source/Run/Module/Base or guest association authority.
