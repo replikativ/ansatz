@@ -1,0 +1,13 @@
+{
+  "schema": "original-expr-quick-order-native-run/1",
+  "reported-by": "parent integration agent",
+  "lean-version": "4.33.1",
+  "lean-commit": "819816b2e0a3bf405af45ae5c7af2491d8f5bee6",
+  "invocation": "lean --run Oracle.lean",
+  "oracle-sha256": "f8bc21ddb00b9ad624b907b4111e47c3cc88d3d96f7d3e79d05bfba1ec36d98b",
+  "stdout-sha256": "ef1b701924b92a5261f1c0ce0a2c499b05df2210b312b20b9ff70b8cbe7e6a87",
+  "exit-code": 0,
+  "stderr-bytes": 0,
+  "stdout-lines": 25,
+  "scope": "Safe genuine constructors and metadata hash collisions; no AOT, ill-typed projection execution, heartbeat, allocation/RC or JVM control parity claim."
+}
