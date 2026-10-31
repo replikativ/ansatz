@@ -60,18 +60,19 @@
        (reset! (:versions s) [{:id 0 :parent nil}])
        (is (= [] (adapter/complete-command-history! s 0)))
        (is (empty? @(:events s))))))
-(deftest multiple-publications-require-matching-cleanup-replies-and-monotone-parents
+(deftest all-publications-require-full-completion-and-earlier-retained-parents
   (history-model
-    #(let [s (fake-session) request1 {:call {:replyClaimed true}} request2 {:call {:replyClaimed true}}
-           events (vec (for [[id request] [[1 request1] [2 request2]] phase [:cleanup-finished :reply-transferred]]
-                         {:phase phase :version-id id :request request}))]
+    #(let [s (fake-session) request1 {:request-id 1 :call {:replyClaimed true}} request2 {:request-id 2 :call {:replyClaimed true}}
+           events (vec (for [[id parent request] [[1 0 request1] [2 1 request2]]
+                            phase [:checked :published :committed :cleanup-finished :reply-transferred]]
+                         {:phase phase :version-id id :parent-id parent :request request}))]
        (reset! (:versions s) [{:id 0 :parent nil} {:id 1 :parent 0} {:id 2 :parent 1}])
-       (reset! (:events s) events)
+       (reset! (:events s) events) (reset! (:published-count s) 2)
        (is (= [{:id 1 :parent 0} {:id 2 :parent 1}] (adapter/complete-command-history! s 0)))
        (is (= 2 (count (filter (fn [event] (= :reply-finished (:phase event))) @(:events s)))))
        (adapter/complete-command-history! s 0)
-       (is (= 6 (count @(:events s))))
-       (swap! (:versions s) assoc-in [2 :parent] 0)
+       (is (= 12 (count @(:events s))))
+       (swap! (:versions s) assoc-in [2 :parent] 2)
        (is (thrown? Exception (adapter/complete-command-history! s 0)))
        (swap! (:versions s) assoc-in [2 :parent] 1)
        (reset! (:events s) (vec (remove (fn [event] (and (= 2 (:version-id event)) (= :reply-transferred (:phase event)))) events)))
@@ -106,4 +107,24 @@
       (is (thrown? clojure.lang.ExceptionInfo
             (driver/open-general-driver nil nil nil {:max-declarations limit :heartbeat-step! identity}))))
     (is (thrown? clojure.lang.ExceptionInfo (driver/open-general-driver nil nil nil {})))))
+(deftest dag-history-keeps-side-branches-and-uses-a-separate-next-command-watermark
+  (history-model
+    #(let [s (assoc (fake-session) :options {:max-declarations 16})
+           versions [{:id 0 :parent nil} {:id 1 :parent 0} {:id 2 :parent 1}
+                     {:id 3 :parent 1} {:id 4 :parent 1} {:id 5 :parent 2} {:id 6 :parent 3}]
+           requests (into {} (for [i (range 1 7)] [i {:request-id i :call {:replyClaimed true}}]))
+           events (vec (for [entry (rest versions) phase [:checked :published :committed :cleanup-finished :reply-transferred]]
+                         {:version-id (:id entry) :parent-id (:parent entry) :request (get requests (:id entry)) :phase phase}))]
+       (reset! (:versions s) versions) (reset! (:published-count s) 6) (reset! (:events s) events)
+       ;; Prior selected3, old ledger already5; only NEW6 belongs to this interval.
+       (is (= [{:id 6 :parent 3}] (adapter/complete-command-history! s 5 3)))
+       (is (= [0 1 3 6] (adapter/version-ancestry s 6)))
+       (is (= 6 (adapter/publication-watermark s)))
+       ;; Earlier interval validates EVERY sibling branch, regardless of selection.
+       (is (= (mapv (fn [entry] (select-keys entry [:id :parent])) (subvec versions 1))
+              (adapter/complete-command-history! s 0 0)))
+       (is (= 6 (count (filter (fn [event] (= :reply-finished (:phase event))) @(:events s)))))
+       (let [bad (update (first @(:events s)) :parent-id (constantly 5))]
+         (swap! (:events s) assoc 0 bad)
+         (is (thrown? Exception (adapter/complete-command-history! s 0 0)))))))
 (defn check! [] (run-tests 'general-command-foundation-checks-v1))

@@ -21,7 +21,7 @@
     {
       "file": "adapter.clj",
       "base-sha256": "a14d69229e4c52e8e9eec95fe9608f3bb30a7175907f3e356577f4942d795222",
-      "sha256": "20d058b31bf3c9147b3df8cf8badea208d1c95ac3df733ad5fa419234ef4920b"
+      "sha256": "3c248f22ec238f0f191656da9a092e088247a594ab8ea75ab34b9eaac2f6c1dc"
     },
     {
       "file": "generated-command.clj",
@@ -31,12 +31,12 @@
     {
       "file": "loader.clj",
       "base-sha256": "d10ec5d4909c1c45cf205d7e2aa10a4e90d6fa7400c496143374998e6fb6c1e8",
-      "sha256": "3186ff41bf5ce109988c362607427e16dc533e4fd462602d16d09043885f9fa5"
+      "sha256": "a83043e4d8ba4af5cdf49d1c884cbdd23432983525bfcdfa93e4247afc1b2305"
     },
     {
       "file": "verify-source.py",
       "base-sha256": "648d82fc8b482aa674865ef3c341c43213eb2ff467c6850fb8d2b46fac788f4e",
-      "sha256": "5e178be9459ef5f6326e21cbf7fb76f0931c8b8b501e8c3970427ea8d5c65a3d"
+      "sha256": "091789ba7516e1f86dc2b9ab1e6cb468d37b2dced0c67e011ef9c1beaed90648"
     },
     {
       "file": "models/lineage.clj",
@@ -56,7 +56,7 @@
     {
       "file": "general-command.clj",
       "base-sha256": null,
-      "sha256": "19fcc32fd89362a58c6b40217cde623835f91a474959458f2a47f3d712da08e3"
+      "sha256": "2748552479ac7fc488acf828350a6cdc6ed33dcdb2e88f9c9e7b1c056bd738e1"
     },
     {
       "file": "generated-batch.clj",
@@ -71,12 +71,12 @@
     {
       "file": "models/general-foundation.clj",
       "base-sha256": null,
-      "sha256": "b8772362ca9c09ba044809b280a108988e2d5183229518e08c5e96d929d0cb66"
+      "sha256": "8cbceca258fa212aa4f3b06ebec0b4c7088b7f9316cfed5f566ff17240b62985"
     },
     {
       "file": "models/general-command.clj",
       "base-sha256": null,
-      "sha256": "fd25bd68b0c69ba250199b28d57887000ed6f8aa5b8a0ba035299a51811e6605"
+      "sha256": "18572d4322e762eb12b99cef3711b7c67313f5946525afb26e53c121092256af"
     },
     {
       "file": "models/generated-batch.clj",
@@ -91,12 +91,12 @@
     {
       "file": "general-file.clj",
       "base-sha256": null,
-      "sha256": "626daafd689aac9449cdeabfdd8b5ee921873775736a84db061b99b88062620f"
+      "sha256": "2bf07bd77ceaeb27371dbb7019626b63beccd2ff050dce8864e112ace428eda8"
     },
     {
       "file": "models/general-file.clj",
       "base-sha256": null,
-      "sha256": "0f886cdb6ae83a92b9e24ab2793b639abafec7bc0c967bbafec3cf113d6a3c7d"
+      "sha256": "b851e61c2bef392d68c7432ba77959e8572e833dedbd5dda456b9e7211a3097f"
     },
     {
       "file": "composite-base.clj",
@@ -116,18 +116,28 @@
     {
       "file": "source-exchange.clj",
       "base-sha256": null,
-      "sha256": "68358712e8ca4eed9cac2924355477a44b6ff8ef3740ad145bc71e899dc9c026"
+      "sha256": "dd8ee21bd8c26a37d69b2bd8428a956d4b8cb3a5b86363835dd2e64ce27f7d47"
     },
     {
       "file": "models/source-exchange.clj",
       "base-sha256": null,
       "sha256": "8652bfb501a34317f464a509d6904013a76848a319a39e70f74c0ddcfd887b5b"
+    },
+    {
+      "file": "source-data-snapshot.clj",
+      "base-sha256": null,
+      "sha256": "b27b7b51cb16e85ebf361b8324d4f738ba32a545e8c74e138eef2618e1782cb4"
+    },
+    {
+      "file": "models/source-data-snapshot.clj",
+      "base-sha256": null,
+      "sha256": "4dec278ea114436bb8c7d68d3f8c2a8bdbbad0a1e109e5ee351ac7fc9bd90458"
     }
   ],
   "source-inventory": [
     {
       "file": "adapter.clj",
-      "sha256": "20d058b31bf3c9147b3df8cf8badea208d1c95ac3df733ad5fa419234ef4920b"
+      "sha256": "3c248f22ec238f0f191656da9a092e088247a594ab8ea75ab34b9eaac2f6c1dc"
     },
     {
       "file": "authenticated-demand.clj",
@@ -163,11 +173,11 @@
     },
     {
       "file": "general-command.clj",
-      "sha256": "19fcc32fd89362a58c6b40217cde623835f91a474959458f2a47f3d712da08e3"
+      "sha256": "2748552479ac7fc488acf828350a6cdc6ed33dcdb2e88f9c9e7b1c056bd738e1"
     },
     {
       "file": "general-file.clj",
-      "sha256": "626daafd689aac9449cdeabfdd8b5ee921873775736a84db061b99b88062620f"
+      "sha256": "2bf07bd77ceaeb27371dbb7019626b63beccd2ff050dce8864e112ace428eda8"
     },
     {
       "file": "general-source-provider.clj",
@@ -191,7 +201,7 @@
     },
     {
       "file": "loader.clj",
-      "sha256": "3186ff41bf5ce109988c362607427e16dc533e4fd462602d16d09043885f9fa5"
+      "sha256": "a83043e4d8ba4af5cdf49d1c884cbdd23432983525bfcdfa93e4247afc1b2305"
     },
     {
       "file": "models/adapter.clj",
@@ -219,15 +229,15 @@
     },
     {
       "file": "models/general-command.clj",
-      "sha256": "fd25bd68b0c69ba250199b28d57887000ed6f8aa5b8a0ba035299a51811e6605"
+      "sha256": "18572d4322e762eb12b99cef3711b7c67313f5946525afb26e53c121092256af"
     },
     {
       "file": "models/general-file.clj",
-      "sha256": "0f886cdb6ae83a92b9e24ab2793b639abafec7bc0c967bbafec3cf113d6a3c7d"
+      "sha256": "b851e61c2bef392d68c7432ba77959e8572e833dedbd5dda456b9e7211a3097f"
     },
     {
       "file": "models/general-foundation.clj",
-      "sha256": "b8772362ca9c09ba044809b280a108988e2d5183229518e08c5e96d929d0cb66"
+      "sha256": "8cbceca258fa212aa4f3b06ebec0b4c7088b7f9316cfed5f566ff17240b62985"
     },
     {
       "file": "models/general-source-provider.clj",
@@ -258,6 +268,10 @@
       "sha256": "ec40f4510db9d611a6fb98c0a4ce5814d189058b25bcf8834611d0c795a881f8"
     },
     {
+      "file": "models/source-data-snapshot.clj",
+      "sha256": "4dec278ea114436bb8c7d68d3f8c2a8bdbbad0a1e109e5ee351ac7fc9bd90458"
+    },
+    {
       "file": "models/source-exchange.clj",
       "sha256": "8652bfb501a34317f464a509d6904013a76848a319a39e70f74c0ddcfd887b5b"
     },
@@ -278,12 +292,16 @@
       "sha256": "e4b1c1235778bc7221381fe6c959f650ba53086bb0009045b51d98e3259fcf50"
     },
     {
+      "file": "source-data-snapshot.clj",
+      "sha256": "b27b7b51cb16e85ebf361b8324d4f738ba32a545e8c74e138eef2618e1782cb4"
+    },
+    {
       "file": "source-exchange.clj",
-      "sha256": "68358712e8ca4eed9cac2924355477a44b6ff8ef3740ad145bc71e899dc9c026"
+      "sha256": "dd8ee21bd8c26a37d69b2bd8428a956d4b8cb3a5b86363835dd2e64ce27f7d47"
     },
     {
       "file": "verify-source.py",
-      "sha256": "5e178be9459ef5f6326e21cbf7fb76f0931c8b8b501e8c3970427ea8d5c65a3d"
+      "sha256": "091789ba7516e1f86dc2b9ab1e6cb468d37b2dced0c67e011ef9c1beaed90648"
     }
   ],
   "ordered-load-units": [
@@ -432,8 +450,16 @@
       "general-frontend-file-checks-v1"
     ],
     [
+      "source-data-snapshot.clj",
+      "ansatz.research.ir.source-data-snapshot"
+    ],
+    [
       "source-exchange.clj",
       "java-source-module-exchange-v1"
+    ],
+    [
+      "models/source-data-snapshot.clj",
+      "source-data-snapshot-checks-v1"
     ],
     [
       "models/source-exchange.clj",
@@ -447,7 +473,7 @@
     },
     {
       "file": "experiments/lean-ir/research/java-ir-baseline/artifact-frontend/GENERAL_COMMAND_RECEIPTS.md",
-      "sha256": "12b87a3e00c66b4219eeffba8c204db52c3d0d1728c5f552a2cca35491c5effe"
+      "sha256": "6b5db6374aba685ee576eeafef12f90757d49419b72a9a332eb8fb1b7a2e856a"
     },
     {
       "file": "experiments/lean-ir/research/java-ir-baseline/artifact-frontend/general-command-runtime-validation.json",
@@ -491,7 +517,7 @@
     },
     {
       "file": "experiments/lean-ir/research/java-ir-baseline/artifact-frontend/MUTUAL_DECLARATIONS.md",
-      "sha256": "c4e4300d21ecb4785963358daaff8d94472dbb377f530c9f51c171d1ba28531f"
+      "sha256": "28b07dc4db0d1c665775282e6b3f9ae9bb77463fb86bb752a8d866c9cf7af50b"
     },
     {
       "file": "experiments/lean-ir/src/prototype/kernel_bridge.clj",
@@ -523,6 +549,8 @@
     "General FileRun source and nine mocked model families added; no guest acceptance claimed for this checkpoint.",
     "Closed composite dispatcher forwards fixed Prelude operations unchanged; deferred exact source issuers remain a separately reviewed unit. Four routing model families prepared, no worker guest execution.",
     "Original mutual-group projection/check/atomic publication and active M1 opaque gate scope are a source checkpoint; eight model families prepared, actual recursive command acceptance pending.",
-    "Source exchange unit/model are independently integrated leaves, explicitly deferred until runtime-cohort definitions exist; full closure/reconstructed Base issuance is a later separate unit."
+    "Source exchange unit/model are independently integrated leaves, explicitly deferred until runtime-cohort definitions exist; full closure/reconstructed Base issuance is a later separate unit.",
+    "Publication history validates every checked DAG branch in an issuance-watermark interval; the actual observed constant map selects the final retained version, which must preserve the pre-command selected ancestry. Parent JVM compilation and six model suites passed 56 tests / 392 assertions; no worker JVM execution.",
+    "Deferred source-data-snapshot loads before source exchange and rejects non-guest numeric DTO carriers; parent focused snapshot models passed 6 tests / 30 assertions. Reconstruction issuance remains separate."
   ]
 }

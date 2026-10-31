@@ -44,9 +44,11 @@
     ["models/generated-batch.clj" general-generated-batch-models-v1]
     ["models/general-file.clj" general-frontend-file-checks-v1]])
 (def source-module-units
-  '[["source-exchange.clj" java-source-module-exchange-v1]])
+  '[["source-data-snapshot.clj" ansatz.research.ir.source-data-snapshot]
+    ["source-exchange.clj" java-source-module-exchange-v1]])
 (def source-module-models
-  '[["models/source-exchange.clj" source-module-exchange-checks-v1]])
+  '[["models/source-data-snapshot.clj" source-data-snapshot-checks-v1]
+    ["models/source-exchange.clj" source-module-exchange-checks-v1]])
 (defn- load-units! [root entries required]
   (doseq [n required]
     (when-not (find-ns n) (throw (ex-info "Load explicit research prerequisite first" {:namespace n}))))

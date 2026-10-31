@@ -34,13 +34,14 @@
 (defn- model [outcomes f]
   (let [holder (atom {:thread (Thread/currentThread) :status :open :stage :idle :next-command 0
                       :commands [] :entries {} :execution :supported :max-commands 128
-                      :bundle {:frontend {} :admission {:adapter {:versions (atom [:actual-version])}}}})
+                      :bundle {:frontend {} :admission {:adapter {:versions (atom [{:id 0}]) :published-count (atom 0)
+                                                                 :options {:max-declarations 512}}}}})
         observed (atom outcomes) events (atom [])]
     (with-redefs-fn {#'file/cell (fn [_] holder) #'file/live! (fn [h] @h)
                     #'file/context (fn [_] {:program :actual-program})
                     #'options/rebase-idle-deadline identity
                     #'command/open-command! (fn [& _] :actual-run)
-                    #'command/run-command! (fn [_] (let [x (first @observed)] (swap! observed rest) x))
+                    #'command/run-command! (fn [_] (let [x (first @observed)] (swap! observed rest) (if (= :sealed (:status x)) (update x :summary #(assoc % :version 0)) x)))
                     #'batch/prepare-batch! (fn [& _] {:status :empty :row-count 0})
                     #'command/rebase-idle-deadline! (fn [& _] (swap! events conj :rebase))
                     #'command/retire! (fn [_] (swap! events conj :retire))}
@@ -54,7 +55,7 @@
       (is (= [:command :eoi] (mapv #(get-in % [:command :kind]) (:commands @holder))))
       (is (= [:rebase :retire :rebase :retire] @events))
       (is (= :actual-program (:linked-program @holder)))
-      (is (= :actual-version (:checked-version @holder))))))
+      (is (= {:id 0} (:checked-version @holder))))))
 (deftest exit-and-import-are-stops-not-eof
   (doseq [kind [:exit :import]]
     (model [{:status :sealed :receipt :actual :summary {:kind kind :publications []}}]
@@ -88,4 +89,13 @@
         (is (= :command-limit (:stage @holder)))
         (is (nil? (:active @holder)))
         (is (empty? @events))))))
+(deftest eof-keeps-actual-selected-version-even-with-later-retained-side-branches
+  (model [{:status :sealed :receipt :actual :summary {:kind :eoi :publications []}}]
+    (fn [holder _]
+      (let [session (get-in @holder [:bundle :admission :adapter])]
+        (swap! (:versions session) conj {:id 1 :parent 0})
+        (reset! (:published-count session) 1)
+        (is (= :ready (:status (file/load! :modeled))))
+        (is (= {:id 0} (:checked-version @holder)))
+        (is (= 1 (:publication-watermark @holder)))))))
 (defn check! [] (run-tests 'general-frontend-file-checks-v1))

@@ -53,10 +53,21 @@ result before any command. No arbitrary caller map is an association constructor
 The adapter retains the existing checked/published version ledger and appends a
 bounded event journal at actual check, publication, commit, cleanup and reply
 transitions. Count is not reply completion. A successful command requires no
-active request, no pending HostCompletion/HostGuest/action, and an ordered chain
-of fully replied versions. First generic policy requires monotone ancestry and
-final guest map equal to the final replied version, or unchanged version 0 when
-there are zero publications. It does not silently accept abandoned branches.
+active request and no pending HostCompletion/HostGuest/action. Every publication
+in the command's chronological interval must have exactly ordered check,
+publication, commit, cleanup and claimed-reply events. Retained parents form a
+DAG: original compilation legitimately checks speculative sibling branches.
+All branch snapshots and owner anchors remain guarded until explicit retirement.
+
+The controller separately captures the pre-command issuance watermark and the
+version selected by the actual initial guest map. It resolves the final selected
+version by unique actual guest-map identity and the existing kernel/header/import
+witnesses, never by the most recently allocated version. The final selected
+ancestry must preserve the initial selected branch in this bounded profile.
+Receipts record the complete publication interval and selected ancestry. A next
+command starts after the old issuance watermark, so old unselected branches are
+not counted twice. Cleanup, receipt leases, linkage and idle retirement freeze
+that watermark even when the selected map is unchanged.
 
 `general-command/open-command!` creates an opaque controller before actual start.
 `run-command!` captures initial state/IR, invokes only the authenticated observed
@@ -130,7 +141,7 @@ opaque/inductive checking need their own original source/data protocols.
 
 ## Acceptance before generic activation
 
-Models cover base0 failure slots, empty/zero/multiple events, monotone ancestry,
+Models cover base0 failure slots, empty/zero/multiple events, checked publication DAGs,
 parser-log preservation, true eoi versus exit/import, exact gate/source/layout,
 complete old/new IR, arbitrary auxiliary Names, SCC and AP recording, canonical
 Header/dependency identity, unsupported rows/lanes and atomic failed staging.

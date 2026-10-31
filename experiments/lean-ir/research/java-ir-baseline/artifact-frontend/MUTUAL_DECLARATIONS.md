@@ -55,8 +55,12 @@ function-name heuristic or empty token constructor authorizes a group.
 Eight model families exercise actual projection/strict Java group checking,
 invalid groups, original-payload readback, atomic candidate construction and
 mocked scope/lifecycle negatives. These models are not source-parser output,
-native publication or runtime acceptance. A fresh source/engine helper policy
-and actual safe recursive source probe are still required before acceptance.
+native publication or runtime acceptance. Root's retained runtime executed all
+eight models with54 assertions successfully. A genuine recursive source reached
+completed checked publications, then exposed the earlier incorrect linear-history
+assumption; that failed command did not issue a receipt and was not resumed.
+The separate DAG correction validates all branches and selects the actual final
+map. A fresh actual recursive command/file acceptance remains required.
 
 The next distinct families remain separate work: safety-specific single unsafe
 definitions, safe opaques, canonical quotient generation, and complete source

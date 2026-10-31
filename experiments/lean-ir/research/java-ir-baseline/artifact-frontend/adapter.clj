@@ -439,35 +439,59 @@
     ((get-in session [:authority :finish-request!]) (:engine session) (:outer @inv))
     (reset! (:last-request session) (:outer @inv))
     (reset! (:phase session) :replied) (reset! (:invocation session) nil)))
+(defn publication-watermark [session]
+  "Chronological issued-publication cursor, independent of selected guest Env."
+  (let [n @(:published-count session)]
+    (need (and (integer? n) (<= 0 n (get-in session [:options :max-declarations]))
+               (= (inc n) (count @(:versions session)))) "Retained publication ledger/counter differs") n))
+(defn version-ancestry [session selected-id]
+  (let [versions @(:versions session) by-id (into {} (map (juxt :id identity) versions))]
+    (loop [id selected-id out []]
+      (need (and (integer? id) (<= 0 id) (< (count out) (count versions))) "Invalid retained version ancestry")
+      (let [entry (get by-id id)]
+        (need entry "Missing retained version ancestor")
+        (if (zero? id)
+          (do (need (nil? (:parent entry)) "Baseline version has a parent") (vec (reverse (conj out id))))
+          (do (need (and (integer? (:parent entry)) (<= 0 (:parent entry)) (< (:parent entry) id))
+                    "Publication parent is not an earlier retained version")
+              (recur (:parent entry) (conj out id))))))))
 (defn complete-command-history!
-  "Validate one monotone, fully completed root-command interval. This does not
-   infer parse/compiler success or issue a CommandReceipt. No fake requests for
-   zero-publication commands; the genuine retained baseline remains version0."
-  [session prior-id]
+  "Validate EVERY completed publication in a chronological interval, including
+   speculative sibling branches. Selected guest Env is resolved separately from
+   its actual map; no event is discarded or relabeled as selected by this API."
+  ([session watermark] (complete-command-history! session watermark watermark))
+  ([session watermark initial-selected-id]
   (source-live! session) (validate-versions! session)
   (need (and (contains? #{:idle :replied} @(:phase session)) (nil? @(:invocation session))
              (= "idle" (j/phase (:basis session) (:engine session)))
              (nil? (private-value (:engine session) "hostCompletion"))
              (nil? (private-value (:engine session) "hostGuestRecord"))
              (nil? (private-value (:engine session) "runtimeAction"))) "Command still owns pending native completion work")
-  (let [versions @(:versions session)
-        _ (need (some #(= prior-id (:id %)) versions) "Missing retained initial command version")
-        added (vec (filter #(< prior-id (:id %)) versions))]
-    (loop [parent prior-id entries added]
-      (when-let [entry (first entries)]
-        (need (= parent (:parent entry)) "General command publication ancestry is not monotone")
-        (let [events (filter #(= (:id entry) (:version-id %)) @(:events session))
-              reply (filter #(= :reply-transferred (:phase %)) events)
-              cleanup (filter #(= :cleanup-finished (:phase %)) events)]
-          (need (and (= 1 (count reply) (count cleanup))
-                     (identical? (:request (first reply)) (:request (first cleanup)))
-                     (private-value (private-value (:request (first reply)) "call") "replyClaimed"))
-                "Version lacks its actual cleanup/reply completion")
-          (when-not (some #(= :reply-finished (:phase %)) events)
-            (let [inv (atom {:outer (:request (first reply))})]
-              (event! session :reply-finished inv entry))))
-        (recur (:id entry) (next entries))))
-    (mapv #(select-keys % [:id :parent]) added)))
+  (let [versions @(:versions session) end (publication-watermark session)
+        by-id (into {} (map (juxt :id identity) versions))
+        _ (need (= (mapv :id versions) (vec (range (inc end)))) "Publication IDs are not the complete retained ledger")
+        _ (need (and (integer? watermark) (<= 0 watermark end)
+                     (integer? initial-selected-id) (<= 0 initial-selected-id watermark)
+                     (contains? by-id initial-selected-id)) "Missing retained initial command version/watermark")
+        added (vec (filter #(< watermark (:id %)) versions))
+        requests (java.util.IdentityHashMap.)
+        phases [:checked :published :committed :cleanup-finished :reply-transferred]]
+    (doseq [entry versions] (version-ancestry session (:id entry)))
+    (doseq [entry added]
+      (let [events (vec (filter #(= (:id entry) (:version-id %)) @(:events session)))
+            required (filterv #(not= :reply-finished (:phase %)) events)
+            finished (filterv #(= :reply-finished (:phase %)) events)
+            request (:request (first required))]
+        (need (and request (= phases (mapv :phase required)) (<= (count finished) 1)
+                   (= (mapv :phase events) (into phases (repeat (count finished) :reply-finished)))
+                   (every? #(= (:parent entry) (:parent-id %)) events)
+                   (every? #(identical? request (:request %)) events)
+                   (not (.containsKey requests request))
+                   (true? (private-value (private-value request "call") "replyClaimed")))
+              "Version lacks exact checked/published/committed/cleanup/reply completion")
+        (.put requests request true)
+        (when (empty? finished) (event! session :reply-finished (atom {:outer request}) entry))))
+    (mapv #(select-keys % [:id :parent]) added))))
 (defn poll!
   "One nonrecursive adapter transition. Driver owns advance/Code/other Host servicing.
    A failed receipt remains owned and cannot be retried, forked or silently unwound."

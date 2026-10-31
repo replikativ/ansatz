@@ -4,6 +4,7 @@
             [general-command-receipt-v1 :as command]
             [generated-command-receipt-v1 :as finite]
             [artifact-checked-declaration-adapter-v4 :as adapter]
+            [artifact-declaration-authority-v4 :as authority]
             [sequential-frontend-probe :as sp]
             [java-ir-baseline :as j]
             [ansatz.research.ir.node-decoder-v1 :as decoder]))
@@ -42,8 +43,9 @@
 (deftest idle-deadline-allowance-preserves-counters-and-rejects-active-or-failed-custody
   (let [used (atom {:instructions 42 :commands 2}) in-flight (atom nil)
         frontend {:driver {:engine (Object.) :current-ctx (atom {})} :used used :in-flight in-flight :deadline-nanos 1}
-        version (Object.) session {:phase (atom :replied) :invocation (atom nil) :versions (atom [version])}
-        holder (atom {:status :sealed :stage :sealed :operation nil :version version :frontend frontend :strict-driver {:adapter session}})
+        version (Object.) session {:phase (atom :replied) :invocation (atom nil) :versions (atom [version])
+                 :published-count (atom 0) :options {:max-declarations 16}}
+        holder (atom {:status :sealed :stage :sealed :operation nil :version version :publication-watermark 0 :frontend frontend :strict-driver {:adapter session}})
         phase (atom "idle") work (atom nil)]
     (with-redefs-fn {#'command/issued (fn [& _] holder) #'command/live! (fn [h] @h)
                     #'j/phase (fn [& _] @phase) #'command/field (fn [& _] @work)
@@ -78,4 +80,28 @@
   (let [a (Exception. "a") b (Exception. "b")]
     (.initCause a b) (.initCause b a)
     (is (= :cycle (:cause-stop (command/failure-summary a))))))
+(deftest observed-map-selects-a-retained-branch-instead-of-latest-publication
+  (let [maps (repeatedly 4 #(Object.)) metadata (Object.)
+        roots (mapv (fn [m] {:view {:constant-map m :const2mod-map metadata :header-fields [:main :imports :extensions]}}) maps)
+        versions (mapv (fn [id m k] {:id id :parent (when (pos? id) 0)
+                                     :constant-map (object-array [m :association-owned]) :kernel-root (object-array [k :association-owned])})
+                       (range 4) maps roots)
+        session {:versions (atom versions) :published-count (atom 3) :options {:max-declarations 16}}
+        holder (atom {:strict-driver {:adapter session} :frontend {:driver {}}})
+        observation {:environment {:view (assoc (:view (nth roots 2)) :header-fields [:updated-main :imports :extensions])}}]
+    (with-redefs-fn {#'authority/environment-view! (fn [_ _ e] (:view e))
+                    #'authority/kernel-view! (fn [_ _ k] (:view k))}
+      #(do
+         (is (identical? (nth versions 2) (#'command/final-version! holder observation)))
+         (is (thrown? Exception (#'command/final-version! holder
+                                 (assoc-in observation [:environment :view :constant-map] (Object.)))))
+         (is (thrown? Exception (#'command/final-version! holder
+                                 (assoc-in observation [:environment :view :header-fields] [:main :changed :extensions]))))
+         (swap! (:versions session) conj (assoc (nth versions 2) :id 4))
+         (is (thrown? Exception (#'command/final-version! holder observation)))))
+    (reset! (:versions session) versions)
+    (let [state {:version (nth versions 2) :publication-watermark 3}]
+      (is (nil? (#'command/selected-version-live! state session)))
+      (swap! (:versions session) conj {:id 4 :parent 2}) (reset! (:published-count session) 4)
+      (is (thrown? Exception (#'command/selected-version-live! state session))))))
 (defn check! [] (run-tests 'general-command-receipt-checks-v1))
