@@ -29,6 +29,7 @@ public final class Interpreter implements AutoCloseable {
     private static final int LAYOUT_FIELDS=531,LAYOUT_SCALARS=532,LAYOUT_TAG=533,LAYOUT_USIZE=534,U32_LT=535,U64_TO_NAT=536;
     private static final int USIZE_NAT=9,USIZE_REPR=10,U32_NAT=11,U32_EQ=12,U32_LE=13,PLATFORM_BITS=14;
     private static final int FLOAT_LE=543,BYTE_EMPTY=544;
+    private static final int STR_TO_UTF8=553,STR_FROM_UTF8=554,STR_VALIDATE_UTF8=555,BYTE_COPY_SLICE=556;
     private static final int STR_POS_SET=260;
     private static final int VOID_MK=516,LEVEL_INSTANTIATE=517,EXPR_FIND_EXT=519;
     private static final int ARRAY_CHECKED_SET=518,SHARECOMMON_QUICK=520,EXPR_REPLACE=521,EXPR_ABSTRACT_RANGE=522,EXPR_ABSTRACT=523;
@@ -560,6 +561,17 @@ public final class Interpreter implements AutoCloseable {
                 new String[]{"uint64","uint64"},new boolean[]{false,false}));
         register(registry,new ExternSpec("lean_uint64_of_nat_mk",U64_OWNED_NAT,"uint64",
                 new String[]{"tobject"},new boolean[]{false}));
+        register(registry,new ExternSpec("lean_string_to_utf8",STR_TO_UTF8,"object",
+                new String[]{"object"},new boolean[]{false}));
+        register(registry,new ExternSpec("lean_string_to_utf8",STR_TO_UTF8,"object",
+                new String[]{"object"},new boolean[]{true}));
+        register(registry,new ExternSpec("lean_string_from_utf8_unchecked",STR_FROM_UTF8,"object",
+                new String[]{"object","erased"},new boolean[]{false,false}));
+        register(registry,new ExternSpec("lean_string_validate_utf8",STR_VALIDATE_UTF8,"uint8",
+                new String[]{"object"},new boolean[]{true}));
+        register(registry,new ExternSpec("lean_byte_array_copy_slice",BYTE_COPY_SLICE,"object",
+                new String[]{"object","tobject","object","tobject","tobject","uint8"},
+                new boolean[]{true,false,false,false,false,false}));
         register(registry,new ExternSpec("lean_mk_empty_byte_array",BYTE_EMPTY,"object",
                 new String[]{"tobject"},new boolean[]{true}));
         register(registry,new ExternSpec("lean_byte_array_mk",BYTE_MK,"object",
@@ -1162,6 +1174,7 @@ public final class Interpreter implements AutoCloseable {
         final int id, resultType, intrinsic;
         final int[] params, paramTypes;
         final Object privateOwner;
+        final boolean borrowedUtf8;
         final HostExtern hostExtern;
         final Header header;
         Function(String label,int id,int[] params,int[] paramTypes,int resultType,
@@ -1170,6 +1183,12 @@ public final class Interpreter implements AutoCloseable {
         }
         Function(String label,int id,int[] params,int[] paramTypes,int resultType,
                  int intrinsic,HostExtern hostExtern,Object privateOwner,Header header) {
+            this(label,id,params,paramTypes,resultType,intrinsic,hostExtern,privateOwner,header,
+                    intrinsic==STR_TO_UTF8&&header!=null&&header.borrowed[0]);
+        }
+        Function(String label,int id,int[] params,int[] paramTypes,int resultType,
+                 int intrinsic,HostExtern hostExtern,Object privateOwner,Header header,boolean borrowedUtf8) {
+            this.borrowedUtf8=borrowedUtf8;
             this.header=header;
             this.label=label; this.id=id; this.params=params.clone(); this.paramTypes=paramTypes.clone();
             this.resultType=resultType; this.intrinsic=intrinsic;
@@ -6017,7 +6036,7 @@ public final class Interpreter implements AutoCloseable {
                 Function old=(Function)source;
                 if(old.privateOwner!=runtimeIdentity) return old;
                 Function out=new Function(old.label,old.id,old.params,old.paramTypes,
-                        old.resultType,old.intrinsic,old.hostExtern,child.runtimeIdentity);
+                        old.resultType,old.intrinsic,old.hostExtern,child.runtimeIdentity,old.header,old.borrowedUtf8);
                 copies.put(source,out); return out;
             }
             if(source instanceof TaskRecord) {
@@ -6609,7 +6628,8 @@ public final class Interpreter implements AutoCloseable {
                 }
             }
             Function f=new Function(label,Math.addExact(inherited,declarations.size()),parameters,paramTypes,
-                                    resultType,intrinsic,hostExtern,null);
+                                    resultType,intrinsic,hostExtern,null,null,
+                                    intrinsic==STR_TO_UTF8&&Boolean.TRUE.equals(map(list(d.get("xs")).get(0)).get("borrow")));
             byName.put(key,f); labels.put(label,f); declarations.add(r); additions.add(f);
         }
         if(base!=null&&declarations.isEmpty()&&externs.length==0) return base;
@@ -6720,7 +6740,7 @@ public final class Interpreter implements AutoCloseable {
                     case SPROJ: require((b.type==U8||b.type==U16||b.type==U32||b.type==U64||b.type==F64)&&lane(env,e.a)==OBJ,"Scalar projection lane mismatch"); break;
                     case UPROJ: require(b.type==USIZE&&lane(env,e.a)==OBJ,"USize projection lane mismatch"); break;
                     case FAP: requireExecutableAbi(e.target); checkArgs(env,e.args,e.target.paramTypes); require(b.type==e.target.resultType,"Call result lane mismatch"); break;
-                    case PAP: requireExecutableAbi(e.target); require(e.target.intrinsic!=PROFILE_IT,"Borrowed profiling primitive requires an owned guest wrapper"); require(!borrowedTaskPrimitive(e.target.intrinsic),"Borrowed task primitive requires owned closure wrapper"); require(b.type==OBJ&&e.args.length<e.target.params.length,"Invalid partial application"); require(!borrowedArrayPrimitive(e.target.intrinsic),"Borrowed array primitive requires owned closure wrapper"); require(!borrowedIntPrimitive(e.target.intrinsic),"Borrowed Int primitive requires owned closure wrapper"); require(!borrowedStringPositionPrimitive(e.target.intrinsic),"Borrowed String position primitive requires owned closure wrapper"); require(!borrowedStringCompletionPrimitive(e.target.intrinsic),"Borrowed String range primitive requires owned closure wrapper"); require(!borrowedBytePrimitive(e.target.intrinsic),"Borrowed ByteArray primitive requires owned closure wrapper"); require(e.target.intrinsic!=NAME_EQ,"Borrowed Name equality requires an owned guest wrapper"); require(e.target.intrinsic!=EXPR_CACHE,"Borrowed Expr data requires an owned guest wrapper"); require(!borrowedExprEquality(e.target.intrinsic),"Borrowed Expr equality requires an owned guest wrapper"); require(e.target.intrinsic!=LEVEL_EQUAL,"Borrowed Level equality requires an owned guest wrapper"); require(!borrowedExprLooseQuery(e.target.intrinsic),"Borrowed Expr loose search requires an owned guest wrapper"); require(!borrowedExprOrder(e.target.intrinsic),"Borrowed Expr quick ordering requires an owned guest wrapper"); require(!findPrimitive(e.target.intrinsic),"Borrowed Expr.find requires an owned guest wrapper"); require(e.target.intrinsic!=SHARECOMMON_QUICK,"Borrowed ShareCommon requires an owned guest wrapper"); require(e.target.intrinsic!=EXPR_REPLACE,"Borrowed Expr.replace requires an owned guest wrapper"); require(!abstractPrimitive(e.target.intrinsic),"Borrowed Expr abstraction requires an owned guest wrapper"); require(!pureExprTransform(e.target.intrinsic),"Borrowed Expr instantiation/lift requires an owned guest wrapper"); require(e.target.intrinsic!=POINTER_IDENTITY,"Pointer identity requires a certified direct FAP site"); require(!borrowedRefPrimitive(e.target.intrinsic),"Borrowed ref primitive requires owned closure wrapper"); for(int i=0;i<e.target.paramTypes.length;i++) require(e.target.paramTypes[i]==OBJ,"Unboxed partial target unsupported; boxed wrapper required"); for(int a:e.args) require(lane(env,a)==OBJ,"Partial argument must be boxed"); break;
+                    case PAP: requireExecutableAbi(e.target); require(e.target.intrinsic!=PROFILE_IT,"Borrowed profiling primitive requires an owned guest wrapper"); require(!borrowedTaskPrimitive(e.target.intrinsic),"Borrowed task primitive requires owned closure wrapper"); require(b.type==OBJ&&e.args.length<e.target.params.length,"Invalid partial application"); require(!borrowedArrayPrimitive(e.target.intrinsic),"Borrowed array primitive requires owned closure wrapper"); require(!borrowedIntPrimitive(e.target.intrinsic),"Borrowed Int primitive requires owned closure wrapper"); require(!borrowedStringPositionPrimitive(e.target.intrinsic),"Borrowed String position primitive requires owned closure wrapper"); require(!borrowedStringCompletionPrimitive(e.target.intrinsic),"Borrowed String range primitive requires owned closure wrapper"); require(!borrowedBytePrimitive(e.target.intrinsic),"Borrowed ByteArray primitive requires owned closure wrapper"); require(!e.target.borrowedUtf8,"Borrowed UTF8 conversion requires owned closure wrapper"); require(e.target.intrinsic!=NAME_EQ,"Borrowed Name equality requires an owned guest wrapper"); require(e.target.intrinsic!=EXPR_CACHE,"Borrowed Expr data requires an owned guest wrapper"); require(!borrowedExprEquality(e.target.intrinsic),"Borrowed Expr equality requires an owned guest wrapper"); require(e.target.intrinsic!=LEVEL_EQUAL,"Borrowed Level equality requires an owned guest wrapper"); require(!borrowedExprLooseQuery(e.target.intrinsic),"Borrowed Expr loose search requires an owned guest wrapper"); require(!borrowedExprOrder(e.target.intrinsic),"Borrowed Expr quick ordering requires an owned guest wrapper"); require(!findPrimitive(e.target.intrinsic),"Borrowed Expr.find requires an owned guest wrapper"); require(e.target.intrinsic!=SHARECOMMON_QUICK,"Borrowed ShareCommon requires an owned guest wrapper"); require(e.target.intrinsic!=EXPR_REPLACE,"Borrowed Expr.replace requires an owned guest wrapper"); require(!abstractPrimitive(e.target.intrinsic),"Borrowed Expr abstraction requires an owned guest wrapper"); require(!pureExprTransform(e.target.intrinsic),"Borrowed Expr instantiation/lift requires an owned guest wrapper"); require(e.target.intrinsic!=POINTER_IDENTITY,"Pointer identity requires a certified direct FAP site"); require(!borrowedRefPrimitive(e.target.intrinsic),"Borrowed ref primitive requires owned closure wrapper"); for(int i=0;i<e.target.paramTypes.length;i++) require(e.target.paramTypes[i]==OBJ,"Unboxed partial target unsupported; boxed wrapper required"); for(int a:e.args) require(lane(env,a)==OBJ,"Partial argument must be boxed"); break;
                     case AP: require(b.type==OBJ&&lane(env,e.a)==OBJ&&e.args.length>0,"Unsupported closure application"); for(int a:e.args) require(lane(env,a)==OBJ,"Closure argument must be boxed"); break;
                     case BOX: require(b.type==OBJ&&e.b!=OBJ&&lane(env,e.a)==e.b,"Box lane mismatch"); break;
                     case UNBOX: require(b.type!=OBJ&&lane(env,e.a)==OBJ,"Unbox lane mismatch"); break;
@@ -7089,6 +7109,9 @@ public final class Interpreter implements AutoCloseable {
         return value;
     }
     private void intrinsicSlots(Function f,int[] slots) {
+        if(f.intrinsic==BYTE_COPY_SLICE) {
+            byteCopySlice(obj(slots[0]),obj(slots[1]),obj(slots[2]),obj(slots[3]),obj(slots[4]),numbers[bp+slots[5]]); return;
+        }
         if(f.intrinsic==MARK_PERSISTENT) { persistentIntrinsic(obj(slots[0]),obj(slots[1]),obj(slots[2])); return; }
         if(f.intrinsic==VOID_MK) { voidIntrinsic(obj(slots[0]),obj(slots[1])); return; }
         require(f.intrinsic!=TASK_MAP,"Task.map requires its runtime frame");
@@ -7135,6 +7158,9 @@ public final class Interpreter implements AutoCloseable {
         } else scalarIntrinsic(f,a,b);
     }
     private void intrinsicExternal(Function f,Object[] args) {
+        if(f.intrinsic==BYTE_COPY_SLICE) {
+            byteCopySlice(args[0],args[1],args[2],args[3],args[4],inputScalar(args[5],U8)); return;
+        }
         if(f.intrinsic==MARK_PERSISTENT) { persistentIntrinsic(args[0],args[1],args[2]); return; }
         if(f.intrinsic==VOID_MK) { voidIntrinsic(args[0],args[1]); return; }
         require(f.intrinsic!=TASK_MAP,"Task.map requires its runtime frame");
@@ -7597,7 +7623,9 @@ public final class Interpreter implements AutoCloseable {
             default: throw error("Invalid signed Int intrinsic");
         }
     }
-    private static boolean borrowedBytePrimitive(int op) { return op==BYTE_GET||op==BYTE_SIZE||op==BYTE_EMPTY; }
+    private static boolean borrowedBytePrimitive(int op) {
+        return op==BYTE_GET||op==BYTE_SIZE||op==BYTE_EMPTY||op==STR_VALIDATE_UTF8||op==BYTE_COPY_SLICE;
+    }
     private Node byteArray(Object value) {
         Node n=node(value);
         require(isByteArray(n)&&!n.array&&!n.ref&&!n.readyTask&&n.closure==null&&n.tag==248
@@ -7648,6 +7676,93 @@ public final class Interpreter implements AutoCloseable {
         }
         ByteArrayState target=(ByteArrayState)kindMetadata(out);
         out.scalars[target.size++]=(byte)value; stores++; result=out;
+    }
+    /** Pinned runtime/utf8.cpp validator over the live prefix, with no ownership effects. */
+    private static boolean validUtf8(byte[] bytes,int size) {
+        for(int at=0;at<size;) {
+            int c=Byte.toUnsignedInt(bytes[at]);
+            if(c<0x80) { at++; continue; }
+            int length,min,code;
+            if((c&0xe0)==0xc0) { length=2; min=0x80; code=c&0x1f; }
+            else if((c&0xf0)==0xe0) { length=3; min=0x800; code=c&0x0f; }
+            else if((c&0xf8)==0xf0) { length=4; min=0x10000; code=c&7; }
+            else return false;
+            if(length>size-at) return false;
+            for(int i=1;i<length;i++) {
+                int continuation=Byte.toUnsignedInt(bytes[at+i]);
+                if((continuation&0xc0)!=0x80) return false;
+                code=(code<<6)|(continuation&0x3f);
+            }
+            if(code<min||code>0x10ffff||(code>=0xd800&&code<=0xdfff)) return false;
+            at+=length;
+        }
+        return true;
+    }
+    private int utf8Extent(Object value) {
+        String text=text(value); long size=0;
+        for(int i=0;i<text.length();i++) {
+            char ch=text.charAt(i);
+            if(Character.isHighSurrogate(ch)) {
+                require(i+1<text.length()&&Character.isLowSurrogate(text.charAt(i+1)),"Invalid Unicode String"); i++; size+=4;
+            } else {
+                require(!Character.isLowSurrogate(ch),"Invalid Unicode String");
+                size+=ch<0x80?1:ch<0x800?2:3;
+            }
+            require(size<=MAX_BYTE_CAPACITY,"UTF8 conversion outside bounded byte capacity profile");
+        }
+        return (int)size;
+    }
+    private void stringToUtf8(Object value) {
+        int size=utf8Extent(value); byte[] encoded=utf8(value);
+        require(encoded.length==size,"UTF8 encoded extent differs");
+        Node out=newByteArray(size,size);
+        // utf8() may return the immutable String cache; never expose its array.
+        System.arraycopy(encoded,0,out.scalars,0,size); result=out;
+    }
+    private Node validateFromUtf8(Object value,Object proof) {
+        require(ERASED.equals(proof),"String.ofByteArray proof requires erased placeholder");
+        Node bytes=byteArray(value); int size=((ByteArrayState)kindMetadata(bytes)).size;
+        require(validUtf8(bytes.scalars,size),"Malformed unchecked UTF8 String outside JVM Unicode profile");
+        return bytes;
+    }
+    private void stringFromUtf8(Object value,Object proof) {
+        Node bytes=validateFromUtf8(value,proof); int size=((ByteArrayState)kindMetadata(bytes)).size;
+        String out=new String(bytes.scalars,0,size,StandardCharsets.UTF_8);
+        // ByteArray storage has no guest-valued fields/finalizers.
+        releaseQuiet(bytes,1); result=out;
+    }
+    private static BigInteger byteSizeT(Object value) {
+        require(!(value instanceof BigInteger)||value.getClass()==BigInteger.class,"ByteArray size_t requires immutable Nat carrier");
+        BigInteger n=nat(value);
+        require(n.bitLength()<=64,"ByteArray size_t argument outside native unsigned64 profile"); return n;
+    }
+    private void byteCopySlice(Object source,Object sourceOffset,Object destination,Object destinationOffset,Object length,long exact) {
+        Node src=byteArray(source),dest=byteArray(destination);
+        require(exact==0||exact==1,"ByteArray.copySlice exact requires canonical Bool");
+        int sourceSize=((ByteArrayState)kindMetadata(src)).size,destSize=((ByteArrayState)kindMetadata(dest)).size;
+        BigInteger sourceStart=byteSizeT(sourceOffset);
+        // The pinned native returns before converting the other owned Nat arguments.
+        if(sourceStart.compareTo(BigInteger.valueOf(sourceSize))>0) { result=dest; return; }
+        int from=sourceStart.intValue();
+        int count=byteSizeT(length).min(BigInteger.valueOf(sourceSize-from)).intValue();
+        int to=byteSizeT(destinationOffset).min(BigInteger.valueOf(destSize)).intValue();
+        int next=Math.max(destSize,Math.addExact(to,count));
+        int capacity=next<=dest.scalars.length?dest.scalars.length:exact==1?next:Math.multiplyExact(next,2);
+        require(capacity<=MAX_BYTE_CAPACITY,"ByteArray capacity outside bounded runtime profile");
+        boolean copy=!exclusive(dest)||capacity!=dest.scalars.length;
+        if(src==dest&&dest.rc==1) {
+            require(!copy,"One-credit source/destination alias cannot outlive ByteArray copy");
+            require(count==0||to+count<=from||from+count<=to,
+                    "Overlapping exclusive ByteArray memcpy outside native-safe profile");
+        }
+        Node out=dest;
+        if(copy) {
+            out=newByteArray(destSize,capacity);
+            System.arraycopy(dest.scalars,0,out.scalars,0,destSize);
+            releaseQuiet(dest,1);
+        }
+        System.arraycopy(src.scalars,from,out.scalars,to,count);
+        ((ByteArrayState)kindMetadata(out)).size=next; stores++; result=out;
     }
     private String text(Object value) { require(value instanceof String,"Expected immutable String"); return (String)value; }
     private byte[] utf8(Object value) {
@@ -8483,6 +8598,11 @@ public final class Interpreter implements AutoCloseable {
                 &&(state==TASK_MAP_LAYOUT.body||state==TASK_MAP_LAYOUT.body.next),"Invalid private Task.map runtime frame");
     }
     private void runtimeIntrinsic(Function f,Object a,Object b,Object c) {
+        if(f.intrinsic==STR_TO_UTF8) { stringToUtf8(a); return; }
+        if(f.intrinsic==STR_FROM_UTF8) { stringFromUtf8(a,b); return; }
+        if(f.intrinsic==STR_VALIDATE_UTF8) {
+            Node bytes=byteArray(a); scalarResult=validUtf8(bytes.scalars,((ByteArrayState)kindMetadata(bytes)).size)?1:0; return;
+        }
         if(f.intrinsic>=STR_SUBSTRING_EQ&&f.intrinsic<=STR_PUSHN) { stringCompletionIntrinsic(f,a,b,c); return; }
         if(f.intrinsic>=INT_OF_NAT&&f.intrinsic<=INT_LE) { intIntrinsic(f,a,b); return; }
         if(f.intrinsic==NAME_EQ) { scalarResult=nameEquals(a,b)?1:0; return; }
@@ -8869,6 +8989,8 @@ public final class Interpreter implements AutoCloseable {
         if(combined.length>=f.params.length&&called.intrinsic==VOID_MK) validateVoidArguments(combined[0],combined[1]);
         if(combined.length>=f.params.length&&called.intrinsic==ARRAY_CHECKED_SET)
             validateCheckedArraySet(combined.length==f.params.length?combined:Arrays.copyOf(combined,f.params.length));
+        if(combined.length>=f.params.length&&called.intrinsic==STR_TO_UTF8) utf8Extent(combined[0]);
+        if(combined.length>=f.params.length&&called.intrinsic==STR_FROM_UTF8) validateFromUtf8(combined[0],combined[1]);
         // A shared closure keeps ownership of its captured arguments.
         if(!exclusive(closure)) for(Object a:closure.fields) inc(a,1);
         if(exclusive(closure)) { closure.dead=true; Arrays.fill(closure.fields,null); shellDeletes++; }
@@ -8950,6 +9072,9 @@ public final class Interpreter implements AutoCloseable {
     private void acceptsClosure(Node closure) {
         Function function=closure.closure;
         require(function!=null,"Expected closure");
+        require(!function.borrowedUtf8,"Borrowed UTF8 conversion cannot be admitted as a first-class closure");
+        require(function.intrinsic!=STR_VALIDATE_UTF8&&function.intrinsic!=BYTE_COPY_SLICE,
+                "Borrowed UTF8/buffer primitive requires an owned guest wrapper");
         require(!borrowedTaskPrimitive(function.intrinsic),"Borrowed task primitive requires owned guest wrapper");
         require(function.intrinsic!=NAME_EQ,"Borrowed Name equality cannot be admitted as a first-class closure");
         require(function.intrinsic!=EXPR_CACHE,"Borrowed Expr data requires an owned guest wrapper"); require(!borrowedExprEquality(function.intrinsic),"Borrowed Expr equality requires an owned guest wrapper"); require(function.intrinsic!=LEVEL_EQUAL,"Borrowed Level equality requires an owned guest wrapper"); require(!borrowedExprLooseQuery(function.intrinsic),"Borrowed Expr loose search requires an owned guest wrapper"); require(!borrowedExprOrder(function.intrinsic),"Borrowed Expr quick ordering requires an owned guest wrapper"); require(!findPrimitive(function.intrinsic),"Borrowed Expr.find requires an owned guest wrapper"); require(function.intrinsic!=SHARECOMMON_QUICK,"Borrowed ShareCommon requires an owned guest wrapper"); require(function.intrinsic!=EXPR_REPLACE,"Borrowed Expr.replace requires an owned guest wrapper"); require(!abstractPrimitive(function.intrinsic),"Borrowed Expr abstraction requires an owned guest wrapper"); require(!pureExprTransform(function.intrinsic),"Borrowed Expr instantiation/lift requires an owned guest wrapper");
@@ -9089,6 +9214,7 @@ public final class Interpreter implements AutoCloseable {
                 require(target.intrinsic!=PROFILE_IT,"Borrowed profiling primitive requires an owned guest wrapper");
                 require(!borrowedStringCompletionPrimitive(target.intrinsic),"Borrowed String range primitive requires owned closure wrapper");
                 require(!borrowedBytePrimitive(target.intrinsic),"Borrowed ByteArray primitive requires owned closure wrapper");
+                require(!target.borrowedUtf8,"Borrowed UTF8 conversion requires owned closure wrapper");
                 require(target.intrinsic!=NAME_EQ,"Borrowed Name equality requires an owned guest wrapper");
                 require(target.intrinsic!=EXPR_CACHE,"Borrowed Expr data requires an owned guest wrapper"); require(!borrowedExprEquality(target.intrinsic),"Borrowed Expr equality requires an owned guest wrapper"); require(target.intrinsic!=LEVEL_EQUAL,"Borrowed Level equality requires an owned guest wrapper"); require(!borrowedExprLooseQuery(target.intrinsic),"Borrowed Expr loose search requires an owned guest wrapper"); require(!borrowedExprOrder(target.intrinsic),"Borrowed Expr quick ordering requires an owned guest wrapper"); require(!findPrimitive(target.intrinsic),"Borrowed Expr.find requires an owned guest wrapper"); require(target.intrinsic!=SHARECOMMON_QUICK,"Borrowed ShareCommon requires an owned guest wrapper"); require(target.intrinsic!=EXPR_REPLACE,"Borrowed Expr.replace requires an owned guest wrapper"); require(!abstractPrimitive(target.intrinsic),"Borrowed Expr abstraction requires an owned guest wrapper"); require(!pureExprTransform(target.intrinsic),"Borrowed Expr instantiation/lift requires an owned guest wrapper");
                 require(target.intrinsic!=POINTER_IDENTITY,"Pointer identity requires a certified direct FAP site");
@@ -9174,6 +9300,7 @@ public final class Interpreter implements AutoCloseable {
         require(target.intrinsic!=PROFILE_IT,"Borrowed profiling primitive requires an owned guest wrapper");
         require(!borrowedStringCompletionPrimitive(target.intrinsic),"Borrowed String range primitive requires owned closure wrapper");
         require(!borrowedBytePrimitive(target.intrinsic),"Borrowed ByteArray primitive requires owned closure wrapper");
+                require(!target.borrowedUtf8,"Borrowed UTF8 conversion requires owned closure wrapper");
         require(target.intrinsic!=NAME_EQ,"Borrowed Name equality requires an owned guest wrapper");
         require(target.intrinsic!=EXPR_CACHE,"Borrowed Expr data requires an owned guest wrapper"); require(!borrowedExprEquality(target.intrinsic),"Borrowed Expr equality requires an owned guest wrapper"); require(target.intrinsic!=LEVEL_EQUAL,"Borrowed Level equality requires an owned guest wrapper"); require(!borrowedExprLooseQuery(target.intrinsic),"Borrowed Expr loose search requires an owned guest wrapper"); require(!borrowedExprOrder(target.intrinsic),"Borrowed Expr quick ordering requires an owned guest wrapper"); require(!findPrimitive(target.intrinsic),"Borrowed Expr.find requires an owned guest wrapper"); require(target.intrinsic!=SHARECOMMON_QUICK,"Borrowed ShareCommon requires an owned guest wrapper"); require(target.intrinsic!=EXPR_REPLACE,"Borrowed Expr.replace requires an owned guest wrapper"); require(!abstractPrimitive(target.intrinsic),"Borrowed Expr abstraction requires an owned guest wrapper"); require(!pureExprTransform(target.intrinsic),"Borrowed Expr instantiation/lift requires an owned guest wrapper");
         require(target.intrinsic!=POINTER_IDENTITY,"Pointer identity requires a certified direct FAP site");
@@ -9613,6 +9740,8 @@ public final class Interpreter implements AutoCloseable {
         if(buildIdentityPrimitive(function.intrinsic)) requireBuildUnit(args[0]);
         if(layoutPrimitive(function.intrinsic)) requireLayoutUnit(args[0]);
         if(function.intrinsic==BOOL_U64) requireBoolScalar(args[0]);
+        if(function.intrinsic==STR_TO_UTF8) utf8Extent(args[0]);
+        if(function.intrinsic==STR_FROM_UTF8) validateFromUtf8(args[0],args[1]);
         if(function.intrinsic==TASK_MAP&&taskRuntime==null) validateTaskMap(args);
         if(taskRuntime!=null&&function.intrinsic==TASK_PURE) {
             require(ERASED.equals(args[0]),"Task.pure erased placeholder required"); validateHostObject(args[1]);
@@ -9725,6 +9854,8 @@ public final class Interpreter implements AutoCloseable {
             else if(actionPrimitive(f)) validateNative(f,actual);
             else if(f.intrinsic==TASK_GET||f.intrinsic==TASK_PURE) validateEntryArguments(f,actual,true);
         }
+        if(combined.length>=f.params.length&&called.intrinsic==STR_TO_UTF8) utf8Extent(combined[0]);
+        if(combined.length>=f.params.length&&called.intrinsic==STR_FROM_UTF8) validateFromUtf8(combined[0],combined[1]);
         if(taskRuntime!=null) {
             applicationArgs=combined; applicationCaptureCount=closure.fields.length;
             applicationRetainedCaptures=0; applicationArgumentsOwned=false;
@@ -9918,6 +10049,7 @@ public final class Interpreter implements AutoCloseable {
         return op==PROMISE_RESOLVE||op==PROMISE_RESULT||op==TASK_STATE||op==TASK_CANCEL;
     }
     private static void rootEntry(Function f) {
+        require(!f.borrowedUtf8,"Borrowed UTF8 conversion requires owned guest wrapper at external entry");
         require(f.intrinsic!=PROFILE_IT,"Borrowed profiling primitive requires an owned guest wrapper");
         require(!borrowedTaskPrimitive(f.intrinsic),"Borrowed task primitive requires owned guest wrapper");
         if(borrowedStringPositionPrimitive(f.intrinsic))
