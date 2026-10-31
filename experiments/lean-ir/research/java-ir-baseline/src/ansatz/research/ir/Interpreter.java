@@ -1403,7 +1403,7 @@ public final class Interpreter implements AutoCloseable {
         return preflightCallable(f,true);
     }
     private static final int EXPR_LIFT_JOB=0,EXPR_SUBST_JOB=1,EXPR_BETA_JOB=2;
-    private static final int MAX_EXPR_JOB_WORK=1_000_000,MAX_EXPR_JOB_FRAMES=100_000,MAX_EXPR_JOB_CACHE=100_000,MAX_EXPR_JOB_OFFSET=1_048_575;
+    private static final int MAX_EXPR_JOB_FRAMES=100_000,MAX_EXPR_JOB_CACHE=100_000,MAX_EXPR_JOB_OFFSET=1_048_575;
     private static final boolean EXPR_MACHINERY_READY=true;
     private static final class ExprCredit {
         Object value; boolean owned;
@@ -1439,11 +1439,20 @@ public final class Interpreter implements AutoCloseable {
         int role,expectedTag,expectedFlag; boolean started,entered;
         ExprReplaceFrame replaceFrame; BetaJob beta;
     }
+    private static final int MAX_INSTANTIATION_WORK=1_000_000;
+    private static final class InstantiationBudget { long work; }
+    private static final class MVarContextCell { LevelCredit current; }
+    private void instantiationWork(InstantiationBudget budget,long amount,String bound,String interrupted) {
+        require(budget!=null,"Missing instantiation budget");
+        require(amount>=0&&amount<=MAX_INSTANTIATION_WORK-budget.work,bound);
+        long before=budget.work; budget.work+=amount;
+        if((before>>>10)!=(budget.work>>>10)&&Thread.currentThread().isInterrupted()) throw error(interrupted);
+    }
     private static final class ExprMachineryState {
         ExprConstructorPolicy policy;
         final ArrayDeque<ExprJob> jobs=new ArrayDeque<>();
         ExprCredit input,result,retiring; final ArrayList<ExprCredit> arguments=new ArrayList<>();
-        ExprPacket call; long work; int stage,cleanup,liveFrames,liveCacheEntries;
+        ExprPacket call; InstantiationBudget budget; int stage,cleanup,liveFrames,liveCacheEntries;
     }
     /** Deliberately private reflection-only research orchestrator. This is not
      * a Lean native, source capability, generic invoke or public VM entry API. */
@@ -1467,7 +1476,7 @@ public final class Interpreter implements AutoCloseable {
         for(Object value:reverseArgs) owners.merge(exprNode(value),1,Integer::sum);
         for(Map.Entry<Node,Integer> item:owners.entrySet()) require(item.getKey().rc==0||item.getKey().rc>=item.getValue(),"Private Expr input alias credits differ");
         RuntimeAction action=newAction(ACTION_EXPR_MACHINERY,null,null,0,ROOT,null);
-        ExprMachineryState state=new ExprMachineryState(); state.policy=policy;
+        ExprMachineryState state=new ExprMachineryState(); state.policy=policy; state.budget=new InstantiationBudget();
         state.input=new ExprCredit(input,true);
         for(Object value:reverseArgs) state.arguments.add(new ExprCredit(value,true));
         action.exprMachinery=state; publishAction(action); objects[action.slot]=null;
@@ -1479,9 +1488,7 @@ public final class Interpreter implements AutoCloseable {
         } else pushReplaceJob(state,mode,input,(int)cutoff,(int)amount,reverseArgs.clone());
     }
     private void exprJobWork(ExprMachineryState state,long amount) {
-        require(amount>=0&&amount<=MAX_EXPR_JOB_WORK-state.work,"Expr machinery work outside bounded profile");
-        long before=state.work; state.work+=amount;
-        if((before>>>10)!=(state.work>>>10)&&Thread.currentThread().isInterrupted()) throw error("Expr machinery interrupted");
+        instantiationWork(state.budget,amount,"Expr machinery work outside bounded profile","Expr machinery interrupted");
     }
     private static final int XR_ENTER=0,XR_CHILDREN=1,XR_LIFT_WAIT=2,XR_BUILD=3,XR_HELPER=4,XR_FINISH=5,XR_CLEAN=6;
     private static int exprChildCount(int tag) {
@@ -1916,7 +1923,7 @@ public final class Interpreter implements AutoCloseable {
     private HostGuestRecord hostGuestRecord;
     private HostCall hostCompletion;
     private RuntimeAction runtimeAction,failedRuntimeAction;
-    private static final int ACTION_RELEASE=1,ACTION_DISPOSE=2,ACTION_NATIVE=3,ACTION_HOST=4,ACTION_TASK=5,ACTION_RESOLVE=6,ACTION_RUN_TASK=7,ACTION_PROFILE=8,ACTION_FIND=9,ACTION_LEVEL_MVARS=10,ACTION_EXPR_MACHINERY=11,ACTION_HOST_GUEST=20;
+    private static final int ACTION_RELEASE=1,ACTION_DISPOSE=2,ACTION_NATIVE=3,ACTION_HOST=4,ACTION_TASK=5,ACTION_RESOLVE=6,ACTION_RUN_TASK=7,ACTION_PROFILE=8,ACTION_FIND=9,ACTION_LEVEL_MVARS=10,ACTION_EXPR_MACHINERY=11,ACTION_MVAR_SESSION_RESEARCH=12,ACTION_HOST_GUEST=20;
     private static final Body ACTION_BODY=new Body();
     /** Typed ownership/control state, separate from NodeMetadata. The output
      * scratch slot is reserved before callbacks may enter generic AP. */
@@ -1926,6 +1933,7 @@ public final class Interpreter implements AutoCloseable {
         FindState find;
         LevelInstantiationState levelMvars;
         ExprMachineryState exprMachinery;
+        MVarSessionResearchState mvarSessionResearch;
         int operation,stage,savedSp,slot,dest,kind,cursor,limit,pending;
         Function function;
         Body next;
@@ -2217,8 +2225,10 @@ public final class Interpreter implements AutoCloseable {
         action.arguments=args;
         if(function.intrinsic==LEVEL_INSTANTIATE) {
             LevelInstantiationState state=new LevelInstantiationState();
-            state.context=new LevelCredit(args[0],true); state.input=new LevelCredit(args[1],true);
-            state.frames.addLast(new LevelFrame(args[1])); action.levelMvars=state; objects[action.slot]=null;
+            MVarContextCell cell=new MVarContextCell(); cell.current=new LevelCredit(args[0],true);
+            state.session=newLevelSession(cell,new InstantiationBudget(),levelInstantiationPolicy);
+            state.input=new LevelCredit(args[1],true); action.levelMvars=state;
+            startLevelJob(state.session,args[1]); objects[action.slot]=null;
         }
         if(findPrimitive(function.intrinsic)) {
             FindState state=new FindState(); state.predicate=(Node)args[0]; state.root=(Node)args[1];
@@ -2243,7 +2253,7 @@ public final class Interpreter implements AutoCloseable {
         int stage;
         boolean predicateCredit,currentCredit,callbackStarted,receiverOwned,foundOwned;
     }
-    private static final int MAX_LEVEL_INSTANTIATION_WORK=1_000_000,MAX_LEVEL_INSTANTIATION_FRAMES=100_000,
+    private static final int MAX_LEVEL_INSTANTIATION_FRAMES=100_000,
             MAX_LEVEL_INSTANTIATION_CACHE=100_000,MAX_LEVEL_INSTANTIATION_SAVED=100_000;
     /** Exactly one control-owned occurrence when owned=true; other references
      * to this credit object are aliases. Never stored in guest Node metadata. */
@@ -2264,16 +2274,26 @@ public final class Interpreter implements AutoCloseable {
         boolean entryStarted,entered;
         LevelFrame frame;
     }
-    private static final class LevelInstantiationState {
-        LevelCredit context,input,result,pair,retiring;
+    private static final int LS_IDLE=0,LS_RUNNING=1,LS_RESULT=2,LS_SEALED=3,LS_DRAINING=4,LS_DRAINED=5;
+    /** Borrowed input/key lifetimes extend through seal; only values/saved
+     * assignments own. The context cell is shared, never a second owner. */
+    private static final class LevelSession {
+        MVarContextCell context;
+        InstantiationBudget budget;
+        LevelInstantiationPolicy policy;
         final ArrayDeque<LevelFrame> frames=new ArrayDeque<>();
         final IdentityHashMap<Node,LevelCredit> cache=new IdentityHashMap<>();
-        // cacheValues is an index of the SAME credit objects held by cache.
+        // cacheValues indexes the SAME owned credit objects as cache.
         final ArrayList<LevelCredit> cacheValues=new ArrayList<>(),saved=new ArrayList<>();
         final IdentityHashMap<Node,Boolean> active=new IdentityHashMap<>();
         LevelPacket call;
-        long work;
-        int stage,cleanup,pairFields;
+        LevelCredit result,retiring;
+        int phase,drainStage,drainCursor;
+    }
+    private static final class LevelInstantiationState {
+        LevelSession session;
+        LevelCredit input,result,pair;
+        int stage,pairFields;
     }
     /** Both helper entry commit points call this AFTER publication and BEFORE
      * tick/guest work. Until then the native packet remains the owner escrow. */
@@ -2288,33 +2308,32 @@ public final class Interpreter implements AutoCloseable {
     }
     private void levelHelperEntry(Function function,Object[] arguments) {
         RuntimeAction action=runtimeAction;
-        if(action==null||action.levelMvars==null) return;
-        LevelPacket packet=action.levelMvars.call;
+        LevelSession session=currentLevelSession(action);
+        if(session==null) return;
+        LevelPacket packet=session.call;
         if(packet==null||packet.entered||packet.function!=function||packet.arguments!=arguments) return;
         require(packet.entryStarted,"Level helper entered before packet publication");
         packet.entered=true; Arrays.fill(packet.owned,false);
     }
     private static final int LF_ENTER=0,LF_LEFT=1,LF_RIGHT=2,LF_GET=3,LF_ASSIGN=4,LF_ASSIGNED=5,LF_SET=6,LF_BUILD=7,LF_FINISH=8,LF_CLEAN=9;
-    private void levelWork(LevelInstantiationState state,long amount) {
-        require(amount>=0&&amount<=MAX_LEVEL_INSTANTIATION_WORK-state.work,"Level instantiation work outside bounded runtime profile");
-        long before=state.work; state.work+=amount;
-        if((before>>>10)!=(state.work>>>10)&&Thread.currentThread().isInterrupted()) throw error("Level instantiation interrupted");
+    private void levelWork(LevelSession state,long amount) {
+        instantiationWork(state.budget,amount,"Level instantiation work outside bounded runtime profile","Level instantiation interrupted");
     }
     private static boolean sameLevel(Object a,Object b) {
         return a==b||a instanceof Long&&b instanceof Long&&((Long)a)==0&&((Long)b)==0;
     }
     private long levelWord(Object value) { Node node=levelNode(value); return node==null?2221:readScalar(node,0,U64); }
     private boolean levelHasMVar(Object value) { return (levelWord(value)&(1L<<32))!=0; }
-    private boolean instantiatedLevelEqual(LevelInstantiationState state,Object left,Object right) {
-        ExprEquality comparison=new ExprEquality(false); comparison.work=state.work;
+    private boolean instantiatedLevelEqual(LevelSession state,Object left,Object right) {
+        ExprEquality comparison=new ExprEquality(false); comparison.work=state.budget.work;
         try { return comparison.applyLevel(left,right); }
-        finally { state.work=comparison.work; }
+        finally { state.budget.work=comparison.work; }
     }
     private static final class LevelOffset {
         final Object base; final int offset;
         LevelOffset(Object base,int offset) { this.base=base; this.offset=offset; }
     }
-    private LevelOffset levelOffset(LevelInstantiationState state,Object value) {
+    private LevelOffset levelOffset(LevelSession state,Object value) {
         IdentityHashMap<Node,Boolean> seen=new IdentityHashMap<>(); int offset=0;
         while(true) {
             levelWork(state,1); Node node=levelNode(value);
@@ -2323,7 +2342,7 @@ public final class Interpreter implements AutoCloseable {
             seen.put(node,Boolean.TRUE); value=node.fields[0]; offset++;
         }
     }
-    private boolean levelNotZero(LevelInstantiationState state,Object value) {
+    private boolean levelNotZero(LevelSession state,Object value) {
         ArrayDeque<Object[]> todo=new ArrayDeque<>(); IdentityHashMap<Node,Boolean> seen=new IdentityHashMap<>();
         todo.push(new Object[]{value,Boolean.FALSE});
         while(!todo.isEmpty()) {
@@ -2343,13 +2362,13 @@ public final class Interpreter implements AutoCloseable {
         }
         return false;
     }
-    private boolean levelOne(LevelInstantiationState state,Object value) {
+    private boolean levelOne(LevelSession state,Object value) {
         levelWork(state,1); Node node=levelNode(value);
         return node!=null&&node.tag==1&&sameLevel(node.fields[0],ERASED)
                 &&(int)readScalar(node,0,U64)==(int)mixHash(2243,2221)&&(readScalar(node,0,U64)>>>40)==1;
     }
     /** Null means call the raw constructor. Every nonnull selection is borrowed. */
-    private Object smartLevelMax(LevelInstantiationState state,Object left,Object right) {
+    private Object smartLevelMax(LevelSession state,Object left,Object right) {
         LevelOffset x=levelOffset(state,left),y=null;
         if(sameLevel(x.base,ERASED)) {
             y=levelOffset(state,right);
@@ -2368,20 +2387,20 @@ public final class Interpreter implements AutoCloseable {
         }
         return null;
     }
-    private Object smartLevelIMax(LevelInstantiationState state,Object left,Object right,boolean nonzero) {
+    private Object smartLevelIMax(LevelSession state,Object left,Object right,boolean nonzero) {
         if(nonzero) return smartLevelMax(state,left,right);
         if(sameLevel(right,ERASED)||sameLevel(left,ERASED)||levelOne(state,left)) return right;
         if(instantiatedLevelEqual(state,left,right)) return left;
         return null;
     }
-    private LevelCredit retainedLevel(LevelInstantiationState state,Object value) {
+    private LevelCredit retainedLevel(LevelSession state,Object value) {
         levelWork(state,1); LevelCredit credit=new LevelCredit(value,false);
         // Caller must publish the credit BEFORE invoking inc; this routine is
         // used only where the resulting credit is immediately stored below.
         return credit;
     }
     private void ownLevelCredit(LevelCredit credit) { inc(credit.value,1); credit.owned=true; }
-    private void pushLevelFrame(LevelInstantiationState state,Object original) {
+    private void pushLevelFrame(LevelSession state,Object original) {
         require(state.frames.size()<MAX_LEVEL_INSTANTIATION_FRAMES,"Level instantiation frame limit");
         state.frames.addLast(new LevelFrame(original));
     }
@@ -2402,16 +2421,16 @@ public final class Interpreter implements AutoCloseable {
         for(Map.Entry<Node,Integer> item:credits.entrySet())
             require(item.getKey().rc==0||item.getKey().rc>=item.getValue(),"Insufficient Level helper packet alias credits");
     }
-    private void callLevelHelper(RuntimeAction action,LevelInstantiationState state,LevelFrame frame,int role) {
+    private void callLevelHelper(RuntimeAction action,LevelSession state,LevelFrame frame,int role) {
         levelWork(state,1); require(state.call==null&&objects[action.slot]==null,"Level helper receiver already occupied");
-        Function helper=levelInstantiationHelper(levelInstantiationPolicy,role);
+        Function helper=levelInstantiationHelper(state.policy,role);
         int arity=role==0||role>=3?2:role==1?3:1;
         LevelPacket packet=new LevelPacket(); packet.function=helper; packet.role=role; packet.frame=frame;
         packet.arguments=new Object[arity]; packet.owned=new boolean[arity]; state.call=packet;
         if(role==0||role==1) {
-            require(state.context!=null&&state.context.owned,"Level helper lacks current context owner");
-            packet.arguments[0]=state.context.value;
-            if(role==1) { packet.owned[0]=true; state.context.owned=false; state.context=null; }
+            require(state.context.current!=null&&state.context.current.owned,"Level helper lacks current context owner");
+            packet.arguments[0]=state.context.current.value;
+            if(role==1) { packet.owned[0]=true; state.context.current.owned=false; state.context.current=null; }
             else { inc(packet.arguments[0],1); packet.owned[0]=true; }
             nameNode(frame.name); packet.arguments[1]=frame.name; inc(frame.name,1); packet.owned[1]=true;
             if(role==1) { packet.arguments[2]=frame.result.value; inc(packet.arguments[2],1); packet.owned[2]=true; }
@@ -2423,7 +2442,7 @@ public final class Interpreter implements AutoCloseable {
         enterExplicit(helper,null,packet.arguments,ACTION_BODY,action.slot,ASSIGN,null);
         require(packet.entered,"Level helper did not publish a frame or CodeRequest");
     }
-    private void receiveLevelHelper(RuntimeAction action,LevelInstantiationState state) {
+    private void receiveLevelHelper(RuntimeAction action,LevelSession state) {
         LevelPacket packet=state.call; require(packet.entered,"Level helper has not committed entry");
         Object value=objects[action.slot]; LevelFrame frame=packet.frame;
         // The existing receiver slot owns VALUE already, even before any local
@@ -2444,8 +2463,8 @@ public final class Interpreter implements AutoCloseable {
                 else { frame.stage=LF_ASSIGN; pushLevelFrame(state,assigned); }
             }
         } else if(packet.role==1) {
-            validateHostObject(value); require(state.context==null,"Level setter would replace a live context owner");
-            state.context=new LevelCredit(value,true); objects[action.slot]=null; state.call=null; frame.stage=LF_FINISH;
+            validateHostObject(value); require(state.context.current==null,"Level setter would replace a live context owner");
+            state.context.current=new LevelCredit(value,true); objects[action.slot]=null; state.call=null; frame.stage=LF_FINISH;
         } else {
             Node level=levelNode(value); int tag=packet.role==2?1:packet.role==3?2:3;
             require(level!=null&&level.tag==tag&&sameLevel(level.fields[0],packet.arguments[0])
@@ -2453,7 +2472,7 @@ public final class Interpreter implements AutoCloseable {
             frame.result=new LevelCredit(value,true); objects[action.slot]=null; state.call=null; frame.stage=LF_FINISH;
         }
     }
-    private boolean releaseLevelCredit(RuntimeAction action,LevelInstantiationState state,LevelCredit credit) {
+    private boolean releaseLevelCredit(RuntimeAction action,LevelSession state,LevelCredit credit) {
         if(credit==null||!credit.owned) return false;
         state.retiring=credit; action.retiring=credit.value; action.releaseClaimed=false;
         boolean dispatch;
@@ -2462,27 +2481,27 @@ public final class Interpreter implements AutoCloseable {
         if(!dispatch) { state.retiring=null; action.retiring=null; action.releaseClaimed=false; }
         return dispatch;
     }
-    private void completeLevelFrame(LevelInstantiationState state,LevelFrame frame) {
+    private void completeLevelFrame(LevelSession state,LevelFrame frame) {
         require(frame.result!=null&&frame.result.owned,"Level frame has no owned result");
         if(frame.active) state.active.remove((Node)frame.original);
         require(state.frames.removeLast()==frame,"Level frame stack differs");
         LevelCredit result=frame.result; frame.result=null;
         frame.original=null; frame.name=null; frame.left=null; frame.right=null; frame.assignment=null; frame.option=null;
-        if(state.frames.isEmpty()) { state.result=result; state.stage=1; return; }
+        if(state.frames.isEmpty()) { state.result=result; state.phase=LS_RESULT; return; }
         LevelFrame parent=state.frames.peekLast();
         if(parent.stage==LF_LEFT) parent.left=result;
         else if(parent.stage==LF_RIGHT) parent.right=result;
         else if(parent.stage==LF_ASSIGN) { parent.result=result; parent.stage=LF_ASSIGNED; }
         else throw error("Level instantiation child continuation differs");
     }
-    private void stepLevelInstantiation(RuntimeAction action) {
-        LevelInstantiationState state=action.levelMvars; require(state!=null,"Missing Level instantiation state"); levelWork(state,1);
+    private void stepLevelJob(RuntimeAction action,LevelSession state) {
+        require(state.phase==LS_RUNNING,"Level session has no running job"); levelWork(state,1);
         if(state.retiring!=null) {
             require(!state.retiring.owned,"Level cleanup returned without claiming retiring owner");
             state.retiring=null; action.retiring=null; action.releaseClaimed=false;
         }
         if(state.call!=null) { receiveLevelHelper(action,state); return; }
-        if(state.stage==0) {
+        {
             LevelFrame frame=state.frames.peekLast(); require(frame!=null,"Missing Level traversal frame");
             if(frame.stage==LF_ENTER) {
                 Node node=levelNode(frame.original); frame.tag=node==null?0:node.tag;
@@ -2548,28 +2567,187 @@ public final class Interpreter implements AutoCloseable {
             }
             throw error("Level instantiation helper continuation did not return");
         }
+    }
+    private LevelSession newLevelSession(MVarContextCell context,InstantiationBudget budget,LevelInstantiationPolicy policy) {
+        require(context!=null&&context.current!=null&&context.current.owned&&budget!=null&&policy!=null,"Level session requires current context owner, budget and policy");
+        for(int role=0;role<5;role++) levelInstantiationHelper(policy,role);
+        LevelSession session=new LevelSession(); session.context=context; session.budget=budget; session.policy=policy; return session;
+    }
+    private LevelSession currentLevelSession(RuntimeAction action) {
+        return action==null?null:action.levelMvars!=null?action.levelMvars.session:
+                action.mvarSessionResearch!=null?action.mvarSessionResearch.session:null;
+    }
+    /** Caller anchors all original cache keys through seal. No input retain. */
+    private void startLevelJob(LevelSession session,Object borrowedInput) {
+        require(session.phase==LS_IDLE&&session.result==null&&session.call==null&&session.retiring==null
+                &&session.frames.isEmpty()&&session.active.isEmpty(),"Level session is not idle for a new job");
+        require(session.context.current!=null&&session.context.current.owned,"Level session context owner is absent");
+        levelNode(borrowedInput);
+        for(int role=0;role<5;role++) levelInstantiationHelper(session.policy,role);
+        pushLevelFrame(session,borrowedInput); session.phase=LS_RUNNING;
+    }
+    private LevelCredit takeLevelJobResult(LevelSession session) {
+        require(session.phase==LS_RESULT&&session.result!=null&&session.result.owned&&session.call==null&&session.retiring==null
+                &&session.frames.isEmpty()&&session.active.isEmpty(),"Level session has no completed owned result");
+        LevelCredit result=session.result; session.result=null; session.phase=LS_IDLE; return result;
+    }
+    private void sealLevelSession(LevelSession session) {
+        require(session.phase==LS_IDLE&&session.result==null&&session.call==null&&session.retiring==null
+                &&session.frames.isEmpty()&&session.active.isEmpty(),"Level session must be idle with result taken before seal");
+        session.cache.clear(); session.active.clear(); session.phase=LS_SEALED;
+    }
+    private void resumeLevelRetiring(RuntimeAction action,LevelSession session) {
+        if(session.retiring!=null) {
+            require(!session.retiring.owned,"Level cleanup returned without claiming retiring owner");
+            session.retiring=null; action.retiring=null; action.releaseClaimed=false;
+        }
+    }
+    /** Drain only this worker's saved/cache owners; never consume its shared cell. */
+    private void stepLevelSessionDrain(RuntimeAction action,LevelSession session) {
+        require(session.phase==LS_SEALED||session.phase==LS_DRAINING,"Level session is not sealed for drain");
+        levelWork(session,1); resumeLevelRetiring(action,session);
+        session.phase=LS_DRAINING;
+        if(session.drainStage==0) {
+            if(session.drainCursor<session.saved.size()) {
+                LevelCredit credit=session.saved.get(session.saved.size()-1-session.drainCursor++);
+                releaseLevelCredit(action,session,credit); return;
+            }
+            session.drainStage=1; session.drainCursor=0;
+        }
+        if(session.drainStage==1) {
+            if(session.drainCursor<session.cacheValues.size()) {
+                LevelCredit credit=session.cacheValues.get(session.cacheValues.size()-1-session.drainCursor++);
+                releaseLevelCredit(action,session,credit); return;
+            }
+            session.drainStage=2;
+        }
+        require(session.retiring==null&&session.cache.isEmpty()&&session.active.isEmpty(),"Level session drain retains a pending cursor");
+        session.saved.clear(); session.cacheValues.clear(); session.phase=LS_DRAINED;
+    }
+    private void stepLevelInstantiation(RuntimeAction action) {
+        LevelInstantiationState state=action.levelMvars; require(state!=null,"Missing Level instantiation state");
+        LevelSession session=state.session;
+        if(state.stage==0) {
+            stepLevelJob(action,session);
+            if(session.phase==LS_RESULT) { state.result=takeLevelJobResult(session); state.stage=1; }
+            return;
+        }
+        if(state.stage==3||state.stage==4) {
+            stepLevelSessionDrain(action,session);
+            state.stage=session.phase==LS_DRAINED?5:session.drainStage==0?3:4;
+            if(state.stage!=5) return;
+        } else { levelWork(session,1); resumeLevelRetiring(action,session); }
         if(state.stage==1) {
-            require(state.context!=null&&state.context.owned&&state.result!=null&&state.result.owned,"Level result/context owners missing");
+            require(session.context.current!=null&&session.context.current.owned&&state.result!=null&&state.result.owned,"Level result/context owners missing");
             Node pair=new Node(0,2,0); state.pair=new LevelCredit(pair,true); allocations++;
-            pair.fields[0]=state.context.value; state.context.owned=false; state.pairFields=1;
+            pair.fields[0]=session.context.current.value; session.context.current.owned=false; session.context.current=null; state.pairFields=1;
             pair.fields[1]=state.result.value; state.result.owned=false; state.pairFields=2;
-            // Forget all borrowed cache/active keys while their backing owners
-            // still live. Cleanup later visits only owned credit occurrences.
-            state.cache.clear(); state.active.clear(); state.stage=2; return;
+            // No pause/tick/helper can observe a restartable session after ctx transfer.
+            sealLevelSession(session); state.stage=2; return;
         }
-        if(state.stage==2) { state.stage=3; state.cleanup=0; releaseLevelCredit(action,state,state.input); return; }
-        if(state.stage==3) {
-            if(state.cleanup<state.saved.size()) { LevelCredit credit=state.saved.get(state.saved.size()-1-state.cleanup++); releaseLevelCredit(action,state,credit); return; }
-            state.stage=4; state.cleanup=0;
-        }
-        if(state.stage==4) {
-            if(state.cleanup<state.cacheValues.size()) { LevelCredit credit=state.cacheValues.get(state.cacheValues.size()-1-state.cleanup++); releaseLevelCredit(action,state,credit); return; }
-            state.stage=5;
-        }
-        require(state.stage==5&&state.pair!=null&&state.pair.owned&&state.pairFields==2,"Incomplete Level instantiation pair");
+        if(state.stage==2) { state.stage=3; releaseLevelCredit(action,session,state.input); return; }
+        require(state.stage==5&&session.phase==LS_DRAINED&&state.pair!=null&&state.pair.owned&&state.pairFields==2,"Incomplete Level instantiation pair");
         Object pair=state.pair.value; action.output=pair; state.pair.owned=false;
-        state.context=null; state.input=null; state.result=null; state.pair=null; state.saved.clear(); state.cacheValues.clear();
-        action.arguments=null; action.levelMvars=null; finishAction(action,pair);
+        state.input=null; state.result=null; state.pair=null; action.arguments=null; action.levelMvars=null; finishAction(action,pair);
+    }
+    private static final boolean MVAR_SESSION_RESEARCH_READY=true;
+    private static final int MB_LEVEL0=0,MB_TAKE0=1,MB_ENTER_EXPR=2,MB_WAIT_EXPR=3,MB_START1=4,
+            MB_LEVEL1=5,MB_TAKE1=6,MB_OUTPUT=7,MB_RELEASE_INPUTS=8,MB_DRAIN=9,MB_FINISH=10;
+    private static final class MVarSessionResearchState {
+        MVarContextCell context;
+        InstantiationBudget budget;
+        LevelSession session;
+        ExprConstructorPolicy exprPolicy;
+        final LevelCredit[] inputs=new LevelCredit[2],levels=new LevelCredit[2];
+        ExprCredit exprInput,exprResult;
+        LevelCredit output;
+        int stage,cursor,outputFields,liftAmount;
+    }
+    /** Private fixed mixed-worker test caller, not an original Lean ABI. */
+    private void startMVarSessionResearch(Header[] exprHeaders,Object ownedContext,Object[] ownedLevels,Object ownedExpr,long liftAmount) {
+        explicitOnly(); require(MVAR_SESSION_RESEARCH_READY,"Private mixed MVar session is not yet enabled");
+        require(taskRuntime!=null,"Private mixed MVar session requires active explicit runtime");
+        if(closed||disposed||untrackedFailure||advancing||phase!=IDLE||pendingOwnedResult||sp!=0||continuationDepth!=0
+                ||runtimeAction!=null||hostCompletion!=null||hostGuestRecord!=null||quietCurrent!=null||releasePending!=0
+                ||releaseTransaction!=null||releaseRoot)
+            throw new IllegalStateException("Private mixed MVar session requires an open idle engine");
+        require(levelInstantiationPolicy!=null,"Private mixed MVar session requires original Level policy");
+        require(ownedLevels!=null&&ownedLevels.length==2,"Private mixed MVar session requires two owned Level anchors");
+        require(liftAmount>=0&&liftAmount<=MAX_EXPR_JOB_OFFSET,"Private mixed MVar lift amount outside profile");
+        ExprConstructorPolicy policy=ExprConstructorPolicy.originalHeaders(exprHeaders);
+        require(policy.helpers[0].source==levelInstantiationPolicy.helpers[0].source,"Mixed MVar helper source bindings differ");
+        for(int role=0;role<9;role++) exprConstructor(policy,role);
+        for(int role=0;role<5;role++) levelInstantiationHelper(levelInstantiationPolicy,role);
+        validateHostObject(ownedContext); levelNode(ownedLevels[0]); levelNode(ownedLevels[1]); exprNode(ownedExpr);
+        IdentityHashMap<Node,Integer> owners=new IdentityHashMap<>();
+        for(Object value:new Object[]{ownedContext,ownedLevels[0],ownedLevels[1],ownedExpr})
+            if(value instanceof Node) owners.merge((Node)value,1,Integer::sum);
+        for(Map.Entry<Node,Integer> item:owners.entrySet())
+            require(item.getKey().rc==0||item.getKey().rc>=item.getValue(),"Private mixed MVar input alias credits differ");
+        RuntimeAction action=newAction(ACTION_MVAR_SESSION_RESEARCH,null,null,0,ROOT,null);
+        MVarSessionResearchState state=new MVarSessionResearchState(); state.context=new MVarContextCell();
+        state.context.current=new LevelCredit(ownedContext,true); state.budget=new InstantiationBudget();
+        state.session=newLevelSession(state.context,state.budget,levelInstantiationPolicy); state.exprPolicy=policy;
+        state.inputs[0]=new LevelCredit(ownedLevels[0],true); state.inputs[1]=new LevelCredit(ownedLevels[1],true);
+        state.exprInput=new ExprCredit(ownedExpr,true); state.liftAmount=(int)liftAmount;
+        action.mvarSessionResearch=state; startLevelJob(state.session,ownedLevels[0]); objects[action.slot]=null;
+        publishAction(action); callsLeft=10_000_000; instructions=0; entry=null; result=null; releaseRoot=false; phase=RUNNING;
+    }
+    private void enterMVarExprChild(RuntimeAction parent,MVarSessionResearchState state) {
+        require(runtimeAction==parent&&state.stage==MB_WAIT_EXPR&&objects[parent.slot]==null,"Mixed MVar parent is not waiting for an empty Expr receiver");
+        require(state.session.phase==LS_IDLE&&state.session.call==null&&state.session.retiring==null
+                &&state.exprInput!=null&&state.exprInput.owned,"Mixed MVar Expr child input/session is not ready");
+        for(int role=0;role<9;role++) exprConstructor(state.exprPolicy,role);
+        exprNode(state.exprInput.value);
+        RuntimeAction child=newAction(ACTION_EXPR_MACHINERY,null,ACTION_BODY,parent.slot,ASSIGN,null);
+        ExprMachineryState worker=new ExprMachineryState(); worker.policy=state.exprPolicy; worker.budget=state.budget;
+        worker.input=state.exprInput; pushReplaceJob(worker,EXPR_LIFT_JOB,worker.input.value,0,state.liftAmount,new Object[0]);
+        child.exprMachinery=worker; objects[child.slot]=null;
+        // One credit record is aliased during this atomic control handoff, not
+        // copied/INC'd. No tick/helper/release occurs after publication and before clear.
+        publishAction(child); state.exprInput=null;
+    }
+    private void stepMVarSessionResearch(RuntimeAction action) {
+        MVarSessionResearchState state=action.mvarSessionResearch; require(state!=null,"Missing private mixed MVar session");
+        instantiationWork(state.budget,1,"Mixed MVar session work outside bounded profile","Mixed MVar session interrupted");
+        LevelSession session=state.session; resumeLevelRetiring(action,session);
+        if(state.stage==MB_LEVEL0||state.stage==MB_LEVEL1) {
+            stepLevelJob(action,session);
+            if(session.phase==LS_RESULT) state.stage=state.stage==MB_LEVEL0?MB_TAKE0:MB_TAKE1;
+            return;
+        }
+        if(state.stage==MB_TAKE0) { state.levels[0]=takeLevelJobResult(session); state.stage=MB_ENTER_EXPR; return; }
+        if(state.stage==MB_ENTER_EXPR) { state.stage=MB_WAIT_EXPR; enterMVarExprChild(action,state); return; }
+        if(state.stage==MB_WAIT_EXPR) {
+            require(state.exprResult==null,"Mixed MVar Expr result receiver occupied");
+            Object value=objects[action.slot]; exprNode(value);
+            state.exprResult=new ExprCredit(value,true); objects[action.slot]=null; state.stage=MB_START1; return;
+        }
+        if(state.stage==MB_START1) { startLevelJob(session,state.inputs[1].value); state.stage=MB_LEVEL1; return; }
+        if(state.stage==MB_TAKE1) { state.levels[1]=takeLevelJobResult(session); state.stage=MB_OUTPUT; return; }
+        if(state.stage==MB_OUTPUT) {
+            require(state.context.current!=null&&state.context.current.owned&&state.levels[0]!=null&&state.levels[0].owned
+                    &&state.levels[1]!=null&&state.levels[1].owned&&state.exprResult!=null&&state.exprResult.owned,
+                    "Mixed MVar output occurrences missing");
+            Node output=new Node(0,4,0); state.output=new LevelCredit(output,true); allocations++;
+            output.fields[0]=state.context.current.value; state.context.current.owned=false; state.context.current=null; state.outputFields=1;
+            output.fields[1]=state.levels[0].value; state.levels[0].owned=false; state.outputFields=2;
+            output.fields[2]=state.exprResult.value; state.exprResult.owned=false; state.outputFields=3;
+            output.fields[3]=state.levels[1].value; state.levels[1].owned=false; state.outputFields=4;
+            sealLevelSession(session); state.stage=MB_RELEASE_INPUTS; state.cursor=0; return;
+        }
+        if(state.stage==MB_RELEASE_INPUTS) {
+            if(state.cursor<2) { LevelCredit credit=state.inputs[state.cursor++]; releaseLevelCredit(action,session,credit); return; }
+            state.stage=MB_DRAIN;
+        }
+        if(state.stage==MB_DRAIN) {
+            stepLevelSessionDrain(action,session); if(session.phase!=LS_DRAINED) return; state.stage=MB_FINISH;
+        }
+        require(state.stage==MB_FINISH&&session.phase==LS_DRAINED&&state.context.current==null&&state.exprInput==null
+                &&state.output!=null&&state.output.owned&&state.outputFields==4,"Mixed MVar output is incomplete");
+        Object output=state.output.value; state.output.owned=false; action.output=output;
+        Arrays.fill(state.inputs,null); Arrays.fill(state.levels,null); state.exprResult=null; state.output=null;
+        state.session=null; state.context=null; state.budget=null; action.mvarSessionResearch=null; finishAction(action,output);
     }
     private void validateFindCallback(Object value) {
         require(explicit&&taskRuntime!=null,"Expr.find requires the active explicit runtime");
@@ -2785,6 +2963,7 @@ public final class Interpreter implements AutoCloseable {
         else if(action.operation==ACTION_FIND) stepFind(action);
         else if(action.operation==ACTION_LEVEL_MVARS) stepLevelInstantiation(action);
         else if(action.operation==ACTION_EXPR_MACHINERY) stepExprMachinery(action);
+        else if(action.operation==ACTION_MVAR_SESSION_RESEARCH) stepMVarSessionResearch(action);
         else if(action.operation==ACTION_HOST_GUEST) stepHostGuest(action);
         else if(action.operation==ACTION_HOST) {
             try { stepHostCompletion(action); }
@@ -2982,8 +3161,9 @@ public final class Interpreter implements AutoCloseable {
                         source instanceof ExprBetaFrame?new ExprBetaFrame(null):source instanceof ExprPacket?new ExprPacket():new ExprCredit(null,false);
                 copies.put(source,out); pending.addLast(new Object[]{source,out}); return out;
             }
-            if(source instanceof LevelInstantiationState||source instanceof LevelFrame||source instanceof LevelPacket||source instanceof LevelCredit) {
-                Object out=source instanceof LevelInstantiationState?new LevelInstantiationState():source instanceof LevelFrame?new LevelFrame(null):
+            if(source instanceof MVarSessionResearchState||source instanceof LevelInstantiationState||source instanceof LevelSession||source instanceof MVarContextCell||source instanceof InstantiationBudget||source instanceof LevelFrame||source instanceof LevelPacket||source instanceof LevelCredit) {
+                Object out=source instanceof MVarSessionResearchState?new MVarSessionResearchState():source instanceof LevelInstantiationState?new LevelInstantiationState():source instanceof LevelSession?new LevelSession():
+                        source instanceof MVarContextCell?new MVarContextCell():source instanceof InstantiationBudget?new InstantiationBudget():source instanceof LevelFrame?new LevelFrame(null):
                         source instanceof LevelPacket?new LevelPacket():new LevelCredit(null,false);
                 copies.put(source,out); pending.addLast(new Object[]{source,out}); return out;
             }
@@ -3042,7 +3222,7 @@ public final class Interpreter implements AutoCloseable {
                     for(int i=0;i<from.length;i++) to[i]=value(from[i]);
                 } else if(source instanceof RuntimeAction) {
                     RuntimeAction old=(RuntimeAction)source,out=(RuntimeAction)target;
-                    out.parent=(RuntimeAction)value(old.parent); out.guest=(HostGuestRecord)value(old.guest); out.find=(FindState)value(old.find); out.levelMvars=(LevelInstantiationState)value(old.levelMvars); out.exprMachinery=(ExprMachineryState)value(old.exprMachinery); out.operation=old.operation; out.stage=old.stage;
+                    out.parent=(RuntimeAction)value(old.parent); out.guest=(HostGuestRecord)value(old.guest); out.find=(FindState)value(old.find); out.levelMvars=(LevelInstantiationState)value(old.levelMvars); out.exprMachinery=(ExprMachineryState)value(old.exprMachinery); out.mvarSessionResearch=(MVarSessionResearchState)value(old.mvarSessionResearch); out.operation=old.operation; out.stage=old.stage;
                     out.savedSp=old.savedSp; out.slot=old.slot; out.dest=old.dest; out.kind=old.kind;
                     out.cursor=old.cursor; out.limit=old.limit; out.pending=old.pending;
                     out.function=(Function)value(old.function); out.next=old.next;
@@ -3092,7 +3272,7 @@ public final class Interpreter implements AutoCloseable {
                     out.policy=old.policy; out.input=(ExprCredit)value(old.input); out.result=(ExprCredit)value(old.result); out.retiring=(ExprCredit)value(old.retiring);
                     for(ExprJob job:old.jobs) out.jobs.addLast((ExprJob)value(job));
                     for(ExprCredit credit:old.arguments) out.arguments.add((ExprCredit)value(credit));
-                    out.call=(ExprPacket)value(old.call); out.work=old.work; out.stage=old.stage; out.cleanup=old.cleanup; out.liveFrames=old.liveFrames; out.liveCacheEntries=old.liveCacheEntries;
+                    out.call=(ExprPacket)value(old.call); out.budget=(InstantiationBudget)value(old.budget); out.stage=old.stage; out.cleanup=old.cleanup; out.liveFrames=old.liveFrames; out.liveCacheEntries=old.liveCacheEntries;
                 } else if(source instanceof LevelCredit) {
                     LevelCredit old=(LevelCredit)source,out=(LevelCredit)target;
                     out.value=value(old.value); out.owned=old.owned;
@@ -3107,11 +3287,27 @@ public final class Interpreter implements AutoCloseable {
                     out.shared=old.shared; out.active=old.active; out.cached=old.cached;
                     out.left=(LevelCredit)value(old.left); out.right=(LevelCredit)value(old.right);
                     out.option=(LevelCredit)value(old.option); out.assignment=(LevelCredit)value(old.assignment); out.result=(LevelCredit)value(old.result);
+                } else if(source instanceof MVarSessionResearchState) {
+                    MVarSessionResearchState old=(MVarSessionResearchState)source,out=(MVarSessionResearchState)target;
+                    out.context=(MVarContextCell)value(old.context); out.budget=(InstantiationBudget)value(old.budget);
+                    out.session=(LevelSession)value(old.session); out.exprPolicy=old.exprPolicy;
+                    for(int i=0;i<2;i++) { out.inputs[i]=(LevelCredit)value(old.inputs[i]); out.levels[i]=(LevelCredit)value(old.levels[i]); }
+                    out.exprInput=(ExprCredit)value(old.exprInput); out.exprResult=(ExprCredit)value(old.exprResult); out.output=(LevelCredit)value(old.output);
+                    out.stage=old.stage; out.cursor=old.cursor; out.outputFields=old.outputFields; out.liftAmount=old.liftAmount;
+                } else if(source instanceof InstantiationBudget) {
+                    ((InstantiationBudget)target).work=((InstantiationBudget)source).work;
+                } else if(source instanceof MVarContextCell) {
+                    ((MVarContextCell)target).current=(LevelCredit)value(((MVarContextCell)source).current);
                 } else if(source instanceof LevelInstantiationState) {
                     LevelInstantiationState old=(LevelInstantiationState)source,out=(LevelInstantiationState)target;
-                    out.context=(LevelCredit)value(old.context); out.input=(LevelCredit)value(old.input);
-                    out.result=(LevelCredit)value(old.result); out.pair=(LevelCredit)value(old.pair); out.retiring=(LevelCredit)value(old.retiring);
-                    out.call=(LevelPacket)value(old.call); out.work=old.work; out.stage=old.stage; out.cleanup=old.cleanup; out.pairFields=old.pairFields;
+                    out.session=(LevelSession)value(old.session); out.input=(LevelCredit)value(old.input);
+                    out.result=(LevelCredit)value(old.result); out.pair=(LevelCredit)value(old.pair);
+                    out.stage=old.stage; out.pairFields=old.pairFields;
+                } else if(source instanceof LevelSession) {
+                    LevelSession old=(LevelSession)source,out=(LevelSession)target;
+                    out.context=(MVarContextCell)value(old.context); out.budget=(InstantiationBudget)value(old.budget); out.policy=old.policy;
+                    out.result=(LevelCredit)value(old.result); out.retiring=(LevelCredit)value(old.retiring); out.call=(LevelPacket)value(old.call);
+                    out.phase=old.phase; out.drainStage=old.drainStage; out.drainCursor=old.drainCursor;
                     for(LevelFrame frame:old.frames) out.frames.addLast((LevelFrame)value(frame));
                     for(Map.Entry<Node,LevelCredit> item:old.cache.entrySet()) out.cache.put((Node)value(item.getKey()),(LevelCredit)value(item.getValue()));
                     for(LevelCredit credit:old.cacheValues) out.cacheValues.add((LevelCredit)value(credit));

@@ -28,9 +28,9 @@
      "row" (-> (get entry "row") (assoc "name" n) (assoc-in ["ir" "fdecl" "f"] n))}))
 (defn context
   ([] (context {}))
-  ([{:keys [defer replacements rows host-specs inactive tasks]}]
+  ([{:keys [defer replacements rows host-specs inactive tasks extra-originals]}]
    (let [originals (filter #(not= "Lean.instantiateExprMVarsImp" (get % "label")) (records))
-         entries (concat originals (eq/records) (map setup-copy originals)
+         entries (concat originals (eq/records) extra-originals (map setup-copy originals)
                    (when tasks (json/read-str (slurp "test/fixtures/java-task-sync-runtime/original-rows.json")))
                    (for [r (x/raw rows)] {"label" (last (get r "name")) "row" r "sha256" header/digest}))
          entries (vals (reduce (fn [m r] (let [n (get-in r ["row" "name"])]
@@ -312,7 +312,7 @@
   (doseq [kind [:work :interrupt]]
     (let [{:keys [ctx] :as lab} (context) e (j/machine ctx) input (bvar! ctx e 0) outcome (atom nil)]
       (start! lab e 0 input [] 0 1)
-      (sync/private-set! (state e) "work" (long (if (= kind :work) 1000000 1023)))
+      (sync/private-set! (private-value (state e) "budget") "work" (long (if (= kind :work) 1000000 1023)))
       (if (= kind :work)
         (reset! outcome (c/failure #(j/advance! ctx e 1)))
         (let [worker (Thread. ^Runnable (fn []

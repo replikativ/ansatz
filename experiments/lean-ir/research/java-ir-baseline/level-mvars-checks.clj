@@ -122,6 +122,9 @@
 (defn state [e]
   (loop [a (sync/action e)]
     (when a (or (h/private-value a "levelMvars") (recur (h/private-value a "parent"))))))
+(defn session [e] (some-> (state e) (h/private-value "session")))
+(defn context-credit [e] (some-> (session e) (h/private-value "context") (h/private-value "current")))
+(defn budget [e] (some-> (session e) (h/private-value "budget")))
 (defn materialize [{:keys [ctx headers rows]} label]
   (let [row (rows label) by-name (into {} (map (fn [[label h]] [(get-in (rows label) ["name"]) h]) headers))]
     (j/materialize-body ctx (headers label) row (mapv by-name (find/direct row)))))
@@ -129,14 +132,14 @@
   (let [label (first roles) {:keys [ctx headers] :as lab} (context {:defer #{label}})
         parent (engine lab) m (fresh! ctx parent) level (mvar! ctx parent (name! ctx parent "pause"))]
     (j/start! ctx parent "Lean.instantiateLevelMVarsImp" [m level])
-    (let [request (code/request! ctx parent) packet (h/private-value (state parent) "call")
+    (let [request (code/request! ctx parent) packet (h/private-value (session parent) "call")
           {:keys [engine roots]} (j/fork! ctx parent [m level]) child engine [cm cl] roots
           ready (materialize lab label)]
       (is (identical? (headers label) (.header request)))
       (is (true? (h/private-value packet "entered")))
       (is (= [false false] (vec (h/private-value packet "owned"))))
       (is (= 2 (c/rc ctx m) (c/rc ctx cm)))
-      (is (not (identical? packet (h/private-value (state child) "call"))))
+      (is (not (identical? packet (h/private-value (session child) "call"))))
       (doseq [[e expected-m expected-l] [[parent m level] [child cm cl]]]
         (j/resume-code! ready e (j/code-request ready e))
         (let [pair (sync/finish! ready e)]
@@ -158,7 +161,7 @@
           receiver (aget ^objects (h/private-value e "objects") slot)]
       (is (= 2 (.getInt ^java.lang.reflect.Field (:tag ctx) receiver)))
       (is (= 1 (c/rc ctx receiver)))
-      (is (some? (h/private-value (state e) "call")))
+      (is (some? (h/private-value (session e) "call")))
       (is (= 1 (c/rc ctx m) (c/rc ctx level))))))
 (deftest constructor-code-request-and-fork-preserve-child-aliases
   (let [label (nth roles 2) {:keys [ctx headers] :as lab} (context {:defer #{label}})
@@ -167,7 +170,7 @@
         input (call ctx parent (str "model-setup-" label) [variable])
         m (assign! ctx parent m n 0)]
     (j/start! ctx parent "Lean.instantiateLevelMVarsImp" [m input])
-    (let [request (code/request! ctx parent) packet (h/private-value (state parent) "call")
+    (let [request (code/request! ctx parent) packet (h/private-value (session parent) "call")
           {:keys [engine roots]} (j/fork! ctx parent [m input]) child engine [cm ci] roots
           ready (materialize lab label)]
       (is (identical? (headers label) (.header request)))
@@ -188,12 +191,12 @@
         m (call ctx parent (str "model-setup-" label) [m b 0])
         m (call ctx parent (str "model-setup-" label) [m a bv])]
     (j/start! ctx parent "Lean.instantiateLevelMVarsImp" [m av])
-    (let [request (code/request! ctx parent) packet (h/private-value (state parent) "call")
+    (let [request (code/request! ctx parent) packet (h/private-value (session parent) "call")
           {:keys [engine roots]} (j/fork! ctx parent [m av]) child engine [cm ca] roots
           ready (materialize lab label)]
       (is (identical? (headers label) (.header request)))
       (is (= 1 (h/private-value packet "role")))
-      (is (nil? (h/private-value (state parent) "context")))
+      (is (nil? (context-credit parent)))
       (is (= [false false false] (vec (h/private-value packet "owned"))))
       (doseq [[e expected-m root] [[parent m av] [child cm ca]]]
         (j/resume-code! ready e (j/code-request ready e))
@@ -231,7 +234,7 @@
       (j/start! ctx e "Lean.instantiateLevelMVarsImp" [m level])
       (sync/private-set! e field value)
       (is (g/bad? #(j/advance! ctx e 1)))
-      (let [packet (h/private-value (state e) "call")]
+      (let [packet (h/private-value (session e) "call")]
         (is (= entered (h/private-value packet "entered")))
         (is (= [(not entered) (not entered)] (vec (h/private-value packet "owned"))))
         (is (= 2 (c/rc ctx m))) (is (= 1 (c/rc ctx level)))))))
@@ -246,7 +249,7 @@
   (let [{:keys [ctx] :as lab} (context) e (engine lab)]
     (j/start! ctx e "Lean.instantiateLevelMVarsImp" [0 0])
     ;; Model resource exhaustion injects the already-consumed aggregate budget.
-    (sync/private-set! (state e) "work" (long 1000000))
+    (sync/private-set! (budget e) "work" (long 1000000))
     (is (re-find #"work outside bounded" (c/failure #(sync/finish! ctx e))))
     (is (= "failed" (j/phase ctx e)))))
 (deftest cache-is-shared-composite-only-including-logical-mt
@@ -261,7 +264,7 @@
         (assert (pos? left) "No bounded traversal result")
         (when-not (= 1 (h/private-value (state e) "stage"))
           (is (false? (j/advance! ctx e 1))) (recur (dec left))))
-      (let [cache (h/private-value (state e) "cache")]
+      (let [cache (h/private-value (session e) "cache")]
         (is (= (if (#{:shared :mt} mode) 1 0) (.size ^java.util.Map cache)))
         (when (#{:shared :mt} mode) (is (.containsKey ^java.util.Map cache input))))
       (let [pair (sync/finish! ctx e)]
@@ -385,14 +388,14 @@
     (j/start! ctx e "Lean.instantiateLevelMVarsImp" [m input])
     (loop [left 10000]
       (assert (pos? left) "Shared DAG test exceeded bounded work")
-      (let [s (state e) frame (.peekLast ^java.util.Deque (h/private-value s "frames"))]
+      (let [s (session e) frame (.peekLast ^java.util.Deque (h/private-value s "frames"))]
         (when (and frame (identical? shared (h/private-value frame "original"))
                    (true? (h/private-value frame "cached")) (= 8 (h/private-value frame "stage")))
           (reset! hit true))
-        (when-not (= 1 (h/private-value s "stage"))
+        (when-not (= 1 (h/private-value (state e) "stage"))
           (j/advance! ctx e 1) (recur (dec left)))))
     (is @hit)
-    (let [s (state e) values (h/private-value s "cacheValues")
+    (let [s (session e) values (h/private-value s "cacheValues")
           cached (h/private-value (.get ^java.util.List values 0) "value")]
       (is (= 1 (.size ^java.util.List values)))
       (let [pair (sync/finish! ctx e)]
