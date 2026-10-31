@@ -17,6 +17,9 @@ python3 experiments/lean-ir/paired-init/run.py \
   target/init-build target/init-census/census.json target/init-pair
 python3 experiments/lean-ir/paired-init/audit.py target/init-pair
 (cd experiments/lean-ir/paired-init && python3 -m unittest test_audit.py)
+c++ -std=c++17 experiments/lean-ir/paired-init/test_scalar_observations.cpp \
+  -o target/init-scalar-observation-test
+target/init-scalar-observation-test
 ```
 
 The build reuses authenticated unchanged structural `Export` and `Projection`
@@ -48,6 +51,9 @@ for named genuine types. `Std.Format.nest` is an **Int**: native payload
 claims to the transport digest and exact node/field/payload and preserve the Int
 versus Nat distinction. The audit rejects any uncovered large immediate; a
 physical constructor shape is never sufficient evidence of its scalar domain.
+Repeated typed observations of one physical slot must agree on domain, native
+payload and signed interpretation. Same-domain aliases may share the first
+source-type witness; a conflicting observation fails before a census is published.
 
 Each part records ordered `regularInitAttr`/`builtinInitAttr` declaration and
 initializer names via the original `ParametricAttribute Name` entry type. This

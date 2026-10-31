@@ -70,7 +70,7 @@ def main():
   assert sha(f)==cohort['sourceFiles'][f'producer/{unit}.lean']
  inputs[str(reuse/'Export.lean')]=sha(reuse/'Export.lean')
  assert sha(IR/'native/ModuleDataTransport.cpp')==cohort['sourceFiles']['native/ModuleDataTransport.cpp']
- for f in [HERE/'MatchedInitProducer.lean',HERE/'InitScalarCensus.lean',HERE/'Native.cpp',IR/'native/ModuleDataTransport.cpp',Path(__file__)]:inputs[str(f)]=sha(f)
+ for f in [HERE/'MatchedInitProducer.lean',HERE/'InitScalarCensus.lean',HERE/'Native.cpp',HERE/'ScalarObservation.h',IR/'native/ModuleDataTransport.cpp',Path(__file__)]:inputs[str(f)]=sha(f)
  env=dict(os.environ,LEAN_NUM_THREADS='1',LEAN_SYSROOT=str(prefix),LEAN_PATH=str(build)+os.pathsep+str(reuse))
  commands=[]
  for unit in ['InitScalarCensus','MatchedInitProducer']:

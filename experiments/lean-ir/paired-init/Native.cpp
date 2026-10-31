@@ -1,6 +1,6 @@
 // Authentic source graph, with typed claims for the pinned Init extension profile.
 #include "../native/ModuleDataTransport.cpp"
-#include <set>
+#include "ScalarObservation.h"
 extern "C" LEAN_EXPORT lean_obj_res matched_init_scalar_census(
     b_lean_obj_arg roots, b_lean_obj_arg names, b_lean_obj_arg literals,
     b_lean_obj_arg irLiterals, b_lean_obj_arg lcnfLiterals, b_lean_obj_arg formats,
@@ -9,7 +9,7 @@ extern "C" LEAN_EXPORT lean_obj_res matched_init_scalar_census(
         Graph graph(roots, false);
         std::ofstream out(lean_string_cstr(path), std::ios::binary | std::ios::trunc);
         if (!out) throw TransportError("cannot open scalar census");
-        std::set<std::pair<size_t,size_t>> done;
+        ScalarObservations done;
         out << "{\"schema\":\"matched-init-typed-scalars/1\",\"threshold\":2147483647,\"claims\":[";
         bool comma=false;
         auto emit = [&](lean_object *owner, size_t field, char const *sourceType, bool isInt=false) {
@@ -17,7 +17,15 @@ extern "C" LEAN_EXPORT lean_obj_res matched_init_scalar_census(
             if(found==graph.ids.end()) throw TransportError("typed scalar owner not in source graph");
             auto value=lean_ctor_get(owner,field);
             if(!lean_is_scalar(value) || lean_unbox(value)<=2147483647) return;
-            if(!done.emplace(found->second,field).second) return;
+            ScalarObservation observation{isInt,lean_unbox(value),isInt?lean_scalar_to_int64(value):0};
+            auto status=observeScalar(done,std::make_pair(found->second,field),observation);
+            if(status!=ScalarObservationStatus::fresh) {
+                if(status==ScalarObservationStatus::conflict)
+                    throw TransportError("conflicting source-typed scalar observations for one source slot");
+                // Different typed paths may alias the same physical Nat/Int
+                // slot, but can never change its domain or interpretation.
+                return;
+            }
             if(comma)out<<',';comma=true;
             out << "{\"nodeId\":" << found->second << ",\"fieldIndex\":" << field
                 << ",\"value\":\"" << lean_unbox(value) << "\",\"domain\":\"" << (isInt?"Int":"Nat")
