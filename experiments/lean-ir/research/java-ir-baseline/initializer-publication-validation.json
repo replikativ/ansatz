@@ -1,0 +1,146 @@
+{
+  "schema": "ansatz-initializer-publication-validation/1",
+  "authority": "Bounded interpreter protocol model tests and independent pinned-source review; no native execution evidence",
+  "pins": {
+    "leanCommit": "819816b2e0a3bf405af45ae5c7af2491d8f5bee6",
+    "implementationBaseCommit": "ffe3f44972a38a8474cad28e9ea43c6c2209b41e",
+    "landingBaseCommit": "f1045fa680ce96d1ae46c8f5b97209ceb9972693",
+    "reviewedSourceCommit": "fa1a6bbe",
+    "correctedModelsCommit": "06144050"
+  },
+  "sourceInventory": [
+    {
+      "path": "experiments/lean-ir/research/java-ir-baseline/src/ansatz/research/ir/Interpreter.java",
+      "bytes": 743124,
+      "sha256": "805885c4aaacbba64e4a44716484ee10f7435cad9b392e5b699b4ce5f6eb2a0e"
+    },
+    {
+      "path": "experiments/lean-ir/research/java-ir-baseline/initializer-publication-checks.clj",
+      "bytes": 8920,
+      "sha256": "c9158847e11558574f9cc09ea7af431bb7dd6001ce3c15e7b27cd628dd071f34"
+    },
+    {
+      "path": "experiments/lean-ir/research/java-ir-baseline/initializer-publication-notes.md",
+      "bytes": 8441,
+      "sha256": "7c2c8ab51aa5320cc34d150b4a4aaa22cf0fb49414ba541634c61cd99935f6e2"
+    }
+  ],
+  "compiler": {
+    "javacMajor": 25,
+    "release": 17,
+    "heapMiB": 384,
+    "interpreterCompilations": 1,
+    "exit": 0,
+    "command": "javac -J-Xmx384m --release 17 -d target/initializer-publication-v1/classes experiments/lean-ir/research/java-ir-baseline/src/ansatz/research/ir/Interpreter.java",
+    "warnings": "Existing strictfp warning"
+  },
+  "runtime": {
+    "reusedExistingRepl": true,
+    "heapMiB": 512,
+    "freshClassBasis": true,
+    "oldEngineJarChanged": false,
+    "workerJvmLaunches": 0,
+    "nativeRuns": 0
+  },
+  "checks": [
+    {
+      "namespace": "java-ir-initializer-publication-checks",
+      "tests": 9,
+      "assertions": 72,
+      "failures": 0,
+      "errors": 0
+    },
+    {
+      "namespace": "java-ir-initialization-checks",
+      "tests": 6,
+      "assertions": 47,
+      "failures": 0,
+      "errors": 0
+    },
+    {
+      "namespace": "java-ir-fork-checks",
+      "tests": 13,
+      "assertions": 6604,
+      "failures": 0,
+      "errors": 0
+    },
+    {
+      "namespace": "java-ir-header-checks",
+      "tests": 10,
+      "assertions": 59,
+      "failures": 0,
+      "errors": 0
+    },
+    {
+      "namespace": "java-ir-generation-checks",
+      "tests": 17,
+      "assertions": 145,
+      "failures": 0,
+      "errors": 0
+    },
+    {
+      "namespace": "java-ir-release-transaction-checks",
+      "tests": 12,
+      "assertions": 337,
+      "failures": 0,
+      "errors": 0
+    }
+  ],
+  "total": {
+    "tests": 67,
+    "assertions": 7264,
+    "failures": 0,
+    "errors": 0
+  },
+  "historicalFailure": {
+    "initialModelTests": 8,
+    "errors": 4,
+    "cause": "Test-only nullary constructor payload was immediate Long; heap Node RC checks could not accept it",
+    "correction": "Nonempty heap payload plus separate immediate-payload test",
+    "javaSourceChanged": false
+  },
+  "externalEvidence": {
+    "primaryCheckout": [
+      {
+        "path": "target/java-source-exchange-v1/initializer-publication-models-v2.edn",
+        "bytes": 54,
+        "sha256": "499d8d7d258cb9fc316efaff4db3bcf95b9d7ce3d2ccefa92d19568af8dd028c"
+      }
+    ],
+    "authorCheckout": [
+      {
+        "path": "target/initializer-publication-v1/models-v2.log",
+        "bytes": 109,
+        "sha256": "afc0f87ca0f4d44d1dda3ad1c313be7b3c6ac3a794fec34f81a7bee0bc25cba2"
+      },
+      {
+        "path": "target/initializer-publication-v1/regressions-v1.log",
+        "bytes": 384,
+        "sha256": "8b51937af16b4b8d4d3465f9fb98cb2301c033640fde62506f866c4d3d73a111"
+      },
+      {
+        "path": "target/initializer-publication-v1/release-v1.log",
+        "bytes": 107,
+        "sha256": "2a7aecebd6965a47176fcb8493ff82df9caa311452a14d628cddf2095c0d92bb"
+      }
+    ]
+  },
+  "independentSourceReview": {
+    "reviewedModelsCommit": "06144050",
+    "result": "clear",
+    "sourceMatches": "fa1a6bbe",
+    "basis": "Pinned run_init / InitAttr / IO.Result semantics"
+  },
+  "notEstablished": [
+    "native initializer execution",
+    "entropy support",
+    "complete Init startup",
+    "kernel execution",
+    "outer module initializer ledger"
+  ],
+  "additionalScenariosNotRun": [
+    "persistent result wrapper",
+    "payload to result-wrapper cycle",
+    "descendant code-demand resume with post-success fork"
+  ]
+}
