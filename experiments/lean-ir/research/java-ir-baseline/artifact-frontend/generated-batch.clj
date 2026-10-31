@@ -98,6 +98,19 @@
             (recur (into tail (map (fn [k] [(get x k) (conj path k)]) (sort (keys x)))) (inc visits) targets aps))
           (vector? x) (recur (into tail (map-indexed (fn [i v] [v (conj path i)]) x)) (inc visits) targets aps)
           :else (recur tail (inc visits) targets aps))))))
+(defn- bounded-row! [row]
+  ;; Metadata outside FnBody also reaches recursive JSON/Header freezing. Bound
+  ;; the complete immutable row before invoking either recursive consumer.
+  (loop [todo [[row 0]] visits 0 characters 0]
+    (need (and (< visits 1000000) (<= (count todo) 100000) (<= characters 4000000))
+          "Generated row exceeds work/text bounds")
+    (when-let [[value depth] (peek todo)]
+      (need (<= depth 512) "Generated row exceeds serialization depth bound")
+      (let [tail (pop todo) next-depth (inc depth)]
+        (cond
+          (map? value) (recur (into tail (map (fn [x] [x next-depth]) (concat (keys value) (vals value)))) (inc visits) characters)
+          (vector? value) (recur (into tail (map (fn [x] [x next-depth]) value)) (inc visits) characters)
+          :else (recur tail (inc visits) (+ characters (if (string? value) (count value) 0))))))))
 (defn- digest [row] (source/bytes-sha (.getBytes (json/write-str row) java.nio.charset.StandardCharsets/UTF_8)))
 (defn- generated-row [name ir]
   ;; This digest identifies captured compiler output, not a catalogue CAS file.
@@ -171,8 +184,9 @@
                                    ;; A local may not steal even an unregistered original Name.
                                    (when (source/lookup-entry (:source-receipt view) n)
                                      (unsupported! "Generated Name overlaps authenticated source domain")))
-                               headers (into {} (map (fn [[n row]] [n (j/declaration-header (:source s) row (digest row))]) rows))
                                frontiers (into {} (map (fn [[n ir]] [n (frontier! (:declaration ir))]) ordered))
+                               _ (doseq [[_ row] rows] (bounded-row! row))
+                               headers (into {} (map (fn [[n row]] [n (j/declaration-header (:source s) row (digest row))]) rows))
                                originals (atom {})
                                resolve! (fn [n]
                                           (or (get headers n) (get-in s [:locals n :header])

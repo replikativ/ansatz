@@ -261,3 +261,19 @@
         (is (= :unsupported
                (:status (batch/prepare-batch! scope
                           (receipt! unlinked (assoc unlinked next (row next [(fap original)])))))))))))
+
+(deftest bounded-frontier-and-row-validation-precede-recursive-consumers
+  (doseq [slot [:body :metadata]]
+    (model
+      (fn [{:keys [scope receipt!]}]
+        (let [a (n "Deep") nested (nth (iterate vector "leaf") 600)
+              ir (if (= slot :body) (row a nested)
+                     (assoc-in (row a ["ret" "erased"]) [:declaration "info"] {"nested" nested}))
+              serialized (atom 0) headers (atom 0)]
+          (with-redefs-fn
+            {#'batch/digest (fn [_] (swap! serialized inc) "unexpected")
+             #'j/declaration-header (fn [& _] (swap! headers inc))}
+            (fn []
+              (is (= :unsupported (:status (batch/prepare-batch! scope (receipt! {} {a ir})))))))
+          (is (zero? @serialized))
+          (is (zero? @headers)))))))
