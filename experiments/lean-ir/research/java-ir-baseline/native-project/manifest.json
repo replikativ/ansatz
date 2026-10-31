@@ -4,8 +4,12 @@
   "tested-runner-sha256": "ea4502d5a9ab79cbd340155142dc8919ccdcb3291ad018ff871dde45793bff76",
   "sources": [
     {
+      "file": "JAVA_API_DESIGN.md",
+      "sha256": "ce1f9ca30586f87b9568d06fb1511ee7aebcf5934e3b277c31355872389aee92"
+    },
+    {
       "file": "README.md",
-      "sha256": "14cf4270d77d26e37d2c50ce95d191d4e479c53e1f23fe66ed9a3947a37cee5d"
+      "sha256": "c919b33a347110e36e707675e4ad86a57c486d14270f2bf4ca77d753a9b5a718"
     },
     {
       "file": "loader.clj",
@@ -57,9 +61,10 @@
     "fullInitImported": false
   },
   "pending": [
-    "Cold compilation through the JVM wrapper (not started below its 2GiB memory floor)",
-    "Hosted default Init, Java kernel rechecking and generic project support",
-    "Public Java API design and Python-free bundled helper packaging"
+    "Cold compilation through the JVM wrapper (not started below its 2 GiB memory floor)",
+    "Hosted default Init and Java kernel rechecking",
+    "Generic bounded project compilation and checked entry type evidence beyond exact tutorial profile",
+    "Public Java API proposal review, persistent project lifetime and Python-free bundled helper packaging"
   ],
   "prototype-build-service": {
     "source": "tutorial-demo/service.py (producer separate unit)",
@@ -73,7 +78,7 @@
     "baseCommit": "89d45546338dd4e3dd58b35051037fb99a8f69e1",
     "sourceScope": {
       "tutorialFiles": 4,
-      "nativeProjectFiles": 8,
+      "nativeProjectFiles": 9,
       "kernelSourceChanged": false,
       "storeOrImageBundled": false,
       "bootstrapIncluded": false
@@ -167,5 +172,11 @@
       "service.py": "cced99b38c7c8d7bcae0ef256c790c0d59a45380dd6d31174470cd8f450f03fb",
       "service_checks.py": "46ae8026d3a29738728980593baa10e6db300b6018b36ec64d294c7825f895ac"
     }
+  },
+  "public-api-design": {
+    "file": "JAVA_API_DESIGN.md",
+    "status": "proposal only; no public implementation",
+    "production-reference": "Ansatz662ac21",
+    "reuse": "Existing Java kernel and lazy PSS/fetch APIs; no default full Init/Mathlib replay"
   }
 }

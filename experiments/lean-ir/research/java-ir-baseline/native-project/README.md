@@ -12,6 +12,10 @@ is not an extra concept Java callers must learn. The current `prepare!` API is a
 research integration seam; public Java API design and release packaging remain
 separate work.
 
+The [Java API proposal](JAVA_API_DESIGN.md) makes the intended caller experience,
+project lifetime, checked type evidence and kernel-store reuse concrete for
+discussion. It is design only and adds no public implementation.
+
 `runner.clj` is byte-identical to the parent-tested ignored implementation,
 SHA `ea4502d5a9ab79cbd340155142dc8919ccdcb3291ad018ff871dde45793bff76`.
 Load it once with `loader.clj`; never reload its opaque Artifact/Run registries.
