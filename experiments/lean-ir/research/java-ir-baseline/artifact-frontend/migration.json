@@ -1,0 +1,81 @@
+{
+  "schema": "artifact-frontend-source-migration/1",
+  "scope": "stable lower research units only; no external runtime artifacts",
+  "sources": [
+    {
+      "file": "lineage.clj",
+      "reviewed-research-source": "target/java-artifact-finalizer-lineage-v1/lineage.clj",
+      "reviewed-source-sha256": "dcc23b801cbd6d0d47e3f0f8130fa062599d7f3b5f7139ff46f4b4d62d4955d2"
+    },
+    {
+      "file": "module.clj",
+      "reviewed-research-source": "target/java-matched-prelude-capability-v4/module.clj",
+      "reviewed-source-sha256": "fe2dfe6b42e8bc0798164a2dcc30592df6ffa025a2e3e61588629bbc9fb72819"
+    },
+    {
+      "file": "base.clj",
+      "reviewed-research-source": "target/java-matched-prelude-capability-v4/base.clj",
+      "reviewed-source-sha256": "2b46b16d3def8a96ad5d9f55ffbc8f7639143bbf9d7f2e14f7b6a68219acbaf8"
+    },
+    {
+      "file": "authority.clj",
+      "reviewed-research-source": "target/java-artifact-declaration-authority-v4/authority.clj",
+      "reviewed-source-sha256": "f98586083a27009416bf4ad86fd67bf1797b458420b76df69332871480f2a21f"
+    },
+    {
+      "file": "adapter.clj",
+      "reviewed-research-source": "target/java-artifact-declaration-v4/adapter.clj",
+      "reviewed-source-sha256": "a14d69229e4c52e8e9eec95fe9608f3bb30a7175907f3e356577f4942d795222"
+    },
+    {
+      "file": "driver.clj",
+      "reviewed-research-source": "target/java-artifact-declaration-v4/driver.clj",
+      "reviewed-source-sha256": "9849d52d686e7da9cce15e1d06d47d6997127e0d7db9307b3837f2ef9a0fcd19"
+    },
+    {
+      "file": "node-decoder.clj",
+      "reviewed-research-source": "target/java-ir-node-decoder-v1/adapter.clj",
+      "reviewed-source-sha256": "1593b3432ee5303f54a7086ab611289cee3d226e5b6e4d770f282ce0b618cb88"
+    },
+    {
+      "file": "sequential-probe.clj",
+      "reviewed-research-source": "target/java-sequential-frontend-plan-v1/sequential-probe.clj",
+      "reviewed-source-sha256": "96f908aa24ca21e0d66b5151a873b6fd642c3a807a5cf715bad4f223f73442db"
+    },
+    {
+      "file": "options-proof.clj",
+      "reviewed-research-source": "target/java-heartbeat-lab-v1/options-proof.clj",
+      "reviewed-source-sha256": "f07693ee8fb65166990e0ec534cbe932e98a311f0fcc1dc2b0700a6cc5da7779"
+    },
+    {
+      "file": "models/lineage.clj",
+      "reviewed-research-source": "target/java-artifact-finalizer-lineage-v1/models.clj",
+      "reviewed-source-sha256": "32930f4409aaddd1b9e325ef26d7a4a2b33a8fa5c1823722d81d79f2e214ea82"
+    },
+    {
+      "file": "models/capability.clj",
+      "reviewed-research-source": "target/java-matched-prelude-capability-v4/models.clj",
+      "reviewed-source-sha256": "e2a4dd37f41e4034ee9c4f2e1bdb6eea01ddf884cf82838ceb39de76b6c5b663"
+    },
+    {
+      "file": "models/authority.clj",
+      "reviewed-research-source": "target/java-artifact-declaration-authority-v4/models.clj",
+      "reviewed-source-sha256": "b0e4eef97ead1adb92bc2c7c79a8db4e8090a905d74ea6793b62c48092285d90"
+    },
+    {
+      "file": "models/adapter.clj",
+      "reviewed-research-source": "target/java-artifact-declaration-v4-models-v1/models.clj",
+      "reviewed-source-sha256": "90fe408594d6a5c43b773e47271aa80a53576564630dd5a20ccd09d0ef3635b0"
+    },
+    {
+      "file": "models/node-decoder.clj",
+      "reviewed-research-source": "target/java-ir-node-decoder-v1/checks.clj",
+      "reviewed-source-sha256": "ec40f4510db9d611a6fb98c0a4ce5814d189058b25bcf8834611d0c795a881f8"
+    }
+  ],
+  "intentional-deltas": [
+    "sequential probe routes host-helper to explicit authenticated-demand functions and updates lab wording",
+    "node decoder removes stale ignored wording"
+  ],
+  "runtime-executed-by-packager": false
+}
