@@ -20,7 +20,53 @@ The sequential entry does not import modules, initialize the frontend, or preser
 whole-file diagnostics automatically. Its top-level elaborator resets messages;
 end-of-file success or environment membership alone is insufficient evidence.
 
-## Current checkpoint — 2026-10-30, command and EOF complete
+## Current checkpoint — 2026-10-31, repeated checked axioms
+
+The retained 384 MiB JVM now completes the original sequential frontend on:
+
+```lean
+prelude
+axiom HostedA : Sort 1
+axiom hostedA : HostedA
+axiom hostedFn : HostedA → HostedA
+```
+
+The [flat receipt](../measurements/java-original-frontend-sequence-2026-10-31.edn)
+records inputs, checked versions, timing scope and retirement.
+
+All three command observations and EOF report no errors. Strict Java-kernel
+admission produces environment versions 0→1→2→3; readback checks each original
+guest ConstantInfo against its Java declaration and complete type. Retirement
+releases all eight association-anchor occurrences, caller/driver roots and source
+scopes, then disposes and closes the child runtime. These are checked axiom
+assumptions, not proved theorems. Duplicate-name rejection also completes through
+the original frontend with only the first declaration admitted.
+
+This particular run took 751.825 ms including fresh fork/setup and 33 new code
+requests. A separate warmed two-independent-axiom run took 66.071 ms with zero
+code requests; its complete fork/setup/run/retire observation took 231.248 ms.
+These are individual retained-REPL observations, not native comparisons or a
+performance guarantee. Cold preparation remains a separate cost.
+
+A term-theorem sequence successfully checks its two preceding axioms, then stops
+at the unavailable `ShareCommon.shareCommon'` extern in
+`Lean.Elab.shareCommonPreDefs._lam_1`. No theorem is admitted by that run. Source
+scopes on the failed child are closed and its host references dropped; successful
+guest failure unwinding or finalizer completion is not claimed. The independently
+reviewed strict theorem carrier and prototype publication adapter have not yet
+passed this end-to-end frontend gate.
+
+The latest combined runtime includes checked array updates, level substitution,
+level equality and extended expression search. The unchanged companion now holds
+523 globals and 97,334 nodes; code bodies remain lazy and prepared immutable code
+can be promoted independently of child heap or authority. There is still one
+retained parent image and the JVM heap limit is 384 MiB. General expression
+metavariable support remains unavailable. Imports, generated-code publication,
+project files and self-hosting remain later gates.
+
+The following checkpoint records the earlier single-axiom milestone.
+
+## Earlier checkpoint — 2026-10-30, command and EOF complete
 
 Acceptance steps 1 and 2 passed for the exact prelude/axiom input above in the
 retained 384 MiB JVM. The original parser and `processCommand` completed the
