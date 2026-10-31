@@ -74,7 +74,8 @@
                      (identical? (field request "owner") (field e "runtimeIdentity"))
                      (identical? (get-in s [:headers :gate]) (field (field call "function") "header"))
                      (identical? (field call "next") (field e "pc"))
-                     (= 41 (field call "dest")) (false? (field call "facade"))) "Gate is not the actual companion FAP continuation")
+                     (= (+ (long (field e "bp")) 41) (field call "dest"))
+                     (false? (field call "facade"))) "Gate is not the actual companion FAP continuation")
         queue (ArrayDeque.) seen (IdentityHashMap.) matches (atom [])]
     (.push queue (field prepared "body"))
     (while (not (.isEmpty queue))
@@ -237,6 +238,8 @@
                            :delta delta :history history :post-ir post :source-policy source-policy :command-index command-index)
             _ (#'finite/clean-temporaries! holder)
             _ (#'adapter/validate-versions! session)
+            _ (need (identical? version (peek @(:versions session))) "Cleanup advanced checked history after observed command")
+            _ (need (identical? version (final-version! holder after)) "Cleanup changed the final checked Env witness")
             description (#'finite/frozen-host (:description capture))
             summary {:schema "observed-original-command/1" :kind (:kind view) :source-description description
                      :start-pos (:start-pos view) :end-pos (:end-pos view) :prior-version prior :version (:id version)
