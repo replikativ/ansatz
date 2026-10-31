@@ -27,7 +27,7 @@ public final class Interpreter implements AutoCloseable {
     private static final int USIZE_NAT=9,USIZE_REPR=10,U32_NAT=11,U32_EQ=12,U32_LE=13,PLATFORM_BITS=14;
     private static final int STR_POS_SET=260;
     private static final int VOID_MK=516,LEVEL_INSTANTIATE=517,EXPR_FIND_EXT=519;
-    private static final int ARRAY_CHECKED_SET=518,SHARECOMMON_QUICK=520,EXPR_REPLACE=521;
+    private static final int ARRAY_CHECKED_SET=518,SHARECOMMON_QUICK=520,EXPR_REPLACE=521,EXPR_ABSTRACT_RANGE=522,EXPR_ABSTRACT=523;
     private static final int EXPR_DATA=400,EXPR_APP_DATA=401,LEVEL_DATA=402,EXPR_CACHE=403,EXPR_EQV=404,EXPR_EQUAL=405,U8_TO_U32=406,U64_TO_U8=407,EXPR_FIND=408,LEVEL_EQUAL=409;
     private static final int PROFILE_IT=410;
     private static final int STR_PUSH=15,STR_LIST=16,STR_GET=17,STR_NEXT=18,STR_APPEND=19,STR_SIZE=20,
@@ -446,6 +446,10 @@ public final class Interpreter implements AutoCloseable {
         register(registry,new ExternSpec("lean_sharecommon_quick",SHARECOMMON_QUICK,"tobject",
                 new String[]{"erased","tobject"},new boolean[]{false,true}));
         register(registry,new ExternSpec("lean_replace_expr",EXPR_REPLACE,"object",
+                new String[]{"object","object"},new boolean[]{true,true}));
+        register(registry,new ExternSpec("lean_expr_abstract_range",EXPR_ABSTRACT_RANGE,"object",
+                new String[]{"object","tobject","object"},new boolean[]{true,true,true}));
+        register(registry,new ExternSpec("lean_expr_abstract",EXPR_ABSTRACT,"object",
                 new String[]{"object","object"},new boolean[]{true,true}));
         register(registry,new ExternSpec("lean_find_expr",EXPR_FIND,"tobject",
                 new String[]{"object","object"},new boolean[]{true,true}));
@@ -1436,7 +1440,7 @@ public final class Interpreter implements AutoCloseable {
         for(int lane:f.paramTypes) require(lane==OBJ,"Expr constructor requires OBJ parameters");
         return preflightCallable(f,true);
     }
-    private static final int EXPR_LIFT_JOB=0,EXPR_SUBST_JOB=1,EXPR_BETA_JOB=2,EXPR_CALLBACK_JOB=4;
+    private static final int EXPR_LIFT_JOB=0,EXPR_SUBST_JOB=1,EXPR_BETA_JOB=2,EXPR_ABSTRACT_JOB=3,EXPR_CALLBACK_JOB=4;
     private static final int MAX_EXPR_JOB_FRAMES=100_000,MAX_EXPR_JOB_CACHE=100_000,MAX_EXPR_JOB_OFFSET=1_048_575;
     private static final boolean EXPR_MACHINERY_READY=true;
     private static final class ExprCredit {
@@ -1448,6 +1452,7 @@ public final class Interpreter implements AutoCloseable {
     }
     private static final class ReplaceJob extends ExprJob {
         Object input; int mode,cutoff,amount; Object[] substitutions;
+        Node abstractArray; int prefixLength;
         final ArrayDeque<ExprReplaceFrame> frames=new ArrayDeque<>();
         final IdentityHashMap<Node,HashMap<Integer,ExprCredit>> cache=new IdentityHashMap<>();
         final IdentityHashMap<Node,ExprCredit> callbackCache=new IdentityHashMap<>();
@@ -1456,7 +1461,7 @@ public final class Interpreter implements AutoCloseable {
         int stage,reservedCacheEntries;
     }
     private static final class ExprReplaceFrame {
-        Node original; int offset,stage,cursor,cleanup; boolean shared,active;
+        Node original; int offset,stage,cursor,cleanup,abstractScan; boolean shared,active;
         ExprCredit[] children=new ExprCredit[3]; ExprCredit result;
         ExprReplaceFrame(Node original,int offset) { this.original=original; this.offset=offset; }
     }
@@ -1526,7 +1531,7 @@ public final class Interpreter implements AutoCloseable {
     private void exprJobWork(ExprMachineryState state,long amount) {
         instantiationWork(state.budget,amount,"Expr machinery work outside bounded profile","Expr machinery interrupted");
     }
-    private static final int XR_ENTER=0,XR_CHILDREN=1,XR_LIFT_WAIT=2,XR_BUILD=3,XR_HELPER=4,XR_FINISH=5,XR_CLEAN=6,XR_CALLBACK_WAIT=8,XR_CALLBACK_NONE=9;
+    private static final int XR_ENTER=0,XR_CHILDREN=1,XR_LIFT_WAIT=2,XR_BUILD=3,XR_HELPER=4,XR_FINISH=5,XR_CLEAN=6,XR_ABSTRACT_SCAN=7,XR_CALLBACK_WAIT=8,XR_CALLBACK_NONE=9;
     private static int exprChildCount(int tag) {
         return tag==5||tag==6||tag==7?2:tag==8?3:tag==10||tag==11?1:0;
     }
@@ -1705,7 +1710,9 @@ public final class Interpreter implements AutoCloseable {
         if(job.stage==0) {
             if(job.mode==EXPR_CALLBACK_JOB) { job.stage=1; pushExprFrame(state,job,job.input,0); return; }
             Node input=exprNode(job.input); long range=exprCachedData(input)>>>44;
-            if(job.mode==EXPR_LIFT_JOB?(job.amount==0||job.cutoff>=range):(job.substitutions.length==0||range==0)) {
+            boolean shortcut=job.mode==EXPR_ABSTRACT_JOB?!abstractFlags(input):
+                    job.mode==EXPR_LIFT_JOB?(job.amount==0||job.cutoff>=range):(job.substitutions.length==0||range==0);
+            if(shortcut) {
                 job.result=exprCredit(input); acquireExpr(job.result); job.stage=2; return;
             }
             job.stage=1; pushExprFrame(state,job,input,0); return;
@@ -1716,7 +1723,7 @@ public final class Interpreter implements AutoCloseable {
             }
             require(job.reservedCacheEntries==job.cacheValues.size()&&state.liveCacheEntries>=job.reservedCacheEntries,"Expr cache reservation ledger differs");
             state.liveCacheEntries-=job.reservedCacheEntries; job.reservedCacheEntries=0;
-            job.cacheValues.clear(); job.input=null; job.substitutions=null; job.completed=true; return;
+            job.cacheValues.clear(); job.input=null; job.substitutions=null; job.abstractArray=null; job.completed=true; return;
         }
         ExprReplaceFrame frame=job.frames.peekLast(); require(frame!=null,"Missing Expr replacement frame"); Node node=frame.original;
         if(frame.stage==XR_ENTER) {
@@ -1727,23 +1734,38 @@ public final class Interpreter implements AutoCloseable {
             ExprCredit cached=frame.shared&&job.mode==EXPR_CALLBACK_JOB?job.callbackCache.get(node):offsets==null?null:offsets.get(frame.offset);
             if(cached!=null) { require(cached.owned,"Expr replacement cache owner missing"); selectExpr(frame,cached.value); frame.shared=false; return; }
             if(job.mode==EXPR_CALLBACK_JOB) { prepareExprReplaceCallback(state,frame); return; }
-            long threshold=(long)job.cutoff+frame.offset;
-            if(threshold>=(exprCachedData(node)>>>44)) { selectExpr(frame,node); return; }
-            if(node.tag==0) {
-                BigInteger index=nat(node.fields[0]); exprJobWork(state,1+(index.bitLength()+63L)/64);
-                if(index.compareTo(BigInteger.valueOf(threshold))>=0) {
-                    if(job.mode==EXPR_LIFT_JOB) { requestBVar(action,state,frame,index.add(BigInteger.valueOf(job.amount))); return; }
-                    BigInteger at=index.subtract(BigInteger.valueOf(frame.offset));
-                    if(at.compareTo(BigInteger.valueOf(job.substitutions.length))<0) {
-                        frame.stage=XR_LIFT_WAIT;
-                        pushReplaceJob(state,EXPR_LIFT_JOB,job.substitutions[at.intValue()],0,frame.offset,new Object[0]); return;
+            if(job.mode==EXPR_ABSTRACT_JOB) {
+                if(!abstractFlags(node)) { selectExpr(frame,node); return; }
+                if(node.tag==1||node.tag==2) {
+                    frame.abstractScan=job.prefixLength; frame.stage=XR_ABSTRACT_SCAN; return;
+                }
+            } else {
+                long threshold=(long)job.cutoff+frame.offset;
+                if(threshold>=(exprCachedData(node)>>>44)) { selectExpr(frame,node); return; }
+                if(node.tag==0) {
+                    BigInteger index=nat(node.fields[0]); exprJobWork(state,1+(index.bitLength()+63L)/64);
+                    if(index.compareTo(BigInteger.valueOf(threshold))>=0) {
+                        if(job.mode==EXPR_LIFT_JOB) { requestBVar(action,state,frame,index.add(BigInteger.valueOf(job.amount))); return; }
+                        BigInteger at=index.subtract(BigInteger.valueOf(frame.offset));
+                        if(at.compareTo(BigInteger.valueOf(job.substitutions.length))<0) {
+                            frame.stage=XR_LIFT_WAIT;
+                            pushReplaceJob(state,EXPR_LIFT_JOB,job.substitutions[at.intValue()],0,frame.offset,new Object[0]); return;
+                        }
+                        requestBVar(action,state,frame,index.subtract(BigInteger.valueOf(job.substitutions.length))); return;
                     }
-                    requestBVar(action,state,frame,index.subtract(BigInteger.valueOf(job.substitutions.length))); return;
                 }
             }
             startExprReplaceChildren(job,frame); return;
         }
         if(frame.stage==XR_CALLBACK_NONE) { startExprReplaceChildren(job,frame); return; }
+        if(frame.stage==XR_ABSTRACT_SCAN) {
+            if(frame.abstractScan==0) { selectExpr(frame,node); return; }
+            int i=--frame.abstractScan; exprJobWork(state,1);
+            Node candidate=exprNode(job.abstractArray.fields[i]);
+            if(candidate.tag==node.tag&&abstractNamesEqual(state,node.fields[0],candidate.fields[0]))
+                requestBVar(action,state,frame,BigInteger.valueOf((long)frame.offset+job.prefixLength-i-1));
+            return;
+        }
         if(frame.stage==XR_LIFT_WAIT) {
             require(job.childResult!=null&&job.childResult.owned,"Missing substituted lifted result");
             frame.result=job.childResult; job.childResult=null; frame.stage=XR_FINISH; return;
@@ -1892,6 +1914,41 @@ public final class Interpreter implements AutoCloseable {
         finishAction(action,result);
     }
 
+    private static boolean abstractPrimitive(int op) { return op==EXPR_ABSTRACT_RANGE||op==EXPR_ABSTRACT; }
+    private boolean abstractFlags(Node node) { return (exprCachedData(node)&(7L<<40))!=0; }
+    private boolean abstractNamesEqual(ExprMachineryState state,Object left,Object right) {
+        ExprEquality comparison=new ExprEquality(false); comparison.work=state.budget.work;
+        try { return nameEquals(left,right,comparison); }
+        finally { state.budget.work=comparison.work; }
+    }
+    private int abstractPrefix(Function function,Object[] args) {
+        int arity=function.intrinsic==EXPR_ABSTRACT_RANGE?3:2;
+        require(args!=null&&args.length==arity,"Expr abstraction native arity differs");
+        exprNode(args[0]); Node values=array(args[arity-1]); int size=arrayState(values).size;
+        int prefix=size;
+        if(function.intrinsic==EXPR_ABSTRACT_RANGE) {
+            Object count=args[1];
+            require(count instanceof Long&&((Long)count)>=0||count instanceof BigInteger&&((BigInteger)count).signum()>=0,
+                    "Expr abstraction requires nonnegative Nat range");
+            // Native heap-Nat branch selects the whole array, even for a small MPZ.
+            if(count instanceof Long) prefix=(int)Math.min((Long)count,(long)size);
+        }
+        require(prefix<=MAX_EXPR_JOB_FRAMES,"Expr abstraction prefix outside bounded profile");
+        return prefix;
+    }
+    private void validateAbstractArguments(Function function,Object[] args) {
+        exprTransformsProfile(function); abstractPrefix(function,args);
+    }
+    private void prepareAbstractAction(RuntimeAction action,Function function,Object[] args) {
+        ExprMachineryState state=new ExprMachineryState(); state.policy=exprTransformsProfile(function);
+        state.budget=new InstantiationBudget();
+        ReplaceJob job=new ReplaceJob(); job.mode=EXPR_ABSTRACT_JOB; job.input=args[0];
+        job.abstractArray=array(args[args.length-1]); job.prefixLength=abstractPrefix(function,args);
+        state.jobs.addLast(job); action.exprMachinery=state; objects[action.slot]=null;
+        // The parked native caller backs every borrowed input; no owned research
+        // entry, argument vector, root reset or additional input INC is used.
+    }
+
     /** Five exact source-authenticated ordinary helper roles, without guest values,
      * Program bodies or catalogue resources. SHA identities remain descriptive;
      * the trusted source adapter authenticates the original bytes. */
@@ -2036,7 +2093,7 @@ public final class Interpreter implements AutoCloseable {
     private HostGuestRecord hostGuestRecord;
     private HostCall hostCompletion;
     private RuntimeAction runtimeAction,failedRuntimeAction;
-    private static final int ACTION_RELEASE=1,ACTION_DISPOSE=2,ACTION_NATIVE=3,ACTION_HOST=4,ACTION_TASK=5,ACTION_RESOLVE=6,ACTION_RUN_TASK=7,ACTION_PROFILE=8,ACTION_FIND=9,ACTION_LEVEL_MVARS=10,ACTION_EXPR_MACHINERY=11,ACTION_MVAR_SESSION_RESEARCH=12,ACTION_SHARECOMMON=13,ACTION_EXPR_REPLACE=15,ACTION_HOST_GUEST=20;
+    private static final int ACTION_RELEASE=1,ACTION_DISPOSE=2,ACTION_NATIVE=3,ACTION_HOST=4,ACTION_TASK=5,ACTION_RESOLVE=6,ACTION_RUN_TASK=7,ACTION_PROFILE=8,ACTION_FIND=9,ACTION_LEVEL_MVARS=10,ACTION_EXPR_MACHINERY=11,ACTION_MVAR_SESSION_RESEARCH=12,ACTION_SHARECOMMON=13,ACTION_EXPR_REPLACE=15,ACTION_EXPR_ABSTRACT=16,ACTION_HOST_GUEST=20;
     private static final Body ACTION_BODY=new Body();
     /** Typed ownership/control state, separate from NodeMetadata. The output
      * scratch slot is reserved before callbacks may enter generic AP. */
@@ -2234,7 +2291,7 @@ public final class Interpreter implements AutoCloseable {
     }
     private boolean actionPrimitive(Function function) {
         int op=function.intrinsic;
-        return taskRuntime!=null&&(op==EXPR_REPLACE||op==SHARECOMMON_QUICK||op==LEVEL_INSTANTIATE||op==VOID_MK||op==PROFILE_IT||findPrimitive(op)||taskPrimitive(op)||op==TASK_MAP||op==REF_SET||op==ARRAY_POP||op==ARRAY_FSET||op==ARRAY_USET||op==ARRAY_CHECKED_SET||op==ARRAY_REPLICATE);
+        return taskRuntime!=null&&(abstractPrimitive(op)||op==EXPR_REPLACE||op==SHARECOMMON_QUICK||op==LEVEL_INSTANTIATE||op==VOID_MK||op==PROFILE_IT||findPrimitive(op)||taskPrimitive(op)||op==TASK_MAP||op==REF_SET||op==ARRAY_POP||op==ARRAY_FSET||op==ARRAY_USET||op==ARRAY_CHECKED_SET||op==ARRAY_REPLICATE);
     }
     private Object[] savedArguments(Function function,int[] slots) {
         Object[] args=new Object[slots.length];
@@ -2313,6 +2370,7 @@ public final class Interpreter implements AutoCloseable {
     }
     private void validateNative(Function function,Object[] args) {
         if(function.intrinsic==EXPR_REPLACE) { validateExprReplace(function,args); return; }
+        if(abstractPrimitive(function.intrinsic)) { validateAbstractArguments(function,args); return; }
         if(function.intrinsic==SHARECOMMON_QUICK) {
             shareCommonProfile(); require(args!=null&&args.length==2&&ERASED.equals(args[0]),"ShareCommon requires erased placeholder and borrowed input");
             shareKind(args[1]); return;
@@ -2344,9 +2402,10 @@ public final class Interpreter implements AutoCloseable {
     }
     private void enterNative(Function function,Object[] args,Body next,int dest,int kind,Object[] surplus) {
         validateNative(function,args);
-        RuntimeAction action=newAction(function.intrinsic==EXPR_REPLACE?ACTION_EXPR_REPLACE:function.intrinsic==SHARECOMMON_QUICK?ACTION_SHARECOMMON:function.intrinsic==LEVEL_INSTANTIATE?ACTION_LEVEL_MVARS:findPrimitive(function.intrinsic)?ACTION_FIND:function.intrinsic==PROFILE_IT?ACTION_PROFILE:
+        RuntimeAction action=newAction(abstractPrimitive(function.intrinsic)?ACTION_EXPR_ABSTRACT:function.intrinsic==EXPR_REPLACE?ACTION_EXPR_REPLACE:function.intrinsic==SHARECOMMON_QUICK?ACTION_SHARECOMMON:function.intrinsic==LEVEL_INSTANTIATE?ACTION_LEVEL_MVARS:findPrimitive(function.intrinsic)?ACTION_FIND:function.intrinsic==PROFILE_IT?ACTION_PROFILE:
                 taskPrimitive(function.intrinsic)||function.intrinsic==TASK_MAP?ACTION_TASK:ACTION_NATIVE,function,next,dest,kind,surplus);
         action.arguments=args;
+        if(abstractPrimitive(function.intrinsic)) prepareAbstractAction(action,function,args);
         if(function.intrinsic==EXPR_REPLACE) {
             ExprMachineryState state=new ExprMachineryState(); state.policy=exprTransformsProfile(function);
             state.budget=new InstantiationBudget(); state.borrowedPredicate=(Node)args[0];
@@ -3348,7 +3407,7 @@ public final class Interpreter implements AutoCloseable {
         else if(action.operation==ACTION_FIND) stepFind(action);
         else if(action.operation==ACTION_SHARECOMMON) stepShareCommon(action);
         else if(action.operation==ACTION_LEVEL_MVARS) stepLevelInstantiation(action);
-        else if(action.operation==ACTION_EXPR_MACHINERY||action.operation==ACTION_EXPR_REPLACE) stepExprMachinery(action);
+        else if(action.operation==ACTION_EXPR_MACHINERY||action.operation==ACTION_EXPR_REPLACE||action.operation==ACTION_EXPR_ABSTRACT) stepExprMachinery(action);
         else if(action.operation==ACTION_MVAR_SESSION_RESEARCH) stepMVarSessionResearch(action);
         else if(action.operation==ACTION_HOST_GUEST) stepHostGuest(action);
         else if(action.operation==ACTION_HOST) {
@@ -3629,7 +3688,7 @@ public final class Interpreter implements AutoCloseable {
                     ExprCredit old=(ExprCredit)source,out=(ExprCredit)target; out.value=value(old.value); out.owned=old.owned;
                 } else if(source instanceof ExprReplaceFrame) {
                     ExprReplaceFrame old=(ExprReplaceFrame)source,out=(ExprReplaceFrame)target;
-                    out.original=(Node)value(old.original); out.offset=old.offset; out.stage=old.stage; out.cursor=old.cursor; out.cleanup=old.cleanup;
+                    out.original=(Node)value(old.original); out.offset=old.offset; out.stage=old.stage; out.cursor=old.cursor; out.cleanup=old.cleanup; out.abstractScan=old.abstractScan;
                     out.shared=old.shared; out.active=old.active; out.result=(ExprCredit)value(old.result);
                     for(int i=0;i<old.children.length;i++) out.children[i]=(ExprCredit)value(old.children[i]);
                 } else if(source instanceof ExprBetaFrame) {
@@ -3649,7 +3708,7 @@ public final class Interpreter implements AutoCloseable {
                     out.result=(ExprCredit)value(old.result); out.childResult=(ExprCredit)value(old.childResult); out.completed=old.completed; out.cleanup=old.cleanup;
                     if(source instanceof ReplaceJob) {
                         ReplaceJob r=(ReplaceJob)old,t=(ReplaceJob)out;
-                        t.input=value(r.input); t.mode=r.mode; t.cutoff=r.cutoff; t.amount=r.amount; t.substitutions=(Object[])value(r.substitutions); t.stage=r.stage; t.reservedCacheEntries=r.reservedCacheEntries;
+                        t.input=value(r.input); t.mode=r.mode; t.cutoff=r.cutoff; t.amount=r.amount; t.abstractArray=(Node)value(r.abstractArray); t.prefixLength=r.prefixLength; t.substitutions=(Object[])value(r.substitutions); t.stage=r.stage; t.reservedCacheEntries=r.reservedCacheEntries;
                         for(ExprReplaceFrame frame:r.frames) t.frames.addLast((ExprReplaceFrame)value(frame));
                         for(Map.Entry<Node,ExprCredit> entry:r.callbackCache.entrySet()) t.callbackCache.put((Node)value(entry.getKey()),(ExprCredit)value(entry.getValue()));
                         for(Map.Entry<Node,HashMap<Integer,ExprCredit>> entry:r.cache.entrySet()) {
@@ -3991,7 +4050,7 @@ public final class Interpreter implements AutoCloseable {
                     case SPROJ: require((b.type==U8||b.type==U32||b.type==U64||b.type==F64)&&lane(env,e.a)==OBJ,"Scalar projection lane mismatch"); break;
                     case UPROJ: require(b.type==USIZE&&lane(env,e.a)==OBJ,"USize projection lane mismatch"); break;
                     case FAP: requireExecutableAbi(e.target); checkArgs(env,e.args,e.target.paramTypes); require(b.type==e.target.resultType,"Call result lane mismatch"); break;
-                    case PAP: requireExecutableAbi(e.target); require(e.target.intrinsic!=PROFILE_IT,"Borrowed profiling primitive requires an owned guest wrapper"); require(!borrowedTaskPrimitive(e.target.intrinsic),"Borrowed task primitive requires owned closure wrapper"); require(b.type==OBJ&&e.args.length<e.target.params.length,"Invalid partial application"); require(!borrowedArrayPrimitive(e.target.intrinsic),"Borrowed array primitive requires owned closure wrapper"); require(!borrowedIntPrimitive(e.target.intrinsic),"Borrowed Int primitive requires owned closure wrapper"); require(!borrowedStringPositionPrimitive(e.target.intrinsic),"Borrowed String position primitive requires owned closure wrapper"); require(!borrowedStringCompletionPrimitive(e.target.intrinsic),"Borrowed String range primitive requires owned closure wrapper"); require(!borrowedBytePrimitive(e.target.intrinsic),"Borrowed ByteArray primitive requires owned closure wrapper"); require(e.target.intrinsic!=NAME_EQ,"Borrowed Name equality requires an owned guest wrapper"); require(e.target.intrinsic!=EXPR_CACHE,"Borrowed Expr data requires an owned guest wrapper"); require(!borrowedExprEquality(e.target.intrinsic),"Borrowed Expr equality requires an owned guest wrapper"); require(e.target.intrinsic!=LEVEL_EQUAL,"Borrowed Level equality requires an owned guest wrapper"); require(!findPrimitive(e.target.intrinsic),"Borrowed Expr.find requires an owned guest wrapper"); require(e.target.intrinsic!=SHARECOMMON_QUICK,"Borrowed ShareCommon requires an owned guest wrapper"); require(e.target.intrinsic!=EXPR_REPLACE,"Borrowed Expr.replace requires an owned guest wrapper"); require(e.target.intrinsic!=POINTER_IDENTITY,"Pointer identity requires a certified direct FAP site"); require(!borrowedRefPrimitive(e.target.intrinsic),"Borrowed ref primitive requires owned closure wrapper"); for(int i=0;i<e.target.paramTypes.length;i++) require(e.target.paramTypes[i]==OBJ,"Unboxed partial target unsupported; boxed wrapper required"); for(int a:e.args) require(lane(env,a)==OBJ,"Partial argument must be boxed"); break;
+                    case PAP: requireExecutableAbi(e.target); require(e.target.intrinsic!=PROFILE_IT,"Borrowed profiling primitive requires an owned guest wrapper"); require(!borrowedTaskPrimitive(e.target.intrinsic),"Borrowed task primitive requires owned closure wrapper"); require(b.type==OBJ&&e.args.length<e.target.params.length,"Invalid partial application"); require(!borrowedArrayPrimitive(e.target.intrinsic),"Borrowed array primitive requires owned closure wrapper"); require(!borrowedIntPrimitive(e.target.intrinsic),"Borrowed Int primitive requires owned closure wrapper"); require(!borrowedStringPositionPrimitive(e.target.intrinsic),"Borrowed String position primitive requires owned closure wrapper"); require(!borrowedStringCompletionPrimitive(e.target.intrinsic),"Borrowed String range primitive requires owned closure wrapper"); require(!borrowedBytePrimitive(e.target.intrinsic),"Borrowed ByteArray primitive requires owned closure wrapper"); require(e.target.intrinsic!=NAME_EQ,"Borrowed Name equality requires an owned guest wrapper"); require(e.target.intrinsic!=EXPR_CACHE,"Borrowed Expr data requires an owned guest wrapper"); require(!borrowedExprEquality(e.target.intrinsic),"Borrowed Expr equality requires an owned guest wrapper"); require(e.target.intrinsic!=LEVEL_EQUAL,"Borrowed Level equality requires an owned guest wrapper"); require(!findPrimitive(e.target.intrinsic),"Borrowed Expr.find requires an owned guest wrapper"); require(e.target.intrinsic!=SHARECOMMON_QUICK,"Borrowed ShareCommon requires an owned guest wrapper"); require(e.target.intrinsic!=EXPR_REPLACE,"Borrowed Expr.replace requires an owned guest wrapper"); require(!abstractPrimitive(e.target.intrinsic),"Borrowed Expr abstraction requires an owned guest wrapper"); require(e.target.intrinsic!=POINTER_IDENTITY,"Pointer identity requires a certified direct FAP site"); require(!borrowedRefPrimitive(e.target.intrinsic),"Borrowed ref primitive requires owned closure wrapper"); for(int i=0;i<e.target.paramTypes.length;i++) require(e.target.paramTypes[i]==OBJ,"Unboxed partial target unsupported; boxed wrapper required"); for(int a:e.args) require(lane(env,a)==OBJ,"Partial argument must be boxed"); break;
                     case AP: require(b.type==OBJ&&lane(env,e.a)==OBJ&&e.args.length>0,"Unsupported closure application"); for(int a:e.args) require(lane(env,a)==OBJ,"Closure argument must be boxed"); break;
                     case BOX: require(b.type==OBJ&&e.b!=OBJ&&lane(env,e.a)==e.b,"Box lane mismatch"); break;
                     case UNBOX: require(b.type!=OBJ&&lane(env,e.a)==OBJ,"Unbox lane mismatch"); break;
@@ -5791,6 +5850,7 @@ public final class Interpreter implements AutoCloseable {
         if(function.intrinsic==LEVEL_INSTANTIATE) levelInstantiationProfile(function);
         if(function.intrinsic==SHARECOMMON_QUICK) shareCommonProfile();
         if(function.intrinsic==EXPR_REPLACE) exprTransformsProfile(function);
+        if(abstractPrimitive(function.intrinsic)) exprTransformsProfile(function);
         if(buildIdentityPrimitive(function.intrinsic)) requireBuildIdentity();
         if(taskPrimitive(function.intrinsic)) require(taskRuntime!=null,"Logical synchronous task runtime is inactive");
         if(function.params.length==0&&constantReady[function.id]) return function;
@@ -5940,7 +6000,7 @@ public final class Interpreter implements AutoCloseable {
         require(function!=null,"Expected closure");
         require(!borrowedTaskPrimitive(function.intrinsic),"Borrowed task primitive requires owned guest wrapper");
         require(function.intrinsic!=NAME_EQ,"Borrowed Name equality cannot be admitted as a first-class closure");
-        require(function.intrinsic!=EXPR_CACHE,"Borrowed Expr data requires an owned guest wrapper"); require(!borrowedExprEquality(function.intrinsic),"Borrowed Expr equality requires an owned guest wrapper"); require(function.intrinsic!=LEVEL_EQUAL,"Borrowed Level equality requires an owned guest wrapper"); require(!findPrimitive(function.intrinsic),"Borrowed Expr.find requires an owned guest wrapper"); require(function.intrinsic!=SHARECOMMON_QUICK,"Borrowed ShareCommon requires an owned guest wrapper"); require(function.intrinsic!=EXPR_REPLACE,"Borrowed Expr.replace requires an owned guest wrapper");
+        require(function.intrinsic!=EXPR_CACHE,"Borrowed Expr data requires an owned guest wrapper"); require(!borrowedExprEquality(function.intrinsic),"Borrowed Expr equality requires an owned guest wrapper"); require(function.intrinsic!=LEVEL_EQUAL,"Borrowed Level equality requires an owned guest wrapper"); require(!findPrimitive(function.intrinsic),"Borrowed Expr.find requires an owned guest wrapper"); require(function.intrinsic!=SHARECOMMON_QUICK,"Borrowed ShareCommon requires an owned guest wrapper"); require(function.intrinsic!=EXPR_REPLACE,"Borrowed Expr.replace requires an owned guest wrapper"); require(!abstractPrimitive(function.intrinsic),"Borrowed Expr abstraction requires an owned guest wrapper");
         require(function.intrinsic!=POINTER_IDENTITY,"Pointer identity cannot be admitted as a first-class closure");
         if(!(kindMetadata(closure) instanceof Generation)||!program.generation.accepts((Generation)kindMetadata(closure))) throw error("Closure belongs to another code image");
         if(function.privateOwner!=null) {
@@ -6074,7 +6134,7 @@ public final class Interpreter implements AutoCloseable {
                 require(!borrowedStringCompletionPrimitive(target.intrinsic),"Borrowed String range primitive requires owned closure wrapper");
                 require(!borrowedBytePrimitive(target.intrinsic),"Borrowed ByteArray primitive requires owned closure wrapper");
                 require(target.intrinsic!=NAME_EQ,"Borrowed Name equality requires an owned guest wrapper");
-                require(target.intrinsic!=EXPR_CACHE,"Borrowed Expr data requires an owned guest wrapper"); require(!borrowedExprEquality(target.intrinsic),"Borrowed Expr equality requires an owned guest wrapper"); require(target.intrinsic!=LEVEL_EQUAL,"Borrowed Level equality requires an owned guest wrapper"); require(!findPrimitive(target.intrinsic),"Borrowed Expr.find requires an owned guest wrapper"); require(target.intrinsic!=SHARECOMMON_QUICK,"Borrowed ShareCommon requires an owned guest wrapper"); require(target.intrinsic!=EXPR_REPLACE,"Borrowed Expr.replace requires an owned guest wrapper");
+                require(target.intrinsic!=EXPR_CACHE,"Borrowed Expr data requires an owned guest wrapper"); require(!borrowedExprEquality(target.intrinsic),"Borrowed Expr equality requires an owned guest wrapper"); require(target.intrinsic!=LEVEL_EQUAL,"Borrowed Level equality requires an owned guest wrapper"); require(!findPrimitive(target.intrinsic),"Borrowed Expr.find requires an owned guest wrapper"); require(target.intrinsic!=SHARECOMMON_QUICK,"Borrowed ShareCommon requires an owned guest wrapper"); require(target.intrinsic!=EXPR_REPLACE,"Borrowed Expr.replace requires an owned guest wrapper"); require(!abstractPrimitive(target.intrinsic),"Borrowed Expr abstraction requires an owned guest wrapper");
                 require(target.intrinsic!=POINTER_IDENTITY,"Pointer identity requires a certified direct FAP site");
                 require(!borrowedRefPrimitive(target.intrinsic),"Borrowed ref primitive requires owned closure wrapper");
                 closureTargets[i]=target;
@@ -6158,7 +6218,7 @@ public final class Interpreter implements AutoCloseable {
         require(!borrowedStringCompletionPrimitive(target.intrinsic),"Borrowed String range primitive requires owned closure wrapper");
         require(!borrowedBytePrimitive(target.intrinsic),"Borrowed ByteArray primitive requires owned closure wrapper");
         require(target.intrinsic!=NAME_EQ,"Borrowed Name equality requires an owned guest wrapper");
-        require(target.intrinsic!=EXPR_CACHE,"Borrowed Expr data requires an owned guest wrapper"); require(!borrowedExprEquality(target.intrinsic),"Borrowed Expr equality requires an owned guest wrapper"); require(target.intrinsic!=LEVEL_EQUAL,"Borrowed Level equality requires an owned guest wrapper"); require(!findPrimitive(target.intrinsic),"Borrowed Expr.find requires an owned guest wrapper"); require(target.intrinsic!=SHARECOMMON_QUICK,"Borrowed ShareCommon requires an owned guest wrapper"); require(target.intrinsic!=EXPR_REPLACE,"Borrowed Expr.replace requires an owned guest wrapper");
+        require(target.intrinsic!=EXPR_CACHE,"Borrowed Expr data requires an owned guest wrapper"); require(!borrowedExprEquality(target.intrinsic),"Borrowed Expr equality requires an owned guest wrapper"); require(target.intrinsic!=LEVEL_EQUAL,"Borrowed Level equality requires an owned guest wrapper"); require(!findPrimitive(target.intrinsic),"Borrowed Expr.find requires an owned guest wrapper"); require(target.intrinsic!=SHARECOMMON_QUICK,"Borrowed ShareCommon requires an owned guest wrapper"); require(target.intrinsic!=EXPR_REPLACE,"Borrowed Expr.replace requires an owned guest wrapper"); require(!abstractPrimitive(target.intrinsic),"Borrowed Expr abstraction requires an owned guest wrapper");
         require(target.intrinsic!=POINTER_IDENTITY,"Pointer identity requires a certified direct FAP site");
         require(!borrowedRefPrimitive(target.intrinsic),"Borrowed ref primitive requires owned closure wrapper");
         for(int lane:target.paramTypes) require(lane==OBJ,"Unboxed partial target unsupported; boxed wrapper required");
@@ -6905,7 +6965,7 @@ public final class Interpreter implements AutoCloseable {
         if(borrowedIntPrimitive(f.intrinsic))
             throw new UnsupportedOperationException("Borrowed Int primitive requires owned guest wrapper at external entry");
         require(f.intrinsic!=NAME_EQ,"Borrowed Name equality requires an owned guest wrapper");
-        require(f.intrinsic!=EXPR_CACHE,"Borrowed Expr data requires an owned guest wrapper"); require(!borrowedExprEquality(f.intrinsic),"Borrowed Expr equality requires an owned guest wrapper"); require(f.intrinsic!=LEVEL_EQUAL,"Borrowed Level equality requires an owned guest wrapper"); require(!findPrimitive(f.intrinsic),"Borrowed Expr.find requires an owned guest wrapper"); require(f.intrinsic!=SHARECOMMON_QUICK,"Borrowed ShareCommon requires an owned guest wrapper"); require(f.intrinsic!=EXPR_REPLACE,"Borrowed Expr.replace requires an owned guest wrapper");
+        require(f.intrinsic!=EXPR_CACHE,"Borrowed Expr data requires an owned guest wrapper"); require(!borrowedExprEquality(f.intrinsic),"Borrowed Expr equality requires an owned guest wrapper"); require(f.intrinsic!=LEVEL_EQUAL,"Borrowed Level equality requires an owned guest wrapper"); require(!findPrimitive(f.intrinsic),"Borrowed Expr.find requires an owned guest wrapper"); require(f.intrinsic!=SHARECOMMON_QUICK,"Borrowed ShareCommon requires an owned guest wrapper"); require(f.intrinsic!=EXPR_REPLACE,"Borrowed Expr.replace requires an owned guest wrapper"); require(!abstractPrimitive(f.intrinsic),"Borrowed Expr abstraction requires an owned guest wrapper");
         if(borrowedBytePrimitive(f.intrinsic))
             throw new UnsupportedOperationException("Borrowed ByteArray primitive requires owned guest wrapper at external entry");
         require(f.intrinsic!=POINTER_IDENTITY,"Pointer identity requires a certified direct FAP site");

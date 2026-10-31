@@ -1,0 +1,11 @@
+two-vars: true
+one-prefix: true
+zero-prefix: true
+clamped-prefix: true
+whole-array: true
+reverse-duplicate: true
+domain-distinct: true
+mvar-match: true
+binder-offset: true
+ignored-nonvar: true
+huge-nat: true
