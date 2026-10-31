@@ -12,33 +12,33 @@
 
 (def ^:private ops {:ref? m/ref? :node m/node})
 (defn- fail [message data] (throw (ex-info message data)))
-(defn- tag [world value]
-  (cond (m/ref? value) (:tag (m/node world value))
+(defn- tag [carrier world value]
+  (cond ((:ref? carrier) value) (:tag ((:node carrier) world value))
         (native/native-scalar? value) (native/payload value)
         (instance? prototype.machine.Tag value) (:tag value)
         (integer? value) value
         :else (fail "Invalid typed IR constructor carrier" {})))
-(defn- ctor! [world value expected objects scalars]
-  (if (m/ref? value)
-    (let [node (m/node world value)]
+(defn- ctor! [carrier world value expected objects scalars]
+  (if ((:ref? carrier) value)
+    (let [node ((:node carrier) world value)]
       (when-not (and (= expected (:tag node)) (vector? (:fields node))
                      (layout/constructor-layout? node objects scalars))
         (fail "Invalid typed IR constructor layout" {:tag expected :value value})) node)
-    (if (and (zero? objects) (zero? scalars) (= expected (tag world value)))
+    (if (and (zero? objects) (zero? scalars) (= expected (tag carrier world value)))
       {:fields []}
       (fail "Expected typed IR constructor reference" {:tag expected}))))
-(defn- text! [world value]
-  (when (m/ref? value)
-    (let [node (m/node world value)]
+(defn- text! [carrier world value]
+  (when ((:ref? carrier) value)
+    (let [node ((:node carrier) world value)]
       (when-not (and (= :string (:kind node)) (= 249 (:tag node))
                      (vector? (:fields node)) (empty? (:fields node))
                      (nil? (:layout node)) (empty? (:scalar-bytes node)))
         (fail "Invalid typed IR String layout" {}))))
-  (let [s (string/string-value ops world value)]
+  (let [s (string/string-value carrier world value)]
     (string/evaluate {} nil "lean_string_utf8_byte_size" [s]) s))
-(defn- array! [world value]
-  (when-not (m/ref? value) (fail "Expected typed IR array reference" {}))
-  (let [node (m/node world value)]
+(defn- array! [carrier world value]
+  (when-not ((:ref? carrier) value) (fail "Expected typed IR array reference" {}))
+  (let [node ((:node carrier) world value)]
     (when-not (and (= :array (:kind node)) (= 246 (:tag node)) (vector? (:fields node))
                    (nil? (:layout node)) (empty? (:scalar-bytes node)))
       (fail "Invalid typed IR array layout" {}))
@@ -90,10 +90,10 @@
    (named :inline [[:backend :name] [:pattern :string]])
    (named :standard [[:backend :name] [:fn :string]]) (named :opaque [])])
 
-(defn- describe-form [world value index {:keys [shape label fields]}]
+(defn- describe-form [carrier world value index {:keys [shape label fields]}]
   (let [objects (count (remove #(= :bool (second %)) fields))
         scalars (- (count fields) objects)
-        node (ctor! world value index objects scalars)
+        node (ctor! carrier world value index objects scalars)
         children (loop [fields fields object-index 0 scalar-index 0 children []]
                    (if-let [[_ kind] (first fields)]
                      (if (= :bool kind)
@@ -108,59 +108,59 @@
                   :record record
                   :named (if (empty? fields) (name label) {label record})
                   :array (into [label] values))))}))
-(defn- variant [world value forms]
-  (let [index (tag world value)]
+(defn- variant [carrier world value forms]
+  (let [index (tag carrier world value)]
     (when-not (and (integer? index) (<= 0 index) (< index (count forms)))
       (fail "Unknown pinned typed IR constructor" {:tag index :variants (count forms)}))
-    (describe-form world value index (nth forms (int index)))))
+    (describe-form carrier world value index (nth forms (int index)))))
 
-(defn- describe [world kind value]
+(defn- describe [carrier world kind value]
   (if (vector? kind)
     (let [[container child] kind]
       (case container
-        :array {:children (mapv #(vector child %) (array! world value)) :build identity}
-        :option (case (tag world value)
-                  0 (do (ctor! world value 0 0 0) (leaf nil))
-                  1 (let [[v] (:fields (ctor! world value 1 1 0))]
+        :array {:children (mapv #(vector child %) (array! carrier world value)) :build identity}
+        :option (case (tag carrier world value)
+                  0 (do (ctor! carrier world value 0 0 0) (leaf nil))
+                  1 (let [[v] (:fields (ctor! carrier world value 1 1 0))]
                       {:children [[child v]] :build first})
                   (fail "Invalid typed IR Option" {}))
-        :list (case (tag world value)
-                0 (do (ctor! world value 0 0 0) (leaf '()))
-                1 (let [[head tail] (:fields (ctor! world value 1 2 0))]
+        :list (case (tag carrier world value)
+                0 (do (ctor! carrier world value 0 0 0) (leaf '()))
+                1 (let [[head tail] (:fields (ctor! carrier world value 1 2 0))]
                     {:children [[child head] [kind tail]] :build (fn [[h t]] (cons h t))})
                 (fail "Invalid typed IR List" {}))
         (fail "Unknown typed IR container" {:kind kind})))
     (case kind
-      :nat (leaf (native/nat-value ops world value))
-      :string (leaf (text! world value))
+      :nat (leaf (native/nat-value carrier world value))
+      :string (leaf (text! carrier world value))
       :bool (do (when-not (contains? #{0 1} value) (fail "Invalid typed IR packed Bool" {:value value}))
                 (leaf (= 1 value)))
       (:var-id :join-id) {:children [[:nat value]] :build (fn [[n]] {:idx n})}
-      :name (case (tag world value)
-              0 (do (ctor! world value 0 0 0) (leaf ["anonymous"]))
-              1 (let [[p s] (:fields (ctor! world value 1 2 8))]
+      :name (case (tag carrier world value)
+              0 (do (ctor! carrier world value 0 0 0) (leaf ["anonymous"]))
+              1 (let [[p s] (:fields (ctor! carrier world value 1 2 8))]
                   {:children [[:name p] [:string s]] :build (fn [[p s]] ["str" p s])})
-              2 (let [[p n] (:fields (ctor! world value 2 2 8))]
+              2 (let [[p n] (:fields (ctor! carrier world value 2 2 8))]
                   {:children [[:name p] [:nat n]] :build (fn [[p n]] ["num" p (str n)])})
               (fail "Invalid typed IR Name" {}))
-      :ir-type (variant world value ir-types)
-      :arg (variant world value [(named :var [[:id :var-id]]) (named :erased [])])
-      :literal (variant world value [(named :num [[:v :nat]]) (named :str [[:v :string]])])
-      :ctor-info (describe-form world value 0 (record-form [[:name :name] [:cidx :nat] [:size :nat] [:usize :nat] [:ssize :nat]]))
-      :expr (variant world value expressions)
-      :param (describe-form world value 0 (record-form [[:x :var-id] [:borrow :bool] [:ty :ir-type]]))
-      :alt (variant world value [(array-form "ctor" [[:info :ctor-info] [:b :body]])
+      :ir-type (variant carrier world value ir-types)
+      :arg (variant carrier world value [(named :var [[:id :var-id]]) (named :erased [])])
+      :literal (variant carrier world value [(named :num [[:v :nat]]) (named :str [[:v :string]])])
+      :ctor-info (describe-form carrier world value 0 (record-form [[:name :name] [:cidx :nat] [:size :nat] [:usize :nat] [:ssize :nat]]))
+      :expr (variant carrier world value expressions)
+      :param (describe-form carrier world value 0 (record-form [[:x :var-id] [:borrow :bool] [:ty :ir-type]]))
+      :alt (variant carrier world value [(array-form "ctor" [[:info :ctor-info] [:b :body]])
                                 (array-form "default" [[:b :body]])])
-      :body (variant world value bodies)
+      :body (variant carrier world value bodies)
       :decl-info {:children [[[:option :name] value]]
                   :build (fn [[name]] (if (nil? name) {} {:sorryDep name}))}
-      :extern-entry (variant world value extern-entries)
+      :extern-entry (variant carrier world value extern-entries)
       :extern-data {:children [[[:list :extern-entry] value]] :build (fn [[entries]] {:entries (vec entries)})}
-      :decl (variant world value declarations)
-      :witness-row (describe-form world value 0
+      :decl (variant carrier world value declarations)
+      :witness-row (describe-form carrier world value 0
                      (record-form [[:name :name] [:ir :decl] [:sourceLocal :bool] [:sourceModule [:option :name]]]))
       :witness
-      (let [shape (describe-form world value 0
+      (let [shape (describe-form carrier world value 0
                     (record-form [[:schema :string] [:producer :string] [:leanCommit :string] [:wordBits :nat]
                                   [:target :string] [:name :name] [:boxedTarget :name]
                                   [:declarations [:array :witness-row]] [:missingDependencies [:array :name]]
@@ -172,34 +172,48 @@
                                    (dissoc :wordBits :target))))))
       (fail "Unknown typed IR projection kind" {:kind kind}))))
 
+(defn ^:no-doc specification-reader
+  "Pinned typed-IR decomposition over caller-owned readonly storage operations.
+   OPERATIONS supplies :ref? and :node; :node returns the existing constructor,
+   array, String and MPZ storage-view shapes. Capture one WORLD/scope identity.
+   The caller owns exact carrier/kind validation, borrow lifetime, cycle checks,
+   typed memoization and resource bounds. This factory neither walks a graph nor
+   grants source, kernel or executable-code authority. Existing m.World callers
+   continue through project; alternate walkers need not create a whole World."
+  [operations world]
+  (when-not (and (map? operations) (fn? (:ref? operations)) (fn? (:node operations)))
+    (fail "Typed IR reader requires explicit readonly storage operations" {}))
+  (fn [kind value] (describe operations world kind value)))
+
 (defn project
   "Borrow VALUE under explicit pinned KIND (:decl, :name, :body, :expr,
    :ir-type, :witness, etc.). Result contains only immutable host JSON values.
    Memoization is per invocation and typed: erased representations can alias
    unrelated types. Cycles/malformed layouts fail; no RC or guest state changes."
   [world kind value]
-  (loop [todo [[:visit kind value]] results [] active #{} memo {}]
-    (if (empty? todo)
-      (do (when-not (= 1 (count results)) (fail "Invalid typed IR projection stack" {})) (peek results))
-      (let [[op a b c] (peek todo) todo (pop todo)]
-        (case op
-          :visit
-          (let [key (when (m/ref? b) [(:id b) a])]
-            (cond
-              (and key (contains? active key)) (fail "Cyclic typed IR value" {:kind a})
-              (and key (contains? memo key)) (recur todo (conj results (get memo key)) active memo)
-              :else
-              (let [shape (describe world a b)]
-                (if (contains? shape :value)
-                  (recur todo (conj results (:value shape)) active (if key (assoc memo key (:value shape)) memo))
-                  (let [children (:children shape)]
-                    (recur (into (conj todo [:finish key (count children) (:build shape)])
-                                 (map #(into [:visit] %) (rseq children)))
-                           results (if key (conj active key) active) memo))))))
-          :finish
-          (let [start (- (count results) b) children (into [] (subvec results start)) result (c children)]
-            (recur todo (conj (subvec results 0 start) result) (disj active a)
-                   (if a (assoc memo a result) memo))))))))
+  (let [read (specification-reader ops world)]
+    (loop [todo [[:visit kind value]] results [] active #{} memo {}]
+      (if (empty? todo)
+        (do (when-not (= 1 (count results)) (fail "Invalid typed IR projection stack" {})) (peek results))
+        (let [[op a b c] (peek todo) todo (pop todo)]
+          (case op
+            :visit
+            (let [key (when (m/ref? b) [(:id b) a])]
+              (cond
+                (and key (contains? active key)) (fail "Cyclic typed IR value" {:kind a})
+                (and key (contains? memo key)) (recur todo (conj results (get memo key)) active memo)
+                :else
+                (let [shape (read a b)]
+                  (if (contains? shape :value)
+                    (recur todo (conj results (:value shape)) active (if key (assoc memo key (:value shape)) memo))
+                    (let [children (:children shape)]
+                      (recur (into (conj todo [:finish key (count children) (:build shape)])
+                                   (map #(into [:visit] %) (rseq children)))
+                             results (if key (conj active key) active) memo))))))
+            :finish
+            (let [start (- (count results) b) children (into [] (subvec results start)) result (c children)]
+              (recur todo (conj (subvec results 0 start) result) (disj active a)
+                     (if a (assoc memo a result) memo)))))))))
 
 (defn project-decl [world value] (project world :decl value))
 (defn project-name [world value] (project world :name value))
