@@ -52,3 +52,10 @@ forged receipts, same-SHA altered complete Headers/dependencies, wrong sources a
 bad helper ABI all refuse before Program setup. These use source/Header models,
 not native producer or kernel-admission claims. Static delimiter and diff checks
 passed for this source unit; no JVM, native export or image restoration ran here.
+
+Issued generic evidence is deeply snapshotted into bounded immutable metadata,
+including supplied pins, module/action lists, captured-source data and nested setup
+rules. Java Map/List mutations cannot rewrite a previously issued profile or its
+Header selection. Filesystem File/Path inputs are normalized only for private IO
+and are not retained in overlay evidence. Unknown objects, cycles and paths inside
+public evidence are rejected without serialization or stringification fallback.

@@ -126,3 +126,65 @@
   (is (= [{"action" {"kind" "value" "name" v4/value-name "target" v4/value-name} "meta" false}] v4/actions))
   (is (= 8 (count v4/helpers))))
 (defn check! [] (run-tests 'java-ir-source-setup-checks))
+
+
+(defn mutable-copy [value]
+  (cond
+    (map? value) (let [out (java.util.HashMap.)]
+                   (doseq [[key item] value] (.put out key (mutable-copy item))) out)
+    (sequential? value) (let [out (java.util.ArrayList.)]
+                         (doseq [item value] (.add out (mutable-copy item))) out)
+    :else value))
+(deftest issued-overlays-and-composites-snapshot-original-mutable-evidence
+  (with-catalogue
+    (fixture identity
+      (fn [dir spec]
+        (let [catalogue (Object.) pins (mutable-copy (:pins spec))
+              module-input (mutable-copy module) actions-input (mutable-copy [action])
+              overlay (core/authenticate-overlay! catalogue dir
+                        (assoc spec :pins pins :module module-input :actions actions-input
+                                    :source-file (.toPath ^java.io.File (:source-file spec))
+                                    :producer-file (.toPath ^java.io.File (:producer-file spec))))
+              captured (mutable-copy {"code_index_sha256" "model-index" "state" {"owners" ["actual-owner"]}})
+              setup-input (mutable-copy {:helpers ["SetupModel.helper"] :aliases [] :checked [] :host-symbols []
+                                         :evidence-pins {"known" "accepted-pin"}})
+              receipt (core/compose! catalogue captured [overlay] setup-input)
+              profile (core/code-profile receipt) installed (atom 0)]
+          ;; Mutate every caller-owned layer AFTER issuance, including nested
+          ;; Name/action lists and setup evidence/maps, not just outer containers.
+          (.put ^java.util.Map pins "source_sha256" "forged")
+          (.clear ^java.util.List module-input)
+          (.clear ^java.util.List (get (get (.get ^java.util.List actions-input 0) "action") "name"))
+          (.clear ^java.util.List actions-input)
+          (.clear ^java.util.List (get (get captured "state") "owners"))
+          (.put ^java.util.Map captured "code_index_sha256" "changed-index")
+          (.clear ^java.util.List (get setup-input :helpers))
+          (.put ^java.util.Map (get setup-input :evidence-pins) "known" "changed-pin")
+          (.clear ^java.util.Map setup-input)
+          (is (= (:pins spec) (:pins (core/overlay-info overlay))))
+          (is (= module (:module (core/overlay-info overlay))))
+          (is (= "model-index" (get profile "code_index_sha256")))
+          (is (= ["actual-owner"] (get-in profile ["captured_graph_source" "state" "owners"])))
+          (is (= [action] (get profile "local_initialization_actions")))
+          (is (= ["SetupModel.helper"] (get profile "helper_labels")))
+          (is (= {"known" "accepted-pin"} (get profile "setup_evidence")))
+          (with-model-java installed
+            (let [source (core/source-binding! {} receipt)
+                  configured (core/configure-context receipt catalogue {} source)]
+              (is (identical? profile (accessor source "acceptedCatalogueSnapshot")))
+              (is (= [action] (:local-initialization-actions configured)))
+              (is (= 1 (count (:helper-headers configured))))
+              (is (identical? receipt (core/guard-source! receipt source)))
+              (is (= 1 @installed)))))))))
+(deftest unsupported-private-paths-and-cyclic-objects-are-not-stringified-as-evidence
+  (with-catalogue
+    (fixture identity
+      (fn [dir spec]
+        (let [catalogue (Object.) overlay (core/authenticate-overlay! catalogue dir spec)
+              cycle (java.util.ArrayList.)]
+          (.add cycle cycle)
+          (doseq [unsupported [(io/file dir "private-source.lean") (.toPath (io/file dir "private-path")) (Object.) (atom true)]]
+            (is (thrown-with-msg? Exception #"Unsupported source evidence object"
+                  (core/compose! catalogue {"code_index_sha256" "model-index" "unsupported" unsupported} [overlay] {}))))
+          (is (thrown-with-msg? Exception #"Cyclic mutable source evidence"
+                (core/compose! catalogue {"code_index_sha256" "model-index" "cycle" cycle} [overlay] {}))))))))

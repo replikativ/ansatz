@@ -10,17 +10,54 @@
 (defonce ^:private overlays (WeakHashMap.))
 (defonce ^:private composites (WeakHashMap.))
 (defn require! [ok message] (when-not ok (throw (ex-info message {}))))
+(defn- snapshot-evidence
+  "Copy supported metadata containers into bounded immutable host values.
+   No serialization/stringification fallback: Files, Paths, arrays, functions,
+   mutable numeric wrappers and unknown objects are not source evidence."
+  [root]
+  (let [active (java.util.IdentityHashMap.) visits (volatile! 0) characters (volatile! 0)]
+    (letfn [(freeze [value depth]
+              (require! (and (< @visits 100000) (<= depth 128)) "Source evidence snapshot exceeds bounds")
+              (vswap! visits inc)
+              (cond
+                (string? value) (do (vswap! characters + (count value))
+                                    (require! (<= @characters (* 16 1024 1024)) "Source evidence text exceeds bounds") value)
+                (or (nil? value) (boolean? value) (keyword? value) (instance? java.util.UUID value)) value
+                (contains? #{Byte Short Integer Long Float Double java.math.BigInteger
+                             java.math.BigDecimal clojure.lang.BigInt clojure.lang.Ratio} (class value))
+                (do (require! (or (not (or (instance? Float value) (instance? Double value)))
+                                 (Double/isFinite (double value))) "Nonfinite source evidence number") value)
+                (or (instance? java.util.Map value) (instance? java.util.List value)
+                    (instance? java.util.Set value) (sequential? value))
+                (do
+                  (require! (not (.containsKey active value)) "Cyclic mutable source evidence")
+                  (.put active value true)
+                  (try
+                    (cond
+                      (instance? java.util.Map value)
+                      (reduce (fn [out entry]
+                                (let [key (freeze (.getKey ^java.util.Map$Entry entry) (inc depth))]
+                                  (require! (not (contains? out key)) "Source evidence keys collide after immutable snapshot")
+                                  (assoc out key (freeze (.getValue ^java.util.Map$Entry entry) (inc depth)))))
+                              {} (.entrySet ^java.util.Map value))
+                      (instance? java.util.Set value) (into #{} (map #(freeze % (inc depth))) value)
+                      :else (mapv #(freeze % (inc depth)) value))
+                    (finally (.remove active value))))
+                :else (throw (ex-info "Unsupported source evidence object; filesystem paths stay private" {:class (class value)}))))]
+      (freeze root 0))))
 (defn bytes-sha [bytes]
   (apply str (map #(format "%02x" (bit-and 255 %)) (.digest (MessageDigest/getInstance "SHA-256") bytes))))
+(defn- private-file [path]
+  (if (instance? java.nio.file.Path path) (.toFile ^java.nio.file.Path path) (io/file path)))
 (defn file-sha [file]
-  (let [digest (MessageDigest/getInstance "SHA-256") buffer (byte-array 65536)]
+  (let [file (private-file file) digest (MessageDigest/getInstance "SHA-256") buffer (byte-array 65536)]
     (with-open [input (io/input-stream file)]
       (loop [] (let [n (.read input buffer)] (when (pos? n) (.update digest buffer 0 n) (recur)))))
     (apply str (map #(format "%02x" (bit-and 255 %)) (.digest digest)))))
 (defn checked-bytes [file expected maximum]
   (require! (and (string? expected) (re-matches #"[0-9a-f]{64}" expected)
-                 (<= (.length (io/file file)) maximum)) "Missing pin or oversized source evidence")
-  (let [bytes (java.nio.file.Files/readAllBytes (.toPath (io/file file)))]
+                 (<= (.length (private-file file)) maximum)) "Missing pin or oversized source evidence")
+  (let [bytes (java.nio.file.Files/readAllBytes (.toPath (private-file file)))]
     (require! (and (<= (alength bytes) maximum) (= expected (bytes-sha bytes))) "Source evidence digest mismatch") bytes))
 (defn checked-json [file pin maximum]
   (json/read-str (String. ^bytes (checked-bytes file pin maximum) java.nio.charset.StandardCharsets/UTF_8)))
@@ -38,7 +75,11 @@
   "External expected pins are trusted source-adapter inputs, never caller flags.
    Verify actual source/exporter/receipt/stream bytes before publishing a token.
    SPEC fixes exact module, row count, complete actions and supported roles."
-  [catalogue directory {:keys [source-file producer-file module row-count pins actions] :as spec}]
+  [catalogue directory {:keys [source-file producer-file module row-count pins actions]}]
+  ;; Files/Paths are operation-local inputs and are deliberately not retained in
+  ;; issued evidence. Snapshot only their authenticated descriptive metadata.
+  (let [directory (private-file directory) source-file (private-file source-file) producer-file (private-file producer-file)
+        module (snapshot-evidence module) pins (snapshot-evidence pins) actions (snapshot-evidence actions)]
   (require! (= (get pins "base_index_sha256") (get (cat/descriptor catalogue) "source-index-sha256")) "Wrong accepted base catalogue")
   (checked-bytes source-file (get pins "source_sha256") (* 1024 1024))
   (require! (and (<= (.length (io/file producer-file)) (* 256 1024 1024))
@@ -79,14 +120,15 @@
       (require! (and (false? (get action "meta")) (= "value" (get-in action ["action" "kind"]))
                      (= (get-in action ["action" "name"]) (get-in action ["action" "target"]))) "Unsupported local startup action"))
     (let [token (Overlay.) entry {:catalogue catalogue :pins pins :module module :manifest manifest
-                                   :rows rows :row-count row-count :spec spec}]
-      (locking overlays (.put overlays token entry)) token)))
+                                   :rows rows :row-count row-count}]
+      (locking overlays (.put overlays token entry)) token))))
 (defn compose!
   "Issue source-code-only identity for ordered authenticated overlays/setup rules.
    Captured runtime state stays a separate descriptive fact; this does not admit it."
   [catalogue captured-source tokens setup]
-  (require! (and (vector? tokens) (<= 1 (count tokens) 8) (map? captured-source)) "Bounded ordered source overlays required")
-  (let [captured-source (json/read-str (json/write-str captured-source))
+  (require! (and (vector? tokens) (<= 1 (count tokens) 8) (instance? java.util.Map captured-source)) "Bounded ordered source overlays required")
+  (let [captured-source (snapshot-evidence captured-source)
+        setup (snapshot-evidence setup)
         entries (mapv #(registered overlays % "Actual authenticated Overlay required") tokens)
         _ (require! (and (seq entries) (every? #(identical? catalogue (:catalogue %)) entries)) "Overlay catalogue identity differs")
         index (get (cat/descriptor catalogue) "source-index-sha256")
