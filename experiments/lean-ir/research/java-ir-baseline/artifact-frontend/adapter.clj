@@ -6,7 +6,7 @@
             [prototype.kernel-bridge :as bridge]
             [prototype.kernel-projection-snapshot :as snapshot]
             [prototype.imported-kernel :as imported]
-            [java-matched-artifact-base-v1 :as base])
+            [java-composite-artifact-base-v1 :as base])
   (:import [ansatz.kernel Env ConstantInfo] [java.util LinkedHashMap]))
 (defn- reject [message] (throw (ex-info message {:profile :artifact-checked-declaration-v4})))
 (defn- need [condition message] (when-not condition (reject message)))
@@ -29,7 +29,9 @@
    1 {:kind :definition :declaration-projection :declaration :value-projection :definition-val
       :publication "postCheckSafeDefinition"}
    2 {:kind :theorem :declaration-projection :theorem-declaration :value-projection :theorem-val
-      :publication "postCheckTheorem"}})
+      :publication "postCheckTheorem"}
+   5 {:kind :mutual-definition :declaration-projection :mutual-declaration
+      :publication "postCheckMutualDefinitions"}})
 (defn- descriptor! [session value]
   (let [node (invoke1 (:engine session) "constructorNode" value)
         tag (.getInt ^java.lang.reflect.Field (:tag (:basis session)) node)
@@ -37,6 +39,19 @@
     (need descriptor "Unsupported declaration/constant kind")
     (ctor session value tag 1)
     descriptor))
+(defn- group-payloads! [session list-root]
+  (loop [value list-root out [] seen #{}]
+    (if (and (instance? Long value) (zero? value)) out
+      (do
+        (need (< (count out) 256) "Mutual group exceeds member bound")
+        (need (not (contains? seen value)) "Cyclic mutual definition list")
+        (ctor session value 1 2)
+        (let [fs ^objects (fields session value)]
+          (recur (aget fs 1) (conj out (aget fs 0)) (conj seen value)))))))
+(defn- generated-admission! [session request]
+  (let [n (find-ns 'general-command-receipt-v1) guard (when n (ns-resolve n 'assert-generated-admission!))]
+    (need guard "Generated mutual group requires an actual active observed source command")
+    (guard session request)))
 (defn- tagged-bool [value]
   (need (and (instance? Long value) (contains? #{0 1} value)) "Expected exact boxed Bool") value)
 (defn- request-header [request] (private-value (private-value request "call") "function"))
@@ -200,8 +215,13 @@
       (need (and (integer? heartbeats) (zero? heartbeats) (integer? depth) (zero? depth)) "Nonzero native limits unsupported")
       (need (and (instance? Long cancel) (= 0 cancel)) "Cancellation token unsupported")
       (let [descriptor (descriptor! session declaration)
-            _ (need (true? (get-in session [:options (case (:kind descriptor) :axiom :allow-axioms? :theorem :allow-theorems? :definition :allow-definitions?)]))
+            _ (need (true? (get-in session [:options (case (:kind descriptor) :axiom :allow-axioms? :theorem :allow-theorems? :definition :allow-definitions? :mutual-definition :allow-definitions?)]))
                     "Declaration kind is not enabled")
+            _ (when (= :mutual-definition (:kind descriptor))
+                (generated-admission! session request)
+                (need (seq (group-payloads! session (aget ^objects (fields session declaration) 0))) "Empty mutual definition group")
+                (need (get-in session [:setup :helper-headers "KernelBridgeShim.postCheckMutualDefinitions._boxed"])
+                      "Mutual publisher absent from exact source policy"))
             inv (atom {:outer request :input-env env :declaration declaration
                        :descriptor descriptor :payload (aget ^objects (fields session declaration) 0)
                        :owners (LinkedHashMap.) :stage :root0 :operation nil :candidate nil :tokens {}
@@ -222,6 +242,7 @@
                                 (need (= :owned (slot-state s)) "Input occurrence not owned")
                                 (j/host-owned-argument basis (slot-value s))))) args)
         header (get-in session [:setup :helper-headers (str "KernelBridgeShim." helper "._boxed")])]
+    (when (= helper "postCheckMutualDefinitions") (generated-admission! session (:outer @inv)))
     (need header "Helper absent from exact source policy")
     (.put ^LinkedHashMap (:owners @inv) result-key result-slot)
     (swap! inv assoc :operation op)
@@ -287,35 +308,55 @@
 (defn- check-java! [session inv]
   (validate-versions! session)
   (need (< @(:published-count session) (get-in session [:options :max-declarations])) "Version budget exhausted before checking")
-  (let [version (resolve-base! session inv) environment (:env version)]
+  (let [version (resolve-base! session inv) environment (:env version)
+        mutual? (= :mutual-definition (get-in @inv [:descriptor :kind]))]
+    (when mutual? (generated-admission! session (:outer @inv)))
     (base/with-version! (:matched-base session) environment
       (fn [^Env environment]
         (let [scope (projection/open-projector (:basis session) (:engine session) ((get-in session [:options :projection-limits])))]
           (try
-            (let [^ConstantInfo projected (:value (bridge/project-with-stats (:world scope)
-                                           (get-in @inv [:descriptor :declaration-projection]) (:declaration @inv) (:projector scope)))
-                  name (.name projected)
-                  _ (need (nil? (.lookup environment name)) "Declaration shadows a base or local name")
+            (let [projected (:value (bridge/project-with-stats (:world scope)
+                                       (get-in @inv [:descriptor :declaration-projection]) (:declaration @inv) (:projector scope)))
+                  constants (if mutual? projected [projected])
+                  names (mapv #(.name ^ConstantInfo %) constants)
+                  payloads (if mutual? (group-payloads! session (:payload @inv)) [(:payload @inv)])
+                  _ (need (and (<= 1 (count constants) 256) (= (count constants) (count payloads) (count (set names)))
+                               (<= (+ (count constants) (count (:payloads version))) (get-in session [:options :max-declarations])))
+                          "Declaration group exceeds exact local domain/member bounds")
+                  _ (doseq [name names] (need (nil? (.lookup environment name)) "Declaration shadows a base or local name"))
                   result (case (get-in @inv [:descriptor :kind])
-                           :axiom (bridge/admit-axiom (:world scope) environment (:declaration @inv)
-                                    (get-in session [:options :fuel]) (:projector scope))
-                           :definition (bridge/admit-definition (:world scope) environment (:declaration @inv)
-                                         (get-in session [:options :fuel]) (:projector scope))
-                           :theorem (bridge/admit-theorem (:world scope) environment (:declaration @inv)
-                                      (get-in session [:options :fuel]) (:projector scope)))
-                  ^Env child (:env result) ^ConstantInfo ci (:constant result)]
-              (need (and (identical? projected ci) (.sameExternalView child environment)
-                         (.isQuotEnabled child) (= (inc (count (:payloads version))) (count (.allConstants child)))
-                         (identical? ci (.lookup child name))) "Checked child differs from its one-name local delta")
-              (let [segment (snapshot/snapshot-segment {name ci})
-                    candidate {:env child :constant ci :segments (conj (:segments version) segment)
-                               :payloads (assoc (:payloads version) name
-                                           {:kind (get-in @inv [:descriptor :kind]) :payload (:payload @inv)})}]
+                           :axiom (bridge/admit-axiom (:world scope) environment (:declaration @inv) (get-in session [:options :fuel]) (:projector scope))
+                           :definition (bridge/admit-definition (:world scope) environment (:declaration @inv) (get-in session [:options :fuel]) (:projector scope))
+                           :theorem (bridge/admit-theorem (:world scope) environment (:declaration @inv) (get-in session [:options :fuel]) (:projector scope))
+                           :mutual-definition (bridge/admit-mutual-definitions (:world scope) environment (:declaration @inv)
+                                                                           (get-in session [:options :fuel]) (:projector scope)))
+                  ^Env child (:env result) checked (if mutual? (:constants result) [(:constant result)])]
+              (need (and (= (count constants) (count checked))
+                         (every? true? (map identical? constants checked)) (.sameExternalView child environment)
+                         (.isQuotEnabled child) (= (+ (count constants) (count (:payloads version))) (count (.allConstants child))))
+                    "Checked child differs from its atomic original local delta")
+              (doseq [^ConstantInfo ci constants] (need (identical? ci (.lookupLocal child (.name ci))) "Checked member is not the actual child CI"))
+              (let [group (zipmap names constants) segment (snapshot/snapshot-segment group)
+                    additions (into {} (map (fn [name payload]
+                                               [name (cond-> {:kind (if mutual? :definition (get-in @inv [:descriptor :kind])) :payload payload}
+                                                       mutual? (assoc :value-projection :definition-val-general))]) names payloads))
+                    candidate {:env child :constant (when-not mutual? (first constants)) :constants constants
+                               :segments (conj (:segments version) segment) :payloads (merge (:payloads version) additions)}]
                 (validate-local-view! session candidate)
                 (swap! inv assoc :candidate candidate :stage :publish)
                 (event! session :checked inv {:id (inc @(:published-count session)) :parent (:id version)})))
             (finally ((:close! scope))))))))
   (validate-versions! session) (validate-candidate! session inv))
+(defn- validate-local-info! [session scope candidate ^Env checked info name]
+  (let [descriptor (descriptor! session info) payload (aget ^objects (fields session info) 0)
+        expected (get (:payloads candidate) name)
+        ^ConstantInfo projected (:value (bridge/project-with-stats (:world scope)
+                                          (or (:value-projection expected) (:value-projection descriptor)) payload (:projector scope)))
+        actual (.lookup checked name)]
+    (need (and expected (= name (.name projected)) (= (:kind descriptor) (:kind expected))
+               (identical? payload (:payload expected)) actual
+               (= (imported/checking-shape actual) (imported/checking-shape projected)))
+          "Readback changed a local name/kind/payload/checking shape")))
 (defn- validate-readback! [session inv]
   (let [s @inv k0 (slot-value (owner! inv :K0)) m0 (slot-value (owner! inv :M0))
         k1 (slot-value (owner! inv :K1)) m1 (slot-value (owner! inv :M1)) tokens (bundle inv "1")
@@ -348,13 +389,7 @@
                   (need (not (contains? @seen name)) "Readback contains a duplicate typed Name")
                   (if (contains? domain name)
                     (base/validate-base-info! artifact (:world scope) (:carrier-ops scope) info)
-                    (let [descriptor (descriptor! session info) payload (aget ^objects (fields session info) 0)
-                          ^ConstantInfo projected (:value (bridge/project-with-stats (:world scope) (:value-projection descriptor) payload (:projector scope)))
-                          expected (get (:payloads candidate) name) actual (.lookup checked name)]
-                      (need (and expected (= name (.name projected)) (= (:kind descriptor) (:kind expected))
-                                 (identical? payload (:payload expected)) actual
-                                 (= (imported/checking-shape actual) (imported/checking-shape projected)))
-                            "Readback changed a local name/kind/payload/checking shape")))
+                    (validate-local-info! session scope candidate checked info name))
                   (swap! seen conj name)))
               (need (= @seen (clojure.set/union domain local-names)) "Readback omitted or added constants"))
             (finally ((:close! scope))))))))
@@ -404,35 +439,59 @@
     ((get-in session [:authority :finish-request!]) (:engine session) (:outer @inv))
     (reset! (:last-request session) (:outer @inv))
     (reset! (:phase session) :replied) (reset! (:invocation session) nil)))
+(defn publication-watermark [session]
+  "Chronological issued-publication cursor, independent of selected guest Env."
+  (let [n @(:published-count session)]
+    (need (and (integer? n) (<= 0 n (get-in session [:options :max-declarations]))
+               (= (inc n) (count @(:versions session)))) "Retained publication ledger/counter differs") n))
+(defn version-ancestry [session selected-id]
+  (let [versions @(:versions session) by-id (into {} (map (juxt :id identity) versions))]
+    (loop [id selected-id out []]
+      (need (and (integer? id) (<= 0 id) (< (count out) (count versions))) "Invalid retained version ancestry")
+      (let [entry (get by-id id)]
+        (need entry "Missing retained version ancestor")
+        (if (zero? id)
+          (do (need (nil? (:parent entry)) "Baseline version has a parent") (vec (reverse (conj out id))))
+          (do (need (and (integer? (:parent entry)) (<= 0 (:parent entry)) (< (:parent entry) id))
+                    "Publication parent is not an earlier retained version")
+              (recur (:parent entry) (conj out id))))))))
 (defn complete-command-history!
-  "Validate one monotone, fully completed root-command interval. This does not
-   infer parse/compiler success or issue a CommandReceipt. No fake requests for
-   zero-publication commands; the genuine retained baseline remains version0."
-  [session prior-id]
+  "Validate EVERY completed publication in a chronological interval, including
+   speculative sibling branches. Selected guest Env is resolved separately from
+   its actual map; no event is discarded or relabeled as selected by this API."
+  ([session watermark] (complete-command-history! session watermark watermark))
+  ([session watermark initial-selected-id]
   (source-live! session) (validate-versions! session)
   (need (and (contains? #{:idle :replied} @(:phase session)) (nil? @(:invocation session))
              (= "idle" (j/phase (:basis session) (:engine session)))
              (nil? (private-value (:engine session) "hostCompletion"))
              (nil? (private-value (:engine session) "hostGuestRecord"))
              (nil? (private-value (:engine session) "runtimeAction"))) "Command still owns pending native completion work")
-  (let [versions @(:versions session)
-        _ (need (some #(= prior-id (:id %)) versions) "Missing retained initial command version")
-        added (vec (filter #(< prior-id (:id %)) versions))]
-    (loop [parent prior-id entries added]
-      (when-let [entry (first entries)]
-        (need (= parent (:parent entry)) "General command publication ancestry is not monotone")
-        (let [events (filter #(= (:id entry) (:version-id %)) @(:events session))
-              reply (filter #(= :reply-transferred (:phase %)) events)
-              cleanup (filter #(= :cleanup-finished (:phase %)) events)]
-          (need (and (= 1 (count reply) (count cleanup))
-                     (identical? (:request (first reply)) (:request (first cleanup)))
-                     (private-value (private-value (:request (first reply)) "call") "replyClaimed"))
-                "Version lacks its actual cleanup/reply completion")
-          (when-not (some #(= :reply-finished (:phase %)) events)
-            (let [inv (atom {:outer (:request (first reply))})]
-              (event! session :reply-finished inv entry))))
-        (recur (:id entry) (next entries))))
-    (mapv #(select-keys % [:id :parent]) added)))
+  (let [versions @(:versions session) end (publication-watermark session)
+        by-id (into {} (map (juxt :id identity) versions))
+        _ (need (= (mapv :id versions) (vec (range (inc end)))) "Publication IDs are not the complete retained ledger")
+        _ (need (and (integer? watermark) (<= 0 watermark end)
+                     (integer? initial-selected-id) (<= 0 initial-selected-id watermark)
+                     (contains? by-id initial-selected-id)) "Missing retained initial command version/watermark")
+        added (vec (filter #(< watermark (:id %)) versions))
+        requests (java.util.IdentityHashMap.)
+        phases [:checked :published :committed :cleanup-finished :reply-transferred]]
+    (doseq [entry versions] (version-ancestry session (:id entry)))
+    (doseq [entry added]
+      (let [events (vec (filter #(= (:id entry) (:version-id %)) @(:events session)))
+            required (filterv #(not= :reply-finished (:phase %)) events)
+            finished (filterv #(= :reply-finished (:phase %)) events)
+            request (:request (first required))]
+        (need (and request (= phases (mapv :phase required)) (<= (count finished) 1)
+                   (= (mapv :phase events) (into phases (repeat (count finished) :reply-finished)))
+                   (every? #(= (:parent entry) (:parent-id %)) events)
+                   (every? #(identical? request (:request %)) events)
+                   (not (.containsKey requests request))
+                   (true? (private-value (private-value request "call") "replyClaimed")))
+              "Version lacks exact checked/published/committed/cleanup/reply completion")
+        (.put requests request true)
+        (when (empty? finished) (event! session :reply-finished (atom {:outer request}) entry))))
+    (mapv #(select-keys % [:id :parent]) added))))
 (defn poll!
   "One nonrecursive adapter transition. Driver owns advance/Code/other Host servicing.
    A failed receipt remains owned and cannot be retried, forked or silently unwound."
@@ -458,7 +517,9 @@
               :empty0 (do (need (= 1 (tagged-bool (slot-value (owner! inv :quot0)))) "Expected the original initialized quotient base")
                           (witness! session inv "checkedEnvironmentIsEmpty" (:input-env @inv) :empty0 :check))
               :check (check-java! session inv)
-              :publish (do (retain-into! session inv :publication-declaration (:declaration @inv))
+              :publish (do (when (= :mutual-definition (get-in @inv [:descriptor :kind]))
+                             (generated-admission! session (:outer @inv)))
+                           (retain-into! session inv :publication-declaration (:declaration @inv))
                            (launch-helper! session inv (get-in @inv [:descriptor :publication]) [:outer-env :publication-declaration] :reply :published))
               :published (let [r (slot-value (owner! inv :reply))]
                            (ctor session r 1 1)

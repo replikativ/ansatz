@@ -418,6 +418,17 @@
      :check-gate! (fn [request] (borrow #(gate! % request)))
      :check-observed-result! (fn [request] (borrow #(observed! % request)))}))
 
+(defn assert-command-gate!
+  "Borrow an actual still-issued source gate as a policy witness only. The M1
+   scope independently owns command lifecycle/current ELAB authority. No receipt
+   map, public token constructor or returned Boolean can issue a new gate."
+  [gate engine source capture]
+  (let [g (registered gates gate "Actual source GateReceipt required")]
+    (need (and (identical? capture (:capture g)) (identical? engine (:engine capture))
+               (identical? source (:source capture)) (= :command (get-in g [:policy :kind])))
+          "Generated admission requires this actual nonterminal safe-source gate")
+    nil))
+
 (defn close!
   "Drop only private host metadata. This does not release any guest occurrence,
    retire a command, close a Source or grant cleanup of an outstanding request."

@@ -170,6 +170,19 @@
     :declaration
     (let [[definition] (:fields (ctor! ops world value 1 1 0))]
       {:children [[:definition-val definition]] :build first})
+    :definition-val-general
+    (let [node (ctor! ops world value 0 4 1) [constant body hints all] (:fields node)
+          safety (case (byte-at node 0) 0 1 1 0 2 2 (fail "Invalid original DefinitionSafety" {}))]
+      {:children [[:constant-val constant] [:expr body] [:hints hints] [:names all]]
+       :build (fn [[{:keys [name params type]} body hints all]]
+                (ConstantInfo/mkDefWithHints name (object-array params) type body (long hints) (byte safety) (object-array all)))})
+    :definition-values
+    (if (= 0 (scalar-tag ops value)) (leaf '())
+      (let [[head tail] (:fields (ctor! ops world value 1 2 0))]
+        {:children [[:definition-val-general head] [:definition-values tail]] :build (fn [[head tail]] (cons head tail))}))
+    :mutual-declaration
+    (let [[values] (:fields (ctor! ops world value 5 1 0))]
+      {:children [[:definition-values values]] :build (fn [[values]] (vec values))})
     (fail "Unsupported kernel projection kind" {:kind kind})))
 
 (defn ^:no-doc default-world-specification-reader
@@ -323,3 +336,17 @@
    (let [^ConstantInfo constant (:value (project-with-stats world :compiler-marker-declaration declaration))
          next-env (TypeChecker/checkConstant env constant (long fuel))]
      {:env next-env :constant constant :world world :guest-declaration declaration})))
+
+
+(defn admit-mutual-definitions
+  "Strict original unsafe/partial group check, not a frontend policy grant.
+   Caller must separately authorize generated admission. Every header is checked
+   in the old Env; all bodies are checked only after the whole group is present."
+  [world ^Env env declaration fuel projector]
+  (when-not (and (integer? fuel) (<= 1 fuel Long/MAX_VALUE)) (fail "Invalid checking fuel" {}))
+  (let [constants (:value (project-with-stats world :mutual-declaration declaration projector))
+        names (mapv #(.name ^ConstantInfo %) constants)]
+    (when-not (and (<= 1 (count constants) 256) (= (count names) (count (set names))))
+      (fail "Invalid bounded unique mutual definition group" {}))
+    {:env (TypeChecker/checkMutualDefinitions env constants (long fuel)) :constants constants
+     :world world :guest-declaration declaration}))

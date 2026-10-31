@@ -7,7 +7,7 @@
             [ansatz.research.ir.source-setup :as source]
             [ansatz.research.ir.authenticated-demand :as demand]
             [artifact-checked-declaration-adapter-v4 :as adapter]
-            [java-matched-artifact-base-v1 :as base]
+            [java-composite-artifact-base-v1 :as base]
             [general-frontend-source-provider-v1 :as provider]
             [general-command-receipt-v1 :as command]
             [general-generated-batch-v1 :as batch])
@@ -121,9 +121,13 @@
                                   (cond-> (= :unsupported (:status prepared)) (assoc :execution :unsupported)))))
         (case kind
           :command (swap! holder assoc :status :open)
-          :eoi (swap! holder assoc :status (if (= :supported (:execution @holder)) :ready :unsupported)
-                       :stage :eoi :linked-program (:program (context @holder))
-                       :checked-version (peek @(get-in @holder [:bundle :admission :adapter :versions])))
+          :eoi (let [session (get-in @holder [:bundle :admission :adapter])
+                     matches (filterv #(= (:version summary) (:id %)) @(:versions session))]
+                 (need (= 1 (count matches)) "EOF selected version is not uniquely retained")
+                 (swap! holder assoc :status (if (= :supported (:execution @holder)) :ready :unsupported)
+                        :stage :eoi :linked-program (:program (context @holder))
+                        :checked-version (first matches)
+                        :publication-watermark (adapter/publication-watermark session)))
           (swap! holder assoc :status :stopped :stage kind))
         (inspect file))
       (catch Throwable error (failed! holder error) (inspect file)))))))
@@ -191,7 +195,8 @@
   (let [holder (cell file) s (live! holder) n (nat! argument)]
     (need (and (= :ready (:status s)) (nil? (:active s)) (= "idle" (j/phase (context s) (engine s)))
                (identical? (:linked-program s) (:program (context s)))
-               (identical? (:checked-version s) (peek @(get-in s [:bundle :admission :adapter :versions]))))
+               (some #(identical? (:checked-version s) %) @(get-in s [:bundle :admission :adapter :versions]))
+               (= (:publication-watermark s) (adapter/publication-watermark (get-in s [:bundle :admission :adapter]))))
           "Invoke requires this completed file's exact checked version and linked Program")
     (nat-entry! s entry)
     (let [f (options/rebase-idle-deadline (get-in s [:bundle :frontend])) slot (object-array [nil :unclaimed])]

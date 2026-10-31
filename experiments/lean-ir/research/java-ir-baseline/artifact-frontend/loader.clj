@@ -10,6 +10,7 @@
     ["module.clj" java-matched-prelude-module-v4]
     ["lineage.clj" java-prelude-finalizer-lineage-v1]
     ["base.clj" java-matched-artifact-base-v1]
+    ["composite-base.clj" java-composite-artifact-base-v1]
     ["authority.clj" artifact-declaration-authority-v4]
     ["adapter.clj" artifact-checked-declaration-adapter-v4]
     ["driver.clj" artifact-declaration-driver-v4]
@@ -29,6 +30,7 @@
   '[["models/demand.clj" ansatz.research.ir.authenticated-demand-checks]
     ["models/lineage.clj" java-prelude-finalizer-lineage-models-v1]
     ["models/capability.clj" java-matched-prelude-capability-models-v4]
+    ["models/composite-base.clj" java-composite-base-models-v1]
     ["models/authority.clj" artifact-declaration-authority-v4-models]
     ["models/adapter.clj" artifact-declaration-adapter-v4-models-v1]
     ["models/node-decoder.clj" ansatz.research.ir.node-decoder-checks-v1]
@@ -38,6 +40,7 @@
     ["models/general-source-provider.clj" general-frontend-source-provider-models-v1]
     ["models/general-foundation.clj" general-command-foundation-checks-v1]
     ["models/general-command.clj" general-command-receipt-checks-v1]
+    ["models/mutual-declaration.clj" generated-mutual-declaration-models-v1]
     ["models/generated-batch.clj" general-generated-batch-models-v1]
     ["models/general-file.clj" general-frontend-file-checks-v1]])
 (defn- load-units! [root entries required]

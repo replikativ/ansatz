@@ -11,10 +11,13 @@
 (deftype SourceCaptures [])
 (deftype CommandRun [])
 (deftype CommandReceipt [])
+(deftype GeneratedAdmissionScope [])
 (defonce ^:private providers (WeakHashMap.))
 (defonce ^:private runs (WeakHashMap.))
 (defonce ^:private receipts (WeakHashMap.))
 (defonce ^:private busy (WeakHashMap.))
+(defonce ^:private generated-scopes (WeakHashMap.))
+(def ^:dynamic ^:private *generated-admission* nil)
 (def ^:private entry-label "ObservedFrontendCommand.processCommandObserved._boxed")
 (def ^:private header-contract
   {:entry [entry-label "113a457b6e4cf7826300e2e19c0dcdd627139a4faf4c3f4bae4701cb4e58b8cd"]
@@ -58,6 +61,38 @@
 (defn- engine [holder] (#'finite/engine @holder))
 (defn- live! [holder] (#'finite/live! holder))
 (defn- observe! [holder key argument] (#'finite/observe! holder key argument))
+(defn- issue-generated-scope! [holder]
+  (let [s @holder token (GeneratedAdmissionScope.)
+        entry {:holder (java.lang.ref.WeakReference. holder) :file-marker (:file-marker s)
+               :command-index (get-in s [:capture :description :command-index])}]
+    (put! generated-scopes token entry)
+    (swap! holder assoc :generated-admission-scope token)))
+(defn- revoke-generated-scope! [holder]
+  (when-let [token (:generated-admission-scope @holder)]
+    (locking generated-scopes (.remove generated-scopes token))
+    (swap! holder dissoc :generated-admission-scope)))
+(defn assert-generated-admission!
+  "Internal adapter borrow of the ACTUAL currently dispatched M1 command. No
+   public option, token constructor or function-name heuristic grants admission."
+  [session request]
+  (let [{:keys [holder file-marker command-index]} (issued generated-scopes *generated-admission*)
+        holder (.get ^java.lang.ref.WeakReference holder)]
+    (need holder "Generated command scope is no longer live")
+    (let [s (live! holder) e (engine holder) c (ctx holder) gate (:gate s)]
+      (need (and (= :running (:status s)) (= :process-command (:stage s)) (= :replied (:stage gate))
+                 (identical? *generated-admission* (:generated-admission-scope s))
+                 (identical? file-marker (:file-marker s))
+                 (= command-index (get-in s [:capture :description :command-index]))
+                 (identical? session (get-in s [:strict-driver :adapter]))
+                 (identical? e (:engine session)) (identical? (:source s) (:source session))
+                 (= "host-call" (j/phase c e)) (identical? request (j/host-request c e))
+                 (not (field (field request "call") "replyClaimed"))
+                 (true? (field (field (:request gate) "call") "replyClaimed"))
+                 (identical? (get-in s [:headers :entry]) (field (field e "entry") "header")))
+            "Generated group is outside its actual active source command/ELAB scope")
+      ((requiring-resolve 'general-frontend-source-provider-v1/assert-command-gate!)
+        (:receipt gate) e (:source s) (:capture s))
+      nil)))
 (defn- decode-limits []
   {:deadline-nanos (+ (System/nanoTime) 10000000000)
    :max-nodes (min 100000 (:max-nodes decoder/defaults))
@@ -168,7 +203,8 @@
         (swap! holder assoc-in [:gate :receipt] receipt)
         (swap! holder assoc-in [:gate :stage] :reply-pending)
         (j/resume-host! c e (:request gate) (long 0))
-        (swap! holder assoc-in [:gate :stage] :replied)))))
+        (swap! holder assoc-in [:gate :stage] :replied)
+        (issue-generated-scope! holder)))))
 (defn- drain! [holder slot]
   (loop []
     (let [s (live! holder) f (:frontend s) c (ctx holder) e (engine holder) phase (j/phase c e)
@@ -190,7 +226,8 @@
              (identical? (aget ^objects (get-in s [:gate :token-slot]) 0) (j/host-guest-result c e)))
         (do (finish-gate! holder) (recur))
         (and (contains? #{"host-call" "host-guest-result"} phase) (:runtime-step! f))
-        (do (sp/charge! f :turns 1) ((:runtime-step! f) f) (recur))
+        (do (sp/charge! f :turns 1)
+            (binding [*generated-admission* (:generated-admission-scope s)] ((:runtime-step! f) f)) (recur))
         :else (throw (ex-info "Unsupported observed-command runtime boundary; preserve exact operation" {:phase phase :stage (:stage s)}))))))
 (defn open-command!
   [frontend strict-driver captures {:keys [layout-directory quantum row-limit]
@@ -212,13 +249,20 @@
     (need (= "idle" (j/phase (ctx holder) (engine holder))) "Observed command opens only at idle boundary")
     (put! runs token holder)))
 (defn- final-version! [holder observation]
-  (let [s @holder session (get-in s [:strict-driver :adapter]) version (peek @(:versions session))
+  (let [s @holder session (get-in s [:strict-driver :adapter])
         actual (#'authority/environment-view! (:driver (:frontend s)) (:layout s) (:environment observation))
-        expected (#'authority/kernel-view! (:driver (:frontend s)) (:layout s) (aget ^objects (:kernel-root version) 0))]
-    (need (and (identical? (:constant-map actual) (aget ^objects (:constant-map version) 0))
-               (identical? (:const2mod-map actual) (:const2mod-map expected))
-               (every? true? (map identical? (rest (:header-fields actual)) (rest (:header-fields expected)))))
-          "Final frontend Env is not the actual last replied checked version") version))
+        matches (filterv #(identical? (:constant-map actual) (aget ^objects (:constant-map %) 0)) @(:versions session))]
+    (need (= 1 (count matches)) "Observed frontend Env has no unique retained checked map")
+    (let [version (first matches)
+          expected (#'authority/kernel-view! (:driver (:frontend s)) (:layout s) (aget ^objects (:kernel-root version) 0))]
+      (need (and (identical? (:const2mod-map actual) (:const2mod-map expected))
+                 (every? true? (map identical? (rest (:header-fields actual)) (rest (:header-fields expected)))))
+            "Observed frontend Env differs from its retained checked import/header witness")
+      version)))
+(defn- selected-version-live! [s session]
+  (need (and (= (:publication-watermark s) (adapter/publication-watermark session))
+             (some #(identical? (:version s) %) @(:versions session)))
+        "Command ledger advanced or selected checked version was removed"))
 (defn run-command! [run]
   (let [holder (issued runs run) s (live! holder) f (:frontend s) d (:driver f) session (get-in s [:strict-driver :adapter]) e (engine holder)]
     (need (= :open (:status s)) "Observed command can start only once")
@@ -235,8 +279,11 @@
             initial (#'finite/snapshot! holder :before)
             _ (swap! holder assoc :initial initial)
             _ (when (empty? @(:versions session)) (adapter/establish-base! session (:environment initial)))
-            prior (:id (peek @(:versions session)))
+            prior-version (final-version! holder initial)
+            prior (:id prior-version)
+            prior-watermark (adapter/publication-watermark session)
             baseline (ir-map! (#'finite/decode! holder (#'finite/call-borrowed! holder :baseline "Lean.IR.getDecls" [(:environment initial)])) (:row-limit s))
+            _ (need (= prior-watermark (adapter/publication-watermark session)) "Baseline readback changed the publication ledger")
             _ (swap! holder assoc :prior-version prior :baseline baseline :stage :process-command)
             _ (sp/charge! f :commands 1)
             wrapper (#'finite/call-borrowed! holder :process entry-label
@@ -257,8 +304,11 @@
                                              (map view [:input :before-state :syntax :parser-state :parser-messages])))) "Actual companion observation differs from its gate")
             errors (#'finite/call-borrowed! holder :elaboration-errors "Lean.MessageLog.hasErrors" [(:elaboration-messages view)])
             _ (need (and (instance? Long errors) (zero? errors)) "Elaboration/compiler diagnostics contain errors")
-            history (adapter/complete-command-history! session prior)
+            history (adapter/complete-command-history! session prior-watermark prior)
             version (final-version! holder after)
+            publication-watermark (adapter/publication-watermark session)
+            ancestry (adapter/version-ancestry session (:id version))
+            _ (need (some #{prior} ancestry) "Final selected Env does not preserve the initial checked branch")
             post (ir-map! (#'finite/decode! holder (#'finite/call-borrowed! holder :post "Lean.IR.getDecls" [(:environment after)])) (:row-limit s))
             _ (doseq [[name row] baseline] (need (= row (get post name)) "Original compiler changed a historical local IR row"))
             delta (apply dissoc post (keys baseline))
@@ -269,15 +319,18 @@
                             {:profile :observed-classic-prelude-command-v1 :kind (:kind view)
                              :requirements-policy :no-local-initializers-exports-externs-redirects-v1})
             _ (swap! holder assoc :stage :cleanup :observation view :version version :version-marker (Object.)
-                           :delta delta :history history :post-ir post :source-policy source-policy :command-index command-index)
+                           :delta delta :history history :post-ir post :source-policy source-policy :command-index command-index
+                           :publication-watermark publication-watermark)
             _ (#'finite/clean-temporaries! holder)
             _ (#'adapter/validate-versions! session)
-            _ (need (identical? version (peek @(:versions session))) "Cleanup advanced checked history after observed command")
+            _ (selected-version-live! @holder session)
             _ (need (identical? version (final-version! holder after)) "Cleanup changed the final checked Env witness")
             description (#'finite/frozen-host (:description capture))
             summary {:schema "observed-original-command/1" :kind (:kind view) :source-description description
                      :start-pos (:start-pos view) :end-pos (:end-pos view) :prior-version prior :version (:id version)
-                     :publications history :new-ir-names (vec (keys delta)) :new-ir-rows (count delta)
+                     :publications history :selected-ancestry ancestry
+                     :publication-interval {:before prior-watermark :after publication-watermark}
+                     :new-ir-names (vec (keys delta)) :new-ir-rows (count delta)
                      :execution :not-prepared :initialization :requires-separate-policy}
             _ (#'finite/frozen-host summary)
             receipt (CommandReceipt.)]
@@ -287,7 +340,8 @@
       (catch Throwable error
         (do
           (swap! holder assoc :status :failed :failure (failure-summary error))
-          {:status :failed :run run :stage (:stage @holder) :failure (:failure @holder)})))))
+          {:status :failed :run run :stage (:stage @holder) :failure (:failure @holder)}))
+      (finally (revoke-generated-scope! holder)))))
 (defn owner-packet [run]
   (let [s @(issued runs run)] (select-keys s [:status :stage :operation :gate :owners :failure])))
 (defn with-command!
@@ -304,19 +358,20 @@
                     (every? (fn [[key value]] (identical? value (get binding key))) scope-binding)))
            "Foreign generated-code scope binding")
      (#'adapter/validate-versions! session)
-     (need (identical? (:version s) (peek @(:versions session))) "Checked version advanced after command")
+     (selected-version-live! s session)
      (let [before (#'finite/hook-stamp (engine holder))
            view {:driver d :engine (:engine d) :source (:source d) :source-receipt (:receipt s)
                              :file-marker (:file-marker s) :command-index (:command-index s)
                              :adapter session :version-id (get-in s [:version :id]) :version-marker (:version-marker s)
+                             :publication-watermark (:publication-watermark s)
                              :base-program (:base-program s) :before-ir (:baseline s) :after-ir (:post-ir s)
                              :delta (:delta s) :source-policy (:source-policy s) :summary (:summary s)}]
        (try (callback view)
          (finally
            (live! holder) (#'adapter/validate-versions! session)
            (let [after (#'finite/hook-stamp (engine holder))]
-             (need (and (identical? (:version s) (peek @(:versions session)))
-                        (= "idle" (j/phase (ctx holder) (engine holder)))
+             (selected-version-live! s session)
+             (need (and (= "idle" (j/phase (ctx holder) (engine holder)))
                         (= (:counts before) (:counts after)) (= (:flags before) (:flags after))
                         (every? true? (map identical? (rest (:identities before)) (rest (:identities after)))))
                    "Batch metadata callback advanced guest state or changed checked version"))))))))
@@ -336,7 +391,7 @@
                (nil? (field e "runtimeAction")) (nil? (field e "hostCompletion"))
                (nil? (field e "hostGuestRecord"))) "Deadline allowance requires healthy idle command custody")
     (when (= :sealed (:status s))
-      (need (identical? (:version s) (peek @(:versions session))) "Stale checked command cannot rebase its deadline"))
+      (selected-version-live! s session))
     (swap! holder assoc-in [:frontend :deadline-nanos] (+ (System/nanoTime) (* 1000000 milliseconds)))
     {:status :idle-deadline-rebased :milliseconds milliseconds :budget @(:used f)}))
 (defn retire! [run]
@@ -346,8 +401,7 @@
     (try
       (#'finite/release-slot! holder [:after :env])
       (live! holder) (#'adapter/validate-versions! (get-in s [:strict-driver :adapter]))
-      (need (identical? (:version s) (peek @(:versions (get-in s [:strict-driver :adapter]))))
-            "Command retirement changed checked history outside its receipt")
+      (selected-version-live! s (get-in s [:strict-driver :adapter]))
       (locking busy (.remove busy e))
       (reset! holder {:status :retired :stage :retired :summary (:summary s)})
       {:status :retired}

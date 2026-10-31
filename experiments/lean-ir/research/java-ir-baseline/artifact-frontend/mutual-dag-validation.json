@@ -1,0 +1,33 @@
+{
+  "schema": "artifact-frontend-mutual-dag-validation/1",
+  "scope": "Landing-only closed Base dispatch, generated mutual declarations and checked publication DAG",
+  "worker-executed-JVM": false,
+  "parent-validation": {
+    "models": {
+      "tests": 60,
+      "assertions": 424,
+      "failures": 0,
+      "errors": 0
+    },
+    "report": {
+      "file": "target/java-source-exchange-v1/mutual-landing-models-v1.edn",
+      "sha256": "535c856880b02768aeea0639349405df748f5ce1301143f2a85703432c17c382"
+    },
+    "method": "Function-only loading of exact landing files against existing opaque classes; model namespaces loaded from landing files."
+  },
+  "source-pins": {
+    "adapter.clj": "3c248f22ec238f0f191656da9a092e088247a594ab8ea75ab34b9eaac2f6c1dc",
+    "authority.clj": "494c03ba875128a0d77de70d78ad8a9f2e35deb975dd8ac3fa6ae38d58f636c5",
+    "composite-base.clj": "79938649dab35b10f62f5ea88d3ee733de0d5b452399e647aa55437432a4e379",
+    "general-command.clj": "2748552479ac7fc488acf828350a6cdc6ed33dcdb2e88f9c9e7b1c056bd738e1",
+    "general-file.clj": "2bf07bd77ceaeb27371dbb7019626b63beccd2ff050dce8864e112ace428eda8",
+    "loader.clj": "bd524ec97cea97e343c3d4c50127d671aeb0d6acbeba899fd22ec38dada26715",
+    "verify-source.py": "7665f2f4f973e09687b06aa1f3e392e0d93cfea4fdc22ebc6834bed625fd2ead",
+    "general-command-v1.json": "3651813d90d1be2b6912c832ecde6023f92e4a35b2b0284740344cde5de13b14"
+  },
+  "limits": [
+    "No new guest execution or reconstructed source Base acceptance is issued by this receipt.",
+    "Historical acceptance and arithmetic source layers are unchanged.",
+    "Deferred source exchange and snapshot leaves are excluded."
+  ]
+}

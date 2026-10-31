@@ -16,12 +16,12 @@
     {
       "file": "authority.clj",
       "base-sha256": "f98586083a27009416bf4ad86fd67bf1797b458420b76df69332871480f2a21f",
-      "sha256": "c954593b6525f1c4a9386d96b3e61b9bcdc284de962d52eab377e9a6b90af877"
+      "sha256": "494c03ba875128a0d77de70d78ad8a9f2e35deb975dd8ac3fa6ae38d58f636c5"
     },
     {
       "file": "adapter.clj",
       "base-sha256": "a14d69229e4c52e8e9eec95fe9608f3bb30a7175907f3e356577f4942d795222",
-      "sha256": "9370873013520e3b7a66f5b16e007587bfcaf628ed17fe4dfc411bedbbf092ef"
+      "sha256": "3c248f22ec238f0f191656da9a092e088247a594ab8ea75ab34b9eaac2f6c1dc"
     },
     {
       "file": "generated-command.clj",
@@ -31,12 +31,12 @@
     {
       "file": "loader.clj",
       "base-sha256": "d10ec5d4909c1c45cf205d7e2aa10a4e90d6fa7400c496143374998e6fb6c1e8",
-      "sha256": "67f0bad01de3f456c155afb18aff7b178c403c5f158236c816905898923befb0"
+      "sha256": "bd524ec97cea97e343c3d4c50127d671aeb0d6acbeba899fd22ec38dada26715"
     },
     {
       "file": "verify-source.py",
       "base-sha256": "648d82fc8b482aa674865ef3c341c43213eb2ff467c6850fb8d2b46fac788f4e",
-      "sha256": "2bc55b5ae876241d5a90fdcc4813dafa22746b0504ec2c50ff0e1d02335cc3fc"
+      "sha256": "7665f2f4f973e09687b06aa1f3e392e0d93cfea4fdc22ebc6834bed625fd2ead"
     },
     {
       "file": "models/lineage.clj",
@@ -51,12 +51,12 @@
     {
       "file": "general-source-provider.clj",
       "base-sha256": null,
-      "sha256": "28fe4a3e1b8fae02612fc8066402ae826a4254b946885f2996f46a18fc54563b"
+      "sha256": "8b46fa412234dd2ce80811bc5c2a3fd487cf0dca7ffbd5aed9bf194275d3eb0d"
     },
     {
       "file": "general-command.clj",
       "base-sha256": null,
-      "sha256": "9cf65ae93cf86c07c61baa76850b74f4f486912b6e0dc7a6f6e339af34c8f18d"
+      "sha256": "2748552479ac7fc488acf828350a6cdc6ed33dcdb2e88f9c9e7b1c056bd738e1"
     },
     {
       "file": "generated-batch.clj",
@@ -71,12 +71,12 @@
     {
       "file": "models/general-foundation.clj",
       "base-sha256": null,
-      "sha256": "b8772362ca9c09ba044809b280a108988e2d5183229518e08c5e96d929d0cb66"
+      "sha256": "8cbceca258fa212aa4f3b06ebec0b4c7088b7f9316cfed5f566ff17240b62985"
     },
     {
       "file": "models/general-command.clj",
       "base-sha256": null,
-      "sha256": "fd25bd68b0c69ba250199b28d57887000ed6f8aa5b8a0ba035299a51811e6605"
+      "sha256": "18572d4322e762eb12b99cef3711b7c67313f5946525afb26e53c121092256af"
     },
     {
       "file": "models/generated-batch.clj",
@@ -91,18 +91,33 @@
     {
       "file": "general-file.clj",
       "base-sha256": null,
-      "sha256": "bf7974bee909d7b49ad003a45906e0118af11392e5a96f7a9a8f8a2cb6df542c"
+      "sha256": "2bf07bd77ceaeb27371dbb7019626b63beccd2ff050dce8864e112ace428eda8"
     },
     {
       "file": "models/general-file.clj",
       "base-sha256": null,
-      "sha256": "0f886cdb6ae83a92b9e24ab2793b639abafec7bc0c967bbafec3cf113d6a3c7d"
+      "sha256": "b851e61c2bef392d68c7432ba77959e8572e833dedbd5dda456b9e7211a3097f"
+    },
+    {
+      "file": "composite-base.clj",
+      "base-sha256": null,
+      "sha256": "79938649dab35b10f62f5ea88d3ee733de0d5b452399e647aa55437432a4e379"
+    },
+    {
+      "file": "models/composite-base.clj",
+      "base-sha256": null,
+      "sha256": "0ca22fb76d787e05a834c455f750646289eaf20702e4f2166cd50877eb04fc26"
+    },
+    {
+      "file": "models/mutual-declaration.clj",
+      "base-sha256": null,
+      "sha256": "1d88b3b3a9bee1bebe2706f0464812b853511de402d1d8008a95ccc4e13697ff"
     }
   ],
   "source-inventory": [
     {
       "file": "adapter.clj",
-      "sha256": "9370873013520e3b7a66f5b16e007587bfcaf628ed17fe4dfc411bedbbf092ef"
+      "sha256": "3c248f22ec238f0f191656da9a092e088247a594ab8ea75ab34b9eaac2f6c1dc"
     },
     {
       "file": "authenticated-demand.clj",
@@ -110,11 +125,15 @@
     },
     {
       "file": "authority.clj",
-      "sha256": "c954593b6525f1c4a9386d96b3e61b9bcdc284de962d52eab377e9a6b90af877"
+      "sha256": "494c03ba875128a0d77de70d78ad8a9f2e35deb975dd8ac3fa6ae38d58f636c5"
     },
     {
       "file": "base.clj",
       "sha256": "2b46b16d3def8a96ad5d9f55ffbc8f7639143bbf9d7f2e14f7b6a68219acbaf8"
+    },
+    {
+      "file": "composite-base.clj",
+      "sha256": "79938649dab35b10f62f5ea88d3ee733de0d5b452399e647aa55437432a4e379"
     },
     {
       "file": "driver.clj",
@@ -134,15 +153,15 @@
     },
     {
       "file": "general-command.clj",
-      "sha256": "9cf65ae93cf86c07c61baa76850b74f4f486912b6e0dc7a6f6e339af34c8f18d"
+      "sha256": "2748552479ac7fc488acf828350a6cdc6ed33dcdb2e88f9c9e7b1c056bd738e1"
     },
     {
       "file": "general-file.clj",
-      "sha256": "bf7974bee909d7b49ad003a45906e0118af11392e5a96f7a9a8f8a2cb6df542c"
+      "sha256": "2bf07bd77ceaeb27371dbb7019626b63beccd2ff050dce8864e112ace428eda8"
     },
     {
       "file": "general-source-provider.clj",
-      "sha256": "28fe4a3e1b8fae02612fc8066402ae826a4254b946885f2996f46a18fc54563b"
+      "sha256": "8b46fa412234dd2ce80811bc5c2a3fd487cf0dca7ffbd5aed9bf194275d3eb0d"
     },
     {
       "file": "generated-batch.clj",
@@ -162,7 +181,7 @@
     },
     {
       "file": "loader.clj",
-      "sha256": "67f0bad01de3f456c155afb18aff7b178c403c5f158236c816905898923befb0"
+      "sha256": "bd524ec97cea97e343c3d4c50127d671aeb0d6acbeba899fd22ec38dada26715"
     },
     {
       "file": "models/adapter.clj",
@@ -177,6 +196,10 @@
       "sha256": "e2a4dd37f41e4034ee9c4f2e1bdb6eea01ddf884cf82838ceb39de76b6c5b663"
     },
     {
+      "file": "models/composite-base.clj",
+      "sha256": "0ca22fb76d787e05a834c455f750646289eaf20702e4f2166cd50877eb04fc26"
+    },
+    {
       "file": "models/demand.clj",
       "sha256": "1a1c6ab63794e86a9d199c4d783347a7b9c0f888c4a4e555a93876963259845d"
     },
@@ -186,15 +209,15 @@
     },
     {
       "file": "models/general-command.clj",
-      "sha256": "fd25bd68b0c69ba250199b28d57887000ed6f8aa5b8a0ba035299a51811e6605"
+      "sha256": "18572d4322e762eb12b99cef3711b7c67313f5946525afb26e53c121092256af"
     },
     {
       "file": "models/general-file.clj",
-      "sha256": "0f886cdb6ae83a92b9e24ab2793b639abafec7bc0c967bbafec3cf113d6a3c7d"
+      "sha256": "b851e61c2bef392d68c7432ba77959e8572e833dedbd5dda456b9e7211a3097f"
     },
     {
       "file": "models/general-foundation.clj",
-      "sha256": "b8772362ca9c09ba044809b280a108988e2d5183229518e08c5e96d929d0cb66"
+      "sha256": "8cbceca258fa212aa4f3b06ebec0b4c7088b7f9316cfed5f566ff17240b62985"
     },
     {
       "file": "models/general-source-provider.clj",
@@ -211,6 +234,10 @@
     {
       "file": "models/lineage.clj",
       "sha256": "75d02563a5942ab136b44b9937749cafea8020a61556391729dc877edb2eb55c"
+    },
+    {
+      "file": "models/mutual-declaration.clj",
+      "sha256": "1d88b3b3a9bee1bebe2706f0464812b853511de402d1d8008a95ccc4e13697ff"
     },
     {
       "file": "models/nat-arithmetic.clj",
@@ -238,7 +265,7 @@
     },
     {
       "file": "verify-source.py",
-      "sha256": "2bc55b5ae876241d5a90fdcc4813dafa22746b0504ec2c50ff0e1d02335cc3fc"
+      "sha256": "7665f2f4f973e09687b06aa1f3e392e0d93cfea4fdc22ebc6834bed625fd2ead"
     }
   ],
   "ordered-load-units": [
@@ -257,6 +284,10 @@
     [
       "base.clj",
       "java-matched-artifact-base-v1"
+    ],
+    [
+      "composite-base.clj",
+      "java-composite-artifact-base-v1"
     ],
     [
       "authority.clj",
@@ -331,6 +362,10 @@
       "java-matched-prelude-capability-models-v4"
     ],
     [
+      "models/composite-base.clj",
+      "java-composite-base-models-v1"
+    ],
+    [
       "models/authority.clj",
       "artifact-declaration-authority-v4-models"
     ],
@@ -367,6 +402,10 @@
       "general-command-receipt-checks-v1"
     ],
     [
+      "models/mutual-declaration.clj",
+      "generated-mutual-declaration-models-v1"
+    ],
+    [
       "models/generated-batch.clj",
       "general-generated-batch-models-v1"
     ],
@@ -378,11 +417,11 @@
   "tracked-references": [
     {
       "file": "experiments/lean-ir/research/java-ir-baseline/artifact-frontend/README.md",
-      "sha256": "8e1e56e98f697cbb41bf08c3615090e69675bda9b2b9d13decfc0e3e7f3791c2"
+      "sha256": "6189c9c45ba6ceb8b57b6f3eba61120cc17ed07ebe0fdff32b93043e23fb0bf3"
     },
     {
       "file": "experiments/lean-ir/research/java-ir-baseline/artifact-frontend/GENERAL_COMMAND_RECEIPTS.md",
-      "sha256": "12b87a3e00c66b4219eeffba8c204db52c3d0d1728c5f552a2cca35491c5effe"
+      "sha256": "6b5db6374aba685ee576eeafef12f90757d49419b72a9a332eb8fb1b7a2e856a"
     },
     {
       "file": "experiments/lean-ir/research/java-ir-baseline/artifact-frontend/general-command-runtime-validation.json",
@@ -423,6 +462,14 @@
     {
       "file": "experiments/lean-ir/research/java-ir-baseline/artifact-frontend/API_CONSOLIDATION.md",
       "sha256": "f432559f565d0c1f05fe37173a7cfb932248601320cd897fafbfcac2f7e961ce"
+    },
+    {
+      "file": "experiments/lean-ir/research/java-ir-baseline/artifact-frontend/MUTUAL_DECLARATIONS.md",
+      "sha256": "28b07dc4db0d1c665775282e6b3f9ae9bb77463fb86bb752a8d866c9cf7af50b"
+    },
+    {
+      "file": "experiments/lean-ir/src/prototype/kernel_bridge.clj",
+      "sha256": "3ed3ed901ee3702427d56b95d0f645be170b75abd0bc5fb4f0227ebfcdcba016"
     }
   ],
   "external-evidence": [
@@ -433,6 +480,10 @@
     {
       "file": "target/java-observed-command-v1/actual-idle-baseline-v2.edn",
       "sha256": "aa92fdd070460903ec1a660c63f8affa4ef43aed825d734e76079cf9e357c303"
+    },
+    {
+      "file": "target/java-source-exchange-v1/mutual-landing-models-v1.edn",
+      "sha256": "535c856880b02768aeea0639349405df748f5ce1301143f2a85703432c17c382"
     }
   ],
   "runtime-authority-boundaries": [
@@ -447,6 +498,10 @@
     "General driver construction is additive: finite16/default remains unchanged; fresh general512 selects its session before closure capture.",
     "M2 full-row/frontier bounds precede digest and Header serialization; source update from reviewed 122232e.",
     "New constructor/selection models and API consolidation slices are source checkpoints, not fresh runtime acceptance.",
-    "General FileRun source and nine mocked model families added; no guest acceptance claimed for this checkpoint."
+    "General FileRun source and nine mocked model families added; no guest acceptance claimed for this checkpoint.",
+    "Closed composite dispatcher forwards fixed Prelude operations unchanged; deferred exact source issuers remain a separately reviewed unit. Four routing model families prepared, no worker guest execution.",
+    "Original mutual-group projection/check/atomic publication and active M1 opaque gate scope are a source checkpoint; eight model families prepared, actual recursive command acceptance pending.",
+    "Publication history validates every checked DAG branch in an issuance-watermark interval; the actual observed constant map selects the final retained version, which must preserve the pre-command selected ancestry. Parent JVM compilation and six model suites passed 56 tests / 392 assertions; no worker JVM execution.",
+    "Landing split excludes the four deferred source exchange/snapshot implementation/model leaves. Parent evaluated the exact landing functions and seven model suites: 60 tests / 424 assertions, zero failures or errors. This is model evidence, not a new guest execution claim."
   ]
 }
