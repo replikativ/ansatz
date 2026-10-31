@@ -90,10 +90,12 @@
           (when-let [alternatives (field body "alternatives")]
             (doseq [child alternatives :when child] (.push queue child))))))
     (need (= 1 (count @matches)) "Companion gate site is not unique")
-    (let [site (first @matches) next (field site "next") next-expr (field next "expr")]
+    (let [site (first @matches) prefix (field site "next") next (field prefix "next") next-expr (field next "expr")]
       (need (and (= 41 (field site "a"))
                  (= [1 4 24 25 26 0] (vec (field (field site "expr") "args")))
-                 (identical? next (field call "next")) (= 42 (field next "a"))
+                 (identical? prefix (field call "next"))
+                 (= 4 (field prefix "op")) (= 24 (field prefix "a")) (= 1 (field prefix "b"))
+                 (= 0 (field next "op")) (= 42 (field next "a"))
                  (= 3 (field next-expr "op"))
                  (= "Lean.Elab.Frontend.elabCommandAtFrontend" (field (field next-expr "target") "label"))
                  (= [24 1 2 0] (vec (field next-expr "args")))) "Companion gate/next-body differs from authenticated compiled layout"))))
@@ -209,13 +211,17 @@
             baseline (ir-map! (#'finite/decode! holder (#'finite/call-borrowed! holder :baseline "Lean.IR.getDecls" [(:environment initial)])) (:row-limit s))
             _ (swap! holder assoc :prior-version prior :baseline baseline :stage :process-command)
             _ (sp/charge! f :commands 1)
-            result (#'finite/call-borrowed! holder :process entry-label
+            wrapper (#'finite/call-borrowed! holder :process entry-label
                                           [(sp/owned f :input) (sp/owned f :state-ref) 0])
+            _ (#'adapter/invoke1 e "constructorNode" wrapper)
+            _ (need (and (nil? (field wrapper "closure")) (zero? (alength ^bytes (sp/scalars f wrapper))))
+                    "Observed frontend did not return an ordinary IO result")
+            result (aget ^objects (sp/ctor! f wrapper 0 1) 0)
             _ (need (= :replied (get-in @holder [:gate :stage])) "No actual approved parser gate")
             _ (swap! holder assoc :stage :observed)
             after (#'finite/snapshot! holder :after)
             gate (:gate @holder)
-            view (observe! holder :check-observed-result! {:engine e :source (:source s) :result result
+            view (observe! holder :check-observed-result! {:engine e :source (:source s) :result result :result-wrapper wrapper
                       :gate-receipt (:receipt gate) :arguments (:arguments gate) :initial-observation initial
                       :final-observation after :capture capture})
             _ (need (and (contains? #{:command :eoi :exit :import} (:kind view))
