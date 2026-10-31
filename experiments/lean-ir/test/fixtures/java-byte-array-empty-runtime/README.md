@@ -81,3 +81,15 @@ immutable runtime jar, load it with an isolated ClassLoader, and run
 fork and focused native gates before admitting a new runtime cohort. Old jar and
 cohort remain valid. No JVM/native execution or fresh frontend success is claimed
 by this fixture.
+
+Coordinated validation compiled a frozen Java 11 jar and loaded it through a new
+isolated ClassLoader in the retained 384 MiB REPL: seven tests and 168 assertions
+passed. The complete interpreter gate passed separately in 384 MiB: 157 groups,
+1,494 tests and 59,210 assertions, zero failures/errors. Its log SHA256 is
+`0f954834cfa5df6e4c2b7fd10175a3bd0c55bb1b74d1c6f6996372f604b6442a`.
+The runtime source SHA256 is
+`9980ba8298f6dd09db1da806b4b6dbda848f1d746c89655de60467cb05fe721f`;
+the tested jar SHA256 is
+`cfe1ff1bfd51c4e7c8e5f688117e9c70e214ff18d760fbc69c1b56d554aac23d`.
+This validates the original empty-ByteArray caller, not the full Nat-arithmetic
+frontend route, which still requires a new admitted runtime cohort.
