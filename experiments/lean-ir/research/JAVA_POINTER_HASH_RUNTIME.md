@@ -96,3 +96,22 @@ The callback body and collision selection are explicitly research models; the
 table operations and hash bodies remain the authenticated original rows.
 Receipt: `target/java-pointer-hash-runtime-v1/followup-v1.out`, SHA
 `cccc7fdabc54040896959ca6d0ba71c7d2bcf6aa8c694568d0a5122304bc5551`. No Java change or native numeric-hash golden was introduced.
+
+## Consolidated validation
+
+The source-cohort implementation integrates on main14d4afbc with Java SHA-256
+`cd52faa0eaee19134fd78c32ae775ed69885cb9424a2b8ece9c43a411fa590b3`
+and immutable jar SHA-256
+`2475a8956a6d11f3c9a861cc264618a2332acff14112d2b4bc51012eb7239551`.
+The 384 MiB combined gate passed129 groups,1,287 tests and56,084 assertions
+with exit0, no failures/errors. The later four-test original-callback/expansion
+follow-on passed on that same artifact in both drivers (137/159 assertions).
+Its two groups are included in the final131-group runner.
+
+The complete runtime integration with the separately reviewed Expr native also
+passed the same pointer follow-on on Java94f128fd / jar5aeba892. The original
+frontend then processed two axioms and two dependent theorems through strict
+Java kernel checks to EOF, with full successful cleanup. That broader acceptance
+requires both runtime units; this pointer profile alone is not general frontend
+support. No Java kernel source was changed. End-to-end performance impact has
+not been benchmarked; the cold frontend receipt includes lazy code loading.
