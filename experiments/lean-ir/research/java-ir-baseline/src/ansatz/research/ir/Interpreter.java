@@ -6050,7 +6050,8 @@ public final class Interpreter implements AutoCloseable {
         Function gf=program.functions[globalId],af=program.functions[actionId];
         require(gf.header==global&&af.header==action,"Initializer requires original registered Headers");
         require(global.kind.equals("fdecl")&&global.initialized()&&gf.params.length==0
-                &&global.resultType.equals("object"),"Initializer global requires boxed initialized fdecl");
+                &&(global.resultType.equals("object")||global.resultType.equals("tobject")),
+                "Initializer global requires object/tobject initialized fdecl");
         Map<String,Object> runtime=map(global.evidence.get("runtime"));
         require(action.exactName.equals(frozenName(runtime.get("initializer"))),
                 "Initializer action Name differs from global evidence");

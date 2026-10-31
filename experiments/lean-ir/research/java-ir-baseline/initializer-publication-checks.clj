@@ -24,8 +24,11 @@
    (let [base (j/prepare-host-program *basis* [] [])
          source (j/source-binding base {:model "initializer-publication"})
          other (if foreign? (j/source-binding base (Object.)) source)
-         global-row (merge (assoc (c/decl "global" [] "object" ["unreachable"])
-                           :runtime {:role "initialized" :initializer (c/name-ir "init-global")}) global-edit)
+         global-row (assoc-in
+                      (merge (assoc (c/decl "global" [] "object" ["unreachable"])
+                               :runtime {:role "initialized" :initializer (c/name-ir "init-global")})
+                             (dissoc global-edit :global-type))
+                      [:ir :fdecl :type] (get global-edit :global-type "object"))
          action-row (update (c/decl "init-global" [(c/p 1 "void")] "object"
                                (if (= "uint8" (:type action-edit))
                                  (c/let-ir 2 "uint8" (c/lit 0) (c/ret 2)) body))
@@ -68,9 +71,10 @@
       (finally (j/close! ctx e)))))
 
 (deftest immediate-payload-is-published-without-inventing-node-ownership
-  (let [immediate-body (c/let-ir 2 "object" (c/ctor 7 [] 0)
+  (doseq [global-type ["object" "tobject"]]
+   (let [immediate-body (c/let-ir 2 "object" (c/ctor 7 [] 0)
                          (c/let-ir 3 "object" (c/ctor 0 [(c/v 2)] 0) (c/ret 3)))
-        {:keys [ctx global action]} (lab immediate-body {} {} false) e (j/machine ctx)]
+        {:keys [ctx global action]} (lab immediate-body {:global-type global-type} {} false) e (j/machine ctx)]
     (try
       (begin! e global action) (run! ctx e)
       (let [wrapper (pending e) payload (aget (fields ctx wrapper) 0)
@@ -80,6 +84,22 @@
         (is (identical? payload (j/call ctx e "global" [])))
         (is (true? (g/field wrapper "dead")))
         (is (nil? (aget (fields ctx wrapper) 0)))
+        (j/release! ctx e status))
+      (finish! e)
+      (finally (j/close! ctx e))))))
+
+(deftest tobject-global-publishes-the-actual-heap-payload
+  (let [{:keys [ctx global action]} (lab (body 0) {:global-type "tobject"} {} false)
+        e (j/machine ctx)]
+    (try
+      (is (= "tobject" (method global "resultType" [] [])))
+      (is (= "object" (method action "resultType" [] [])))
+      (begin! e global action) (run! ctx e)
+      (let [wrapper (pending e) payload (aget (fields ctx wrapper) 0)
+            status (complete! e)]
+        (is (= 0 (c/rc ctx payload)))
+        (is (identical? payload (j/call ctx e "global" [])))
+        (is (true? (g/field wrapper "dead")))
         (j/release! ctx e status))
       (finish! e)
       (finally (j/close! ctx e)))))
@@ -101,6 +121,7 @@
   (doseq [[global-edit action-edit foreign?]
           [[{:runtime {:role "initialized" :initializer (c/name-ir "different")}} {} false]
            [{} {} true]
+           [{:global-type "uint8"} {} false]
            [{} {:xs [(c/p 1 "object")]} false]
            [{} {:xs [(assoc (c/p 1 "void") :borrow true)]} false]
            [{} {:xs []} false]

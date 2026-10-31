@@ -19,7 +19,10 @@ Pinned reference: Lean commit `819816b2e0a3bf405af45ae5c7af2491d8f5bee6`:
 
 `void startInitializer(Header global, Header action)` requires explicit
 initialization, no TaskRuntime, one SourceBinding, original registered Headers,
-an initialized boxed nullary fdecl and an ordinary `(void) -> object` action.
+an initialized boxed nullary fdecl returning `object` or `tobject`, and an ordinary
+`(void) -> object` action. The actual `IO.stdGenRef` global uses `tobject`;
+the action result ABI remains `object` independently of that global ABI. Scalar
+globals and the broader `tagged` header type are not admitted by this protocol.
 The action's exact typed Name must match `global.runtime.initializer`. It does
 not accept any caller-provided payload. Header/source metadata remains trusted
 adapter input, as in the existing Header API; this is not source authentication.
