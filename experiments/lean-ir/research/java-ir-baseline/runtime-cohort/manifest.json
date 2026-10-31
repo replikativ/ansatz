@@ -2,8 +2,12 @@
   "schema": "runtime-cohort-package/1",
   "files": {
     "README.md": {
-      "sha256": "11468be803a779e0fad2b28dfa644330fa29b6433fee465d8430776c13c16d96",
-      "bytes": 13059
+      "sha256": "0151977b066da93501c13a9a03ad99a733033a1c2b37b563bd2f09f1344734c9",
+      "bytes": 14152
+    },
+    "check-models.clj": {
+      "sha256": "10849f58ab1405f90cadd91b54d5f26707e0a2b12205d85a2e0bfadce3c9d3ea",
+      "bytes": 1073
     },
     "cohort.clj": {
       "sha256": "9378adff6a33f07f031c7989cc6d5af2dbe291c91177882bc3afb50bf7da517a",
@@ -90,20 +94,20 @@
       "bytes": 7473
     },
     "sources.json": {
-      "sha256": "630f02f7f4b88c010a17c80a76a7d2ba71353e0b276875871b8067eb579cbc47",
-      "bytes": 5345
+      "sha256": "a4c02606396393ae0fea4c2e4e5eeef58f47c5488d06e312f014d9cac6e06246",
+      "bytes": 5576
     },
     "stdin.clj": {
       "sha256": "7c3dbceb1c2213055241842b3a10871a03eb90be309332ed76021727fa9dceb6",
       "bytes": 6210
     },
     "validation.json": {
-      "sha256": "dd3d031a52598e951cc4fde4b40254093d1071688e7a9d4882d51ae8071b08e4",
-      "bytes": 1992
+      "sha256": "510563cd66e08091816d32c136a8d0018dcfb884448eb3a353c0d24ecc445793",
+      "bytes": 3338
     },
     "verify-source.py": {
-      "sha256": "d2d89cb77432739c2b34de1ffa809fff2fc71bb5782fa4e7ff2e10d23da5864c",
-      "bytes": 3733
+      "sha256": "37c6d0c5ee5bf2758335da527faed18f3475d5ca2782532a612be21dccf903da",
+      "bytes": 3921
     }
   },
   "semantics": "Research source and fixture inventory only; no admission capability or automatic activation."

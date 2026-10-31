@@ -40,7 +40,7 @@ units = re.findall(r'\["([^"]+\.clj)" ([^\]\s]+)\]', loader)
 assert len(units) == 15
 for path, namespace in units:
     assert re.search(r'\(ns\s+' + re.escape(namespace) + r'(?:\s|\))', (P/path).read_text()), path
-assert {path for path, _ in units} | {'loader.clj'} == {p for p in files if p.endswith('.clj')}
+assert {path for path, _ in units} | {'loader.clj', 'check-models.clj'} == {p for p in files if p.endswith('.clj')}
 external = json.loads((P / 'data/externs/manifest.json').read_text())
 assert sha((P/'data/externs/manifest.json').read_bytes()) == '225d3d9e506730ffa4f6a6319ca91e6d52b46145cd6058422748b93424b5fd11'
 assert sha((P/'data/externs/extern-rows.jsonl').read_bytes()) == external['extern-rows-sha256']
@@ -54,6 +54,9 @@ assert external['collector-sha256'] == origin_collector['origin_sha256']
 limits = json.loads((P/'data/limits/source-receipt.json').read_text())
 for label, digest in limits['original-rows'].items():
     assert sha((P/'data/limits'/f'{label}.json').read_bytes()) == digest, label
+runner = (P/'check-models.clj').read_text()
+assert 'System/exit' in runner and 'run-tests' in runner and 'smoke!' not in runner
+assert 'check-models.clj' not in loader
 assert 'allocation-heartbeat-lab-v1' in loader and 'Namespace already loaded' in loader
 print(json.dumps({'files': len(files), 'source-origins': len(sources['files']),
                   'ordered-definition-units': 8, 'model-units': 7,

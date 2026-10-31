@@ -184,17 +184,38 @@ model namespaces, and never loads/replaces implementation namespaces. Existing m
 functions remain usable; changed fixture paths should be tested in a separate fresh
 source-only process, not by resetting opaque registries.
 
-The copied models have parent-reported passes: heartbeat9/47, provider terminal2/4,
-router4/28, limits3/16, cache6/111. New extern/backend/ABI and stdin early-rejection
-models are source-only additions awaiting coordinated evaluation. The optional
-`allocation-heartbeat-provider-checks-v1/smoke!` is NOT automatically a test: it creates
-four tiny engines and must be invoked separately with a borrowed actual parent. Parent
-reported its authentic-source smoke passed24 assertions and normal disposal. Neither
-pure models nor source audits establish a new full runtime or bootstrap acceptance.
+The parent executed all seven packaged model namespaces in a **separate fresh
+384 MiB JVM**: 29 tests / 229 assertions, zero failures/errors, process exit 0. The
+copied explicit runner loaded eight baseline prerequisite files, the existing
+artifact loader, and this package/model loader. It created no engine or runtime
+image and executed no guest/native program. The retained REPL also loaded just
+the two missing model namespaces: 5 tests / 23 assertions passed, with zero
+implementation namespace replacements. See `validation.json` for source/log hashes
+and evidence attribution. These are actual packaged portability/model checks, not
+only earlier ignored-source test reports.
+
+Run the frozen runner only in a **fresh process**, with the normal source/kernel
+classpath and working directory `experiments/lean-ir`:
+
+```sh
+clj -J-Xmx384m -M -i research/java-ir-baseline/runtime-cohort/check-models.clj
+```
+
+The project's ordinary development dependencies/compiled Java kernel must already
+be available. `check-models.clj` deliberately calls `System/exit`; **never load it
+into the retained runtime REPL**. Neither loader loads that script automatically.
+The runner invokes model deftests only, not the optional actual-source `smoke!`.
+
+Earlier component results remain useful but separate: the parent reported the
+ignored-source heartbeat's authentic get/set/fork smoke (24 assertions, four tiny
+engines and normal disposal), actual pure-limit requests, and real early-descriptor
+metadata preparation. Those do not become new full-runtime acceptance for this
+tracked consolidation. The worker launched no JVM or native process.
 
 Historical artifact-frontend acceptance remains untouched. Parent reported the ignored
 cohort components preparing actual 534-root parents and fresh Prelude-backed arithmetic
 files in 384 MiB with strict publication, original compilation/IR execution, EOF and
 normal cleanup. The arithmetic profile owns its separate acceptance record. This
-source consolidation has no worker JVM/native run and no new end-to-end acceptance
-for the portability deltas. Source hashes identify code; they do not mint receipts.
+source consolidation has no worker JVM/native run; its parent-executed definition
+and model portability checks are recorded above, without new end-to-end acceptance. Source hashes identify code; they do not
+mint receipts.
