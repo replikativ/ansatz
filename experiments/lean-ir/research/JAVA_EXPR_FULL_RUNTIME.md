@@ -66,3 +66,38 @@ native `--run` oracle matched twelve content/context observations. This is not
 AOT, native heartbeat/RC/allocation parity, whole-frontend coverage, a full combined
 gate, or original theorem/definition completion. Parent integration supplies those
 separate runtime/frontend receipts where available.
+
+## Integrated source frontend acceptance
+
+The full native, existing pointer profile, six layout/scalar primitives and two
+loose-variable operations integrate on main73ff0f6. Final Java SHA-256:
+`d9f1b2b87075f77bf0ae7ce9a6989810121f0eddc06e0f1b6a4743a47ddca01b`;
+immutable jar:
+`fff13edcc7128ac27c135cb920d8d01156f24e5f73eacbcb7835581b1d0478ac`.
+Independent integration review checked the complete unit deltas and preserved
+policy/fork unions. The384 MiB combined gate passed143 groups,1,379 tests and
+57,317 assertions, zero failures/errors, exit0. Receipt SHA-256:
+`8f4b1f0d274f3be3ef1bebea881b30d72a143b07156e5c8a2d715d5a26039ebd`.
+
+The original frontend processed the exact prelude-only
+[theorem](../test/fixtures/java-frontend-declarations/Theorems.lean) and
+[definition](../test/fixtures/java-frontend-declarations/Noncomputable.lean)
+inputs to EOF through strict Java kernel admission, original guest publication
+and full readback. The former published two axioms/two theorems and retired10
+anchor occurrences; the latter published one axiom/two safe definitions and
+retired8. Both observed no command errors and disposed/closed normally.
+No Java kernel source changed. These are source-command compatibility gates,
+not general module imports or a released standalone frontend loader.
+
+One retained-parent repeat of the four-declaration theorem example on the prior
+full-native integration took769ms with zero code requests, versus26seconds and
+2,849 code requests for its cold case. These whole-case observations include
+fork/setup/checking/publication and are not isolated pointer-hash benchmarks or
+statistical performance claims. The subsequent integrated source version also
+passed the same theorem sequence; its cold observation was18seconds.
+
+An ordinary computable identity was checked/published but compilation reached
+the independently unavailable reserved-name source export. The next work binds
+the genuine compiler/text exports, reads successful final IR, establishes
+generated-code authority, and executes a bounded complete output batch.
+Kernel acceptance alone does not certify executable compilation.
