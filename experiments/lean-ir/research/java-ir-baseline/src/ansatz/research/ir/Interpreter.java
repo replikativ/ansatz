@@ -27,7 +27,7 @@ public final class Interpreter implements AutoCloseable {
     private static final int USIZE_NAT=9,USIZE_REPR=10,U32_NAT=11,U32_EQ=12,U32_LE=13,PLATFORM_BITS=14;
     private static final int STR_POS_SET=260;
     private static final int VOID_MK=516,LEVEL_INSTANTIATE=517,EXPR_FIND_EXT=519;
-    private static final int ARRAY_CHECKED_SET=518;
+    private static final int ARRAY_CHECKED_SET=518,SHARECOMMON_QUICK=520;
     private static final int EXPR_DATA=400,EXPR_APP_DATA=401,LEVEL_DATA=402,EXPR_CACHE=403,EXPR_EQV=404,EXPR_EQUAL=405,U8_TO_U32=406,U64_TO_U8=407,EXPR_FIND=408,LEVEL_EQUAL=409;
     private static final int PROFILE_IT=410;
     private static final int STR_PUSH=15,STR_LIST=16,STR_GET=17,STR_NEXT=18,STR_APPEND=19,STR_SIZE=20,
@@ -443,6 +443,8 @@ public final class Interpreter implements AutoCloseable {
                 new String[]{"erased","tobject"},new boolean[]{false,false}));
         register(registry,new ExternSpec("lean_find_ext_expr",EXPR_FIND_EXT,"tobject",
                 new String[]{"object","object"},new boolean[]{true,true}));
+        register(registry,new ExternSpec("lean_sharecommon_quick",SHARECOMMON_QUICK,"tobject",
+                new String[]{"erased","tobject"},new boolean[]{false,true}));
         register(registry,new ExternSpec("lean_find_expr",EXPR_FIND,"tobject",
                 new String[]{"object","object"},new boolean[]{true,true}));
         register(registry,new ExternSpec("lean_expr_eqv",EXPR_EQV,"uint8",
@@ -1923,7 +1925,7 @@ public final class Interpreter implements AutoCloseable {
     private HostGuestRecord hostGuestRecord;
     private HostCall hostCompletion;
     private RuntimeAction runtimeAction,failedRuntimeAction;
-    private static final int ACTION_RELEASE=1,ACTION_DISPOSE=2,ACTION_NATIVE=3,ACTION_HOST=4,ACTION_TASK=5,ACTION_RESOLVE=6,ACTION_RUN_TASK=7,ACTION_PROFILE=8,ACTION_FIND=9,ACTION_LEVEL_MVARS=10,ACTION_EXPR_MACHINERY=11,ACTION_MVAR_SESSION_RESEARCH=12,ACTION_HOST_GUEST=20;
+    private static final int ACTION_RELEASE=1,ACTION_DISPOSE=2,ACTION_NATIVE=3,ACTION_HOST=4,ACTION_TASK=5,ACTION_RESOLVE=6,ACTION_RUN_TASK=7,ACTION_PROFILE=8,ACTION_FIND=9,ACTION_LEVEL_MVARS=10,ACTION_EXPR_MACHINERY=11,ACTION_MVAR_SESSION_RESEARCH=12,ACTION_SHARECOMMON=13,ACTION_HOST_GUEST=20;
     private static final Body ACTION_BODY=new Body();
     /** Typed ownership/control state, separate from NodeMetadata. The output
      * scratch slot is reserved before callbacks may enter generic AP. */
@@ -1931,6 +1933,7 @@ public final class Interpreter implements AutoCloseable {
         RuntimeAction parent;
         HostGuestRecord guest;
         FindState find;
+        ShareState share;
         LevelInstantiationState levelMvars;
         ExprMachineryState exprMachinery;
         MVarSessionResearchState mvarSessionResearch;
@@ -2035,6 +2038,11 @@ public final class Interpreter implements AutoCloseable {
         return false;
     }
     private void stepRelease(RuntimeAction action) {
+        if(action.parent!=null&&action.parent.share!=null&&action.parent.share.discarding) {
+            Node current=action.current;
+            require(!current.ref&&!current.readyTask&&current.closure==null&&!isPromise(current)&&!isByteArray(current)
+                    &&(current.array||current.tag>=0&&current.tag<=243),"ShareCommon duplicate quiet proof reached opaque zero");
+        }
         if(action.stage==0&&isPromise(action.current)) {
             action.output=action.current.fields[0]; action.current.fields[0]=null;
             action.stage=10; action.cursor=action.limit;
@@ -2115,7 +2123,7 @@ public final class Interpreter implements AutoCloseable {
     }
     private boolean actionPrimitive(Function function) {
         int op=function.intrinsic;
-        return taskRuntime!=null&&(op==LEVEL_INSTANTIATE||op==VOID_MK||op==PROFILE_IT||findPrimitive(op)||taskPrimitive(op)||op==TASK_MAP||op==REF_SET||op==ARRAY_POP||op==ARRAY_FSET||op==ARRAY_USET||op==ARRAY_CHECKED_SET||op==ARRAY_REPLICATE);
+        return taskRuntime!=null&&(op==SHARECOMMON_QUICK||op==LEVEL_INSTANTIATE||op==VOID_MK||op==PROFILE_IT||findPrimitive(op)||taskPrimitive(op)||op==TASK_MAP||op==REF_SET||op==ARRAY_POP||op==ARRAY_FSET||op==ARRAY_USET||op==ARRAY_CHECKED_SET||op==ARRAY_REPLICATE);
     }
     private Object[] savedArguments(Function function,int[] slots) {
         Object[] args=new Object[slots.length];
@@ -2193,6 +2201,10 @@ public final class Interpreter implements AutoCloseable {
         releaseQuiet(value,1); result=ERASED;
     }
     private void validateNative(Function function,Object[] args) {
+        if(function.intrinsic==SHARECOMMON_QUICK) {
+            shareCommonProfile(); require(args!=null&&args.length==2&&ERASED.equals(args[0]),"ShareCommon requires erased placeholder and borrowed input");
+            shareKind(args[1]); return;
+        }
         if(function.intrinsic==LEVEL_INSTANTIATE) { validateLevelArguments(function,args); return; }
         if(function.intrinsic==ARRAY_CHECKED_SET) { validateCheckedArraySet(args); return; }
         if(function.intrinsic==VOID_MK) {
@@ -2220,9 +2232,12 @@ public final class Interpreter implements AutoCloseable {
     }
     private void enterNative(Function function,Object[] args,Body next,int dest,int kind,Object[] surplus) {
         validateNative(function,args);
-        RuntimeAction action=newAction(function.intrinsic==LEVEL_INSTANTIATE?ACTION_LEVEL_MVARS:findPrimitive(function.intrinsic)?ACTION_FIND:function.intrinsic==PROFILE_IT?ACTION_PROFILE:
+        RuntimeAction action=newAction(function.intrinsic==SHARECOMMON_QUICK?ACTION_SHARECOMMON:function.intrinsic==LEVEL_INSTANTIATE?ACTION_LEVEL_MVARS:findPrimitive(function.intrinsic)?ACTION_FIND:function.intrinsic==PROFILE_IT?ACTION_PROFILE:
                 taskPrimitive(function.intrinsic)||function.intrinsic==TASK_MAP?ACTION_TASK:ACTION_NATIVE,function,next,dest,kind,surplus);
         action.arguments=args;
+        if(function.intrinsic==SHARECOMMON_QUICK) {
+            ShareState state=new ShareState(); state.input=args[1]; sharePush(state,state.input); action.share=state; objects[action.slot]=null;
+        }
         if(function.intrinsic==LEVEL_INSTANTIATE) {
             LevelInstantiationState state=new LevelInstantiationState();
             MVarContextCell cell=new MVarContextCell(); cell.current=new LevelCredit(args[0],true);
@@ -2238,6 +2253,259 @@ public final class Interpreter implements AutoCloseable {
         publishAction(action); applicationEntry(kind);
     }
     private static boolean findPrimitive(int op) { return op==EXPR_FIND||op==EXPR_FIND_EXT; }
+    /** Immutable, explicitly selected target layout; not native memory recovery. */
+    public static final class JvmCarrierLayoutV1 {
+        private JvmCarrierLayoutV1() {}
+        public static JvmCarrierLayoutV1 normalizedValues() { return new JvmCarrierLayoutV1(); }
+    }
+    private JvmCarrierLayoutV1 shareCommonLayout;
+    public void configureShareCommon(JvmCarrierLayoutV1 layout) {
+        explicitOnly();
+        require(taskRuntime!=null&&layout!=null,"ShareCommon requires active runtime and explicit JVM layout");
+        if(closed||disposed||untrackedFailure||advancing||phase!=IDLE||pendingOwnedResult||sp!=0||continuationDepth!=0
+                ||runtimeAction!=null||hostCompletion!=null||hostGuestRecord!=null||quietCurrent!=null||releasePending!=0
+                ||releaseTransaction!=null||releaseRoot)
+            throw new IllegalStateException("ShareCommon configuration requires an open idle engine");
+        require(shareCommonLayout==null,"ShareCommon layout is already configured");
+        shareCommonLayout=layout;
+    }
+    private void shareCommonProfile() {
+        require(explicit&&taskRuntime!=null&&shareCommonLayout!=null,
+                "ShareCommon requires active explicit runtime and configured JvmCarrierLayoutV1");
+    }
+    private static final int SHARE_LONG=1,SHARE_INTEGER=2,SHARE_STRING=3,SHARE_CTOR=4,SHARE_ARRAY=5,SHARE_BYTES=6,SHARE_OPAQUE=7;
+    private static final int MAX_SHARE_WORK=8_000_000,MAX_SHARE_FRAMES=100_000,MAX_SHARE_ENTRIES=100_000,
+            MAX_SHARE_STRING=65_536,MAX_SHARE_INTEGER_BITS=65_536,MAX_SHARE_BYTES=1_048_576;
+    private static final long MAX_SHARE_OUTPUT_BYTES=32L*1024*1024;
+    /** Table/identity aliases own no guest credits. Fresh candidates and result
+     * flags designate occurrences; zero-shell disposal transfers to ACTION_RELEASE. */
+    private static final class ShareState {
+        final ArrayDeque<ShareFrame> frames=new ArrayDeque<>();
+        final IdentityHashMap<Node,Node> memo=new IdentityHashMap<>();
+        final IdentityHashMap<Node,Boolean> active=new IdentityHashMap<>();
+        final IdentityHashMap<Object,Integer> identities=new IdentityHashMap<>();
+        final HashMap<Integer,ArrayList<Object>> canonical=new HashMap<>();
+        Object input,result;
+        boolean resultOwned,discarding;
+        int nextIdentity=1,entries;
+        long work,outputBytes;
+    }
+    private static final class ShareFrame {
+        Object input,representative;
+        Node candidate;
+        int kind,stage,cursor,scalarCursor,hash,bucketCursor,compareCursor;
+        boolean memoEligible,candidateOwned;
+        ShareFrame(Object input) { this.input=input; }
+    }
+    private static void shareCharge(ShareState state,int amount) {
+        require(amount>=0&&amount<=MAX_SHARE_WORK-state.work,"ShareCommon work outside bounded JVM layout profile");
+        long before=state.work; state.work+=amount;
+        if((before>>>10)!=(state.work>>>10)&&Thread.currentThread().isInterrupted())
+            throw error("ShareCommon interrupted outside bounded JVM layout profile");
+    }
+    private int shareKind(Object value) {
+        validateHostObject(value);
+        if(value instanceof Long) return SHARE_LONG;
+        if(value instanceof BigInteger) {
+            require(value.getClass()==BigInteger.class,"ShareCommon requires exact immutable BigInteger");
+            require(((BigInteger)value).bitLength()<=MAX_SHARE_INTEGER_BITS,"ShareCommon integer outside bounded JVM layout profile");
+            return SHARE_INTEGER;
+        }
+        if(value instanceof String) {
+            require(((String)value).length()<=MAX_SHARE_STRING,"ShareCommon String outside bounded JVM layout profile");
+            return SHARE_STRING;
+        }
+        Node node=(Node)value;
+        if(node.array) {
+            require(!node.ref&&!node.readyTask&&node.closure==null&&node.tag==246&&node.scalars.length==0
+                    &&kindMetadata(node) instanceof ArrayState,"Invalid ShareCommon Array storage");
+            require(arrayState(node).size>=0&&arrayState(node).size<=node.fields.length&&node.fields.length<=MAX_ARRAY_CAPACITY,
+                    "Invalid ShareCommon Array extent"); return SHARE_ARRAY;
+        }
+        if(isByteArray(node)) {
+            require(!node.ref&&!node.readyTask&&node.closure==null&&node.tag==248&&node.fields.length==0,
+                    "Invalid ShareCommon ByteArray storage");
+            int size=((ByteArrayState)kindMetadata(node)).size;
+            require(size>=0&&size<=node.scalars.length&&node.scalars.length<=MAX_SHARE_BYTES,
+                    "ShareCommon ByteArray outside bounded JVM layout profile"); return SHARE_BYTES;
+        }
+        if(node.ref) {
+            reference(node); require(!node.readyTask&&kindMetadata(node)==null,"Invalid ShareCommon Ref storage"); return SHARE_OPAQUE;
+        }
+        if(node.closure!=null) {
+            require(!node.readyTask&&node.tag==245&&node.scalars.length==0,"Invalid ShareCommon closure storage");
+            acceptsClosure(node); return SHARE_OPAQUE;
+        }
+        if(node.readyTask) { taskNode(node); return SHARE_OPAQUE; }
+        if(isPromise(node)) { promiseNode(node); return SHARE_OPAQUE; }
+        require(node.tag>=0&&node.tag<=243&&kindMetadata(node)==null&&node.fields.length<256&&node.scalars.length<1024
+                &&(node.fields.length!=0||node.scalars.length!=0),"Unsupported ShareCommon Node kind/storage");
+        return SHARE_CTOR;
+    }
+    private static void sharePush(ShareState state,Object input) {
+        require(state.frames.size()<MAX_SHARE_FRAMES,"ShareCommon frames outside bounded JVM layout profile");
+        state.frames.push(new ShareFrame(input));
+    }
+    private static int shareIdentity(ShareState state,Object value) {
+        if(value instanceof Long) return 31+Long.hashCode((Long)value);
+        Integer old=state.identities.get(value); if(old!=null) return old;
+        require(state.identities.size()<MAX_SHARE_ENTRIES,"ShareCommon identities outside bounded JVM layout profile");
+        int id=state.nextIdentity++; state.identities.put(value,id); return id;
+    }
+    private static boolean shareSameChild(Object left,Object right) {
+        return left instanceof Long&&right instanceof Long?left.equals(right):left==right;
+    }
+    private void shareReturn(ShareState state,ShareFrame frame,Object result) {
+        require(state.frames.peek()==frame&&!state.resultOwned,"Invalid ShareCommon result transfer");
+        state.result=result; state.resultOwned=true; frame.candidateOwned=false;
+        state.frames.pop();
+    }
+    private void shareHashStep(ShareState state,ShareFrame frame) {
+        Object value=frame.candidate==null?frame.input:frame.candidate;
+        if(frame.kind==SHARE_STRING) {
+            String text=(String)value; int end=Math.min(text.length(),frame.cursor+256);
+            for(;frame.cursor<end;frame.cursor++) {
+                char c=text.charAt(frame.cursor);
+                require(!Character.isHighSurrogate(c)||(frame.cursor+1<text.length()&&Character.isLowSurrogate(text.charAt(frame.cursor+1))),"Invalid Unicode in ShareCommon String");
+                require(!Character.isLowSurrogate(c)||(frame.cursor>0&&Character.isHighSurrogate(text.charAt(frame.cursor-1))),"Invalid Unicode in ShareCommon String");
+                frame.hash=31*frame.hash+c; shareCharge(state,1);
+            }
+            if(frame.cursor==text.length()) frame.stage=3;
+        } else if(frame.kind==SHARE_INTEGER) {
+            BigInteger integer=(BigInteger)value; shareCharge(state,1+(integer.bitLength()+31)/32);
+            frame.hash=31*frame.hash+integer.hashCode(); frame.stage=3;
+        } else if(frame.kind==SHARE_BYTES) {
+            Node bytes=(Node)value; int size=((ByteArrayState)kindMetadata(bytes)).size;
+            int end=Math.min(size,frame.cursor+1024);
+            for(;frame.cursor<end;frame.cursor++) { frame.hash=31*frame.hash+Byte.toUnsignedInt(bytes.scalars[frame.cursor]); shareCharge(state,1); }
+            if(frame.cursor==size) frame.stage=3;
+        } else {
+            Node node=(Node)value; int end=Math.min(node.fields.length,frame.cursor+64);
+            for(;frame.cursor<end;frame.cursor++) { frame.hash=31*frame.hash+shareIdentity(state,node.fields[frame.cursor]); shareCharge(state,1); }
+            if(frame.cursor==node.fields.length) {
+                for(;frame.scalarCursor<node.scalars.length;frame.scalarCursor++) {
+                    frame.hash=31*frame.hash+Byte.toUnsignedInt(node.scalars[frame.scalarCursor]); shareCharge(state,1);
+                }
+                frame.stage=3;
+            }
+        }
+    }
+    /** -1: unequal, 0: compare another bounded chunk, 1: equal. */
+    private int shareCompare(ShareState state,ShareFrame frame,Object other) {
+        Object value=frame.candidate==null?frame.input:frame.candidate;
+        if(frame.kind==SHARE_STRING) {
+            if(!(other instanceof String)||((String)value).length()!=((String)other).length()) return -1;
+            String a=(String)value,b=(String)other; int end=Math.min(a.length(),frame.compareCursor+256);
+            for(;frame.compareCursor<end;frame.compareCursor++) { shareCharge(state,1); if(a.charAt(frame.compareCursor)!=b.charAt(frame.compareCursor)) return -1; }
+            return frame.compareCursor==a.length()?1:0;
+        }
+        if(frame.kind==SHARE_INTEGER) {
+            if(other==null||other.getClass()!=BigInteger.class) return -1;
+            shareCharge(state,1+(((BigInteger)value).bitLength()+31)/32); return value.equals(other)?1:-1;
+        }
+        if(!(other instanceof Node)) return -1;
+        Node a=(Node)value,b=(Node)other;
+        if(frame.kind==SHARE_BYTES) {
+            if(!isByteArray(b)||a.scalars.length!=b.scalars.length) return -1;
+            int size=((ByteArrayState)kindMetadata(a)).size;
+            if(size!=((ByteArrayState)kindMetadata(b)).size) return -1;
+            int end=Math.min(size,frame.compareCursor+1024);
+            for(;frame.compareCursor<end;frame.compareCursor++) { shareCharge(state,1); if(a.scalars[frame.compareCursor]!=b.scalars[frame.compareCursor]) return -1; }
+            return frame.compareCursor==size?1:0;
+        }
+        if(a.array!=b.array||a.tag!=b.tag||a.fields.length!=b.fields.length||a.scalars.length!=b.scalars.length
+                ||b.ref||b.readyTask||b.closure!=null||isByteArray(b)||isPromise(b)) return -1;
+        int total=a.fields.length+a.scalars.length,end=Math.min(total,frame.compareCursor+64);
+        for(;frame.compareCursor<end;frame.compareCursor++) {
+            int i=frame.compareCursor; shareCharge(state,1);
+            if(i<a.fields.length?!shareSameChild(a.fields[i],b.fields[i]):a.scalars[i-a.fields.length]!=b.scalars[i-a.fields.length]) return -1;
+        }
+        return frame.compareCursor==total?1:0;
+    }
+    private void stepShareCommon(RuntimeAction action) {
+        ShareState state=action.share; require(state!=null,"Missing ShareCommon traversal state"); shareCharge(state,1);
+        if(state.frames.isEmpty()) {
+            require(state.resultOwned,"Missing owned ShareCommon root result"); Object answer=state.result;
+            action.output=answer; state.result=null; state.resultOwned=false; state.input=null;
+            state.memo.clear(); state.active.clear(); state.identities.clear(); state.canonical.clear();
+            action.share=null; action.arguments=null; finishAction(action,answer); return;
+        }
+        ShareFrame frame=state.frames.peek();
+        if(frame.stage==0) {
+            frame.kind=shareKind(frame.input); frame.hash=31+frame.kind;
+            if(frame.kind==SHARE_LONG) { shareReturn(state,frame,frame.input); return; }
+            if(frame.kind==SHARE_OPAQUE) {
+                shareIdentity(state,frame.input); inc(frame.input,1); shareReturn(state,frame,frame.input); return;
+            }
+            if(frame.kind==SHARE_STRING||frame.kind==SHARE_INTEGER||frame.kind==SHARE_BYTES) {
+                if(frame.kind==SHARE_BYTES) { Node bytes=(Node)frame.input;
+                    frame.hash=31*(31*frame.hash+((ByteArrayState)kindMetadata(bytes)).size)+bytes.scalars.length; }
+                frame.stage=2; return;
+            }
+            Node input=(Node)frame.input; frame.memoEligible=!exclusive(input);
+            if(frame.memoEligible) {
+                Node prior=state.memo.get(input);
+                if(prior!=null) { inc(prior,1); shareReturn(state,frame,prior); return; }
+            }
+            require(!state.active.containsKey(input),"ShareCommon constructor/Array cycle outside bounded JVM layout profile");
+            int fields=frame.kind==SHARE_ARRAY?arrayState(input).size:input.fields.length;
+            long bytes=8L+8L*fields+input.scalars.length;
+            require(bytes<=MAX_SHARE_OUTPUT_BYTES-state.outputBytes,"ShareCommon output outside bounded JVM layout profile");
+            // Publish candidate owner before any child traversal/acquisition.
+            frame.candidate=frame.kind==SHARE_ARRAY?newArray(fields,fields):new Node(input.tag,fields,input.scalars.length);
+            if(frame.kind==SHARE_CTOR) allocations++;
+            frame.candidateOwned=true; state.outputBytes+=bytes; state.active.put(input,Boolean.TRUE);
+            frame.hash=31*(31*(31*frame.hash+input.tag)+fields)+input.scalars.length;
+            frame.stage=1; return;
+        }
+        if(frame.stage==1) {
+            if(state.resultOwned) {
+                require(frame.cursor<frame.candidate.fields.length,"Unexpected ShareCommon child result");
+                frame.candidate.fields[frame.cursor]=state.result; state.result=null; state.resultOwned=false; frame.cursor++; return;
+            }
+            if(frame.cursor<frame.candidate.fields.length) { sharePush(state,((Node)frame.input).fields[frame.cursor]); return; }
+            if(frame.kind==SHARE_CTOR) System.arraycopy(((Node)frame.input).scalars,0,frame.candidate.scalars,0,frame.candidate.scalars.length);
+            frame.cursor=0; frame.stage=2; return;
+        }
+        if(frame.stage==2) { shareHashStep(state,frame); return; }
+        if(frame.stage==3) {
+            ArrayList<Object> bucket=state.canonical.get(frame.hash);
+            if(bucket==null||frame.bucketCursor==bucket.size()) {
+                require(state.entries<MAX_SHARE_ENTRIES,"ShareCommon canonical set outside bounded JVM layout profile");
+                Object value=frame.candidate==null?frame.input:frame.candidate;
+                if(bucket==null) { bucket=new ArrayList<>(); state.canonical.put(frame.hash,bucket); }
+                bucket.add(value); state.entries++; frame.representative=value; frame.stage=5; return;
+            }
+            Object other=bucket.get(frame.bucketCursor); int equal=shareCompare(state,frame,other);
+            if(equal==0) return;
+            if(equal<0) { frame.bucketCursor++; frame.compareCursor=0; return; }
+            frame.representative=other;
+            if(frame.candidate!=null) {
+                require(frame.candidateOwned&&frame.candidate.rc==1,"Invalid ShareCommon duplicate owner");
+                frame.stage=4; state.discarding=true;
+                // Native-order disposal is budgeted. The parent marks this as
+                // a quiet proof; stepRelease rejects reaching any opaque zero.
+                beginRelease(frame.candidate,1,ACTION_BODY,true); frame.candidateOwned=false; return;
+            }
+            frame.stage=5; return;
+        }
+        if(frame.stage==4) { state.discarding=false; frame.stage=5; }
+        require(frame.stage==5,"Invalid ShareCommon traversal stage");
+        Object result=frame.representative;
+        if(result!=frame.candidate) inc(result,1);
+        // Record the result owner before memo/identity-table allocation can fail.
+        state.result=result; state.resultOwned=true; frame.candidateOwned=false;
+        shareIdentity(state,result);
+        if(frame.candidate!=null) {
+            if(frame.memoEligible) {
+                require(state.memo.size()<MAX_SHARE_ENTRIES,"ShareCommon memo outside bounded JVM layout profile");
+                state.memo.put((Node)frame.input,(Node)result);
+            }
+            state.active.remove((Node)frame.input);
+        }
+        state.frames.pop();
+    }
+
     private static final int MAX_FIND_ENCOUNTERS=1_000_000,MAX_FIND_PENDING=100_000,MAX_FIND_VISITED=100_000;
     /** All graph cursors/keys are BORROWED, backed by the suspended caller.
      * Only the flagged acquisition packet, receiver slot, and found/option
@@ -2961,6 +3229,7 @@ public final class Interpreter implements AutoCloseable {
         else if(action.operation==ACTION_RUN_TASK) stepRunTask(action);
         else if(action.operation==ACTION_PROFILE) stepProfile(action);
         else if(action.operation==ACTION_FIND) stepFind(action);
+        else if(action.operation==ACTION_SHARECOMMON) stepShareCommon(action);
         else if(action.operation==ACTION_LEVEL_MVARS) stepLevelInstantiation(action);
         else if(action.operation==ACTION_EXPR_MACHINERY) stepExprMachinery(action);
         else if(action.operation==ACTION_MVAR_SESSION_RESEARCH) stepMVarSessionResearch(action);
@@ -3050,7 +3319,7 @@ public final class Interpreter implements AutoCloseable {
         // phase RUNNING between advance calls is a paused dispatch/release-work
         // boundary. No Java call frame is captured in that state.
         Interpreter child=new Interpreter(program,explicit,initializing,buildIdentity,taskRuntime,profilingPolicy);
-        child.levelInstantiationPolicy=levelInstantiationPolicy;
+        child.levelInstantiationPolicy=levelInstantiationPolicy; child.shareCommonLayout=shareCommonLayout;
         ForkCopy copy=new ForkCopy(child);
         copy.bind(constants,child.constants);
         child.objects=(Object[])copy.value(objects);
@@ -3167,6 +3436,12 @@ public final class Interpreter implements AutoCloseable {
                         source instanceof LevelPacket?new LevelPacket():new LevelCredit(null,false);
                 copies.put(source,out); pending.addLast(new Object[]{source,out}); return out;
             }
+            if(source instanceof ShareState) {
+                ShareState out=new ShareState(); copies.put(source,out); pending.addLast(new Object[]{source,out}); return out;
+            }
+            if(source instanceof ShareFrame) {
+                ShareFrame out=new ShareFrame(null); copies.put(source,out); pending.addLast(new Object[]{source,out}); return out;
+            }
             if(source instanceof FindState) {
                 FindState out=new FindState(); copies.put(source,out);
                 pending.addLast(new Object[]{source,out}); return out;
@@ -3222,7 +3497,7 @@ public final class Interpreter implements AutoCloseable {
                     for(int i=0;i<from.length;i++) to[i]=value(from[i]);
                 } else if(source instanceof RuntimeAction) {
                     RuntimeAction old=(RuntimeAction)source,out=(RuntimeAction)target;
-                    out.parent=(RuntimeAction)value(old.parent); out.guest=(HostGuestRecord)value(old.guest); out.find=(FindState)value(old.find); out.levelMvars=(LevelInstantiationState)value(old.levelMvars); out.exprMachinery=(ExprMachineryState)value(old.exprMachinery); out.mvarSessionResearch=(MVarSessionResearchState)value(old.mvarSessionResearch); out.operation=old.operation; out.stage=old.stage;
+                    out.parent=(RuntimeAction)value(old.parent); out.guest=(HostGuestRecord)value(old.guest); out.find=(FindState)value(old.find); out.share=(ShareState)value(old.share); out.levelMvars=(LevelInstantiationState)value(old.levelMvars); out.exprMachinery=(ExprMachineryState)value(old.exprMachinery); out.mvarSessionResearch=(MVarSessionResearchState)value(old.mvarSessionResearch); out.operation=old.operation; out.stage=old.stage;
                     out.savedSp=old.savedSp; out.slot=old.slot; out.dest=old.dest; out.kind=old.kind;
                     out.cursor=old.cursor; out.limit=old.limit; out.pending=old.pending;
                     out.function=(Function)value(old.function); out.next=old.next;
@@ -3313,6 +3588,25 @@ public final class Interpreter implements AutoCloseable {
                     for(LevelCredit credit:old.cacheValues) out.cacheValues.add((LevelCredit)value(credit));
                     for(LevelCredit credit:old.saved) out.saved.add((LevelCredit)value(credit));
                     for(Node node:old.active.keySet()) out.active.put((Node)value(node),Boolean.TRUE);
+                } else if(source instanceof ShareState) {
+                    ShareState old=(ShareState)source,out=(ShareState)target;
+                    out.input=value(old.input); out.result=value(old.result); out.resultOwned=old.resultOwned; out.discarding=old.discarding;
+                    out.nextIdentity=old.nextIdentity; out.entries=old.entries; out.work=old.work; out.outputBytes=old.outputBytes;
+                    for(ShareFrame frame:old.frames) out.frames.addLast((ShareFrame)value(frame));
+                    for(Map.Entry<Node,Node> entry:old.memo.entrySet()) out.memo.put((Node)value(entry.getKey()),(Node)value(entry.getValue()));
+                    for(Node node:old.active.keySet()) out.active.put((Node)value(node),Boolean.TRUE);
+                    for(Map.Entry<Object,Integer> entry:old.identities.entrySet()) out.identities.put(value(entry.getKey()),entry.getValue());
+                    for(Map.Entry<Integer,ArrayList<Object>> entry:old.canonical.entrySet()) {
+                        ArrayList<Object> bucket=new ArrayList<>();
+                        for(Object item:entry.getValue()) bucket.add(value(item));
+                        out.canonical.put(entry.getKey(),bucket);
+                    }
+                } else if(source instanceof ShareFrame) {
+                    ShareFrame old=(ShareFrame)source,out=(ShareFrame)target;
+                    out.input=value(old.input); out.representative=value(old.representative); out.candidate=(Node)value(old.candidate);
+                    out.kind=old.kind; out.stage=old.stage; out.cursor=old.cursor; out.scalarCursor=old.scalarCursor; out.hash=old.hash;
+                    out.bucketCursor=old.bucketCursor; out.compareCursor=old.compareCursor;
+                    out.memoEligible=old.memoEligible; out.candidateOwned=old.candidateOwned;
                 } else if(source instanceof FindState) {
                     FindState old=(FindState)source,out=(FindState)target;
                     out.predicate=(Node)value(old.predicate); out.root=(Node)value(old.root); out.current=(Node)value(old.current);
@@ -3573,7 +3867,7 @@ public final class Interpreter implements AutoCloseable {
                     case SPROJ: require((b.type==U8||b.type==U32||b.type==U64||b.type==F64)&&lane(env,e.a)==OBJ,"Scalar projection lane mismatch"); break;
                     case UPROJ: require(b.type==USIZE&&lane(env,e.a)==OBJ,"USize projection lane mismatch"); break;
                     case FAP: requireExecutableAbi(e.target); checkArgs(env,e.args,e.target.paramTypes); require(b.type==e.target.resultType,"Call result lane mismatch"); break;
-                    case PAP: requireExecutableAbi(e.target); require(e.target.intrinsic!=PROFILE_IT,"Borrowed profiling primitive requires an owned guest wrapper"); require(!borrowedTaskPrimitive(e.target.intrinsic),"Borrowed task primitive requires owned closure wrapper"); require(b.type==OBJ&&e.args.length<e.target.params.length,"Invalid partial application"); require(!borrowedArrayPrimitive(e.target.intrinsic),"Borrowed array primitive requires owned closure wrapper"); require(!borrowedIntPrimitive(e.target.intrinsic),"Borrowed Int primitive requires owned closure wrapper"); require(!borrowedStringPositionPrimitive(e.target.intrinsic),"Borrowed String position primitive requires owned closure wrapper"); require(!borrowedStringCompletionPrimitive(e.target.intrinsic),"Borrowed String range primitive requires owned closure wrapper"); require(!borrowedBytePrimitive(e.target.intrinsic),"Borrowed ByteArray primitive requires owned closure wrapper"); require(e.target.intrinsic!=NAME_EQ,"Borrowed Name equality requires an owned guest wrapper"); require(e.target.intrinsic!=EXPR_CACHE,"Borrowed Expr data requires an owned guest wrapper"); require(!borrowedExprEquality(e.target.intrinsic),"Borrowed Expr equality requires an owned guest wrapper"); require(e.target.intrinsic!=LEVEL_EQUAL,"Borrowed Level equality requires an owned guest wrapper"); require(!findPrimitive(e.target.intrinsic),"Borrowed Expr.find requires an owned guest wrapper"); require(e.target.intrinsic!=POINTER_IDENTITY,"Pointer identity requires a certified direct FAP site"); require(!borrowedRefPrimitive(e.target.intrinsic),"Borrowed ref primitive requires owned closure wrapper"); for(int i=0;i<e.target.paramTypes.length;i++) require(e.target.paramTypes[i]==OBJ,"Unboxed partial target unsupported; boxed wrapper required"); for(int a:e.args) require(lane(env,a)==OBJ,"Partial argument must be boxed"); break;
+                    case PAP: requireExecutableAbi(e.target); require(e.target.intrinsic!=PROFILE_IT,"Borrowed profiling primitive requires an owned guest wrapper"); require(!borrowedTaskPrimitive(e.target.intrinsic),"Borrowed task primitive requires owned closure wrapper"); require(b.type==OBJ&&e.args.length<e.target.params.length,"Invalid partial application"); require(!borrowedArrayPrimitive(e.target.intrinsic),"Borrowed array primitive requires owned closure wrapper"); require(!borrowedIntPrimitive(e.target.intrinsic),"Borrowed Int primitive requires owned closure wrapper"); require(!borrowedStringPositionPrimitive(e.target.intrinsic),"Borrowed String position primitive requires owned closure wrapper"); require(!borrowedStringCompletionPrimitive(e.target.intrinsic),"Borrowed String range primitive requires owned closure wrapper"); require(!borrowedBytePrimitive(e.target.intrinsic),"Borrowed ByteArray primitive requires owned closure wrapper"); require(e.target.intrinsic!=NAME_EQ,"Borrowed Name equality requires an owned guest wrapper"); require(e.target.intrinsic!=EXPR_CACHE,"Borrowed Expr data requires an owned guest wrapper"); require(!borrowedExprEquality(e.target.intrinsic),"Borrowed Expr equality requires an owned guest wrapper"); require(e.target.intrinsic!=LEVEL_EQUAL,"Borrowed Level equality requires an owned guest wrapper"); require(!findPrimitive(e.target.intrinsic),"Borrowed Expr.find requires an owned guest wrapper"); require(e.target.intrinsic!=SHARECOMMON_QUICK,"Borrowed ShareCommon requires an owned guest wrapper"); require(e.target.intrinsic!=POINTER_IDENTITY,"Pointer identity requires a certified direct FAP site"); require(!borrowedRefPrimitive(e.target.intrinsic),"Borrowed ref primitive requires owned closure wrapper"); for(int i=0;i<e.target.paramTypes.length;i++) require(e.target.paramTypes[i]==OBJ,"Unboxed partial target unsupported; boxed wrapper required"); for(int a:e.args) require(lane(env,a)==OBJ,"Partial argument must be boxed"); break;
                     case AP: require(b.type==OBJ&&lane(env,e.a)==OBJ&&e.args.length>0,"Unsupported closure application"); for(int a:e.args) require(lane(env,a)==OBJ,"Closure argument must be boxed"); break;
                     case BOX: require(b.type==OBJ&&e.b!=OBJ&&lane(env,e.a)==e.b,"Box lane mismatch"); break;
                     case UNBOX: require(b.type!=OBJ&&lane(env,e.a)==OBJ,"Unbox lane mismatch"); break;
@@ -5371,6 +5665,7 @@ public final class Interpreter implements AutoCloseable {
         if(function.intrinsic==PROFILE_IT) profilingGetter(function);
         if(findPrimitive(function.intrinsic)) require(explicit&&taskRuntime!=null,"Expr.find requires the active explicit runtime");
         if(function.intrinsic==LEVEL_INSTANTIATE) levelInstantiationProfile(function);
+        if(function.intrinsic==SHARECOMMON_QUICK) shareCommonProfile();
         if(buildIdentityPrimitive(function.intrinsic)) requireBuildIdentity();
         if(taskPrimitive(function.intrinsic)) require(taskRuntime!=null,"Logical synchronous task runtime is inactive");
         if(function.params.length==0&&constantReady[function.id]) return function;
@@ -5520,7 +5815,7 @@ public final class Interpreter implements AutoCloseable {
         require(function!=null,"Expected closure");
         require(!borrowedTaskPrimitive(function.intrinsic),"Borrowed task primitive requires owned guest wrapper");
         require(function.intrinsic!=NAME_EQ,"Borrowed Name equality cannot be admitted as a first-class closure");
-        require(function.intrinsic!=EXPR_CACHE,"Borrowed Expr data requires an owned guest wrapper"); require(!borrowedExprEquality(function.intrinsic),"Borrowed Expr equality requires an owned guest wrapper"); require(function.intrinsic!=LEVEL_EQUAL,"Borrowed Level equality requires an owned guest wrapper"); require(!findPrimitive(function.intrinsic),"Borrowed Expr.find requires an owned guest wrapper");
+        require(function.intrinsic!=EXPR_CACHE,"Borrowed Expr data requires an owned guest wrapper"); require(!borrowedExprEquality(function.intrinsic),"Borrowed Expr equality requires an owned guest wrapper"); require(function.intrinsic!=LEVEL_EQUAL,"Borrowed Level equality requires an owned guest wrapper"); require(!findPrimitive(function.intrinsic),"Borrowed Expr.find requires an owned guest wrapper"); require(function.intrinsic!=SHARECOMMON_QUICK,"Borrowed ShareCommon requires an owned guest wrapper");
         require(function.intrinsic!=POINTER_IDENTITY,"Pointer identity cannot be admitted as a first-class closure");
         if(!(kindMetadata(closure) instanceof Generation)||!program.generation.accepts((Generation)kindMetadata(closure))) throw error("Closure belongs to another code image");
         if(function.privateOwner!=null) {
@@ -5654,7 +5949,7 @@ public final class Interpreter implements AutoCloseable {
                 require(!borrowedStringCompletionPrimitive(target.intrinsic),"Borrowed String range primitive requires owned closure wrapper");
                 require(!borrowedBytePrimitive(target.intrinsic),"Borrowed ByteArray primitive requires owned closure wrapper");
                 require(target.intrinsic!=NAME_EQ,"Borrowed Name equality requires an owned guest wrapper");
-                require(target.intrinsic!=EXPR_CACHE,"Borrowed Expr data requires an owned guest wrapper"); require(!borrowedExprEquality(target.intrinsic),"Borrowed Expr equality requires an owned guest wrapper"); require(target.intrinsic!=LEVEL_EQUAL,"Borrowed Level equality requires an owned guest wrapper"); require(!findPrimitive(target.intrinsic),"Borrowed Expr.find requires an owned guest wrapper");
+                require(target.intrinsic!=EXPR_CACHE,"Borrowed Expr data requires an owned guest wrapper"); require(!borrowedExprEquality(target.intrinsic),"Borrowed Expr equality requires an owned guest wrapper"); require(target.intrinsic!=LEVEL_EQUAL,"Borrowed Level equality requires an owned guest wrapper"); require(!findPrimitive(target.intrinsic),"Borrowed Expr.find requires an owned guest wrapper"); require(target.intrinsic!=SHARECOMMON_QUICK,"Borrowed ShareCommon requires an owned guest wrapper");
                 require(target.intrinsic!=POINTER_IDENTITY,"Pointer identity requires a certified direct FAP site");
                 require(!borrowedRefPrimitive(target.intrinsic),"Borrowed ref primitive requires owned closure wrapper");
                 closureTargets[i]=target;
@@ -5738,7 +6033,7 @@ public final class Interpreter implements AutoCloseable {
         require(!borrowedStringCompletionPrimitive(target.intrinsic),"Borrowed String range primitive requires owned closure wrapper");
         require(!borrowedBytePrimitive(target.intrinsic),"Borrowed ByteArray primitive requires owned closure wrapper");
         require(target.intrinsic!=NAME_EQ,"Borrowed Name equality requires an owned guest wrapper");
-        require(target.intrinsic!=EXPR_CACHE,"Borrowed Expr data requires an owned guest wrapper"); require(!borrowedExprEquality(target.intrinsic),"Borrowed Expr equality requires an owned guest wrapper"); require(target.intrinsic!=LEVEL_EQUAL,"Borrowed Level equality requires an owned guest wrapper"); require(!findPrimitive(target.intrinsic),"Borrowed Expr.find requires an owned guest wrapper");
+        require(target.intrinsic!=EXPR_CACHE,"Borrowed Expr data requires an owned guest wrapper"); require(!borrowedExprEquality(target.intrinsic),"Borrowed Expr equality requires an owned guest wrapper"); require(target.intrinsic!=LEVEL_EQUAL,"Borrowed Level equality requires an owned guest wrapper"); require(!findPrimitive(target.intrinsic),"Borrowed Expr.find requires an owned guest wrapper"); require(target.intrinsic!=SHARECOMMON_QUICK,"Borrowed ShareCommon requires an owned guest wrapper");
         require(target.intrinsic!=POINTER_IDENTITY,"Pointer identity requires a certified direct FAP site");
         require(!borrowedRefPrimitive(target.intrinsic),"Borrowed ref primitive requires owned closure wrapper");
         for(int lane:target.paramTypes) require(lane==OBJ,"Unboxed partial target unsupported; boxed wrapper required");
@@ -6485,7 +6780,7 @@ public final class Interpreter implements AutoCloseable {
         if(borrowedIntPrimitive(f.intrinsic))
             throw new UnsupportedOperationException("Borrowed Int primitive requires owned guest wrapper at external entry");
         require(f.intrinsic!=NAME_EQ,"Borrowed Name equality requires an owned guest wrapper");
-        require(f.intrinsic!=EXPR_CACHE,"Borrowed Expr data requires an owned guest wrapper"); require(!borrowedExprEquality(f.intrinsic),"Borrowed Expr equality requires an owned guest wrapper"); require(f.intrinsic!=LEVEL_EQUAL,"Borrowed Level equality requires an owned guest wrapper"); require(!findPrimitive(f.intrinsic),"Borrowed Expr.find requires an owned guest wrapper");
+        require(f.intrinsic!=EXPR_CACHE,"Borrowed Expr data requires an owned guest wrapper"); require(!borrowedExprEquality(f.intrinsic),"Borrowed Expr equality requires an owned guest wrapper"); require(f.intrinsic!=LEVEL_EQUAL,"Borrowed Level equality requires an owned guest wrapper"); require(!findPrimitive(f.intrinsic),"Borrowed Expr.find requires an owned guest wrapper"); require(f.intrinsic!=SHARECOMMON_QUICK,"Borrowed ShareCommon requires an owned guest wrapper");
         if(borrowedBytePrimitive(f.intrinsic))
             throw new UnsupportedOperationException("Borrowed ByteArray primitive requires owned guest wrapper at external entry");
         require(f.intrinsic!=POINTER_IDENTITY,"Pointer identity requires a certified direct FAP site");

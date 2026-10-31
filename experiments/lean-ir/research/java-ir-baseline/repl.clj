@@ -450,3 +450,12 @@
 (defn configure-level-instantiation! [basis engine policy]
   (.invoke (.getMethod ^Class (:class basis) "configureLevelInstantiation" (into-array Class [(class policy)]))
            engine (object-array [policy])))
+
+(defn jvm-carrier-layout-v1
+  "Explicit normalized target value/layout equality, not native memory parity."
+  [basis]
+  (let [cls (Class/forName "ansatz.research.ir.Interpreter$JvmCarrierLayoutV1" true (:loader basis))]
+    (invoke-static (.getMethod cls "normalizedValues" (make-array Class 0)) [])))
+(defn configure-share-common! [basis engine layout]
+  (.invoke (.getMethod ^Class (:class basis) "configureShareCommon" (into-array Class [(class layout)]))
+           engine (object-array [layout])))

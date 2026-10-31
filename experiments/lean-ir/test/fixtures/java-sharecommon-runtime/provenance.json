@@ -1,0 +1,24 @@
+{
+  "schema": "original-sharecommon-jvm-layout/1",
+  "lean-commit": "819816b2e0a3bf405af45ae5c7af2491d8f5bee6",
+  "source-index-sha256": "74d833d577923821b982e8a9e872a38b5cad011513eb18870b51417e13397f0e",
+  "original-rows-sha256": "06e4e800f2e325b8e60e7bd3cf3c36edab4a8a871e3430db61c32a8647cee1a1",
+  "rows": 2,
+  "source-sha256": {
+    "ShareCommon.lean": "d2ead15f9f6a875d42c789c7a6db3bb3cbf5b87d0d06262d104b6c64ae99cd6d",
+    "sharecommon.cpp": "5dc0f3d06e45bf78d89a298694baae141fdecb717da1be19977347678c07adff",
+    "sharecommon.h": "f84596bdc8e58b4c3df436f7ff3eaf0f07accd74a9b335d66937fc1261d1e60e",
+    "lean.h": "02af0040283143b264e3a44b06b348b6973ae6037fa8f550701c83dd7a062ace",
+    "object.cpp": "e03ea4317ad44fb91a4cc9097abe1601b1e1cf8fb77f5ab7b0620fdfcf348430"
+  },
+  "initialized-dependencies": [],
+  "normalization": "Only optional top-level pretty removed; original per-record CAS hashes retained",
+  "target-layout": "Explicit JvmCarrierLayoutV1; exact target scalar extents and logical carriers; not native physical parity",
+  "native-oracle": {
+    "source-sha256": "f722980e68b2389a973bfd91c9cfdabf9798e461ea3e8e9cef3db2f65724b681",
+    "expected-output-sha256": "48316cfd79a305b02a5697af4c9a168af620e73b5000185c3364929344448cbf",
+    "status": "Root run PASS: six exact lines, exit 0, empty stderr; not AOT; worker did not execute",
+    "scope": "Only source-produced unambiguous values; no native pointer addresses or target representation parity claim",
+    "receipt-sha256": "b1c1dd05e571f11dd9b8066b97107ef4e49d25f2ae7adb6355b41cbbce0da799"
+  }
+}
