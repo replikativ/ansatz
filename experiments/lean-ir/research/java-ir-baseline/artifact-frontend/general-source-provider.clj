@@ -234,7 +234,9 @@
                (identical? header (:gate-header p)) (identical? active-header (:main-header p))
                (identical? active (aget ^objects (field program "functions") (int (field active "id"))))
                prepared (identical? prepared (field e "activePrepared"))
-               (= 41 (field call "dest")) (false? (field call "facade"))
+               ;; HostCall destinations are physical stack slots; the
+               ;; authenticated prepared Body below keeps the SSA index41.
+               (= (+ (field e "bp") 41) (field call "dest")) (false? (field call "facade"))
                (identical? (field call "next") (field e "pc"))
                (= "ansatz_observed_frontend_gate_v1" (.symbol request))
                (= ["object" "object" "tobject" "object" "object" "void"] (vec (.paramTypes request)))
