@@ -14,5 +14,7 @@
   "remaining": [
     "Independent source review",
     "Fresh actual original checked arithmetic compilation, CodeBatch link/invoke, EOF and retirement"
-  ]
+  ],
+  "validated-checkpoint": "74863e13fe9a6dbca59279a7cc6b753344129d84",
+  "follow-up": "Distinct boxed result SSA ID plus one new negative assertion; parent execution pending"
 }

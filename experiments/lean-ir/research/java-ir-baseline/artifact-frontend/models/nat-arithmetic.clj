@@ -49,6 +49,9 @@
   (let [delta (original-delta) root ["str" ["anonymous"] "hostedStep"] boxed ["str" root "_boxed"]
         add ["str" ["str" ["anonymous"] "Nat"] "add"]]
     (is (nil? (#'command/arithmetic-batch! delta root boxed)))
+    (is (rejects? #(#'command/arithmetic-batch!
+                     (-> delta (assoc-in [boxed "body" 1] {"idx" 1})
+                         (assoc-in [boxed "body" 4 5 1 "var" "id"] {"idx" 1})) root boxed)))
     (is (= #{add} (#'command/static-calls! (get delta root))))
     (doseq [bad [(assoc-in delta [root "xs" 0 "borrow"] false)
                  (assoc-in delta [boxed "xs" 0 "borrow"] true)

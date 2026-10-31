@@ -253,7 +253,7 @@
         variable (fn [id] {"var" {"id" id}})
         id? (fn [id] (and (map? id) (= #{"idx"} (set (keys id)))
                          (integer? (get id "idx")) (<= 0 (get id "idx") 1000000)))]
-    (need (and (every? id? [x bx y z result]) (= 3 (count (set [x y z])))
+    (need (and (every? id? [x bx y z result]) (= 3 (count (set [x y z]))) (not= bx result)
                (= [{"x" x "borrow" true "ty" "tobject"}] (get root "xs"))
                (= [{"x" bx "borrow" false "ty" "tobject"}] (get boxed "xs"))
                (= "tobject" (get root "type") (get boxed "type")))
