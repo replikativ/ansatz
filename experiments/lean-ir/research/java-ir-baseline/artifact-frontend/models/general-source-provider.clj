@@ -65,7 +65,12 @@
     (with-fixture [f (syntax-fixture (declaration {:kind (sp/typed-name label) :args []}))]
       (let [before (.instructionCount (:engine f))]
         (is (rejects? #(policy f)))
-        (is (= before (.instructionCount (:engine f))))))))
+        (is (= before (.instructionCount (:engine f)))))))
+  (with-fixture [f (syntax-fixture (node "section" (node "sectionHeader" {:kind (sp/typed-name "null") :args []}))) ]
+    (is (= :command (:kind (policy f)))))
+  (doseq [atom ["public" "meta" "expose" "noncomputable"]]
+    (with-fixture [f (syntax-fixture (node "section" (node "sectionHeader" {:kind (sp/typed-name "null") :args [{:atom atom}]})))]
+      (is (rejects? #(policy f))))))
 
 (deftest custom-command-opaque-block-and-display-name-spoofing-rejected
   (doseq [form [(node "opaque") (node "initialize") (node "attribute")

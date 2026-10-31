@@ -208,6 +208,14 @@
                   (if (.containsKey seen x) (recur tail (inc visits) count-nodes)
                     (let [{:keys [kind args]} (syntax-node x)]
                       (need (not (contains? forbidden-kinds kind)) "Protected option/attribute/meta/effect syntax is forbidden")
+                      ;; sectionHeader spells public/meta/@[expose] as atoms,
+                      ;; unlike named declaration modifiers. Permit only its
+                      ;; empty optional nodes, not token-based text matching.
+                      (when (= kind (kind-name "sectionHeader"))
+                        (need (every? (fn [arg]
+                                        (let [option (syntax-node arg)]
+                                          (and (= (sp/typed-name "null") (:kind option)) (empty? (:args option))))) args)
+                              "Section modifiers are outside this scope policy"))
                       (need (< count-nodes 16384) "Syntax node bound")
                       (.put seen x true) (.put active x true)
                       (recur (into (conj tail [:leave x depth]) (map #(vector :enter % (inc depth)) (rseq args)))
