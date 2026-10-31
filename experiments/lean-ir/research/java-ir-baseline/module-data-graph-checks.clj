@@ -80,4 +80,4 @@
     (with-source [manifest (assoc root :fields [{:ref 1}])]
       (fn [path sha]
         (is (thrown-with-msg? clojure.lang.ExceptionInfo #"missing referenced records"
-                             (converted path sha (constantly :nat)))))))))
+                             (converted path sha (constantly :nat))))))))
