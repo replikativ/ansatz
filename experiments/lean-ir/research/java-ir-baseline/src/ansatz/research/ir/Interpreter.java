@@ -7918,9 +7918,20 @@ public final class Interpreter implements AutoCloseable {
         if(stream.rc!=0) Math.addExact(stream.rc,1);
         inc(stream,1); stdinDefaultRoot=stream; stdioContext=context;
     }
+    private Node ownedStdioReplacement(Object replacement) {
+        require(stdioContext!=null,"Explicit configured stdio profile required");
+        Node next=streamNode(replacement);
+        int known=(next==stdinDefaultRoot?1:0)+(next==stdoutRoot?1:0)+(next==stderrRoot?1:0);
+        for(Node stream:stdioContext.current) if(stream==next) known++;
+        // Reserve EACH private owning occurrence, including cross-channel
+        // aliases. An incoming owned argument must exist beyond those roots.
+        // This is a narrow known-credit defense, not a universal heap ledger.
+        require(next.rc==0||next.rc>known,"Stdio replacement requires an owner beyond known default/current roots");
+        return next;
+    }
     private Node standardStream(int channel,boolean swap,Object replacement) {
         require(stdioContext!=null,"Explicit configured stdio profile required");
-        Node next=swap?streamNode(replacement):null; // validate before lazy/default mutation
+        Node next=swap?ownedStdioReplacement(replacement):null; // validate before lazy/default mutation
         Node old=stdioContext.current[channel];
         Node seed=streamNode(old==null?defaultStream(channel):old);
         int credits=(old==null?1:0)+(swap?0:1);
@@ -9915,6 +9926,9 @@ public final class Interpreter implements AutoCloseable {
             require(ERASED.equals(args[0]),"Task.get erased placeholder required"); readyTaskNode(args[1]);
         }
         if(function.intrinsic==MARK_PERSISTENT) validatePersistentArguments(args[0],args[1],args[2]);
+        if(function.intrinsic>=SET_STDIN&&function.intrinsic<=SET_STDERR) {
+            require(ERASED.equals(args[1]),"Stdio world placeholder required"); ownedStdioReplacement(args[0]);
+        }
         if(function.intrinsic==ARRAY_CHECKED_SET) validateCheckedArraySet(args);
         else if(function.intrinsic==VOID_MK) validateVoidArguments(args[0],args[1]);
         else if(actionPrimitive(function)) validateNative(function,args);

@@ -75,7 +75,11 @@ stdoutRoot is the stdout default owner; an independent stderrRoot is created on
 first use. Current slots lazily retain one default occurrence. A getter retains
 one more returned occurrence. A swap takes its argument owner and returns the old
 slot owner with no inc/dec, including identity swaps. Overflow/world/layout checks
-finish before native owner publication. Defaults/current/external aliases count
+finish before native owner publication. Setters reserve each known identical
+default/current occurrence (including cross-channel aliases) and require a
+separate incoming owner beyond them; persistent rc0 is exempt. The guard runs
+at raw entry before frames and again at the internal native FAP/AP site. This is
+a narrow known-credit defense, not a universal heap ownership ledger. Defaults/current/external aliases count
 separately; persistent rc0 remains persistent. An uninstalled profile refuses new
 channels and swaps explicitly, while legacy captured stdout still works.
 
@@ -121,9 +125,10 @@ Failed explicit execution remains escrowed rather than automatically unwound.
 
 ## Verification
 
-`stdio-checks.clj` defines eleven tiny test families: exact source/ABI evidence,
+`stdio-checks.clj` defines thirteen tiny test families: exact source/ABI evidence,
 legacy opt-in boundary, readonly rejection of callback-bearing defaults, lazy
-counts and identity swaps, capture separation/current redirects, source/layout/
+counts and identity swaps, borrowed same/cross-channel/lazy-slot alias refusal
+and original boxed-FAP bypass refusal, capture separation/current redirects, source/layout/
 overflow preflight, malformed native swaps, fork/saved-owner aliases, pending
 resolver-time callback and persistent callback swap, callback-created retirement
 plus paused fork, and post-install Ref mutation rejection before default claims.

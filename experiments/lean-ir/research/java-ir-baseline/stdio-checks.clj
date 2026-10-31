@@ -158,6 +158,64 @@
         (is (identical? (current e 1) (current e 2))) (is (= 3 (c/rc ctx b)))
         (finally (cleanup! ctx e ss))))))
 
+(deftest borrowed-default-current-and-cross-channel-aliases-cannot-be-owned-swap-inputs
+  (doseq [mode [:control :explicit :active]]
+    (let [ctx (context mode) e (j/machine ctx) [a b c :as ss] (streams! ctx e)
+          external (atom ss)]
+      (try
+        (install! ctx e a)
+        (let [out (get! ctx e "out")]
+          (release! ctx e out) ; only default+current own this borrowed alias
+          (is (= 2 (c/rc ctx out)))
+          (doseq [channel ["in" "out" "err"]]
+            (let [before (counters e) roots (mapv #(current e %) (range 3))]
+              ;; Raw entry rejects before frames; untouched channels stay lazy.
+              (is (re-find #"owner beyond known default/current roots"
+                    (c/failure #(j/call ctx e (str "IO.setStd" channel) [out 0]))))
+              (is (= before (counters e))) (is (= "idle" (j/phase ctx e)))
+              (is (every? true? (map identical? roots (map #(current e %) (range 3)))))
+              (is (nil? (host/private-value e "stderrRoot")))
+              (is (= 2 (c/rc ctx out))))))
+        ;; Deliberately make all three channels alias the stdin default. Keep
+        ;; each incoming source occurrence honest, then release only our final
+        ;; external occurrence so the four private occurrences are all owners.
+        (j/retain! ctx e a) (release! ctx e (swap! ctx e "out" a))
+        (j/retain! ctx e a) (release! ctx e (swap! ctx e "err" a))
+        (release! ctx e (get! ctx e "in"))
+        (is (= 5 (c/rc ctx a)))
+        (release! ctx e a) (reset! external [b c])
+        (is (= 4 (c/rc ctx a)))
+        (doseq [channel ["in" "out" "err"]]
+          (let [before (counters e)]
+            (is (re-find #"owner beyond known default/current roots"
+                  (c/failure #(j/call ctx e (str "IO.setStd" channel) [a 0]))))
+            (is (= before (counters e))) (is (= 4 (c/rc ctx a)))
+            (is (every? #(identical? a (current e %)) (range 3)))))
+        ;; An actual additional owner makes identity swap legal again.
+        (j/retain! ctx e a)
+        (let [old (swap! ctx e "out" a)]
+          (is (identical? a old)) (is (= 5 (c/rc ctx a))) (release! ctx e old))
+        (is (= 4 (c/rc ctx a)))
+        (finally (cleanup! ctx e @external))))))
+
+(deftest original-boxed-fap-cannot-bypass-known-stdio-owner-preclaim
+  (doseq [mode [:explicit :active]]
+    (let [ctx (context mode) e (j/machine ctx) [a b c] (streams! ctx e)]
+      (install! ctx e a)
+      (let [out (get! ctx e "out")]
+        (release! ctx e out)
+        (let [before (counters e)]
+          ;; The original fdecl facade reaches the same native guard internally.
+          (is (re-find #"owner beyond known default/current roots"
+                (c/failure #(swap! ctx e "out" out))))
+          (is (= before (counters e))) (is (= 2 (c/rc ctx out)))
+          (is (identical? out (current e 1)))
+          (is (identical? out (host/private-value e "stdoutRoot")))
+          (is (= "failed" (j/phase ctx e)))
+          ;; Bad owned wrapper input leaves a real failed guest continuation;
+          ;; no rollback, input-credit invention or automatic cleanup is claimed.
+          (is (g/bad? #(j/close! ctx e))))))))
+
 (deftest separate-default-sinks-and-current-redirects-do-not-mirror-capture
   (doseq [mode [:control :explicit :active]]
     (let [ctx (context mode) e (j/machine ctx) [a b c :as ss] (streams! ctx e)]
