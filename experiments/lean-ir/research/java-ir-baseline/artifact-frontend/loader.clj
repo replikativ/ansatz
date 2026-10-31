@@ -29,7 +29,8 @@
     ["models/adapter.clj" artifact-declaration-adapter-v4-models-v1]
     ["models/node-decoder.clj" ansatz.research.ir.node-decoder-checks-v1]
     ["models/generated-command.clj" generated-command-receipt-checks-v1]
-    ["models/filesystem-profile.clj" filesystem-nat-source-profile-v2-checks]])
+    ["models/filesystem-profile.clj" filesystem-nat-source-profile-v2-checks]
+    ["models/nat-arithmetic.clj" generated-nat-arithmetic-checks-v3]])
 (defn- load-units! [root entries required]
   (doseq [n required]
     (when-not (find-ns n) (throw (ex-info "Load explicit research prerequisite first" {:namespace n}))))

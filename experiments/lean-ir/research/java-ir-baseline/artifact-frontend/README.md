@@ -203,3 +203,26 @@ and a small project corpus. The earlier `prototype.project-loader` is a separate
 World/NativeBase implementation and cannot directly replace these Java capabilities.
 Larger runtime artifacts and bootstrap installation still need a reproducible,
 explicitly supplied artifact path. LLVM is not required for this execution route.
+# Versioned arithmetic extension (not yet runtime accepted)
+
+`filesystem-nat-file-run-v1/open-arithmetic-file!` opts into the finite v3 source
+profile. It accepts the old identity lines and `x + 1` / `Nat.add x 1` bodies,
+with the same exact Prelude header, capture-once bytes, 1–16 command bound and EOF
+transaction. Default `open-file!`, `parse-profile` and old identity acceptance
+remain unchanged. Source hooks independently bind each actual command's operation.
+
+The add-one controller requires this strictly published safe unary Nat definition,
+the actual original compiler's two-row borrowed-root/owned-wrapper shape, and the
+authenticated pinned current `Nat.add` native. It adds no initializer, ready global,
+host specification or alias. Linking rechecks its exact dependency Header and uses
+the same actual version/branch/Program custody. Generated code stays on the child.
+Invocation checks the immutable Nat carrier and the selected operation's result.
+
+`nat-arithmetic-v3.json` records bounded source deltas against the untouched v25
+`acceptance.json`; it does **not** extend that earlier runtime result to arithmetic.
+Six new model families cover source, original IR shape and result-domain gates.
+The copied native export is an offline shape fixture, never an issued CodeBatch.
+The parent ran the six structural model families in its coordinated retained REPL:
+6 tests / 63 assertions passed. No worker JVM/native execution or fresh filesystem
+arithmetic acceptance has run. The parent must still run fresh checked
+compile/link/invoke/EOF/retirement.

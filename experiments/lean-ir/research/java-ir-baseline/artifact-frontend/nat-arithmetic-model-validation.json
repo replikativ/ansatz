@@ -1,0 +1,18 @@
+{
+  "schema": "generated-nat-arithmetic-model-validation/1",
+  "date": "2026-10-31",
+  "executed-by": "parent agent, coordinated retained REPL 65694",
+  "result": {
+    "tests": 6,
+    "assertions": 63,
+    "failures": 0,
+    "errors": 0
+  },
+  "scope": "Structural/source grammar/result-domain models only. No CommandRun/FileRun tokens minted; no guest arithmetic filesystem acceptance.",
+  "source": "Parent reported exact result; worker performed no JVM/native run.",
+  "historical-identity-acceptance": "acceptance.json preserved byte-for-byte",
+  "remaining": [
+    "Independent source review",
+    "Fresh actual original checked arithmetic compilation, CodeBatch link/invoke, EOF and retirement"
+  ]
+}

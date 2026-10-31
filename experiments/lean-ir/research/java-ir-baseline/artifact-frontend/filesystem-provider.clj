@@ -103,9 +103,10 @@
    roots for one indexed definition or the EOF transaction. Captured host metadata grants no authority."
   ([child frontend captured-source command-index]
    (make-captures! child frontend captured-source command-index {:layout-directory layout-directory}))
-  ([child frontend captured-source command-index {:keys [layout-directory]}]
+  ([child frontend captured-source command-index {:keys [layout-directory source-profile] :or {source-profile :identities-v2}}]
   (need (and (string? layout-directory) (seq layout-directory)) "Explicit compiled layout directory required")
-  (let [captured (profile/captured-profile captured-source)]
+  (let [_ (need (contains? #{:identities-v2 :arithmetic-v3} source-profile) "Unknown finite source profile")
+        captured ((if (= :arithmetic-v3 source-profile) profile/captured-arithmetic-profile profile/captured-profile) captured-source)]
     (need (and (integer? command-index) (<= 0 command-index) (<= command-index (:command-count captured))) "Command index outside captured source")
   (let [_ (source/guard-source! (:code-receipt child) (get-in frontend [:driver :source]))
         proof (options-proof/check-prepared! frontend)
@@ -198,14 +199,15 @@
                                      (identical? options (:options (current-view s)))
                                      (= frozen-options (frozen-data s options))) "Source capture request differs")
                           {:engine e :source src :input input :state-ref state-ref
-                           :description {:profile "legacy-private-filesystem-nat-identities/2"
+                           :description (cond-> {:profile (:profile captured)
                                          :command-index command-index :command-count (:command-count captured)
                                          :action (:action command) :root (:root command) :binder (:binder command) :module (:module captured)
                                          :module-getter-sha main-module-getter-sha
                                          :command-end next-start :previous-start previous-start
                                          :input-sha256 (sha expected) :filename filename :utf8-bytes end
                                          :command-start command-start :compiler-ref-sha compiler-ref-sha
-                                         :compiler-target-sha compiler-target-sha :options-shape-sha (sha (pr-str frozen-options))}})
+                                         :compiler-target-sha compiler-target-sha :options-shape-sha (sha (pr-str frozen-options))}
+                                          (= :arithmetic-v3 source-profile) (assoc :operation (:operation command)))})
        :before-call! (fn [{:keys [engine source header]}]
                        (check! nil) (need (and (identical? e engine) (identical? src source)) "Foreign source call")
                        (authenticate! header))
