@@ -14,7 +14,9 @@ with `[tobject borrowed] -> object`. Its original owned boxed facade is
 it calls the raw function and decrements only its owned capacity occurrence.
 The observed `ByteArray.empty._closed_0` body is also preserved unchanged.
 Only top-level pretty text is removed in the fixture; the generator authenticates
-original raw CAS bytes and exact typed catalogue Name before creating it.
+the actual complete accepted index byte stream and its SHA, then each exact typed
+Name/hash membership and original raw CAS bytes before creating it. SQLite is
+only a candidate accelerator and must match the index-derived domain exactly.
 
 Native 544 uses the existing raw ByteArray tag248/kind metadata, allocates live
 size zero with exact requested capacity, and borrows the argument. Validation
@@ -57,8 +59,16 @@ This patch implements only empty allocation.
 ## Reproduction and checks
 
 Run `collect.py REVIEWED_ROOT LEAN_REPOSITORY` with explicit paths to the accepted
-catalogue/CAS metadata and the readonly pinned source checkout. It performs no
-native/guest execution and records source/blob/inventory hashes in provenance.edn.
+catalogue/CAS metadata and the readonly pinned source checkout. The bounded
+reader hashes all120,853,740 index bytes while parsing375,258 declaration pairs;
+it derives419 ByteArray-segment Names independently of SQLite, authenticates
+every domain CAS row to find the complete17-extern inventory, and checks all
+three requested String conversions against that same index. The fixture, extern
+inventory and String conversion outputs are byte-identical after this stronger
+audit. The collector enforces a256MiB address-space cap,90s CPU cap,60s index
+scan deadline,160MiB index limit,16MiB parser buffer and500,000 declaration
+limit. It performs no native/guest execution and records index counts and
+source/blob/inventory hashes in provenance.edn.
 `byte-array-empty-checks.clj` defines seven focused tests: exact ABI refusals,
 size/capacity/RC, authentic empty body and owned PAP/AP, spare-capacity push reuse,
 shared COW and fork independence, invalid/over-profile rejection before allocation,
