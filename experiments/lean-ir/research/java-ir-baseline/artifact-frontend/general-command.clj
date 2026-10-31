@@ -5,6 +5,7 @@
             [generated-command-receipt-v1 :as finite]
             [artifact-checked-declaration-adapter-v4 :as adapter]
             [artifact-declaration-authority-v4 :as authority]
+            [ansatz.research.ir.node-decoder-v1 :as decoder]
             [ansatz.research.ir.source-setup :as source])
   (:import [java.util WeakHashMap LinkedHashMap IdentityHashMap ArrayDeque]))
 (deftype SourceCaptures [])
@@ -29,6 +30,12 @@
 (defn- engine [holder] (#'finite/engine @holder))
 (defn- live! [holder] (#'finite/live! holder))
 (defn- observe! [holder key argument] (#'finite/observe! holder key argument))
+(defn- decode-limits []
+  {:deadline-nanos (+ (System/nanoTime) 10000000000)
+   :max-nodes (min 100000 (:max-nodes decoder/defaults))
+   :max-output (min 200000 (:max-output decoder/defaults))
+   :max-depth (min 1000 (:max-depth decoder/defaults))
+   :max-chars (min 2000000 (:max-chars decoder/defaults))})
 (defn source-captures
   "TRUSTED SOURCE ADAPTER constructor, not map/Boolean verification. Root must
    authenticate the companion overlay, exact Headers, source/layout/protected
@@ -169,9 +176,7 @@
               :frontend frontend :strict-driver strict-driver :source (:source driver) :receipt receipt :hooks hooks :headers headers :file-marker file-marker
               :layout (#'authority/read-layout! layout-directory) :owners (LinkedHashMap.) :quantum quantum :row-limit row-limit
               :controller-headers {entry-label (:entry headers)}
-              :controller-drain drain! :controller-decode-limits
-              (fn [] {:deadline-nanos (+ (System/nanoTime) 10000000000) :max-nodes 100000
-                      :max-output 200000 :max-depth 1000 :max-chars 4000000})})]
+              :controller-drain drain! :controller-decode-limits decode-limits})]
     (live! holder)
     (need (= "idle" (j/phase (ctx holder) (engine holder))) "Observed command opens only at idle boundary")
     (put! runs token holder)))
