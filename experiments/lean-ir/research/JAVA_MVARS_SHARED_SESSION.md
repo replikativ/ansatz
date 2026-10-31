@@ -93,3 +93,14 @@ lifetime, nested child publication, fork aliases and final tests. This worker ra
 bounded `javac --release 11` with 256 MiB, delimiter/path audits and
 `git diff --check`; it launched no JVM/native runner. The parent combined gate is
 separate evidence, not an ExprMVars implementation or frontend acceptance claim.
+
+The combined integration on top of the reviewed private Expr machinery, FindExt
+and checked Array.set! units passed at 384 MiB: 116 result groups / 1,150 test
+executions / 54,259 assertions, zero failures or errors, exit 0. Combined Java
+source SHA is `f35e70b4248a461d6f367e73ecd2fb5e4688294e56898e4a13def2dd8d9a4e75`;
+immutable jar SHA is
+`db5b96548010e51ed7e231606848ab735bb8f76317c5da466fe3a533624dd0d5`.
+Parent receipt `target/java-mvars-session-integration-v2/combined-gate-v1.out`
+has SHA `95d0edc99fd17be2006b06221ac96d298e6f9b7910c32c312cfaea8eb0a69eb6`.
+Integration changed no fixture rows or focused test semantics; the runner retains
+all previous groups and adds the eleven-test shared-session group.
