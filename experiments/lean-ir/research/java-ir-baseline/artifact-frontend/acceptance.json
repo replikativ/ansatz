@@ -164,7 +164,8 @@
       "extra-owner-occurrences": 14,
       "runtime-root-occurrences": 534,
       "status": "disposed-and-closed"
-    }
+    },
+    "invalid-input-evidence": "equivalent earlier v24 prototype; actual-file-execution-v24.edn"
   },
   "timings": {
     "warm-tracked-load-ms": 10961.087707,
@@ -238,6 +239,10 @@
     {
       "file": "target/java-filesystem-command-sequence-v1/store-fetch-suite.log",
       "sha256": "f5bd1b02949398c053496113a446a021e3af211ed95ac7470a10a33abae9cd8e"
+    },
+    {
+      "file": "target/java-filesystem-command-sequence-v1/actual-file-execution-v24.edn",
+      "sha256": "2c427881e9e8f5712f1b310180590f381543e11f1b2b4ac0c8bf387c00806ea2"
     }
   ],
   "limits": [
