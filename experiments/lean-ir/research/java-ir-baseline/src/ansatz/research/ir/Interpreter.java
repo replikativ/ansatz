@@ -27,6 +27,7 @@ public final class Interpreter implements AutoCloseable {
     private static final int USIZE_NAT=9,USIZE_REPR=10,U32_NAT=11,U32_EQ=12,U32_LE=13,PLATFORM_BITS=14;
     private static final int STR_POS_SET=260;
     private static final int VOID_MK=516,LEVEL_INSTANTIATE=517;
+    private static final int ARRAY_CHECKED_SET=518;
     private static final int EXPR_DATA=400,EXPR_APP_DATA=401,LEVEL_DATA=402,EXPR_CACHE=403,EXPR_EQV=404,EXPR_EQUAL=405,U8_TO_U32=406,U64_TO_U8=407,EXPR_FIND=408,LEVEL_EQUAL=409;
     private static final int PROFILE_IT=410;
     private static final int STR_PUSH=15,STR_LIST=16,STR_GET=17,STR_NEXT=18,STR_APPEND=19,STR_SIZE=20,
@@ -311,6 +312,8 @@ public final class Interpreter implements AutoCloseable {
                 new String[]{"erased","object","usize","erased"},new boolean[]{false,true,false,false}));
         register(registry,new ExternSpec("lean_array_fset",ARRAY_FSET,"object",
                 new String[]{"erased","object","tobject","tobject","erased"},new boolean[]{false,false,true,false,false}));
+        register(registry,new ExternSpec("lean_array_set",ARRAY_CHECKED_SET,"object",
+                new String[]{"erased","object","tobject","tobject"},new boolean[]{false,false,true,false}));
         register(registry,new ExternSpec("lean_array_uset",ARRAY_USET,"object",
                 new String[]{"erased","object","usize","tobject","erased"},new boolean[]{false,false,false,false,false}));
         register(registry,new ExternSpec("lean_array_fswap",ARRAY_SWAP,"object",
@@ -1686,7 +1689,7 @@ public final class Interpreter implements AutoCloseable {
     }
     private boolean actionPrimitive(Function function) {
         int op=function.intrinsic;
-        return taskRuntime!=null&&(op==LEVEL_INSTANTIATE||op==VOID_MK||op==PROFILE_IT||op==EXPR_FIND||taskPrimitive(op)||op==TASK_MAP||op==REF_SET||op==ARRAY_POP||op==ARRAY_FSET||op==ARRAY_USET||op==ARRAY_REPLICATE);
+        return taskRuntime!=null&&(op==LEVEL_INSTANTIATE||op==VOID_MK||op==PROFILE_IT||op==EXPR_FIND||taskPrimitive(op)||op==TASK_MAP||op==REF_SET||op==ARRAY_POP||op==ARRAY_FSET||op==ARRAY_USET||op==ARRAY_CHECKED_SET||op==ARRAY_REPLICATE);
     }
     private Object[] savedArguments(Function function,int[] slots) {
         Object[] args=new Object[slots.length];
@@ -1765,6 +1768,7 @@ public final class Interpreter implements AutoCloseable {
     }
     private void validateNative(Function function,Object[] args) {
         if(function.intrinsic==LEVEL_INSTANTIATE) { validateLevelArguments(function,args); return; }
+        if(function.intrinsic==ARRAY_CHECKED_SET) { validateCheckedArraySet(args); return; }
         if(function.intrinsic==VOID_MK) {
             require(args!=null&&args.length==2,"Void.mk native arity mismatch");
             validateVoidArguments(args[0],args[1]); return;
@@ -3340,7 +3344,7 @@ public final class Interpreter implements AutoCloseable {
             default: throw error("Unsupported Float intrinsic");
         }
     }
-    private static boolean advancedArrayPrimitive(int op) { return op>=ARRAY_EMPTY&&op<=ARRAY_REPLICATE||op==ARRAY_CHECKED_GET||op==ARRAY_CHECKED_BORROWED; }
+    private static boolean advancedArrayPrimitive(int op) { return op>=ARRAY_EMPTY&&op<=ARRAY_REPLICATE||op==ARRAY_CHECKED_GET||op==ARRAY_CHECKED_BORROWED||op==ARRAY_CHECKED_SET; }
     private static boolean borrowedArrayPrimitive(int op) {
         return op==ARRAY_SIZE||op==ARRAY_GET||op==ARRAY_USIZE||op==ARRAY_FGET||op==ARRAY_UGET||op==ARRAY_UGET_BORROWED||op==ARRAY_CHECKED_GET||op==ARRAY_CHECKED_BORROWED;
     }
@@ -3352,7 +3356,7 @@ public final class Interpreter implements AutoCloseable {
     }
     private static void arrayPlaceholders(Function f,Object erased,Object last,Object penultimate) {
         require(ERASED.equals(erased),"Array erased parameter requires erased placeholder");
-        if(f.intrinsic!=ARRAY_CHECKED_GET&&f.intrinsic!=ARRAY_CHECKED_BORROWED&&f.params.length>=4)
+        if(f.intrinsic!=ARRAY_CHECKED_GET&&f.intrinsic!=ARRAY_CHECKED_BORROWED&&f.intrinsic!=ARRAY_CHECKED_SET&&f.params.length>=4)
             require(ERASED.equals(last)&&ERASED.equals(penultimate),
                 "Array proof parameters require erased placeholders");
     }
@@ -3366,6 +3370,20 @@ public final class Interpreter implements AutoCloseable {
         BigInteger n=nat(index);
         require(n.compareTo(BigInteger.valueOf(arrayState(a).size))<0,"Array index outside bounds");
         return n.intValue();
+    }
+    /** Native set! has a distinct panic path; the current profile rejects it
+     * before claims instead of executing the pure source fallback. */
+    private static int checkedArraySetIndex(Node array,Object index) {
+        BigInteger n=nat(index);
+        require(n.compareTo(BigInteger.valueOf(arrayState(array).size))<0,
+                "Array.set! panic path outside bounded runtime profile");
+        return n.intValue();
+    }
+    private void validateCheckedArraySet(Object[] args) {
+        require(args!=null&&args.length==4,"Array.set! native arity mismatch");
+        require(ERASED.equals(args[0]),"Array erased parameter requires erased placeholder");
+        Node source=array(args[1]); int index=checkedArraySetIndex(source,args[2]);
+        validateHostObject(args[3]); refIncomingAlias(source.fields[index],args[3]);
     }
     private Node newArray(int size,int capacity) {
         require(size>=0&&capacity>=size&&capacity<=MAX_ARRAY_CAPACITY,"Array capacity outside bounded runtime profile");
@@ -3422,8 +3440,8 @@ public final class Interpreter implements AutoCloseable {
                 if(arrayState(out).size!=0) { int i=--arrayState(out).size; Object old=out.fields[i]; out.fields[i]=null; stores++; releaseQuiet(old,1); }
                 result=out; return;
             }
-            case ARRAY_FSET: case ARRAY_USET: {
-                int index=arrayIndex(n,b); validateHostObject(c);
+            case ARRAY_FSET: case ARRAY_USET: case ARRAY_CHECKED_SET: {
+                int index=f.intrinsic==ARRAY_CHECKED_SET?checkedArraySetIndex(n,b):arrayIndex(n,b); validateHostObject(c);
                 refIncomingAlias(n.fields[index],c);
                 Node out=exclusiveArray(n,false); Object old=out.fields[index];
                 out.fields[index]=c; stores++; releaseQuiet(old,1); result=out; return;
@@ -4730,6 +4748,8 @@ public final class Interpreter implements AutoCloseable {
         System.arraycopy(closure.fields,0,combined,0,closure.fields.length);
         System.arraycopy(args,0,combined,closure.fields.length,args.length);
         if(combined.length>=f.params.length&&called.intrinsic==VOID_MK) validateVoidArguments(combined[0],combined[1]);
+        if(combined.length>=f.params.length&&called.intrinsic==ARRAY_CHECKED_SET)
+            validateCheckedArraySet(combined.length==f.params.length?combined:Arrays.copyOf(combined,f.params.length));
         // A shared closure keeps ownership of its captured arguments.
         if(!exclusive(closure)) for(Object a:closure.fields) inc(a,1);
         if(exclusive(closure)) { closure.dead=true; Arrays.fill(closure.fields,null); shellDeletes++; }
@@ -5474,7 +5494,8 @@ public final class Interpreter implements AutoCloseable {
         if(taskRuntime!=null&&function.intrinsic==TASK_GET) {
             require(ERASED.equals(args[0]),"Task.get erased placeholder required"); readyTaskNode(args[1]);
         }
-        if(function.intrinsic==VOID_MK) validateVoidArguments(args[0],args[1]);
+        if(function.intrinsic==ARRAY_CHECKED_SET) validateCheckedArraySet(args);
+        else if(function.intrinsic==VOID_MK) validateVoidArguments(args[0],args[1]);
         else if(actionPrimitive(function)) validateNative(function,args);
         for(int i=0;i<args.length;i++) {
             if(function.paramTypes[i]!=OBJ) { if(saved) readSavedScalar(args[i],function.paramTypes[i]); else inputScalar(args[i],function.paramTypes[i]); }
@@ -5568,9 +5589,10 @@ public final class Interpreter implements AutoCloseable {
         Object[] combined=new Object[closure.fields.length+args.length];
         System.arraycopy(closure.fields,0,combined,0,closure.fields.length);
         System.arraycopy(args,0,combined,closure.fields.length,args.length);
-        if(combined.length>=f.params.length&&(taskRuntime!=null||called.intrinsic==VOID_MK)) {
+        if(combined.length>=f.params.length&&(taskRuntime!=null||called.intrinsic==VOID_MK||called.intrinsic==ARRAY_CHECKED_SET)) {
             Object[] actual=combined.length==f.params.length?combined:Arrays.copyOf(combined,f.params.length);
-            if(called.intrinsic==VOID_MK) validateVoidArguments(actual[0],actual[1]);
+            if(called.intrinsic==ARRAY_CHECKED_SET) validateCheckedArraySet(actual);
+            else if(called.intrinsic==VOID_MK) validateVoidArguments(actual[0],actual[1]);
             else if(actionPrimitive(f)) validateNative(f,actual);
             else if(f.intrinsic==TASK_GET||f.intrinsic==TASK_PURE) validateEntryArguments(f,actual,true);
         }
