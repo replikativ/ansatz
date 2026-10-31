@@ -98,3 +98,18 @@ fixtures and final semantic/control tests. This worker ran bounded Java 11
 compilation, source/CAS/index hashing, delimiter and path audits and
 `git diff --check`; it launched no JVM test runner or native oracle. The combined
 integration regression gate is separate parent evidence.
+
+
+The combined integration with the landed level substitution, checked-array and
+expression-search runtime passed the complete regression runner at a 384 MiB
+heap limit: 115 test families, 1,139 test executions and 54,111 assertions, with
+zero failures or errors. Integrated Java source SHA-256:
+`d9999cf8a442d5de163408d00dc34c3f095c79e028f8f21c7c8b960a6315590a`.
+Immutable Java 11 jar SHA-256:
+`9c4f30f0068cfd0891e1c071a3762ac41713112c7a51d0ca14b4d470445a8123`.
+The campaign receipt is `target/java-expr-machinery-integration-v1/combined-gate-v3.out`
+(SHA-256 `046fb2e2e8ebf91b51e7719d162ae9cfbbf691e3b9f990a108c4272f7ff58a8a`).
+An earlier retained-REPL search fixture run failed before execution because of a
+relative fixture path; the corrected absolute-path run passed all 10 tests and
+106 assertions on this same artifact. These are JVM regression results, not a
+native differential oracle or a new frontend compatibility claim.
