@@ -1,0 +1,14 @@
+{
+  "groups": 162,
+  "tests": 1549,
+  "assertions": 60527,
+  "failures": 0,
+  "errors": 0,
+  "exit": 0,
+  "heapMiB": 384,
+  "sha256": {
+    "target/java-f32-runtime-v1/full-gate-v2.log": "96c981e54edc575f95aed699272e45c48a410a572d3c04cf5110eca04319ac52",
+    "target/java-f32-runtime-v1/runtime-v1.jar": "ec44338dbe9e44fc2484c16d00addf46468a14919f66a5d55c01db431f43fbed",
+    "experiments/lean-ir/research/java-ir-baseline/src/ansatz/research/ir/Interpreter.java": "617e8e63247289ce8a03b0afcc7794b5de17fcaa6f0faf7365c88238b34e1bc2"
+  }
+}
