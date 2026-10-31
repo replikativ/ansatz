@@ -28,5 +28,65 @@
     "verdict": "clear",
     "scope": "FileRun custody, exact Nat codec/type/readback, registry acyclicity, generic command/parser/observation coupling, generated batch installation and healthy-only retirement",
     "reviewerDidNotRunJVM": true
+  },
+  "files": [
+    {
+      "module": "Proof",
+      "loadMs": 4009.187702,
+      "calls": [
+        {
+          "entry": "projectFirst._boxed",
+          "argument": 42,
+          "result": 42
+        }
+      ],
+      "status": "closed",
+      "retirement": {
+        "status": "disposed-and-closed",
+        "extra-owner-occurrences": 14,
+        "runtime-root-occurrences": 534
+      }
+    },
+    {
+      "module": "Unicode",
+      "loadMs": 2417.706402,
+      "calls": [
+        {
+          "entry": "\u0394.same._boxed",
+          "argument": 42,
+          "result": 42
+        }
+      ],
+      "status": "closed",
+      "retirement": {
+        "status": "disposed-and-closed",
+        "extra-owner-occurrences": 12,
+        "runtime-root-occurrences": 534
+      }
+    },
+    {
+      "module": "Closures",
+      "loadMs": 6864.472909,
+      "calls": [
+        {
+          "entry": "captured._boxed",
+          "argument": 35,
+          "result": 42
+        }
+      ],
+      "status": "closed",
+      "retirement": {
+        "status": "disposed-and-closed",
+        "extra-owner-occurrences": 16,
+        "runtime-root-occurrences": 534
+      }
+    }
+  ],
+  "legacyModels": {
+    "test": 22,
+    "pass": 134,
+    "fail": 0,
+    "error": 0,
+    "type": "summary"
   }
 }
