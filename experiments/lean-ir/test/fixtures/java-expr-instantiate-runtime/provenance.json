@@ -1,0 +1,49 @@
+{
+  "schema": "original-pure-expr-instantiation-family/1",
+  "lean-commit": "819816b2e0a3bf405af45ae5c7af2491d8f5bee6",
+  "source-index-sha256": "74d833d577923821b982e8a9e872a38b5cad011513eb18870b51417e13397f0e",
+  "raw-and-boxed-rows": 12,
+  "original-rows-sha256": "bc047898d60a575c7a0e687296146e081666da26ad08a95fc9fe153d6c296b9b",
+  "helper-closure-rows": 63,
+  "helper-closure-bytes": 112160,
+  "helper-closure-sha256": "1ac130cea9fe69ef4dd2947adc520fea4e80f3b81115cc65136adeace340a30a",
+  "source-sha256": {
+    "instantiate.cpp": "42527c96f4053fb3cbf4c26fbd544b1c4e0399e5c41b0fd792935d1d42f8916a",
+    "instantiate.h": "82c29aeb56dfbdb68fc0266df21805a891c28b4c4ed9032e70602e709b532264",
+    "expr.cpp": "cb02c18964aca67289b8c1d64864355bb5c10fc93d55bd3c3c9646776af9c592",
+    "expr.h": "9e8e953ce70ed056458659cdaabc96c0d2784e9a2ac5552357df0b9150571260",
+    "Expr.lean": "b9a91d9d170201c2a3622b9c55d694466f54e0e1b8f6068a2d296ff98650169c",
+    "replace_fn.cpp": "2edfa1721059dbb570ba99746f2cd60d1d691071523c129a12b3b9414972ac67",
+    "replace_fn.h": "6b3a850ce10b5646a8d40011ff228f6d3223dc9a79136417bc586588d1aa8e76",
+    "object_ref.h": "7acbddd207cf4932f810b6d7f96691aa95d5a1d58a0257b44911281bd10a77d5",
+    "lean.h": "02af0040283143b264e3a44b06b348b6973ae6037fa8f550701c83dd7a062ace"
+  },
+  "initialized-dependencies": [],
+  "modeled-closure": "Twelve original family raw/boxed roots plus nine explicitly intended original constructor roles; exact static transitive noninitializer edges; cached-missing boxed rows filled from authenticated full index/CAS",
+  "status": "Implemented bounded active-explicit family; independent source review clear; parent retained focused runtime gates pass. Combined integration pending.",
+  "normalization": "Only optional top-level pretty removed; per-row SHA pins exact complete original CAS bytes",
+  "native-oracle": {
+    "source-sha256": "1db70733193864a3b4df7b54e5cf8b5ae9e8a92bb94c2d3fc4170979f7387d95",
+    "expected-output-sha256": "202e14f16c84ec2b7dbcd2114c545d15d8447ce05fa6c4f6110a32dc88ce2e15",
+    "expected-lines": 19,
+    "status": "Parent reported pinned Lean --run exit0, exact19-line output, stderr0; see native-receipt.json. No AOT claim.",
+    "receipt-sha256": "50fd20ada2bce96010a43c522bdc37268802a28820126055d2b84d3f32a201e6"
+  },
+  "metadata-receipts": {
+    "family-summary.json": "de80ccdd2fb64de25a286e4f7adeb4ff73bc79fbae6c332b2eb08cc02f9ec31b",
+    "fix-level-corrected-summary.json": "ba17103ff5d4d2c2529cd62275423908d4752b54c637b4f163e3eda3f72f9ef3",
+    "FIX_LEVEL_ERRATUM.md": "fd3d594c0f764eb597dc65ab68871c2ade5046747f59d1a0ba82436e14b2a12e"
+  },
+  "runtime-validation": {
+    "reported-by": "parent integration agent",
+    "java-sha256": "42ff960c1caf16477aa2ffd83de95f90529de7b41539db32d660388d81007aca",
+    "jar-sha256": "d7bae566ffd9671c1890b1cf57db9b680a6f64c88f10311c28a0eae9956c085f",
+    "value-tests": 14,
+    "value-assertions": 210,
+    "control-tests": 5,
+    "control-assertions": 36,
+    "failures": 0,
+    "errors": 0,
+    "scope": "Retained JVM focused unit results only; no author JVM/native execution, combined gate or frontend completion claim."
+  }
+}

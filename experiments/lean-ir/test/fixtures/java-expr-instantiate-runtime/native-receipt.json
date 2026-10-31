@@ -1,0 +1,13 @@
+{
+  "schema": "pure-expr-family-native-run-receipt/1",
+  "reported-by": "parent integration agent",
+  "lean-version": "4.33.1",
+  "lean-commit": "819816b2e0a3bf405af45ae5c7af2491d8f5bee6",
+  "invocation": "lean --run Oracle.lean",
+  "exit-code": 0,
+  "stderr-bytes": 0,
+  "stdout-lines": 19,
+  "stdout-sha256": "202e14f16c84ec2b7dbcd2114c545d15d8447ce05fa6c4f6110a32dc88ce2e15",
+  "oracle-sha256": "1db70733193864a3b4df7b54e5cf8b5ae9e8a92bb94c2d3fc4170979f7387d95",
+  "scope": "Pinned native --run source-value observations only; no AOT, fatal-path execution, allocation parity, or JVM runtime result."
+}
