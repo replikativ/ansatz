@@ -1,0 +1,33 @@
+{
+  "schema": "native-typed-bridge-validation/1",
+  "scope": "Fixed authenticated native evidence to pure boxed bridge execution only",
+  "testedProbeSHA256": "7275f19a578b449429f5ffe39406fcc877b807c22c4764e4e59ad921a36700cb",
+  "testedModelsSHA256": "0fabbcc28a754d3633cd30541c13bfd064d645e7bf150b75bcf84b3218d166ff",
+  "origin": "Parent retained 512MiB JVM; worker launched no additional JVM or native process",
+  "receipt": {
+    "file": "acceptance.edn",
+    "sha256": "507894058b6714786b3ceb59ff820fbe245834be7b4c8b53815ba82dfbf73c5e"
+  },
+  "models": {
+    "tests": 5,
+    "assertions": 38,
+    "failures": 0,
+    "errors": 0
+  },
+  "execution": {
+    "NatCalls": 12,
+    "StringBranchCalls": 4,
+    "engineReused": true,
+    "normalIdleClose": true,
+    "LongMAXPlusOne": "java.math.BigInteger",
+    "UnicodeAndNULInputs": true
+  },
+  "notEstablished": [
+    "module initialization/startup",
+    "generic or public Java Project API",
+    "String identity callable",
+    "cancellation or active frame abandonment",
+    "Java kernel type certificate"
+  ],
+  "fixturePolicy": "Four frozen full-stream SHA256 pins in probe.clj; original raw captures stay outside Git. Rebuild with exact pinned helper/toolchain/source exports and fail closed on changed bytes."
+}

@@ -16,6 +16,11 @@ The [Java API proposal](JAVA_API_DESIGN.md) makes the intended caller experience
 project lifetime, checked type evidence and kernel-store reuse concrete for
 discussion. It is design only and adds no public implementation.
 
+The separate [typed bridge probe](typed-bridge/README.md) exercises actual native
+CI/type/callable evidence for pure Nat and String entries on one reusable explicit
+engine. Its model and execution receipts do not establish module startup or a
+general public Project API; the ordinary loader does not activate that registry.
+
 `runner.clj` is byte-identical to the parent-tested ignored implementation,
 SHA `ea4502d5a9ab79cbd340155142dc8919ccdcb3291ad018ff871dde45793bff76`.
 Load it once with `loader.clj`; never reload its opaque Artifact/Run registries.

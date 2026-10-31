@@ -7,7 +7,8 @@ from pathlib import Path
 root = Path(__file__).resolve().parent
 manifest = json.loads((root / "manifest.json").read_text())
 expected = {item["file"]: item["sha256"] for item in manifest["sources"]}
-actual = {p.name for p in root.iterdir() if p.is_file() and p.name != "manifest.json"}
+actual = {p.relative_to(root).as_posix() for p in root.rglob("*")
+          if p.is_file() and p != root / "manifest.json"}
 assert actual == set(expected), (actual, set(expected))
 for name, digest in expected.items():
     raw = (root / name).read_bytes()

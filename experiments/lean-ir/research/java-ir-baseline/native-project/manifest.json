@@ -13,7 +13,7 @@
     },
     {
       "file": "README.md",
-      "sha256": "a109d3b50835d0b5bfa63aca60c84ad96fffec011cc389e1a960ddc0948766f1"
+      "sha256": "1da57c99779ff825d17f0fa786e31dbdba09e22e09fbb1f0747f84b01b59e66a"
     },
     {
       "file": "compiler-models.clj",
@@ -45,7 +45,7 @@
     },
     {
       "file": "verify-source.py",
-      "sha256": "30c02f0634a88fca958a039a81738cc6bb932a5704c0e6abe7f042b62b93104f"
+      "sha256": "c6803de470996504a15ef9490fbe3956ef247aa6ce1761819a1fea2340302374"
     },
     {
       "file": "ENTRY_EVIDENCE.md",
@@ -54,6 +54,26 @@
     {
       "file": "entry-evidence-validation.json",
       "sha256": "1810bc1e8277c493b8d338e10a3f3a48bbf37a31f2ea60e137c11a7dedef063b"
+    },
+    {
+      "file": "typed-bridge/README.md",
+      "sha256": "022b124eb46e9ea0b1f9a2edd33fee83a3f420caf6041700b9854f326e4faec1"
+    },
+    {
+      "file": "typed-bridge/acceptance.edn",
+      "sha256": "507894058b6714786b3ceb59ff820fbe245834be7b4c8b53815ba82dfbf73c5e"
+    },
+    {
+      "file": "typed-bridge/models.clj",
+      "sha256": "0fabbcc28a754d3633cd30541c13bfd064d645e7bf150b75bcf84b3218d166ff"
+    },
+    {
+      "file": "typed-bridge/probe.clj",
+      "sha256": "7275f19a578b449429f5ffe39406fcc877b807c22c4764e4e59ad921a36700cb"
+    },
+    {
+      "file": "typed-bridge/validation.json",
+      "sha256": "53f894fe48746838e2c06115b1be6be5c3fc6c6b866e07c566baaabadb8556da"
     }
   ],
   "producer-artifact": {
@@ -371,5 +391,25 @@
       "JVM": false
     },
     "validation": "entry-evidence-validation.json"
+  },
+  "typed-bridge-probe": {
+    "status": "parent actual fixed bridge gate passed",
+    "sourceDirectory": "typed-bridge",
+    "autoLoaded": false,
+    "validation": "typed-bridge/validation.json",
+    "moduleStartup": false,
+    "publicJavaAPI": false,
+    "genericTypeEvidenceConsumer": false,
+    "evidenceAuthority": "Exact frozen native gate captures; no caller map or type-descriptor proof",
+    "models": {
+      "tests": 5,
+      "assertions": 38
+    },
+    "calls": {
+      "Nat": 12,
+      "StringBranch": 4,
+      "sameEngine": true,
+      "normalClose": true
+    }
   }
 }
