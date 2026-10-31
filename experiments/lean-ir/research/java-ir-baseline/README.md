@@ -151,10 +151,14 @@ native rows, source pins and limits are in
 ## Reproduction
 
 From `experiments/lean-ir`, resolve the normal experiment dependency basis once.
-Compile this engine separately from production classes:
+Compile the normal Java kernel/runtime first (`clojure -Srepro -T:build javac`
+from the repository root). The combined check runner also loads the compact
+projector, which requires its small helper in the normal dependency classpath.
+Compile this engine separately from those classes:
 
 ```sh
-mkdir -p target/java-ir-baseline/classes
+mkdir -p target/java-ir-baseline/classes ../../classes
+javac --release 11 -d ../../classes java/prototype/TypedLongMemo.java
 javac --release 11 -g -d target/java-ir-baseline/classes \
   research/java-ir-baseline/src/ansatz/research/ir/Interpreter.java
 jar cf target/java-ir-baseline/interpreter.jar -C target/java-ir-baseline/classes .

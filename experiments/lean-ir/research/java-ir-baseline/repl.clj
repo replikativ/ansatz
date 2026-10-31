@@ -440,3 +440,13 @@
 (defn take-host-guest-result! [basis engine request operation]
   (.invoke (.getMethod ^Class (:class basis) "takeHostGuestResult" (into-array Class [(class request) (class operation)]))
            engine (object-array [request operation])))
+
+(defn level-instantiation-policy
+  "Bind five exact ordinary source Headers; caller authenticates their source bytes."
+  [basis getter setter succ max imax]
+  (let [cls (Class/forName "ansatz.research.ir.Interpreter$LevelInstantiationPolicy" true (:loader basis))
+        hs [getter setter succ max imax]]
+    (invoke-static (.getMethod cls "originalHelpers" (into-array Class (map class hs))) hs)))
+(defn configure-level-instantiation! [basis engine policy]
+  (.invoke (.getMethod ^Class (:class basis) "configureLevelInstantiation" (into-array Class [(class policy)]))
+           engine (object-array [policy])))

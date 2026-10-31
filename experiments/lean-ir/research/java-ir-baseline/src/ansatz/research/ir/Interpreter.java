@@ -26,7 +26,7 @@ public final class Interpreter implements AutoCloseable {
     private static final int ADD=1,SUB=2,MOD=3,EQ=4,LT=5,MUL=6,DIV=7,POW=8;
     private static final int USIZE_NAT=9,USIZE_REPR=10,U32_NAT=11,U32_EQ=12,U32_LE=13,PLATFORM_BITS=14;
     private static final int STR_POS_SET=260;
-    private static final int VOID_MK=516;
+    private static final int VOID_MK=516,LEVEL_INSTANTIATE=517;
     private static final int EXPR_DATA=400,EXPR_APP_DATA=401,LEVEL_DATA=402,EXPR_CACHE=403,EXPR_EQV=404,EXPR_EQUAL=405,U8_TO_U32=406,U64_TO_U8=407,EXPR_FIND=408,LEVEL_EQUAL=409;
     private static final int PROFILE_IT=410;
     private static final int STR_PUSH=15,STR_LIST=16,STR_GET=17,STR_NEXT=18,STR_APPEND=19,STR_SIZE=20,
@@ -434,6 +434,8 @@ public final class Interpreter implements AutoCloseable {
                 new String[]{"object"},new boolean[]{true}));
         register(registry,new ExternSpec("lean_profileit",PROFILE_IT,"tobject",
                 new String[]{"erased","object","object","tobject","tobject"},new boolean[]{false,true,true,false,false}));
+        register(registry,new ExternSpec("lean_instantiate_level_mvars",LEVEL_INSTANTIATE,"object",
+                new String[]{"object","tobject"},new boolean[]{false,false}));
         register(registry,new ExternSpec("lean_void_mk",VOID_MK,"void",
                 new String[]{"erased","tobject"},new boolean[]{false,false}));
         register(registry,new ExternSpec("lean_find_expr",EXPR_FIND,"tobject",
@@ -1350,6 +1352,84 @@ public final class Interpreter implements AutoCloseable {
             return new ProfilingPolicy(getter);
         }
     }
+    /** Five exact source-authenticated ordinary helper roles, without guest values,
+     * Program bodies or catalogue resources. SHA identities remain descriptive;
+     * the trusted source adapter authenticates the original bytes. */
+    public static final class LevelInstantiationPolicy {
+        private final Header[] helpers;
+        private LevelInstantiationPolicy(Header[] helpers) { this.helpers=helpers.clone(); }
+        public static LevelInstantiationPolicy originalHelpers(Header getter,Header setter,Header succ,Header max,Header imax) {
+            Header[] helpers={getter,setter,succ,max,imax};
+            String[] names={"Lean.getLevelMVarAssignmentExp","Lean.assignLevelMVarExp","Lean.Level.succ._override",
+                    "Lean.Level.max._override","Lean.Level.imax._override"};
+            String[] hashes={"2be7a950bc5a94407c262d74d69b8381e3cb0f399ac04256e158fb53500f37ec",
+                    "38e9fa5f0baa194fa8ac0f9d3d9563e17bce02330e87caa8b976a5eb217ae2da",
+                    "66444fd502f36a4fae92d150070f35aa8366e535cb31816f94df52e4e37d88bc",
+                    "1e7d159b9bc54bafea5853b8b53d9929b862d95405ea641629f2dd4aedfc4043",
+                    "d0ec934a52dc032906aeab3e431ff1dfffd3c0bab7501de1d1aa89a32a572f57"};
+            String[][] parameters={{"object","tobject"},{"object","tobject","tobject"},
+                    {"tobject"},{"tobject","tobject"},{"tobject","tobject"}};
+            for(int role=0;role<helpers.length;role++) {
+                Header h=helpers[role];
+                require(h!=null&&h.kind.equals("fdecl")&&h.originalSha256.equals(hashes[role]),"Level instantiation helper role/source hash differs");
+                if(role!=0) require(h.source==getter.source,"Level instantiation helpers have different source bindings");
+                Object name=Arrays.asList("anonymous");
+                for(String segment:names[role].split("\\.")) name=Arrays.asList("str",name,segment);
+                require(h.exactName.equals(frozenName(name)),"Level instantiation helper typed Name differs");
+                Map<String,Object> d=h.declaration;
+                require(d.keySet().equals(new HashSet<>(Arrays.asList("f","info","type","xs")))
+                        &&map(d.get("info")).isEmpty()&&d.get("f").equals(h.exactName),"Level instantiation helper declaration differs");
+                List<Object> xs=list(d.get("xs"));
+                String result=role==1?"object":"tobject";
+                require(xs.size()==parameters[role].length&&h.resultType.equals(result)&&result.equals(d.get("type")),"Level instantiation helper raw ABI differs");
+                for(int i=0;i<xs.size();i++) {
+                    Map<String,Object> p=map(xs.get(i)),x=map(p.get("x"));
+                    require(p.keySet().equals(new HashSet<>(Arrays.asList("borrow","ty","x")))
+                            &&x.keySet().equals(Collections.singleton("idx"))&&number(x.get("idx"))==i+1
+                            &&Boolean.FALSE.equals(p.get("borrow"))&&parameters[role][i].equals(p.get("ty")),
+                            "Level instantiation helper parameter declaration differs");
+                }
+                Map<String,Object> runtime=map(h.evidence.get("runtime"));
+                require(runtime.keySet().equals(new HashSet<>(Arrays.asList("initializer","role")))
+                        &&runtime.get("initializer")==null&&"ordinary".equals(runtime.get("role")),"Level instantiation helper is not an ordinary original function");
+            }
+            return new LevelInstantiationPolicy(helpers);
+        }
+    }
+    private LevelInstantiationPolicy levelInstantiationPolicy;
+    private static final boolean LEVEL_INSTANTIATION_READY=true;
+    private Function levelInstantiationHelper(LevelInstantiationPolicy policy,int role) {
+        Header header=policy.helpers[role]; int id=program.functionId(header); Function function=program.functions[id];
+        require(function.header==header&&function.intrinsic==0&&function.hostExtern==null&&program.guestExports[id]==null,
+                "Level instantiation helper is not the exact ordinary function");
+        requireExecutableAbi(function);
+        require(function.resultType==OBJ,"Level instantiation helper requires OBJ result");
+        for(int lane:function.paramTypes) require(lane==OBJ,"Level instantiation helper requires OBJ parameters");
+        return preflightCallable(function,true);
+    }
+    /** Configure once at an open idle boundary. No helper body is forced. */
+    public void configureLevelInstantiation(LevelInstantiationPolicy policy) {
+        explicitOnly();
+        require(taskRuntime!=null&&policy!=null,"Level instantiation requires active runtime and actual helper policy");
+        if(closed||disposed||untrackedFailure||advancing||phase!=IDLE||pendingOwnedResult||sp!=0||continuationDepth!=0
+                ||runtimeAction!=null||hostCompletion!=null||hostGuestRecord!=null||quietCurrent!=null||releasePending!=0
+                ||releaseTransaction!=null||releaseRoot)
+            throw new IllegalStateException("Level instantiation configuration requires an open idle engine");
+        require(levelInstantiationPolicy==null,"Level instantiation policy is already configured");
+        for(int role=0;role<5;role++) levelInstantiationHelper(policy,role);
+        levelInstantiationPolicy=policy;
+    }
+    private void levelInstantiationProfile(Function function) {
+        require(LEVEL_INSTANTIATION_READY,"Level instantiation traversal is not yet enabled");
+        require(explicit&&taskRuntime!=null&&levelInstantiationPolicy!=null,"Level instantiation requires active explicit runtime and configured original helpers");
+        Header origin=function.header;
+        require(origin!=null&&origin.source==levelInstantiationPolicy.helpers[0].source
+                &&origin.kind.equals("extern")&&origin.originalSha256.equals("43de9c312f7e7a4bdeb9cd3b070ca4bd245fcca722f532b05f9e3083c1847605"),
+                "Level instantiation native source Header differs");
+        Object name=Arrays.asList("str",Arrays.asList("str",Arrays.asList("anonymous"),"Lean"),"instantiateLevelMVarsImp");
+        require(origin.exactName.equals(frozenName(name)),"Level instantiation native typed Name differs");
+        for(int role=0;role<5;role++) levelInstantiationHelper(levelInstantiationPolicy,role);
+    }
     private final ProfilingPolicy profilingPolicy;
     private final TaskRuntime taskRuntime;
     private final BuildIdentity buildIdentity;
@@ -1416,7 +1496,7 @@ public final class Interpreter implements AutoCloseable {
     private HostGuestRecord hostGuestRecord;
     private HostCall hostCompletion;
     private RuntimeAction runtimeAction,failedRuntimeAction;
-    private static final int ACTION_RELEASE=1,ACTION_DISPOSE=2,ACTION_NATIVE=3,ACTION_HOST=4,ACTION_TASK=5,ACTION_RESOLVE=6,ACTION_RUN_TASK=7,ACTION_PROFILE=8,ACTION_FIND=9,ACTION_HOST_GUEST=20;
+    private static final int ACTION_RELEASE=1,ACTION_DISPOSE=2,ACTION_NATIVE=3,ACTION_HOST=4,ACTION_TASK=5,ACTION_RESOLVE=6,ACTION_RUN_TASK=7,ACTION_PROFILE=8,ACTION_FIND=9,ACTION_LEVEL_MVARS=10,ACTION_HOST_GUEST=20;
     private static final Body ACTION_BODY=new Body();
     /** Typed ownership/control state, separate from NodeMetadata. The output
      * scratch slot is reserved before callbacks may enter generic AP. */
@@ -1424,6 +1504,7 @@ public final class Interpreter implements AutoCloseable {
         RuntimeAction parent;
         HostGuestRecord guest;
         FindState find;
+        LevelInstantiationState levelMvars;
         int operation,stage,savedSp,slot,dest,kind,cursor,limit,pending;
         Function function;
         Body next;
@@ -1605,7 +1686,7 @@ public final class Interpreter implements AutoCloseable {
     }
     private boolean actionPrimitive(Function function) {
         int op=function.intrinsic;
-        return taskRuntime!=null&&(op==VOID_MK||op==PROFILE_IT||op==EXPR_FIND||taskPrimitive(op)||op==TASK_MAP||op==REF_SET||op==ARRAY_POP||op==ARRAY_FSET||op==ARRAY_USET||op==ARRAY_REPLICATE);
+        return taskRuntime!=null&&(op==LEVEL_INSTANTIATE||op==VOID_MK||op==PROFILE_IT||op==EXPR_FIND||taskPrimitive(op)||op==TASK_MAP||op==REF_SET||op==ARRAY_POP||op==ARRAY_FSET||op==ARRAY_USET||op==ARRAY_REPLICATE);
     }
     private Object[] savedArguments(Function function,int[] slots) {
         Object[] args=new Object[slots.length];
@@ -1683,6 +1764,7 @@ public final class Interpreter implements AutoCloseable {
         releaseQuiet(value,1); result=ERASED;
     }
     private void validateNative(Function function,Object[] args) {
+        if(function.intrinsic==LEVEL_INSTANTIATE) { validateLevelArguments(function,args); return; }
         if(function.intrinsic==VOID_MK) {
             require(args!=null&&args.length==2,"Void.mk native arity mismatch");
             validateVoidArguments(args[0],args[1]); return;
@@ -1708,9 +1790,14 @@ public final class Interpreter implements AutoCloseable {
     }
     private void enterNative(Function function,Object[] args,Body next,int dest,int kind,Object[] surplus) {
         validateNative(function,args);
-        RuntimeAction action=newAction(function.intrinsic==EXPR_FIND?ACTION_FIND:function.intrinsic==PROFILE_IT?ACTION_PROFILE:
+        RuntimeAction action=newAction(function.intrinsic==LEVEL_INSTANTIATE?ACTION_LEVEL_MVARS:function.intrinsic==EXPR_FIND?ACTION_FIND:function.intrinsic==PROFILE_IT?ACTION_PROFILE:
                 taskPrimitive(function.intrinsic)||function.intrinsic==TASK_MAP?ACTION_TASK:ACTION_NATIVE,function,next,dest,kind,surplus);
         action.arguments=args;
+        if(function.intrinsic==LEVEL_INSTANTIATE) {
+            LevelInstantiationState state=new LevelInstantiationState();
+            state.context=new LevelCredit(args[0],true); state.input=new LevelCredit(args[1],true);
+            state.frames.addLast(new LevelFrame(args[1])); action.levelMvars=state; objects[action.slot]=null;
+        }
         if(function.intrinsic==EXPR_FIND) {
             FindState state=new FindState(); state.predicate=(Node)args[0]; state.root=(Node)args[1];
             state.pending.push(state.root); action.find=state; objects[action.slot]=null;
@@ -1729,6 +1816,325 @@ public final class Interpreter implements AutoCloseable {
         long encounters;
         int stage;
         boolean predicateCredit,currentCredit,callbackStarted,receiverOwned,foundOwned;
+    }
+    private static final int MAX_LEVEL_INSTANTIATION_WORK=1_000_000,MAX_LEVEL_INSTANTIATION_FRAMES=100_000,
+            MAX_LEVEL_INSTANTIATION_CACHE=100_000,MAX_LEVEL_INSTANTIATION_SAVED=100_000;
+    /** Exactly one control-owned occurrence when owned=true; other references
+     * to this credit object are aliases. Never stored in guest Node metadata. */
+    private static final class LevelCredit {
+        Object value; boolean owned;
+        LevelCredit(Object value,boolean owned) { this.value=value; this.owned=owned; }
+    }
+    private static final class LevelFrame {
+        Object original,name;
+        int tag,stage,cleanup;
+        boolean shared,active,cached;
+        LevelCredit left,right,option,assignment,result;
+        LevelFrame(Object original) { this.original=original; }
+    }
+    private static final class LevelPacket {
+        Function function; int role;
+        Object[] arguments; boolean[] owned;
+        boolean entryStarted,entered;
+        LevelFrame frame;
+    }
+    private static final class LevelInstantiationState {
+        LevelCredit context,input,result,pair,retiring;
+        final ArrayDeque<LevelFrame> frames=new ArrayDeque<>();
+        final IdentityHashMap<Node,LevelCredit> cache=new IdentityHashMap<>();
+        // cacheValues is an index of the SAME credit objects held by cache.
+        final ArrayList<LevelCredit> cacheValues=new ArrayList<>(),saved=new ArrayList<>();
+        final IdentityHashMap<Node,Boolean> active=new IdentityHashMap<>();
+        LevelPacket call;
+        long work;
+        int stage,cleanup,pairFields;
+    }
+    /** Both helper entry commit points call this AFTER publication and BEFORE
+     * tick/guest work. Until then the native packet remains the owner escrow. */
+    private void levelHelperEntry(Function function,Object[] arguments) {
+        RuntimeAction action=runtimeAction;
+        if(action==null||action.levelMvars==null) return;
+        LevelPacket packet=action.levelMvars.call;
+        if(packet==null||packet.entered||packet.function!=function||packet.arguments!=arguments) return;
+        require(packet.entryStarted,"Level helper entered before packet publication");
+        packet.entered=true; Arrays.fill(packet.owned,false);
+    }
+    private static final int LF_ENTER=0,LF_LEFT=1,LF_RIGHT=2,LF_GET=3,LF_ASSIGN=4,LF_ASSIGNED=5,LF_SET=6,LF_BUILD=7,LF_FINISH=8,LF_CLEAN=9;
+    private void levelWork(LevelInstantiationState state,long amount) {
+        require(amount>=0&&amount<=MAX_LEVEL_INSTANTIATION_WORK-state.work,"Level instantiation work outside bounded runtime profile");
+        long before=state.work; state.work+=amount;
+        if((before>>>10)!=(state.work>>>10)&&Thread.currentThread().isInterrupted()) throw error("Level instantiation interrupted");
+    }
+    private static boolean sameLevel(Object a,Object b) {
+        return a==b||a instanceof Long&&b instanceof Long&&((Long)a)==0&&((Long)b)==0;
+    }
+    private long levelWord(Object value) { Node node=levelNode(value); return node==null?2221:readScalar(node,0,U64); }
+    private boolean levelHasMVar(Object value) { return (levelWord(value)&(1L<<32))!=0; }
+    private boolean instantiatedLevelEqual(LevelInstantiationState state,Object left,Object right) {
+        ExprEquality comparison=new ExprEquality(false); comparison.work=state.work;
+        try { return comparison.applyLevel(left,right); }
+        finally { state.work=comparison.work; }
+    }
+    private static final class LevelOffset {
+        final Object base; final int offset;
+        LevelOffset(Object base,int offset) { this.base=base; this.offset=offset; }
+    }
+    private LevelOffset levelOffset(LevelInstantiationState state,Object value) {
+        IdentityHashMap<Node,Boolean> seen=new IdentityHashMap<>(); int offset=0;
+        while(true) {
+            levelWork(state,1); Node node=levelNode(value);
+            if(node==null||node.tag!=1) return new LevelOffset(value,offset);
+            require(seen.size()<MAX_LEVEL_INSTANTIATION_FRAMES&&!seen.containsKey(node),"Level instantiation offset cycle/depth outside profile");
+            seen.put(node,Boolean.TRUE); value=node.fields[0]; offset++;
+        }
+    }
+    private boolean levelNotZero(LevelInstantiationState state,Object value) {
+        ArrayDeque<Object[]> todo=new ArrayDeque<>(); IdentityHashMap<Node,Boolean> seen=new IdentityHashMap<>();
+        todo.push(new Object[]{value,Boolean.FALSE});
+        while(!todo.isEmpty()) {
+            levelWork(state,1); Object[] item=todo.pop(); Node node=levelNode(item[0]);
+            if(node==null) continue;
+            if(item[1]==Boolean.TRUE) { seen.put(node,Boolean.TRUE); continue; }
+            if(node.tag==1) return true;
+            if(node.tag==4||node.tag==5) continue;
+            Boolean prior=seen.get(node);
+            require(prior!=Boolean.FALSE,"Level instantiation nonzero cycle outside profile");
+            if(prior==Boolean.TRUE) continue;
+            require(seen.size()<MAX_LEVEL_INSTANTIATION_FRAMES&&todo.size()<MAX_LEVEL_INSTANTIATION_FRAMES-3,
+                    "Level instantiation nonzero stack outside profile");
+            seen.put(node,Boolean.FALSE); todo.push(new Object[]{node,Boolean.TRUE});
+            if(node.tag==2) todo.push(new Object[]{node.fields[1],Boolean.FALSE});
+            todo.push(new Object[]{node.fields[node.tag==3?1:0],Boolean.FALSE});
+        }
+        return false;
+    }
+    private boolean levelOne(LevelInstantiationState state,Object value) {
+        levelWork(state,1); Node node=levelNode(value);
+        return node!=null&&node.tag==1&&sameLevel(node.fields[0],ERASED)
+                &&(int)readScalar(node,0,U64)==(int)mixHash(2243,2221)&&(readScalar(node,0,U64)>>>40)==1;
+    }
+    /** Null means call the raw constructor. Every nonnull selection is borrowed. */
+    private Object smartLevelMax(LevelInstantiationState state,Object left,Object right) {
+        LevelOffset x=levelOffset(state,left),y=null;
+        if(sameLevel(x.base,ERASED)) {
+            y=levelOffset(state,right);
+            if(sameLevel(y.base,ERASED)) return (levelWord(left)>>>40)>=(levelWord(right)>>>40)?left:right;
+        }
+        if(instantiatedLevelEqual(state,left,right)) return left;
+        if(sameLevel(left,ERASED)) return right;
+        if(sameLevel(right,ERASED)) return left;
+        Node a=levelNode(left),b=levelNode(right);
+        if(b.tag==2&&(instantiatedLevelEqual(state,b.fields[0],left)||instantiatedLevelEqual(state,b.fields[1],left))) return right;
+        if(a.tag==2&&(instantiatedLevelEqual(state,a.fields[0],right)||instantiatedLevelEqual(state,a.fields[1],right))) return left;
+        if(y==null) y=levelOffset(state,right);
+        if(instantiatedLevelEqual(state,x.base,y.base)) {
+            require(x.offset!=y.offset,"Level instantiation inconsistent equal offsets outside profile");
+            return x.offset>y.offset?left:right;
+        }
+        return null;
+    }
+    private Object smartLevelIMax(LevelInstantiationState state,Object left,Object right,boolean nonzero) {
+        if(nonzero) return smartLevelMax(state,left,right);
+        if(sameLevel(right,ERASED)||sameLevel(left,ERASED)||levelOne(state,left)) return right;
+        if(instantiatedLevelEqual(state,left,right)) return left;
+        return null;
+    }
+    private LevelCredit retainedLevel(LevelInstantiationState state,Object value) {
+        levelWork(state,1); LevelCredit credit=new LevelCredit(value,false);
+        // Caller must publish the credit BEFORE invoking inc; this routine is
+        // used only where the resulting credit is immediately stored below.
+        return credit;
+    }
+    private void ownLevelCredit(LevelCredit credit) { inc(credit.value,1); credit.owned=true; }
+    private void pushLevelFrame(LevelInstantiationState state,Object original) {
+        require(state.frames.size()<MAX_LEVEL_INSTANTIATION_FRAMES,"Level instantiation frame limit");
+        state.frames.addLast(new LevelFrame(original));
+    }
+    private void validateLevelArguments(Function function,Object[] args) {
+        levelInstantiationProfile(function);
+        require(args!=null&&args.length==2,"Level instantiation native arity mismatch");
+        validateHostObject(args[0]); levelNode(args[1]);
+        if(args[0]==args[1]&&args[0] instanceof Node) {
+            Node node=(Node)args[0]; require(node.rc==0||node.rc>=2,"Insufficient aliased Level instantiation input credits");
+        }
+    }
+    private void checkLevelPacket(LevelPacket packet) {
+        IdentityHashMap<Node,Integer> credits=new IdentityHashMap<>();
+        for(int i=0;i<packet.arguments.length;i++) {
+            require(packet.owned[i],"Level helper packet argument is not owned"); validateHostObject(packet.arguments[i]);
+            if(packet.arguments[i] instanceof Node) credits.merge((Node)packet.arguments[i],1,Integer::sum);
+        }
+        for(Map.Entry<Node,Integer> item:credits.entrySet())
+            require(item.getKey().rc==0||item.getKey().rc>=item.getValue(),"Insufficient Level helper packet alias credits");
+    }
+    private void callLevelHelper(RuntimeAction action,LevelInstantiationState state,LevelFrame frame,int role) {
+        levelWork(state,1); require(state.call==null&&objects[action.slot]==null,"Level helper receiver already occupied");
+        Function helper=levelInstantiationHelper(levelInstantiationPolicy,role);
+        int arity=role==0||role>=3?2:role==1?3:1;
+        LevelPacket packet=new LevelPacket(); packet.function=helper; packet.role=role; packet.frame=frame;
+        packet.arguments=new Object[arity]; packet.owned=new boolean[arity]; state.call=packet;
+        if(role==0||role==1) {
+            require(state.context!=null&&state.context.owned,"Level helper lacks current context owner");
+            packet.arguments[0]=state.context.value;
+            if(role==1) { packet.owned[0]=true; state.context.owned=false; state.context=null; }
+            else { inc(packet.arguments[0],1); packet.owned[0]=true; }
+            nameNode(frame.name); packet.arguments[1]=frame.name; inc(frame.name,1); packet.owned[1]=true;
+            if(role==1) { packet.arguments[2]=frame.result.value; inc(packet.arguments[2],1); packet.owned[2]=true; }
+        } else {
+            packet.arguments[0]=frame.left.value; inc(packet.arguments[0],1); packet.owned[0]=true;
+            if(arity==2) { packet.arguments[1]=frame.right.value; inc(packet.arguments[1],1); packet.owned[1]=true; }
+        }
+        checkLevelPacket(packet); packet.entryStarted=true;
+        enterExplicit(helper,null,packet.arguments,ACTION_BODY,action.slot,ASSIGN,null);
+        require(packet.entered,"Level helper did not publish a frame or CodeRequest");
+    }
+    private void receiveLevelHelper(RuntimeAction action,LevelInstantiationState state) {
+        LevelPacket packet=state.call; require(packet.entered,"Level helper has not committed entry");
+        Object value=objects[action.slot]; LevelFrame frame=packet.frame;
+        // The existing receiver slot owns VALUE already, even before any local
+        // flag is set. Invalid results remain there on terminal failure.
+        if(packet.role==0) {
+            if(!sameLevel(value,ERASED)) {
+                Node option=constructorNode(value);
+                require(option.closure==null&&option.tag==1&&option.fields.length==1&&option.scalars.length==0,"Level getter returned malformed Option");
+                levelNode(option.fields[0]);
+            }
+            frame.option=new LevelCredit(value,true); objects[action.slot]=null; state.call=null;
+            if(sameLevel(value,ERASED)) {
+                frame.result=retainedLevel(state,frame.original); ownLevelCredit(frame.result); frame.stage=LF_FINISH;
+            } else {
+                Object assigned=((Node)value).fields[0];
+                frame.assignment=retainedLevel(state,assigned); ownLevelCredit(frame.assignment);
+                if(!levelHasMVar(assigned)) { frame.result=frame.assignment; frame.assignment=null; frame.stage=LF_FINISH; }
+                else { frame.stage=LF_ASSIGN; pushLevelFrame(state,assigned); }
+            }
+        } else if(packet.role==1) {
+            validateHostObject(value); require(state.context==null,"Level setter would replace a live context owner");
+            state.context=new LevelCredit(value,true); objects[action.slot]=null; state.call=null; frame.stage=LF_FINISH;
+        } else {
+            Node level=levelNode(value); int tag=packet.role==2?1:packet.role==3?2:3;
+            require(level!=null&&level.tag==tag&&sameLevel(level.fields[0],packet.arguments[0])
+                    &&(tag==1||sameLevel(level.fields[1],packet.arguments[1])),"Original Level constructor returned unexpected head/children");
+            frame.result=new LevelCredit(value,true); objects[action.slot]=null; state.call=null; frame.stage=LF_FINISH;
+        }
+    }
+    private boolean releaseLevelCredit(RuntimeAction action,LevelInstantiationState state,LevelCredit credit) {
+        if(credit==null||!credit.owned) return false;
+        state.retiring=credit; action.retiring=credit.value; action.releaseClaimed=false;
+        boolean dispatch;
+        try { dispatch=beginRelease(credit.value,1,ACTION_BODY); credit.owned=false; }
+        finally { if(action.releaseClaimed) credit.owned=false; }
+        if(!dispatch) { state.retiring=null; action.retiring=null; action.releaseClaimed=false; }
+        return dispatch;
+    }
+    private void completeLevelFrame(LevelInstantiationState state,LevelFrame frame) {
+        require(frame.result!=null&&frame.result.owned,"Level frame has no owned result");
+        if(frame.active) state.active.remove((Node)frame.original);
+        require(state.frames.removeLast()==frame,"Level frame stack differs");
+        LevelCredit result=frame.result; frame.result=null;
+        frame.original=null; frame.name=null; frame.left=null; frame.right=null; frame.assignment=null; frame.option=null;
+        if(state.frames.isEmpty()) { state.result=result; state.stage=1; return; }
+        LevelFrame parent=state.frames.peekLast();
+        if(parent.stage==LF_LEFT) parent.left=result;
+        else if(parent.stage==LF_RIGHT) parent.right=result;
+        else if(parent.stage==LF_ASSIGN) { parent.result=result; parent.stage=LF_ASSIGNED; }
+        else throw error("Level instantiation child continuation differs");
+    }
+    private void stepLevelInstantiation(RuntimeAction action) {
+        LevelInstantiationState state=action.levelMvars; require(state!=null,"Missing Level instantiation state"); levelWork(state,1);
+        if(state.retiring!=null) {
+            require(!state.retiring.owned,"Level cleanup returned without claiming retiring owner");
+            state.retiring=null; action.retiring=null; action.releaseClaimed=false;
+        }
+        if(state.call!=null) { receiveLevelHelper(action,state); return; }
+        if(state.stage==0) {
+            LevelFrame frame=state.frames.peekLast(); require(frame!=null,"Missing Level traversal frame");
+            if(frame.stage==LF_ENTER) {
+                Node node=levelNode(frame.original); frame.tag=node==null?0:node.tag;
+                if(!levelHasMVar(frame.original)) {
+                    frame.result=retainedLevel(state,frame.original); ownLevelCredit(frame.result); frame.stage=LF_FINISH; return;
+                }
+                require(node!=null&&node.tag!=4,"Inconsistent Level hasMVar cache on Zero/Param");
+                frame.shared=!exclusive(node);
+                LevelCredit cached=frame.shared?state.cache.get(node):null;
+                if(cached!=null) {
+                    require(cached.owned,"Level cache value owner is missing");
+                    frame.result=retainedLevel(state,cached.value); ownLevelCredit(frame.result); frame.cached=true; frame.stage=LF_FINISH; return;
+                }
+                require(!state.active.containsKey(node),"Level instantiation assignment/structural cycle outside profile");
+                state.active.put(node,Boolean.TRUE); frame.active=true;
+                if(node.tag==5) { frame.name=node.fields[0]; frame.stage=LF_GET; callLevelHelper(action,state,frame,0); }
+                else { frame.stage=LF_LEFT; pushLevelFrame(state,node.fields[0]); }
+                return;
+            }
+            if(frame.stage==LF_LEFT) {
+                require(frame.left!=null&&frame.left.owned,"Level left result missing");
+                if(frame.tag==1) frame.stage=LF_BUILD;
+                else { frame.stage=LF_RIGHT; pushLevelFrame(state,((Node)frame.original).fields[1]); }
+                return;
+            }
+            if(frame.stage==LF_RIGHT) frame.stage=LF_BUILD;
+            if(frame.stage==LF_BUILD) {
+                Node original=(Node)frame.original; Object selected; int role=frame.tag==1?2:frame.tag==2?3:4;
+                if(sameLevel(frame.left.value,original.fields[0])&&(frame.tag==1||sameLevel(frame.right.value,original.fields[1]))) selected=original;
+                else if(frame.tag==1) selected=null;
+                else if(frame.tag==2) selected=smartLevelMax(state,frame.left.value,frame.right.value);
+                else {
+                    boolean nonzero=levelNotZero(state,frame.right.value); if(nonzero) role=3;
+                    selected=smartLevelIMax(state,frame.left.value,frame.right.value,nonzero);
+                }
+                if(selected!=null) { frame.result=retainedLevel(state,selected); ownLevelCredit(frame.result); frame.stage=LF_FINISH; }
+                else callLevelHelper(action,state,frame,role);
+                return;
+            }
+            if(frame.stage==LF_ASSIGNED) {
+                if(sameLevel(frame.assignment.value,frame.result.value)) frame.stage=LF_FINISH;
+                else {
+                    require(state.saved.size()<MAX_LEVEL_INSTANTIATION_SAVED,"Level instantiation saved-assignment limit");
+                    LevelCredit saved=retainedLevel(state,frame.assignment.value); state.saved.add(saved); ownLevelCredit(saved);
+                    frame.stage=LF_SET; callLevelHelper(action,state,frame,1);
+                }
+                return;
+            }
+            if(frame.stage==LF_FINISH) {
+                if(frame.tag>=1&&frame.tag<=3&&frame.shared&&!frame.cached) {
+                    require(state.cache.size()<MAX_LEVEL_INSTANTIATION_CACHE&&!state.cache.containsKey((Node)frame.original),"Level instantiation cache limit/duplicate");
+                    LevelCredit cached=retainedLevel(state,frame.result.value);
+                    state.cache.put((Node)frame.original,cached); state.cacheValues.add(cached); ownLevelCredit(cached); frame.cached=true;
+                }
+                frame.stage=LF_CLEAN; frame.cleanup=0;
+            }
+            if(frame.stage==LF_CLEAN) {
+                if(frame.cleanup<4) {
+                    LevelCredit credit=frame.cleanup==0?frame.right:frame.cleanup==1?frame.left:frame.cleanup==2?frame.assignment:frame.option;
+                    frame.cleanup++; releaseLevelCredit(action,state,credit); return;
+                }
+                completeLevelFrame(state,frame); return;
+            }
+            throw error("Level instantiation helper continuation did not return");
+        }
+        if(state.stage==1) {
+            require(state.context!=null&&state.context.owned&&state.result!=null&&state.result.owned,"Level result/context owners missing");
+            Node pair=new Node(0,2,0); state.pair=new LevelCredit(pair,true); allocations++;
+            pair.fields[0]=state.context.value; state.context.owned=false; state.pairFields=1;
+            pair.fields[1]=state.result.value; state.result.owned=false; state.pairFields=2;
+            // Forget all borrowed cache/active keys while their backing owners
+            // still live. Cleanup later visits only owned credit occurrences.
+            state.cache.clear(); state.active.clear(); state.stage=2; return;
+        }
+        if(state.stage==2) { state.stage=3; state.cleanup=0; releaseLevelCredit(action,state,state.input); return; }
+        if(state.stage==3) {
+            if(state.cleanup<state.saved.size()) { LevelCredit credit=state.saved.get(state.saved.size()-1-state.cleanup++); releaseLevelCredit(action,state,credit); return; }
+            state.stage=4; state.cleanup=0;
+        }
+        if(state.stage==4) {
+            if(state.cleanup<state.cacheValues.size()) { LevelCredit credit=state.cacheValues.get(state.cacheValues.size()-1-state.cleanup++); releaseLevelCredit(action,state,credit); return; }
+            state.stage=5;
+        }
+        require(state.stage==5&&state.pair!=null&&state.pair.owned&&state.pairFields==2,"Incomplete Level instantiation pair");
+        Object pair=state.pair.value; action.output=pair; state.pair.owned=false;
+        state.context=null; state.input=null; state.result=null; state.pair=null; state.saved.clear(); state.cacheValues.clear();
+        action.arguments=null; action.levelMvars=null; finishAction(action,pair);
     }
     private void validateFindCallback(Object value) {
         require(explicit&&taskRuntime!=null,"Expr.find requires the active explicit runtime");
@@ -1932,6 +2338,7 @@ public final class Interpreter implements AutoCloseable {
         else if(action.operation==ACTION_RUN_TASK) stepRunTask(action);
         else if(action.operation==ACTION_PROFILE) stepProfile(action);
         else if(action.operation==ACTION_FIND) stepFind(action);
+        else if(action.operation==ACTION_LEVEL_MVARS) stepLevelInstantiation(action);
         else if(action.operation==ACTION_HOST_GUEST) stepHostGuest(action);
         else if(action.operation==ACTION_HOST) {
             try { stepHostCompletion(action); }
@@ -2018,6 +2425,7 @@ public final class Interpreter implements AutoCloseable {
         // phase RUNNING between advance calls is a paused dispatch/release-work
         // boundary. No Java call frame is captured in that state.
         Interpreter child=new Interpreter(program,explicit,initializing,buildIdentity,taskRuntime,profilingPolicy);
+        child.levelInstantiationPolicy=levelInstantiationPolicy;
         ForkCopy copy=new ForkCopy(child);
         copy.bind(constants,child.constants);
         child.objects=(Object[])copy.value(objects);
@@ -2121,6 +2529,11 @@ public final class Interpreter implements AutoCloseable {
                 HostGuestOperation out=new HostGuestOperation(child.runtimeIdentity,(HostGuestRecord)value(old.record));
                 copies.put(source,out); return out;
             }
+            if(source instanceof LevelInstantiationState||source instanceof LevelFrame||source instanceof LevelPacket||source instanceof LevelCredit) {
+                Object out=source instanceof LevelInstantiationState?new LevelInstantiationState():source instanceof LevelFrame?new LevelFrame(null):
+                        source instanceof LevelPacket?new LevelPacket():new LevelCredit(null,false);
+                copies.put(source,out); pending.addLast(new Object[]{source,out}); return out;
+            }
             if(source instanceof FindState) {
                 FindState out=new FindState(); copies.put(source,out);
                 pending.addLast(new Object[]{source,out}); return out;
@@ -2176,7 +2589,7 @@ public final class Interpreter implements AutoCloseable {
                     for(int i=0;i<from.length;i++) to[i]=value(from[i]);
                 } else if(source instanceof RuntimeAction) {
                     RuntimeAction old=(RuntimeAction)source,out=(RuntimeAction)target;
-                    out.parent=(RuntimeAction)value(old.parent); out.guest=(HostGuestRecord)value(old.guest); out.find=(FindState)value(old.find); out.operation=old.operation; out.stage=old.stage;
+                    out.parent=(RuntimeAction)value(old.parent); out.guest=(HostGuestRecord)value(old.guest); out.find=(FindState)value(old.find); out.levelMvars=(LevelInstantiationState)value(old.levelMvars); out.operation=old.operation; out.stage=old.stage;
                     out.savedSp=old.savedSp; out.slot=old.slot; out.dest=old.dest; out.kind=old.kind;
                     out.cursor=old.cursor; out.limit=old.limit; out.pending=old.pending;
                     out.function=(Function)value(old.function); out.next=old.next;
@@ -2186,6 +2599,30 @@ public final class Interpreter implements AutoCloseable {
                     out.task=(TaskRecord)value(old.task); out.scope=(TaskRecord)value(old.scope); out.batch=(DependencyList)value(old.batch);
                     out.output=value(old.output); out.retiring=value(old.retiring); out.releaseClaimed=old.releaseClaimed; out.current=(Node)value(old.current); out.origin=(Node)value(old.origin);
 
+                } else if(source instanceof LevelCredit) {
+                    LevelCredit old=(LevelCredit)source,out=(LevelCredit)target;
+                    out.value=value(old.value); out.owned=old.owned;
+                } else if(source instanceof LevelPacket) {
+                    LevelPacket old=(LevelPacket)source,out=(LevelPacket)target;
+                    out.function=(Function)value(old.function); out.role=old.role;
+                    out.arguments=(Object[])value(old.arguments); out.owned=old.owned.clone();
+                    out.entryStarted=old.entryStarted; out.entered=old.entered; out.frame=(LevelFrame)value(old.frame);
+                } else if(source instanceof LevelFrame) {
+                    LevelFrame old=(LevelFrame)source,out=(LevelFrame)target;
+                    out.original=value(old.original); out.name=value(old.name); out.tag=old.tag; out.stage=old.stage; out.cleanup=old.cleanup;
+                    out.shared=old.shared; out.active=old.active; out.cached=old.cached;
+                    out.left=(LevelCredit)value(old.left); out.right=(LevelCredit)value(old.right);
+                    out.option=(LevelCredit)value(old.option); out.assignment=(LevelCredit)value(old.assignment); out.result=(LevelCredit)value(old.result);
+                } else if(source instanceof LevelInstantiationState) {
+                    LevelInstantiationState old=(LevelInstantiationState)source,out=(LevelInstantiationState)target;
+                    out.context=(LevelCredit)value(old.context); out.input=(LevelCredit)value(old.input);
+                    out.result=(LevelCredit)value(old.result); out.pair=(LevelCredit)value(old.pair); out.retiring=(LevelCredit)value(old.retiring);
+                    out.call=(LevelPacket)value(old.call); out.work=old.work; out.stage=old.stage; out.cleanup=old.cleanup; out.pairFields=old.pairFields;
+                    for(LevelFrame frame:old.frames) out.frames.addLast((LevelFrame)value(frame));
+                    for(Map.Entry<Node,LevelCredit> item:old.cache.entrySet()) out.cache.put((Node)value(item.getKey()),(LevelCredit)value(item.getValue()));
+                    for(LevelCredit credit:old.cacheValues) out.cacheValues.add((LevelCredit)value(credit));
+                    for(LevelCredit credit:old.saved) out.saved.add((LevelCredit)value(credit));
+                    for(Node node:old.active.keySet()) out.active.put((Node)value(node),Boolean.TRUE);
                 } else if(source instanceof FindState) {
                     FindState old=(FindState)source,out=(FindState)target;
                     out.predicate=(Node)value(old.predicate); out.root=(Node)value(old.root); out.current=(Node)value(old.current);
@@ -3408,6 +3845,11 @@ public final class Interpreter implements AutoCloseable {
         }
         throw error("Name equality depth/cycle outside bounded runtime profile");
     }
+    private Node levelNode(Object value) {
+            if(value instanceof Long&&((Long)value)==0) return null;
+            Node n=constructorNode(value); require(n.closure==null&&n.rc>=0&&n.tag>=1&&n.tag<=5,"Expected Level constructor kind");
+            require(n.fields.length==(n.tag==2||n.tag==3?2:1)&&n.scalars.length==8,"Unexpected Level cached-data storage layout"); return n;
+    }
     private static final int EQ_EXPR=1,EQ_APP_SPINE=2,EQ_LEVEL=3,EQ_LEVELS=4,EQ_MDATA=5,EQ_PAIR=6,
             EQ_VALUE=7,EQ_LITERAL=8,EQ_SYNTAX=9,EQ_SYNTAX_ARRAY=10,EQ_PRERESOLVED=11,
             EQ_PRERESOLVED_LIST=12,EQ_STRINGS=13,EQ_NAME=14,EQ_NAT=15,EQ_INT=16,
@@ -3460,11 +3902,7 @@ public final class Interpreter implements AutoCloseable {
             if(value instanceof Long&&((Long)value)==0) return null;
             Node n=ctor(value,2,0); require(n.tag==1,"Expected equality List.cons layout"); return n;
         }
-        Node level(Object value) {
-            if(value instanceof Long&&((Long)value)==0) return null;
-            Node n=constructorNode(value); require(n.closure==null&&n.rc>=0&&n.tag>=1&&n.tag<=5,"Expected Level constructor kind");
-            require(n.fields.length==(n.tag==2||n.tag==3?2:1)&&n.scalars.length==8,"Unexpected Level cached-data storage layout"); return n;
-        }
+        Node level(Object value) { return levelNode(value); }
         Node syntax(Object value) {
             if(value instanceof Long&&((Long)value)==0) return null;
             Node n=constructorNode(value); require(n.closure==null&&n.rc>=0&&n.tag>=1&&n.tag<=3,"Expected Syntax constructor kind");
@@ -4227,6 +4665,7 @@ public final class Interpreter implements AutoCloseable {
         require(function.id<0||!constantRetired[function.id],"Initialized cache owner has been retired: "+function.label);
         if(function.intrinsic==PROFILE_IT) profilingGetter(function);
         if(function.intrinsic==EXPR_FIND) require(explicit&&taskRuntime!=null,"Expr.find requires the active explicit runtime");
+        if(function.intrinsic==LEVEL_INSTANTIATE) levelInstantiationProfile(function);
         if(buildIdentityPrimitive(function.intrinsic)) requireBuildIdentity();
         if(taskPrimitive(function.intrinsic)) require(taskRuntime!=null,"Logical synchronous task runtime is inactive");
         if(function.params.length==0&&constantReady[function.id]) return function;
@@ -4930,7 +5369,7 @@ public final class Interpreter implements AutoCloseable {
             for(int i=0;i<slots.length;i++) activation.arguments[i]=function.paramTypes[i]==OBJ
                     ?obj(slots[i]):saveScalar(numbers[bp+slots[i]],function.paramTypes[i]);
         }
-        codeRequest=new CodeRequest(runtimeIdentity,activation); pc=next; phase=CODE_CALL; applicationEntry(kind); hostGuestEntry(function,args);
+        codeRequest=new CodeRequest(runtimeIdentity,activation); pc=next; phase=CODE_CALL; levelHelperEntry(function,args); applicationEntry(kind); hostGuestEntry(function,args);
     }
     public CodeRequest pendingCodeRequest() { return phase==CODE_CALL?codeRequest:null; }
     public CodeRequest failureCodeRequest() { return failedCodeRequest; }
@@ -5110,7 +5549,7 @@ public final class Interpreter implements AutoCloseable {
         k.caller=active; k.callerPrepared=activePrepared; k.next=next; k.bp=bp; k.sp=sp; k.jbp=jbp; k.jsp=jsp;
         k.dest=dest; k.kind=kind; k.surplus=surplus;
         continuationDepth++;
-        bp=sp; sp=newSp; jbp=jsp; jsp=newJsp; active=f; activePrepared=prepared; pc=prepared.body; applicationEntry(kind); hostGuestEntry(f,args);
+        bp=sp; sp=newSp; jbp=jsp; jsp=newJsp; active=f; activePrepared=prepared; pc=prepared.body; levelHelperEntry(f,args); applicationEntry(kind); hostGuestEntry(f,args);
         tick();
     }
 
