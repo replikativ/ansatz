@@ -5,8 +5,8 @@ The Java engine supports the exact original `lean_find_expr` ABI behind
 owned object result. Support requires the active explicit logical task runtime.
 Inactive and recursive entry reject before callback owner acquisition. The
 original owned boxed wrapper can be called at roots, by AP, or as a closure;
-raw borrowed roots, PAPs and imported closures remain fenced. `findExt?` is not
-part of this profile.
+raw borrowed roots, PAPs and imported closures remain fenced. `findExt?` has a separate [extended traversal profile](JAVA_EXPR_FIND_EXT_RUNTIME.md);
+its three-way predicate and skipped partial applications do not change ordinary Find.
 
 The implementation follows pinned Lean 4.33.1 `kernel/for_each_fn.cpp`, including
 `for_each_fn<true>`'s partial App visits. Predicate calls occur before children;
