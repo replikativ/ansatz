@@ -64,6 +64,7 @@
 (load-file "test/prototype/kernel_theorem_carrier_test.clj")
 (load-file "test/prototype/compact_kernel_projection_test.clj")
 (load-file "research/java-ir-baseline/host-guest-checks.clj")
+(load-file "research/java-ir-baseline/kernel-projection-host-guest-checks.clj")
 (load-file "research/java-ir-baseline/expr-find-checks.clj")
 (load-file "research/java-ir-baseline/expr-find-ext-checks.clj")
 (load-file "research/java-ir-baseline/share-common-checks.clj")
@@ -249,6 +250,7 @@
                (clojure.test/run-tests 'prototype.kernel-theorem-carrier-test)
                (clojure.test/run-tests 'prototype.compact-kernel-projection-test)
                (java-ir-host-guest-checks/check! basis)
+               (java-ir-kernel-projection-host-guest-checks/check! basis)
                (java-ir-int-checks/check! basis)
                (java-ir-int-checks/check! (assoc basis :explicit true))
                (java-ir-name-equality-checks/check! basis)
@@ -293,9 +295,9 @@
                (java-ir-name-pool-checks/check! basis)
                (java-ir-f32-checks/check! basis)
                (java-ir-f32-checks/check! (assoc basis :explicit true))]]
-  ;; 162 result groups: binary32 transport plus compact source Header Names, stdio545–550, UTF8/buffer553–556, Native544 and ordinary/explicit542/543 profiles,
+  ;; 163 result groups: quiescent HostGuest projection lending plus binary32 transport plus compact source Header Names, stdio545–550, UTF8/buffer553–556, Native544 and ordinary/explicit542/543 profiles,
   ;; plus the source-composition and guarded-view focused metadata suites.
   ;; Keep these expected namespace test counts aligned with the result order.
   (shutdown-agents)
-  (System/exit (if (and (= [9 9 8 6 5 5 6 6 9 9 4 7 9 4 13 18 17 10 10 18 18 9 4 10 10 8 8 6 6 13 13 7 20 6 6 9 9 10 10 8 8 19 19 6 6 6 6 10 10 3 3 6 6 5 5 9 9 7 7 15 15 9 9 11 5 5 11 16 16 5 5 6 6 4 4 21 21 12 43 13 11 11 11 21 10 15 20 20 11 5 18 19 21 10 8 14 5 10 5 6 6 7 11 11 5 5 2 7 7 5 5 7 7 11 13 5 13 12 8 8 11 11 8 8 7 7 7 7 10 10 6 10 12 9 20 10 11 11 7 9 4 15 7 10 17 8 4 6 10 9 5 3 4 6 13 8 8 10 10 9 6 6] (mapv :test results))
+  (System/exit (if (and (= [9 9 8 6 5 5 6 6 9 9 4 7 9 4 13 18 17 10 10 18 18 9 4 10 10 8 8 6 6 13 13 7 20 6 6 9 9 10 10 8 8 19 19 6 6 6 6 10 10 3 3 6 6 5 5 9 9 7 7 15 15 9 9 11 5 5 11 16 16 5 5 6 6 4 4 21 21 12 43 13 11 11 11 21 10 15 20 20 11 5 18 19 21 10 8 14 5 10 5 6 6 7 11 11 5 5 2 7 7 5 5 7 7 11 13 5 13 12 4 8 8 11 11 8 8 7 7 7 7 10 10 6 10 12 9 20 10 11 11 7 9 4 15 7 10 17 8 4 6 10 9 5 3 4 6 13 8 8 10 10 9 6 6] (mapv :test results))
                        (every? #(zero? (+ (:fail %) (:error %))) results)) 0 1)))
