@@ -146,3 +146,17 @@ reaching its intended entry rejection. Correcting those fixtures/predicates did
 not change the compiled artifact, dispatch/work limits or runtime semantics.
 The runner adds one active-explicit21-test group; the combined integration gate is
 separate evidence still required after source integration.
+
+The pass is now integrated with the original replacement/abstraction natives on
+base `39dbcfe2fa9ce4bcc8107314e861f2c8b89f3c6e`. Independent source review
+confirmed the action-ID and same-memo fork unions preserve both implementations.
+Integrated Java SHA-256 is
+`6c836542017fd297d235c3a4d56a1e3c51e75f72973457c9695839b1d3003f5d`;
+immutable jar SHA-256 is
+`60eea1e1be6b0295dcb425a294ebe00e82d838c143ad854226ec2f0960d029b0`.
+The retained REPL passed direct21/169, replacement18/240 and abstraction19/168
+on that same artifact. The separate 384 MiB combined gate exited zero:
+**121 groups / 1,228 tests / 55,012 assertions**, with no failures or errors.
+The initial gate launch lacked the documented TypedLongMemo classpath helper
+and stopped before tests; compiling that unchanged helper fixed the harness.
+The original Expr native remains unavailable pending the complete second pass.
