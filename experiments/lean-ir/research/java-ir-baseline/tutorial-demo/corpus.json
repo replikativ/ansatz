@@ -1,0 +1,180 @@
+{
+  "schema": "lean-tutorial-campaign-target/1",
+  "status": "native-frontend-java-ir-execution-accepted-hosted-init-pending",
+  "selected": {
+    "repository": "https://github.com/leanprover/fp-lean",
+    "commit": "0abeea545d560a324e2561f7210fbd6ed154fa02",
+    "project": "examples/first-lake/expected",
+    "projectURL": "https://github.com/leanprover/fp-lean/tree/0abeea545d560a324e2561f7210fbd6ed154fa02/examples/first-lake/expected",
+    "upstreamToolchain": "leanprover/lean4:4.33.0",
+    "campaignLeanCommit": "819816b2e0a3bf405af45ae5c7af2491d8f5bee6",
+    "campaignToolchain": "leanprover/lean4:v4.33.1",
+    "sourceModified": false,
+    "externalPackageDependencies": [],
+    "moduleDependencies": {
+      "Greeting.Basic": [],
+      "Greeting": [
+        "Greeting.Basic"
+      ],
+      "Main": [
+        "Greeting"
+      ]
+    },
+    "implicitInitRequiredByEverySourceModule": true,
+    "entry": {
+      "name": "main",
+      "type": "IO Unit",
+      "expectedStdoutUTF8": "Hello, world!\n",
+      "expectationEvidence": "Verified official Lean --run output and JavaIR captured stdout, equal as UTF-8 bytes (14 bytes, terminal LF)"
+    },
+    "sourceReceipts": [
+      {
+        "path": "leanprover/fp-lean/README.md",
+        "bytes": 2006,
+        "sha256": "c5d4c8394539ae2aee5c2c654a7965ab6ebde6ca3e968b33363f970277cfc01a",
+        "url": "https://github.com/leanprover/fp-lean/blob/0abeea545d560a324e2561f7210fbd6ed154fa02/README.md"
+      },
+      {
+        "path": "leanprover/fp-lean/LICENSE-ASSETS",
+        "bytes": 15675,
+        "sha256": "c98420a23a5d070c5e2cfd582967e3cc71bed4af020de595c64eab2ceec2682c",
+        "url": "https://github.com/leanprover/fp-lean/blob/0abeea545d560a324e2561f7210fbd6ed154fa02/LICENSE-ASSETS"
+      },
+      {
+        "path": "leanprover/fp-lean/examples/lean-toolchain",
+        "bytes": 24,
+        "sha256": "0054113737cdd970a1dbe7b9beef846ee228e098ff76466c7d1f620949319e6d",
+        "url": "https://github.com/leanprover/fp-lean/blob/0abeea545d560a324e2561f7210fbd6ed154fa02/examples/lean-toolchain"
+      },
+      {
+        "path": "leanprover/fp-lean/examples/first-lake/expected/Main.lean",
+        "bytes": 72,
+        "sha256": "84b2361691c0d105c438b137563c447e36e38827aaa633707ca99d14c4d20316",
+        "url": "https://github.com/leanprover/fp-lean/blob/0abeea545d560a324e2561f7210fbd6ed154fa02/examples/first-lake/expected/Main.lean"
+      },
+      {
+        "path": "leanprover/fp-lean/examples/first-lake/expected/Greeting.lean",
+        "bytes": 151,
+        "sha256": "b23733091936f7b4318c98880382dc901d5ca5830870bd40bbaa1128cbc91ed2",
+        "url": "https://github.com/leanprover/fp-lean/blob/0abeea545d560a324e2561f7210fbd6ed154fa02/examples/first-lake/expected/Greeting.lean"
+      },
+      {
+        "path": "leanprover/fp-lean/examples/first-lake/expected/Greeting/Basic.lean",
+        "bytes": 20,
+        "sha256": "b186dbcbc8cd3f04b6f9d39f4f130996ee75093b3d0923a9ceda2e2b70220afb",
+        "url": "https://github.com/leanprover/fp-lean/blob/0abeea545d560a324e2561f7210fbd6ed154fa02/examples/first-lake/expected/Greeting/Basic.lean"
+      },
+      {
+        "path": "leanprover/fp-lean/examples/first-lake/expected/lakefile.toml",
+        "bytes": 144,
+        "sha256": "d66a3f6386de06f0f3666cde3101ec1c71884c9f2678a41c69aac1f5d5834c80",
+        "url": "https://github.com/leanprover/fp-lean/blob/0abeea545d560a324e2561f7210fbd6ed154fa02/examples/first-lake/expected/lakefile.toml"
+      }
+    ],
+    "licenseEvidence": {
+      "rootLicenseFilePresent": false,
+      "separateExampleCodeLicenseFound": false,
+      "assetsLicense": "CC-BY-4.0 (LICENSE-ASSETS)",
+      "readmeStatement": "Original book CC BY 4.0; current modifications copyright 2023-2025 Lean FRO, LLC",
+      "codeLicenseClaim": "No separate code-license classification inferred",
+      "attribution": "Functional Programming in Lean, David Thrane Christiansen; Microsoft Corporation (original), Lean FRO, LLC (updates); retain README/LICENSE-ASSETS and pinned source URL"
+    }
+  },
+  "otherCandidates": [
+    {
+      "repository": "https://github.com/leanprover/lean4",
+      "commit": "819816b2e0a3bf405af45ae5c7af2491d8f5bee6",
+      "project": "tests/lake/examples/hello",
+      "license": "Apache-2.0",
+      "externalPackageDependencies": [],
+      "reason": "Exact compiler pin, two source files, upstream native test; useful earlier fallback, also requires genuine implicit Init/IO"
+    },
+    {
+      "repository": "https://github.com/leanprover-community/lean4-samples",
+      "commit": "c3690b7a51667cfe74a64a49b0057dbc42d8716a",
+      "project": "CSVParser",
+      "license": "Apache-2.0",
+      "toolchain": "leanprover/lean4:v4.1.0",
+      "explicitLibraryImports": [
+        "Lean.Data.Parsec"
+      ],
+      "reason": "Archived/deprecated by upstream; broader parser/partial recursion/#eval surface, poor first target"
+    }
+  ],
+  "acceptance": {
+    "nativeSelectedProjectRun": true,
+    "hostedSelectedProjectRun": false,
+    "defaultInitActivated": false,
+    "fullInitHydrated": false,
+    "existingExplicitPreludeCampaign": {
+      "modules": [
+        "A",
+        "B",
+        "C"
+      ],
+      "BCall": {
+        "argument": 40,
+        "result": 42,
+        "nativeResult": 42
+      },
+      "CCall": {
+        "argument": 40,
+        "result": 43,
+        "nativeResult": 43
+      },
+      "heapCapMiB": 512,
+      "fullInit": false,
+      "sharedLifecycleCleanup": {
+        "status": "disposed-and-closed",
+        "extraOwnerOccurrences": 38,
+        "runtimeRootOccurrences": 534
+      },
+      "receipts": [
+        {
+          "path": "target/java-source-exchange-v1/actual-ab-execution-v1.edn",
+          "sha256": "950a96754c263b3d550b1c4ad958f6244e3b4a7357f7bccb4d849434534e5925"
+        },
+        {
+          "path": "target/java-source-exchange-v1/actual-abc-execution-v2.edn",
+          "sha256": "ee119c2048eca880184ede3d6df3b5e6ce0778ce4f9cf250cc4c3578046ce4ef"
+        },
+        {
+          "path": "target/java-source-exchange-v1/actual-abc-execution-v3.edn",
+          "sha256": "5ea34f540588670a2d79fffc799be5065659138a7c46a0383d15a2cf690693d5"
+        }
+      ]
+    },
+    "nativeFrontendJavaIRExecution": {
+      "status": "executed-and-closed",
+      "heapCapMiB": 512,
+      "declarations": 6,
+      "frontend": "pinned-native-lean",
+      "runtime": "ansatz-java-ir",
+      "hostedFrontend": false,
+      "kernelRechecked": false,
+      "importedModuleInitializationParity": false,
+      "entryRawABI": [
+        "void"
+      ],
+      "result": {
+        "tag": 0,
+        "fields": [
+          0
+        ],
+        "scalarBytes": []
+      },
+      "stdoutUTF8Bytes": 14,
+      "stdoutLastCodepoint": 10,
+      "stdoutSHA256": "d9014c4624844aa5bac314773d6b689ad467fa4e1d1a50a1b8a99d5a95f72ff5",
+      "stdoutEqualsNativeBytes": true,
+      "engineClosed": true,
+      "engineDisposed": false,
+      "artifactManifestSHA256": "a0e810c420df4fd10ba2785cae4594d9aaf8b813b14ab342f36844961e73ff55",
+      "executionStreamSHA256": "6e5a4309c6135d9f45784e209e01eafb2c6b08874f9f27c757d4d0c9983c2a6d",
+      "receipt": {
+        "path": "target/java-source-exchange-v1/native-tutorial-acceptance-v2.edn",
+        "sha256": "2f2cfd901ffc4f4ff4c8bffc6d331c32c4beffdbeb3a7a72a8689a407c159faf"
+      }
+    }
+  }
+}
