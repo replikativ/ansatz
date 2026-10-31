@@ -28,6 +28,7 @@ public final class Interpreter implements AutoCloseable {
     private static final int MAX_PERSISTENT_NODES=300_000,MAX_PERSISTENT_EDGES=1_000_000;
     private static final int LAYOUT_FIELDS=531,LAYOUT_SCALARS=532,LAYOUT_TAG=533,LAYOUT_USIZE=534,U32_LT=535,U64_TO_NAT=536;
     private static final int USIZE_NAT=9,USIZE_REPR=10,U32_NAT=11,U32_EQ=12,U32_LE=13,PLATFORM_BITS=14;
+    private static final int FLOAT_LE=543;
     private static final int STR_POS_SET=260;
     private static final int VOID_MK=516,LEVEL_INSTANTIATE=517,EXPR_FIND_EXT=519;
     private static final int ARRAY_CHECKED_SET=518,SHARECOMMON_QUICK=520,EXPR_REPLACE=521,EXPR_ABSTRACT_RANGE=522,EXPR_ABSTRACT=523;
@@ -610,6 +611,7 @@ public final class Interpreter implements AutoCloseable {
         register(registry,new ExternSpec("lean_float_div",FLOAT_DIV,"float",new String[]{"float","float"},new boolean[]{false,false}));
         register(registry,new ExternSpec("lean_float_beq",FLOAT_EQ,"uint8",new String[]{"float","float"},new boolean[]{false,false}));
         register(registry,new ExternSpec("lean_float_decLt",FLOAT_LT,"uint8",new String[]{"float","float"},new boolean[]{false,false}));
+        register(registry,new ExternSpec("lean_float_decLe",FLOAT_LE,"uint8",new String[]{"float","float"},new boolean[]{false,false}));
         register(registry,new ExternSpec("lean_float_to_string",FLOAT_STRING,"object",new String[]{"float"},new boolean[]{false}));
         registry.replaceAll((symbol,entries)->Collections.unmodifiableList(entries));
         return Collections.unmodifiableMap(registry);
@@ -7176,7 +7178,7 @@ public final class Interpreter implements AutoCloseable {
             runtimeIntrinsic(f,a,b,c);
         } else scalarIntrinsic(f,a,b);
     }
-    private static boolean floatPrimitive(int op) { return op>=FLOAT_BITS&&op<=FLOAT_STRING; }
+    private static boolean floatPrimitive(int op) { return op>=FLOAT_BITS&&op<=FLOAT_STRING||op==FLOAT_LE; }
     private static boolean nanBits(long bits) { return (bits&0x7ff0000000000000L)==0x7ff0000000000000L&&(bits&0x000fffffffffffffL)!=0; }
     private strictfp void floatIntrinsic(Function f,long a,long b) {
         if(f.intrinsic==FLOAT_BITS) { scalarResult=nanBits(a)?0x7ff8000000000000L:a; return; }
@@ -7191,6 +7193,7 @@ public final class Interpreter implements AutoCloseable {
             case FLOAT_DIV: scalarResult=Double.doubleToRawLongBits(x/y); break;
             case FLOAT_EQ: scalarResult=x==y?1:0; break;
             case FLOAT_LT: scalarResult=x<y?1:0; break;
+            case FLOAT_LE: scalarResult=x<=y?1:0; break;
             case FLOAT_STRING:
                 if(nanBits(a)) result="NaN";
                 else if(Double.isInfinite(x)) result=x<0?"-inf":"inf";

@@ -45,6 +45,7 @@
 (load-file "research/java-ir-baseline/expr-equality-checks.clj")
 (load-file "research/java-ir-baseline/level-equality-checks.clj")
 (load-file "research/java-ir-baseline/f64-checks.clj")
+(load-file "research/java-ir-baseline/float-le-checks.clj")
 (load-file "research/java-ir-baseline/pointer-checks.clj")
 
 (load-file "research/java-ir-baseline/logical-sharing-checks.clj")
@@ -183,6 +184,8 @@
                (java-ir-level-equality-checks/check! basis)
                (java-ir-level-equality-checks/check! (assoc basis :explicit true))
                (java-ir-f64-checks/check! basis)
+               (java-ir-float-le-checks/check! basis)
+               (java-ir-float-le-checks/check! (assoc basis :explicit true))
                (java-ir-f64-checks/check! (assoc basis :explicit true))
                (java-ir-pointer-checks/check! basis)
                (java-ir-pointer-checks/check! (assoc basis :explicit true))

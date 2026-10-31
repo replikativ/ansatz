@@ -1,0 +1,20 @@
+{
+  "comparison-evidence": "Source equivalence to IEEE binary64 ordered <=; no new native oracle executed.",
+  "lean-commit": "819816b2e0a3bf405af45ae5c7af2491d8f5bee6",
+  "native-source": "src/include/lean/lean.h: lean_float_decLe(double a, double b) { return a <= b; }",
+  "pinned-source-sha256": {
+    "src/Init/Data/Float/Float.lean": "4561caee678e0a5b82fa2720598e292768cef8a13502cc26310d3565c91d67e2",
+    "src/include/lean/lean.h": "02af0040283143b264e3a44b06b348b6973ae6037fa8f550701c83dd7a062ace"
+  },
+  "rows": [
+    {
+      "file": "0ccee30406c6369fb26456adcdb2f29b5962b4a5b5f3ebcde46c1d65b714c53a.json",
+      "sha256": "0ccee30406c6369fb26456adcdb2f29b5962b4a5b5f3ebcde46c1d65b714c53a"
+    },
+    {
+      "file": "65263abd001db0a2ca42de8eb772807eb9158e7751b2571c08e825eb46a93aee.json",
+      "sha256": "65263abd001db0a2ca42de8eb772807eb9158e7751b2571c08e825eb46a93aee"
+    }
+  ],
+  "source-index-sha256": "74d833d577923821b982e8a9e872a38b5cad011513eb18870b51417e13397f0e"
+}

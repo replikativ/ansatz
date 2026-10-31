@@ -80,3 +80,26 @@ cases; it does not rewrite either golden or claim equality of different schemas.
 Cases run in separate graph forks from the same compiled baseline and demand
 additional original bodies as needed. This is header compatibility, including
 error paths, not command elaboration, execution of declarations or self-hosting.
+
+## Ordered less-than-or-equal
+
+`lean_float_decLe` (native ID543) uses Java's binary64 `<=`, following pinned
+`src/include/lean/lean.h`, whose implementation is `return a <= b;`. It returns
+false for every NaN operand, including signaling/quiet payloads and negative NaNs;
+positive and negative zero compare equal. It does not use `Double.compare`,
+which imposes different ordering on zeros and NaNs. This extends explicit Float
+intrinsic membership without changing the existing raw binary64 carriers or
+UInt64/Float32 lane guards.
+
+The captured `Float.decLe` row is all-owned `[float,float] → uint8`. Its original
+all-owned boxed wrapper is `[object,object] → tagged`, performs the original
+unbox/DEC sequence, then boxes the comparison result. Both actual source rows
+and pinned source file hashes are in `test/fixtures/java-float-le-runtime/`.
+The focused checks compare raw, FAP, raw-word stack transport, genuine boxed and
+PAP/AP paths against an independent integer IEEE encoding oracle, including
+signed zeros, infinities and several NaN payloads. They also verify transferred
+box ownership and unchanged payload bytes, numeric Float literals versus raw
+word reinterpretation, and exact typed/borrow ABI rejection. The check runner
+runs the suite with both drivers. No new native oracle was executed for this
+addition; the native claim is source equivalence within the existing IEEE
+binary64 profile, not evidence about floating exception-status flags.
