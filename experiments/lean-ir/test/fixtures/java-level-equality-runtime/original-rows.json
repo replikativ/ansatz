@@ -1,0 +1,280 @@
+[
+  {
+    "label": "Lean.Level.beq",
+    "sha256": "afa9a3620d891b97e0dc977b806e3c2990c1604ff3cf4af79850f7a0fbf003f2",
+    "row": {
+      "dependencies": [],
+      "ir": {
+        "extern": {
+          "ext": {
+            "entries": [
+              {
+                "standard": {
+                  "backend": [
+                    "str",
+                    [
+                      "anonymous"
+                    ],
+                    "all"
+                  ],
+                  "fn": "lean_level_eq"
+                }
+              }
+            ]
+          },
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "Lean"
+              ],
+              "Level"
+            ],
+            "beq"
+          ],
+          "type": "uint8",
+          "xs": [
+            {
+              "borrow": true,
+              "ty": "tobject",
+              "x": {
+                "idx": 1
+              }
+            },
+            {
+              "borrow": true,
+              "ty": "tobject",
+              "x": {
+                "idx": 2
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "Lean"
+          ],
+          "Level"
+        ],
+        "beq"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "anonymous"
+          ],
+          "Lean"
+        ],
+        "Level"
+      ]
+    }
+  },
+  {
+    "label": "Lean.Level.beq._boxed",
+    "sha256": "9d987d75d08777df86859c7629d8e0039abeffb662c19c5978ba58d8d7ca2fb2",
+    "row": {
+      "dependencies": [
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Lean"
+            ],
+            "Level"
+          ],
+          "beq"
+        ]
+      ],
+      "ir": {
+        "fdecl": {
+          "body": [
+            "vdecl",
+            {
+              "idx": 3
+            },
+            "uint8",
+            {
+              "fap": {
+                "c": [
+                  "str",
+                  [
+                    "str",
+                    [
+                      "str",
+                      [
+                        "anonymous"
+                      ],
+                      "Lean"
+                    ],
+                    "Level"
+                  ],
+                  "beq"
+                ],
+                "ys": [
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 1
+                      }
+                    }
+                  },
+                  {
+                    "var": {
+                      "id": {
+                        "idx": 2
+                      }
+                    }
+                  }
+                ]
+              }
+            },
+            [
+              "dec",
+              {
+                "idx": 2
+              },
+              1,
+              true,
+              false,
+              [
+                "dec",
+                {
+                  "idx": 1
+                },
+                1,
+                true,
+                false,
+                [
+                  "vdecl",
+                  {
+                    "idx": 4
+                  },
+                  "tagged",
+                  {
+                    "box": {
+                      "ty": "uint8",
+                      "x": {
+                        "idx": 3
+                      }
+                    }
+                  },
+                  [
+                    "ret",
+                    {
+                      "var": {
+                        "id": {
+                          "idx": 4
+                        }
+                      }
+                    }
+                  ]
+                ]
+              ]
+            ]
+          ],
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "str",
+                  [
+                    "anonymous"
+                  ],
+                  "Lean"
+                ],
+                "Level"
+              ],
+              "beq"
+            ],
+            "_boxed"
+          ],
+          "info": {},
+          "type": "tagged",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 1
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 2
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Lean"
+            ],
+            "Level"
+          ],
+          "beq"
+        ],
+        "_boxed"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "anonymous"
+          ],
+          "Lean"
+        ],
+        "Level"
+      ]
+    }
+  }
+]
