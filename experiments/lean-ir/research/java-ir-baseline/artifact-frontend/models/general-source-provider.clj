@@ -13,13 +13,15 @@
 (defn kind [leaf] (sp/typed-name (str "Lean.Parser.Command." leaf)))
 (defn node [leaf & args] {:kind (kind leaf) :args (vec args)})
 (defn declaration [& args] (node "declaration" {:kind ["anonymous"] :args []} (apply node "definition" args)))
-(defn install! [build text]
+(defn install!
+  ([build text] (install! build text false))
+  ([build text positive-root?]
   (let [ctx (j/prepare-host-program *basis* [] []) source (j/source-binding ctx (Object.))
         nodes (atom []) next-id (atom 0) memo (atom {})
         allocate (fn [kind tag fields scalars]
                    (let [id (swap! next-id inc)]
-                     (swap! nodes conj (j/graph-node ctx (cond-> {:kind kind :id id :fields fields}
-                                                          (= kind :ctor) (assoc :tag tag :scalars scalars))))
+                     (swap! nodes conj (cond-> {:kind kind :id id :fields fields}
+                                         (= kind :ctor) (assoc :tag tag :scalars scalars)))
                      (j/graph-ref ctx id)))]
     (letfn [(ctor [tag fields scalars] (allocate :ctor tag fields scalars))
             (array [fields] (allocate :array nil fields []))
@@ -35,16 +37,25 @@
                 :else (let [info (if-let [[a b] (:range model)] (ctor 1 [a b] [1]) 2)]
                         (ctor 1 [info (name (:kind model)) (array (mapv syntax (:args model)))] []))))]
       (let [ref (build {:ctor ctor :array array :name name :syntax syntax}) engine (j/machine ctx)
-            graph (j/selected-owner-graph ctx source (Object.) @nodes [] [] [ref])
+            descriptors (mapv (fn [descriptor]
+                                (j/graph-node ctx (cond-> descriptor
+                                                   (and positive-root? (= (:id descriptor) @next-id)) (assoc :rc 1)))) @nodes)
+            graph (j/selected-owner-graph ctx source (Object.) descriptors [] [] [ref])
             root (first (j/install-graph! ctx engine graph))
             s {:driver {:engine engine :current-ctx (atom ctx)}}]
-        {:ctx ctx :engine engine :root root :p {:frontend s :capture ((seam 'capture-source) (captured text))}}))))
-(defn syntax-fixture [model] (install! #((:syntax %) model) "α\n"))
+        {:ctx ctx :engine engine :root root :positive-root? positive-root?
+         :p {:frontend s :capture ((seam 'capture-source) (captured text))}})))))
+(defn syntax-fixture
+  ([model] (syntax-fixture model false))
+  ([model positive-root?] (install! #((:syntax %) model) "α\n" positive-root?)))
 (defn policy [fixture] ((seam 'syntax-policy!) (:p fixture) (:root fixture)))
 (defn rejects? [f] (try (f) false (catch Exception _ true)))
 (defmacro with-fixture [[binding expression] & body]
   `(let [~binding ~expression]
-     (try ~@body (finally (j/close! (:ctx ~binding) (:engine ~binding))))))
+     (try ~@body
+          (finally
+            (when (:positive-root? ~binding) (j/release! (:ctx ~binding) (:engine ~binding) (:root ~binding)))
+            (j/close! (:ctx ~binding) (:engine ~binding))))))
 
 (deftest ordinary-syntax-is-not-a-source-body-whitelist
   (doseq [form [(declaration {:atom "set_option is just literal model text"})
@@ -128,9 +139,18 @@
 
 (deftest observer-stamp-detects-owner-effects-and-does-not-claim-rollback
   (with-fixture [f (syntax-fixture (node "namespace"))]
-    (let [p (:p f)]
-      (is (= 42 ((seam 'readonly) p (constantly 42))))
-      (is (rejects? #((seam 'readonly) p (fn [] (j/retain! (:ctx f) (:engine f) (:root f)))))))))
+    (is (= 42 ((seam 'readonly) (:p f) (constantly 42))))
+    ;; Persistent RC0 retain is a genuine runtime no-op and is permitted.
+    (is (not (rejects? #((seam 'readonly) (:p f) (fn [] (j/retain! (:ctx f) (:engine f) (:root f))))))))
+  (with-fixture [f (syntax-fixture (node "namespace") true)]
+    (let [ctx (:ctx f) engine (:engine f) root (:root f)]
+      (is (= 1 (.getInt ^java.lang.reflect.Field (:rc ctx) root)))
+      (try
+        (is (rejects? #((seam 'readonly) (:p f) (fn [] (j/retain! ctx engine root)))))
+        (is (= 2 (.getInt ^java.lang.reflect.Field (:rc ctx) root)))
+        ;; The observer detected an effect; it did not undo it. Balance this
+        ;; separately owned extra credit, then with-fixture drops the RC1 root.
+        (finally (j/release! ctx engine root))))))
 
 (defn check! [basis]
   (binding [*basis* basis] (run-tests 'general-frontend-source-provider-models-v1)))
