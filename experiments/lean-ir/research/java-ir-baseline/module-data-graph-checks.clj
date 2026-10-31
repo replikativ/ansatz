@@ -68,3 +68,16 @@
     (with-source rows
       (fn [path sha]
         (is (thrown? clojure.lang.ExceptionInfo (converted path sha (constantly :nat))))))))
+
+(deftest aggregate-parts-must-be-present-reference-backed-module-data
+  (let [manifest (-> (manifest) (assoc-in [:inventory :nodes] 1)
+                     (assoc-in [:inventory :tags] {"246" 1}))
+        root (assoc (second (fixture)) :fields [{:immediate "0"}])]
+    (with-source [manifest root]
+      (fn [path sha]
+        (is (thrown-with-msg? clojure.lang.ExceptionInfo #"parts must be references"
+                             (converted path sha (constantly :nat))))))
+    (with-source [manifest (assoc root :fields [{:ref 1}])]
+      (fn [path sha]
+        (is (thrown-with-msg? clojure.lang.ExceptionInfo #"missing referenced records"
+                             (converted path sha (constantly :nat)))))))))
