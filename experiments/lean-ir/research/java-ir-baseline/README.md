@@ -224,3 +224,8 @@ exposes the existing bounded Level comparator through exact borrowed
 `lean_level_eq` and its original owned boxed wrapper. Together with Level.mkData,
 it covers the two externs in pinned Lean/Level.lean; universe equivalence remains
 outside this binding.
+
+The [private direct Expr assignment pass](../JAVA_EXPR_DIRECT_PASS.md) extends
+the reusable MVar session with original helper calls and owned direct-pass
+traversal. Its research report is not the original ExprMVars ABI; that extern
+remains unavailable.
