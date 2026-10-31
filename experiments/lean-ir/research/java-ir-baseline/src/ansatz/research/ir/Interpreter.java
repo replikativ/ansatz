@@ -724,9 +724,20 @@ public final class Interpreter implements AutoCloseable {
     }
     private void pointerIdentity(Function function,int[] slots,PreparedBody prepared,Expr site) {
         require(prepared!=null&&prepared.pointerSites!=null&&prepared.pointerSites.contains(site)
-                &&site.op==FAP&&site.target==function&&site.args==slots&&function.intrinsic==POINTER_IDENTITY,
+                &&(prepared.pointerHashSites==null||!prepared.pointerHashSites.contains(site)),
+                "Pointer identity requires the exact certified FAP site");
+        pointerIdentity(function,slots,prepared,site,null);
+    }
+    private void pointerIdentity(Function function,int[] slots,PreparedBody prepared,Expr site,Function caller) {
+        boolean hash=prepared!=null&&prepared.pointerHashSites!=null&&prepared.pointerHashSites.contains(site);
+        boolean equality=prepared!=null&&prepared.pointerSites!=null&&prepared.pointerSites.contains(site);
+        require((hash||equality)&&site.op==FAP&&site.target==function&&site.args==slots&&function.intrinsic==POINTER_IDENTITY,
                 "Pointer identity requires the exact certified FAP site");
         require(ERASED.equals(obj(slots[0])),"Pointer identity erased parameter requires erased placeholder");
+        if(hash) {
+            pointerHashEntry(caller,prepared,program);
+            exprNode(obj(slots[1])); // live Expr-shaped roots only, before stamping
+        }
         scalarResult=pointerWord(obj(slots[1]));
     }
     private static final class ArrayState implements NodeMetadata {
@@ -1069,23 +1080,25 @@ public final class Interpreter implements AutoCloseable {
     private static final class PreparedBody {
         final Body body;
         final int width, joinWidth;
-        final Set<Expr> pointerSites;
+        final Set<Expr> pointerSites,pointerHashSites;
+        final Function caller;
         private PreparedBody(Body runtimeMapBody) {
-            body=runtimeMapBody; width=8; joinWidth=0; pointerSites=null;
+            body=runtimeMapBody; width=8; joinWidth=0; pointerSites=null; pointerHashSites=null; caller=null;
         }
-        PreparedBody(Body body,int width,int joinWidth) {
-            this.body=body; this.width=width; this.joinWidth=joinWidth;
-            this.pointerSites=certifyPointerSites(body);
+        PreparedBody(Function caller,Body body,int width,int joinWidth) {
+            this.body=body; this.width=width; this.joinWidth=joinWidth; this.caller=caller;
+            PointerCertificates certificates=certifyPointerObservations(body); this.pointerSites=certificates.equality; this.pointerHashSites=certificates.hash;
         }
     }
     /** Local preparation state, never retained by a published Function or Program. */
     private static final class BodyBuilder {
         int width=1, joinWidth=1;
-        Body body;
+        final Function caller; Body body;
         BodyBuilder(Function function) {
+            caller=function;
             for(int param:function.params) width=Math.max(width,param+1);
         }
-        PreparedBody finish() { return new PreparedBody(body,width,joinWidth); }
+        PreparedBody finish() { return new PreparedBody(caller,body,width,joinWidth); }
     }
     static final class Expr {
         int op, a,b,tag,size,scalarBytes;
@@ -1312,6 +1325,75 @@ public final class Interpreter implements AutoCloseable {
         validate(function,builder.body);
         PreparedBody[] slots=staged.preparedBodies.clone(); slots[id]=builder.finish();
         return new Program(staged.functions,slots,staged.labels,staged.typedNames,staged.hostRegistry,new Generation(staged.generation),staged.guestExports);
+    }
+
+    /** Exact ordinary FoldConsts cohort. Headers and source tokens are immutable;
+     * raw SHA labels are descriptive until the trusted loader verifies bytes and
+     * the high-level empty-seed/input contract. Contains no guest/cache/resource. */
+    public static final class PointerHashPolicy {
+        private final Header[] roles;
+        private PointerHashPolicy(Header[] roles) { this.roles=roles.clone(); }
+        public static PointerHashPolicy originalFoldConsts(Header contains,Header insert,Header rehash) {
+            Header[] roles={contains,insert,rehash};
+            String[] hashes={"6b9720aa488a57b0a3698e5bde20ce1d17e178d928c9889eb1dbe9bec7784665","0f6b605d51998d2e76c3dc0c14b286767f37ab8647e58005e71be810b1f5ec9a","134fa49c228c361525b1760d52157bcdf494f8d7144106799145ab5a34ccc12c"};
+            String[] names={"Std.DHashMap.Internal.Raw₀.contains._at_._private.Lean.Util.FoldConsts.0.Lean.Expr.FoldConstsImpl.fold.visit.spec_0._redArg","Std.DHashMap.Internal.Raw₀.insertIfNew._at_._private.Lean.Util.FoldConsts.0.Lean.Expr.FoldConstsImpl.fold.visit.spec_1._redArg","Std.DHashMap.Internal.AssocList.foldlM._at_._private.Std.Data.DHashMap.Internal.Defs.0.Std.DHashMap.Internal.Raw₀.expand.go._at_.Std.DHashMap.Internal.Raw₀.expand._at_.Std.DHashMap.Internal.Raw₀.insertIfNew._at_._private.Lean.Util.FoldConsts.0.Lean.Expr.FoldConstsImpl.fold.visit.spec_1.spec_2.spec_3.spec_4._redArg"};
+            String[][] parameters={new String[]{"object","object"},new String[]{"object","object","tobject"},new String[]{"object","tobject"}};
+            boolean[][] borrowed={new boolean[]{true,true},new boolean[]{false,false,false},new boolean[]{false,false}};
+            String[] results={"uint8","object","object"};
+            for(int role=0;role<roles.length;role++) {
+                Header h=roles[role];
+                require(h!=null&&h.kind.equals("fdecl")&&h.originalSha256.equals(hashes[role]),"Pointer hash role/source hash differs");
+                require(h.source==contains.source,"Pointer hash roles have different source bindings");
+                Object name=Arrays.asList("anonymous");
+                // The exact three exported Names have numeric private-scope 0
+                // components; every other printed segment is a string component.
+                for(String segment:names[role].split("\\.")) name=Arrays.asList(segment.equals("0")?"num":"str",name,segment);
+                require(h.exactName.equals(frozenName(name)),"Pointer hash typed role Name differs");
+                Map<String,Object> d=h.declaration;
+                require(d.keySet().equals(new HashSet<>(Arrays.asList("f","info","type","xs")))&&map(d.get("info")).isEmpty()
+                        &&d.get("f").equals(h.exactName)&&results[role].equals(d.get("type"))&&results[role].equals(h.resultType),
+                        "Pointer hash canonical role declaration differs");
+                List<Object> xs=list(d.get("xs")); require(xs.size()==parameters[role].length,"Pointer hash raw role arity differs");
+                for(int i=0;i<xs.size();i++) {
+                    Map<String,Object> x=map(xs.get(i)),v=map(x.get("x"));
+                    require(x.keySet().equals(new HashSet<>(Arrays.asList("borrow","ty","x")))&&v.keySet().equals(Collections.singleton("idx"))
+                            &&number(v.get("idx"))==i+1&&parameters[role][i].equals(x.get("ty"))&&Boolean.valueOf(borrowed[role][i]).equals(x.get("borrow")),
+                            "Pointer hash parameter lane/borrow/ID differs");
+                }
+                Map<String,Object> runtime=map(h.evidence.get("runtime"));
+                require(runtime.keySet().equals(new HashSet<>(Arrays.asList("initializer","role")))&&runtime.get("initializer")==null
+                        &&"ordinary".equals(runtime.get("role")),"Pointer hash role is not an ordinary original function");
+            }
+            return new PointerHashPolicy(roles);
+        }
+    }
+    private PointerHashPolicy pointerHashPolicy;
+    private static Function pointerHashRole(Program image,Header header) {
+        int id=image.functionId(header); Function function=image.functions[id];
+        require(function.header==header&&function.intrinsic==0&&function.hostExtern==null&&image.guestExports[id]==null,
+                "Pointer hash role is not the actual ordinary Function");
+        requireExecutableAbi(function); return function;
+    }
+    /** Once-only host admission; caller authenticates the source cohort and
+     * target-built empty FoldConsts seed contract separately. Both drivers. */
+    public void configurePointerHashes(PointerHashPolicy policy) {
+        require(policy!=null,"Missing pointer hash source policy");
+        if(closed||disposed||untrackedFailure||advancing||phase!=IDLE||pendingOwnedResult||sp!=0||continuationDepth!=0||jsp!=0
+                ||runtimeAction!=null||hostCompletion!=null||hostGuestRecord!=null||quietCurrent!=null||releasePending!=0
+                ||releaseTransaction!=null||releaseRoot||pointerHashPolicy!=null)
+            throw new IllegalStateException("Pointer hash configuration requires an open idle unconfigured engine");
+        for(Header header:policy.roles) pointerHashRole(program,header);
+        pointerHashPolicy=policy;
+    }
+    private void pointerHashEntry(Function caller,PreparedBody prepared,Program image) {
+        if(prepared.pointerHashSites==null) return;
+        require(pointerHashPolicy!=null,"Pointer hash execution requires the original FoldConsts policy");
+        require(caller!=null&&prepared.caller==caller&&caller.header!=null&&caller.id>=0&&caller.id<image.functions.length
+                &&image.functions[caller.id]==caller&&image.preparedBodies[caller.id]==prepared,
+                "Pointer hash body is not the exact current caller/PreparedBody");
+        boolean allowed=false; for(Header header:pointerHashPolicy.roles) if(caller.header==header) { allowed=true; break; }
+        require(allowed,"Pointer hash body is outside the configured FoldConsts cohort");
+        require(pointerHashRole(image,caller.header)==caller,"Pointer hash caller Function differs");
     }
 
     /** Explicit trusted-host selection of guest producer metadata, not a hash
@@ -5069,7 +5151,7 @@ public final class Interpreter implements AutoCloseable {
         // phase RUNNING between advance calls is a paused dispatch/release-work
         // boundary. No Java call frame is captured in that state.
         Interpreter child=new Interpreter(program,explicit,initializing,buildIdentity,taskRuntime,profilingPolicy);
-        child.levelInstantiationPolicy=levelInstantiationPolicy; child.shareCommonLayout=shareCommonLayout; child.exprTransformPolicy=exprTransformPolicy;
+        child.pointerHashPolicy=pointerHashPolicy; child.levelInstantiationPolicy=levelInstantiationPolicy; child.shareCommonLayout=shareCommonLayout; child.exprTransformPolicy=exprTransformPolicy;
         ForkCopy copy=new ForkCopy(child);
         copy.bind(constants,child.constants);
         child.objects=(Object[])copy.value(objects);
@@ -5830,82 +5912,104 @@ public final class Interpreter implements AutoCloseable {
             default: throw error("Invalid body opcode");
         }
     }
-    /** Closed syntactic def/use proof, issued only after normal lexical/lane validation.
-     * No pointer values can escape to another activation or scalar storage. */
-    private static Set<Expr> certifyPointerSites(Body body) {
-        if(body==null) return null;
-        Map<Integer,Expr> definitions=new HashMap<>();
-        collectPointerDefinitions(body,definitions);
-        if(definitions.isEmpty()) return null;
-        Set<Integer> used=new HashSet<>();
-        checkPointerUses(body,definitions,used);
-        require(used.containsAll(definitions.keySet()),"Unused pointer identity observation is outside the certified profile");
-        Set<Expr> sites=Collections.newSetFromMap(new IdentityHashMap<>());
-        sites.addAll(definitions.values());
-        return Collections.unmodifiableSet(sites);
+    /** Separate immutable capabilities: local equality and the exact hash chain.
+     * Structural recognition alone never authorizes execution of a hash body. */
+    private static final class PointerCertificates {
+        final Set<Expr> equality,hash;
+        PointerCertificates(Set<Expr> equality,Set<Expr> hash) {
+            this.equality=equality.isEmpty()?null:Collections.unmodifiableSet(equality);
+            this.hash=hash.isEmpty()?null:Collections.unmodifiableSet(hash);
+        }
     }
+    private static Set<Expr> pointerIdentitySet() { return Collections.newSetFromMap(new IdentityHashMap<>()); }
+    private static PointerCertificates certifyPointerObservations(Body body) {
+        Set<Expr> equality=pointerIdentitySet(),hash=pointerIdentitySet();
+        if(body==null) return new PointerCertificates(equality,hash);
+        Map<Integer,Expr> definitions=new HashMap<>(); collectPointerDefinitions(body,definitions);
+        if(definitions.isEmpty()) return new PointerCertificates(equality,hash);
+        Map<Integer,Expr> converted=new HashMap<>(); Set<Integer> salts=new HashSet<>();
+        collectPointerHashDefinitions(body,definitions,converted,salts);
+        Set<Integer> used=new HashSet<>(),convertedUsed=new HashSet<>();
+        checkPointerUses(body,definitions,converted,salts,used,convertedUsed,equality,hash);
+        require(used.containsAll(definitions.keySet()),"Unused pointer identity observation is outside the certified profile");
+        require(convertedUsed.containsAll(converted.keySet()),"Unused pointer hash conversion is outside the certified profile");
+        return new PointerCertificates(equality,hash);
+    }
+    // Retained private checker entry used by the original equality audit tests.
+    private static Set<Expr> certifyPointerSites(Body body) { return certifyPointerObservations(body).equality; }
     private static void collectPointerDefinitions(Body body,Map<Integer,Expr> definitions) {
         switch(body.op) {
             case VDECL:
                 if(body.expr.op==FAP&&body.expr.target.intrinsic==POINTER_IDENTITY) {
-                    require(body.type==USIZE,"Invalid pointer identity result lane");
-                    definitions.put(body.a,body.expr);
+                    require(body.type==USIZE,"Invalid pointer identity result lane"); definitions.put(body.a,body.expr);
                 }
                 collectPointerDefinitions(body.next,definitions); break;
-            case JDECL:
-                collectPointerDefinitions(body.body,definitions); collectPointerDefinitions(body.next,definitions); break;
-            case CASE:
-                for(Body alternative:body.alternatives) collectPointerDefinitions(alternative,definitions); break;
-            case SET: case SSET: case USET: case SETTAG: case INC: case DEC: case DEL:
-                collectPointerDefinitions(body.next,definitions); break;
+            case JDECL: collectPointerDefinitions(body.body,definitions); collectPointerDefinitions(body.next,definitions); break;
+            case CASE: for(Body alternative:body.alternatives) collectPointerDefinitions(alternative,definitions); break;
+            case SET: case SSET: case USET: case SETTAG: case INC: case DEC: case DEL: collectPointerDefinitions(body.next,definitions); break;
             case RET: case JMP: case UNREACHABLE: break;
             default: throw error("Unaudited pointer identity body opcode");
         }
     }
-    private static void noPointerUse(int variable,Map<Integer,Expr> definitions) {
-        require(!definitions.containsKey(variable),"Pointer identity value escapes direct fresh-pointer equality");
+    private static void collectPointerHashDefinitions(Body body,Map<Integer,Expr> raw,Map<Integer,Expr> converted,Set<Integer> salts) {
+        switch(body.op) {
+            case VDECL: {
+                Expr e=body.expr;
+                if(e.op==LIT&&body.type==U64&&Long.valueOf(11).equals(e.literal)) salts.add(body.a);
+                if(e.op==FAP&&e.target.intrinsic==USIZE_TO_U64&&e.args.length==1&&raw.containsKey(e.args[0])) {
+                    require(body.type==U64,"Pointer hash conversion requires U64 result"); converted.put(body.a,e);
+                }
+                collectPointerHashDefinitions(body.next,raw,converted,salts); break;
+            }
+            case JDECL: collectPointerHashDefinitions(body.body,raw,converted,salts); collectPointerHashDefinitions(body.next,raw,converted,salts); break;
+            case CASE: for(Body alternative:body.alternatives) collectPointerHashDefinitions(alternative,raw,converted,salts); break;
+            case SET: case SSET: case USET: case SETTAG: case INC: case DEC: case DEL: collectPointerHashDefinitions(body.next,raw,converted,salts); break;
+            case RET: case JMP: case UNREACHABLE: break;
+            default: throw error("Unaudited pointer hash body opcode");
+        }
     }
-    private static void noPointerUses(int[] variables,Map<Integer,Expr> definitions) {
-        for(int variable:variables) noPointerUse(variable,definitions);
+    private static void noPointerUse(int variable,Map<Integer,Expr> raw,Map<Integer,Expr> converted) {
+        require(!raw.containsKey(variable)&&!converted.containsKey(variable),"Pointer observation escapes certified equality/hash uses");
     }
-    private static void checkPointerUses(Body body,Map<Integer,Expr> definitions,Set<Integer> used) {
+    private static void noPointerUses(int[] variables,Map<Integer,Expr> raw,Map<Integer,Expr> converted) {
+        for(int variable:variables) noPointerUse(variable,raw,converted);
+    }
+    private static void checkPointerUses(Body body,Map<Integer,Expr> raw,Map<Integer,Expr> converted,Set<Integer> salts,
+                                         Set<Integer> used,Set<Integer> convertedUsed,Set<Expr> equality,Set<Expr> hash) {
         switch(body.op) {
             case VDECL: {
                 Expr e=body.expr;
                 switch(e.op) {
                     case FAP:
-                        if(e.target.intrinsic==USIZE_EQ&&e.args.length==2
-                                &&(definitions.containsKey(e.args[0])||definitions.containsKey(e.args[1]))) {
-                            require(definitions.containsKey(e.args[0])&&definitions.containsKey(e.args[1]),
-                                    "Pointer identity equality requires two direct fresh-pointer definitions");
-                            used.add(e.args[0]); used.add(e.args[1]);
-                        } else noPointerUses(e.args,definitions);
+                        if(e.target.intrinsic==USIZE_EQ&&e.args.length==2&&(raw.containsKey(e.args[0])||raw.containsKey(e.args[1]))) {
+                            require(raw.containsKey(e.args[0])&&raw.containsKey(e.args[1]),"Pointer identity equality requires two direct fresh-pointer definitions");
+                            for(int argument:e.args) { used.add(argument); equality.add(raw.get(argument)); }
+                        } else if(converted.get(body.a)==e) { used.add(e.args[0]); }
+                        else if(e.target.intrinsic==U64_MIX&&e.args.length==2&&converted.containsKey(e.args[0])) {
+                            require(salts.contains(e.args[1]),"Pointer hash requires dominating direct U64 literal salt 11");
+                            convertedUsed.add(e.args[0]); hash.add(raw.get(converted.get(e.args[0]).args[0]));
+                            noPointerUse(e.args[1],raw,converted);
+                        } else noPointerUses(e.args,raw,converted);
                         break;
-                    case CTOR: case PAP: noPointerUses(e.args,definitions); break;
-                    case AP: noPointerUse(e.a,definitions); noPointerUses(e.args,definitions); break;
-                    case PROJ: case SPROJ: case UPROJ: case BOX: case UNBOX: case SHARED:
-                        noPointerUse(e.a,definitions); break;
+                    case CTOR: case PAP: noPointerUses(e.args,raw,converted); break;
+                    case AP: noPointerUse(e.a,raw,converted); noPointerUses(e.args,raw,converted); break;
+                    case PROJ: case SPROJ: case UPROJ: case BOX: case UNBOX: case SHARED: noPointerUse(e.a,raw,converted); break;
                     case LIT: break;
                     default: throw error("Unaudited pointer identity expression opcode");
                 }
-                checkPointerUses(body.next,definitions,used); break;
+                checkPointerUses(body.next,raw,converted,salts,used,convertedUsed,equality,hash); break;
             }
-            case JDECL:
-                checkPointerUses(body.body,definitions,used); checkPointerUses(body.next,definitions,used); break;
-            case CASE:
-                noPointerUse(body.a,definitions);
-                for(Body alternative:body.alternatives) checkPointerUses(alternative,definitions,used); break;
-            case SET: case SSET: case USET:
-                noPointerUse(body.a,definitions); noPointerUses(body.args,definitions);
-                checkPointerUses(body.next,definitions,used); break;
-            case INC: case DEC: case DEL: case SETTAG:
-                noPointerUse(body.a,definitions); checkPointerUses(body.next,definitions,used); break;
-            case JMP: noPointerUses(body.args,definitions); break;
-            case RET: noPointerUse(body.a,definitions); break;
+            case JDECL: checkPointerUses(body.body,raw,converted,salts,used,convertedUsed,equality,hash); checkPointerUses(body.next,raw,converted,salts,used,convertedUsed,equality,hash); break;
+            case CASE: noPointerUse(body.a,raw,converted); for(Body alternative:body.alternatives) checkPointerUses(alternative,raw,converted,salts,used,convertedUsed,equality,hash); break;
+            case SET: case SSET: case USET: noPointerUse(body.a,raw,converted); noPointerUses(body.args,raw,converted); checkPointerUses(body.next,raw,converted,salts,used,convertedUsed,equality,hash); break;
+            case INC: case DEC: case DEL: case SETTAG: noPointerUse(body.a,raw,converted); checkPointerUses(body.next,raw,converted,salts,used,convertedUsed,equality,hash); break;
+            case JMP: noPointerUses(body.args,raw,converted); break;
+            case RET: noPointerUse(body.a,raw,converted); break;
             case UNREACHABLE: break;
             default: throw error("Unaudited pointer identity body opcode");
         }
     }
+
     private void ensure(int slots,int joinSlots) {
         if(slots>objects.length) { int n=Math.max(slots,objects.length*2); objects=Arrays.copyOf(objects,n); numbers=Arrays.copyOf(numbers,n); }
         if(joinSlots>joins.length) joins=Arrays.copyOf(joins,Math.max(joinSlots,joins.length*2));
@@ -7608,7 +7712,7 @@ public final class Interpreter implements AutoCloseable {
         if(function.hostExtern!=null||function.intrinsic!=0) return function;
         if(header!=null&&header.kind.equals("extern")) throw error("Extern implementation unavailable: "+function.label);
         if(allowCodeRequest&&header!=null&&program.preparedBodies[function.id]==null) return function;
-        preparedBody(function); return function;
+        PreparedBody prepared=preparedBody(function); pointerHashEntry(function,prepared,program); return function;
     }
     private PreparedBody preparedBody(Function function) {
         require(function.id>=0&&function.id<program.functions.length
@@ -7678,7 +7782,7 @@ public final class Interpreter implements AutoCloseable {
     private Node closure(Function f,Object[] captured) {
         Node n=new Node(245,captured.length,0); n.closure=f; n.metadata=program.generation; System.arraycopy(captured,0,n.fields,0,captured.length); allocations++; return n;
     }
-    private void expression(Expr e,int type,int dest,PreparedBody prepared) {
+    private void expression(Expr e,int type,int dest,PreparedBody prepared,Function caller) {
         switch(e.op) {
             case CTOR: {
                 if(e.size==0&&e.scalarBytes==0) objects[dest]=Long.valueOf(e.tag);
@@ -7688,7 +7792,7 @@ public final class Interpreter implements AutoCloseable {
             case SPROJ: { Node n=constructorNode(obj(e.a)); numbers[dest]=readScalar(n,rawOffset(n,e.size,e.b),type); break; }
             case UPROJ: { Node n=constructorNode(obj(e.a)); numbers[dest]=readScalar(n,rawOffset(n,e.b,0),USIZE); break; }
             case FAP:
-                if(e.target.intrinsic==POINTER_IDENTITY) pointerIdentity(e.target,e.args,prepared,e);
+                if(e.target.intrinsic==POINTER_IDENTITY) pointerIdentity(e.target,e.args,prepared,e,caller);
                 else if(e.args.length==0) load(e.target); else call(e.target,e.args);
                 if(type==OBJ) objects[dest]=result; else numbers[dest]=scalarResult; break;
             case PAP: { Object[] captured=new Object[e.args.length]; for(int i=0;i<captured.length;i++) captured[i]=obj(e.args[i]); objects[dest]=closure(e.target,captured); break; }
@@ -7713,7 +7817,7 @@ public final class Interpreter implements AutoCloseable {
                         for(int i=0;i<e.args.length;i++) { objects[bp+f.params[i]]=objects[scratch+i]; numbers[bp+f.params[i]]=numbers[scratch+i]; objects[scratch+i]=null; }
                         tick(); b=prepared.body; break;
                     }
-                    expression(e,b.type,bp+b.a,prepared); b=b.next; break;
+                    expression(e,b.type,bp+b.a,prepared,f); b=b.next; break;
                 }
                 case JDECL: joins[jbp+b.a]=b; b=b.next; break;
                 case JMP: {
@@ -8340,6 +8444,7 @@ public final class Interpreter implements AutoCloseable {
                 &&function.header==request.header(),"Code reply changed the requested Header");
         PreparedBody prepared=descendant.preparedBodies[function.id];
         require(prepared!=null&&prepared.body!=null,"Code reply has no requested prepared body");
+        pointerHashEntry(function,prepared,descendant);
         requireExecutableAbi(function);
         validateEntryArguments(function,activation.arguments,true);
         if(continuationDepth>=65536) throw error("Continuation depth limit");
@@ -8650,7 +8755,7 @@ public final class Interpreter implements AutoCloseable {
                             } else if(f.intrinsic==TASK_MAP) {
                                 enterTaskMap(f,e.args,null,b.next,dest,ASSIGN,null); b=pc;
                             } else if(f.intrinsic!=0) {
-                                if(f.intrinsic==POINTER_IDENTITY) pointerIdentity(f,e.args,activePrepared,e);
+                                if(f.intrinsic==POINTER_IDENTITY) pointerIdentity(f,e.args,activePrepared,e,active);
                                 else intrinsicSlots(f,e.args);
                                 if(b.type==OBJ) objects[dest]=result; else numbers[dest]=scalarResult;
                                 b=b.next;
@@ -8660,7 +8765,7 @@ public final class Interpreter implements AutoCloseable {
                             for(int i=0;i<args.length;i++) args[i]=obj(e.args[i]);
                             applyExplicit(value,args,b.next,dest);
                             b=pc;
-                        } else { expression(e,b.type,dest,activePrepared); b=b.next; }
+                        } else { expression(e,b.type,dest,activePrepared,active); b=b.next; }
                         break;
                     }
                     case JDECL: joins[jbp+b.a]=b; b=b.next; break;
