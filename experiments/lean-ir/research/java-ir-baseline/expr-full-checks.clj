@@ -1,5 +1,5 @@
 (ns java-ir-expr-full-checks
- "Private complete two-pass job. Native530 remains unavailable."
+ "Private complete two-pass job. Native execution requires a separate configured policy."
  (:refer-clojure :exclude [run!])
  (:require [clojure.test :refer [deftest is run-tests]]
   [java-ir-baseline :as j] [java-ir-baseline-checks :as c]
@@ -35,10 +35,9 @@
        input (reduce #(expr/app! ctx e %1 %2) head args)]
   {:m m :input input :record record}))
 
-(deftest original-native-stays-unregistered
+(deftest original-native-metadata-is-recognized-without-execution
  (let [native (last (direct/originals))]
-  (is (re-find #"Unsupported baseline extern"
-        (c/failure #(j/prepare-host-program *basis* [(get native "row")] []))))))
+  (is (some? (:program (j/prepare-host-program *basis* [(get native "row")] []))))))
 
 (deftest no-delayed-path-returns-pair-and-independent-input-occurrence
  (let [{:keys [ctx] :as lab} (context {:defer (set (concat direct/helpers expr/roles level/roles))})

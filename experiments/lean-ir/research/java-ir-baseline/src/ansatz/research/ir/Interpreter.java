@@ -28,7 +28,7 @@ public final class Interpreter implements AutoCloseable {
     private static final int STR_POS_SET=260;
     private static final int VOID_MK=516,LEVEL_INSTANTIATE=517,EXPR_FIND_EXT=519;
     private static final int ARRAY_CHECKED_SET=518,SHARECOMMON_QUICK=520,EXPR_REPLACE=521,EXPR_ABSTRACT_RANGE=522,EXPR_ABSTRACT=523;
-    private static final int EXPR_INSTANTIATE=524,EXPR_INSTANTIATE1=525,EXPR_INSTANTIATE_RANGE=526,EXPR_INSTANTIATE_REV=527,EXPR_INSTANTIATE_REV_RANGE=528,EXPR_LIFT=529;
+    private static final int EXPR_INSTANTIATE=524,EXPR_INSTANTIATE1=525,EXPR_INSTANTIATE_RANGE=526,EXPR_INSTANTIATE_REV=527,EXPR_INSTANTIATE_REV_RANGE=528,EXPR_LIFT=529,EXPR_INSTANTIATE_MVARS=530;
     private static final int EXPR_DATA=400,EXPR_APP_DATA=401,LEVEL_DATA=402,EXPR_CACHE=403,EXPR_EQV=404,EXPR_EQUAL=405,U8_TO_U32=406,U64_TO_U8=407,EXPR_FIND=408,LEVEL_EQUAL=409;
     private static final int PROFILE_IT=410;
     private static final int STR_PUSH=15,STR_LIST=16,STR_GET=17,STR_NEXT=18,STR_APPEND=19,STR_SIZE=20,
@@ -440,6 +440,8 @@ public final class Interpreter implements AutoCloseable {
                 new String[]{"erased","object","object","tobject","tobject"},new boolean[]{false,true,true,false,false}));
         register(registry,new ExternSpec("lean_instantiate_level_mvars",LEVEL_INSTANTIATE,"object",
                 new String[]{"object","tobject"},new boolean[]{false,false}));
+        if(EXPR_INSTANTIATION_NATIVE_READY) register(registry,new ExternSpec("lean_instantiate_expr_mvars",EXPR_INSTANTIATE_MVARS,"object",
+                new String[]{"object","object"},new boolean[]{false,false}));
         register(registry,new ExternSpec("lean_void_mk",VOID_MK,"void",
                 new String[]{"erased","tobject"},new boolean[]{false,false}));
         register(registry,new ExternSpec("lean_find_ext_expr",EXPR_FIND_EXT,"tobject",
@@ -2135,14 +2137,14 @@ public final class Interpreter implements AutoCloseable {
 
     /** Complete nineteen-role source binding for private pass-one research.
      * Descriptive Header hashes are not source authentication. */
-    private static final class ExprInstantiationPolicy {
+    public static final class ExprInstantiationPolicy {
         final LevelInstantiationPolicy levels;
         final ExprConstructorPolicy constructors;
         final Header[] helpers;
         private ExprInstantiationPolicy(LevelInstantiationPolicy levels,ExprConstructorPolicy constructors,Header[] helpers) {
             this.levels=levels; this.constructors=constructors; this.helpers=helpers.clone();
         }
-        static ExprInstantiationPolicy originalHelpers(LevelInstantiationPolicy levels,Header[] helpers,Header[] constructors) {
+        public static ExprInstantiationPolicy originalHelpers(LevelInstantiationPolicy levels,Header[] helpers,Header[] constructors) {
             require(levels!=null&&helpers!=null&&helpers.length==5,"Five original Expr helper Headers required");
             ExprConstructorPolicy ctor=ExprConstructorPolicy.originalHeaders(constructors);
             require(ctor.helpers[0].source==levels.helpers[0].source,"Expr/Level constructor source bindings differ");
@@ -2907,6 +2909,7 @@ public final class Interpreter implements AutoCloseable {
     /* Stage five: private complete transform scaffold. Native530 is RESERVED,
      * not registered. No operation can claim input while READY remains false. */
     private static final boolean EXPR_FULL_RESEARCH_READY=true;
+    private static final boolean EXPR_INSTANTIATION_NATIVE_READY=true;
     private static final int DT_IDLE=0,DT_RUNNING=1,DT_RESULT=2,DT_SEALED=3,DT_DRAINED=4;
     private abstract static class DelayedTransformTask {
         DelayedTransformTask child;
@@ -2989,14 +2992,53 @@ public final class Interpreter implements AutoCloseable {
         validateHostObject(ownedContext); Node root=exprNode(ownedExpr);
         if(ownedContext==ownedExpr) require(root.rc==0||root.rc>=2,"Complete Expr input owner aliases differ");
         RuntimeAction action=newAction(ACTION_EXPR_FULL_RESEARCH,null,null,0,ROOT,null);
+        prepareExprFullAction(action,policy,ownedContext,root);
+        objects[action.slot]=null; publishAction(action);
+        callsLeft=10_000_000; instructions=0; entry=null; result=null; releaseRoot=false; phase=RUNNING;
+    }
+    private void prepareExprFullAction(RuntimeAction action,ExprInstantiationPolicy policy,Object ownedContext,Node root) {
         ExprFullResearchState state=new ExprFullResearchState(); action.exprFull=state;
         state.context=new MVarContextCell(); state.context.current=new LevelCredit(ownedContext,true); state.budget=new InstantiationBudget();
-        state.input=new ExprCredit(ownedExpr,true); ExprDirectSession direct=new ExprDirectSession(); state.direct=direct;
+        state.input=new ExprCredit(root,true); ExprDirectSession direct=new ExprDirectSession(); state.direct=direct;
         direct.context=state.context; direct.budget=state.budget; direct.policy=policy;
         direct.levels=newLevelSession(state.context,state.budget,policy.levels);
         direct.tasks.addLast(new DirectVisitFrame(root)); direct.phase=DS_RUNNING;
-        objects[action.slot]=null; publishAction(action);
-        callsLeft=10_000_000; instructions=0; entry=null; result=null; releaseRoot=false; phase=RUNNING;
+        objects[action.slot]=null;
+    }
+    private ExprInstantiationPolicy exprInstantiationPolicy;
+    /** One actual configured Level policy plus nineteen exact ordinary Headers.
+     * Source acceptance remains the caller's trusted-loader obligation. */
+    public void configureExprInstantiation(ExprInstantiationPolicy policy) {
+        explicitOnly(); require(taskRuntime!=null&&policy!=null,"Expr instantiation requires active runtime and actual policy");
+        if(closed||disposed||untrackedFailure||advancing||phase!=IDLE||pendingOwnedResult||sp!=0||continuationDepth!=0
+                ||runtimeAction!=null||hostCompletion!=null||hostGuestRecord!=null||quietCurrent!=null||releasePending!=0
+                ||releaseTransaction!=null||releaseRoot) throw new IllegalStateException("Expr instantiation configuration requires open idle engine");
+        require(exprInstantiationPolicy==null,"Expr instantiation policy already configured");
+        require(policy.levels==levelInstantiationPolicy,"Expr policy must use actual configured Level policy");
+        for(int role=0;role<5;role++) { levelInstantiationHelper(policy.levels,role); exprInstantiationHelper(policy,role); }
+        for(int role=0;role<9;role++) exprConstructor(policy.constructors,role);
+        exprInstantiationPolicy=policy;
+    }
+    private ExprInstantiationPolicy exprInstantiationProfile(Function function) {
+        require(EXPR_INSTANTIATION_NATIVE_READY,"Full Expr native is not yet enabled");
+        require(explicit&&taskRuntime!=null&&exprInstantiationPolicy!=null,"Expr instantiation requires active explicit runtime and configured original helpers");
+        ExprInstantiationPolicy policy=exprInstantiationPolicy;
+        require(policy.levels==levelInstantiationPolicy,"Expr/Level configured policy identity differs");
+        Header origin=function.header;
+        require(origin!=null&&origin.source==policy.helpers[0].source&&origin.kind.equals("extern")
+                &&origin.originalSha256.equals("7e53092b477181a60a5e66f6cf2e2f33827b9f05411b294359b860431fc8a9ef"),
+                "Expr instantiation native source Header differs");
+        Object name=Arrays.asList("str",Arrays.asList("str",Arrays.asList("anonymous"),"Lean"),"instantiateExprMVarsImp");
+        require(origin.exactName.equals(frozenName(name)),"Expr instantiation native typed Name differs");
+        for(int role=0;role<5;role++) { levelInstantiationHelper(policy.levels,role); exprInstantiationHelper(policy,role); }
+        for(int role=0;role<9;role++) exprConstructor(policy.constructors,role);
+        return policy;
+    }
+    private void validateExprInstantiationArguments(Function function,Object[] args) {
+        exprInstantiationProfile(function);
+        require(args!=null&&args.length==2,"Expr instantiation native arity differs");
+        validateHostObject(args[0]); Node root=exprNode(args[1]);
+        if(args[0]==args[1]) require(root.rc==0||root.rc>=2,"Expr instantiation input alias credits differ");
     }
     private ExprDirectSession currentDirectSession(RuntimeAction action) {
         return action==null?null:action.exprDirect!=null?action.exprDirect.session:
@@ -3446,7 +3488,7 @@ public final class Interpreter implements AutoCloseable {
                 "Complete Expr root final ownership differs");
         Object output=state.pair.value; state.pair.owned=false; action.output=output;
         state.input=null; state.e1=null; state.e2=null; state.pair=null; state.context=null; state.budget=null; state.direct=null; state.delayed=null;
-        action.exprFull=null; finishAction(action,output);
+        action.exprFull=null; action.arguments=null; finishAction(action,output);
     }
 
     private void delayedWork(DelayedSession session,long amount) {
@@ -4493,7 +4535,7 @@ public final class Interpreter implements AutoCloseable {
     }
     private boolean actionPrimitive(Function function) {
         int op=function.intrinsic;
-        return taskRuntime!=null&&(pureExprTransform(op)||abstractPrimitive(op)||op==EXPR_REPLACE||op==SHARECOMMON_QUICK||op==LEVEL_INSTANTIATE||op==VOID_MK||op==PROFILE_IT||findPrimitive(op)||taskPrimitive(op)||op==TASK_MAP||op==REF_SET||op==ARRAY_POP||op==ARRAY_FSET||op==ARRAY_USET||op==ARRAY_CHECKED_SET||op==ARRAY_REPLICATE);
+        return taskRuntime!=null&&(pureExprTransform(op)||abstractPrimitive(op)||op==EXPR_REPLACE||op==SHARECOMMON_QUICK||op==LEVEL_INSTANTIATE||op==EXPR_INSTANTIATE_MVARS||op==VOID_MK||op==PROFILE_IT||findPrimitive(op)||taskPrimitive(op)||op==TASK_MAP||op==REF_SET||op==ARRAY_POP||op==ARRAY_FSET||op==ARRAY_USET||op==ARRAY_CHECKED_SET||op==ARRAY_REPLICATE);
     }
     private Object[] savedArguments(Function function,int[] slots) {
         Object[] args=new Object[slots.length];
@@ -4579,6 +4621,7 @@ public final class Interpreter implements AutoCloseable {
             shareKind(args[1]); return;
         }
         if(function.intrinsic==LEVEL_INSTANTIATE) { validateLevelArguments(function,args); return; }
+        if(function.intrinsic==EXPR_INSTANTIATE_MVARS) { validateExprInstantiationArguments(function,args); return; }
         if(function.intrinsic==ARRAY_CHECKED_SET) { validateCheckedArraySet(args); return; }
         if(function.intrinsic==VOID_MK) {
             require(args!=null&&args.length==2,"Void.mk native arity mismatch");
@@ -4605,9 +4648,10 @@ public final class Interpreter implements AutoCloseable {
     }
     private void enterNative(Function function,Object[] args,Body next,int dest,int kind,Object[] surplus) {
         validateNative(function,args);
-        RuntimeAction action=newAction(pureExprTransform(function.intrinsic)?ACTION_EXPR_PURE:abstractPrimitive(function.intrinsic)?ACTION_EXPR_ABSTRACT:function.intrinsic==EXPR_REPLACE?ACTION_EXPR_REPLACE:function.intrinsic==SHARECOMMON_QUICK?ACTION_SHARECOMMON:function.intrinsic==LEVEL_INSTANTIATE?ACTION_LEVEL_MVARS:findPrimitive(function.intrinsic)?ACTION_FIND:function.intrinsic==PROFILE_IT?ACTION_PROFILE:
+        RuntimeAction action=newAction(function.intrinsic==EXPR_INSTANTIATE_MVARS?ACTION_EXPR_FULL_RESEARCH:pureExprTransform(function.intrinsic)?ACTION_EXPR_PURE:abstractPrimitive(function.intrinsic)?ACTION_EXPR_ABSTRACT:function.intrinsic==EXPR_REPLACE?ACTION_EXPR_REPLACE:function.intrinsic==SHARECOMMON_QUICK?ACTION_SHARECOMMON:function.intrinsic==LEVEL_INSTANTIATE?ACTION_LEVEL_MVARS:findPrimitive(function.intrinsic)?ACTION_FIND:function.intrinsic==PROFILE_IT?ACTION_PROFILE:
                 taskPrimitive(function.intrinsic)||function.intrinsic==TASK_MAP?ACTION_TASK:ACTION_NATIVE,function,next,dest,kind,surplus);
         action.arguments=args;
+        if(function.intrinsic==EXPR_INSTANTIATE_MVARS) prepareExprFullAction(action,exprInstantiationPolicy,args[0],exprNode(args[1]));
         if(pureExprTransform(function.intrinsic)) preparePureExprTransform(action,function,args);
         if(abstractPrimitive(function.intrinsic)) prepareAbstractAction(action,function,args);
         if(function.intrinsic==EXPR_REPLACE) {
@@ -5709,7 +5753,7 @@ public final class Interpreter implements AutoCloseable {
         // phase RUNNING between advance calls is a paused dispatch/release-work
         // boundary. No Java call frame is captured in that state.
         Interpreter child=new Interpreter(program,explicit,initializing,buildIdentity,taskRuntime,profilingPolicy);
-        child.pointerHashPolicy=pointerHashPolicy; child.levelInstantiationPolicy=levelInstantiationPolicy; child.shareCommonLayout=shareCommonLayout; child.exprTransformPolicy=exprTransformPolicy;
+        child.pointerHashPolicy=pointerHashPolicy; child.levelInstantiationPolicy=levelInstantiationPolicy; child.exprInstantiationPolicy=exprInstantiationPolicy; child.shareCommonLayout=shareCommonLayout; child.exprTransformPolicy=exprTransformPolicy;
         ForkCopy copy=new ForkCopy(child);
         copy.bind(constants,child.constants);
         child.objects=(Object[])copy.value(objects);
@@ -8310,6 +8354,7 @@ public final class Interpreter implements AutoCloseable {
         if(function.intrinsic==PROFILE_IT) profilingGetter(function);
         if(findPrimitive(function.intrinsic)) require(explicit&&taskRuntime!=null,"Expr.find requires the active explicit runtime");
         if(function.intrinsic==LEVEL_INSTANTIATE) levelInstantiationProfile(function);
+        if(function.intrinsic==EXPR_INSTANTIATE_MVARS) exprInstantiationProfile(function);
         if(function.intrinsic==SHARECOMMON_QUICK) shareCommonProfile();
         if(function.intrinsic==EXPR_REPLACE) exprTransformsProfile(function);
         if(abstractPrimitive(function.intrinsic)||pureExprTransform(function.intrinsic)) exprTransformsProfile(function);

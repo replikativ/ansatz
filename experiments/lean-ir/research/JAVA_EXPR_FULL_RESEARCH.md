@@ -4,8 +4,9 @@ This private active-explicit research job runs both pinned native algorithm
 passes and returns the two-field `[currentContext, finalExpr]` result. It uses
 one context cell and one work budget, existing nineteen-role source/ABI policy,
 authentic ordinary guest constructors/accessors/getters/setter, and the existing
-Level, beta, lift and scoped-cache workers. Native530 remains unregistered. No
-public full-instantiation capability or original frontend completion follows.
+Level, beta, lift and scoped-cache workers. At this private checkpoint, native
+530 remained unregistered. The later [configured native API](JAVA_EXPR_FULL_RUNTIME.md)
+is a separate gate; no original frontend completion follows from private results.
 
 The fixed reflective research entry accepts owned context and Expr occurrences.
 It preflights the configured Level policy and all nineteen current ordinary

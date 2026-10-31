@@ -1,5 +1,5 @@
 (ns java-ir-expr-direct-checks
-  "PRIVATE complete direct pass report; original two-pass native remains unavailable."
+  "PRIVATE complete direct pass report; native execution requires its separate configured policy."
   (:refer-clojure :exclude [run!])
   (:require [clojure.test :refer [deftest is run-tests]] [clojure.data.json :as json]
             [java-ir-baseline :as j] [java-ir-baseline-checks :as c]
@@ -42,14 +42,14 @@
 (defn assign! [ctx e m n value] (expr/call ctx e "Lean.assignExp" [m n value]))
 (defn fields [ctx value] (expr/fields ctx value))
 (defn close! [ctx e report] (sync/release! ctx e report) (sync/close! ctx e))
-(deftest nineteen-authentic-roles-closed-helper-fixture-and-native-stays-off
+(deftest nineteen-authentic-roles-and-closed-helper-fixture
   (let [m (json/read-str (slurp (str directory "provenance.json")))]
     (is (= 20 (count (originals)))) (is (= 111 (count (records))))
     (is (= [] (get m "execution-initialized-dependencies")))
     (is (= (get m "original-rows-sha256") (corpus/sha256 (str directory "original-rows.json"))))
     (is (= (get m "execution-rows-sha256") (corpus/sha256 (str directory "execution-rows.json"))))
     (let [native (last (originals))]
-      (is (re-find #"Unsupported baseline extern" (c/failure #(j/prepare-host-program *basis* [(get native "row")] [])))))))
+      (is (some? (:program (j/prepare-host-program *basis* [(get native "row")] [])))))))
 (deftest no-mvars-fast-path-preserves-input-with-all-helper-bodies-unprepared
   (let [{:keys [ctx] :as lab} (context {:defer (set (concat helpers expr/roles level/roles))}) e (engine lab)
         m (level/fresh! ctx e) input (expr/bvar! ctx e 0) report (run! lab e m input) values (fields ctx report)]

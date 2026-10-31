@@ -482,3 +482,17 @@
 (defn configure-pointer-hashes! [basis engine policy]
   (.invoke (.getMethod ^Class (:class basis) "configurePointerHashes" (into-array Class [(class policy)]))
            engine (object-array [policy])))
+
+(defn expr-instantiation-policy
+  "Bind the existing exact nineteen-role validator. LEVEL-POLICY must be the
+   actual policy configured on the engine; caller authenticates all source bytes."
+  [basis level-policy expr-headers constructor-headers]
+  (let [cls (Class/forName "ansatz.research.ir.Interpreter$ExprInstantiationPolicy" true (:loader basis))
+        header-class (Class/forName "ansatz.research.ir.Interpreter$Header" true (:loader basis))
+        hs (into-array header-class expr-headers) cs (into-array header-class constructor-headers)]
+    (invoke-static (.getMethod cls "originalHelpers"
+                    (into-array Class [(class level-policy) (class hs) (class cs)]))
+                   [level-policy hs cs])))
+(defn configure-expr-instantiation! [basis engine policy]
+  (.invoke (.getMethod ^Class (:class basis) "configureExprInstantiation" (into-array Class [(class policy)]))
+           engine (object-array [policy])))
