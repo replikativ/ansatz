@@ -31,12 +31,12 @@
     {
       "file": "loader.clj",
       "base-sha256": "d10ec5d4909c1c45cf205d7e2aa10a4e90d6fa7400c496143374998e6fb6c1e8",
-      "sha256": "a83043e4d8ba4af5cdf49d1c884cbdd23432983525bfcdfa93e4247afc1b2305"
+      "sha256": "bd524ec97cea97e343c3d4c50127d671aeb0d6acbeba899fd22ec38dada26715"
     },
     {
       "file": "verify-source.py",
       "base-sha256": "648d82fc8b482aa674865ef3c341c43213eb2ff467c6850fb8d2b46fac788f4e",
-      "sha256": "091789ba7516e1f86dc2b9ab1e6cb468d37b2dced0c67e011ef9c1beaed90648"
+      "sha256": "7665f2f4f973e09687b06aa1f3e392e0d93cfea4fdc22ebc6834bed625fd2ead"
     },
     {
       "file": "models/lineage.clj",
@@ -112,26 +112,6 @@
       "file": "models/mutual-declaration.clj",
       "base-sha256": null,
       "sha256": "1d88b3b3a9bee1bebe2706f0464812b853511de402d1d8008a95ccc4e13697ff"
-    },
-    {
-      "file": "source-exchange.clj",
-      "base-sha256": null,
-      "sha256": "dd8ee21bd8c26a37d69b2bd8428a956d4b8cb3a5b86363835dd2e64ce27f7d47"
-    },
-    {
-      "file": "models/source-exchange.clj",
-      "base-sha256": null,
-      "sha256": "8652bfb501a34317f464a509d6904013a76848a319a39e70f74c0ddcfd887b5b"
-    },
-    {
-      "file": "source-data-snapshot.clj",
-      "base-sha256": null,
-      "sha256": "b27b7b51cb16e85ebf361b8324d4f738ba32a545e8c74e138eef2618e1782cb4"
-    },
-    {
-      "file": "models/source-data-snapshot.clj",
-      "base-sha256": null,
-      "sha256": "4dec278ea114436bb8c7d68d3f8c2a8bdbbad0a1e109e5ee351ac7fc9bd90458"
     }
   ],
   "source-inventory": [
@@ -201,7 +181,7 @@
     },
     {
       "file": "loader.clj",
-      "sha256": "a83043e4d8ba4af5cdf49d1c884cbdd23432983525bfcdfa93e4247afc1b2305"
+      "sha256": "bd524ec97cea97e343c3d4c50127d671aeb0d6acbeba899fd22ec38dada26715"
     },
     {
       "file": "models/adapter.clj",
@@ -268,14 +248,6 @@
       "sha256": "ec40f4510db9d611a6fb98c0a4ce5814d189058b25bcf8834611d0c795a881f8"
     },
     {
-      "file": "models/source-data-snapshot.clj",
-      "sha256": "4dec278ea114436bb8c7d68d3f8c2a8bdbbad0a1e109e5ee351ac7fc9bd90458"
-    },
-    {
-      "file": "models/source-exchange.clj",
-      "sha256": "8652bfb501a34317f464a509d6904013a76848a319a39e70f74c0ddcfd887b5b"
-    },
-    {
       "file": "module.clj",
       "sha256": "fe2dfe6b42e8bc0798164a2dcc30592df6ffa025a2e3e61588629bbc9fb72819"
     },
@@ -292,16 +264,8 @@
       "sha256": "e4b1c1235778bc7221381fe6c959f650ba53086bb0009045b51d98e3259fcf50"
     },
     {
-      "file": "source-data-snapshot.clj",
-      "sha256": "b27b7b51cb16e85ebf361b8324d4f738ba32a545e8c74e138eef2618e1782cb4"
-    },
-    {
-      "file": "source-exchange.clj",
-      "sha256": "dd8ee21bd8c26a37d69b2bd8428a956d4b8cb3a5b86363835dd2e64ce27f7d47"
-    },
-    {
       "file": "verify-source.py",
-      "sha256": "091789ba7516e1f86dc2b9ab1e6cb468d37b2dced0c67e011ef9c1beaed90648"
+      "sha256": "7665f2f4f973e09687b06aa1f3e392e0d93cfea4fdc22ebc6834bed625fd2ead"
     }
   ],
   "ordered-load-units": [
@@ -448,28 +412,12 @@
     [
       "models/general-file.clj",
       "general-frontend-file-checks-v1"
-    ],
-    [
-      "source-data-snapshot.clj",
-      "ansatz.research.ir.source-data-snapshot"
-    ],
-    [
-      "source-exchange.clj",
-      "java-source-module-exchange-v1"
-    ],
-    [
-      "models/source-data-snapshot.clj",
-      "source-data-snapshot-checks-v1"
-    ],
-    [
-      "models/source-exchange.clj",
-      "source-module-exchange-checks-v1"
     ]
   ],
   "tracked-references": [
     {
       "file": "experiments/lean-ir/research/java-ir-baseline/artifact-frontend/README.md",
-      "sha256": "d138da0f164c5677abd9b811104d0c057883525fb5b0963f373231444a8a39b7"
+      "sha256": "6189c9c45ba6ceb8b57b6f3eba61120cc17ed07ebe0fdff32b93043e23fb0bf3"
     },
     {
       "file": "experiments/lean-ir/research/java-ir-baseline/artifact-frontend/GENERAL_COMMAND_RECEIPTS.md",
@@ -532,6 +480,10 @@
     {
       "file": "target/java-observed-command-v1/actual-idle-baseline-v2.edn",
       "sha256": "aa92fdd070460903ec1a660c63f8affa4ef43aed825d734e76079cf9e357c303"
+    },
+    {
+      "file": "target/java-source-exchange-v1/mutual-landing-models-v1.edn",
+      "sha256": "535c856880b02768aeea0639349405df748f5ce1301143f2a85703432c17c382"
     }
   ],
   "runtime-authority-boundaries": [
@@ -549,8 +501,7 @@
     "General FileRun source and nine mocked model families added; no guest acceptance claimed for this checkpoint.",
     "Closed composite dispatcher forwards fixed Prelude operations unchanged; deferred exact source issuers remain a separately reviewed unit. Four routing model families prepared, no worker guest execution.",
     "Original mutual-group projection/check/atomic publication and active M1 opaque gate scope are a source checkpoint; eight model families prepared, actual recursive command acceptance pending.",
-    "Source exchange unit/model are independently integrated leaves, explicitly deferred until runtime-cohort definitions exist; full closure/reconstructed Base issuance is a later separate unit.",
     "Publication history validates every checked DAG branch in an issuance-watermark interval; the actual observed constant map selects the final retained version, which must preserve the pre-command selected ancestry. Parent JVM compilation and six model suites passed 56 tests / 392 assertions; no worker JVM execution.",
-    "Deferred source-data-snapshot loads before source exchange and rejects non-guest numeric DTO carriers; parent focused snapshot models passed 6 tests / 30 assertions. Reconstruction issuance remains separate."
+    "Landing split excludes the four deferred source exchange/snapshot implementation/model leaves. Parent evaluated the exact landing functions and seven model suites: 60 tests / 424 assertions, zero failures or errors. This is model evidence, not a new guest execution claim."
   ]
 }

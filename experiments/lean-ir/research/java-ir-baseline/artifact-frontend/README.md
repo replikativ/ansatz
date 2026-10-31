@@ -418,9 +418,7 @@ The eight new model families are prepared for coordinated execution. This source
 checkpoint does not claim actual recursive-source or native publication success.
 
 
-The separately authored same-engine source exchange definitions are deferred:
-after the runtime-cohort package is loaded, call
-`ansatz.research.ir.artifact-frontend-loader/load-source-modules!` and optionally
-`load-source-module-models!`. The ordinary artifact loader intentionally does
-not load a unit that depends on runtime-cohort. These source files are pinned in
-the complete inventory; definition loading does not issue a reconstructed Base.
+
+The source-module exchange and snapshot implementations are not included in this
+landing. The closed dispatcher retains its deferred issuer boundary; this loader
+contains only the 36 core definition/model units present in this package.

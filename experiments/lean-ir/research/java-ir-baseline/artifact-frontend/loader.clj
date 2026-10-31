@@ -43,12 +43,6 @@
     ["models/mutual-declaration.clj" generated-mutual-declaration-models-v1]
     ["models/generated-batch.clj" general-generated-batch-models-v1]
     ["models/general-file.clj" general-frontend-file-checks-v1]])
-(def source-module-units
-  '[["source-data-snapshot.clj" ansatz.research.ir.source-data-snapshot]
-    ["source-exchange.clj" java-source-module-exchange-v1]])
-(def source-module-models
-  '[["models/source-data-snapshot.clj" source-data-snapshot-checks-v1]
-    ["models/source-exchange.clj" source-module-exchange-checks-v1]])
 (defn- load-units! [root entries required]
   (doseq [n required]
     (when-not (find-ns n) (throw (ex-info "Load explicit research prerequisite first" {:namespace n}))))
@@ -70,14 +64,3 @@
   ([root] (load-units! root models
             (concat (map second units)
                     '[java-ir-baseline-checks java-ir-array-checks java-ir-pointer-checks java-ir-extern-checks]))))
-(defn load-source-modules!
-  "Load deferred same-engine source module definitions AFTER runtime-cohort.
-   This breaks the intentional cohort/adapter/M1 dependency cycle. Definition
-   loading grants no SourceModule, closure, finalized Run or Base authority."
-  ([] (load-source-modules! directory))
-  ([root] (load-units! root source-module-units
-                      (concat (map second units) '[allocation-heartbeat-cohort-v1]))))
-(defn load-source-module-models!
-  "Define deferred source module tests only; never runs their optional probes."
-  ([] (load-source-module-models! directory))
-  ([root] (load-units! root source-module-models (map second source-module-units))))
