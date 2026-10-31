@@ -1,0 +1,26 @@
+{
+  "binding": "runtime-native-helper-policy; not guest-export aliases",
+  "header-projections-bytes": 20738,
+  "header-projections-sha256": "f67cedb113548203bea8a410972c34fc0e3b457ef4a3823b5013b7eb0c90844f",
+  "header-record-count": 5,
+  "helper-order": [
+    "Lean.getLevelMVarAssignmentExp",
+    "Lean.assignLevelMVarExp",
+    "Lean.Level.succ._override",
+    "Lean.Level.max._override",
+    "Lean.Level.imax._override"
+  ],
+  "lean-commit": "819816b2e0a3bf405af45ae5c7af2491d8f5bee6",
+  "runtime-state-closure-manifest-sha256": "c57c9868a02a0f0e79555efcefbb0e12d2a574e8a77ed8e29d192902b94bc10a",
+  "schema": "original-level-mvars-helper-activation/1",
+  "source-index-sha256": "74d833d577923821b982e8a9e872a38b5cad011513eb18870b51417e13397f0e",
+  "source-sha256": {
+    "src/Lean/Level.lean": "560a7b5fde58937f69e9cf85b96d33f0aafcac2a9aec64776347de5e611d1303",
+    "src/Lean/MetavarContext.lean": "c077803ff87931e95ab13401b9119317a4268206814ace2a2d9586c9786355af",
+    "src/kernel/level.cpp": "7cb927c6fabd9fb843f548443494d3673a08074e26fe32b679e80f4664fc7f25",
+    "src/kernel/level.h": "c8bd15369a7defcde87a5e0b750ab46512c28ce0a4de30f9be3eff8e3069c483",
+    "src/library/instantiate_mvars.cpp": "3f7a084db583754149090964308eefead0debc62a3d0e63cfbf83ab96f400b14",
+    "src/runtime/object_ref.h": "7acbddd207cf4932f810b6d7f96691aa95d5a1d58a0257b44911281bd10a77d5",
+    "src/runtime/option_ref.h": "e4664b6095c48f86afe33af03bfbd99c1322453c48c7a59742963f2dc476aa41"
+  }
+}

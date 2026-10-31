@@ -1,0 +1,176 @@
+[
+  {
+    "symbol": "lean_elab_environment_update_base_after_kernel_add",
+    "overlay-name": [
+      "str",
+      [
+        "str",
+        [
+          "num",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "_private"
+            ],
+            "KernelBridgeShim"
+          ],
+          "0"
+        ],
+        "KernelBridgeShim"
+      ],
+      "updateAfterKernelCheck"
+    ],
+    "overlay-sha256": "9508c4623ecc961e74fcdee0028d3d23049e90907d0edfd3378b71a52a796bb3",
+    "target-name": [
+      "str",
+      [
+        "str",
+        [
+          "str",
+          [
+            "num",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "str",
+                  [
+                    "anonymous"
+                  ],
+                  "_private"
+                ],
+                "Lean"
+              ],
+              "Environment"
+            ],
+            "0"
+          ],
+          "Lean"
+        ],
+        "Environment"
+      ],
+      "updateBaseAfterKernelAdd"
+    ],
+    "target-sha256": "c89d33732d1ea750b33f9181f5fd6822517132be55d2f7fa450b89c14d7d8d07",
+    "target-label": "_private.Lean.Environment.0.Lean.Environment.updateBaseAfterKernelAdd",
+    "source-file": "src/Lean/Environment.lean",
+    "lean-commit": "819816b2e0a3bf405af45ae5c7af2491d8f5bee6"
+  },
+  {
+    "symbol": "lean_environment_add",
+    "overlay-name": [
+      "str",
+      [
+        "str",
+        [
+          "num",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "_private"
+            ],
+            "KernelBridgeShim"
+          ],
+          "0"
+        ],
+        "KernelBridgeShim"
+      ],
+      "insertCheckedConstant"
+    ],
+    "overlay-sha256": "7911f01d20693c57a078880d8ea29ef7d60cbd193f35b678515e7870f885db60",
+    "target-name": [
+      "str",
+      [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "num",
+              [
+                "str",
+                [
+                  "str",
+                  [
+                    "str",
+                    [
+                      "anonymous"
+                    ],
+                    "_private"
+                  ],
+                  "Lean"
+                ],
+                "Environment"
+              ],
+              "0"
+            ],
+            "Lean"
+          ],
+          "Kernel"
+        ],
+        "Environment"
+      ],
+      "add"
+    ],
+    "target-sha256": "3c6715c3c1242a4a35bd7def352d63f5c3bfc6302dce71375443e61afa23f320",
+    "target-label": "_private.Lean.Environment.0.Lean.Kernel.Environment.add",
+    "source-file": "src/Lean/Environment.lean",
+    "lean-commit": "819816b2e0a3bf405af45ae5c7af2491d8f5bee6"
+  },
+  {
+    "symbol": "lean_elab_environment_to_kernel_env",
+    "overlay-name": [
+      "str",
+      [
+        "str",
+        [
+          "num",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "_private"
+            ],
+            "KernelBridgeShim"
+          ],
+          "0"
+        ],
+        "KernelBridgeShim"
+      ],
+      "checkedKernelEnvironment"
+    ],
+    "overlay-sha256": "c34f94a4593b9f5d4def81ca74b54ea41d0b33e7910f75212f19066a53dafcaf",
+    "target-name": [
+      "str",
+      [
+        "str",
+        [
+          "str",
+          [
+            "anonymous"
+          ],
+          "Lean"
+        ],
+        "Environment"
+      ],
+      "toKernelEnv"
+    ],
+    "target-sha256": "54a9b9e35e5da9c547e1e02905bfa2a8a36f5a6cada44da707c2cc2f11f139b8",
+    "target-label": "Lean.Environment.toKernelEnv",
+    "source-file": "src/Lean/Environment.lean",
+    "lean-commit": "819816b2e0a3bf405af45ae5c7af2491d8f5bee6"
+  }
+]

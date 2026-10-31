@@ -1,0 +1,444 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Bounded explicit Prelude Source4 bootstrap profile",
+  "type": "object",
+  "required": [
+    "schema",
+    "profile",
+    "lean-commit",
+    "target",
+    "artifacts",
+    "directories",
+    "runtime",
+    "catalogue",
+    "capture",
+    "overlays",
+    "policies",
+    "lean-source",
+    "layout-directory",
+    "matched",
+    "externs",
+    "evidence",
+    "enabled-admissions",
+    "budgets",
+    "definitions"
+  ],
+  "properties": {
+    "schema": {
+      "const": "ansatz-source4-bootstrap/1"
+    },
+    "profile": {
+      "const": "explicit-prelude-source4-v1"
+    },
+    "lean-commit": {
+      "const": "819816b2e0a3bf405af45ae5c7af2491d8f5bee6"
+    },
+    "target": {
+      "const": {
+        "triple": "x86_64-unknown-linux-gnu",
+        "word-bits": 64
+      }
+    },
+    "artifacts": {
+      "type": "object",
+      "minProperties": 1,
+      "maxProperties": 512,
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "root": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$"
+          },
+          "path": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4096,
+            "description": "Normalized relative path; runtime rejects absolute, empty, dot, dot-dot, backslash, NUL and symlink aliases."
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "bytes": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 536870912
+          }
+        },
+        "required": [
+          "root",
+          "path",
+          "sha256",
+          "bytes"
+        ],
+        "additionalProperties": false
+      },
+      "description": "Aggregate declared bytes <=512MiB; CAS blobs are authenticated separately on demand."
+    },
+    "directories": {
+      "type": "object",
+      "maxProperties": 128,
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "root": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$"
+          },
+          "path": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4096,
+            "description": "Normalized relative path; runtime rejects absolute, empty, dot, dot-dot, backslash, NUL and symlink aliases."
+          },
+          "files": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 512,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$"
+            }
+          }
+        },
+        "required": [
+          "root",
+          "path",
+          "files"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "runtime": {
+      "type": "object",
+      "properties": {
+        "jar": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$"
+        },
+        "source": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$"
+        },
+        "build-receipt": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$"
+        },
+        "task-profile": {
+          "const": "logical-sync-ready-and-pending/1"
+        },
+        "graph-profile": {
+          "const": "persistent-ref-payload-mt/1"
+        },
+        "stdio-profile": {
+          "const": "logical-single-engine-thread/1"
+        },
+        "native-init-profile": {
+          "const": "empty-native-module-symbol-table/1"
+        }
+      },
+      "required": [
+        "jar",
+        "source",
+        "build-receipt",
+        "task-profile",
+        "graph-profile",
+        "stdio-profile",
+        "native-init-profile"
+      ],
+      "additionalProperties": false
+    },
+    "catalogue": {
+      "type": "object",
+      "properties": {
+        "manifest": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$"
+        },
+        "cas-root": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$"
+        }
+      },
+      "required": [
+        "manifest",
+        "cas-root"
+      ],
+      "additionalProperties": false
+    },
+    "capture": {
+      "type": "object",
+      "properties": {
+        "manifest": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$"
+        },
+        "source": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$"
+        },
+        "capsule": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$"
+        },
+        "headers": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$"
+        },
+        "directory": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$"
+        },
+        "census": {
+          "const": {
+            "nodes": 97412,
+            "positive": 5659,
+            "persistent": 91753,
+            "rc-sum": 6140,
+            "scalar-bytes": 191928
+          }
+        }
+      },
+      "required": [
+        "manifest",
+        "source",
+        "capsule",
+        "headers",
+        "directory",
+        "census"
+      ],
+      "additionalProperties": false
+    },
+    "overlays": {
+      "type": "array",
+      "minItems": 4,
+      "maxItems": 4,
+      "items": {
+        "type": "object",
+        "properties": {
+          "directory": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$"
+          },
+          "source": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$"
+          },
+          "producer": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$"
+          },
+          "module": {
+            "type": "array"
+          },
+          "row-count": {
+            "type": "integer"
+          },
+          "pins": {
+            "type": "object"
+          },
+          "actions": {
+            "type": "array"
+          }
+        },
+        "required": [
+          "directory",
+          "source",
+          "producer",
+          "module",
+          "row-count",
+          "pins",
+          "actions"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "policies": {
+      "type": "object",
+      "properties": {
+        "fixture-directories": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$"
+          }
+        },
+        "index": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$"
+        }
+      },
+      "required": [
+        "fixture-directories",
+        "index"
+      ],
+      "additionalProperties": false
+    },
+    "lean-source": {
+      "type": "object",
+      "properties": {
+        "commit": {
+          "const": "819816b2e0a3bf405af45ae5c7af2491d8f5bee6"
+        },
+        "files": {
+          "type": "object",
+          "minProperties": 1,
+          "maxProperties": 256,
+          "additionalProperties": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$"
+          }
+        }
+      },
+      "required": [
+        "commit",
+        "files"
+      ],
+      "additionalProperties": false
+    },
+    "layout-directory": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$"
+    },
+    "matched": {
+      "type": "object",
+      "properties": {
+        "pair-directory": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$"
+        },
+        "store-directory": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$"
+        },
+        "store-manifest": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$"
+        }
+      },
+      "required": [
+        "pair-directory",
+        "store-directory",
+        "store-manifest"
+      ],
+      "additionalProperties": false
+    },
+    "externs": {
+      "type": "object",
+      "properties": {
+        "directory": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$"
+        },
+        "manifest": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$"
+        }
+      },
+      "required": [
+        "directory",
+        "manifest"
+      ],
+      "additionalProperties": false
+    },
+    "evidence": {
+      "type": "object",
+      "properties": {
+        "observed-contract": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$"
+        },
+        "observed-layout": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$"
+        }
+      },
+      "required": [
+        "observed-contract",
+        "observed-layout"
+      ],
+      "additionalProperties": false
+    },
+    "enabled-admissions": {
+      "const": [
+        "axiom",
+        "theorem",
+        "safe-definition",
+        "compiler-generated-mutual-definition"
+      ]
+    },
+    "budgets": {
+      "type": "object",
+      "properties": {
+        "commands": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 128
+        },
+        "code-requests": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 20000
+        },
+        "instructions": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 50000000
+        },
+        "turns": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1000000
+        }
+      },
+      "required": [
+        "commands",
+        "code-requests",
+        "instructions",
+        "turns"
+      ],
+      "additionalProperties": false
+    },
+    "definitions": {
+      "type": "array",
+      "maxItems": 256,
+      "items": {
+        "type": "array",
+        "minItems": 2,
+        "maxItems": 2,
+        "prefixItems": [
+          {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$"
+          },
+          {
+            "type": "string",
+            "pattern": "^[A-Za-z][A-Za-z0-9_.-]{0,255}$"
+          }
+        ]
+      }
+    },
+    "models": {
+      "type": "array",
+      "maxItems": 256,
+      "items": {
+        "type": "array",
+        "minItems": 2,
+        "maxItems": 2,
+        "prefixItems": [
+          {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$"
+          },
+          {
+            "type": "string",
+            "pattern": "^[A-Za-z][A-Za-z0-9_.-]{0,255}$"
+          }
+        ]
+      }
+    }
+  },
+  "additionalProperties": false
+}

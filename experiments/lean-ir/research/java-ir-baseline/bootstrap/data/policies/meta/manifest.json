@@ -1,0 +1,131 @@
+{
+  "schema": "trusted-meta-export-activation/4",
+  "policy-change": false,
+  "lean-commit": "819816b2e0a3bf405af45ae5c7af2491d8f5bee6",
+  "source-index-sha256": "74d833d577923821b982e8a9e872a38b5cad011513eb18870b51417e13397f0e",
+  "v3-policy-sha256": "08d148d12e479d3deb9d40d1d2c4364bde62a23624d9cd50cc895e7407394ff7",
+  "v3-original-rows-sha256": "298fc46d6ab2c1e1f906b8061e4c1baf60dbcc4df1c19de07cfa936135d9d181",
+  "v3-audit-sha256": "d63ecb26b7b3d34faa3932690bc73533703ac42c8df2b34786ecb9c2537053c5",
+  "header-projections-sha256": "496190b4d6effd5af542b937c719208b8707e2a7487c544e295d036641ad4d02",
+  "header-record-count": 84,
+  "header-projections-bytes": 182143,
+  "upstream-source-sha256": {
+    "src/Lean/Meta/Tactic/Grind/Arith/Cutsat/Util.lean": "6b0d2d3ba0e2443890d5e1a5b6ac563d6e58b5e5bbe848a0c1eaf28087cbb6d2",
+    "src/Lean/Meta/Tactic/Grind/Arith/Cutsat/EqCnstr.lean": "efac9b31c30ecb3cb0c30c78aa973c12b12445dd125d6cd25f0520ccfa80e87f",
+    "src/Lean/Meta/Tactic/Grind/Arith/Cutsat/LeCnstr.lean": "c588177ee66cbaeabd4c0daf06a9c716b7b2aac998609411ae94c75788dbac66",
+    "src/Lean/Meta/Tactic/Grind/Arith/Cutsat/Var.lean": "2484cdc8719670f93b5a892cae8290046746218cb8220a53893d527852df7aef",
+    "src/Lean/Meta/Tactic/Grind/Types.lean": "a6693ff328279b616d189b8258cb48230c3e3672279f4b58c7c8fe8692b17c5f",
+    "src/Lean/Meta/Tactic/Grind/Internalize.lean": "f5e4051cc5f6fc8c0c4350ecd6b5f43de3709190a32abdab1faad8b7b1c85d2f",
+    "src/Lean/Meta/Tactic/Grind/Proof.lean": "0a37a7f92d4c3ea5f7b0d6b59abbf9af0904645f8d21511b7aee3d8ddefaf7cb",
+    "src/Lean/Meta/Tactic/Grind/Util.lean": "b076734cec787ad6463e2458cb0bac388cc74ebcf9fde1e964b830f4586eea6a",
+    "src/Lean/Meta/Tactic/Grind/SimpUtil.lean": "03162a7ef7789615a8e2d21c64b022a5c3e51fc707d2860dd8f2e9d0f3e0b17f",
+    "src/Lean/Meta/Tactic/Grind/Simp.lean": "9a9eae32c376b8ba67a8d625c0eeca4e403db945137703a58c53de0e62b4d09c",
+    "src/Lean/Meta/Tactic/Grind/Core.lean": "d7690a08a1bb4dd9ea9d958e9d2c601862641a12dd51e7c4e061afe04fa7a6ee",
+    "src/Lean/Meta/Match/MatchEqsExt.lean": "c6e8d7b3c51517054320bde4b5f0c68b5c9034698cb6b7aa951e551da316e8bb",
+    "src/Lean/Meta/Match/MatchEqs.lean": "69923ec1ee92377a50634c752d5c57129207136379406127edc14087dc5dd116",
+    "src/Lean/Meta/Tactic/Simp/Types.lean": "e2b51b0c728cc1143aab68d9a58a5a1cf8420f4a9f11d3012584fe7a84f143c5",
+    "src/Lean/Meta/Tactic/Simp/Main.lean": "868a8f709f798aa9ab46c50b4ccfc11750269b5c4a02461db26e0fca9b938b7b",
+    "src/Lean/Meta/Sym/DSimp/DSimpM.lean": "f2bebedd99365e7e950486c59235e0fb32461cd4ab5a2c08967408bde5b7b381",
+    "src/Lean/Meta/Sym/DSimp/Main.lean": "f0c059bf02ecfe4b9862461813293b277176610284e03c6731d30d4cd45fa48c",
+    "src/Lean/Meta/Sym/Simp/SimpM.lean": "6b949eccc565cae89590ba222fafda86285627e251416213667f74b1e0cb4c46",
+    "src/Lean/Meta/Sym/Simp/Main.lean": "613a22ff2ec4fabeff107a4e2bef5214f2f407d84c1afc41b8c2fb780ac25dc6",
+    "src/Lean/Meta/WHNF.lean": "a7dda85d86ae0a7118566b80e0f8cd274030846e371d156f6882713d48647836",
+    "src/Lean/Elab/PreDefinition/Structural/Eqns.lean": "3a59616fa759794298406303be1001f1b40f4e4357639f995b296485b2912c64",
+    "src/Lean/Meta/Basic.lean": "9339066e8c4df71c9aac2c348d9a3a7c2a8a9a20aca0d07228c26deef647d4a8",
+    "src/Lean/Meta/InferType.lean": "ed92098c36a75443312d2d474b4ad7a5c12434cd78bf1a7453e91c876880859e",
+    "src/Lean/Meta/ExprDefEq.lean": "0be5ead1c11aa486f924948f2a0b7946284fbc2f0b899993dd8989f1a9370b27",
+    "src/Lean/Meta/LevelDefEq.lean": "bf60149811359226d318e8b6522e7a35d93646c6f8e891ea589e48e0bfe8d227",
+    "src/Lean/Meta/SynthInstance.lean": "1c4adf406c64523531b2af18073c2973cef5fe4eb80ac44bb9927d336559d004",
+    "src/Lean/Compiler/ExportAttr.lean": "3de0bbe433d5933428777c0e8be582dfd266db3feb9d5e90fa6a7ac2d004c24d",
+    "src/Lean/Compiler/LCNF/EmitC.lean": "b583be256c880a879bf723bb4c2cd87bd80d433d0539ea67d87c28a6da500216",
+    "src/Lean/Compiler/LCNF/InferBorrow.lean": "338f9567d5dbdba6a69bb9cd70f8683e0e1a9c721edba769660cff316c48e1d5",
+    "src/Lean/Compiler/LCNF/ToDecl.lean": "afd8843c41b5101218ddc2ea27d077663f4db825a8aec8e6196ebde7cf086c0a",
+    "src/Lean/Compiler/IR/CompilerM.lean": "f70c6bd642e4a3913bffc02d279324dd1a37007adf6a0c8663ea67481ccfad46",
+    "src/Lean/PrivateName.lean": "21569296df3d69ca3f48dd109ed875c040509f9f693419e44cea9fa130b08179",
+    "src/Lean/Modifiers.lean": "dee35dbc823a48b9ac79f11db4b2741f89702dd1ac0a7df83050e7f61d2154fd",
+    "src/Lean/Elab/DeclModifiers.lean": "9665a12a50dfb92b42f87759941bad09e9f7357f6042cd660c3795859c804749"
+  },
+  "pairs": [
+    [
+      "Lean.Meta.Grind.Arith.Cutsat.EqCnstr.assert",
+      "Lean.Meta.Grind.Arith.Cutsat.EqCnstr.assertImpl"
+    ],
+    [
+      "Lean.Meta.Grind.Arith.Cutsat.LeCnstr.assert",
+      "Lean.Meta.Grind.Arith.Cutsat.LeCnstr.assertImpl"
+    ],
+    [
+      "Lean.Meta.Grind.Arith.Cutsat.mkVar",
+      "Lean.Meta.Grind.Arith.Cutsat.mkVarImpl"
+    ],
+    [
+      "Lean.Meta.Grind.internalize",
+      "_private.Lean.Meta.Tactic.Grind.Internalize.0.Lean.Meta.Grind.internalizeImpl"
+    ],
+    [
+      "Lean.Meta.Grind.mkEqProof",
+      "Lean.Meta.Grind.mkEqProofImpl"
+    ],
+    [
+      "Lean.Meta.Grind.mkHEqProof",
+      "Lean.Meta.Grind.mkHEqProofImpl"
+    ],
+    [
+      "Lean.Meta.Grind.normalize",
+      "Lean.Meta.Grind.normalizeImp"
+    ],
+    [
+      "Lean.Meta.Grind.preprocess",
+      "Lean.Meta.Grind.preprocessImpl"
+    ],
+    [
+      "Lean.Meta.Grind.processNewFacts",
+      "_private.Lean.Meta.Tactic.Grind.Core.0.Lean.Meta.Grind.processNewFactsImpl"
+    ],
+    [
+      "Lean.Meta.Match.genMatchCongrEqns",
+      "Lean.Meta.Match.genMatchCongrEqnsImpl"
+    ],
+    [
+      "Lean.Meta.Match.getEquationsFor",
+      "Lean.Meta.Match.getEquationsForImpl"
+    ],
+    [
+      "Lean.Meta.Simp.dsimp",
+      "_private.Lean.Meta.Tactic.Simp.Main.0.Lean.Meta.Simp.dsimpImpl"
+    ],
+    [
+      "Lean.Meta.Simp.simp",
+      "Lean.Meta.Simp.simpImpl"
+    ],
+    [
+      "Lean.Meta.Sym.DSimp.dsimp",
+      "_private.Lean.Meta.Sym.DSimp.Main.0.Lean.Meta.Sym.DSimp.dsimpImpl"
+    ],
+    [
+      "Lean.Meta.Sym.Simp.simp",
+      "_private.Lean.Meta.Sym.Simp.Main.0.Lean.Meta.Sym.Simp.simpImpl"
+    ],
+    [
+      "Lean.Meta.getStructuralRecArgPos?",
+      "_private.Lean.Elab.PreDefinition.Structural.Eqns.0.Lean.Elab.Structural.getStructuralRecArgPosImp?"
+    ],
+    [
+      "Lean.Meta.isExprDefEqAux",
+      "Lean.Meta.isExprDefEqAuxImpl"
+    ],
+    [
+      "Lean.Meta.isLevelDefEqAux",
+      "Lean.Meta.isLevelDefEqAuxImpl"
+    ],
+    [
+      "Lean.Meta.synthPending",
+      "_private.Lean.Meta.SynthInstance.0.Lean.Meta.synthPendingImp"
+    ]
+  ],
+  "already-installed-excluded": [
+    "Lean.Meta.whnf",
+    "Lean.Meta.inferType"
+  ],
+  "derivation": "Exact v3 record SHA and row; remove only top-level pretty and ir fdecl.body. Original raw SHA remains identity and is checked through accepted original-row! catalogue per activation."
+}

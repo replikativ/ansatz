@@ -1,0 +1,1135 @@
+[
+  {
+    "header-row": {
+      "dependencies": [
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "str",
+                  [
+                    "str",
+                    [
+                      "str",
+                      [
+                        "str",
+                        [
+                          "anonymous"
+                        ],
+                        "Lean"
+                      ],
+                      "PersistentHashMap"
+                    ],
+                    "find?"
+                  ],
+                  "_at_"
+                ],
+                "Lean"
+              ],
+              "getLevelMVarAssignmentExp"
+            ],
+            "spec_0"
+          ],
+          "_redArg"
+        ]
+      ],
+      "ir": {
+        "fdecl": {
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Lean"
+            ],
+            "getLevelMVarAssignmentExp"
+          ],
+          "info": {},
+          "type": "tobject",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "object",
+              "x": {
+                "idx": 1
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 2
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "anonymous"
+          ],
+          "Lean"
+        ],
+        "getLevelMVarAssignmentExp"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "anonymous"
+          ],
+          "Lean"
+        ],
+        "MetavarContext"
+      ]
+    },
+    "label": "Lean.getLevelMVarAssignmentExp",
+    "sha256": "2be7a950bc5a94407c262d74d69b8381e3cb0f399ac04256e158fb53500f37ec"
+  },
+  {
+    "header-row": {
+      "dependencies": [
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "str",
+                  [
+                    "str",
+                    [
+                      "str",
+                      [
+                        "str",
+                        [
+                          "anonymous"
+                        ],
+                        "Lean"
+                      ],
+                      "PersistentHashMap"
+                    ],
+                    "insert"
+                  ],
+                  "_at_"
+                ],
+                "Lean"
+              ],
+              "assignLevelMVarExp"
+            ],
+            "spec_0"
+          ],
+          "_redArg"
+        ]
+      ],
+      "ir": {
+        "fdecl": {
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Lean"
+            ],
+            "assignLevelMVarExp"
+          ],
+          "info": {},
+          "type": "object",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "object",
+              "x": {
+                "idx": 1
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 2
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 3
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "anonymous"
+          ],
+          "Lean"
+        ],
+        "assignLevelMVarExp"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "anonymous"
+          ],
+          "Lean"
+        ],
+        "MetavarContext"
+      ]
+    },
+    "label": "Lean.assignLevelMVarExp",
+    "sha256": "38e9fa5f0baa194fa8ac0f9d3d9563e17bce02330e87caa8b976a5eb217ae2da"
+  },
+  {
+    "header-row": {
+      "dependencies": [
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "Lean"
+              ],
+              "Level"
+            ],
+            "data"
+          ],
+          "_override"
+        ],
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "Lean"
+              ],
+              "Level"
+            ],
+            "Data"
+          ],
+          "hash"
+        ],
+        [
+          "str",
+          [
+            "anonymous"
+          ],
+          "mixHash"
+        ],
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "Lean"
+              ],
+              "Level"
+            ],
+            "Data"
+          ],
+          "depth"
+        ],
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "UInt32"
+          ],
+          "toNat"
+        ],
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "Nat"
+          ],
+          "add"
+        ],
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "Lean"
+              ],
+              "Level"
+            ],
+            "Data"
+          ],
+          "hasMVar"
+        ],
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "Lean"
+              ],
+              "Level"
+            ],
+            "Data"
+          ],
+          "hasParam"
+        ],
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Lean"
+            ],
+            "Level"
+          ],
+          "mkData"
+        ]
+      ],
+      "ir": {
+        "fdecl": {
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "str",
+                  [
+                    "anonymous"
+                  ],
+                  "Lean"
+                ],
+                "Level"
+              ],
+              "succ"
+            ],
+            "_override"
+          ],
+          "info": {},
+          "type": "tobject",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 1
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Lean"
+            ],
+            "Level"
+          ],
+          "succ"
+        ],
+        "_override"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "anonymous"
+          ],
+          "Lean"
+        ],
+        "Level"
+      ]
+    },
+    "label": "Lean.Level.succ._override",
+    "sha256": "66444fd502f36a4fae92d150070f35aa8366e535cb31816f94df52e4e37d88bc"
+  },
+  {
+    "header-row": {
+      "dependencies": [
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "Lean"
+              ],
+              "Level"
+            ],
+            "data"
+          ],
+          "_override"
+        ],
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "Lean"
+              ],
+              "Level"
+            ],
+            "Data"
+          ],
+          "hash"
+        ],
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "Lean"
+              ],
+              "Level"
+            ],
+            "data"
+          ],
+          "_override"
+        ],
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "Lean"
+              ],
+              "Level"
+            ],
+            "Data"
+          ],
+          "hash"
+        ],
+        [
+          "str",
+          [
+            "anonymous"
+          ],
+          "mixHash"
+        ],
+        [
+          "str",
+          [
+            "anonymous"
+          ],
+          "mixHash"
+        ],
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Lean"
+            ],
+            "Level"
+          ],
+          "mkData"
+        ],
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "Lean"
+              ],
+              "Level"
+            ],
+            "Data"
+          ],
+          "hasParam"
+        ],
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "Lean"
+              ],
+              "Level"
+            ],
+            "Data"
+          ],
+          "hasParam"
+        ],
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "Nat"
+          ],
+          "add"
+        ],
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "Lean"
+              ],
+              "Level"
+            ],
+            "Data"
+          ],
+          "hasMVar"
+        ],
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "Lean"
+              ],
+              "Level"
+            ],
+            "Data"
+          ],
+          "hasMVar"
+        ],
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "Lean"
+              ],
+              "Level"
+            ],
+            "Data"
+          ],
+          "depth"
+        ],
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "UInt32"
+          ],
+          "toNat"
+        ],
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "Lean"
+              ],
+              "Level"
+            ],
+            "Data"
+          ],
+          "depth"
+        ],
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "UInt32"
+          ],
+          "toNat"
+        ],
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "Nat"
+          ],
+          "decLe"
+        ]
+      ],
+      "ir": {
+        "fdecl": {
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "str",
+                  [
+                    "anonymous"
+                  ],
+                  "Lean"
+                ],
+                "Level"
+              ],
+              "max"
+            ],
+            "_override"
+          ],
+          "info": {},
+          "type": "tobject",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 1
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 2
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Lean"
+            ],
+            "Level"
+          ],
+          "max"
+        ],
+        "_override"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "anonymous"
+          ],
+          "Lean"
+        ],
+        "Level"
+      ]
+    },
+    "label": "Lean.Level.max._override",
+    "sha256": "1e7d159b9bc54bafea5853b8b53d9929b862d95405ea641629f2dd4aedfc4043"
+  },
+  {
+    "header-row": {
+      "dependencies": [
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "Lean"
+              ],
+              "Level"
+            ],
+            "data"
+          ],
+          "_override"
+        ],
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "Lean"
+              ],
+              "Level"
+            ],
+            "Data"
+          ],
+          "hash"
+        ],
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "Lean"
+              ],
+              "Level"
+            ],
+            "data"
+          ],
+          "_override"
+        ],
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "Lean"
+              ],
+              "Level"
+            ],
+            "Data"
+          ],
+          "hash"
+        ],
+        [
+          "str",
+          [
+            "anonymous"
+          ],
+          "mixHash"
+        ],
+        [
+          "str",
+          [
+            "anonymous"
+          ],
+          "mixHash"
+        ],
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Lean"
+            ],
+            "Level"
+          ],
+          "mkData"
+        ],
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "Lean"
+              ],
+              "Level"
+            ],
+            "Data"
+          ],
+          "hasParam"
+        ],
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "Lean"
+              ],
+              "Level"
+            ],
+            "Data"
+          ],
+          "hasParam"
+        ],
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "Nat"
+          ],
+          "add"
+        ],
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "Lean"
+              ],
+              "Level"
+            ],
+            "Data"
+          ],
+          "hasMVar"
+        ],
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "Lean"
+              ],
+              "Level"
+            ],
+            "Data"
+          ],
+          "hasMVar"
+        ],
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "Lean"
+              ],
+              "Level"
+            ],
+            "Data"
+          ],
+          "depth"
+        ],
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "UInt32"
+          ],
+          "toNat"
+        ],
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "Lean"
+              ],
+              "Level"
+            ],
+            "Data"
+          ],
+          "depth"
+        ],
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "UInt32"
+          ],
+          "toNat"
+        ],
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "Nat"
+          ],
+          "decLe"
+        ]
+      ],
+      "ir": {
+        "fdecl": {
+          "f": [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "str",
+                  [
+                    "anonymous"
+                  ],
+                  "Lean"
+                ],
+                "Level"
+              ],
+              "imax"
+            ],
+            "_override"
+          ],
+          "info": {},
+          "type": "tobject",
+          "xs": [
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 1
+              }
+            },
+            {
+              "borrow": false,
+              "ty": "tobject",
+              "x": {
+                "idx": 2
+              }
+            }
+          ]
+        }
+      },
+      "kind": "decl",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Lean"
+            ],
+            "Level"
+          ],
+          "imax"
+        ],
+        "_override"
+      ],
+      "redirect": null,
+      "runtime": {
+        "initializer": null,
+        "role": "ordinary"
+      },
+      "sourceLocal": true,
+      "sourceModule": [
+        "str",
+        [
+          "str",
+          [
+            "anonymous"
+          ],
+          "Lean"
+        ],
+        "Level"
+      ]
+    },
+    "label": "Lean.Level.imax._override",
+    "sha256": "d0ec934a52dc032906aeab3e431ff1dfffd3c0bab7501de1d1aa89a32a572f57"
+  }
+]
