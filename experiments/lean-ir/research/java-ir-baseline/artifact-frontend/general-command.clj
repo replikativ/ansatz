@@ -293,6 +293,24 @@
                         (every? true? (map identical? (rest (:identities before)) (rest (:identities after)))))
                    "Batch metadata callback advanced guest state or changed checked version"))))))))
 (defn receipt-summary [receipt] (with-command! receipt :summary))
+(defn rebase-idle-deadline!
+  "Explicit host-idle allowance only. Preserve owner slots, used counters,
+   source/version custody and all continuations; never resume failed/running work."
+  [run milliseconds]
+  (let [holder (issued runs run) s (live! holder) f (:frontend s)
+        session (get-in s [:strict-driver :adapter]) e (engine holder)]
+    (#'adapter/validate-versions! session)
+    (need (and (integer? milliseconds) (<= 1 milliseconds 60000)
+               (contains? #{:open :sealed} (:status s))
+               (contains? #{:open :sealed} (:stage s)) (nil? (:operation s))
+               (contains? #{:idle :replied} @(:phase session)) (nil? @(:invocation session))
+               (= "idle" (j/phase (ctx holder) e)) (nil? @(:in-flight f))
+               (nil? (field e "runtimeAction")) (nil? (field e "hostCompletion"))
+               (nil? (field e "hostGuestRecord"))) "Deadline allowance requires healthy idle command custody")
+    (when (= :sealed (:status s))
+      (need (identical? (:version s) (peek @(:versions session))) "Stale checked command cannot rebase its deadline"))
+    (swap! holder assoc-in [:frontend :deadline-nanos] (+ (System/nanoTime) (* 1000000 milliseconds)))
+    {:status :idle-deadline-rebased :milliseconds milliseconds :budget @(:used f)}))
 (defn retire! [run]
   (let [holder (issued runs run) s (live! holder) e (engine holder)]
     (need (and (= :sealed (:status s)) (= "idle" (j/phase (ctx holder) (engine holder)))) "Retire only a healthy completed command")

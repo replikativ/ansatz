@@ -159,7 +159,9 @@
 (defn- release-slot! [holder key]
   (let [s (live! holder) slot (.get ^LinkedHashMap (:owners s) key)
         _ (need (= :owned (aget ^objects slot 1)) "Release occurrence is not owned")
-        value (aget ^objects slot 0) unit (new-slot! holder [key :release-result])
+        value (aget ^objects slot 0)
+        _ (sp/check-time! (:frontend s))
+        unit (new-slot! holder [key :release-result])
         operation {:kind :release :owner-slot slot :result-slot unit :stage :before-start}]
     (swap! holder assoc :operation operation)
     (aset ^objects slot 1 :release-pending)
