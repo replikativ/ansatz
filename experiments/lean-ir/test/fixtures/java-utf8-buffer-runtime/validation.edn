@@ -9,6 +9,9 @@
                          :tests 20 :assertions 784 :failures 0 :errors 0
                          :malformed-case-alone {:tests 1 :assertions 192 :failures 0 :errors 0}}
  :author-jvm-or-native-execution false
- :full-interpreter-regression :pending-root-integration
+ :full-interpreter-regression {:heap-mib 384 :groups 158 :tests 1514
+                               :assertions 59994 :failures 0 :errors 0 :exit 0
+                               :external-log "target/java-utf8-buffer-runtime-v1/combined-gate-v1.log"
+                               :external-log-sha256 "940bbea006d63d426172be1406417a624349bab9f9a3b6eb6a22efde675c31b9"}
  :combined-stdio-and-frontend-acceptance :pending-root-integration
  :runtime-source-changes-after-first-checkpoint false}

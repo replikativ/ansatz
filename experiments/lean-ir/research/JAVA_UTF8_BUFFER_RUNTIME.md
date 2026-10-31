@@ -41,5 +41,6 @@ Coordinated root validation now passed all20 focused families /784 assertions on
 the same frozen source, in an isolated ClassLoader inside the retained384MiB REPL.
 Validation hashes and the fixture-only initial corrections are recorded in the
 fixture README and validation.edn. Author source/metadata work launched no JVM or
-native runtime. Full158-group regression and combined stdio/frontend acceptance
-remain root integration gates; old hosted-file acceptance is unchanged.
+native runtime. The full158-group regression also passed in a fresh384MiB JVM:
+1514 tests /59994 assertions, zero failures/errors. Combined stdio/frontend
+acceptance remains a separate integration gate; old hosted-file acceptance is unchanged.
