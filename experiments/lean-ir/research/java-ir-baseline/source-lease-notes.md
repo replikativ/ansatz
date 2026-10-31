@@ -37,3 +37,12 @@ Focused checks passed 16 tests / 99 assertions, including exact source identity,
 repeated live-lease checks, foreign-source rejection, closed catalogue rejection
 and actual index replacement detection through `source-token`. No Java engine,
 kernel, guest reference-counting or opaque registry changes were required.
+
+The full Java runtime regression passed 160 groups / 1,537 tests / 60,398
+assertions with zero failures and errors in a separate 384 MiB validation JVM.
+The source review was clear. External log:
+`target/java-source-lease-v1/full-gate.log`, SHA256
+`4f5073094a282cfca08ee3f1259dacdf964cf7383686d05d2b856699892e213d`.
+The second complete file observation is recorded externally in
+`target/java-compact-name-runtime-v1/direct-lease-file-validation-v11.edn`, SHA256
+`2405acaacc8ecd995e7a2df6c0dc0bc1a7631b85e90556f64d29cd3b9d593ace`.
