@@ -42,3 +42,14 @@ that owner. This is not general permission to cross runtime-specific protected
 value boundaries. Dead and malformed cases verify rejection and unchanged RC
 before restoring test-only corruption and retiring any remaining local owner;
 they do not claim recovery of arbitrary failed callback/task ownership.
+
+The parent compiled the frozen Java source once (`javac -J-Xmx384m --release 17`)
+and ran it in the retained 512 MiB JVM. The corrected focused gate passed eight
+tests/53 assertions; existing ByteArray regressions passed thirteen tests/118
+assertions, for 21 tests/171 assertions with no failures/errors. Only test sources
+were reloaded after the first failed model assumption; Java remained unchanged.
+The earlier five-test run had45 passes, two failures and one cleanup error because
+it incorrectly expected same-class ordinary ByteArray transfer to reject. That
+history remains recorded in byte-array-get-default-validation.json rather than
+being described as a runtime defect or a successful gate. No full combined gate,
+entropy implementation or actual Random initializer execution is claimed here.
