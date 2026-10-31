@@ -1,0 +1,213 @@
+{
+  "metadataSHA256": "757057e2962068afb48641ad5cb3fe25af46f8ece8be1c48c634a619c8ac0f2c",
+  "modules": 631,
+  "parts": 3155,
+  "rawOccurrences": [
+    {
+      "moduleIndex": 511,
+      "module": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "Init"
+          ],
+          "Data"
+        ],
+        "Random"
+      ],
+      "irPhases": "all",
+      "phase": "parts",
+      "rootIndex": 2557,
+      "artifact": "Random.olean.private",
+      "attribute": [
+        "str",
+        [
+          "str",
+          [
+            "anonymous"
+          ],
+          "Lean"
+        ],
+        "regularInitAttr"
+      ],
+      "decl": [
+        "str",
+        [
+          "str",
+          [
+            "anonymous"
+          ],
+          "IO"
+        ],
+        "stdGenRef"
+      ],
+      "initializer": [
+        "num",
+        [
+          "str",
+          [
+            "str",
+            [
+              "num",
+              [
+                "str",
+                [
+                  "str",
+                  [
+                    "str",
+                    [
+                      "str",
+                      [
+                        "str",
+                        [
+                          "num",
+                          [
+                            "str",
+                            [
+                              "str",
+                              [
+                                "str",
+                                [
+                                  "str",
+                                  [
+                                    "anonymous"
+                                  ],
+                                  "_private"
+                                ],
+                                "Init"
+                              ],
+                              "Data"
+                            ],
+                            "Random"
+                          ],
+                          "0"
+                        ],
+                        "initFn"
+                      ],
+                      "_@"
+                    ],
+                    "Init"
+                  ],
+                  "Data"
+                ],
+                "Random"
+              ],
+              "2456098205"
+            ],
+            "_hygCtx"
+          ],
+          "_hyg"
+        ],
+        "2"
+      ]
+    },
+    {
+      "moduleIndex": 511,
+      "module": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "Init"
+          ],
+          "Data"
+        ],
+        "Random"
+      ],
+      "irPhases": "all",
+      "phase": "irParts",
+      "rootIndex": 2559,
+      "artifact": "Random.ir",
+      "attribute": [
+        "str",
+        [
+          "str",
+          [
+            "anonymous"
+          ],
+          "Lean"
+        ],
+        "regularInitAttr"
+      ],
+      "decl": [
+        "str",
+        [
+          "str",
+          [
+            "anonymous"
+          ],
+          "IO"
+        ],
+        "stdGenRef"
+      ],
+      "initializer": [
+        "num",
+        [
+          "str",
+          [
+            "str",
+            [
+              "num",
+              [
+                "str",
+                [
+                  "str",
+                  [
+                    "str",
+                    [
+                      "str",
+                      [
+                        "str",
+                        [
+                          "num",
+                          [
+                            "str",
+                            [
+                              "str",
+                              [
+                                "str",
+                                [
+                                  "str",
+                                  [
+                                    "anonymous"
+                                  ],
+                                  "_private"
+                                ],
+                                "Init"
+                              ],
+                              "Data"
+                            ],
+                            "Random"
+                          ],
+                          "0"
+                        ],
+                        "initFn"
+                      ],
+                      "_@"
+                    ],
+                    "Init"
+                  ],
+                  "Data"
+                ],
+                "Random"
+              ],
+              "2456098205"
+            ],
+            "_hygCtx"
+          ],
+          "_hyg"
+        ],
+        "2"
+      ]
+    }
+  ]
+}
