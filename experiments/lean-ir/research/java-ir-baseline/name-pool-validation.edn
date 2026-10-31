@@ -1,0 +1,26 @@
+{:schema :compact-source-header-name-validation/1
+ :runtime-source-sha256 "04f0c13055fcf53cabe5ded40b63a6d06eb922178032dce40d1d2e4cdc781f46"
+ :runtime-jar-sha256 "a77711bb1632ad67403938f6945c7f716a95a5ce8bfff9d27072f4de6f2ab37b"
+ :independent-source-review :clear-after-exact-numeric-class-fix
+ :focused {:retained-repl true :heap-mib 384 :isolated-class-loader true
+           :tests 9 :assertions 106 :failures 0 :errors 0}
+ :full-regression {:heap-mib 384 :groups 160 :tests 1536 :assertions 60386
+                   :failures 0 :errors 0 :exit 0
+                   :external-log "target/java-compact-name-runtime-v1/combined-gate-v2.log"
+                   :external-log-sha256 "9023f67e324f155ad3876d2c0cd5f3d1c6667c6f14d35e9e4868a43fdac54409"
+                   :initial-environment-failure {:cause :system-temp-disk-quota
+                                                 :failures 1 :errors 61
+                                                 :source-changed false}}
+ :matched-metadata {:headers 13085 :heap-mib 384 :same-retained-jvm true
+                    :input :actual-bodyless-header-projections
+                    :original-raw-CAS-admission false :execution-authority false
+                    :input-sha256 "f69f08b4a7babaf0816b61ae4488d9d6140a41c567c98a7a09db041c5ca59908"
+                    :legacy-resident-delta-bytes 213161832
+                    :candidate-resident-delta-bytes 72625432
+                    :source-and-pool-overhead-included true
+                    :candidate-pool {:nodes 55115 :strings 6882}
+                    :legacy-and-candidate-output-sha256 "df7f8974b14f492692d362770b1c593547836eb26a67ad79eae22cd04219e6ce"
+                    :external-result "target/java-compact-name-runtime-v1/matched-header-comparison-v1.edn"
+                    :external-result-sha256 "d9066b0284efc88d769b70acf8557802f780fa67013e2353e4b650c528231dfc"}
+ :kernel-or-guest-memory-model-changes false
+ :new-frontend-cohort-acceptance :pending}
