@@ -63,4 +63,19 @@
            (reset! work nil) (swap! holder assoc :status :failed)
            (is (thrown? Exception (command/rebase-idle-deadline! :modeled-run 60000)))
            (is (= deadline (get-in @holder [:frontend :deadline-nanos]))))))))
+(deftest reflected-failures-report-bounded-owner-free-root-diagnostics
+  (let [owner (Object.) root (ex-info (apply str (repeat 1000 "x")) {:owner owner})
+        _ (.setStackTrace root (into-array StackTraceElement (repeat 20 (StackTraceElement. "Guest" "method" "file" 42))))
+        wrapped (java.lang.reflect.InvocationTargetException. (java.lang.reflect.InvocationTargetException. root))
+        result (command/failure-summary wrapped)]
+    (is (= "clojure.lang.ExceptionInfo" (:class result)))
+    (is (= 900 (count (:message result))))
+    (is (= 3 (count (:cause-classes result))))
+    (is (= :end (:cause-stop result)))
+    (is (= 12 (count (:stack result))))
+    (is (= #{:class :message :wrapper-class :cause-classes :cause-stop :stack} (set (keys result))))
+    (is (= {:class "Guest" :method "method" :file "file" :line 42} (first (:stack result)))))
+  (let [a (Exception. "a") b (Exception. "b")]
+    (.initCause a b) (.initCause b a)
+    (is (= :cycle (:cause-stop (command/failure-summary a))))))
 (defn check! [] (run-tests 'general-command-receipt-checks-v1))

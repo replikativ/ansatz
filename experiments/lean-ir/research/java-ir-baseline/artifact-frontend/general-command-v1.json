@@ -56,7 +56,7 @@
     {
       "file": "general-command.clj",
       "base-sha256": null,
-      "sha256": "a045aa13789902453a6470881b558f7816d8c84ab30a3b45da2b5e8dec9ceaa8"
+      "sha256": "9cf65ae93cf86c07c61baa76850b74f4f486912b6e0dc7a6f6e339af34c8f18d"
     },
     {
       "file": "generated-batch.clj",
@@ -76,7 +76,7 @@
     {
       "file": "models/general-command.clj",
       "base-sha256": null,
-      "sha256": "5a08275911b16496f091fc3111f59d2ecad2fb4f787247468eaba97bf718697d"
+      "sha256": "fd25bd68b0c69ba250199b28d57887000ed6f8aa5b8a0ba035299a51811e6605"
     },
     {
       "file": "models/generated-batch.clj",
@@ -124,7 +124,7 @@
     },
     {
       "file": "general-command.clj",
-      "sha256": "a045aa13789902453a6470881b558f7816d8c84ab30a3b45da2b5e8dec9ceaa8"
+      "sha256": "9cf65ae93cf86c07c61baa76850b74f4f486912b6e0dc7a6f6e339af34c8f18d"
     },
     {
       "file": "general-source-provider.clj",
@@ -172,7 +172,7 @@
     },
     {
       "file": "models/general-command.clj",
-      "sha256": "5a08275911b16496f091fc3111f59d2ecad2fb4f787247468eaba97bf718697d"
+      "sha256": "fd25bd68b0c69ba250199b28d57887000ed6f8aa5b8a0ba035299a51811e6605"
     },
     {
       "file": "models/general-foundation.clj",

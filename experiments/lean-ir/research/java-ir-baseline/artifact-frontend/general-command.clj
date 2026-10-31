@@ -22,6 +22,34 @@
    :gate ["ObservedFrontendCommand.beforeElaboration" "bf96d5878e30e9e49eaf2b451742599e044afaaaea7f16423a9653fe6f49ecb9"]
    :parser-errors ["Lean.MessageLog.hasErrors._boxed" nil]})
 (defn- need [ok message] (when-not ok (throw (ex-info message {:profile :general-command-v1}))))
+(defn- bounded-text [value limit]
+  (let [text (if (string? value) value "")]
+    (subs text 0 (min limit (count text)))))
+(defn failure-summary
+  "Owner-free bounded diagnostics. Follow reflected/ordinary cause chains without
+   changing the thrown object, owner packet, failure state or cleanup policy."
+  [error]
+  (let [seen (IdentityHashMap.)
+        [root chain stop]
+        (loop [current error chain []]
+          (.put seen current true)
+          (let [chain (conj chain (.getName (class current)))
+                next (try (if (instance? java.lang.reflect.InvocationTargetException current)
+                            (.getTargetException ^java.lang.reflect.InvocationTargetException current)
+                            (.getCause ^Throwable current)) (catch Throwable _ nil))]
+            (cond (nil? next) [current chain :end]
+                  (.containsKey seen next) [current chain :cycle]
+                  (>= (count chain) 16) [current chain :limit]
+                  :else (recur next chain))))
+        message (try (.getMessage ^Throwable root) (catch Throwable _ nil))
+        trace (try (.getStackTrace ^Throwable root) (catch Throwable _ (make-array StackTraceElement 0)))]
+    {:class (.getName (class root)) :message (bounded-text (or message (.getName (class root))) 900)
+     :wrapper-class (.getName (class error)) :cause-classes chain :cause-stop stop
+     :stack (mapv (fn [^StackTraceElement frame]
+                    {:class (bounded-text (.getClassName frame) 200)
+                     :method (bounded-text (.getMethodName frame) 160)
+                     :file (bounded-text (.getFileName frame) 160) :line (.getLineNumber frame)})
+                  (take 12 trace))}))
 (defn- issued [registry token]
   (locking registry (or (.get ^WeakHashMap registry token) (throw (ex-info "Actual issued generic token required" {})))))
 (defn- put! [registry token holder] (locking registry (.put ^WeakHashMap registry token holder)) token)
@@ -257,8 +285,8 @@
         (put! receipts receipt holder)
         {:status :sealed :receipt receipt :summary summary})
       (catch Throwable error
-        (let [message (or (.getMessage error) (.getName (class error)))]
-          (swap! holder assoc :status :failed :failure {:class (.getName (class error)) :message (subs message 0 (min 900 (count message)))})
+        (do
+          (swap! holder assoc :status :failed :failure (failure-summary error))
           {:status :failed :run run :stage (:stage @holder) :failure (:failure @holder)})))))
 (defn owner-packet [run]
   (let [s @(issued runs run)] (select-keys s [:status :stage :operation :gate :owners :failure])))
@@ -323,4 +351,4 @@
       (locking busy (.remove busy e))
       (reset! holder {:status :retired :stage :retired :summary (:summary s)})
       {:status :retired}
-      (catch Throwable error (swap! holder assoc :status :failed :stage :retirement-failed) (throw error)))))
+      (catch Throwable error (swap! holder assoc :status :failed :stage :retirement-failed :failure (failure-summary error)) (throw error)))))
