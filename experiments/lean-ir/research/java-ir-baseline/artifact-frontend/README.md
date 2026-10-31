@@ -235,3 +235,63 @@ bootstrap, original-code discovery and child preparation. Cold discovery exceede
 the experimental one-minute file limit; its diagnostic completion was not accepted
 as a file result. This finite profile still does not admit arbitrary commands,
 source-module imports or general Lean projects.
+
+## Observed general-command source provider (not runtime accepted)
+
+`general-source-provider.clj` defines `general-frontend-source-provider-v1`. It
+works with the separately admitted [observed frontend companion](../observed-frontend/README.md)
+and a generic CommandReceipt controller; it does not change either accepted
+finite Nat profile. Load definitions using the package loader, then explicitly
+open a provider on a genuine idle prepared child and capture:
+
+```clojure
+(def source-provider
+  (general-frontend-source-provider-v1/open-provider!
+    child frontend captured-source {:layout-directory compiled-layout-directory}))
+(def source-hooks (general-frontend-source-provider-v1/callbacks source-provider))
+;; Supply source-hooks to the separately reviewed generic controller's trusted
+;; source-captures constructor. No ambient user Vars or automatic gate reply.
+```
+
+Opening runs the existing genuine idle original-options and main-module getter
+proofs through the frontend journal. Thereafter all seven hooks are read-only:
+actual source lease, captured InputContext/FileMap UTF-8 extent/line starts and
+byte boundaries, immutable protected options across scope records, compiler
+reference/callback provenance, canonical companion/gate Header and unique FAP
+site, parsed Syntax/state/log occurrence, and final Observation identities.
+Guest counter/root stamps detect observer effects; no callback retains, releases,
+advances, replies or installs code. The controller owns all borrowed-argument
+retains, original parser-log error calls, reply and cleanup. The provider's private
+GateReceipt is bound to this source/capture/request and cannot be reconstructed
+from public summaries. Close the provider only to drop host metadata; it grants
+no guest owner retirement or rollback.
+
+The structural policy permits safe standard definition/theorem/axiom roots and
+namespace/section/end, distinguishes eoi/exit/import, and traverses the actual
+Syntax with node/depth/Name/source-range bounds. It rejects all set_option forms
+and unlock_limits, attributes, unsafe/meta/partial and other unsupported effects
+without inspecting source bodies through regexes. Strings or identifiers merely
+spelling those words do not grant or remove permission. It preserves legitimate
+namespace scope changes while requiring unchanged effective Options data and
+empty section attributes/binders/open declarations in this first scope profile.
+New custom command, attribute, initializer, plugin and option policies require
+separate source evidence. This is not a universal proof about arbitrary imported
+macro expansion; the initial imported Prelude/source/consumer policies remain
+mandatory. Unsupported/custom effect paths must not acquire file capability.
+
+The actual parser MessageLog is an independent controller-owned witness. Source
+policy does not infer no parser errors from recovering=false or final messages.
+A successful file additionally requires the controller's genuine parser and
+elaboration hasErrors checks, strict publication history, map/version guards and
+real eoi at the captured byte end. Imported association and executable IR remain
+separate authorities.
+
+Eight model families in `models/general-source-provider.clj` use tiny real Java
+Nodes with deliberately modeled Syntax/scope layouts. They cover general bodies,
+nested forbidden effects, typed Name spoofing, UTF-8/ranges/depth/cycles, namespace
+options, unissued tokens and observer effect detection. They are not actual
+parser outputs, valid source capabilities or a hosted frontend acceptance. Run
+`general-frontend-source-provider-models-v1/check!` with the current compiled basis;
+author has not launched a JVM. The original companion/gate, malformed recovery,
+protected local options and complete general file route still require coordinated
+runtime probes.

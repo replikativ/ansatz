@@ -20,6 +20,7 @@
     ["generated-command.clj" generated-command-receipt-v1]
     ["filesystem-profile.clj" filesystem-nat-source-profile-v2]
     ["filesystem-provider.clj" filesystem-nat-source-provider-v2]
+    ["general-source-provider.clj" general-frontend-source-provider-v1]
     ["filesystem-file.clj" filesystem-nat-file-run-v1]])
 (def models
   '[["models/demand.clj" ansatz.research.ir.authenticated-demand-checks]
@@ -30,7 +31,8 @@
     ["models/node-decoder.clj" ansatz.research.ir.node-decoder-checks-v1]
     ["models/generated-command.clj" generated-command-receipt-checks-v1]
     ["models/filesystem-profile.clj" filesystem-nat-source-profile-v2-checks]
-    ["models/nat-arithmetic.clj" generated-nat-arithmetic-checks-v3]])
+    ["models/nat-arithmetic.clj" generated-nat-arithmetic-checks-v3]
+    ["models/general-source-provider.clj" general-frontend-source-provider-models-v1]])
 (defn- load-units! [root entries required]
   (doseq [n required]
     (when-not (find-ns n) (throw (ex-info "Load explicit research prerequisite first" {:namespace n}))))
