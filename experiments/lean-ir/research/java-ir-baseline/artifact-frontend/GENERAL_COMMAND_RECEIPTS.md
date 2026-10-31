@@ -22,7 +22,8 @@ before the Unit reply. No supplied approved/verified Boolean authorizes it.
 Nested Host/Code demands use the normal bounded driver and preserve gate custody.
 
 The companion returns an owned Observation: eight object fields (input, before
-state, Syntax, parser state, parser log, elaboration log, start/end positions),+and four terminal/eoi/exit/import flags. The source provider validates its exact
+state, Syntax, parser state, parser log, elaboration log, start/end positions),
+and four terminal/eoi/exit/import flags. The source provider validates its exact
 compiled layout, pointer correspondence with the gate operands, actual appended
 Syntax, UTF-8 positions and unchanged captured InputContext/FileMap. Genuine eoi
 at captured byte end is completed EOF; exit is a stopped prefix, and import is
@@ -44,7 +45,7 @@ same live finalized Run: exact map, quotient, imported attribution/header and
 disabled diagnostics. It consumes the once-only seed permission, without a fake
 ELAB request or helper token. `adapter/establish-base!` retains actual K/map
 occurrences into prepublished slots, validates the guarded external Java base,
-then publishes version0. Retain uncertainty/failure quarantines the operation
+then publishes version 0. Retain uncertainty/failure quarantines the operation
 and preserves the slots; it never retries or closes caller resources. The
 controller derives the initial Environment from its actual owned state getter
 result before any command. No arbitrary caller map is an association constructor.
@@ -54,7 +55,7 @@ bounded event journal at actual check, publication, commit, cleanup and reply
 transitions. Count is not reply completion. A successful command requires no
 active request, no pending HostCompletion/HostGuest/action, and an ordered chain
 of fully replied versions. First generic policy requires monotone ancestry and
-final guest map equal to the final replied version, or unchanged version0 when
+final guest map equal to the final replied version, or unchanged version 0 when
 there are zero publications. It does not silently accept abandoned branches.
 
 `general-command/open-command!` creates an opaque controller before actual start.
@@ -71,11 +72,11 @@ authority. The generic provider must authenticate module identity before state
 construction, actual source bytes/FileMap, compiler callback and every protected
 policy boundary. No host regex separates general commands or invents Names.
 
-Budgets are independent and explicit: initially at most128 commands,512 admitted
-publications,2048 cumulative generated rows and bounded borrowed decoding/Name/
-UTF-8 sizes. Existing adapter sessions keep their16-publication ceiling; a new
+Budgets are independent and explicit: initially at most 128 commands, 512 admitted
+publications, 2048 cumulative generated rows and bounded borrowed decoding/Name/
+UTF-8 sizes. Existing adapter sessions keep their 16-publication ceiling; a new
 general-session constructor explicitly selects the larger bounded policy. A
-generic advancement quantum may be1000..10000, with all real VM/Host/Code/result
+generic advancement quantum may be 1000..10000, with all real VM/Host/Code/result
 and owner-transfer guards retained. Source/engine/thread confinement must hold
 through each advance; quantum is not a concurrency or failure-recovery feature.
 No optimization claim follows from choosing a larger quantum.
@@ -103,7 +104,7 @@ materialize with exact unique non-self Headers. This stages SCCs and validates
 SSA, joins, ownership and lanes through the existing Java validator. Unsupported
 Float32/struct/union lanes stay unsupported. AP records a dynamic frontier and
 uses ordinary closure-generation/boxed ABI/owner guards; static completeness is
-not a closed dynamic graph or proof that595 host descriptors are implemented.
+not a closed dynamic graph or proof that 595 host descriptors are implemented.
 
 Reject both exact typed-Name overlap and current runtime display-label collisions.
 Never normalize numeric/string components, guess a boxed suffix, replace an

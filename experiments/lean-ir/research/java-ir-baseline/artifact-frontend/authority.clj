@@ -254,6 +254,26 @@
     {:layout-receipt-sha256 receipt-pin
      :finalized-run finalized-run ; descriptive identity for actual session cross-binding, never issuance
      :check-source! (fn [engine source] (state! holder engine source) nil)
+     :artifact-baseline!
+     (fn [engine environment]
+       ;; Distinct positive idle constructor: no invented ELAB/HostGuest token.
+       ;; The caller obtains this Env from the actual observed frontend state.
+       (let [state (get-state engine) driver (:driver state)
+             _ (need (and @(:seed-pending? state) (nil? @(:request state))
+                          (zero? (.size ^IdentityHashMap (:observations state)))
+                          (= "idle" (j/phase @(:current-ctx driver) engine)))
+                     "Artifact baseline requires an unused idle authority")
+             prefix (prefix! state)
+             view (imported-profile! state (environment-view! driver (:layout state) environment))]
+         (need (identical? (:constant-map prefix) (:constant-map view))
+               "Initial frontend Env differs from the protected finalized map")
+         ;; This permission is consumed once. A failed later retain is terminal;
+         ;; the adapter preserves its actual pending/owned occurrence slots.
+         (reset! (:seed-pending? state) false)
+         {:guest-environment environment :kernel-root (:kernel-root view)
+          :constant-map (:constant-map view) :quot true
+          :source-binding (:source driver) :layout-receipt-sha256 receipt-pin
+          :origin :authenticated-idle-finalized-artifact-baseline}))
      :begin-request!
      (fn [engine request]
        (let [state (get-state engine) driver (:driver state)]
