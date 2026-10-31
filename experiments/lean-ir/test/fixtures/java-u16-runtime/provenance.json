@@ -1,0 +1,26 @@
+{
+  "lean-commit": "819816b2e0a3bf405af45ae5c7af2491d8f5bee6",
+  "source-index-sha256": "74d833d577923821b982e8a9e872a38b5cad011513eb18870b51417e13397f0e",
+  "fixture-sha256": "4f058d6156038dde6f3f19f30482d39e827acdbafe67b82b88a5b69db1c41b30",
+  "source-sha256": {
+    "src/include/lean/lean.h": "02af0040283143b264e3a44b06b348b6973ae6037fa8f550701c83dd7a062ace",
+    "src/Lean/Compiler/IR/Checker.lean": "67aa24922887de04c2e5d8a0379a9708346c868733a5ba7f71b44b50bc014382",
+    "LICENSE": "8b28515ffffc5c0fe2807d8ae3735b00b324d9b7ce807dd63ff6ac8922fbce7e",
+    "src/library/ir_interpreter.cpp": "45ff3db98a310a530fe4d149bb084af6538deb9317c2e618de22f4c421ec87b1",
+    "src/Lean/Compiler/IR/Basic.lean": "4f67ddee0a326b2caae8bbcaab2488a99823bf0d10da7c3a17bd7972e4723d25"
+  },
+  "note": "Four exact original UInt16 raw/boxed rows; independently authenticated subset. No author native execution.",
+  "typed-name-authentication": "All sixteen exact typed Names and row hashes checked against the accepted index-derived readonly SQLite; its metadata pins the same-stream verified index SHA and 375258 declaration count.",
+  "optional-native-oracle": {
+    "source-sha256": "0e6b9d1aff48c375e158818f95a8d4d4747dc433637574caaa390433f20a60ee",
+    "status": "source-only; no author execution",
+    "arguments": [
+      "0",
+      "255",
+      "256",
+      "32767",
+      "32768",
+      "65535"
+    ]
+  }
+}

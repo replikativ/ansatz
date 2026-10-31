@@ -1,0 +1,19 @@
+{
+  "schema": "original-expr-quick-order/1",
+  "lean-commit": "819816b2e0a3bf405af45ae5c7af2491d8f5bee6",
+  "source-index-sha256": "74d833d577923821b982e8a9e872a38b5cad011513eb18870b51417e13397f0e",
+  "plan-sha256": "1c6b91fca4fbe1e855d52e165865423ea68f09bf227e1774ed2c9a99723ffc8d",
+  "files": {
+    "original-rows.json": "17afb1990ee17576facda210c7a4c728caab830eafa861aab39e3af2d14b0aef",
+    "native-hook-evidence.json": "b86d8e1197322ffd9e57e6617678f974c85254cae17f3d0060db4ff1fd359a2c"
+  },
+  "native-static-closure-rows": 2,
+  "initialized-dependencies": [],
+  "runtime-native-hook-scope": "Four original helper rows are source evidence for existing reviewed Java typed decoders, not additional guest calls or authorization aliases.",
+  "status": "Parent retained JVM: semantic7/47 and control5/32 in each driver, 24 executions/158 assertions. Parent pinned --run:25 exact lines, exit0, empty stderr. No author interpreter JVM/native.",
+  "native-oracle-files": {
+    "Oracle.lean": "f8bc21ddb00b9ad624b907b4111e47c3cc88d3d96f7d3e79d05bfba1ec36d98b",
+    "expected-native-output.txt": "ef1b701924b92a5261f1c0ce0a2c499b05df2210b312b20b9ff70b8cbe7e6a87"
+  },
+  "native-observed-receipt-sha256": "2e653ee3b99923bd4caf024c0ae34a797e33403e360a8e32a665684b000c84ed"
+}

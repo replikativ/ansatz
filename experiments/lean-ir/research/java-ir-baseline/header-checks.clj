@@ -85,7 +85,7 @@
     (is (nil? (aget (slots ctx) 0)))))
 
 (deftest known-unsupported-lanes-remain-metadata-and-cannot-execute
-  (doseq [ty ["float32" "uint16"]]
+  (doseq [ty ["float32"]]
     (let [base (empty-program) binding (j/source-binding base (Object.))
           row (c/decl "wide" [(c/p 1 ty)] ty (c/ret 1))
           h (header binding row) ctx (j/register-headers base [h])
