@@ -70,3 +70,23 @@ finite CPU/wall/output limits. The first complete export took 117 seconds and
 1.58 GiB RSS; its transport was 1.86 GB, kernel 370 MB, correspondence 35 MB.
 Allow disk space for a temporary transport spool and final file simultaneously.
 No standalone boot or full Init guest import is claimed here.
+
+The preserved V3 run exported 65,994 declarations from 66,124 source occurrences,
+with 6,418,857 expressions and 24,004 typed large-immediate slots (63 signed Int).
+Its independent `pair-audit.json` SHA256 is
+`1a29b29ad37e4921d2cd3b58f74d00f72ec1ea3382742798ecbe9bf77085821c`;
+the kernel SHA256 is
+`46099ff8e8b817a56863001424c6b457f72cdfb6e38afd10fa0082cb93146a9f`
+and ModuleData transport SHA256 is
+`5307591679d0d3c10df63451e96007019cfff30f1d91fc27022906df42052944`.
+The native run took 141 seconds and 1.52 GiB peak RSS; the streaming audit took
+64 seconds and 355 MiB. These receipts bind that run's original source/binary
+cohort. Subsequent duplicate-observation hardening was tested separately and did
+not rewrite or rerun the V3 bundle. All output files remain generated evidence,
+not tracked runtime assets or a guest activation receipt.
+
+Follow-up designs, explicitly unimplemented:
+
+- [Persistent mapped graph and runtime obligations](MAPPED_GRAPH.md)
+- [Lazy precreated kernel store and CI evidence](KERNEL_STORE.md)
+- [Per-module initialization provenance and interpreted fallback](INITIALIZATION.md)
