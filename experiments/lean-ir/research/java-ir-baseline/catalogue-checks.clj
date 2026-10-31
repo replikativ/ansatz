@@ -157,6 +157,7 @@
               (write! replacement (byte-array 65))
               (Files/move (.toPath replacement) (.toPath current)
                           (into-array java.nio.file.CopyOption [StandardCopyOption/REPLACE_EXISTING])))
+            (is (thrown-with-msg? Exception #"file changed" (catalogue/source-token c)))
             (is (thrown-with-msg? Exception #"file changed"
                                   (catalogue/lookup c (if absent? ["str" ["anonymous"] "absent"]
                                                          (get (:row a) "name")))))))))))
