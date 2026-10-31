@@ -58,3 +58,23 @@ They are registered in the combined check runner but have not yet run in this
 worker: no runtime JVM, image restoration or native executable was launched.
 Actual finalizer execution, source/store leases, imported kernel association,
 combined heap measurement and active-association fork policy remain independent.
+
+Retained-JVM integration subsequently exercised the structural-exporter pair
+with pair-audit SHA256
+`08ec92e1e5c353aa58be369a769a9740f38102601fe60e85b5868656cdc48155`.
+All 2,314 imported constants matched the paired store's exact checking shape,
+including types, values, binder names and binder annotations. The comparison
+covered all eight ConstantInfo variants in 73 batches of at most 32; it took
+3.64 seconds in an already running JVM capped at 384 MiB. This is artifact
+correspondence, without proof replay or guest finalization, and is not a Lean
+execution benchmark. The immutable ModuleData graph was reused between probes.
+
+The source assembly adapter is `lean/JavaModuleImport.lean`. It uses real Lean
+constructors and `finalizeImport`, under the pinned field layout, with explicit
+guest-only virtual regions and no native region-address transport. Its first
+runtime probe installed the aggregate and executed the actual local value action;
+subsequent module-name construction stopped at the unsupported original
+`Substring.Raw.Internal.isEmpty` operation. No finalized environment or imported
+kernel association was issued. Failed execution unwind remains unsupported in
+this profile; the memory-only failed engine was discarded rather than reported
+as successfully disposed.
