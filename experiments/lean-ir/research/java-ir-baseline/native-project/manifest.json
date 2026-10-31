@@ -9,7 +9,7 @@
     },
     {
       "file": "JVM_COMPILER.md",
-      "sha256": "4487ca22241e013845e55d7837bbf1a429e64dd934037adf6fecc8de932270ec"
+      "sha256": "50413f1115d693e836f434ad4716382231e7c47413e97f6af0ecd221bade00bb"
     },
     {
       "file": "README.md",
@@ -74,7 +74,6 @@
   },
   "pending": [
     "Current bounded RSS-resampling source model/cold/hit/entry gate; earlier default Loader checkpoint passed",
-    "Cold compilation through the JVM wrapper (not started below its 2 GiB memory floor)",
     "Hosted default Init and Java kernel rechecking",
     "Generic bounded project compilation and checked entry type evidence beyond exact tutorial profile",
     "Public Java API proposal review, persistent project lifetime and Python-free bundled helper packaging"
@@ -193,21 +192,21 @@
     "reuse": "Existing Java kernel and lazy PSS/fetch APIs; no default full Init/Mathlib replay"
   },
   "internal-jvm-compiler": {
-    "status": "historical-default-loader-pass; bounded-RSS-resampling-validation-pending",
+    "status": "actual-current-default-loader-cold-hit-and-entry-pass",
     "defaultBackend": "jvm",
     "PythonInvoked": false,
     "sourceSHA256": "4d41b16468ba4be6439ccb9ef9ea63c9548e0e7f18569a0a9621eeefdf843da3",
     "nativeCompilerTokenIssued": true,
     "nativeJobStarted": true,
     "modelGate": {
-      "tests": 12,
-      "assertions": 63,
+      "tests": 14,
+      "assertions": 72,
       "failures": 0,
       "errors": 0,
-      "testedCompilerSourceSHA256": "76043d8f24c595f08499b8a4ef40d10e152fc24e3cb3262b88e10859f3699a2f",
+      "testedCompilerSourceSHA256": "4d41b16468ba4be6439ccb9ef9ea63c9548e0e7f18569a0a9621eeefdf843da3",
       "receipt": {
-        "file": "target/java-source-exchange-v1/native-jvm-compiler-models-v5.edn",
-        "sha256": "f3409b18148629e5b7293331ac36c77f2352aea703d666ba8a8fb5f3d8cb01c3"
+        "file": "target/java-source-exchange-v1/native-jvm-compiler-models-v6.edn",
+        "sha256": "0df56bc708d368b7d87cd5513943723330ec51dbfc0a8e92f66b8cd99fb54ee7"
       }
     },
     "processProfile": {
@@ -238,26 +237,27 @@
       "fix": "actual Z/X/x status or already-dead handle only; no unknown-state fallback"
     },
     "defaultLoaderAdapterIntegration": {
-      "testedCompilerSourceSHA256": "76043d8f24c595f08499b8a4ef40d10e152fc24e3cb3262b88e10859f3699a2f",
       "status": "actual-cold-hit-and-entry-pass",
-      "cacheKey": "14541d4bd43c8b51631d7ec8deb1a50026aa33948010fe56dd4ec1e31079c068",
-      "manifestSHA256": "5ff4b099d5ba9682f23cab55f6148c409115c489fb37c5f5fec7ca2457b9518b",
+      "testedCompilerSourceSHA256": "4d41b16468ba4be6439ccb9ef9ea63c9548e0e7f18569a0a9621eeefdf843da3",
+      "cacheKey": "c9166791c772c57dc920ddb4739bd9c680a743eaac65eac77ee5949bc6221d12",
+      "manifestSHA256": "6ee03cd8890e770bf8ebaadb6666ede5d0206b355e2a553afb26c41e1c282baf",
       "coldProcesses": 9,
-      "coldNativeSecondsSummed": 4.698827957,
-      "peakSampledRSSKiB": 681156,
+      "coldNativeSecondsSummed": 4.84462575,
+      "peakSampledRSSKiB": 678868,
       "hitProcesses": 2,
       "hitSourceCompilation": false,
       "result": "IO.ok Unit",
+      "stdoutBytes": 14,
       "PythonInvocations": 0,
       "nativeReferenceMatch": true,
       "engine": "synchronous-closed",
       "coldReceipt": {
-        "file": "target/java-source-exchange-v1/native-default-loader-acceptance-v3.edn",
-        "sha256": "5672ea92e62dd8a80aeee70e14238460030c5ad1eaaa8327d677860217cb7aec"
+        "file": "target/java-source-exchange-v1/native-default-loader-acceptance-v4.edn",
+        "sha256": "52a7ae1517bce1d55b852b6226045ecc58fe982c7ca9cb55833371289ec367c3"
       },
       "hitReceipt": {
-        "file": "target/java-source-exchange-v1/native-default-loader-hit-v3.edn",
-        "sha256": "d834067bf5460329b551852c27ef4f5680f846597b091f19a2684259bd6c7108"
+        "file": "target/java-source-exchange-v1/native-default-loader-hit-v4.edn",
+        "sha256": "7a1ae5bfed1fa13128d6764c48b4cb4a468db1577a1046dfeae18c93afb579d5"
       }
     },
     "actualAcceptance": {
@@ -284,16 +284,39 @@
     },
     "followupModels": {
       "families": 2,
-      "status": "pending parent execution",
+      "status": "PASS included in14tests72assertions",
       "scope": "bounded RSS resampling, transitions, persistent failure, interruption"
     },
-    "currentSourceColdHitExecution": "pending",
+    "currentSourceColdHitExecution": "PASS",
     "transientRSSFailure": {
       "testedCompilerSourceSHA256": "76043d8f24c595f08499b8a4ef40d10e152fc24e3cb3262b88e10859f3699a2f",
       "status": "failed closed before later successful manual attempt",
       "rawStatusCaptured": false,
       "exactKernelState": "unknown",
       "nativeCommandAutomaticRetry": false
+    },
+    "historicalDefaultLoaderAdapterIntegration": {
+      "testedCompilerSourceSHA256": "76043d8f24c595f08499b8a4ef40d10e152fc24e3cb3262b88e10859f3699a2f",
+      "status": "actual-cold-hit-and-entry-pass",
+      "cacheKey": "14541d4bd43c8b51631d7ec8deb1a50026aa33948010fe56dd4ec1e31079c068",
+      "manifestSHA256": "5ff4b099d5ba9682f23cab55f6148c409115c489fb37c5f5fec7ca2457b9518b",
+      "coldProcesses": 9,
+      "coldNativeSecondsSummed": 4.698827957,
+      "peakSampledRSSKiB": 681156,
+      "hitProcesses": 2,
+      "hitSourceCompilation": false,
+      "result": "IO.ok Unit",
+      "PythonInvocations": 0,
+      "nativeReferenceMatch": true,
+      "engine": "synchronous-closed",
+      "coldReceipt": {
+        "file": "target/java-source-exchange-v1/native-default-loader-acceptance-v3.edn",
+        "sha256": "5672ea92e62dd8a80aeee70e14238460030c5ad1eaaa8327d677860217cb7aec"
+      },
+      "hitReceipt": {
+        "file": "target/java-source-exchange-v1/native-default-loader-hit-v3.edn",
+        "sha256": "d834067bf5460329b551852c27ef4f5680f846597b091f19a2684259bd6c7108"
+      }
     }
   }
 }
