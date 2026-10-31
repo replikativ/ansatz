@@ -67,8 +67,10 @@
       (let [header (demand/ensure-header! driver (get row "name"))
             ctx (j/register-headers @(:current-ctx driver) [header]) e (:engine driver)]
         (j/install-program! ctx e) (reset! (:current-ctx driver) ctx)
-        (is (thrown-with-msg? Exception #"Explicit mode required"
-              (j/start! ctx e "demandIdentity" [42])))
+        (is (thrown-with-msg? IllegalStateException #"Explicit mode required"
+              (try (j/start! ctx e "demandIdentity" [42])
+                   (catch java.lang.reflect.InvocationTargetException wrapped
+                     (throw (.getCause wrapped))))))
         (is (= "idle" (j/phase ctx e)))
         (is (empty? @(:requests driver)))))))
 (defn check! [basis]
