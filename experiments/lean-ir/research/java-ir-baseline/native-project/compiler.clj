@@ -91,8 +91,19 @@
   (need (= implementation-record (source-record! implementation-source)) "Loaded compiler source changed; configure a new reviewed version"))
 (defn- issued [compiler]
   (locking compilers (or (.get compilers compiler) (throw (ex-info "Actual configured internal Compiler required" {})))))
+(defn- proc-text! [path]
+  ;; Pseudo-files may report length zero and reject available(2). A buffered
+  ;; character read uses actual bounded bytes rather than FileInputStream's
+  ;; whole-file optimizations (notably on newer JDKs).
+  (with-open [reader (Files/newBufferedReader (.toPath (io/file path)) StandardCharsets/UTF_8)]
+    (let [buffer (char-array 4096) result (StringBuilder.)]
+      (loop [total 0]
+        (let [n (.read reader buffer 0 (alength buffer))]
+          (if (neg? n) (.toString result)
+            (do (need (<= (+ total n) 65536) "Linux process evidence exceeds bound")
+                (.append result buffer 0 n) (recur (+ total n)))))))))
 (defn- available-kib []
-  (let [text (slurp "/proc/meminfo") m (re-find #"(?m)^MemAvailable:\s+(\d+)\s+kB$" text)]
+  (let [text (proc-text! "/proc/meminfo") m (re-find #"(?m)^MemAvailable:\s+(\d+)\s+kB$" text)]
     (need m "Linux MemAvailable evidence unavailable") (Long/parseLong (second m))))
 (defn- executable! [value]
   (let [p (path! value)] (regular! p) (need (Files/isExecutable p) "Executable file required") p))
@@ -164,9 +175,9 @@
     (throw (ex-info "Native compilation failed before any Java guest engine; preserve compiler journal" {:journal @journal} cause))))
 (defn- handle-rss-kib [^ProcessHandle process]
   (try
-    (let [text (slurp (str "/proc/" (.pid process) "/status")) m (re-find #"(?m)^VmRSS:\s+(\d+)\s+kB$" text)]
+    (let [text (proc-text! (str "/proc/" (.pid process) "/status")) m (re-find #"(?m)^VmRSS:\s+(\d+)\s+kB$" text)]
       (if m (Long/parseLong (second m)) (do (need (not (.isAlive process)) "Live process RSS unavailable") 0)))
-    (catch java.io.FileNotFoundException error (if (.isAlive process) (throw error) 0))))
+    (catch java.nio.file.NoSuchFileException error (if (.isAlive process) (throw error) 0))))
 (defn- remember-process! [handles handle]
   ;; Publish each handle before a bound can fail, so cancellation retains it.
   (swap! handles #(if (some #{handle} %) % (conj % handle)))

@@ -9,7 +9,7 @@
     },
     {
       "file": "JVM_COMPILER.md",
-      "sha256": "3c1bfef38164dc93f1961546ff5405b359cdeeed6635780c0b985d234281cc2c"
+      "sha256": "dbf7f5173ead8c62e79f0fbf90b2eda9571b4d7bc2707299d1e71229f4634176"
     },
     {
       "file": "README.md",
@@ -17,11 +17,11 @@
     },
     {
       "file": "compiler-models.clj",
-      "sha256": "9f661184f8f5f5950d3b6dc959f6b1eff5d2d4a97a08b2dc495b85716e8bebc0"
+      "sha256": "ee56e970a41b3cb2b8d4d2b7fc0122057a3963b4333360182abdd2303bf8656e"
     },
     {
       "file": "compiler.clj",
-      "sha256": "b0a5c5c5a89cbb94cf494a0409b94db53610293824cd1ce5d48118d867c82d50"
+      "sha256": "7eabe57f7a6d13d2d231bfc93b52fc12d7b0c487710335d6b3634176bfb069bd"
     },
     {
       "file": "loader.clj",
@@ -196,19 +196,19 @@
     "status": "definition-and-pure-model-gate-only",
     "defaultBackend": "jvm",
     "PythonInvoked": false,
-    "sourceSHA256": "b0a5c5c5a89cbb94cf494a0409b94db53610293824cd1ce5d48118d867c82d50",
+    "sourceSHA256": "7eabe57f7a6d13d2d231bfc93b52fc12d7b0c487710335d6b3634176bfb069bd",
     "nativeCompilerTokenIssued": false,
     "nativeJobStarted": false,
     "modelGate": {
-      "tests": 7,
-      "assertions": 30,
+      "tests": 9,
+      "assertions": 38,
       "failures": 0,
       "errors": 0,
+      "testedCompilerSourceSHA256": "b0a5c5c5a89cbb94cf494a0409b94db53610293824cd1ce5d48118d867c82d50",
       "receipt": {
-        "file": "target/java-source-exchange-v1/native-jvm-compiler-models-v1.edn",
-        "sha256": "038e653ea7b924887c5230dd1f0ba095a6feb74a9585191eac4d7fb6d09e5398"
-      },
-      "testedCompilerSourceSHA256": "6661283b10b6ad84756f4f2ce9c9f03a3922330411eb66cbe4b6b5b4e5017510"
+        "file": "target/java-source-exchange-v1/native-jvm-compiler-models-v2.edn",
+        "sha256": "d9decb18d31c20174b4e580064d215cd9e7cbd494534d4918168be037b968b8a"
+      }
     },
     "processProfile": {
       "hardCPUSeconds": 90,
@@ -225,9 +225,14 @@
     "actualCacheHitAndEntryExecution": "pending",
     "publicJavaAPI": false,
     "followupModels": {
-      "families": 2,
+      "families": 1,
       "status": "pending parent execution",
-      "scope": "disk/JAR source bytes and aggregate existing-process RSS"
+      "scope": "bounded pseudo-file-compatible process evidence reader"
+    },
+    "preNativeFailure": {
+      "status": "failed before native start",
+      "reason": "JDK25 FileInputStream.available rejected proc pseudo-file via slurp",
+      "fix": "bounded Files.newBufferedReader reads; pending actual retry"
     }
   }
 }

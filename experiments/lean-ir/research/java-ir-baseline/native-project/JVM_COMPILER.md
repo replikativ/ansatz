@@ -26,4 +26,6 @@ The parent definition-loaded the new namespaces in its existing JVM and ran seve
 
 Actual cold compilation, JVM-backend cache hit and entry execution through this new backend remain pending resource availability and source review. The earlier Python-service cold/hit and Loader cache-hit execution remain separate historical evidence. No new Compiler token or native job was required for the model gate. The loaded opaque Compiler namespace must not be reloaded beneath live tokens.
 
-Two follow-up model families cover bounded source records from disk/JAR resources and RSS summation over existing process handles. Their parent execution is pending; the seven-family result above describes the initial checkpoint before those review fixes.
+The second parent gate passed nine families and 38 assertions after the disk/JAR source-record and aggregate-RSS fixes. Its receipt is `target/java-source-exchange-v1/native-jvm-compiler-models-v2.edn`, SHA-256 `d9decb18d31c20174b4e580064d215cd9e7cbd494534d4918168be037b968b8a`.
+
+The first actual compiler attempt then stopped before native start: the installed JDK rejected `FileInputStream.available` while `slurp` read `/proc/meminfo`. Both process-evidence readers now use bounded buffered reads without that whole-file optimization. A tenth model covers exact reads, missing files and the extent bound; its parent gate and the actual retry are pending. The failed Compiler is terminally retired before source descriptors are refreshed and a new Compiler is issued.

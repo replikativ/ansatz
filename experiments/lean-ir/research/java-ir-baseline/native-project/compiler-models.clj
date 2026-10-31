@@ -113,6 +113,12 @@
     (with-redefs-fn {#'compiler/handle-rss-kib (fn [_] 23)}
       #(is (= 46 (#'compiler/owned-rss-kib handles))))
     (is (= [self parent] @handles))))
+(deftest process-evidence-reader-is-bounded-and-does-not-assume-file-length
+  (let [directory (temp) text "MemAvailable: 123456 kB\n" path (write! directory "evidence" text)]
+    (is (= text (#'compiler/proc-text! (str path))))
+    (is (thrown? Exception (#'compiler/proc-text! (str (.resolve directory "missing")))))
+    (write! directory "excessive" (apply str (repeat 65537 "a")))
+    (is (thrown? Exception (#'compiler/proc-text! (str (.resolve directory "excessive")))))))
 (defn check! [workspace]
   (binding [*directory* (.toRealPath (.toPath (io/file (str workspace))) (make-array java.nio.file.LinkOption 0))]
     (run-tests 'native-project-compiler-models-v1)))
