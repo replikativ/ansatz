@@ -1,0 +1,41 @@
+{
+  "schema": "kernel-projection-host-guest-validation/1",
+  "scope": "Readonly actual completed HostGuest result lending; no new source/Module/kernel capability.",
+  "files": {
+    "kernel-projection.clj": "f31625232fe0c28240773f1a5b6b2e3837c9a447e3eb5147f1acb8fe5c7847e0",
+    "kernel-projection-host-guest-checks.clj": "b7803fe6e68f7f9545ede9899a3965530d79897f7f0fd42418e7311237fe16b9"
+  },
+  "coordinated-focused": {
+    "HG": {
+      "tests": 4,
+      "assertions": 38,
+      "failures": 0,
+      "errors": 0
+    },
+    "existing-projection": {
+      "tests": 11,
+      "assertions": 69,
+      "failures": 0,
+      "errors": 0
+    }
+  },
+  "external-receipts": [
+    {
+      "file": "target/java-source-exchange-v1/projection-hg-models-v1.edn",
+      "sha256": "cfad315760bf49aa4ce2e96d376d1b860bb240b6dd1e2fc8bc0921445f55c627"
+    },
+    {
+      "file": "target/java-source-exchange-v1/actual-abc-execution-v3.edn",
+      "sha256": "5ea34f540588670a2d79fffc799be5065659138a7c46a0383d15a2cf690693d5"
+    }
+  ],
+  "runner": {
+    "prior-groups": 162,
+    "new-groups": 163,
+    "insert-after": "java-ir-host-guest-checks",
+    "expected-added-tests": 4
+  },
+  "worker-JVM-or-native-execution": false,
+  "clean-bootstrap-acceptance": false,
+  "failed-B-retried": false
+}

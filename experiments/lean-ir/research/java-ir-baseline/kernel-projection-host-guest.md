@@ -27,6 +27,15 @@ source, ModuleData or kernel association provenance. Run them through
 `java-ir-kernel-projection-host-guest-checks/check!` with the accepted basis after
 loading the existing HostGuest and projection test dependencies.
 
-Source review is clear. Worker execution is prohibited for this unit, so focused
-runtime results and the actual fresh A-to-B retry remain parent-coordinated gates.
-The already failed B session must not be resumed or retroactively certified.
+Independent source review is clear. The parent ran the four actual HG families
+on the accepted F32 basis: 4 tests / 38 assertions passed. The existing projection
+suite separately passed 11 tests / 69 assertions. Receipt:
+`target/java-source-exchange-v1/projection-hg-models-v1.edn`.
+No worker JVM or native execution occurred.
+
+Fresh coordinated A-to-B-to-C execution then passed, including actual imported
+declarations, generated code linkage and matching result 43. Root reports normal
+retirement of 38 extra owner occurrences and 534 runtime roots in
+`target/java-source-exchange-v1/actual-abc-execution-v3.edn`. This does not
+certify the separately pending clean-bootstrap artifact assembly. The old failed
+B session remains quarantined; it was not resumed or retroactively certified.
