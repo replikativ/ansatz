@@ -2,9 +2,11 @@
 """Bind actual compiler/exporter/helper bytes; never infer identity from version."""
 import hashlib
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
+from patch_exporter import verify, UPSTREAM_SHA256, PATCHED_SHA256
 
 PIN = '819816b2e0a3bf405af45ae5c7af2491d8f5bee6'
 
@@ -21,14 +23,16 @@ def main():
     exporter, output = map(Path, sys.argv[1:])
     here = Path(__file__).resolve().parent
     root = here.parent
-    build = root / 'target/matched-prelude-producer'
+    build = root / os.environ.get('PAIRED_PRELUDE_BUILD', 'target/matched-prelude-producer-structural-v3')
+    verify(exporter / 'Export.lean', build / 'Export.lean')
     prefix = subprocess.check_output(['lean', '+leanprover/lean4:v4.33.1', '--print-prefix'], text=True).strip()
     commit = subprocess.check_output(['lean', '+leanprover/lean4:v4.33.1', '--githash'], text=True).strip()
     if commit != PIN:
         raise ValueError('wrong Lean compiler')
-    files = {f'producer/{p.name}': digest(p) for p in here.iterdir() if p.is_file() and p.suffix in {'.lean', '.sh', '.py', '.cpp', '.clj'}}
+    files = {f'producer/{p.name}': digest(p) for p in here.iterdir() if p.is_file() and p.suffix in {'.lean', '.sh', '.py', '.cpp', '.clj', '.patch'}}
     files.update({
         'lean4export/Export.lean': digest(exporter / 'Export.lean'),
+        'lean4export-patched/Export.lean': digest(build / 'Export.lean'),
         'native/ModuleDataTransport.cpp': digest(root / 'native/ModuleDataTransport.cpp'),
         'binary/produce': digest(build / 'produce'),
         'toolchain/bin/lean': digest(Path(prefix) / 'bin/lean'),
@@ -41,6 +45,8 @@ def main():
     output.write_text(json.dumps({'schema': 'matched-prelude-build-cohort/1', 'leanCommit': commit,
         'sourceFiles': files, 'exporterHead': subprocess.check_output(['git', '-C', str(exporter), 'rev-parse', 'HEAD'], text=True).strip(),
         'exporterDirty': bool(subprocess.check_output(['git', '-C', str(exporter), 'status', '--porcelain'], text=True).strip()),
+        'exporterCacheEquality': 'Lean.ExprStructEq/Expr.equal',
+        'exporterUpstreamSha256': UPSTREAM_SHA256, 'exporterPatchedSha256': PATCHED_SHA256,
         'nativeEnvironmentFinalized': False, 'importedProofsReplayed': False}, sort_keys=True, indent=2) + '\n')
 
 if __name__ == '__main__':

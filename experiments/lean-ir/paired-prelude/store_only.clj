@@ -50,7 +50,7 @@
                   (set (keys (:files audit)))) "unexpected paired input file set" {})
     (require! (= "matched-prelude-pair-audit/1" (:schema audit)) "wrong audit schema" {})
     (require! (and (= 2314 (:declarations audit) (count entries) (count expected))
-                   (:checkingShapesEqual audit) (:dependencyClosure audit) (:familyClosure audit)
+                   (:checkingShapesEqual audit) (:structuralExprKeys audit) (:dependencyClosure audit) (:familyClosure audit)
                    (:typedNameCollisionFree audit) (:displayKeyCollisionFree audit)
                    (:fullBodies audit) (:quotInit audit)) "incomplete source audit" {})
     (require! (not (.exists output)) "store staging output already exists" {:output (str output)})

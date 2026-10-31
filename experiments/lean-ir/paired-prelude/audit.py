@@ -4,6 +4,7 @@ import hashlib
 import json
 from pathlib import Path
 import sys
+from patch_exporter import UPSTREAM_SHA256, PATCHED_SHA256
 
 MAX_BYTES = 64 * 1024 * 1024
 MAX_RECORDS = 200000
@@ -34,6 +35,10 @@ def records(path):
 def audit(directory):
     directory = Path(directory)
     source = json.loads((directory / 'correspondence.json').read_text())
+    cohort = json.loads((directory / 'build-cohort.json').read_text())
+    require(cohort.get('exporterCacheEquality') == 'Lean.ExprStructEq/Expr.equal', 'structural expression cache profile required')
+    require(cohort.get('exporterUpstreamSha256') == UPSTREAM_SHA256 and
+            cohort.get('exporterPatchedSha256') == PATCHED_SHA256, 'structural exporter source pins')
     require(source['schema'] == 'matched-prelude-source-correspondence/1', 'correspondence schema')
     require(source['bodyPolicy'] == 'full', 'full body evidence required')
     require(source['source']['leanCommit'] == '819816b2e0a3bf405af45ae5c7af2491d8f5bee6', 'source pin')
@@ -150,7 +155,7 @@ def audit(directory):
         'sourceImmediateOccurrences': immediate_count,
         'names': len(names), 'levels': len(levels), 'expressions': len(expressions),
         'moduleDataRecords': transport['inventory']['nodes'],
-        'sourceCIIndicesComplete': True, 'checkingShapesEqual': True,
+        'sourceCIIndicesComplete': True, 'checkingShapesEqual': True, 'structuralExprKeys': True,
         'typedNameCollisionFree': True, 'displayKeyCollisionFree': True,
         'dependencyClosure': True, 'familyClosure': True, 'fullBodies': True,
         'quotInit': True, 'baseBasis': 'trusted-artifact', 'proofReplay': False,

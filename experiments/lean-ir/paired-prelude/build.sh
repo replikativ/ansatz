@@ -7,11 +7,13 @@ pin=819816b2e0a3bf405af45ae5c7af2491d8f5bee6
 toolchain=leanprover/lean4:v4.33.1
 [[ $(lean +"$toolchain" --githash) == "$pin" ]]
 sysroot=$(lean +"$toolchain" --print-prefix)
-build=target/matched-prelude-producer
+build="${PAIRED_PRELUDE_BUILD:-target/matched-prelude-producer-structural-v3}"
+[[ "$build" == /* ]] || build="$PWD/$build"
 mkdir -p "$build"
-# Recompile upstream exporter into this worktree; never alter its checkout.
-lean +"$toolchain" --root="$LEAN4EXPORT_SOURCE" -o "$build/Export.olean" -c "$build/Export.c" "$LEAN4EXPORT_SOURCE/Export.lean"
-export LEAN_PATH="$PWD/$build${LEAN_PATH:+:$LEAN_PATH}"
+# Patch only a pinned copy. Expr.eqv must never merge binder names/annotations.
+python3 paired-prelude/patch_exporter.py "$LEAN4EXPORT_SOURCE/Export.lean" "$build/Export.lean"
+lean +"$toolchain" --root="$build" -o "$build/Export.olean" -c "$build/Export.c" "$build/Export.lean"
+export LEAN_PATH="$build"
 lean +"$toolchain" --root=paired-prelude -o "$build/Projection.olean" -c "$build/Projection.c" paired-prelude/Projection.lean
 lean +"$toolchain" --root=paired-prelude -o "$build/ScalarCensus.olean" -c "$build/ScalarCensus.c" paired-prelude/ScalarCensus.lean
 lean +"$toolchain" --root=paired-prelude -o "$build/MatchedPreludeProducer.olean" -c "$build/MatchedPreludeProducer.c" paired-prelude/MatchedPreludeProducer.lean

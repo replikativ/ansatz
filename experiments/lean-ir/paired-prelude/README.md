@@ -73,3 +73,14 @@ typed Names, source CI indices, display collisions, missing/changed scalar claim
 and signed scalar domains. Native source/build validation and Python tests are
 bounded; the repository JVM suite must be run separately under the root's shared
 resource coordination. Store import itself is exercised in the retained JVM.
+
+The copied exporter applies `exporter-structural-cache.patch` to upstream
+`Export.lean` SHA256 `1c60d571dc24bfb99e7cbb218d8d489919bbc871238f6db9c76248521fbea998`.
+Both `visitedExprs` and `noMDataExprs` use `ExprStructEq` keys (pinned Lean
+`Expr.equal`), preserving binder names and BinderInfo that the default Expr BEq
+would merge through alpha equivalence. MData erasure and let.nonDep=false remain
+unchanged. The patcher requires the exact upstream and patched file digests,
+uses no fuzz, and never writes upstream. The build cohort binds both source
+files, the tracked patch, and compiled artifacts. Set `PAIRED_PRELUDE_BUILD` to a
+new directory relative to `experiments/lean-ir` (or an absolute directory) in
+build/provenance/run commands to preserve earlier producer binaries and receipts.

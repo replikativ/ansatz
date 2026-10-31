@@ -18,11 +18,13 @@ def snapshot(prefix):
 
 def main():
     here = Path(__file__).resolve().parent
-    build = here.parent / 'target/matched-prelude-producer'
+    build = here.parent / os.environ.get('PAIRED_PRELUDE_BUILD', 'target/matched-prelude-producer-structural-v3')
     output = Path(sys.argv[1]).resolve()
     require(not output.exists(), 'output must not exist; failed stages require explicit inspection')
     output.mkdir(parents=True)
     cohort = json.loads((build / 'build-cohort.json').read_text())
+    require(digest(build / 'Export.lean') == cohort['sourceFiles']['lean4export-patched/Export.lean'], 'patched exporter source changed')
+    require(cohort['exporterCacheEquality'] == 'Lean.ExprStructEq/Expr.equal', 'structural exporter cache profile required')
     require(digest(build / 'produce') == cohort['sourceFiles']['binary/produce'], 'producer binary changed')
     for p in here.iterdir():
         key = f'producer/{p.name}'
