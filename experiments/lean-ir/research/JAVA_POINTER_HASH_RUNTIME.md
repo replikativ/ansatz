@@ -64,3 +64,25 @@ Java11 compilation and metadata/file audits, with no JVM/native test execution
 or full image load. Certification/control/fork stress tests and the combined
 integration gate are recorded separately when available; this unit alone does
 not establish theorem or complete frontend support.
+
+The separate six-test control suite passed in both drivers on unchanged
+`37919230…` / `50e104db…`: recursive64 assertions, explicit76, zero failures or
+errors. It covers thirteen full-body certificate adversaries, canonical source/
+typed private-number Name/ABI/borrow/once gates, exact caller/site/argument-array
+binding, populated-table fork, Code-reply preclaim and in-flight pointer/conversion
+fork. Receipt `target/java-pointer-hash-runtime-v1/control-v1.out` has SHA
+`b92094c5d738289d8fc8ad3483f1c6d7889a2d46b65f9bd0a603635dec877579`.
+
+The parent additionally passed a preliminary consolidated artifact including the
+pointer source and concurrent runtime/private units: source `d29ee127…`, jar
+`439b902…`, 128 groups / 1,286 test executions / 55,709 assertions at384 MiB,
+exit0. This is separate integration evidence; the final count-guarded pointer
+runner wiring and any later controls still require the final combined gate.
+This branch adds four groups (5/5/6/6) after legacy pointer checks and loads them
+after their Expr machinery dependency. The local runner has124 groups on its
+PR335 base; concurrent branch counts can differ after integration.
+
+The oracle fixture's `verify-oracle.py` checks hard-pinned source/stdout hashes
+and an optional newly observed stdout file. It never executes a compiler or
+rewrites goldens. The author ran this file check and repository diff/path audits;
+all runtime/native observations above were supplied by the parent.
