@@ -1,0 +1,7 @@
+{:schema "ansatz-lean-jvm-source-closure/1"
+ :sources [{:path "ansatz/lean/jvm/ir.clj" :namespace ansatz.lean.jvm.ir}]
+ :resources ["META-INF/ansatz-lean-jvm/runtime.edn"]
+ :java {:path "../../experiments/lean-ir/research/java-ir-baseline/src/ansatz/research/ir/Interpreter.java"
+        :class "ansatz.research.ir.Interpreter"
+        :sha256 "28cd4296572af05d1800eb0c2f2414b9c22bb954f6fd4303792620fa3d27ce77"}
+ :runtime-dependencies {org.clojure/clojure {:mvn/version "1.12.0"}}}
