@@ -29,6 +29,7 @@ public final class Interpreter implements AutoCloseable {
     private static final int LAYOUT_FIELDS=531,LAYOUT_SCALARS=532,LAYOUT_TAG=533,LAYOUT_USIZE=534,U32_LT=535,U64_TO_NAT=536;
     private static final int USIZE_NAT=9,USIZE_REPR=10,U32_NAT=11,U32_EQ=12,U32_LE=13,PLATFORM_BITS=14;
     private static final int FLOAT_LE=543,BYTE_EMPTY=544;
+    private static final int GET_STDIN=545,GET_STDERR=546,SET_STDIN=547,SET_STDOUT=548,SET_STDERR=549,STDERR_PUT=550;
     private static final int STR_TO_UTF8=553,STR_FROM_UTF8=554,STR_VALIDATE_UTF8=555,BYTE_COPY_SLICE=556;
     private static final int STR_POS_SET=260;
     private static final int VOID_MK=516,LEVEL_INSTANTIATE=517,EXPR_FIND_EXT=519;
@@ -298,6 +299,11 @@ public final class Interpreter implements AutoCloseable {
         register(registry,new ExternSpec("lean_array_get_size",ARRAY_SIZE,"tagged",new String[]{"erased","object"},new boolean[]{false,true}));
         register(registry,new ExternSpec("lean_array_fget_borrowed",ARRAY_GET,"tobject",new String[]{"erased","object","tobject","erased"},new boolean[]{false,true,true,false}));
         register(registry,new ExternSpec("lean_get_stdout",GET_STDOUT,"object",new String[]{"void"},new boolean[]{false}));
+        register(registry,new ExternSpec("lean_get_stdin",GET_STDIN,"object",new String[]{"void"},new boolean[]{false}));
+        register(registry,new ExternSpec("lean_get_stderr",GET_STDERR,"object",new String[]{"void"},new boolean[]{false}));
+        register(registry,new ExternSpec("lean_get_set_stdin",SET_STDIN,"object",new String[]{"object","void"},new boolean[]{false,false}));
+        register(registry,new ExternSpec("lean_get_set_stdout",SET_STDOUT,"object",new String[]{"object","void"},new boolean[]{false,false}));
+        register(registry,new ExternSpec("lean_get_set_stderr",SET_STDERR,"object",new String[]{"object","void"},new boolean[]{false,false}));
         register(registry,new ExternSpec("lean_panic_fn_borrowed",PANIC,"tobject",new String[]{"erased","tobject","object"},new boolean[]{false,true,false}));
         register(registry,new ExternSpec("lean_st_mk_ref",REF_MK,"tobject",
                 new String[]{"erased","erased","tobject","void"},new boolean[]{false,false,false,false}));
@@ -4491,7 +4497,13 @@ public final class Interpreter implements AutoCloseable {
     private boolean closed;
     private boolean untrackedFailure;
     private final Object runtimeIdentity=new Object();
-    private Node stdoutRoot;
+    private Node stdoutRoot; // legacy root; opt-in stdio default stdout occurrence
+    private Node stdinDefaultRoot,stderrRoot;
+    private final StringBuilder stderrOutput=new StringBuilder();
+    /** All supported synchronous tasks execute on this ONE branch-local thread.
+     * currentTask never selects, inherits, resets or retires these slots. */
+    private static final class StdioContext { final Node[] current=new Node[3]; }
+    private StdioContext stdioContext;
     private final StringBuilder output=new StringBuilder();
     private WeakReference<String> utf8Key;
     private byte[] utf8Bytes;
@@ -4717,6 +4729,7 @@ public final class Interpreter implements AutoCloseable {
         releaseRoot=true; entry=null; result=null; instructions=0; callsLeft=10_000_000; phase=RUNNING; publishAction(action);
     }
     private void stepDispose(RuntimeAction action) {
+        if(stdioContext!=null) { stepStdioDispose(action); return; }
         if(action.cursor==0) {
             Node old=stdoutRoot; action.retiring=old; action.releaseClaimed=false; stdoutRoot=null; action.cursor++;
             if(old!=null) { beginRelease(old,1,ACTION_BODY); action.releaseClaimed=true; }
@@ -5968,7 +5981,12 @@ public final class Interpreter implements AutoCloseable {
         child.bp=bp; child.sp=sp; child.jbp=jbp; child.jsp=jsp;
         child.result=copy.value(result); child.scalarResult=scalarResult;
         child.stdoutRoot=(Node)copy.value(stdoutRoot);
-        child.output.append(output);
+        child.stdinDefaultRoot=(Node)copy.value(stdinDefaultRoot); child.stderrRoot=(Node)copy.value(stderrRoot);
+        if(stdioContext!=null) {
+            child.stdioContext=new StdioContext();
+            for(int i=0;i<3;i++) child.stdioContext.current[i]=(Node)copy.value(stdioContext.current[i]);
+        }
+        child.output.append(output); child.stderrOutput.append(stderrOutput);
         String key=utf8Key==null?null:utf8Key.get();
         child.utf8Key=key==null?null:new WeakReference<>(key);
         child.utf8Bytes=utf8Bytes==null?null:utf8Bytes.clone();
@@ -7796,22 +7814,173 @@ public final class Interpreter implements AutoCloseable {
     }
     private Node array(Object value) { Node n=node(value); require(n.array&&!n.ref&&n.closure==null,"Expected Array"); return n; }
     private Node ioUnit() { Node n=new Node(0,1,0); n.fields[0]=ERASED; allocations++; return n; }
-    private Node stdout() {
-        if(stdoutRoot==null) {
-            Node stream=new Node(0,6,0); allocations++;
-            for(int i=0;i<6;i++) {
-                int arity=i==1||i==2||i==4?2:1;
-                int[] parameters=new int[arity],paramTypes=new int[arity];
-                for(int p=0;p<arity;p++) parameters[p]=p+1;
-                Function f=new Function("<captured-stream."+i+">",-1,parameters,paramTypes,
-                                        OBJ,STREAM_FLUSH+i,null,runtimeIdentity);
-                stream.fields[i]=closure(f,new Object[0]);
-            }
-            stdoutRoot=stream;
+    private Node capturedStream(boolean stderr) {
+        Node stream=new Node(0,6,0); allocations++;
+        for(int i=0;i<6;i++) {
+            int arity=i==1||i==2||i==4?2:1;
+            int[] parameters=new int[arity],paramTypes=new int[arity];
+            for(int p=0;p<arity;p++) parameters[p]=p+1;
+            Function f=new Function((stderr?"<captured-stderr.":"<captured-stream.")+i+">",-1,parameters,paramTypes,
+                                    OBJ,stderr&&i==4?STDERR_PUT:STREAM_FLUSH+i,null,runtimeIdentity);
+            stream.fields[i]=closure(f,new Object[0]);
         }
-        inc(stdoutRoot,1); return stdoutRoot;
+        return stream;
+    }
+    private Node defaultStream(int channel) {
+        if(channel==0) { require(stdinDefaultRoot!=null,"Configured stdin default is unavailable"); return stdinDefaultRoot; }
+        if(channel==1) { if(stdoutRoot==null) stdoutRoot=capturedStream(false); return stdoutRoot; }
+        if(stderrRoot==null) stderrRoot=capturedStream(true); return stderrRoot;
+    }
+    private Node stdout() {
+        if(stdioContext!=null) return standardStream(1,false,null);
+        Node stream=defaultStream(1); inc(stream,1); return stream;
     }
     public String capturedStdout() { return output.toString(); }
+    public String capturedStderr() { return stderrOutput.toString(); }
+    private Node streamNode(Object value) {
+        Node stream=constructorNode(value);
+        require(stream.rc>=0,"Invalid FS.Stream reference count");
+        require(stream.tag==0&&stream.fields.length==6&&stream.scalars.length==0&&stream.closure==null,
+                "Expected six-method FS.Stream");
+        for(int i=0;i<6;i++) {
+            Node method=node(stream.fields[i]); acceptsClosure(method);
+            int remaining=method.closure.params.length-method.fields.length;
+            require(method.tag==245&&method.scalars.length==0&&remaining==(i==1||i==2||i==4?2:1)
+                    &&method.closure.resultType==OBJ,"Invalid FS.Stream method closure ABI");
+            for(int j=method.fields.length;j<method.closure.paramTypes.length;j++)
+                require(method.closure.paramTypes[j]==OBJ,"FS.Stream method needs an original boxed facade");
+        }
+        return stream;
+    }
+    /** Read-only bounded graph proof, INCLUDING persistent rc0 subgraphs. This
+     * is a quiet default-release profile, not a universal branch ownership seal. */
+    private void quietStdioGraph(Object root) {
+        IdentityHashMap<Node,Boolean> seen=new IdentityHashMap<>(); ArrayDeque<Object> todo=new ArrayDeque<>();
+        todo.push(root); int edges=0;
+        while(!todo.isEmpty()) {
+            Object value=todo.pop();
+            if(!(value instanceof Node)) { validateHostObject(value); continue; }
+            Node n=node(value); require(n.rc>=0,"Invalid stdio default reference count"); if(seen.put(n,Boolean.TRUE)!=null) continue;
+            require(seen.size()<=300_000,"Stdio default graph node bound exceeded");
+            NodeMetadata kind=kindMetadata(n);
+            require(!(kind instanceof TaskMetadata)&&!n.readyTask,"Stdio defaults reject Task/Promise lifecycle");
+            if(n.array) array(n);
+            else if(isByteArray(n)) byteArray(n);
+            else if(n.ref) reference(n);
+            else if(n.closure!=null) {
+                require(n.tag==245&&n.scalars.length==0,"Unknown stdio default closure kind"); acceptsClosure(n);
+            } else require(kind==null&&n.tag>=0&&n.tag<=243,"Unsupported stdio default object kind");
+            int live=owningFieldCount(n);
+            require(live>=0&&live<=n.fields.length&&edges<=1_000_000-live,"Stdio default graph edge bound exceeded"); edges+=live;
+            for(int i=0;i<live;i++) { require(n.fields[i]!=null,"Absent stdio default owning field"); todo.push(n.fields[i]); }
+            if(Thread.currentThread().isInterrupted()) throw error("Stdio default validation interrupted");
+        }
+    }
+    private static final String[] STDIN_METHOD_LABELS={
+        "IO.FS.Stream.ofBuffer._lam_4._boxed","IO.FS.Stream.ofBuffer._lam_0._boxed",
+        "IO.FS.Stream.ofBuffer._lam_1._boxed","IO.FS.Stream.ofBuffer._lam_3._boxed",
+        "IO.FS.Stream.ofBuffer._lam_2._boxed","IO.FS.instInhabitedStream.default._lam_5._boxed"};
+    // These exact original body identities are checked against issued Headers;
+    // accepted raw CAS/index authentication remains the trusted source adapter's job.
+    private static final String[] STDIN_METHOD_SHA={
+        "e832604259e5794a331574c8a391637cde19e6f28ec322fc86a376a87b6c0c83","29e0f37498cc280d39c84ad0fa70336c5713b90308e32ee960d4ba28a7afbcac",
+        "370ad89209e61c6fbe137e22e27d42200c02f50bb90cbaff442868ca0ecbd24a","41ab29cdd05e589e44148a3f6051b995992290d55733ab2bd234a1bed4c13ae6",
+        "27399d0e9fd073070f6cc12f7d726b8c3d91cf17ec30e478eca80a81becfaa35","67b99a70a0d3bacecd41baf5e321468782636888e2b7a45febc15918216a7e89"};
+    /** Borrow an actual original empty Stream.ofBuffer; acquire one default
+     * owner only after all graph/header/layout/RC checks. No guest call occurs.
+     * Caller authenticates source/CAS and keeps its borrowed input owner alive. */
+    public void installStdioDefaults(Header ofBuffer,Object input) {
+        if(closed||disposed||advancing||phase!=IDLE||pendingOwnedResult||sp!=0||continuationDepth!=0
+                ||runtimeAction!=null||hostCompletion!=null||untrackedFailure||stdioContext!=null)
+            throw new IllegalStateException("Stdio defaults require an open idle unconfigured engine");
+        require(ofBuffer!=null&&ofBuffer.kind.equals("fdecl")
+                &&Interpreter.name(ofBuffer.exactName).equals("IO.FS.Stream.ofBuffer")
+                &&ofBuffer.originalSha256.equals("c98d47dcb02a469b6615689c519e3f000251ce95be5363c67a5354e8fc43108e"),
+                "Actual original Stream.ofBuffer Header required");
+        program.functionId(ofBuffer);
+        Node stream=streamNode(input); quietStdioGraph(stream);
+        Node ref=null;
+        for(int i=0;i<6;i++) {
+            Node method=node(stream.fields[i]); Header h=method.closure.header;
+            require(h!=null&&h.source==ofBuffer.source&&Interpreter.name(h.exactName).equals(STDIN_METHOD_LABELS[i])
+                    &&h.originalSha256.equals(STDIN_METHOD_SHA[i])&&method.fields.length==1,
+                    "Default stdin differs from original Stream.ofBuffer method source");
+            if(i==0||i==5) require(ERASED.equals(method.fields[0]),"Default stdin pure method capture differs");
+            else { Node r=reference(method.fields[0]); if(ref==null) ref=r;
+                   else require(ref==r,"Default stdin methods do not share the same buffer Ref"); }
+        }
+        Node buffer=constructorNode(ref.fields[0]);
+        require(buffer.closure==null&&buffer.tag==0&&buffer.fields.length==2&&buffer.scalars.length==0
+                &&ERASED.equals(buffer.fields[1])&&byteArray(buffer.fields[0]).byteArraySize()==0,
+                "Default stdin requires an actual initially empty Stream.Buffer");
+        if(stdoutRoot!=null) { streamNode(stdoutRoot); quietStdioGraph(stdoutRoot); }
+        StdioContext context=new StdioContext(); // allocation before owner acquisition/publication
+        if(stream.rc!=0) Math.addExact(stream.rc,1);
+        inc(stream,1); stdinDefaultRoot=stream; stdioContext=context;
+    }
+    private Node ownedStdioReplacement(Object replacement) {
+        require(stdioContext!=null,"Explicit configured stdio profile required");
+        Node next=streamNode(replacement);
+        int known=(next==stdinDefaultRoot?1:0)+(next==stdoutRoot?1:0)+(next==stderrRoot?1:0);
+        for(Node stream:stdioContext.current) if(stream==next) known++;
+        // Reserve EACH private owning occurrence, including cross-channel
+        // aliases. An incoming owned argument must exist beyond those roots.
+        // This is a narrow known-credit defense, not a universal heap ledger.
+        require(next.rc==0||next.rc>known,"Stdio replacement requires an owner beyond known default/current roots");
+        return next;
+    }
+    private Node standardStream(int channel,boolean swap,Object replacement) {
+        require(stdioContext!=null,"Explicit configured stdio profile required");
+        Node next=swap?ownedStdioReplacement(replacement):null; // validate before lazy/default mutation
+        Node old=stdioContext.current[channel];
+        Node seed=streamNode(old==null?defaultStream(channel):old);
+        int credits=(old==null?1:0)+(swap?0:1);
+        if(seed.rc!=0) Math.addExact(seed.rc,credits);
+        if(old==null) { inc(seed,1); stdioContext.current[channel]=seed; }
+        if(swap) { stdioContext.current[channel]=next; return seed; }
+        inc(seed,1); return seed;
+    }
+    private Node stdioDefault(int channel) { return channel==0?stdinDefaultRoot:channel==1?stdoutRoot:stderrRoot; }
+    private void clearStdioDefault(int channel) {
+        if(channel==0) stdinDefaultRoot=null; else if(channel==1) stdoutRoot=null; else stderrRoot=null;
+    }
+    private boolean currentStdioRoots() {
+        for(Node stream:stdioContext.current) if(stream!=null) return true; return false;
+    }
+    private boolean stdioRoots() {
+        return stdoutRoot!=null||stdinDefaultRoot!=null||stderrRoot!=null||(stdioContext!=null&&currentStdioRoots());
+    }
+    private void stepStdioDispose(RuntimeAction action) {
+        if(action.stage==0) {
+            if(action.cursor<3) {
+                int channel=action.cursor++; Node old=stdioContext.current[channel];
+                action.retiring=old; action.releaseClaimed=false; stdioContext.current[channel]=null;
+                if(old!=null) { beginRelease(old,1,ACTION_BODY); action.releaseClaimed=true; }
+            } else if(action.cursor<constants.length+3) {
+                int index=action.cursor++-3;
+                if(constantReady[index]) {
+                    Object old=constants[index]; action.retiring=old; action.releaseClaimed=false;
+                    constants[index]=null; constantReady[index]=false; constantRetired[index]=true;
+                    if(program.functions[index].resultType==OBJ) { beginRelease(old,1,ACTION_BODY); action.releaseClaimed=true; }
+                }
+            } else {
+                if(currentStdioRoots()) { action.cursor=0; return; }
+                for(boolean ready:constantReady) if(ready) { action.cursor=0; return; }
+                for(TaskRecord record:taskRecords.values()) if(record.keepalive) { phase=WAITING; return; }
+                action.stage=1; action.cursor=0;
+            }
+        } else if(action.cursor<3) {
+            // Validate all owned defaults immediately before the FIRST claim;
+            // no guest advance or owner transfer separates this check/claim.
+            // Also recheck each remaining graph at its own claim boundary.
+            if(action.cursor==0) for(int i=0;i<3;i++) if(stdioDefault(i)!=null) quietStdioGraph(stdioDefault(i));
+            int channel=action.cursor; Node old=stdioDefault(channel);
+            if(old!=null) quietStdioGraph(old);
+            action.cursor++;
+            action.retiring=old; action.releaseClaimed=false; clearStdioDefault(channel);
+            if(old!=null) { beginRelease(old,1,ACTION_BODY); action.releaseClaimed=true; }
+        } else { require(!stdioRoots(),"Stdio roots recreated during callback-free default retirement"); disposed=true; finishAction(action,ERASED); }
+    }
     /** Validate the current Name head, without a recursive prefix/hash audit.
      * A well-founded parent chain and valid Unicode are trusted value invariants. */
     private Node nameNode(Object value) {
@@ -8656,9 +8825,16 @@ public final class Interpreter implements AutoCloseable {
                 require(index.compareTo(BigInteger.valueOf(arrayState(n).size))<0,"Array index outside bounds");
                 result=n.fields[index.intValue()]; break; // Borrowed: caller IR owns the inc.
             }
-            case GET_STDOUT: result=stdout(); break;
+            case GET_STDOUT: if(stdioContext!=null) require(ERASED.equals(a),"Stdio world placeholder required"); result=stdout(); break;
+            case GET_STDIN: case GET_STDERR:
+                require(ERASED.equals(a),"Stdio world placeholder required");
+                result=standardStream(f.intrinsic==GET_STDIN?0:2,false,null); break;
+            case SET_STDIN: case SET_STDOUT: case SET_STDERR:
+                require(ERASED.equals(b),"Stdio world placeholder required");
+                result=standardStream(f.intrinsic==SET_STDIN?0:f.intrinsic==SET_STDOUT?1:2,true,a); break;
             case STREAM_FLUSH: result=ioUnit(); break;
             case STREAM_PUT: utf8(a); output.append(text(a)); result=ioUnit(); break;
+            case STDERR_PUT: utf8(a); stderrOutput.append(text(a)); result=ioUnit(); break;
             case STREAM_TTY: result=ERASED; break;
             case STREAM_READ: case STREAM_WRITE: case STREAM_LINE:
                 throw new UnsupportedOperationException("Captured-output stream operation not implemented: "+f.label);
@@ -9750,6 +9926,9 @@ public final class Interpreter implements AutoCloseable {
             require(ERASED.equals(args[0]),"Task.get erased placeholder required"); readyTaskNode(args[1]);
         }
         if(function.intrinsic==MARK_PERSISTENT) validatePersistentArguments(args[0],args[1],args[2]);
+        if(function.intrinsic>=SET_STDIN&&function.intrinsic<=SET_STDERR) {
+            require(ERASED.equals(args[1]),"Stdio world placeholder required"); ownedStdioReplacement(args[0]);
+        }
         if(function.intrinsic==ARRAY_CHECKED_SET) validateCheckedArraySet(args);
         else if(function.intrinsic==VOID_MK) validateVoidArguments(args[0],args[1]);
         else if(actionPrimitive(function)) validateNative(function,args);
@@ -10107,7 +10286,7 @@ public final class Interpreter implements AutoCloseable {
         if(closed) return;
         if(hostGuestRecord!=null) throw new IllegalStateException("Host guest operation requires explicit completion before close");
         if(taskRuntime!=null) {
-            if(!disposed||stdoutRoot!=null||runtimeAction!=null||hostCompletion!=null||quietCurrent!=null||releasePending!=0)
+            if(!disposed||stdioRoots()||runtimeAction!=null||hostCompletion!=null||quietCurrent!=null||releasePending!=0)
                 throw new IllegalStateException("Active runtime requires completed explicit disposal before close");
             for(boolean ready:constantReady) if(ready)
                 throw new IllegalStateException("Explicit disposal left an initialized cache owner");
@@ -10121,7 +10300,10 @@ public final class Interpreter implements AutoCloseable {
         releaseRoot=false;
         if(sourceOwnedResult) releaseQuiet(result,1);
         pendingOwnedResult=false;
-        if(stdoutRoot!=null) { releaseQuiet(stdoutRoot,1); stdoutRoot=null; }
+        if(stdioContext!=null) {
+            for(int i=0;i<3;i++) { Node old=stdioContext.current[i]; stdioContext.current[i]=null; if(old!=null) releaseQuiet(old,1); }
+        }
+        for(int i=0;i<3;i++) { Node old=stdioDefault(i); clearStdioDefault(i); if(old!=null) releaseQuiet(old,1); }
         utf8Key=null; utf8Bytes=null;
         for(int i=0;i<constants.length;i++) if(constantReady[i]&&program.functions[i].resultType==OBJ) releaseQuiet(constants[i],1);
         Arrays.fill(constants,null); Arrays.fill(objects,null); result=null; taskRecords.clear();

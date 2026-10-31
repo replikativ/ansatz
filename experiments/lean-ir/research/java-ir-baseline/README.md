@@ -117,6 +117,11 @@ runner to 109 executions / 10,908 assertions. A separate
 the small runner does not restore Init or run full Mathlib.
 Runtime/compiler defaults and the optional package source inventory are unchanged.
 
+The [opt-in logical-thread stdio profile](../../test/fixtures/java-stdio-runtime/README.md)
+adds owned standard-stream swaps, separate captured stderr, and a validated original
+empty-buffer stdin default. Supported synchronous callbacks share one branch context;
+this adds no worker, physical IO or complete buffer-method coverage.
+
 ## Measured baseline
 
 Java 25.0.1, Clojure 1.12.4, 384 MiB heap. Fresh bounded processes warm one engine,
