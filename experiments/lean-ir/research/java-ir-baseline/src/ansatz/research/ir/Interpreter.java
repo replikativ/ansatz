@@ -878,11 +878,92 @@ public final class Interpreter implements AutoCloseable {
             this.tag=tag; this.fields=fields; scalars=new byte[scalarBytes];
         }
     }
+    /* A typed Name remains a java.util.List key. These nodes have no source,
+     * Program or guest ownership back-reference. Cache the Java List hash (not
+     * Clojure hasheq); mixed old/new keys must work in either lookup direction. */
+    private static final class CompactName extends AbstractList<Object> implements RandomAccess {
+        private final int tag; // anonymous=0, str=1, num=2
+        private final CompactName prefix;
+        private final Object leaf;
+        private final int listHash;
+        private CompactName(int tag,CompactName prefix,Object leaf) {
+            this.tag=tag; this.prefix=prefix; this.leaf=leaf;
+            int hash=31+tagString().hashCode();
+            if(tag!=0) { hash=31*hash+prefix.hashCode(); hash=31*hash+leaf.hashCode(); }
+            listHash=hash;
+        }
+        private String tagString() { return tag==0?"anonymous":tag==1?"str":"num"; }
+        @Override public int size() { return tag==0?1:3; }
+        @Override public Object get(int index) {
+            if(index==0) return tagString();
+            if(tag!=0&&index==1) return prefix;
+            if(tag!=0&&index==2) return leaf;
+            throw new IndexOutOfBoundsException("Name index: "+index);
+        }
+        @Override public Object set(int index,Object value) { throw new UnsupportedOperationException(); }
+        @Override public void add(int index,Object value) { throw new UnsupportedOperationException(); }
+        @Override public Object remove(int index) { throw new UnsupportedOperationException(); }
+        @Override public boolean remove(Object value) { throw new UnsupportedOperationException(); }
+        @Override public boolean addAll(Collection<?> values) { throw new UnsupportedOperationException(); }
+        @Override public boolean addAll(int index,Collection<?> values) { throw new UnsupportedOperationException(); }
+        @Override public boolean removeAll(Collection<?> values) { throw new UnsupportedOperationException(); }
+        @Override public boolean retainAll(Collection<?> values) { throw new UnsupportedOperationException(); }
+        @Override public boolean removeIf(java.util.function.Predicate<? super Object> filter) { throw new UnsupportedOperationException(); }
+        @Override public void replaceAll(java.util.function.UnaryOperator<Object> operator) { throw new UnsupportedOperationException(); }
+        @Override public void sort(Comparator<? super Object> comparator) { throw new UnsupportedOperationException(); }
+        @Override public void clear() { throw new UnsupportedOperationException(); }
+        @Override public List<Object> subList(int from,int to) { return Collections.unmodifiableList(super.subList(from,to)); }
+        @Override public int hashCode() { return listHash; }
+        @Override public boolean equals(Object other) {
+            if(other==this) return true;
+            if(other instanceof CompactName) {
+                CompactName name=(CompactName)other;
+                return tag==name.tag&&listHash==name.listHash
+                        &&(tag==0||(prefix.equals(name.prefix)&&leaf.equals(name.leaf)));
+            }
+            return super.equals(other);
+        }
+    }
+    /* Strong interning lasts exactly as long as this source boundary. Neither
+     * canonical node nor leaf retains the pool. Synchronize the entire traversal
+     * so concurrent Header issuance shares prefix/leaf/node identity safely. */
+    private static final class NamePool {
+        private final Map<CompactName,CompactName> nodes=new HashMap<>();
+        private final Map<String,String> strings=new HashMap<>();
+        private String string(String value) {
+            String old=strings.putIfAbsent(value,value); return old==null?value:old;
+        }
+        private CompactName intern(int tag,CompactName prefix,Object leaf) {
+            CompactName candidate=new CompactName(tag,prefix,leaf);
+            CompactName old=nodes.putIfAbsent(candidate,candidate); return old==null?candidate:old;
+        }
+        private CompactName compact(Object value) {
+            if(!(value instanceof List)) return null;
+            List<?> name=(List<?>)value;
+            if(name.size()==1&&"anonymous".equals(name.get(0))) return intern(0,null,null);
+            if(name.size()!=3) return null;
+            Object tag=name.get(0),leaf=name.get(2);
+            boolean str="str".equals(tag),num="num".equals(tag);
+            if(!(str||num)||!(leaf instanceof String||(num&&(leaf instanceof Long||leaf instanceof Integer
+                    ||leaf instanceof Short||leaf instanceof Byte||leaf instanceof BigInteger)))) return null;
+            CompactName prefix=compact(name.get(1));
+            if(prefix==null) return null;
+            return intern(str?1:2,prefix,leaf instanceof String?string((String)leaf):leaf);
+        }
+        private synchronized Object freeze(Object value) {
+            CompactName compact=compact(value); return compact==null?frozenName(value):compact;
+        }
+        private synchronized Object metadata(Object value) {
+            CompactName compact=compact(value);
+            return compact==null?frozenMetadata(value,this):compact;
+        }
+    }
     /** Trusted-host source boundary, not a digest verifier. The adapter supplies
      * a lightweight immutable accepted catalogue/lease identity, verifies raw
      * bytes and extraction against it, then issues headers and supplies rows.
      * Do not pass a full parsed catalogue here or infer authority from a hash. */
     public static final class SourceBinding {
+        private final NamePool names=new NamePool();
         private final Object acceptedCatalogueSnapshot;
         public SourceBinding(Object acceptedCatalogueSnapshot) {
             require(acceptedCatalogueSnapshot!=null,"Actual accepted catalogue snapshot required");
@@ -907,14 +988,14 @@ public final class Interpreter implements AutoCloseable {
             require(row!=null&&"decl".equals(row.get("kind")),"Expected declaration header row");
             require(digest!=null&&digest.matches("[0-9a-f]{64}"),"Expected original SHA-256 identity");
             this.source=source; originalSha256=digest;
-            exactName=frozenName(row.get("name")); Interpreter.name(exactName);
+            exactName=source.names.freeze(row.get("name")); Interpreter.name(exactName);
             Map<String,Object> ir=map(row.get("ir"));
             require(ir.size()==1&&(ir.containsKey("fdecl")||ir.containsKey("extern")),"Invalid declaration header kind");
             kind=ir.containsKey("extern")?"extern":"fdecl";
             Map<String,Object> raw=map(ir.get(kind)),metadata=new LinkedHashMap<>(raw);
-            require(exactName.equals(frozenName(raw.get("f"))),"Declaration Name differs from exported row Name");
+            require(exactName.equals(source.names.freeze(raw.get("f"))),"Declaration Name differs from exported row Name");
             metadata.remove("body");
-            declaration=map(frozenMetadata(metadata));
+            declaration=map(source.names.metadata(metadata));
             params=Interpreter.params(raw.get("xs"));
             List<Object> xs=list(raw.get("xs")); paramTypes=new String[params.length]; borrowed=new boolean[params.length];
             Set<Integer> seen=new HashSet<>();
@@ -928,7 +1009,7 @@ public final class Interpreter implements AutoCloseable {
             Map<String,Object> selected=new LinkedHashMap<>();
             for(String key:new String[]{"runtime","dependencies","redirect","sourceLocal","sourceModule"})
                 if(row.containsKey(key)) selected.put(key,row.get(key));
-            evidence=map(frozenMetadata(selected));
+            evidence=map(source.names.metadata(selected));
             if(evidence.containsKey("runtime")) {
                 Map<String,Object> runtime=map(evidence.get("runtime"));
                 if("initialized".equals(runtime.get("role"))) {
@@ -954,19 +1035,19 @@ public final class Interpreter implements AutoCloseable {
             return evidence.containsKey("runtime")&&"initialized".equals(map(evidence.get("runtime")).get("role"));
         }
     }
-    private static Object frozenMetadata(Object value) {
+    private static Object frozenMetadata(Object value,NamePool names) {
         if(value==null||value instanceof String||value instanceof Boolean||value instanceof Long
                 ||value instanceof Integer||value instanceof Short||value instanceof Byte||value instanceof BigInteger) return value;
         if(value instanceof List) {
             List<Object> out=new ArrayList<>();
-            for(Object item:(List<?>)value) out.add(frozenMetadata(item));
+            for(Object item:(List<?>)value) out.add(names.metadata(item));
             return Collections.unmodifiableList(out);
         }
         if(value instanceof Map) {
             Map<String,Object> out=new LinkedHashMap<>();
             for(Map.Entry<?,?> entry:((Map<?,?>)value).entrySet()) {
                 require(entry.getKey() instanceof String,"Invalid metadata key");
-                out.put((String)entry.getKey(),frozenMetadata(entry.getValue()));
+                out.put((String)entry.getKey(),names.metadata(entry.getValue()));
             }
             return Collections.unmodifiableMap(out);
         }
