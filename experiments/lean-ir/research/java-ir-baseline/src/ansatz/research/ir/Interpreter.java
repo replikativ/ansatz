@@ -4,7 +4,7 @@
  * Upstream: Copyright (c) 2019 Microsoft Corporation. Apache-2.0.
  * Author of upstream interpreter: Sebastian Ullrich.
  *
- * Bounded object/uint8/uint32/usize/uint64/float profile (64-bit little-endian), not a public API.
+ * Bounded object/uint8/uint16/uint32/usize/uint64/float profile (64-bit little-endian), not a public API.
  * Research eager graph forks and typed host requests, not a persistent branch
  * store, native ABI invocation, general host IO, or arbitrary World conversion.
  */
@@ -19,11 +19,12 @@ import java.util.*;
 import java.util.concurrent.atomic.AtomicLong;
 
 public final class Interpreter implements AutoCloseable {
-    private static final int OBJ=0, U8=1, U32=2, USIZE=3, U64=4, F64=5;
+    private static final int OBJ=0, U8=1, U32=2, USIZE=3, U64=4, F64=5, U16=6;
     private static final int VDECL=0,JDECL=1,SET=2,SSET=3,INC=4,DEC=5,DEL=6,CASE=7,RET=8,JMP=9,UNREACHABLE=10,SETTAG=11,USET=12;
     private static final int MAP_APPLY=13,MAP_WRAP=14;
     private static final int CTOR=0,PROJ=1,SPROJ=2,FAP=3,PAP=4,AP=5,BOX=6,UNBOX=7,LIT=8,SHARED=9,UPROJ=10;
     private static final int ADD=1,SUB=2,MOD=3,EQ=4,LT=5,MUL=6,DIV=7,POW=8;
+    private static final int U16_EQ=540,U16_NAT=541;
     private static final int LAYOUT_FIELDS=531,LAYOUT_SCALARS=532,LAYOUT_TAG=533,LAYOUT_USIZE=534,U32_LT=535,U64_TO_NAT=536;
     private static final int USIZE_NAT=9,USIZE_REPR=10,U32_NAT=11,U32_EQ=12,U32_LE=13,PLATFORM_BITS=14;
     private static final int STR_POS_SET=260;
@@ -282,6 +283,8 @@ public final class Interpreter implements AutoCloseable {
         register(registry,new ExternSpec("lean_get_usize_size",LAYOUT_USIZE,"tobject",new String[]{"tagged"},new boolean[]{false}));
         register(registry,new ExternSpec("lean_uint32_dec_lt",U32_LT,"uint8",new String[]{"uint32","uint32"},new boolean[]{false,false}));
         register(registry,new ExternSpec("lean_uint64_to_nat",U64_TO_NAT,"tobject",new String[]{"uint64"},new boolean[]{false}));
+        register(registry,new ExternSpec("lean_uint16_dec_eq",U16_EQ,"uint8",new String[]{"uint16","uint16"},new boolean[]{false,false}));
+        register(registry,new ExternSpec("lean_uint16_to_nat",U16_NAT,"tagged",new String[]{"uint16"},new boolean[]{false}));
         register(registry,new ExternSpec("lean_string_push",STR_PUSH,"object",new String[]{"object","uint32"},new boolean[]{false,false}));
         register(registry,new ExternSpec("lean_string_mk",STR_LIST,"object",new String[]{"tobject"},new boolean[]{false}));
         register(registry,new ExternSpec("lean_string_utf8_get_fast",STR_GET,"uint32",new String[]{"object","tobject","erased"},new boolean[]{true,true,false}));
@@ -896,7 +899,7 @@ public final class Interpreter implements AutoCloseable {
         }
     }
     private static int metadataLane(String raw) {
-        if(raw.equals("uint16")||raw.equals("float32")) return -1;
+        if(raw.equals("float32")) return -1;
         return type(raw);
     }
     /** Source-local graph identity, never a native pointer or runtime Node. */
@@ -6436,6 +6439,7 @@ public final class Interpreter implements AutoCloseable {
     }
     private static int type(Object x) {
         if("uint8".equals(x)) return U8;
+        if("uint16".equals(x)) return U16;
         if("uint32".equals(x)) return U32;
         if("usize".equals(x)) return USIZE;
         if("uint64".equals(x)) return U64;
@@ -6627,7 +6631,7 @@ public final class Interpreter implements AutoCloseable {
                 switch(e.op) {
                     case CTOR: require(b.type==OBJ,"Constructor requires object result"); for(int a:e.args) require(lane(env,a)==OBJ,"Object constructor argument required"); break;
                     case PROJ: require(b.type==OBJ&&lane(env,e.a)==OBJ,"Projection lane mismatch"); break;
-                    case SPROJ: require((b.type==U8||b.type==U32||b.type==U64||b.type==F64)&&lane(env,e.a)==OBJ,"Scalar projection lane mismatch"); break;
+                    case SPROJ: require((b.type==U8||b.type==U16||b.type==U32||b.type==U64||b.type==F64)&&lane(env,e.a)==OBJ,"Scalar projection lane mismatch"); break;
                     case UPROJ: require(b.type==USIZE&&lane(env,e.a)==OBJ,"USize projection lane mismatch"); break;
                     case FAP: requireExecutableAbi(e.target); checkArgs(env,e.args,e.target.paramTypes); require(b.type==e.target.resultType,"Call result lane mismatch"); break;
                     case PAP: requireExecutableAbi(e.target); require(e.target.intrinsic!=PROFILE_IT,"Borrowed profiling primitive requires an owned guest wrapper"); require(!borrowedTaskPrimitive(e.target.intrinsic),"Borrowed task primitive requires owned closure wrapper"); require(b.type==OBJ&&e.args.length<e.target.params.length,"Invalid partial application"); require(!borrowedArrayPrimitive(e.target.intrinsic),"Borrowed array primitive requires owned closure wrapper"); require(!borrowedIntPrimitive(e.target.intrinsic),"Borrowed Int primitive requires owned closure wrapper"); require(!borrowedStringPositionPrimitive(e.target.intrinsic),"Borrowed String position primitive requires owned closure wrapper"); require(!borrowedStringCompletionPrimitive(e.target.intrinsic),"Borrowed String range primitive requires owned closure wrapper"); require(!borrowedBytePrimitive(e.target.intrinsic),"Borrowed ByteArray primitive requires owned closure wrapper"); require(e.target.intrinsic!=NAME_EQ,"Borrowed Name equality requires an owned guest wrapper"); require(e.target.intrinsic!=EXPR_CACHE,"Borrowed Expr data requires an owned guest wrapper"); require(!borrowedExprEquality(e.target.intrinsic),"Borrowed Expr equality requires an owned guest wrapper"); require(e.target.intrinsic!=LEVEL_EQUAL,"Borrowed Level equality requires an owned guest wrapper"); require(!borrowedExprLooseQuery(e.target.intrinsic),"Borrowed Expr loose search requires an owned guest wrapper"); require(!findPrimitive(e.target.intrinsic),"Borrowed Expr.find requires an owned guest wrapper"); require(e.target.intrinsic!=SHARECOMMON_QUICK,"Borrowed ShareCommon requires an owned guest wrapper"); require(e.target.intrinsic!=EXPR_REPLACE,"Borrowed Expr.replace requires an owned guest wrapper"); require(!abstractPrimitive(e.target.intrinsic),"Borrowed Expr abstraction requires an owned guest wrapper"); require(!pureExprTransform(e.target.intrinsic),"Borrowed Expr instantiation/lift requires an owned guest wrapper"); require(e.target.intrinsic!=POINTER_IDENTITY,"Pointer identity requires a certified direct FAP site"); require(!borrowedRefPrimitive(e.target.intrinsic),"Borrowed ref primitive requires owned closure wrapper"); for(int i=0;i<e.target.paramTypes.length;i++) require(e.target.paramTypes[i]==OBJ,"Unboxed partial target unsupported; boxed wrapper required"); for(int a:e.args) require(lane(env,a)==OBJ,"Partial argument must be boxed"); break;
@@ -6654,7 +6658,7 @@ public final class Interpreter implements AutoCloseable {
             case CASE: require(b.type!=F64,"Float case outside execution profile"); require(lane(env,b.a)==b.type,"Case lane mismatch"); for(Body alt:b.alternatives) validateBody(alt,f,env,joins,seen); break;
             case RET: require(lane(env,b.a)==f.resultType,"Return lane mismatch"); break;
             case SET: require(lane(env,b.a)==OBJ&&lane(env,b.args[0])==OBJ,"Field store lane mismatch"); validateBody(b.next,f,env,joins,seen); break;
-            case SSET: require(lane(env,b.a)==OBJ&&(b.type==U8||b.type==U32||b.type==U64||b.type==F64)&&lane(env,b.args[0])==b.type,"Scalar store lane mismatch"); validateBody(b.next,f,env,joins,seen); break;
+            case SSET: require(lane(env,b.a)==OBJ&&(b.type==U8||b.type==U16||b.type==U32||b.type==U64||b.type==F64)&&lane(env,b.args[0])==b.type,"Scalar store lane mismatch"); validateBody(b.next,f,env,joins,seen); break;
             case USET: require(lane(env,b.a)==OBJ&&lane(env,b.args[0])==USIZE,"USize store lane mismatch"); validateBody(b.next,f,env,joins,seen); break;
             case INC: case DEC: case DEL: case SETTAG: require(lane(env,b.a)==OBJ,"Object instruction lane mismatch"); validateBody(b.next,f,env,joins,seen); break;
             case UNREACHABLE: break;
@@ -6926,7 +6930,7 @@ public final class Interpreter implements AutoCloseable {
         else if(value instanceof Long||value instanceof Integer||value instanceof Short||value instanceof Byte)
             n=BigInteger.valueOf(((Number)value).longValue());
         else throw error("Expected exact unsigned scalar");
-        int bits=type==U8?8:type==U32?32:64;
+        int bits=type==U8?8:type==U16?16:type==U32?32:64;
         if(n.signum()<0||n.bitLength()>bits) throw error("Unsigned scalar outside "+bits+"-bit range");
         return n.longValue();
     }
@@ -6952,7 +6956,7 @@ public final class Interpreter implements AutoCloseable {
             views[i]=externalScalar(readSavedScalar(views[i],F64),F64);
         return views;
     }
-    private static int scalarWidth(int type) { return type==U8?1:type==U32?4:8; }
+    private static int scalarWidth(int type) { return type==U8?1:type==U16?2:type==U32?4:8; }
     private static int rawOffset(Node n,int word,int extra) {
         return Math.addExact(Math.multiplyExact(Math.subtractExact(word,n.fields.length),8),extra);
     }
@@ -6974,7 +6978,7 @@ public final class Interpreter implements AutoCloseable {
         if(type==USIZE||type==U64||type==F64) {
             Node n=new Node(0,0,8); writeScalar(n,0,type,value); allocations++; return n;
         }
-        return Long.valueOf(type==U8?value&255:value&0xffffffffL);
+        return Long.valueOf(type==U8?value&255:type==U16?value&65535:value&0xffffffffL);
     }
     private long unboxScalar(Object value,int type) {
         if(type==USIZE||type==U64||type==F64) {
@@ -8278,6 +8282,7 @@ public final class Interpreter implements AutoCloseable {
     /** Explicit membership: later IDs need not lie beside the original scalar group. */
     private static boolean u64ScalarPrimitive(int op) {
         switch(op) {
+            case U16_EQ: case U16_NAT:
             case LAYOUT_FIELDS: case LAYOUT_SCALARS: case LAYOUT_TAG: case LAYOUT_USIZE: case U32_LT: case U64_TO_NAT:
             case STR_HASH: case U64_MIX: case U64_NAT: case U64_SHR: case U64_XOR: case U64_USIZE:
             case U64_LT: case U64_EQ: case U64_OWNED_NAT: case U64_TO_U32:
@@ -8297,8 +8302,8 @@ public final class Interpreter implements AutoCloseable {
                 if(f.params.length>1) require(ERASED.equals(b),"USize conversion proof requires erased placeholder");
                 scalarResult=nat(a).longValue(); break;
             case USIZE_REPR: result=Long.toUnsignedString((Long)a); break;
-            case U32_NAT: result=a; break;
-            case U32_EQ: scalarResult=((Long)a).longValue()==((Long)b).longValue()?1:0; break;
+            case U16_NAT: case U32_NAT: result=a; break;
+            case U16_EQ: case U32_EQ: scalarResult=((Long)a).longValue()==((Long)b).longValue()?1:0; break;
             case U32_LT: scalarResult=(Long)a<(Long)b?1:0; break;
             case U64_TO_NAT: result=externalScalar((Long)a,U64); break;
             case LAYOUT_FIELDS: case LAYOUT_SCALARS: case LAYOUT_TAG: case LAYOUT_USIZE:

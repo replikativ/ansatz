@@ -58,8 +58,8 @@
                         result (c/ret 7))
           {:keys [ctx headers]} (setup [origin-row target])]
       (is (re-find #"raw ABI mismatch" (c/failure #(j/bind-guest-exports ctx [[(headers "forward") (headers "different")]]))))))
-  (let [origin (ext "unsupported" ["uint16"] "uint16")
-        target (c/decl "unsupported-body" [(c/p 9 "uint16")] "uint16" (c/ret 9))
+  (let [origin (ext "unsupported" ["float32"] "float32")
+        target (c/decl "unsupported-body" [(c/p 9 "float32")] "float32" (c/ret 9))
         {:keys [ctx headers]} (setup [origin target])]
     (is (re-find #"Unsupported execution lane" (c/failure #(j/bind-guest-exports ctx [[(headers "unsupported") (headers "unsupported-body")]]))))))
 

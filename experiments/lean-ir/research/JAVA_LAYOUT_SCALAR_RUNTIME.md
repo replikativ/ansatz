@@ -2,8 +2,8 @@
 
 This unit adds six exact native ABI bindings, with IDs 531–536: the four original
 IR Checker layout queries, UInt32.decLt, and UInt64.toNat. It adds no execution
-lane, Node field, action, policy, importer behavior or callback. UInt16 remains
-unsupported. The original owning boxed wrappers execute as ordinary guest IR.
+lane, Node field, action, policy, importer behavior or callback. This six-operation unit does not enable UInt16; the separate
+[JAVA_U16_RUNTIME.md](JAVA_U16_RUNTIME.md) records its later lane extension. The original owning boxed wrappers execute as ordinary guest IR.
 
 The layout queries return the pinned 64-bit target's 256/1024/243/8 limits.
 Canonical Unit Long zero is checked before raw entry and saturated AP claims in
