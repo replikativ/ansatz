@@ -1,0 +1,18 @@
+{
+  "schema": "lean-native-startup-requests/1",
+  "profile": "legacy-private-ordinary/1",
+  "requestedImports": [
+    {
+      "module": [
+        "num",
+        [
+          "anonymous"
+        ],
+        "7"
+      ],
+      "importAll": false,
+      "isExported": true,
+      "isMeta": false
+    }
+  ]
+}

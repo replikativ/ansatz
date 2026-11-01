@@ -1,0 +1,2 @@
+prelude
+import «A.B»
