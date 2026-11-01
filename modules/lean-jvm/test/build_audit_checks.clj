@@ -42,29 +42,29 @@
                               (make-array java.nio.file.attribute.FileAttribute 0)))]
       (try (f directory)
            (finally (doseq [file (reverse (file-seq directory))] (io/delete-file file)))))))
+(def capture-relative "ansatz/lean/jvm/internal/exec/Interpreter.java")
+(def capture-descriptor {:path capture-relative :class "ansatz.lean.jvm.internal.exec.Interpreter" :sha256 capture-sha})
 (deftest capture-freezes-only-the-pinned-source-despite-unlisted-neighbors
   (with-capture-fixture
     (fn [root]
-      (let [source (io/file root "source/Interpreter.java")
-            neighbor (io/file root "source/Unlisted.java")
-            stage (io/file root "java-source")]
+      (let [source (io/file root "src-java" capture-relative)
+            neighbor (io/file root "src-java/Unlisted.java") stage (io/file root "java-source")]
         (io/make-parents source)
         (spit source capture-text :encoding "UTF-8")
         (spit neighbor "deliberately invalid unlisted Java neighbor" :encoding "UTF-8")
-        (let [captured (audit/capture-engine-source! source capture-sha stage)
-              destination (io/file stage (:path captured))]
-          (is (= capture-sha (:sha256 captured)))
+        (let [captured (audit/capture-java-sources! root [capture-descriptor] stage)
+              destination (io/file stage capture-relative)]
+          (is (= {:java-sources 1} captured))
           (is (= capture-text (slurp destination :encoding "UTF-8")))
           (is (= ["Interpreter.java"] (mapv #(.getName %) (filter #(.isFile %) (file-seq stage)))))
-          ;; A later change to the canonical file cannot change compiler input.
           (spit source "mutated after capture" :encoding "UTF-8")
           (is (= capture-text (slurp destination :encoding "UTF-8"))))))))
 (deftest changed-source-before-capture-does-not-publish-a-staged-input
   (with-capture-fixture
     (fn [root]
-      (let [source (io/file root "Interpreter.java") stage (io/file root "java-source")]
-        (spit source "mutated before capture" :encoding "UTF-8")
-        (is (rejected? #(audit/capture-engine-source! source capture-sha stage)))
+      (let [source (io/file root "src-java" capture-relative) stage (io/file root "java-source")]
+        (io/make-parents source) (spit source "mutated before capture" :encoding "UTF-8")
+        (is (rejected? #(audit/capture-java-sources! root [capture-descriptor] stage)))
         (is (not (.exists stage)))))))
 
 (deftest engine-source-closure-is-exact-and-disjoint

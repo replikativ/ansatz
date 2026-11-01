@@ -73,40 +73,6 @@
 (defn- sha256-bytes [bytes]
   (apply str (map #(format "%02x" (bit-and 255 %)) (.digest (MessageDigest/getInstance "SHA-256") bytes))))
 (defn- sha256 [file] (sha256-bytes (Files/readAllBytes (.toPath (io/file file)))))
-(defn capture-engine-source!
-  "Producer-only capture of one exact hash-checked byte array. Never scans or
-   copies source neighbors. STAGING-ROOT must have no files; the build cleans only
-   its owned target/java-source tree. No destination is written on pin failure."
-  [source expected-sha staging-root]
-  (let [maximum (* 2 1024 1024)
-        bytes (with-open [input (Files/newInputStream (.toPath (io/file source))
-                                  (make-array java.nio.file.OpenOption 0))]
-                (.readNBytes input (int (inc maximum))))
-        actual-sha (sha256-bytes bytes)
-        relative "ansatz/lean/jvm/internal/exec/Interpreter.java"
-        destination (io/file staging-root relative)]
-    (need (<= (alength bytes) maximum) "Engine source capture exceeds bound")
-    (need (= expected-sha actual-sha) "Engine source changed before capture")
-    (need (empty? (paths-under staging-root)) "Engine source staging must be empty")
-    (io/make-parents destination)
-    (Files/write (.toPath destination) bytes
-                 (into-array java.nio.file.OpenOption [StandardOpenOption/CREATE_NEW StandardOpenOption/WRITE]))
-    {:path relative :bytes (alength bytes) :sha256 actual-sha}))
-(defn capture-api-sources!
-  "Capture only pinned inventoried Java API source bytes into owned staging."
-  [sources staging-root]
-  (doseq [{:keys [path sha256]} sources]
-    (need (and (string? path) (re-matches #"ansatz/lean/jvm/[A-Z][A-Za-z0-9]*\.java" path)
-               (re-matches #"[0-9a-f]{64}" (or sha256 ""))) "Pinned contained Java API source required")
-    (let [destination (io/file staging-root path)
-          bytes (with-open [input (io/input-stream (io/file "src-java" path))]
-                  (.readNBytes input 1048577))]
-      (need (<= (alength bytes) 1048576) "Java API source exceeds bound")
-      (need (= sha256 (sha256-bytes bytes)) "Java API source changed before capture")
-      (io/make-parents destination)
-      (Files/write (.toPath destination) bytes
-                   (into-array java.nio.file.OpenOption [StandardOpenOption/CREATE_NEW StandardOpenOption/WRITE]))))
-  {:java-api-sources (count sources)})
 (defn capture-java-sources!
   "Capture the complete validated engine/API closure before writing any source.
    No neighboring files or classpath sources become compiler inputs."
