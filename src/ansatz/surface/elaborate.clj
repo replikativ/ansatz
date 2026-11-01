@@ -1390,6 +1390,13 @@
                   (> (count args) 2)
                   (elab-term est (reduce (fn [a b] (list head a b)) args))
 
+                  ;; unary minus `(- a)` is Lean's `-a`, Neg.neg at the operand's type (over
+                  ;; Nat, which has no Neg, the former partial `Nat.sub a` is kept)
+                  (and (= op "-") (= 1 (count args))
+                       (let [[_ tn] (arith-type est (first args))] (and tn (not= tn "Nat"))))
+                  (let [[T _] (arith-type est (first args))]
+                    (elab-arith-at-type* est "neg" T args))
+
                   (< (count args) 2)
                   (elab-app est (symbol (get-in ingest/arith-lift [op "Nat"])) args)
 

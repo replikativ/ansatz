@@ -177,7 +177,14 @@
     (when-not (and (e/const? head) (= "Eq" (str (e/const-name head))) (= 3 (count args)))
       (error! "goal is not an equality" {:goal type}))
     (let [[ty lhs rhs] args]
-      (if (= lhs rhs)
+      (if (or (= lhs rhs)
+              ;; closed sides are compared by evaluation (Mathlib's ring evaluates numeral
+              ;; subterms with norm_num, e.g. Nat `5 - 3 = 2`); with free variables the kernel
+              ;; would unfold stuck recursors instead, and over Real closed numerals unfold Cauchy
+              ;; sequences, so only Nat and Int are evaluated
+              (and (e/const? ty) (contains? #{"Nat" "Int"} (str (e/const-name ty)))
+                   (not (e/has-fvar-flag lhs)) (not (e/has-fvar-flag rhs))
+                   (try (defeq? st lhs rhs) (catch Exception _ false))))
         (check-term! env lctx type (app "Eq.refl" (e/const-levels head) ty lhs))
         (let [_ (when-not (env/lookup env (name/from-string "Lean.Grind.CommRing.eq_normS"))
                   (error! "checked Lean polynomial normalization declarations are unavailable"
