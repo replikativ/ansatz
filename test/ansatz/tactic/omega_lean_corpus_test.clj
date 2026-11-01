@@ -267,7 +267,7 @@
             (ex [["n" NAT]] (fn [n] {:hyps [] :concl (n<= (nlit 0) (n+ (n* n n) n))})))
     ;; L402
     (proves "a * 1 = a"
-         (ex [["a" NAT]] (fn [a] {:hyps [] :concl (n= (n* a (nlit 1)) a)})))
+            (ex [["a" NAT]] (fn [a] {:hyps [] :concl (n= (n* a (nlit 1)) a)})))
     ;; L394 / L395 / L396
     (proves "n * 2 = n + n"
             (ex [["n" NAT]] (fn [n] {:hyps [] :concl (n= (n* n (nlit 2)) (n+ n n))})))
@@ -547,16 +547,16 @@
             (ex [] (fn [] {:hyps [(i<= (i- (ilit 14) (ilit 7)) (ilit 0))] :concl FALSE})))
     ;; L113 / L115 — Neg.neg
     (proves "-(7:Int) = 0 → False"
-         (ex [] (fn [] {:hyps [(i= (ineg (ilit 7)) (ilit 0))] :concl FALSE})))
+            (ex [] (fn [] {:hyps [(i= (ineg (ilit 7)) (ilit 0))] :concl FALSE})))
     (proves "-(-7:Int) ≤ 0 → False"
-         (ex [] (fn [] {:hyps [(i<= (ineg (ilit -7)) (ilit 0))] :concl FALSE})))
+            (ex [] (fn [] {:hyps [(i<= (ineg (ilit -7)) (ilit 0))] :concl FALSE})))
     ;; L121 — gcd tightening (2 ∤ 1), reached without any Int literal folding
     (proves "x + x + 1 = 0 → False"
             (ex [["x" INT]] (fn [x] {:hyps [(i= (i+ (i+ x x) (ilit 1)) (ilit 0))] :concl FALSE})))
     ;; L123
     (proves "2*x + 1 = 0 → False"
-         (ex [["x" INT]] (fn [x] {:hyps [(i= (i+ (i* (ilit 2) x) (ilit 1)) (ilit 0))]
-                                  :concl FALSE})))
+            (ex [["x" INT]] (fn [x] {:hyps [(i= (i+ (i* (ilit 2) x) (ilit 1)) (ilit 0))]
+                                     :concl FALSE})))
     ;; L125 / L127
     (proves "x + x + y + y + 1 = 0 → False"
             (ex [["x" INT] ["y" INT]]
@@ -569,23 +569,23 @@
                          :concl FALSE})))
     ;; L133 / L135
     (proves "0 ≤ 2*x + 1 → 2*x + 1 ≤ 0 → False"
-         (ex [["x" INT]]
-             (fn [x] {:hyps [(i<= (ilit 0) (i+ (i* (ilit 2) x) (ilit 1)))
-                             (i<= (i+ (i* (ilit 2) x) (ilit 1)) (ilit 0))]
-                      :concl FALSE})))
+            (ex [["x" INT]]
+                (fn [x] {:hyps [(i<= (ilit 0) (i+ (i* (ilit 2) x) (ilit 1)))
+                                (i<= (i+ (i* (ilit 2) x) (ilit 1)) (ilit 0))]
+                         :concl FALSE})))
     ;; L137 — equality hypothesis chaining
     (proves "0 ≤ 2*x+1 → x = y → 2*y+1 ≤ 0 → False"
-         (ex [["x" INT] ["y" INT]]
-             (fn [x y] {:hyps [(i<= (ilit 0) (i+ (i* (ilit 2) x) (ilit 1)))
-                               (i= x y)
-                               (i<= (i+ (i* (ilit 2) y) (ilit 1)) (ilit 0))]
-                        :concl FALSE})))
+            (ex [["x" INT] ["y" INT]]
+                (fn [x y] {:hyps [(i<= (ilit 0) (i+ (i* (ilit 2) x) (ilit 1)))
+                                  (i= x y)
+                                  (i<= (i+ (i* (ilit 2) y) (ilit 1)) (ilit 0))]
+                           :concl FALSE})))
     ;; L145
     (proves "1 ≤ -3*x → 1 ≤ 2*x → False"
-         (ex [["x" INT]]
-             (fn [x] {:hyps [(i<= (ilit 1) (i* (ilit -3) x))
-                             (i<= (ilit 1) (i* (ilit 2) x))]
-                      :concl FALSE})))
+            (ex [["x" INT]]
+                (fn [x] {:hyps [(i<= (ilit 1) (i* (ilit -3) x))
+                                (i<= (ilit 1) (i* (ilit 2) x))]
+                         :concl FALSE})))
     ;; L205
     (proves "a < b → b < a → False"
             (ex [["a" INT] ["b" INT]] (fn [a b] {:hyps [(i< a b) (i< b a)] :concl FALSE})))
@@ -613,14 +613,14 @@
                 (fn [x] {:hyps [(p-and (i< (ilit 0) x) (i< x (ilit -1)))] :concl FALSE})))
     ;; L213 — the product A*B is atomised, then scaled
     (proves "0 < A*B → 0 < 8*(A*B)"
-         (ex [["A" INT] ["B" INT]]
-             (fn [A B] {:hyps [(i< (ilit 0) (i* A B))]
-                        :concl (i< (ilit 0) (i* (ilit 8) (i* A B)))})))
+            (ex [["A" INT] ["B" INT]]
+                (fn [A B] {:hyps [(i< (ilit 0) (i* A B))]
+                           :concl (i< (ilit 0) (i* (ilit 8) (i* A B)))})))
     ;; L265
     (proves "0 ≤ a → 0*0 ≤ 2*a"
-         (ex [["a" INT]]
-             (fn [a] {:hyps [(i<= (ilit 0) a)]
-                      :concl (i<= (i* (ilit 0) (ilit 0)) (i* (ilit 2) a))})))
+            (ex [["a" INT]]
+                (fn [a] {:hyps [(i<= (ilit 0) a)]
+                         :concl (i<= (i* (ilit 0) (ilit 0)) (i* (ilit 2) a))})))
     ;; L207 — an Int EQUALITY goal; by_contra needs the ≠ → disjunction lemma
     ;; (Int.lt_or_gt_of_ne)
     (proves "v0 + v1 + c = 10 → v0 + 5 + (v1 - 3) + (c - 2) = 10"
@@ -662,29 +662,29 @@
             (ex [["x" INT] ["y" INT]] (fn [x y] {:hyps [(i< x y)] :concl (i-ne x y)})))
     ;; L186 — 5×5 dense Int system
     (proves "5-variable dense Int system ⊢ e = 3"
-         (ex [["a" INT] ["b" INT] ["c" INT] ["d" INT] ["e" INT]]
-             (fn [a b c d e]
-               (let [s (fn [& xs] (reduce i+ xs))]
-                 {:hyps [(i= (s (i* (ilit 2) a) b c d e) (ilit 4))
-                         (i= (s a (i* (ilit 2) b) c d e) (ilit 5))
-                         (i= (s a b (i* (ilit 2) c) d e) (ilit 6))
-                         (i= (s a b c (i* (ilit 2) d) e) (ilit 7))
-                         (i= (s a b c d (i* (ilit 2) e)) (ilit 8))]
-                  :concl (i= e (ilit 3))}))))))
+            (ex [["a" INT] ["b" INT] ["c" INT] ["d" INT] ["e" INT]]
+                (fn [a b c d e]
+                  (let [s (fn [& xs] (reduce i+ xs))]
+                    {:hyps [(i= (s (i* (ilit 2) a) b c d e) (ilit 4))
+                            (i= (s a (i* (ilit 2) b) c d e) (ilit 5))
+                            (i= (s a b (i* (ilit 2) c) d e) (ilit 6))
+                            (i= (s a b c (i* (ilit 2) d) e) (ilit 7))
+                            (i= (s a b c d (i* (ilit 2) e)) (ilit 8))]
+                     :concl (i= e (ilit 3))}))))))
 
 (deftest corpus-int-div
   (testing "lean4 omega.lean — Int division"
     ;; L222
     (proves "ε > 0 → ε / 2 < ε"
-         (ex [["e" INT]] (fn [ee] {:hyps [(i< (ilit 0) ee)]
-                                   :concl (i< (idiv ee (ilit 2)) ee)})))
+            (ex [["e" INT]] (fn [ee] {:hyps [(i< (ilit 0) ee)]
+                                      :concl (i< (idiv ee (ilit 2)) ee)})))
     ;; L17
     (proves "2 * (x / 2) > x → False"
-         (ex [["x" INT]] (fn [x] {:hyps [(i< x (i* (ilit 2) (idiv x (ilit 2))))]
-                                  :concl FALSE})))
+            (ex [["x" INT]] (fn [x] {:hyps [(i< x (i* (ilit 2) (idiv x (ilit 2))))]
+                                     :concl FALSE})))
     ;; L15
     (proves "x % 2 > 5 → False"
-         (ex [["x" INT]] (fn [x] {:hyps [(i< (ilit 5) (imod x (ilit 2)))] :concl FALSE})))
+            (ex [["x" INT]] (fn [x] {:hyps [(i< (ilit 5) (imod x (ilit 2)))] :concl FALSE})))
     ;; L293 — a quotient by a SYMBOLIC divisor is a plain atom; no bounds needed
     (proves "32 / a < b → b < c → 32 / a < c"
             (ex [["a" INT] ["b" INT] ["c" INT]]

@@ -182,7 +182,6 @@
                       (e/app* (c "Int.mul_nonneg_of_nonpos_of_nonpos") a a (e/bvar 0) (e/bvar 0)) :default)]
        (rec (e/app* (c "Or.elim") (int-le int-zero a) (int-le a int-zero) goal h0 pos neg) goal)))})
 
-
 ;; ------------------------------------------------------------------
 ;; Mathlib's lemmas, at any ordered field (instances synthesized)
 ;; ------------------------------------------------------------------
@@ -199,7 +198,7 @@
         goal (e/app* (c "OfNat" [u]) ty (e/lit-nat n))
         env (:env st)
         inst ((requiring-resolve 'ansatz.tactic.instance/synthesize*) st env
-              ((requiring-resolve 'ansatz.tactic.instance/index-for) env) goal 0)]
+                                                                      ((requiring-resolve 'ansatz.tactic.instance/index-for) env) goal 0)]
     (when-not inst
       (throw (ex-info (str "linarith: no OfNat instance for numeral " n)
                       {:kind :tactic-error :type ty})))
@@ -287,8 +286,8 @@
            lt-inst (if (= "LT.lt" (str (e/const-name lt-h)))
                      lt-inst
                      ((requiring-resolve 'ansatz.tactic.instance/synthesize*) st (:env st)
-                      ((requiring-resolve 'ansatz.tactic.instance/index-for) (:env st))
-                      (e/app* (c "LT" (e/const-levels lt-h)) ty) 0))
+                                                                              ((requiring-resolve 'ansatz.tactic.instance/index-for) (:env st))
+                                                                              (e/app* (c "LT" (e/const-levels lt-h)) ty) 0))
            cn (numeral-at st ty n)
            prop (e/app* (c "LT.lt" (e/const-levels lt-h)) ty lt-inst zero cn)
            cpos (rec (prove-by-norm-num st prop) prop)]

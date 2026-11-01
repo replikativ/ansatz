@@ -201,8 +201,8 @@
   (let [ra (core st ty a) rb (core st ty b)]
     (case [(:kind ra) (:kind rb)]
       [:positive :positive] (positive (if (= ty Int)
-                                          (app-rec st "Int.add_pos" [(:proof ra) (:proof rb)])
-                                          (app-rec st "Nat.add_pos_left" [(:proof ra) b])))
+                                        (app-rec st "Int.add_pos" [(:proof ra) (:proof rb)])
+                                        (app-rec st "Nat.add_pos_left" [(:proof ra) b])))
       [:positive :nonnegative]
       (positive (if (= ty Int)
                   (app-rec st "Int.add_pos_of_pos_of_nonneg" [(:proof ra) (:proof rb)])

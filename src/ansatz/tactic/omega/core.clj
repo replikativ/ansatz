@@ -1197,8 +1197,8 @@
                            :default)
                     :default)
            mul-eval (e/app* (e/const' (name/from-string (if (= const-side :left)
-                                                         "Lean.Omega.LinearCombo.mul_eval_of_const_left"
-                                                         "Lean.Omega.LinearCombo.mul_eval_of_const_right")) [])
+                                                          "Lean.Omega.LinearCombo.mul_eval_of_const_left"
+                                                          "Lean.Omega.LinearCombo.mul_eval_of_const_right")) [])
                             (to-lean-linear-combo lc1) (to-lean-linear-combo lc2) atoms-expr w)
            congr (e/app* (e/const' (name/from-string "Lean.Omega.Int.mul_congr") [])
                          eval1 (:rhs p1) eval2 (:rhs p2) (:proof p1) (:proof p2))

@@ -72,7 +72,7 @@
         [_ _ sm zero] (p/ineq? (:type sm-lt-zero))
         sort (tc/infer-type st carrier)
         eq-type (e/app* (e/const' (name/from-string "Eq") [(if (e/sort? sort) (e/sort-level sort)
-                                                                (lvl/succ lvl/zero))])
+                                                               (lvl/succ lvl/zero))])
                         carrier sm zero)
         sm-eq-zero (L/rec (discharger eq-type) eq-type)]
     [(:proof ((:contradiction fam) st sm-lt-zero sm-eq-zero)) idxs]))
