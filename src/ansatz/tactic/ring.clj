@@ -154,45 +154,57 @@
                        (build lo mid) (build mid hi)))))]
       (build 0 (count atoms)))))
 
-(defn- checked-close [ps goal term]
-  ;; Check every application argument, including the boolean certificate, before
-  ;; assigning the goal. inferType alone is not a certificate verifier.
-  (let [checker (doto (TypeChecker. (:env ps)) (.setFuel (long config/*default-fuel*)))]
-    (doseq [[id decl] (sort-by key (:lctx goal))]
+(defn- check-term!
+  "Check every application argument, including the boolean certificate. inferType alone
+   is not a certificate verifier."
+  [env lctx type term]
+  (let [checker (doto (TypeChecker. env) (.setFuel (long config/*default-fuel*)))]
+    (doseq [[id decl] (sort-by key lctx)]
       (.addLocal checker (long id) (str (:name decl)) (:type decl)))
     (let [inferred (.check checker term)]
-      (when-not (.isDefEq checker inferred (:type goal))
+      (when-not (.isDefEq checker inferred type)
         (error! "normalization certificate does not prove the original goal"
-                {:goal (:type goal) :inferred inferred})))
-    (-> (proof/assign-mvar ps (:id goal) {:kind :exact :term term})
-        (proof/record-tactic :ring [] (:id goal)))))
+                {:goal type :inferred inferred})))
+    term))
 
-(defn ring
-  "Prove polynomial equalities with Lean's checked normalization certificates.
-   Supports Nat, Int, and carriers with Lean.Grind.CommRing/CommSemiring instances.
-   Unsupported operations (including Nat subtraction and nonconstant powers)
-   remain atoms. No host polynomial comparison is trusted as a proof."
-  [ps]
-  (let [goal (proof/current-goal ps)
-        _ (when-not goal (error! "no goals" {}))
-        st (tc/attach-lctx (tc/mk-tc-state (:env ps)) (:lctx goal))
-        [head args] (e/get-app-fn-args (whnf st (:type goal)))]
+(defn prove-eq
+  "A kernel-checked proof term of the equality `type` in local context `lctx`, by Lean's
+   CommRing/CommSemiring normalization certificate (what `ring1` provides to linarith).
+   Throws a :tactic-error when the two sides do not normalize to the same polynomial."
+  [env lctx type]
+  (let [st (tc/attach-lctx (tc/mk-tc-state env) lctx)
+        [head args] (e/get-app-fn-args (whnf st type))]
     (when-not (and (e/const? head) (= "Eq" (str (e/const-name head))) (= 3 (count args)))
-      (error! "goal is not an equality" {:goal (:type goal)}))
-    (let [[type lhs rhs] args]
-      (if (defeq? st lhs rhs)
-        (checked-close ps goal (app "Eq.refl" (e/const-levels head) type lhs))
-        (let [_ (when-not (env/lookup (:env ps) (name/from-string "Lean.Grind.CommRing.eq_normS"))
+      (error! "goal is not an equality" {:goal type}))
+    (let [[ty lhs rhs] args]
+      (if (= lhs rhs)
+        (check-term! env lctx type (app "Eq.refl" (e/const-levels head) ty lhs))
+        (let [_ (when-not (env/lookup env (name/from-string "Lean.Grind.CommRing.eq_normS"))
                   (error! "checked Lean polynomial normalization declarations are unavailable"
                           {:required "Lean.Grind.CommRing.eq_normS"}))
-              ctx (ring-context st type)
+              ctx (ring-context st ty)
               {:keys [lhs rhs atoms]} (reify-pair st ctx lhs rhs)
               context (context-expr ctx atoms)
               cert (app "Eq.refl" [(lvl/succ lvl/zero)] (c "Bool") (c "Bool.true"))
               term (app (if (:ring? ctx) "Lean.Grind.CommRing.Expr.eq_of_toPoly_eq"
                             "Lean.Grind.CommRing.eq_normS")
-                        [(:u ctx)] type (:instance ctx) context lhs rhs cert)]
-          (try (checked-close ps goal term)
+                        [(:u ctx)] ty (:instance ctx) context lhs rhs cert)]
+          (try (check-term! env lctx type term)
                (catch Exception ex
                  (throw (ex-info "ring: polynomial normalization could not certify the equality"
-                                 {:kind :tactic-error :goal (:type goal)} ex)))))))))
+                                 {:kind :tactic-error :goal type} ex)))))))))
+
+(defn ring
+  "Prove polynomial equalities with Lean's checked normalization certificates.
+   Supports Nat, Int, and carriers with Lean.Grind.CommRing/CommSemiring instances.
+   Unsupported operations (including Nat subtraction and nonconstant powers)
+   remain atoms. No host polynomial comparison is trusted as a proof.
+
+   Like Mathlib's `ring1` there is no definitional pre-check of the two sides: unfolding
+   two different polynomials over large literals recurses once per unit of the literal."
+  [ps]
+  (let [goal (proof/current-goal ps)
+        _ (when-not goal (error! "no goals" {}))
+        term (prove-eq (:env ps) (:lctx goal) (:type goal))]
+    (-> (proof/assign-mvar ps (:id goal) {:kind :exact :term term})
+        (proof/record-tactic :ring [] (:id goal)))))
