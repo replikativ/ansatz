@@ -49,4 +49,8 @@
     (proves mnlin-3 [x :- Rat, y :- Rat, h1 :- (= Rat (+ (* x x) (* y y)) 0)] (= Rat x 0) (nlinarith))
     (proves mnlin-4 [x :- Rat, y :- Rat, h1 :- (<= (+ (* x x) (* y y)) 0)] (= Rat y 0) (nlinarith))
     (proves mnlin-5 [x :- Real, h1 :- (<= -1048576 x), h2 :- (<= x 1048576)]
-            (<= (* x x) 1099511627776) (nlinarith))))
+            (<= (* x x) 1099511627776) (nlinarith))
+    ;; the product of two strict inequalities needs PosMulStrictMono ℝ (mul_pos), which instance
+    ;; synthesis reaches through IsStrictOrderedRing.toPosMulStrictMono's implicit Semiring
+    (proves mnlin-6 [a :- Real, b :- Real, ha :- (< 0 a), hb :- (< 0 b)] (< 0 (* a b)) (nlinarith))
+    (proves mnlin-7 [a :- Real, b :- Real, ha :- (< a 0), hb :- (< b 0)] (< 0 (* a b)) (nlinarith))))

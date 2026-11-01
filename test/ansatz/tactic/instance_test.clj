@@ -9,6 +9,7 @@
             [ansatz.kernel.level :as lvl]
             [ansatz.kernel.tc :as tc]
             [ansatz.config :as config]
+            [ansatz.meta :as meta]
             [ansatz.state :as state])
   (:import [ansatz.kernel ConstantInfo]))
 
@@ -239,7 +240,8 @@
                     (e/const' (name/from-string "Nat") []))
         failure (NullPointerException. "injected synthesis bug")]
     (testing "candidate reduction does not turn bugs into another instance"
-      (with-redefs-fn {#'tc/cached-whnf (fn [& _] (throw failure))}
+      ;; tryResolve's unification (a mismatch is nil or an ExceptionInfo; anything else is a bug)
+      (with-redefs-fn {#'meta/is-def-eq (fn [& _] (throw failure))}
         #(is (thrown-with-msg? NullPointerException #"injected synthesis bug"
                                (inst/synthesize env @test-index goal)))))
     (testing "the synthPending hook propagates bugs"

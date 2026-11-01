@@ -183,7 +183,10 @@
         (cond
           (and (= h "HPow.hPow") (= n 6) (= 2 (p/numeral? (nth args 5)))) (sq (nth args 4))
           (and (= h "Int.pow") (= n 2) (= 2 (p/numeral? (nth args 1)))) (sq (nth args 0))
-          (and (contains? #{"HMul.hMul" "Int.mul"} h) (contains? #{6 2} n)
+          ;; `@HMul.hMul α α` (2 args) is the PARTIAL application met while descending into the
+          ;; function of `a * b`; only `Int.mul` is binary. Matching it took the carrier for an atom
+          ;; (`α * α`) and asked instance synthesis for `OfNat (Type) 0`.
+          (and (or (and (= h "HMul.hMul") (= n 6)) (and (= h "Int.mul") (= n 2)))
                (let [[a b] (if (= n 6) [(nth args 4) (nth args 5)] args)]
                  (= (p/strip-mdata a) (p/strip-mdata b))))
           (let [a (if (= n 6) (nth args 4) (nth args 0))
