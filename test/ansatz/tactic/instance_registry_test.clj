@@ -30,3 +30,13 @@
           r (inst/synthesize* (tc/mk-tc-state env) env (inst/index-for env) goal 0)]
       (is (some? r))
       (is (= "instNonemptyOfInhabited" (str (e/const-name (e/get-app-fn r))))))))
+
+(deftest re-registration-takes-the-later-priority
+  (testing "`attribute [instance 50] C.toX` after the structure-parent registration at 1000 is one
+            entry at priority 50 (Lean's DiscrTree.insertVal replaces the equal value in place)"
+    (let [idx (inst/parse-instance-tsv ["ExistsAddOfLE\tCanonicallyOrderedAdd.toExistsAddOfLE\t1000"
+                                        "ExistsAddOfLE\tAddGroup.existsAddOfLE\t100"
+                                        "ExistsAddOfLE\tCanonicallyOrderedAdd.toExistsAddOfLE\t50"])]
+      (is (= [["AddGroup.existsAddOfLE" 100] ["CanonicallyOrderedAdd.toExistsAddOfLE" 50]]
+             (mapv (juxt (comp str :name) :priority)
+                   (inst/get-instances idx (name/from-string "ExistsAddOfLE"))))))))

@@ -114,42 +114,6 @@
 
 (declare mk-app)
 
-(def ^:private mixin-instances
-  "Order mixins whose Mathlib instances ansatz's synthesis does not reach (it does not unify
-   the instance paths of their arguments, e.g. `Distrib.toAdd` against the `AddGroup` one):
-   each is tried by its structure-projection instance, applied as `mkAppM` does, against the
-   goal. The kernel checks the resulting instance argument."
-  {"ExistsAddOfLE" ["AddGroup.existsAddOfLE"]
-   "PosMulMono" ["IsOrderedRing.toPosMulMono"]
-   "MulPosMono" ["IsOrderedRing.toMulPosMono"]
-   "PosMulStrictMono" ["IsStrictOrderedRing.toPosMulStrictMono"]
-   "MulPosStrictMono" ["IsStrictOrderedRing.toMulPosStrictMono"]
-   "AddLeftMono" ["IsOrderedAddMonoid.toAddLeftMono"]
-   "AddRightMono" ["IsOrderedAddMonoid.toAddRightMono"]
-   "AddLeftReflectLE" ["IsOrderedCancelAddMonoid.toAddLeftReflectLE"]
-   "AddLeftReflectLT" ["IsOrderedCancelAddMonoid.toAddLeftReflectLT"]
-   "IsOrderedCancelAddMonoid" ["IsStrictOrderedRing.toIsOrderedCancelAddMonoid"]
-   "ZeroLEOneClass" ["IsOrderedRing.toZeroLEOneClass"]
-   "HasDistribNeg" ["NonUnitalNonAssocRing.toHasDistribNeg"]
-   "AddLeftStrictMono" ["IsLeftCancelAdd.addLeftStrictMono_of_addLeftMono"
-                        "addLeftStrictMono_of_addLeftReflectLE"]
-   "IsOrderedAddMonoid" ["IsOrderedRing.toIsOrderedAddMonoid"]
-   "IsOrderedRing" ["IsStrictOrderedRing.toIsOrderedRing"]})
-
-(def ^:private ^:dynamic *fallback-depth* 0)
-
-(defn- mixin-fallback [st goal]
-  (let [[h _] (e/get-app-fn-args (strip goal))]
-    (when (and (e/const? h) (< *fallback-depth* 3))
-      (some (fn [ctor]
-              (when (env/lookup (:env st) (name/from-string ctor))
-                (binding [*fallback-depth* (inc *fallback-depth*)]
-                  (try (let [{:keys [term type]} (mk-app st ctor [] :expected goal)]
-                         ;; only an instance of exactly the goal's class instance
-                         (when (tc/is-def-eq st type goal) term))
-                       (catch Exception _ nil)))))
-            (get mixin-instances (name/->string (e/const-name h)))))))
-
 (defn mk-app
   "Lean's `mkAppM c args` (and, with `:expected`, the conclusion matched against an expected
    type first, as `apply` does). Options:
@@ -228,7 +192,6 @@
                                   (:lctx st))
                             (try (inst/synthesize* st env (inst/index-for env) goal 0)
                                  (catch clojure.lang.ExceptionInfo _ nil))
-                            (mixin-fallback st goal)
                             (error! (str "failed to synthesize instance for " cname)
                                     {:const cname :goal goal}))]
               (if found

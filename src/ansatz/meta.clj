@@ -1228,10 +1228,17 @@
    unification behaves exactly as before when no tactic layer is loaded."
   nil)
 
-(def ^:dynamic ^:private *synthesizing-pending?*
-  "True for the dynamic extent of a synthPending call — synthesis runs its own isDefEq checks,
-   and they must not re-enter synthPending."
-  false)
+;; Lean Meta/Basic.lean `maxSynthPendingDepth` (default 1) and SynthInstance.lean
+;; synthPendingImp: synthPending runs while the nesting depth is at most this bound, and every
+;; nested synthesis increments it. Instance synthesis itself unifies candidate conclusions with
+;; synthPending (a stuck `Semiring ℝ` mvar under `Distrib.toMul`), so one nested level is needed.
+(def max-synth-pending-depth 1)
+
+(def ^:dynamic *synth-pending-depth*
+  "The number of synthPending invocations enclosing the current one (Lean's `synthPendingDepth`).
+   Instance-synthesis caches key on it: a search under a deeper bound may fail where a shallower
+   one succeeds."
+  0)
 
 (defn- pending-instance-mvars
   "Unassigned INSTANCE metavariables occurring in `expr` whose type is, by now, fully
@@ -1260,11 +1267,11 @@
    compared with the goal's direct instance once its root is known."
   [mctx st a b]
   (when-let [f *synth-pending-fn*]
-    (when-not *synthesizing-pending?*
+    (when (<= *synth-pending-depth* max-synth-pending-depth)
       (let [ids (distinct (concat (pending-instance-mvars mctx a)
                                   (pending-instance-mvars mctx b)))]
         (when (seq ids)
-          (binding [*synthesizing-pending?* true]
+          (binding [*synth-pending-depth* (inc *synth-pending-depth*)]
             (reduce (fn [acc id]
                       (let [goal (zonk-expr (or acc mctx) (:type (expr-decl mctx id)))]
                         (if-let [inst (try (f (or acc mctx) st goal) (catch Throwable _ nil))]
