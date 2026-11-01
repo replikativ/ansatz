@@ -141,8 +141,8 @@
     },
     {
       "file": "experiments/lean-ir/research/java-ir-baseline/startup-evidence/producer/validation.json",
-      "bytes": 4702,
-      "sha256": "51cdc25ac3e45584b36640654e88eda249562e7da116445302beaa554cbd7fd4"
+      "bytes": 5406,
+      "sha256": "ba184c61e3c85f685698e425d7f99261f895a2e87bf8b07425ad4aead154aea5"
     }
   ],
   "unchangedAcceptedSources": [

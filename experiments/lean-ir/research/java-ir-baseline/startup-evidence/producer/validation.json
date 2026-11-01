@@ -131,5 +131,27 @@
     "rawArtifactsPreserved": true,
     "originalRawSourceBytesRewritten": false,
     "roleOrHeaderHashSpoofed": false
+  },
+  "whitespaceAudit": {
+    "scope": "full change range from cdbb0ea2",
+    "status": "four intentional warnings; no unexpected warnings",
+    "exceptions": [
+      {
+        "file": "experiments/lean-ir/lean/NativeStartupEvidence.lean",
+        "line": 671,
+        "warning": "new blank line at EOF",
+        "reason": "preserve exact compiled f8 source bytes"
+      },
+      {
+        "file": "experiments/lean-ir/test/fixtures/native-startup-evidence/header-crlf-unicode.lean",
+        "lines": [
+          1,
+          2,
+          3
+        ],
+        "warning": "trailing CR reported as whitespace",
+        "reason": "intentional original CRLF parser fixture; do not normalize"
+      }
+    ]
   }
 }
