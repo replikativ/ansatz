@@ -1,0 +1,6319 @@
+{
+  "schema": "lean-type-family-lexical-survey/1",
+  "method": "Immutable git source snapshots; nested comments and strings masked. Per-file and declaration-header mentions, not elaborated type frequencies or execution coverage. Data declarations include constructor/field bodies. Names are not resolved; families overlap. Definitions may be noncomputable, proofs or stale code. Corpora are purposive, not a representative random sample of Lean projects.",
+  "scannerSHA256": "1e6076f33957f09cd68173fa13d332dabcebc838461eff9c54cf790c429f9abc",
+  "familyTokens": {
+    "Nat": [
+      "Nat",
+      "ℕ"
+    ],
+    "Int": [
+      "Int",
+      "ℤ"
+    ],
+    "Bool": [
+      "Bool"
+    ],
+    "String": [
+      "String"
+    ],
+    "Unit": [
+      "PUnit",
+      "Unit"
+    ],
+    "Float/Float32": [
+      "Float",
+      "Float32"
+    ],
+    "machine integers": [
+      "ISize",
+      "Int16",
+      "Int32",
+      "Int64",
+      "Int8",
+      "UInt16",
+      "UInt32",
+      "UInt64",
+      "UInt8",
+      "USize"
+    ],
+    "Char": [
+      "Char"
+    ],
+    "List": [
+      "List"
+    ],
+    "Array": [
+      "Array"
+    ],
+    "ByteArray": [
+      "ByteArray"
+    ],
+    "packed/scientific arrays": [
+      "DataArray",
+      "DataArrayN",
+      "Float32Array",
+      "FloatArray",
+      "ScalarArray",
+      "Vec"
+    ],
+    "Option": [
+      "Option"
+    ],
+    "Prod/tuples": [
+      "PProd",
+      "Prod",
+      "×"
+    ],
+    "Sum/Except": [
+      "EExcept",
+      "Except",
+      "PSum",
+      "Sum",
+      "⊕"
+    ],
+    "Fin/BitVec": [
+      "BitVec",
+      "Fin"
+    ],
+    "Subtype/Vector": [
+      "Subtype",
+      "Vector"
+    ],
+    "Rat": [
+      "Rat",
+      "ℚ"
+    ],
+    "Real/Complex specifications": [
+      "Complex",
+      "Real",
+      "ℂ",
+      "ℝ"
+    ],
+    "maps/sets": [
+      "DHashMap",
+      "DTreeMap",
+      "HashMap",
+      "HashSet",
+      "NameMap",
+      "NameSet",
+      "PersistentHashMap",
+      "PersistentHashSet",
+      "RBMap",
+      "RBSet",
+      "TreeMap",
+      "TreeSet"
+    ],
+    "mathematical sets": [
+      "Finset",
+      "Set"
+    ],
+    "JSON": [
+      "JSON",
+      "Json",
+      "JsonNumber"
+    ],
+    "IO/EIO/BaseIO": [
+      "BaseIO",
+      "EIO",
+      "IO"
+    ],
+    "monad transformers/runners": [
+      "CommandElabM",
+      "CoreM",
+      "EStateM",
+      "ExceptT",
+      "MetaM",
+      "OptionT",
+      "ReaderM",
+      "ReaderT",
+      "StateM",
+      "StateRefT",
+      "StateRefT'",
+      "StateT",
+      "TelemetryT",
+      "TermElabM"
+    ],
+    "async/resources": [
+      "Async",
+      "Channel",
+      "Condvar",
+      "Conn",
+      "ContextAsync",
+      "Handle",
+      "Mutex",
+      "Promise",
+      "Socket",
+      "Stream",
+      "Task"
+    ],
+    "paths/time/URI": [
+      "DateTime",
+      "Duration",
+      "FilePath",
+      "Millisecond",
+      "Nanosecond",
+      "Timestamp",
+      "URI"
+    ],
+    "metaprogramming values": [
+      "Environment",
+      "Expr",
+      "Level",
+      "MessageData",
+      "Name",
+      "Syntax",
+      "TSyntax"
+    ]
+  },
+  "corpora": {
+    "lean-init-std": {
+      "commit": "819816b2e0a3bf405af45ae5c7af2491d8f5bee6",
+      "prefixes": [
+        "src/Init/",
+        "src/Std/"
+      ],
+      "excludePrefixes": [],
+      "files": 1112,
+      "sourceBytes": 16416500,
+      "skippedOversizedFiles": [],
+      "declarationKinds": {
+        "def": 6656,
+        "theorem": 36568,
+        "instance": 3997,
+        "class": 340,
+        "abbrev": 456,
+        "structure": 475,
+        "inductive": 191,
+        "example": 48,
+        "opaque": 203
+      },
+      "families": {
+        "Nat": {
+          "codeFiles": 551,
+          "dataDeclarations": 167,
+          "proofHeaders": 4550,
+          "definitionHeaders": 1193,
+          "definitionFiles": 231,
+          "dataFiles": 95
+        },
+        "Int": {
+          "codeFiles": 151,
+          "proofHeaders": 2054,
+          "definitionHeaders": 413,
+          "definitionFiles": 73,
+          "dataDeclarations": 24,
+          "dataFiles": 17
+        },
+        "Bool": {
+          "codeFiles": 403,
+          "definitionHeaders": 918,
+          "definitionFiles": 191,
+          "dataDeclarations": 73,
+          "dataFiles": 47,
+          "proofHeaders": 2032
+        },
+        "String": {
+          "codeFiles": 174,
+          "definitionHeaders": 781,
+          "definitionFiles": 104,
+          "proofHeaders": 1089,
+          "dataDeclarations": 72,
+          "dataFiles": 38
+        },
+        "Unit": {
+          "codeFiles": 177,
+          "definitionHeaders": 347,
+          "dataDeclarations": 52,
+          "definitionFiles": 92,
+          "dataFiles": 30,
+          "proofHeaders": 431
+        },
+        "Float/Float32": {
+          "codeFiles": 34,
+          "dataDeclarations": 7,
+          "definitionHeaders": 167,
+          "definitionFiles": 6,
+          "dataFiles": 7
+        },
+        "machine integers": {
+          "codeFiles": 97,
+          "definitionHeaders": 1355,
+          "definitionFiles": 68,
+          "proofHeaders": 1920,
+          "dataDeclarations": 46,
+          "dataFiles": 16
+        },
+        "Char": {
+          "codeFiles": 83,
+          "definitionHeaders": 255,
+          "definitionFiles": 40,
+          "proofHeaders": 613,
+          "dataDeclarations": 2,
+          "dataFiles": 1
+        },
+        "List": {
+          "codeFiles": 309,
+          "definitionHeaders": 488,
+          "definitionFiles": 99,
+          "dataDeclarations": 35,
+          "proofHeaders": 5201,
+          "dataFiles": 19
+        },
+        "Array": {
+          "codeFiles": 253,
+          "definitionHeaders": 438,
+          "definitionFiles": 97,
+          "proofHeaders": 1257,
+          "dataDeclarations": 47,
+          "dataFiles": 37
+        },
+        "ByteArray": {
+          "codeFiles": 55,
+          "definitionHeaders": 159,
+          "proofHeaders": 147,
+          "dataDeclarations": 20,
+          "definitionFiles": 33,
+          "dataFiles": 13
+        },
+        "packed/scientific arrays": {
+          "codeFiles": 3,
+          "dataDeclarations": 1,
+          "definitionHeaders": 25,
+          "definitionFiles": 1,
+          "dataFiles": 1
+        },
+        "Option": {
+          "codeFiles": 337,
+          "definitionHeaders": 832,
+          "definitionFiles": 165,
+          "dataDeclarations": 72,
+          "dataFiles": 49,
+          "proofHeaders": 2109
+        },
+        "Prod/tuples": {
+          "codeFiles": 211,
+          "dataDeclarations": 29,
+          "dataFiles": 22,
+          "definitionHeaders": 799,
+          "definitionFiles": 111,
+          "proofHeaders": 2888
+        },
+        "Sum/Except": {
+          "codeFiles": 67,
+          "definitionHeaders": 123,
+          "definitionFiles": 39,
+          "proofHeaders": 60,
+          "dataDeclarations": 12,
+          "dataFiles": 8
+        },
+        "Fin/BitVec": {
+          "codeFiles": 137,
+          "definitionHeaders": 349,
+          "definitionFiles": 55,
+          "proofHeaders": 1557,
+          "dataDeclarations": 14,
+          "dataFiles": 5
+        },
+        "Subtype/Vector": {
+          "codeFiles": 104,
+          "definitionHeaders": 117,
+          "definitionFiles": 26,
+          "proofHeaders": 666,
+          "dataDeclarations": 20,
+          "dataFiles": 14
+        },
+        "Rat": {
+          "codeFiles": 16,
+          "definitionHeaders": 49,
+          "proofHeaders": 209,
+          "definitionFiles": 6,
+          "dataDeclarations": 1,
+          "dataFiles": 1
+        },
+        "Real/Complex specifications": {},
+        "maps/sets": {
+          "codeFiles": 116,
+          "dataDeclarations": 32,
+          "dataFiles": 23,
+          "definitionHeaders": 504,
+          "definitionFiles": 38,
+          "proofHeaders": 361
+        },
+        "mathematical sets": {
+          "codeFiles": 13,
+          "dataDeclarations": 2,
+          "dataFiles": 1
+        },
+        "JSON": {},
+        "IO/EIO/BaseIO": {
+          "codeFiles": 53,
+          "definitionHeaders": 516,
+          "definitionFiles": 46,
+          "dataDeclarations": 28,
+          "dataFiles": 18
+        },
+        "monad transformers/runners": {
+          "codeFiles": 35,
+          "definitionHeaders": 203,
+          "definitionFiles": 22,
+          "proofHeaders": 242
+        },
+        "async/resources": {
+          "codeFiles": 56,
+          "dataDeclarations": 50,
+          "definitionHeaders": 331,
+          "definitionFiles": 32,
+          "dataFiles": 23
+        },
+        "paths/time/URI": {
+          "codeFiles": 42,
+          "definitionHeaders": 469,
+          "definitionFiles": 26,
+          "dataDeclarations": 21,
+          "dataFiles": 14,
+          "proofHeaders": 2
+        },
+        "metaprogramming values": {
+          "codeFiles": 62,
+          "dataDeclarations": 32,
+          "definitionHeaders": 289,
+          "proofHeaders": 112,
+          "definitionFiles": 32,
+          "dataFiles": 16
+        }
+      },
+      "examples": {
+        "Nat": [
+          {
+            "path": "src/Init/Core.lean",
+            "line": 730,
+            "kind": "structure"
+          },
+          {
+            "path": "src/Init/Core.lean",
+            "line": 743,
+            "kind": "inductive"
+          },
+          {
+            "path": "src/Init/Core.lean",
+            "line": 2415,
+            "kind": "opaque"
+          },
+          {
+            "path": "src/Init/Data/AC.lean",
+            "line": 17,
+            "kind": "inductive"
+          },
+          {
+            "path": "src/Init/Data/AC.lean",
+            "line": 36,
+            "kind": "class"
+          }
+        ],
+        "Int": [
+          {
+            "path": "src/Init/Data/BitVec/Basic.lean",
+            "line": 145,
+            "kind": "def"
+          },
+          {
+            "path": "src/Init/Data/BitVec/Basic.lean",
+            "line": 159,
+            "kind": "def"
+          },
+          {
+            "path": "src/Init/Data/Dyadic/Basic.lean",
+            "line": 36,
+            "kind": "def"
+          },
+          {
+            "path": "src/Init/Data/Dyadic/Basic.lean",
+            "line": 130,
+            "kind": "inductive"
+          },
+          {
+            "path": "src/Init/Data/Dyadic/Basic.lean",
+            "line": 140,
+            "kind": "def"
+          }
+        ],
+        "Bool": [
+          {
+            "path": "src/Init/Coe.lean",
+            "line": 306,
+            "kind": "instance"
+          },
+          {
+            "path": "src/Init/Coe.lean",
+            "line": 309,
+            "kind": "instance"
+          },
+          {
+            "path": "src/Init/Coe.lean",
+            "line": 312,
+            "kind": "instance"
+          },
+          {
+            "path": "src/Init/Control/Basic.lean",
+            "line": 130,
+            "kind": "class"
+          },
+          {
+            "path": "src/Init/Control/Basic.lean",
+            "line": 135,
+            "kind": "instance"
+          }
+        ],
+        "String": [
+          {
+            "path": "src/Init/Core.lean",
+            "line": 827,
+            "kind": "instance"
+          },
+          {
+            "path": "src/Init/Data/BitVec/Basic.lean",
+            "line": 209,
+            "kind": "def"
+          },
+          {
+            "path": "src/Init/Data/Format/Basic.lean",
+            "line": 55,
+            "kind": "inductive"
+          },
+          {
+            "path": "src/Init/Data/Format/Basic.lean",
+            "line": 131,
+            "kind": "instance"
+          },
+          {
+            "path": "src/Init/Data/Format/Basic.lean",
+            "line": 220,
+            "kind": "class"
+          }
+        ],
+        "Unit": [
+          {
+            "path": "src/Init/Control/Basic.lean",
+            "line": 82,
+            "kind": "def"
+          },
+          {
+            "path": "src/Init/Control/Basic.lean",
+            "line": 100,
+            "kind": "class"
+          },
+          {
+            "path": "src/Init/Control/Basic.lean",
+            "line": 406,
+            "kind": "class"
+          },
+          {
+            "path": "src/Init/Control/Do.lean",
+            "line": 43,
+            "kind": "abbrev"
+          },
+          {
+            "path": "src/Init/Control/Do.lean",
+            "line": 59,
+            "kind": "abbrev"
+          }
+        ],
+        "Float/Float32": [
+          {
+            "path": "src/Init/Data/Float/Float.lean",
+            "line": 37,
+            "kind": "structure"
+          },
+          {
+            "path": "src/Init/Data/Float/Float.lean",
+            "line": 48,
+            "kind": "instance"
+          },
+          {
+            "path": "src/Init/Data/Float/Float.lean",
+            "line": 130,
+            "kind": "instance"
+          },
+          {
+            "path": "src/Init/Data/Float/Float.lean",
+            "line": 131,
+            "kind": "instance"
+          },
+          {
+            "path": "src/Init/Data/Float/Float.lean",
+            "line": 132,
+            "kind": "instance"
+          }
+        ],
+        "machine integers": [
+          {
+            "path": "src/Init/Data/Array/Basic.lean",
+            "line": 166,
+            "kind": "def"
+          },
+          {
+            "path": "src/Init/Data/Array/Basic.lean",
+            "line": 174,
+            "kind": "def"
+          },
+          {
+            "path": "src/Init/Data/Array/Basic.lean",
+            "line": 183,
+            "kind": "opaque"
+          },
+          {
+            "path": "src/Init/Data/Array/Basic.lean",
+            "line": 193,
+            "kind": "def"
+          },
+          {
+            "path": "src/Init/Data/Array/Basic.lean",
+            "line": 270,
+            "kind": "instance"
+          }
+        ],
+        "Char": [
+          {
+            "path": "src/Init/Core.lean",
+            "line": 825,
+            "kind": "instance"
+          },
+          {
+            "path": "src/Init/Data/Char/Basic.lean",
+            "line": 26,
+            "kind": "def"
+          },
+          {
+            "path": "src/Init/Data/Char/Basic.lean",
+            "line": 32,
+            "kind": "def"
+          },
+          {
+            "path": "src/Init/Data/Char/Basic.lean",
+            "line": 34,
+            "kind": "instance"
+          },
+          {
+            "path": "src/Init/Data/Char/Basic.lean",
+            "line": 35,
+            "kind": "instance"
+          }
+        ],
+        "List": [
+          {
+            "path": "src/Init/Control/Id.lean",
+            "line": 89,
+            "kind": "def"
+          },
+          {
+            "path": "src/Init/Data/AC.lean",
+            "line": 28,
+            "kind": "structure"
+          },
+          {
+            "path": "src/Init/Data/AC.lean",
+            "line": 63,
+            "kind": "def"
+          },
+          {
+            "path": "src/Init/Data/AC.lean",
+            "line": 67,
+            "kind": "def"
+          },
+          {
+            "path": "src/Init/Data/AC.lean",
+            "line": 72,
+            "kind": "def"
+          }
+        ],
+        "Array": [
+          {
+            "path": "src/Init/Control/Id.lean",
+            "line": 85,
+            "kind": "def"
+          },
+          {
+            "path": "src/Init/Data/Array/Attach.lean",
+            "line": 28,
+            "kind": "def"
+          },
+          {
+            "path": "src/Init/Data/Array/Attach.lean",
+            "line": 576,
+            "kind": "def"
+          },
+          {
+            "path": "src/Init/Data/Array/Basic.lean",
+            "line": 102,
+            "kind": "structure"
+          },
+          {
+            "path": "src/Init/Data/Array/Basic.lean",
+            "line": 105,
+            "kind": "instance"
+          }
+        ],
+        "ByteArray": [
+          {
+            "path": "src/Init/Data/ByteArray/Basic.lean",
+            "line": 24,
+            "kind": "def"
+          },
+          {
+            "path": "src/Init/Data/ByteArray/Basic.lean",
+            "line": 27,
+            "kind": "instance"
+          },
+          {
+            "path": "src/Init/Data/ByteArray/Basic.lean",
+            "line": 33,
+            "kind": "def"
+          },
+          {
+            "path": "src/Init/Data/ByteArray/Basic.lean",
+            "line": 36,
+            "kind": "instance"
+          },
+          {
+            "path": "src/Init/Data/ByteArray/Basic.lean",
+            "line": 38,
+            "kind": "instance"
+          }
+        ],
+        "packed/scientific arrays": [
+          {
+            "path": "src/Init/Data/FloatArray/Basic.lean",
+            "line": 17,
+            "kind": "structure"
+          },
+          {
+            "path": "src/Init/Data/FloatArray/Basic.lean",
+            "line": 30,
+            "kind": "def"
+          },
+          {
+            "path": "src/Init/Data/FloatArray/Basic.lean",
+            "line": 33,
+            "kind": "def"
+          },
+          {
+            "path": "src/Init/Data/FloatArray/Basic.lean",
+            "line": 36,
+            "kind": "instance"
+          },
+          {
+            "path": "src/Init/Data/FloatArray/Basic.lean",
+            "line": 39,
+            "kind": "instance"
+          }
+        ],
+        "Option": [
+          {
+            "path": "src/Init/Control/Do.lean",
+            "line": 43,
+            "kind": "abbrev"
+          },
+          {
+            "path": "src/Init/Control/Do.lean",
+            "line": 59,
+            "kind": "abbrev"
+          },
+          {
+            "path": "src/Init/Control/Except.lean",
+            "line": 88,
+            "kind": "def"
+          },
+          {
+            "path": "src/Init/Control/Except.lean",
+            "line": 294,
+            "kind": "class"
+          },
+          {
+            "path": "src/Init/Control/Lawful/Instances.lean",
+            "line": 296,
+            "kind": "instance"
+          }
+        ],
+        "Prod/tuples": [
+          {
+            "path": "src/Init/Control/Except.lean",
+            "line": 294,
+            "kind": "class"
+          },
+          {
+            "path": "src/Init/Control/State.lean",
+            "line": 32,
+            "kind": "def"
+          },
+          {
+            "path": "src/Init/Control/State.lean",
+            "line": 39,
+            "kind": "def"
+          },
+          {
+            "path": "src/Init/Control/State.lean",
+            "line": 143,
+            "kind": "def"
+          },
+          {
+            "path": "src/Init/Control/StateCps.lean",
+            "line": 46,
+            "kind": "def"
+          }
+        ],
+        "Sum/Except": [
+          {
+            "path": "src/Init/Classical.lean",
+            "line": 95,
+            "kind": "def"
+          },
+          {
+            "path": "src/Init/Control/Do.lean",
+            "line": 31,
+            "kind": "abbrev"
+          },
+          {
+            "path": "src/Init/Control/Except.lean",
+            "line": 23,
+            "kind": "def"
+          },
+          {
+            "path": "src/Init/Control/Except.lean",
+            "line": 34,
+            "kind": "def"
+          },
+          {
+            "path": "src/Init/Control/Except.lean",
+            "line": 51,
+            "kind": "def"
+          }
+        ],
+        "Fin/BitVec": [
+          {
+            "path": "src/Init/Data/Array/Basic.lean",
+            "line": 331,
+            "kind": "def"
+          },
+          {
+            "path": "src/Init/Data/Array/Basic.lean",
+            "line": 1306,
+            "kind": "def"
+          },
+          {
+            "path": "src/Init/Data/Array/Basic.lean",
+            "line": 1343,
+            "kind": "def"
+          },
+          {
+            "path": "src/Init/Data/Array/Basic.lean",
+            "line": 1362,
+            "kind": "def"
+          },
+          {
+            "path": "src/Init/Data/Array/OfFn.lean",
+            "line": 89,
+            "kind": "def"
+          }
+        ],
+        "Subtype/Vector": [
+          {
+            "path": "src/Init/Coe.lean",
+            "line": 315,
+            "kind": "instance"
+          },
+          {
+            "path": "src/Init/Control/MonadAttach.lean",
+            "line": 30,
+            "kind": "class"
+          },
+          {
+            "path": "src/Init/Control/MonadAttach.lean",
+            "line": 44,
+            "kind": "class"
+          },
+          {
+            "path": "src/Init/Control/MonadAttach.lean",
+            "line": 51,
+            "kind": "class"
+          },
+          {
+            "path": "src/Init/Data/Array/QSort/Basic.lean",
+            "line": 37,
+            "kind": "def"
+          }
+        ],
+        "Rat": [
+          {
+            "path": "src/Init/Data/Dyadic/Basic.lean",
+            "line": 223,
+            "kind": "def"
+          },
+          {
+            "path": "src/Init/Data/Dyadic/Basic.lean",
+            "line": 436,
+            "kind": "def"
+          },
+          {
+            "path": "src/Init/Data/Rat/Basic.lean",
+            "line": 47,
+            "kind": "instance"
+          },
+          {
+            "path": "src/Init/Data/Rat/Basic.lean",
+            "line": 49,
+            "kind": "instance"
+          },
+          {
+            "path": "src/Init/Data/Rat/Basic.lean",
+            "line": 52,
+            "kind": "instance"
+          }
+        ],
+        "Real/Complex specifications": [],
+        "maps/sets": [
+          {
+            "path": "src/Std/Async/System.lean",
+            "line": 183,
+            "kind": "structure"
+          },
+          {
+            "path": "src/Std/Data/DHashMap/Basic.lean",
+            "line": 69,
+            "kind": "structure"
+          },
+          {
+            "path": "src/Std/Data/DHashMap/Basic.lean",
+            "line": 80,
+            "kind": "instance"
+          },
+          {
+            "path": "src/Std/Data/DHashMap/Basic.lean",
+            "line": 83,
+            "kind": "instance"
+          },
+          {
+            "path": "src/Std/Data/DHashMap/Basic.lean",
+            "line": 87,
+            "kind": "structure"
+          }
+        ],
+        "mathematical sets": [
+          {
+            "path": "src/Init/ShareCommon.lean",
+            "line": 30,
+            "kind": "structure"
+          },
+          {
+            "path": "src/Init/ShareCommon.lean",
+            "line": 48,
+            "kind": "structure"
+          }
+        ],
+        "JSON": [],
+        "IO/EIO/BaseIO": [
+          {
+            "path": "src/Init/Data/Random.lean",
+            "line": 131,
+            "kind": "def"
+          },
+          {
+            "path": "src/Init/Data/Random.lean",
+            "line": 140,
+            "kind": "def"
+          },
+          {
+            "path": "src/Init/Internal/Order/Basic.lean",
+            "line": 1044,
+            "kind": "instance"
+          },
+          {
+            "path": "src/Init/Internal/Order/Basic.lean",
+            "line": 1047,
+            "kind": "instance"
+          },
+          {
+            "path": "src/Init/Internal/Order/Basic.lean",
+            "line": 1050,
+            "kind": "instance"
+          }
+        ],
+        "monad transformers/runners": [
+          {
+            "path": "src/Init/Control/EState.lean",
+            "line": 29,
+            "kind": "instance"
+          },
+          {
+            "path": "src/Init/Control/EState.lean",
+            "line": 47,
+            "kind": "def"
+          },
+          {
+            "path": "src/Init/Control/EState.lean",
+            "line": 57,
+            "kind": "instance"
+          },
+          {
+            "path": "src/Init/Control/Except.lean",
+            "line": 141,
+            "kind": "def"
+          },
+          {
+            "path": "src/Init/Control/Except.lean",
+            "line": 149,
+            "kind": "def"
+          }
+        ],
+        "async/resources": [
+          {
+            "path": "src/Init/Core.lean",
+            "line": 626,
+            "kind": "structure"
+          },
+          {
+            "path": "src/Init/Core.lean",
+            "line": 687,
+            "kind": "def"
+          },
+          {
+            "path": "src/Init/Core.lean",
+            "line": 702,
+            "kind": "def"
+          },
+          {
+            "path": "src/Init/Core.lean",
+            "line": 718,
+            "kind": "def"
+          },
+          {
+            "path": "src/Init/Data/Iterators/Consumers/Stream.lean",
+            "line": 19,
+            "kind": "instance"
+          }
+        ],
+        "paths/time/URI": [
+          {
+            "path": "src/Init/System/FilePath.lean",
+            "line": 34,
+            "kind": "instance"
+          },
+          {
+            "path": "src/Init/System/FilePath.lean",
+            "line": 37,
+            "kind": "instance"
+          },
+          {
+            "path": "src/Init/System/FilePath.lean",
+            "line": 84,
+            "kind": "def"
+          },
+          {
+            "path": "src/Init/System/FilePath.lean",
+            "line": 109,
+            "kind": "def"
+          },
+          {
+            "path": "src/Init/System/FilePath.lean",
+            "line": 116,
+            "kind": "def"
+          }
+        ],
+        "metaprogramming values": [
+          {
+            "path": "src/Init/Data/AC.lean",
+            "line": 17,
+            "kind": "inductive"
+          },
+          {
+            "path": "src/Init/Data/AC.lean",
+            "line": 59,
+            "kind": "def"
+          },
+          {
+            "path": "src/Init/Data/AC.lean",
+            "line": 63,
+            "kind": "def"
+          },
+          {
+            "path": "src/Init/Data/AC.lean",
+            "line": 108,
+            "kind": "def"
+          },
+          {
+            "path": "src/Init/Data/Format/Syntax.lean",
+            "line": 28,
+            "kind": "def"
+          }
+        ]
+      },
+      "toolchainSource": "lean-toolchain",
+      "toolchain": "build/release/stage1"
+    },
+    "lean-metaprogramming": {
+      "commit": "819816b2e0a3bf405af45ae5c7af2491d8f5bee6",
+      "prefixes": [
+        "src/Lean/"
+      ],
+      "excludePrefixes": [],
+      "files": 1207,
+      "sourceBytes": 11066488,
+      "skippedOversizedFiles": [],
+      "declarationKinds": {
+        "def": 13795,
+        "inductive": 380,
+        "abbrev": 769,
+        "instance": 1133,
+        "structure": 1371,
+        "opaque": 264,
+        "class": 71,
+        "theorem": 26,
+        "example": 71
+      },
+      "families": {
+        "Nat": {
+          "codeFiles": 565,
+          "definitionHeaders": 1363,
+          "definitionFiles": 377,
+          "dataDeclarations": 394,
+          "dataFiles": 204,
+          "proofHeaders": 11
+        },
+        "Int": {
+          "codeFiles": 101,
+          "definitionHeaders": 141,
+          "definitionFiles": 49,
+          "dataDeclarations": 39,
+          "dataFiles": 21,
+          "proofHeaders": 1
+        },
+        "Bool": {
+          "codeFiles": 703,
+          "definitionHeaders": 2570,
+          "definitionFiles": 577,
+          "dataDeclarations": 319,
+          "dataFiles": 189
+        },
+        "String": {
+          "codeFiles": 270,
+          "dataDeclarations": 206,
+          "definitionHeaders": 921,
+          "definitionFiles": 204,
+          "dataFiles": 89,
+          "proofHeaders": 2
+        },
+        "Unit": {
+          "codeFiles": 505,
+          "definitionHeaders": 1980,
+          "definitionFiles": 428,
+          "dataDeclarations": 42,
+          "dataFiles": 33
+        },
+        "Float/Float32": {
+          "codeFiles": 20,
+          "definitionHeaders": 43,
+          "definitionFiles": 12,
+          "dataDeclarations": 7,
+          "dataFiles": 5
+        },
+        "machine integers": {
+          "codeFiles": 91,
+          "dataDeclarations": 65,
+          "dataFiles": 33,
+          "definitionHeaders": 230,
+          "definitionFiles": 49
+        },
+        "Char": {
+          "codeFiles": 38,
+          "definitionHeaders": 37,
+          "definitionFiles": 19
+        },
+        "List": {
+          "codeFiles": 321,
+          "dataDeclarations": 161,
+          "definitionHeaders": 756,
+          "definitionFiles": 211,
+          "dataFiles": 103,
+          "proofHeaders": 8
+        },
+        "Array": {
+          "codeFiles": 611,
+          "definitionHeaders": 2095,
+          "definitionFiles": 487,
+          "dataDeclarations": 477,
+          "dataFiles": 241,
+          "proofHeaders": 4
+        },
+        "ByteArray": {
+          "codeFiles": 12,
+          "definitionHeaders": 3,
+          "definitionFiles": 3,
+          "dataDeclarations": 3,
+          "dataFiles": 3
+        },
+        "packed/scientific arrays": {
+          "codeFiles": 3,
+          "definitionHeaders": 1,
+          "definitionFiles": 1
+        },
+        "Option": {
+          "codeFiles": 622,
+          "definitionHeaders": 1852,
+          "definitionFiles": 514,
+          "dataDeclarations": 335,
+          "dataFiles": 152
+        },
+        "Prod/tuples": {
+          "codeFiles": 441,
+          "dataDeclarations": 87,
+          "definitionHeaders": 870,
+          "definitionFiles": 337,
+          "dataFiles": 68
+        },
+        "Sum/Except": {
+          "codeFiles": 99,
+          "definitionHeaders": 146,
+          "definitionFiles": 47,
+          "dataDeclarations": 12,
+          "dataFiles": 10
+        },
+        "Fin/BitVec": {
+          "codeFiles": 45,
+          "proofHeaders": 3,
+          "definitionHeaders": 30,
+          "definitionFiles": 13,
+          "dataDeclarations": 5,
+          "dataFiles": 4
+        },
+        "Subtype/Vector": {
+          "codeFiles": 9,
+          "dataDeclarations": 1,
+          "dataFiles": 1
+        },
+        "Rat": {
+          "codeFiles": 20,
+          "definitionHeaders": 57,
+          "definitionFiles": 16,
+          "dataDeclarations": 2,
+          "dataFiles": 2
+        },
+        "Real/Complex specifications": {},
+        "maps/sets": {
+          "codeFiles": 290,
+          "dataDeclarations": 180,
+          "dataFiles": 141,
+          "definitionHeaders": 229,
+          "definitionFiles": 86
+        },
+        "mathematical sets": {
+          "codeFiles": 1
+        },
+        "JSON": {
+          "codeFiles": 53,
+          "dataDeclarations": 35,
+          "definitionHeaders": 147,
+          "definitionFiles": 17,
+          "dataFiles": 18
+        },
+        "IO/EIO/BaseIO": {
+          "codeFiles": 184,
+          "definitionHeaders": 711,
+          "definitionFiles": 140,
+          "dataDeclarations": 49,
+          "dataFiles": 33
+        },
+        "monad transformers/runners": {
+          "codeFiles": 686,
+          "definitionHeaders": 3685,
+          "definitionFiles": 545,
+          "dataDeclarations": 37,
+          "dataFiles": 28
+        },
+        "async/resources": {
+          "codeFiles": 43,
+          "definitionHeaders": 65,
+          "definitionFiles": 20,
+          "dataDeclarations": 19,
+          "dataFiles": 10
+        },
+        "paths/time/URI": {
+          "codeFiles": 26,
+          "dataDeclarations": 12,
+          "definitionHeaders": 70,
+          "definitionFiles": 24,
+          "dataFiles": 8
+        },
+        "metaprogramming values": {
+          "codeFiles": 927,
+          "definitionHeaders": 7635,
+          "definitionFiles": 818,
+          "dataDeclarations": 812,
+          "dataFiles": 336
+        }
+      },
+      "examples": {
+        "Nat": [
+          {
+            "path": "src/Lean/Attributes.lean",
+            "line": 121,
+            "kind": "def"
+          },
+          {
+            "path": "src/Lean/Attributes.lean",
+            "line": 128,
+            "kind": "def"
+          },
+          {
+            "path": "src/Lean/AuxRecursor.lean",
+            "line": 73,
+            "kind": "inductive"
+          },
+          {
+            "path": "src/Lean/AuxRecursor.lean",
+            "line": 78,
+            "kind": "def"
+          },
+          {
+            "path": "src/Lean/Class.lean",
+            "line": 14,
+            "kind": "structure"
+          }
+        ],
+        "Int": [
+          {
+            "path": "src/Lean/Compiler/LCNF/ToMono.lean",
+            "line": 211,
+            "kind": "def"
+          },
+          {
+            "path": "src/Lean/Data/FuzzyMatching.lean",
+            "line": 122,
+            "kind": "def"
+          },
+          {
+            "path": "src/Lean/Data/FuzzyMatching.lean",
+            "line": 139,
+            "kind": "def"
+          },
+          {
+            "path": "src/Lean/Data/Json/Basic.lean",
+            "line": 25,
+            "kind": "structure"
+          },
+          {
+            "path": "src/Lean/Data/Json/Basic.lean",
+            "line": 36,
+            "kind": "instance"
+          }
+        ],
+        "Bool": [
+          {
+            "path": "src/Lean/AddDecl.lean",
+            "line": 49,
+            "kind": "def"
+          },
+          {
+            "path": "src/Lean/AddDecl.lean",
+            "line": 101,
+            "kind": "def"
+          },
+          {
+            "path": "src/Lean/AddDecl.lean",
+            "line": 233,
+            "kind": "def"
+          },
+          {
+            "path": "src/Lean/Attributes.lean",
+            "line": 228,
+            "kind": "def"
+          },
+          {
+            "path": "src/Lean/Attributes.lean",
+            "line": 241,
+            "kind": "structure"
+          }
+        ],
+        "String": [
+          {
+            "path": "src/Lean/Attributes.lean",
+            "line": 25,
+            "kind": "structure"
+          },
+          {
+            "path": "src/Lean/Attributes.lean",
+            "line": 179,
+            "kind": "def"
+          },
+          {
+            "path": "src/Lean/Attributes.lean",
+            "line": 306,
+            "kind": "def"
+          },
+          {
+            "path": "src/Lean/Attributes.lean",
+            "line": 325,
+            "kind": "def"
+          },
+          {
+            "path": "src/Lean/Attributes.lean",
+            "line": 376,
+            "kind": "def"
+          }
+        ],
+        "Unit": [
+          {
+            "path": "src/Lean/AddDecl.lean",
+            "line": 39,
+            "kind": "def"
+          },
+          {
+            "path": "src/Lean/AddDecl.lean",
+            "line": 80,
+            "kind": "def"
+          },
+          {
+            "path": "src/Lean/AddDecl.lean",
+            "line": 101,
+            "kind": "def"
+          },
+          {
+            "path": "src/Lean/AddDecl.lean",
+            "line": 229,
+            "kind": "def"
+          },
+          {
+            "path": "src/Lean/AddDecl.lean",
+            "line": 233,
+            "kind": "def"
+          }
+        ],
+        "Float/Float32": [
+          {
+            "path": "src/Lean/Compiler/LCNF/ToMono.lean",
+            "line": 294,
+            "kind": "def"
+          },
+          {
+            "path": "src/Lean/Compiler/LCNF/ToMono.lean",
+            "line": 305,
+            "kind": "def"
+          },
+          {
+            "path": "src/Lean/Data/FuzzyMatching.lean",
+            "line": 270,
+            "kind": "def"
+          },
+          {
+            "path": "src/Lean/Data/FuzzyMatching.lean",
+            "line": 296,
+            "kind": "def"
+          },
+          {
+            "path": "src/Lean/Data/Json/Basic.lean",
+            "line": 152,
+            "kind": "def"
+          }
+        ],
+        "machine integers": [
+          {
+            "path": "src/Lean/CompactedRegion.lean",
+            "line": 27,
+            "kind": "structure"
+          },
+          {
+            "path": "src/Lean/Compiler/IR/LLVMBindings.lean",
+            "line": 24,
+            "kind": "structure"
+          },
+          {
+            "path": "src/Lean/Compiler/IR/LLVMBindings.lean",
+            "line": 31,
+            "kind": "structure"
+          },
+          {
+            "path": "src/Lean/Compiler/IR/LLVMBindings.lean",
+            "line": 39,
+            "kind": "structure"
+          },
+          {
+            "path": "src/Lean/Compiler/IR/LLVMBindings.lean",
+            "line": 46,
+            "kind": "structure"
+          }
+        ],
+        "Char": [
+          {
+            "path": "src/Lean/Compiler/LCNF/Simp/ConstantFold.lean",
+            "line": 119,
+            "kind": "instance"
+          },
+          {
+            "path": "src/Lean/Compiler/NameDemangling.lean",
+            "line": 294,
+            "kind": "def"
+          },
+          {
+            "path": "src/Lean/Compiler/NameMangling.lean",
+            "line": 17,
+            "kind": "def"
+          },
+          {
+            "path": "src/Lean/Compiler/NameMangling.lean",
+            "line": 68,
+            "kind": "def"
+          },
+          {
+            "path": "src/Lean/Data/FuzzyMatching.lean",
+            "line": 69,
+            "kind": "def"
+          }
+        ],
+        "List": [
+          {
+            "path": "src/Lean/Attributes.lean",
+            "line": 241,
+            "kind": "structure"
+          },
+          {
+            "path": "src/Lean/Attributes.lean",
+            "line": 320,
+            "kind": "structure"
+          },
+          {
+            "path": "src/Lean/Attributes.lean",
+            "line": 325,
+            "kind": "def"
+          },
+          {
+            "path": "src/Lean/Attributes.lean",
+            "line": 402,
+            "kind": "structure"
+          },
+          {
+            "path": "src/Lean/Attributes.lean",
+            "line": 413,
+            "kind": "structure"
+          }
+        ],
+        "Array": [
+          {
+            "path": "src/Lean/Attributes.lean",
+            "line": 435,
+            "kind": "def"
+          },
+          {
+            "path": "src/Lean/Class.lean",
+            "line": 14,
+            "kind": "structure"
+          },
+          {
+            "path": "src/Lean/Class.lean",
+            "line": 42,
+            "kind": "structure"
+          },
+          {
+            "path": "src/Lean/Class.lean",
+            "line": 81,
+            "kind": "def"
+          },
+          {
+            "path": "src/Lean/Class.lean",
+            "line": 91,
+            "kind": "def"
+          }
+        ],
+        "ByteArray": [
+          {
+            "path": "src/Lean/Compiler/LCNF/ToMono.lean",
+            "line": 259,
+            "kind": "def"
+          },
+          {
+            "path": "src/Lean/Data/Json/Printer.lean",
+            "line": 24,
+            "kind": "def"
+          },
+          {
+            "path": "src/Lean/Data/Trie.lean",
+            "line": 46,
+            "kind": "inductive"
+          },
+          {
+            "path": "src/Lean/Meta/Tactic/BVDecide/External.lean",
+            "line": 27,
+            "kind": "inductive"
+          },
+          {
+            "path": "src/Lean/Meta/Tactic/BVDecide/LRAT/Trim.lean",
+            "line": 45,
+            "kind": "structure"
+          }
+        ],
+        "packed/scientific arrays": [
+          {
+            "path": "src/Lean/Compiler/LCNF/ToMono.lean",
+            "line": 271,
+            "kind": "def"
+          }
+        ],
+        "Option": [
+          {
+            "path": "src/Lean/AddDecl.lean",
+            "line": 23,
+            "kind": "def"
+          },
+          {
+            "path": "src/Lean/AddDecl.lean",
+            "line": 30,
+            "kind": "def"
+          },
+          {
+            "path": "src/Lean/Attributes.lean",
+            "line": 96,
+            "kind": "def"
+          },
+          {
+            "path": "src/Lean/Attributes.lean",
+            "line": 114,
+            "kind": "def"
+          },
+          {
+            "path": "src/Lean/Attributes.lean",
+            "line": 143,
+            "kind": "def"
+          }
+        ],
+        "Prod/tuples": [
+          {
+            "path": "src/Lean/Attributes.lean",
+            "line": 241,
+            "kind": "structure"
+          },
+          {
+            "path": "src/Lean/Attributes.lean",
+            "line": 320,
+            "kind": "structure"
+          },
+          {
+            "path": "src/Lean/Attributes.lean",
+            "line": 325,
+            "kind": "def"
+          },
+          {
+            "path": "src/Lean/Attributes.lean",
+            "line": 447,
+            "kind": "def"
+          },
+          {
+            "path": "src/Lean/CompactedRegion.lean",
+            "line": 108,
+            "kind": "opaque"
+          }
+        ],
+        "Sum/Except": [
+          {
+            "path": "src/Lean/AddDecl.lean",
+            "line": 23,
+            "kind": "def"
+          },
+          {
+            "path": "src/Lean/AddDecl.lean",
+            "line": 30,
+            "kind": "def"
+          },
+          {
+            "path": "src/Lean/Attributes.lean",
+            "line": 306,
+            "kind": "def"
+          },
+          {
+            "path": "src/Lean/Attributes.lean",
+            "line": 376,
+            "kind": "def"
+          },
+          {
+            "path": "src/Lean/Attributes.lean",
+            "line": 424,
+            "kind": "def"
+          }
+        ],
+        "Fin/BitVec": [
+          {
+            "path": "src/Lean/Data/RArray.lean",
+            "line": 24,
+            "kind": "def"
+          },
+          {
+            "path": "src/Lean/Linter/Extra/UnnecessarySeqFocus.lean",
+            "line": 121,
+            "kind": "def"
+          },
+          {
+            "path": "src/Lean/Meta/LitValues.lean",
+            "line": 85,
+            "kind": "def"
+          },
+          {
+            "path": "src/Lean/Meta/LitValues.lean",
+            "line": 99,
+            "kind": "def"
+          },
+          {
+            "path": "src/Lean/Meta/ReduceEval.lean",
+            "line": 78,
+            "kind": "instance"
+          }
+        ],
+        "Subtype/Vector": [
+          {
+            "path": "src/Lean/Elab/Tactic/Do/LetElim.lean",
+            "line": 52,
+            "kind": "inductive"
+          }
+        ],
+        "Rat": [
+          {
+            "path": "src/Lean/Meta/LitValues.lean",
+            "line": 57,
+            "kind": "def"
+          },
+          {
+            "path": "src/Lean/Meta/Sym/DSimp/EvalGround.lean",
+            "line": 32,
+            "kind": "abbrev"
+          },
+          {
+            "path": "src/Lean/Meta/Sym/DSimp/EvalGround.lean",
+            "line": 60,
+            "kind": "abbrev"
+          },
+          {
+            "path": "src/Lean/Meta/Sym/DSimp/EvalGround.lean",
+            "line": 305,
+            "kind": "abbrev"
+          },
+          {
+            "path": "src/Lean/Meta/Sym/LitValues.lean",
+            "line": 27,
+            "kind": "def"
+          }
+        ],
+        "Real/Complex specifications": [],
+        "maps/sets": [
+          {
+            "path": "src/Lean/Attributes.lean",
+            "line": 54,
+            "kind": "structure"
+          },
+          {
+            "path": "src/Lean/Attributes.lean",
+            "line": 174,
+            "kind": "structure"
+          },
+          {
+            "path": "src/Lean/Attributes.lean",
+            "line": 241,
+            "kind": "structure"
+          },
+          {
+            "path": "src/Lean/Attributes.lean",
+            "line": 320,
+            "kind": "structure"
+          },
+          {
+            "path": "src/Lean/Attributes.lean",
+            "line": 413,
+            "kind": "structure"
+          }
+        ],
+        "mathematical sets": [],
+        "JSON": [
+          {
+            "path": "src/Lean/Data/Json/Basic.lean",
+            "line": 25,
+            "kind": "structure"
+          },
+          {
+            "path": "src/Lean/Data/Json/Basic.lean",
+            "line": 35,
+            "kind": "instance"
+          },
+          {
+            "path": "src/Lean/Data/Json/Basic.lean",
+            "line": 36,
+            "kind": "instance"
+          },
+          {
+            "path": "src/Lean/Data/Json/Basic.lean",
+            "line": 37,
+            "kind": "instance"
+          },
+          {
+            "path": "src/Lean/Data/Json/Basic.lean",
+            "line": 48,
+            "kind": "def"
+          }
+        ],
+        "IO/EIO/BaseIO": [
+          {
+            "path": "src/Lean/AddDecl.lean",
+            "line": 23,
+            "kind": "def"
+          },
+          {
+            "path": "src/Lean/AddDecl.lean",
+            "line": 30,
+            "kind": "def"
+          },
+          {
+            "path": "src/Lean/Attributes.lean",
+            "line": 54,
+            "kind": "structure"
+          },
+          {
+            "path": "src/Lean/Attributes.lean",
+            "line": 69,
+            "kind": "def"
+          },
+          {
+            "path": "src/Lean/Attributes.lean",
+            "line": 179,
+            "kind": "def"
+          }
+        ],
+        "monad transformers/runners": [
+          {
+            "path": "src/Lean/AddDecl.lean",
+            "line": 39,
+            "kind": "def"
+          },
+          {
+            "path": "src/Lean/AddDecl.lean",
+            "line": 80,
+            "kind": "def"
+          },
+          {
+            "path": "src/Lean/AddDecl.lean",
+            "line": 101,
+            "kind": "def"
+          },
+          {
+            "path": "src/Lean/AddDecl.lean",
+            "line": 229,
+            "kind": "def"
+          },
+          {
+            "path": "src/Lean/AddDecl.lean",
+            "line": 233,
+            "kind": "def"
+          }
+        ],
+        "async/resources": [
+          {
+            "path": "src/Lean/Compiler/LCNF/ToMono.lean",
+            "line": 336,
+            "kind": "def"
+          },
+          {
+            "path": "src/Lean/CoreM.lean",
+            "line": 688,
+            "kind": "def"
+          },
+          {
+            "path": "src/Lean/Data/Json/Stream.lean",
+            "line": 21,
+            "kind": "def"
+          },
+          {
+            "path": "src/Lean/Data/Json/Stream.lean",
+            "line": 27,
+            "kind": "def"
+          },
+          {
+            "path": "src/Lean/Data/Json/Stream.lean",
+            "line": 32,
+            "kind": "def"
+          }
+        ],
+        "paths/time/URI": [
+          {
+            "path": "src/Lean/CompactedRegion.lean",
+            "line": 27,
+            "kind": "structure"
+          },
+          {
+            "path": "src/Lean/CompactedRegion.lean",
+            "line": 94,
+            "kind": "opaque"
+          },
+          {
+            "path": "src/Lean/CompactedRegion.lean",
+            "line": 108,
+            "kind": "opaque"
+          },
+          {
+            "path": "src/Lean/Compiler/FFI.lean",
+            "line": 32,
+            "kind": "def"
+          },
+          {
+            "path": "src/Lean/Compiler/FFI.lean",
+            "line": 39,
+            "kind": "def"
+          }
+        ],
+        "metaprogramming values": [
+          {
+            "path": "src/Lean/AddDecl.lean",
+            "line": 23,
+            "kind": "def"
+          },
+          {
+            "path": "src/Lean/AddDecl.lean",
+            "line": 30,
+            "kind": "def"
+          },
+          {
+            "path": "src/Lean/AddDecl.lean",
+            "line": 39,
+            "kind": "def"
+          },
+          {
+            "path": "src/Lean/AddDecl.lean",
+            "line": 49,
+            "kind": "def"
+          },
+          {
+            "path": "src/Lean/AddDecl.lean",
+            "line": 54,
+            "kind": "def"
+          }
+        ]
+      },
+      "toolchainSource": "lean-toolchain",
+      "toolchain": "build/release/stage1"
+    },
+    "lean-compile-benchmarks": {
+      "commit": "819816b2e0a3bf405af45ae5c7af2491d8f5bee6",
+      "prefixes": [
+        "tests/compile_bench/"
+      ],
+      "excludePrefixes": [],
+      "files": 30,
+      "sourceBytes": 137762,
+      "skippedOversizedFiles": [],
+      "declarationKinds": {
+        "inductive": 14,
+        "instance": 12,
+        "def": 232,
+        "structure": 8,
+        "abbrev": 6
+      },
+      "families": {
+        "Nat": {
+          "codeFiles": 23,
+          "definitionHeaders": 119,
+          "definitionFiles": 21,
+          "dataDeclarations": 8,
+          "dataFiles": 6
+        },
+        "Int": {
+          "codeFiles": 3,
+          "dataDeclarations": 3,
+          "definitionHeaders": 10,
+          "definitionFiles": 3,
+          "dataFiles": 2
+        },
+        "Bool": {
+          "codeFiles": 7,
+          "definitionHeaders": 20,
+          "definitionFiles": 5,
+          "dataDeclarations": 4,
+          "dataFiles": 3
+        },
+        "String": {
+          "codeFiles": 22,
+          "definitionHeaders": 40,
+          "definitionFiles": 22,
+          "dataDeclarations": 1,
+          "dataFiles": 1
+        },
+        "Unit": {
+          "codeFiles": 26,
+          "definitionHeaders": 46,
+          "definitionFiles": 26
+        },
+        "Float/Float32": {
+          "codeFiles": 8,
+          "definitionHeaders": 32,
+          "definitionFiles": 5
+        },
+        "machine integers": {
+          "codeFiles": 11,
+          "definitionHeaders": 54,
+          "definitionFiles": 9,
+          "dataDeclarations": 3,
+          "dataFiles": 3
+        },
+        "Char": {
+          "codeFiles": 1,
+          "definitionHeaders": 1,
+          "definitionFiles": 1
+        },
+        "List": {
+          "codeFiles": 23,
+          "definitionHeaders": 29,
+          "definitionFiles": 22
+        },
+        "Array": {
+          "codeFiles": 10,
+          "definitionHeaders": 18,
+          "definitionFiles": 4,
+          "dataDeclarations": 1,
+          "dataFiles": 1
+        },
+        "ByteArray": {
+          "codeFiles": 1
+        },
+        "packed/scientific arrays": {},
+        "Option": {
+          "codeFiles": 4,
+          "definitionHeaders": 11,
+          "definitionFiles": 3,
+          "dataDeclarations": 1,
+          "dataFiles": 1
+        },
+        "Prod/tuples": {
+          "codeFiles": 6,
+          "definitionHeaders": 6,
+          "definitionFiles": 4
+        },
+        "Sum/Except": {
+          "codeFiles": 2,
+          "definitionHeaders": 2,
+          "definitionFiles": 2
+        },
+        "Fin/BitVec": {},
+        "Subtype/Vector": {},
+        "Rat": {},
+        "Real/Complex specifications": {},
+        "maps/sets": {
+          "codeFiles": 5,
+          "definitionHeaders": 11,
+          "definitionFiles": 4,
+          "dataDeclarations": 2,
+          "dataFiles": 1
+        },
+        "mathematical sets": {},
+        "JSON": {
+          "codeFiles": 2,
+          "definitionHeaders": 2,
+          "definitionFiles": 2
+        },
+        "IO/EIO/BaseIO": {
+          "codeFiles": 28,
+          "definitionHeaders": 82,
+          "definitionFiles": 28
+        },
+        "monad transformers/runners": {
+          "codeFiles": 2,
+          "definitionHeaders": 1,
+          "definitionFiles": 1
+        },
+        "async/resources": {
+          "codeFiles": 3,
+          "definitionHeaders": 2,
+          "definitionFiles": 2
+        },
+        "paths/time/URI": {
+          "codeFiles": 2
+        },
+        "metaprogramming values": {
+          "codeFiles": 4,
+          "dataDeclarations": 2,
+          "definitionHeaders": 19,
+          "definitionFiles": 2,
+          "dataFiles": 2
+        }
+      },
+      "examples": {
+        "Nat": [
+          {
+            "path": "tests/compile_bench/binarytrees.lean",
+            "line": 21,
+            "kind": "def"
+          },
+          {
+            "path": "tests/compile_bench/binarytrees.lean",
+            "line": 32,
+            "kind": "def"
+          },
+          {
+            "path": "tests/compile_bench/binarytrees.st.lean",
+            "line": 24,
+            "kind": "def"
+          },
+          {
+            "path": "tests/compile_bench/channel.lean",
+            "line": 24,
+            "kind": "def"
+          },
+          {
+            "path": "tests/compile_bench/channel.lean",
+            "line": 31,
+            "kind": "def"
+          }
+        ],
+        "Int": [
+          {
+            "path": "tests/compile_bench/deriv.lean",
+            "line": 2,
+            "kind": "inductive"
+          },
+          {
+            "path": "tests/compile_bench/deriv.lean",
+            "line": 12,
+            "kind": "def"
+          },
+          {
+            "path": "tests/compile_bench/liasolver.lean",
+            "line": 15,
+            "kind": "def"
+          },
+          {
+            "path": "tests/compile_bench/liasolver.lean",
+            "line": 31,
+            "kind": "def"
+          },
+          {
+            "path": "tests/compile_bench/liasolver.lean",
+            "line": 78,
+            "kind": "structure"
+          }
+        ],
+        "Bool": [
+          {
+            "path": "tests/compile_bench/liasolver.lean",
+            "line": 42,
+            "kind": "def"
+          },
+          {
+            "path": "tests/compile_bench/liasolver.lean",
+            "line": 301,
+            "kind": "def"
+          },
+          {
+            "path": "tests/compile_bench/rbmap.lean",
+            "line": 10,
+            "kind": "inductive"
+          },
+          {
+            "path": "tests/compile_bench/rbmap.lean",
+            "line": 14,
+            "kind": "def"
+          },
+          {
+            "path": "tests/compile_bench/rbmap.lean",
+            "line": 19,
+            "kind": "def"
+          }
+        ],
+        "String": [
+          {
+            "path": "tests/compile_bench/binarytrees.lean",
+            "line": 21,
+            "kind": "def"
+          },
+          {
+            "path": "tests/compile_bench/binarytrees.lean",
+            "line": 38,
+            "kind": "def"
+          },
+          {
+            "path": "tests/compile_bench/binarytrees.st.lean",
+            "line": 24,
+            "kind": "def"
+          },
+          {
+            "path": "tests/compile_bench/binarytrees.st.lean",
+            "line": 34,
+            "kind": "def"
+          },
+          {
+            "path": "tests/compile_bench/channel.lean",
+            "line": 87,
+            "kind": "def"
+          }
+        ],
+        "Unit": [
+          {
+            "path": "tests/compile_bench/binarytrees.lean",
+            "line": 21,
+            "kind": "def"
+          },
+          {
+            "path": "tests/compile_bench/binarytrees.st.lean",
+            "line": 24,
+            "kind": "def"
+          },
+          {
+            "path": "tests/compile_bench/channel.lean",
+            "line": 24,
+            "kind": "def"
+          },
+          {
+            "path": "tests/compile_bench/channel.lean",
+            "line": 31,
+            "kind": "def"
+          },
+          {
+            "path": "tests/compile_bench/channel.lean",
+            "line": 43,
+            "kind": "def"
+          }
+        ],
+        "Float/Float32": [
+          {
+            "path": "tests/compile_bench/hashmap.lean",
+            "line": 42,
+            "kind": "def"
+          },
+          {
+            "path": "tests/compile_bench/hashmap.lean",
+            "line": 53,
+            "kind": "def"
+          },
+          {
+            "path": "tests/compile_bench/hashmap.lean",
+            "line": 67,
+            "kind": "def"
+          },
+          {
+            "path": "tests/compile_bench/hashmap.lean",
+            "line": 82,
+            "kind": "def"
+          },
+          {
+            "path": "tests/compile_bench/hashmap.lean",
+            "line": 99,
+            "kind": "def"
+          }
+        ],
+        "machine integers": [
+          {
+            "path": "tests/compile_bench/binarytrees.lean",
+            "line": 8,
+            "kind": "def"
+          },
+          {
+            "path": "tests/compile_bench/binarytrees.lean",
+            "line": 13,
+            "kind": "def"
+          },
+          {
+            "path": "tests/compile_bench/binarytrees.lean",
+            "line": 15,
+            "kind": "def"
+          },
+          {
+            "path": "tests/compile_bench/binarytrees.lean",
+            "line": 21,
+            "kind": "def"
+          },
+          {
+            "path": "tests/compile_bench/binarytrees.lean",
+            "line": 25,
+            "kind": "def"
+          }
+        ],
+        "Char": [
+          {
+            "path": "tests/compile_bench/workspaceSymbolsNewRanges.lean",
+            "line": 53,
+            "kind": "def"
+          }
+        ],
+        "List": [
+          {
+            "path": "tests/compile_bench/binarytrees.lean",
+            "line": 32,
+            "kind": "def"
+          },
+          {
+            "path": "tests/compile_bench/binarytrees.lean",
+            "line": 38,
+            "kind": "def"
+          },
+          {
+            "path": "tests/compile_bench/binarytrees.st.lean",
+            "line": 34,
+            "kind": "def"
+          },
+          {
+            "path": "tests/compile_bench/channel.lean",
+            "line": 97,
+            "kind": "def"
+          },
+          {
+            "path": "tests/compile_bench/const_fold.lean",
+            "line": 73,
+            "kind": "def"
+          }
+        ],
+        "Array": [
+          {
+            "path": "tests/compile_bench/iterators.lean",
+            "line": 18,
+            "kind": "def"
+          },
+          {
+            "path": "tests/compile_bench/iterators.lean",
+            "line": 21,
+            "kind": "def"
+          },
+          {
+            "path": "tests/compile_bench/iterators.lean",
+            "line": 27,
+            "kind": "def"
+          },
+          {
+            "path": "tests/compile_bench/iterators.lean",
+            "line": 30,
+            "kind": "def"
+          },
+          {
+            "path": "tests/compile_bench/iterators.lean",
+            "line": 33,
+            "kind": "def"
+          }
+        ],
+        "ByteArray": [],
+        "packed/scientific arrays": [],
+        "Option": [
+          {
+            "path": "tests/compile_bench/channel.lean",
+            "line": 87,
+            "kind": "def"
+          },
+          {
+            "path": "tests/compile_bench/liasolver.lean",
+            "line": 69,
+            "kind": "def"
+          },
+          {
+            "path": "tests/compile_bench/liasolver.lean",
+            "line": 96,
+            "kind": "def"
+          },
+          {
+            "path": "tests/compile_bench/liasolver.lean",
+            "line": 159,
+            "kind": "def"
+          },
+          {
+            "path": "tests/compile_bench/liasolver.lean",
+            "line": 165,
+            "kind": "def"
+          }
+        ],
+        "Prod/tuples": [
+          {
+            "path": "tests/compile_bench/binarytrees.lean",
+            "line": 32,
+            "kind": "def"
+          },
+          {
+            "path": "tests/compile_bench/io_compute.lean",
+            "line": 34,
+            "kind": "def"
+          },
+          {
+            "path": "tests/compile_bench/liasolver.lean",
+            "line": 69,
+            "kind": "def"
+          },
+          {
+            "path": "tests/compile_bench/liasolver.lean",
+            "line": 159,
+            "kind": "def"
+          },
+          {
+            "path": "tests/compile_bench/liasolver.lean",
+            "line": 165,
+            "kind": "def"
+          }
+        ],
+        "Sum/Except": [
+          {
+            "path": "tests/compile_bench/ilean_roundtrip.lean",
+            "line": 28,
+            "kind": "def"
+          },
+          {
+            "path": "tests/compile_bench/unionfind.lean",
+            "line": 39,
+            "kind": "def"
+          }
+        ],
+        "Fin/BitVec": [],
+        "Subtype/Vector": [],
+        "Rat": [],
+        "Real/Complex specifications": [],
+        "maps/sets": [
+          {
+            "path": "tests/compile_bench/hashmap.lean",
+            "line": 36,
+            "kind": "def"
+          },
+          {
+            "path": "tests/compile_bench/hashmap.lean",
+            "line": 189,
+            "kind": "def"
+          },
+          {
+            "path": "tests/compile_bench/liasolver.lean",
+            "line": 56,
+            "kind": "def"
+          },
+          {
+            "path": "tests/compile_bench/liasolver.lean",
+            "line": 60,
+            "kind": "def"
+          },
+          {
+            "path": "tests/compile_bench/liasolver.lean",
+            "line": 63,
+            "kind": "def"
+          }
+        ],
+        "mathematical sets": [],
+        "JSON": [
+          {
+            "path": "tests/compile_bench/identifier_completion.lean",
+            "line": 4,
+            "kind": "def"
+          },
+          {
+            "path": "tests/compile_bench/ilean_roundtrip.lean",
+            "line": 28,
+            "kind": "def"
+          }
+        ],
+        "IO/EIO/BaseIO": [
+          {
+            "path": "tests/compile_bench/binarytrees.lean",
+            "line": 21,
+            "kind": "def"
+          },
+          {
+            "path": "tests/compile_bench/binarytrees.lean",
+            "line": 38,
+            "kind": "def"
+          },
+          {
+            "path": "tests/compile_bench/binarytrees.st.lean",
+            "line": 24,
+            "kind": "def"
+          },
+          {
+            "path": "tests/compile_bench/binarytrees.st.lean",
+            "line": 34,
+            "kind": "def"
+          },
+          {
+            "path": "tests/compile_bench/channel.lean",
+            "line": 24,
+            "kind": "def"
+          }
+        ],
+        "monad transformers/runners": [
+          {
+            "path": "tests/compile_bench/identifier_completion.lean.dir/file.lean",
+            "line": 6,
+            "kind": "def"
+          }
+        ],
+        "async/resources": [
+          {
+            "path": "tests/compile_bench/binarytrees.lean",
+            "line": 32,
+            "kind": "def"
+          },
+          {
+            "path": "tests/compile_bench/select.lean",
+            "line": 21,
+            "kind": "def"
+          }
+        ],
+        "paths/time/URI": [],
+        "metaprogramming values": [
+          {
+            "path": "tests/compile_bench/const_fold.lean",
+            "line": 1,
+            "kind": "inductive"
+          },
+          {
+            "path": "tests/compile_bench/const_fold.lean",
+            "line": 10,
+            "kind": "def"
+          },
+          {
+            "path": "tests/compile_bench/const_fold.lean",
+            "line": 14,
+            "kind": "def"
+          },
+          {
+            "path": "tests/compile_bench/const_fold.lean",
+            "line": 18,
+            "kind": "def"
+          },
+          {
+            "path": "tests/compile_bench/const_fold.lean",
+            "line": 22,
+            "kind": "def"
+          }
+        ]
+      },
+      "toolchainSource": "lean-toolchain",
+      "toolchain": "build/release/stage1"
+    },
+    "scilean-library": {
+      "commit": "95f8119a2884e9c41f82136523bd5568ea7075c5",
+      "prefixes": [
+        "SciLean/"
+      ],
+      "excludePrefixes": [],
+      "files": 452,
+      "sourceBytes": 2436649,
+      "skippedOversizedFiles": [],
+      "declarationKinds": {
+        "theorem": 1931,
+        "def": 1681,
+        "structure": 230,
+        "class": 162,
+        "instance": 1142,
+        "inductive": 74,
+        "example": 142,
+        "abbrev": 209,
+        "opaque": 17
+      },
+      "families": {
+        "Nat": {
+          "codeFiles": 162,
+          "definitionHeaders": 262,
+          "definitionFiles": 97,
+          "proofHeaders": 99,
+          "dataDeclarations": 86,
+          "dataFiles": 55
+        },
+        "Int": {
+          "codeFiles": 35,
+          "proofHeaders": 32,
+          "definitionHeaders": 59,
+          "definitionFiles": 24,
+          "dataDeclarations": 11,
+          "dataFiles": 9
+        },
+        "Bool": {
+          "codeFiles": 57,
+          "dataDeclarations": 12,
+          "dataFiles": 10,
+          "definitionHeaders": 78,
+          "definitionFiles": 44,
+          "proofHeaders": 13
+        },
+        "String": {
+          "codeFiles": 27,
+          "definitionHeaders": 40,
+          "definitionFiles": 25,
+          "dataDeclarations": 6,
+          "dataFiles": 6
+        },
+        "Unit": {
+          "codeFiles": 76,
+          "definitionHeaders": 119,
+          "definitionFiles": 46,
+          "proofHeaders": 11,
+          "dataDeclarations": 3,
+          "dataFiles": 3
+        },
+        "Float/Float32": {
+          "codeFiles": 29,
+          "definitionHeaders": 88,
+          "proofHeaders": 11,
+          "definitionFiles": 17,
+          "dataDeclarations": 4,
+          "dataFiles": 2
+        },
+        "machine integers": {
+          "codeFiles": 13,
+          "definitionHeaders": 20,
+          "definitionFiles": 11,
+          "dataDeclarations": 7,
+          "dataFiles": 6,
+          "proofHeaders": 3
+        },
+        "Char": {},
+        "List": {
+          "codeFiles": 39,
+          "proofHeaders": 6,
+          "definitionHeaders": 37,
+          "definitionFiles": 24,
+          "dataDeclarations": 21,
+          "dataFiles": 12
+        },
+        "Array": {
+          "codeFiles": 75,
+          "definitionHeaders": 160,
+          "proofHeaders": 36,
+          "definitionFiles": 53,
+          "dataDeclarations": 21,
+          "dataFiles": 16
+        },
+        "ByteArray": {
+          "codeFiles": 6,
+          "dataDeclarations": 2,
+          "dataFiles": 2,
+          "definitionHeaders": 9,
+          "definitionFiles": 3
+        },
+        "packed/scientific arrays": {
+          "codeFiles": 68,
+          "definitionHeaders": 60,
+          "proofHeaders": 14,
+          "dataDeclarations": 13,
+          "definitionFiles": 13,
+          "dataFiles": 11
+        },
+        "Option": {
+          "codeFiles": 47,
+          "dataDeclarations": 19,
+          "dataFiles": 17,
+          "definitionHeaders": 151,
+          "proofHeaders": 5,
+          "definitionFiles": 37
+        },
+        "Prod/tuples": {
+          "codeFiles": 191,
+          "proofHeaders": 276,
+          "definitionHeaders": 294,
+          "definitionFiles": 107,
+          "dataDeclarations": 38,
+          "dataFiles": 28
+        },
+        "Sum/Except": {
+          "codeFiles": 27,
+          "definitionHeaders": 63,
+          "definitionFiles": 18,
+          "proofHeaders": 20,
+          "dataDeclarations": 1,
+          "dataFiles": 1
+        },
+        "Fin/BitVec": {
+          "codeFiles": 55,
+          "proofHeaders": 32,
+          "definitionHeaders": 75,
+          "definitionFiles": 27,
+          "dataDeclarations": 21,
+          "dataFiles": 14
+        },
+        "Subtype/Vector": {
+          "codeFiles": 8,
+          "dataDeclarations": 4,
+          "dataFiles": 3,
+          "definitionHeaders": 29,
+          "proofHeaders": 12,
+          "definitionFiles": 6
+        },
+        "Rat": {
+          "codeFiles": 3,
+          "definitionHeaders": 1,
+          "definitionFiles": 1,
+          "dataDeclarations": 1,
+          "proofHeaders": 1,
+          "dataFiles": 1
+        },
+        "Real/Complex specifications": {
+          "codeFiles": 105,
+          "definitionHeaders": 181,
+          "definitionFiles": 62,
+          "dataDeclarations": 41,
+          "proofHeaders": 191,
+          "dataFiles": 26
+        },
+        "maps/sets": {
+          "codeFiles": 12,
+          "definitionHeaders": 4,
+          "definitionFiles": 1,
+          "dataDeclarations": 7,
+          "dataFiles": 6
+        },
+        "mathematical sets": {
+          "codeFiles": 67,
+          "proofHeaders": 62,
+          "dataDeclarations": 31,
+          "dataFiles": 13,
+          "definitionHeaders": 71,
+          "definitionFiles": 21
+        },
+        "JSON": {
+          "codeFiles": 2
+        },
+        "IO/EIO/BaseIO": {
+          "codeFiles": 31,
+          "definitionHeaders": 18,
+          "definitionFiles": 16,
+          "dataDeclarations": 3,
+          "dataFiles": 3
+        },
+        "monad transformers/runners": {
+          "codeFiles": 69,
+          "definitionHeaders": 219,
+          "proofHeaders": 12,
+          "definitionFiles": 50,
+          "dataDeclarations": 4,
+          "dataFiles": 4
+        },
+        "async/resources": {
+          "codeFiles": 1
+        },
+        "paths/time/URI": {
+          "codeFiles": 2,
+          "definitionHeaders": 2,
+          "definitionFiles": 2
+        },
+        "metaprogramming values": {
+          "codeFiles": 84,
+          "dataDeclarations": 53,
+          "dataFiles": 27,
+          "definitionHeaders": 384,
+          "definitionFiles": 62,
+          "proofHeaders": 2
+        }
+      },
+      "examples": {
+        "Nat": [
+          {
+            "path": "SciLean/AD/FDeriv.lean",
+            "line": 366,
+            "kind": "def"
+          },
+          {
+            "path": "SciLean/AD/FwdFDeriv.lean",
+            "line": 393,
+            "kind": "def"
+          },
+          {
+            "path": "SciLean/AD/RevFDeriv.lean",
+            "line": 528,
+            "kind": "def"
+          },
+          {
+            "path": "SciLean/AD/RevFDeriv.lean",
+            "line": 539,
+            "kind": "def"
+          },
+          {
+            "path": "SciLean/Algebra/Dimension.lean",
+            "line": 13,
+            "kind": "class"
+          }
+        ],
+        "Int": [
+          {
+            "path": "SciLean/Analysis/Scalar/FloatRealEquiv.lean",
+            "line": 35,
+            "kind": "instance"
+          },
+          {
+            "path": "SciLean/Data/DataArray/Algebra.lean",
+            "line": 45,
+            "kind": "instance"
+          },
+          {
+            "path": "SciLean/Data/DataArray/Algebra.lean",
+            "line": 48,
+            "kind": "instance"
+          },
+          {
+            "path": "SciLean/Data/DataArray/RnEquiv.lean",
+            "line": 113,
+            "kind": "def"
+          },
+          {
+            "path": "SciLean/Data/Float.lean",
+            "line": 32,
+            "kind": "def"
+          }
+        ],
+        "Bool": [
+          {
+            "path": "SciLean/Analysis/Scalar/Basic.lean",
+            "line": 30,
+            "kind": "class"
+          },
+          {
+            "path": "SciLean/Analysis/Scalar/FloatRealEquiv.lean",
+            "line": 33,
+            "kind": "instance"
+          },
+          {
+            "path": "SciLean/Data/ArraySet.lean",
+            "line": 38,
+            "kind": "def"
+          },
+          {
+            "path": "SciLean/Data/IndexType/Basic.lean",
+            "line": 92,
+            "kind": "instance"
+          },
+          {
+            "path": "SciLean/Data/IndexType/DeriveIndexType.lean",
+            "line": 15,
+            "kind": "def"
+          }
+        ],
+        "String": [
+          {
+            "path": "SciLean/Examples/GMM/Util.lean",
+            "line": 9,
+            "kind": "def"
+          },
+          {
+            "path": "SciLean/Examples/GMM/Util.lean",
+            "line": 14,
+            "kind": "def"
+          },
+          {
+            "path": "SciLean/Lean/Expr.lean",
+            "line": 246,
+            "kind": "def"
+          },
+          {
+            "path": "SciLean/Lean/Meta/Basic.lean",
+            "line": 730,
+            "kind": "def"
+          },
+          {
+            "path": "SciLean/Lean/String.lean",
+            "line": 4,
+            "kind": "def"
+          }
+        ],
+        "Unit": [
+          {
+            "path": "SciLean/Analysis/AdjointSpace/Basic.lean",
+            "line": 267,
+            "kind": "instance"
+          },
+          {
+            "path": "SciLean/Analysis/AdjointSpace/Basic.lean",
+            "line": 270,
+            "kind": "instance"
+          },
+          {
+            "path": "SciLean/Analysis/AdjointSpace/CanonicalBasis.lean",
+            "line": 115,
+            "kind": "instance"
+          },
+          {
+            "path": "SciLean/Analysis/Calculus/Monad/RevFDerivMonad.lean",
+            "line": 86,
+            "kind": "def"
+          },
+          {
+            "path": "SciLean/Analysis/Diffeology/Option.lean",
+            "line": 63,
+            "kind": "def"
+          }
+        ],
+        "Float/Float32": [
+          {
+            "path": "SciLean/Analysis/Scalar/FloatAsReal.lean",
+            "line": 9,
+            "kind": "instance"
+          },
+          {
+            "path": "SciLean/Analysis/Scalar/FloatAsReal.lean",
+            "line": 41,
+            "kind": "instance"
+          },
+          {
+            "path": "SciLean/Analysis/Scalar/FloatAsReal.lean",
+            "line": 55,
+            "kind": "instance"
+          },
+          {
+            "path": "SciLean/Analysis/Scalar/FloatAsReal.lean",
+            "line": 60,
+            "kind": "instance"
+          },
+          {
+            "path": "SciLean/Analysis/Scalar/FloatAsReal.lean",
+            "line": 77,
+            "kind": "instance"
+          }
+        ],
+        "machine integers": [
+          {
+            "path": "SciLean/Data/DataArray/DataArray.lean",
+            "line": 51,
+            "kind": "instance"
+          },
+          {
+            "path": "SciLean/Data/DataArray/DataArray.lean",
+            "line": 58,
+            "kind": "instance"
+          },
+          {
+            "path": "SciLean/Data/DataArray/PlainDataType.lean",
+            "line": 10,
+            "kind": "structure"
+          },
+          {
+            "path": "SciLean/Data/DataArray/PlainDataType.lean",
+            "line": 19,
+            "kind": "structure"
+          },
+          {
+            "path": "SciLean/Data/DataArray/PlainDataType.lean",
+            "line": 66,
+            "kind": "def"
+          }
+        ],
+        "Char": [],
+        "List": [
+          {
+            "path": "SciLean/Analysis/Calculus/HasParamDerivWithDisc/HasParamFDerivWithDisc.lean",
+            "line": 96,
+            "kind": "def"
+          },
+          {
+            "path": "SciLean/Analysis/Calculus/HasParamDerivWithDisc/HasParamFDerivWithDisc.lean",
+            "line": 108,
+            "kind": "def"
+          },
+          {
+            "path": "SciLean/Analysis/Calculus/HasParamDerivWithDisc/HasParamFwdFDerivWithDisc.lean",
+            "line": 33,
+            "kind": "def"
+          },
+          {
+            "path": "SciLean/Analysis/Calculus/HasParamDerivWithDisc/HasParamRevFDerivWithDisc.lean",
+            "line": 85,
+            "kind": "def"
+          },
+          {
+            "path": "SciLean/Analysis/Scalar/FloatRealEquiv.lean",
+            "line": 47,
+            "kind": "instance"
+          }
+        ],
+        "Array": [
+          {
+            "path": "SciLean/Analysis/Diffeology/Array.lean",
+            "line": 27,
+            "kind": "instance"
+          },
+          {
+            "path": "SciLean/Analysis/Diffeology/Array.lean",
+            "line": 67,
+            "kind": "def"
+          },
+          {
+            "path": "SciLean/Analysis/Diffeology/Array.lean",
+            "line": 91,
+            "kind": "def"
+          },
+          {
+            "path": "SciLean/Analysis/Diffeology/Array.lean",
+            "line": 156,
+            "kind": "instance"
+          },
+          {
+            "path": "SciLean/Analysis/Diffeology/Array.lean",
+            "line": 430,
+            "kind": "def"
+          }
+        ],
+        "ByteArray": [
+          {
+            "path": "SciLean/Data/DataArray/DataArray.lean",
+            "line": 21,
+            "kind": "structure"
+          },
+          {
+            "path": "SciLean/Data/DataArray/PlainDataType.lean",
+            "line": 19,
+            "kind": "structure"
+          },
+          {
+            "path": "SciLean/Data/DataArray/PlainDataType.lean",
+            "line": 66,
+            "kind": "def"
+          },
+          {
+            "path": "SciLean/Data/DataArray/PlainDataType.lean",
+            "line": 85,
+            "kind": "def"
+          },
+          {
+            "path": "SciLean/FFI/ByteArray.lean",
+            "line": 5,
+            "kind": "opaque"
+          }
+        ],
+        "packed/scientific arrays": [
+          {
+            "path": "SciLean/Data/DataArray/DataArray.lean",
+            "line": 28,
+            "kind": "instance"
+          },
+          {
+            "path": "SciLean/Data/DataArray/DataArray.lean",
+            "line": 31,
+            "kind": "def"
+          },
+          {
+            "path": "SciLean/Data/DataArray/DataArray.lean",
+            "line": 34,
+            "kind": "def"
+          },
+          {
+            "path": "SciLean/Data/DataArray/DataArray.lean",
+            "line": 51,
+            "kind": "instance"
+          },
+          {
+            "path": "SciLean/Data/DataArray/DataArray.lean",
+            "line": 55,
+            "kind": "def"
+          }
+        ],
+        "Option": [
+          {
+            "path": "SciLean/Analysis/Calculus/HasParamDerivWithDisc/HasParamFDerivWithDisc.lean",
+            "line": 39,
+            "kind": "structure"
+          },
+          {
+            "path": "SciLean/Analysis/Diffeology/Option.lean",
+            "line": 16,
+            "kind": "instance"
+          },
+          {
+            "path": "SciLean/Analysis/Diffeology/Option.lean",
+            "line": 63,
+            "kind": "def"
+          },
+          {
+            "path": "SciLean/Analysis/Diffeology/Option.lean",
+            "line": 77,
+            "kind": "def"
+          },
+          {
+            "path": "SciLean/Analysis/Diffeology/Option.lean",
+            "line": 119,
+            "kind": "instance"
+          }
+        ],
+        "Prod/tuples": [
+          {
+            "path": "SciLean/AD/FwdFDeriv.lean",
+            "line": 18,
+            "kind": "def"
+          },
+          {
+            "path": "SciLean/AD/FwdFDeriv.lean",
+            "line": 99,
+            "kind": "def"
+          },
+          {
+            "path": "SciLean/AD/HasFwdFDeriv.lean",
+            "line": 17,
+            "kind": "structure"
+          },
+          {
+            "path": "SciLean/AD/HasRevFDeriv.lean",
+            "line": 20,
+            "kind": "structure"
+          },
+          {
+            "path": "SciLean/AD/HasRevFDeriv.lean",
+            "line": 28,
+            "kind": "structure"
+          }
+        ],
+        "Sum/Except": [
+          {
+            "path": "SciLean/Analysis/AdjointSpace/CanonicalBasis.lean",
+            "line": 130,
+            "kind": "instance"
+          },
+          {
+            "path": "SciLean/Analysis/Diffeology/Sum.lean",
+            "line": 15,
+            "kind": "instance"
+          },
+          {
+            "path": "SciLean/Analysis/Diffeology/Sum.lean",
+            "line": 50,
+            "kind": "instance"
+          },
+          {
+            "path": "SciLean/Analysis/Diffeology/Sum.lean",
+            "line": 58,
+            "kind": "instance"
+          },
+          {
+            "path": "SciLean/Analysis/Diffeology/Sum.lean",
+            "line": 67,
+            "kind": "def"
+          }
+        ],
+        "Fin/BitVec": [
+          {
+            "path": "SciLean/Analysis/Diffeology/Array.lean",
+            "line": 67,
+            "kind": "def"
+          },
+          {
+            "path": "SciLean/Analysis/Diffeology/Array.lean",
+            "line": 91,
+            "kind": "def"
+          },
+          {
+            "path": "SciLean/Analysis/Diffeology/ArrayTangentSpace.lean",
+            "line": 14,
+            "kind": "structure"
+          },
+          {
+            "path": "SciLean/Analysis/Diffeology/ArrayTangentSpace.lean",
+            "line": 31,
+            "kind": "def"
+          },
+          {
+            "path": "SciLean/Analysis/Diffeology/ArrayTangentSpace.lean",
+            "line": 57,
+            "kind": "def"
+          }
+        ],
+        "Subtype/Vector": [
+          {
+            "path": "SciLean/Data/SparseMatrix/Basic.lean",
+            "line": 56,
+            "kind": "structure"
+          },
+          {
+            "path": "SciLean/Data/Vector.lean",
+            "line": 12,
+            "kind": "instance"
+          },
+          {
+            "path": "SciLean/Data/Vector.lean",
+            "line": 15,
+            "kind": "instance"
+          },
+          {
+            "path": "SciLean/Data/Vector.lean",
+            "line": 18,
+            "kind": "instance"
+          },
+          {
+            "path": "SciLean/Data/Vector.lean",
+            "line": 20,
+            "kind": "instance"
+          }
+        ],
+        "Rat": [
+          {
+            "path": "SciLean/Analysis/Scalar/FloatRealEquiv.lean",
+            "line": 36,
+            "kind": "instance"
+          },
+          {
+            "path": "SciLean/Modules/PhysicalUnits/PhysicalUnits.lean",
+            "line": 10,
+            "kind": "structure"
+          }
+        ],
+        "Real/Complex specifications": [
+          {
+            "path": "SciLean/Algebra/Dimension.lean",
+            "line": 47,
+            "kind": "instance"
+          },
+          {
+            "path": "SciLean/Algebra/Dimension.lean",
+            "line": 50,
+            "kind": "instance"
+          },
+          {
+            "path": "SciLean/Algebra/Dimension.lean",
+            "line": 53,
+            "kind": "instance"
+          },
+          {
+            "path": "SciLean/Algebra/Dimension.lean",
+            "line": 59,
+            "kind": "instance"
+          },
+          {
+            "path": "SciLean/Analysis/AdjointSpace/Basic.lean",
+            "line": 17,
+            "kind": "class"
+          }
+        ],
+        "maps/sets": [
+          {
+            "path": "SciLean/Lean/HashMap.lean",
+            "line": 6,
+            "kind": "def"
+          },
+          {
+            "path": "SciLean/Lean/HashMap.lean",
+            "line": 13,
+            "kind": "def"
+          },
+          {
+            "path": "SciLean/Lean/HashMap.lean",
+            "line": 20,
+            "kind": "def"
+          },
+          {
+            "path": "SciLean/Lean/HashMap.lean",
+            "line": 28,
+            "kind": "def"
+          },
+          {
+            "path": "SciLean/Tactic/DataSynth/Decl.lean",
+            "line": 19,
+            "kind": "structure"
+          }
+        ],
+        "mathematical sets": [
+          {
+            "path": "SciLean/Algebra/TensorProduct/Self.lean",
+            "line": 136,
+            "kind": "class"
+          },
+          {
+            "path": "SciLean/Analysis/AdjointSpace/CanonicalBasis.lean",
+            "line": 17,
+            "kind": "class"
+          },
+          {
+            "path": "SciLean/Analysis/Calculus/HasParamDerivWithDisc/Common.lean",
+            "line": 61,
+            "kind": "instance"
+          },
+          {
+            "path": "SciLean/Analysis/Calculus/HasParamDerivWithDisc/Common.lean",
+            "line": 65,
+            "kind": "def"
+          },
+          {
+            "path": "SciLean/Analysis/Calculus/HasParamDerivWithDisc/HasParamFDerivWithDisc.lean",
+            "line": 30,
+            "kind": "def"
+          }
+        ],
+        "JSON": [],
+        "IO/EIO/BaseIO": [
+          {
+            "path": "SciLean/Examples/GMM/Main.lean",
+            "line": 9,
+            "kind": "def"
+          },
+          {
+            "path": "SciLean/Examples/GMM/Util.lean",
+            "line": 52,
+            "kind": "def"
+          },
+          {
+            "path": "SciLean/Lean/MergeMapDeclarationExtension.lean",
+            "line": 24,
+            "kind": "def"
+          },
+          {
+            "path": "SciLean/Modules/DDG/SurfaceMesh.lean",
+            "line": 510,
+            "kind": "def"
+          },
+          {
+            "path": "SciLean/Modules/FiniteElement/Mesh/PrismRepr.lean",
+            "line": 1135,
+            "kind": "def"
+          }
+        ],
+        "monad transformers/runners": [
+          {
+            "path": "SciLean/Analysis/Calculus/Monad/StateT.lean",
+            "line": 16,
+            "kind": "instance"
+          },
+          {
+            "path": "SciLean/Analysis/Calculus/Monad/StateT.lean",
+            "line": 38,
+            "kind": "instance"
+          },
+          {
+            "path": "SciLean/Analysis/Calculus/Monad/StateT.lean",
+            "line": 198,
+            "kind": "instance"
+          },
+          {
+            "path": "SciLean/Data/ArrayType/Notation.lean",
+            "line": 278,
+            "kind": "def"
+          },
+          {
+            "path": "SciLean/Data/IndexType/DeriveIndexType.lean",
+            "line": 15,
+            "kind": "def"
+          }
+        ],
+        "async/resources": [],
+        "paths/time/URI": [
+          {
+            "path": "SciLean/Modules/DDG/SurfaceMesh.lean",
+            "line": 510,
+            "kind": "def"
+          },
+          {
+            "path": "SciLean/Util/Profile.lean",
+            "line": 5,
+            "kind": "def"
+          }
+        ],
+        "metaprogramming values": [
+          {
+            "path": "SciLean/Algebra/TensorProduct/Basic.lean",
+            "line": 21,
+            "kind": "inductive"
+          },
+          {
+            "path": "SciLean/Data/ArrayType/Notation.lean",
+            "line": 26,
+            "kind": "def"
+          },
+          {
+            "path": "SciLean/Data/ArrayType/Notation.lean",
+            "line": 278,
+            "kind": "def"
+          },
+          {
+            "path": "SciLean/Data/DataArray/DataArray.lean",
+            "line": 464,
+            "kind": "def"
+          },
+          {
+            "path": "SciLean/Data/IndexType/DeriveIndexType.lean",
+            "line": 15,
+            "kind": "def"
+          }
+        ]
+      },
+      "toolchainSource": "lean-toolchain",
+      "toolchain": "leanprover/lean4:v4.28.0-rc1"
+    },
+    "scilean-examples": {
+      "commit": "95f8119a2884e9c41f82136523bd5568ea7075c5",
+      "prefixes": [
+        "examples/"
+      ],
+      "excludePrefixes": [],
+      "files": 37,
+      "sourceBytes": 142170,
+      "skippedOversizedFiles": [],
+      "declarationKinds": {
+        "def": 215,
+        "structure": 4,
+        "instance": 31,
+        "abbrev": 15,
+        "example": 17,
+        "theorem": 63,
+        "opaque": 3
+      },
+      "families": {
+        "Nat": {
+          "codeFiles": 28,
+          "definitionHeaders": 64,
+          "definitionFiles": 21,
+          "dataDeclarations": 1,
+          "dataFiles": 1,
+          "proofHeaders": 8
+        },
+        "Int": {
+          "codeFiles": 1,
+          "definitionHeaders": 2,
+          "definitionFiles": 1
+        },
+        "Bool": {
+          "codeFiles": 3,
+          "definitionHeaders": 6,
+          "definitionFiles": 3
+        },
+        "String": {
+          "codeFiles": 1,
+          "definitionHeaders": 1,
+          "definitionFiles": 1
+        },
+        "Unit": {
+          "codeFiles": 18,
+          "definitionHeaders": 21,
+          "definitionFiles": 17,
+          "proofHeaders": 1
+        },
+        "Float/Float32": {
+          "codeFiles": 17,
+          "definitionHeaders": 56,
+          "definitionFiles": 16,
+          "proofHeaders": 4
+        },
+        "machine integers": {
+          "codeFiles": 7,
+          "definitionHeaders": 6,
+          "definitionFiles": 5
+        },
+        "Char": {},
+        "List": {
+          "codeFiles": 5,
+          "definitionHeaders": 4,
+          "definitionFiles": 4
+        },
+        "Array": {
+          "codeFiles": 13,
+          "definitionHeaders": 9,
+          "definitionFiles": 6
+        },
+        "ByteArray": {
+          "codeFiles": 4,
+          "definitionHeaders": 4,
+          "definitionFiles": 4
+        },
+        "packed/scientific arrays": {
+          "codeFiles": 14,
+          "definitionHeaders": 8,
+          "proofHeaders": 2,
+          "definitionFiles": 5,
+          "dataDeclarations": 1,
+          "dataFiles": 1
+        },
+        "Option": {
+          "codeFiles": 2,
+          "definitionHeaders": 2,
+          "definitionFiles": 2
+        },
+        "Prod/tuples": {
+          "codeFiles": 15,
+          "definitionHeaders": 20,
+          "definitionFiles": 9,
+          "dataDeclarations": 1,
+          "dataFiles": 1,
+          "proofHeaders": 3
+        },
+        "Sum/Except": {
+          "codeFiles": 1
+        },
+        "Fin/BitVec": {
+          "codeFiles": 12,
+          "definitionHeaders": 13,
+          "definitionFiles": 7,
+          "proofHeaders": 5
+        },
+        "Subtype/Vector": {},
+        "Rat": {},
+        "Real/Complex specifications": {
+          "codeFiles": 17,
+          "definitionHeaders": 92,
+          "definitionFiles": 14,
+          "dataDeclarations": 4,
+          "dataFiles": 3,
+          "proofHeaders": 19
+        },
+        "maps/sets": {},
+        "mathematical sets": {
+          "codeFiles": 2
+        },
+        "JSON": {
+          "codeFiles": 1
+        },
+        "IO/EIO/BaseIO": {
+          "codeFiles": 19,
+          "definitionHeaders": 33,
+          "definitionFiles": 18
+        },
+        "monad transformers/runners": {
+          "codeFiles": 1
+        },
+        "async/resources": {},
+        "paths/time/URI": {
+          "codeFiles": 2,
+          "definitionHeaders": 6,
+          "definitionFiles": 2
+        },
+        "metaprogramming values": {
+          "codeFiles": 4,
+          "definitionHeaders": 4,
+          "definitionFiles": 3
+        }
+      },
+      "examples": {
+        "Nat": [
+          {
+            "path": "examples/Ballistic.lean",
+            "line": 97,
+            "kind": "def"
+          },
+          {
+            "path": "examples/CircleOptimisation.lean",
+            "line": 68,
+            "kind": "structure"
+          },
+          {
+            "path": "examples/CircleOptimisation.lean",
+            "line": 101,
+            "kind": "def"
+          },
+          {
+            "path": "examples/CircleOptimisation.lean",
+            "line": 119,
+            "kind": "def"
+          },
+          {
+            "path": "examples/DoublePendulum.lean",
+            "line": 38,
+            "kind": "instance"
+          }
+        ],
+        "Int": [
+          {
+            "path": "examples/Profile/LSTM.lean",
+            "line": 152,
+            "kind": "def"
+          },
+          {
+            "path": "examples/Profile/LSTM.lean",
+            "line": 158,
+            "kind": "def"
+          }
+        ],
+        "Bool": [
+          {
+            "path": "examples/GaussianMixtureModel'.lean",
+            "line": 78,
+            "kind": "def"
+          },
+          {
+            "path": "examples/GaussianMixtureModel.lean",
+            "line": 9,
+            "kind": "def"
+          },
+          {
+            "path": "examples/GaussianMixtureModel.lean",
+            "line": 196,
+            "kind": "def"
+          },
+          {
+            "path": "examples/SurfaceMeshTests.lean",
+            "line": 3,
+            "kind": "def"
+          },
+          {
+            "path": "examples/SurfaceMeshTests.lean",
+            "line": 23,
+            "kind": "def"
+          }
+        ],
+        "String": [
+          {
+            "path": "examples/Profile/LSTM.lean",
+            "line": 175,
+            "kind": "def"
+          }
+        ],
+        "Unit": [
+          {
+            "path": "examples/BlasTest.lean",
+            "line": 6,
+            "kind": "def"
+          },
+          {
+            "path": "examples/CircleOptimisation.lean",
+            "line": 130,
+            "kind": "def"
+          },
+          {
+            "path": "examples/FloatMatrixTest.lean",
+            "line": 10,
+            "kind": "def"
+          },
+          {
+            "path": "examples/FloatMatrixTest.lean",
+            "line": 31,
+            "kind": "def"
+          },
+          {
+            "path": "examples/FloatTest.lean",
+            "line": 6,
+            "kind": "def"
+          }
+        ],
+        "Float/Float32": [
+          {
+            "path": "examples/Ballistic.lean",
+            "line": 34,
+            "kind": "def"
+          },
+          {
+            "path": "examples/FFTWidget.lean",
+            "line": 8,
+            "kind": "instance"
+          },
+          {
+            "path": "examples/GaussianMixtureModel'.lean",
+            "line": 210,
+            "kind": "def"
+          },
+          {
+            "path": "examples/HarmonicOscillator.lean",
+            "line": 7,
+            "kind": "def"
+          },
+          {
+            "path": "examples/HarmonicOscillatorOptimization.lean",
+            "line": 7,
+            "kind": "def"
+          }
+        ],
+        "machine integers": [
+          {
+            "path": "examples/Ballistic.lean",
+            "line": 15,
+            "kind": "def"
+          },
+          {
+            "path": "examples/MNISTClassifier.lean",
+            "line": 114,
+            "kind": "def"
+          },
+          {
+            "path": "examples/Profile/KMeans.lean",
+            "line": 25,
+            "kind": "instance"
+          },
+          {
+            "path": "examples/Profile/KMeans.lean",
+            "line": 28,
+            "kind": "opaque"
+          },
+          {
+            "path": "examples/Profile/KMeansDirection.lean",
+            "line": 50,
+            "kind": "opaque"
+          }
+        ],
+        "Char": [],
+        "List": [
+          {
+            "path": "examples/Ballistic.lean",
+            "line": 15,
+            "kind": "def"
+          },
+          {
+            "path": "examples/GaussianMixtureModel'.lean",
+            "line": 78,
+            "kind": "def"
+          },
+          {
+            "path": "examples/GaussianMixtureModel.lean",
+            "line": 196,
+            "kind": "def"
+          },
+          {
+            "path": "examples/Profile/LSTM.lean",
+            "line": 175,
+            "kind": "def"
+          }
+        ],
+        "Array": [
+          {
+            "path": "examples/Ballistic.lean",
+            "line": 97,
+            "kind": "def"
+          },
+          {
+            "path": "examples/CircleOptimisation.lean",
+            "line": 119,
+            "kind": "def"
+          },
+          {
+            "path": "examples/FFTWidget.lean",
+            "line": 11,
+            "kind": "def"
+          },
+          {
+            "path": "examples/MNISTClassifier.lean",
+            "line": 32,
+            "kind": "def"
+          },
+          {
+            "path": "examples/MNISTClassifier.lean",
+            "line": 66,
+            "kind": "def"
+          }
+        ],
+        "ByteArray": [
+          {
+            "path": "examples/MNISTClassifier.lean",
+            "line": 26,
+            "kind": "def"
+          },
+          {
+            "path": "examples/MNISTClassifier/DataUtil.lean",
+            "line": 14,
+            "kind": "def"
+          },
+          {
+            "path": "examples/Profile/KMeans.lean",
+            "line": 51,
+            "kind": "def"
+          },
+          {
+            "path": "examples/Profile/KMeansDirection.lean",
+            "line": 50,
+            "kind": "opaque"
+          }
+        ],
+        "packed/scientific arrays": [
+          {
+            "path": "examples/DoublePendulum.lean",
+            "line": 191,
+            "kind": "instance"
+          },
+          {
+            "path": "examples/ManifoldGalerkin.lean",
+            "line": 210,
+            "kind": "structure"
+          },
+          {
+            "path": "examples/Pendulum2d.lean",
+            "line": 37,
+            "kind": "instance"
+          },
+          {
+            "path": "examples/Profile/KMeans.lean",
+            "line": 12,
+            "kind": "def"
+          },
+          {
+            "path": "examples/Profile/KMeans.lean",
+            "line": 28,
+            "kind": "opaque"
+          }
+        ],
+        "Option": [
+          {
+            "path": "examples/GaussianMixtureModel'.lean",
+            "line": 78,
+            "kind": "def"
+          },
+          {
+            "path": "examples/GaussianMixtureModel.lean",
+            "line": 196,
+            "kind": "def"
+          }
+        ],
+        "Prod/tuples": [
+          {
+            "path": "examples/Ballistic.lean",
+            "line": 97,
+            "kind": "def"
+          },
+          {
+            "path": "examples/Ballistic.lean",
+            "line": 102,
+            "kind": "def"
+          },
+          {
+            "path": "examples/BallisticWidget.lean",
+            "line": 18,
+            "kind": "structure"
+          },
+          {
+            "path": "examples/BallisticWidget.lean",
+            "line": 22,
+            "kind": "instance"
+          },
+          {
+            "path": "examples/BallisticWidget.lean",
+            "line": 25,
+            "kind": "instance"
+          }
+        ],
+        "Sum/Except": [],
+        "Fin/BitVec": [
+          {
+            "path": "examples/DoublePendulum.lean",
+            "line": 38,
+            "kind": "instance"
+          },
+          {
+            "path": "examples/DoublePendulum.lean",
+            "line": 41,
+            "kind": "instance"
+          },
+          {
+            "path": "examples/FFTWidget.lean",
+            "line": 11,
+            "kind": "def"
+          },
+          {
+            "path": "examples/LennardJones.lean",
+            "line": 26,
+            "kind": "def"
+          },
+          {
+            "path": "examples/ManifoldGalerkin.lean",
+            "line": 54,
+            "kind": "def"
+          }
+        ],
+        "Subtype/Vector": [],
+        "Rat": [],
+        "Real/Complex specifications": [
+          {
+            "path": "examples/Ballistic.lean",
+            "line": 97,
+            "kind": "def"
+          },
+          {
+            "path": "examples/Ballistic.lean",
+            "line": 102,
+            "kind": "def"
+          },
+          {
+            "path": "examples/BallisticWidget.lean",
+            "line": 18,
+            "kind": "structure"
+          },
+          {
+            "path": "examples/BallisticWidget.lean",
+            "line": 22,
+            "kind": "instance"
+          },
+          {
+            "path": "examples/BallisticWidget.lean",
+            "line": 25,
+            "kind": "instance"
+          }
+        ],
+        "maps/sets": [],
+        "mathematical sets": [],
+        "JSON": [],
+        "IO/EIO/BaseIO": [
+          {
+            "path": "examples/BlasTest.lean",
+            "line": 6,
+            "kind": "def"
+          },
+          {
+            "path": "examples/CircleOptimisation.lean",
+            "line": 130,
+            "kind": "def"
+          },
+          {
+            "path": "examples/FloatMatrixTest.lean",
+            "line": 10,
+            "kind": "def"
+          },
+          {
+            "path": "examples/FloatMatrixTest.lean",
+            "line": 31,
+            "kind": "def"
+          },
+          {
+            "path": "examples/FloatTest.lean",
+            "line": 6,
+            "kind": "def"
+          }
+        ],
+        "monad transformers/runners": [],
+        "async/resources": [],
+        "paths/time/URI": [
+          {
+            "path": "examples/MNISTClassifier.lean",
+            "line": 21,
+            "kind": "def"
+          },
+          {
+            "path": "examples/MNISTClassifier.lean",
+            "line": 32,
+            "kind": "def"
+          },
+          {
+            "path": "examples/MNISTClassifier.lean",
+            "line": 66,
+            "kind": "def"
+          },
+          {
+            "path": "examples/MNISTClassifier/DataUtil.lean",
+            "line": 9,
+            "kind": "def"
+          },
+          {
+            "path": "examples/MNISTClassifier/DataUtil.lean",
+            "line": 24,
+            "kind": "def"
+          }
+        ],
+        "metaprogramming values": [
+          {
+            "path": "examples/GaussianMixtureModel'.lean",
+            "line": 78,
+            "kind": "def"
+          },
+          {
+            "path": "examples/GaussianMixtureModel.lean",
+            "line": 9,
+            "kind": "def"
+          },
+          {
+            "path": "examples/GaussianMixtureModel.lean",
+            "line": 196,
+            "kind": "def"
+          },
+          {
+            "path": "examples/Profile/KMeansDirection.lean",
+            "line": 27,
+            "kind": "def"
+          }
+        ]
+      },
+      "toolchainSource": "lean-toolchain",
+      "toolchain": "leanprover/lean4:v4.28.0-rc1"
+    },
+    "mcmc-executable": {
+      "commit": "a5781f9649670b155608aa2ac0e5931c89afc5fb",
+      "prefixes": [
+        "formal/Mcmc/Executable/",
+        "formal/Mcmc/Oracle.lean"
+      ],
+      "excludePrefixes": [],
+      "files": 68,
+      "sourceBytes": 1290704,
+      "skippedOversizedFiles": [],
+      "declarationKinds": {
+        "inductive": 48,
+        "structure": 118,
+        "def": 741,
+        "theorem": 724,
+        "instance": 60,
+        "abbrev": 6,
+        "lemma": 1,
+        "example": 25
+      },
+      "families": {
+        "Nat": {
+          "codeFiles": 42,
+          "proofHeaders": 192,
+          "dataDeclarations": 37,
+          "definitionHeaders": 149,
+          "definitionFiles": 34,
+          "dataFiles": 17
+        },
+        "Int": {
+          "codeFiles": 3,
+          "dataDeclarations": 4,
+          "dataFiles": 3
+        },
+        "Bool": {
+          "codeFiles": 15,
+          "definitionHeaders": 74,
+          "definitionFiles": 12,
+          "dataDeclarations": 11,
+          "dataFiles": 5,
+          "proofHeaders": 29
+        },
+        "String": {
+          "codeFiles": 17,
+          "dataDeclarations": 22,
+          "dataFiles": 14,
+          "definitionHeaders": 143,
+          "definitionFiles": 12
+        },
+        "Unit": {
+          "codeFiles": 9,
+          "proofHeaders": 104,
+          "definitionHeaders": 54,
+          "definitionFiles": 4,
+          "dataDeclarations": 1,
+          "dataFiles": 1
+        },
+        "Float/Float32": {},
+        "machine integers": {
+          "codeFiles": 1,
+          "definitionHeaders": 1,
+          "definitionFiles": 1
+        },
+        "Char": {
+          "codeFiles": 1,
+          "definitionHeaders": 1,
+          "definitionFiles": 1
+        },
+        "List": {
+          "codeFiles": 27,
+          "dataDeclarations": 30,
+          "dataFiles": 16,
+          "definitionHeaders": 126,
+          "proofHeaders": 57,
+          "definitionFiles": 20
+        },
+        "Array": {},
+        "ByteArray": {},
+        "packed/scientific arrays": {},
+        "Option": {
+          "codeFiles": 4,
+          "dataDeclarations": 1,
+          "definitionHeaders": 14,
+          "definitionFiles": 4,
+          "dataFiles": 1
+        },
+        "Prod/tuples": {
+          "codeFiles": 26,
+          "definitionHeaders": 35,
+          "definitionFiles": 13,
+          "dataDeclarations": 4,
+          "dataFiles": 4,
+          "proofHeaders": 15
+        },
+        "Sum/Except": {
+          "codeFiles": 11,
+          "definitionHeaders": 63,
+          "proofHeaders": 2,
+          "definitionFiles": 9,
+          "dataDeclarations": 1,
+          "dataFiles": 1
+        },
+        "Fin/BitVec": {
+          "codeFiles": 28,
+          "proofHeaders": 104,
+          "dataDeclarations": 13,
+          "definitionHeaders": 74,
+          "definitionFiles": 20,
+          "dataFiles": 10
+        },
+        "Subtype/Vector": {},
+        "Rat": {
+          "codeFiles": 7,
+          "dataDeclarations": 31,
+          "definitionHeaders": 54,
+          "proofHeaders": 9,
+          "definitionFiles": 5,
+          "dataFiles": 6
+        },
+        "Real/Complex specifications": {
+          "codeFiles": 47,
+          "definitionHeaders": 230,
+          "proofHeaders": 430,
+          "definitionFiles": 38,
+          "dataDeclarations": 45,
+          "dataFiles": 15
+        },
+        "maps/sets": {},
+        "mathematical sets": {
+          "codeFiles": 24,
+          "proofHeaders": 56,
+          "definitionHeaders": 8,
+          "definitionFiles": 4,
+          "dataDeclarations": 1,
+          "dataFiles": 1
+        },
+        "JSON": {},
+        "IO/EIO/BaseIO": {
+          "codeFiles": 1,
+          "definitionHeaders": 45,
+          "definitionFiles": 1
+        },
+        "monad transformers/runners": {},
+        "async/resources": {},
+        "paths/time/URI": {},
+        "metaprogramming values": {
+          "codeFiles": 7,
+          "dataDeclarations": 7,
+          "definitionHeaders": 18,
+          "definitionFiles": 6,
+          "dataFiles": 4,
+          "proofHeaders": 2
+        }
+      },
+      "examples": {
+        "Nat": [
+          {
+            "path": "formal/Mcmc/Executable/Continuous/BoundedHMC.lean",
+            "line": 314,
+            "kind": "structure"
+          },
+          {
+            "path": "formal/Mcmc/Executable/Continuous/BoundedHMC.lean",
+            "line": 322,
+            "kind": "def"
+          },
+          {
+            "path": "formal/Mcmc/Executable/Continuous/BoundedHMC.lean",
+            "line": 328,
+            "kind": "def"
+          },
+          {
+            "path": "formal/Mcmc/Executable/Continuous/BoundedHMC.lean",
+            "line": 334,
+            "kind": "def"
+          },
+          {
+            "path": "formal/Mcmc/Executable/Continuous/BoundedHMC.lean",
+            "line": 340,
+            "kind": "def"
+          }
+        ],
+        "Int": [
+          {
+            "path": "formal/Mcmc/Executable/Continuous/CompilerIR.lean",
+            "line": 36,
+            "kind": "inductive"
+          },
+          {
+            "path": "formal/Mcmc/Executable/Continuous/RestrictedArtifact.lean",
+            "line": 11,
+            "kind": "inductive"
+          },
+          {
+            "path": "formal/Mcmc/Executable/Continuous/RestrictedRefinement.lean",
+            "line": 85,
+            "kind": "structure"
+          },
+          {
+            "path": "formal/Mcmc/Executable/Continuous/RestrictedRefinement.lean",
+            "line": 127,
+            "kind": "structure"
+          }
+        ],
+        "Bool": [
+          {
+            "path": "formal/Mcmc/Executable/ComposableIR.lean",
+            "line": 30,
+            "kind": "def"
+          },
+          {
+            "path": "formal/Mcmc/Executable/Continuous/BoundedMultinomial.lean",
+            "line": 322,
+            "kind": "def"
+          },
+          {
+            "path": "formal/Mcmc/Executable/Continuous/BoundedMultinomial.lean",
+            "line": 358,
+            "kind": "def"
+          },
+          {
+            "path": "formal/Mcmc/Executable/Continuous/BoundedMultinomial.lean",
+            "line": 511,
+            "kind": "def"
+          },
+          {
+            "path": "formal/Mcmc/Executable/Continuous/BoundedSlice.lean",
+            "line": 222,
+            "kind": "def"
+          }
+        ],
+        "String": [
+          {
+            "path": "formal/Mcmc/Executable/ComposableIR.lean",
+            "line": 17,
+            "kind": "structure"
+          },
+          {
+            "path": "formal/Mcmc/Executable/ComposableIR.lean",
+            "line": 23,
+            "kind": "structure"
+          },
+          {
+            "path": "formal/Mcmc/Executable/ComposableSemantics.lean",
+            "line": 25,
+            "kind": "structure"
+          },
+          {
+            "path": "formal/Mcmc/Executable/ConstrainedTransformIR.lean",
+            "line": 17,
+            "kind": "structure"
+          },
+          {
+            "path": "formal/Mcmc/Executable/Continuous/CompilerIR.lean",
+            "line": 31,
+            "kind": "structure"
+          }
+        ],
+        "Unit": [
+          {
+            "path": "formal/Mcmc/Executable/Continuous/GaussianSoftAbsConvergence.lean",
+            "line": 224,
+            "kind": "def"
+          },
+          {
+            "path": "formal/Mcmc/Executable/Continuous/GaussianSoftAbsConvergence.lean",
+            "line": 425,
+            "kind": "def"
+          },
+          {
+            "path": "formal/Mcmc/Executable/Continuous/GaussianSoftAbsConvergence.lean",
+            "line": 870,
+            "kind": "def"
+          },
+          {
+            "path": "formal/Mcmc/Executable/Continuous/GaussianSoftAbsConvergence.lean",
+            "line": 883,
+            "kind": "def"
+          },
+          {
+            "path": "formal/Mcmc/Executable/Continuous/GaussianSoftAbsConvergence.lean",
+            "line": 987,
+            "kind": "def"
+          }
+        ],
+        "Float/Float32": [],
+        "machine integers": [
+          {
+            "path": "formal/Mcmc/Oracle.lean",
+            "line": 1122,
+            "kind": "def"
+          }
+        ],
+        "Char": [
+          {
+            "path": "formal/Mcmc/Executable/IRParser.lean",
+            "line": 37,
+            "kind": "def"
+          }
+        ],
+        "List": [
+          {
+            "path": "formal/Mcmc/Executable/ComposableIR.lean",
+            "line": 17,
+            "kind": "structure"
+          },
+          {
+            "path": "formal/Mcmc/Executable/ComposableIR.lean",
+            "line": 23,
+            "kind": "structure"
+          },
+          {
+            "path": "formal/Mcmc/Executable/ComposableSemantics.lean",
+            "line": 37,
+            "kind": "structure"
+          },
+          {
+            "path": "formal/Mcmc/Executable/Continuous/BackendCertificates.lean",
+            "line": 112,
+            "kind": "structure"
+          },
+          {
+            "path": "formal/Mcmc/Executable/Continuous/BoundedHMC.lean",
+            "line": 14,
+            "kind": "def"
+          }
+        ],
+        "Array": [],
+        "ByteArray": [],
+        "packed/scientific arrays": [],
+        "Option": [
+          {
+            "path": "formal/Mcmc/Executable/Continuous/CompilerIR.lean",
+            "line": 80,
+            "kind": "structure"
+          },
+          {
+            "path": "formal/Mcmc/Executable/Continuous/CompilerIR.lean",
+            "line": 131,
+            "kind": "def"
+          },
+          {
+            "path": "formal/Mcmc/Executable/Continuous/CompilerIR.lean",
+            "line": 140,
+            "kind": "def"
+          },
+          {
+            "path": "formal/Mcmc/Executable/Continuous/CompilerIR.lean",
+            "line": 163,
+            "kind": "def"
+          },
+          {
+            "path": "formal/Mcmc/Executable/Finite/Categorical.lean",
+            "line": 15,
+            "kind": "def"
+          }
+        ],
+        "Prod/tuples": [
+          {
+            "path": "formal/Mcmc/Executable/Continuous/BoundedHMC.lean",
+            "line": 372,
+            "kind": "def"
+          },
+          {
+            "path": "formal/Mcmc/Executable/Continuous/CompilerIR.lean",
+            "line": 120,
+            "kind": "structure"
+          },
+          {
+            "path": "formal/Mcmc/Executable/Continuous/CompilerIR.lean",
+            "line": 131,
+            "kind": "def"
+          },
+          {
+            "path": "formal/Mcmc/Executable/Continuous/CompilerIR.lean",
+            "line": 136,
+            "kind": "def"
+          },
+          {
+            "path": "formal/Mcmc/Executable/Continuous/CompilerIR.lean",
+            "line": 172,
+            "kind": "def"
+          }
+        ],
+        "Sum/Except": [
+          {
+            "path": "formal/Mcmc/Executable/Continuous/CompilerIR.lean",
+            "line": 163,
+            "kind": "def"
+          },
+          {
+            "path": "formal/Mcmc/Executable/Continuous/CompilerIR.lean",
+            "line": 247,
+            "kind": "def"
+          },
+          {
+            "path": "formal/Mcmc/Executable/Continuous/CompilerIR.lean",
+            "line": 358,
+            "kind": "def"
+          },
+          {
+            "path": "formal/Mcmc/Executable/Continuous/CompilerIR.lean",
+            "line": 378,
+            "kind": "def"
+          },
+          {
+            "path": "formal/Mcmc/Executable/Continuous/CompilerIR.lean",
+            "line": 400,
+            "kind": "def"
+          }
+        ],
+        "Fin/BitVec": [
+          {
+            "path": "formal/Mcmc/Executable/Continuous/BoundedHMC.lean",
+            "line": 314,
+            "kind": "structure"
+          },
+          {
+            "path": "formal/Mcmc/Executable/Continuous/BoundedHMC.lean",
+            "line": 393,
+            "kind": "structure"
+          },
+          {
+            "path": "formal/Mcmc/Executable/Continuous/BoundedHMC.lean",
+            "line": 408,
+            "kind": "def"
+          },
+          {
+            "path": "formal/Mcmc/Executable/Continuous/BoundedHMC.lean",
+            "line": 430,
+            "kind": "structure"
+          },
+          {
+            "path": "formal/Mcmc/Executable/Continuous/BoundedMultinomial.lean",
+            "line": 22,
+            "kind": "def"
+          }
+        ],
+        "Subtype/Vector": [],
+        "Rat": [
+          {
+            "path": "formal/Mcmc/Executable/Continuous/BoundedMultinomial.lean",
+            "line": 281,
+            "kind": "structure"
+          },
+          {
+            "path": "formal/Mcmc/Executable/Continuous/BoundedMultinomial.lean",
+            "line": 290,
+            "kind": "def"
+          },
+          {
+            "path": "formal/Mcmc/Executable/Continuous/BoundedMultinomial.lean",
+            "line": 298,
+            "kind": "instance"
+          },
+          {
+            "path": "formal/Mcmc/Executable/Continuous/BoundedMultinomial.lean",
+            "line": 338,
+            "kind": "structure"
+          },
+          {
+            "path": "formal/Mcmc/Executable/Continuous/BoundedMultinomial.lean",
+            "line": 490,
+            "kind": "structure"
+          }
+        ],
+        "Real/Complex specifications": [
+          {
+            "path": "formal/Mcmc/Executable/Continuous/ActiveSketchSMMALA.lean",
+            "line": 39,
+            "kind": "def"
+          },
+          {
+            "path": "formal/Mcmc/Executable/Continuous/ActiveSketchSMMALA.lean",
+            "line": 79,
+            "kind": "def"
+          },
+          {
+            "path": "formal/Mcmc/Executable/Continuous/BackendCertificates.lean",
+            "line": 19,
+            "kind": "structure"
+          },
+          {
+            "path": "formal/Mcmc/Executable/Continuous/BackendCertificates.lean",
+            "line": 54,
+            "kind": "def"
+          },
+          {
+            "path": "formal/Mcmc/Executable/Continuous/BackendCertificates.lean",
+            "line": 58,
+            "kind": "def"
+          }
+        ],
+        "maps/sets": [],
+        "mathematical sets": [
+          {
+            "path": "formal/Mcmc/Executable/Continuous/CoupledRefinement.lean",
+            "line": 49,
+            "kind": "def"
+          },
+          {
+            "path": "formal/Mcmc/Executable/Continuous/CoupledXu21.lean",
+            "line": 74,
+            "kind": "def"
+          },
+          {
+            "path": "formal/Mcmc/Executable/Continuous/GaussianSoftAbsConvergence.lean",
+            "line": 425,
+            "kind": "def"
+          },
+          {
+            "path": "formal/Mcmc/Executable/Continuous/GaussianSoftAbsConvergence.lean",
+            "line": 586,
+            "kind": "def"
+          },
+          {
+            "path": "formal/Mcmc/Executable/Continuous/GaussianSoftAbsConvergence.lean",
+            "line": 883,
+            "kind": "def"
+          }
+        ],
+        "JSON": [],
+        "IO/EIO/BaseIO": [
+          {
+            "path": "formal/Mcmc/Oracle.lean",
+            "line": 42,
+            "kind": "def"
+          },
+          {
+            "path": "formal/Mcmc/Oracle.lean",
+            "line": 56,
+            "kind": "def"
+          },
+          {
+            "path": "formal/Mcmc/Oracle.lean",
+            "line": 113,
+            "kind": "def"
+          },
+          {
+            "path": "formal/Mcmc/Oracle.lean",
+            "line": 141,
+            "kind": "def"
+          },
+          {
+            "path": "formal/Mcmc/Oracle.lean",
+            "line": 206,
+            "kind": "def"
+          }
+        ],
+        "monad transformers/runners": [],
+        "async/resources": [],
+        "paths/time/URI": [],
+        "metaprogramming values": [
+          {
+            "path": "formal/Mcmc/Executable/Continuous/CompilerIR.lean",
+            "line": 36,
+            "kind": "inductive"
+          },
+          {
+            "path": "formal/Mcmc/Executable/Continuous/CompilerIR.lean",
+            "line": 69,
+            "kind": "inductive"
+          },
+          {
+            "path": "formal/Mcmc/Executable/Continuous/CompilerIR.lean",
+            "line": 247,
+            "kind": "def"
+          },
+          {
+            "path": "formal/Mcmc/Executable/Continuous/CompilerIR.lean",
+            "line": 569,
+            "kind": "def"
+          },
+          {
+            "path": "formal/Mcmc/Executable/Finite/CompilerIR.lean",
+            "line": 17,
+            "kind": "inductive"
+          }
+        ]
+      },
+      "toolchainSource": "formal/lean-toolchain",
+      "toolchain": "leanprover/lean4:v4.33.1"
+    },
+    "mcmc-formal": {
+      "commit": "a5781f9649670b155608aa2ac0e5931c89afc5fb",
+      "prefixes": [
+        "formal/Mcmc/"
+      ],
+      "excludePrefixes": [
+        "formal/Mcmc/Executable/",
+        "formal/Mcmc/Oracle.lean"
+      ],
+      "files": 171,
+      "sourceBytes": 5925360,
+      "skippedOversizedFiles": [],
+      "declarationKinds": {
+        "inductive": 5,
+        "structure": 107,
+        "def": 1712,
+        "theorem": 4388,
+        "instance": 262,
+        "example": 13,
+        "abbrev": 80,
+        "lemma": 6
+      },
+      "families": {
+        "Nat": {
+          "codeFiles": 82,
+          "definitionHeaders": 498,
+          "proofHeaders": 1265,
+          "definitionFiles": 59,
+          "dataDeclarations": 23,
+          "dataFiles": 11
+        },
+        "Int": {
+          "codeFiles": 9,
+          "proofHeaders": 101,
+          "definitionHeaders": 37,
+          "definitionFiles": 3,
+          "dataDeclarations": 1,
+          "dataFiles": 1
+        },
+        "Bool": {
+          "codeFiles": 29,
+          "dataDeclarations": 13,
+          "dataFiles": 11,
+          "definitionHeaders": 115,
+          "proofHeaders": 94,
+          "definitionFiles": 22
+        },
+        "String": {
+          "codeFiles": 4,
+          "dataDeclarations": 5,
+          "definitionHeaders": 12,
+          "definitionFiles": 4,
+          "dataFiles": 2
+        },
+        "Unit": {
+          "codeFiles": 23,
+          "definitionHeaders": 67,
+          "proofHeaders": 109,
+          "definitionFiles": 15
+        },
+        "Float/Float32": {},
+        "machine integers": {
+          "codeFiles": 2,
+          "definitionHeaders": 2,
+          "definitionFiles": 2
+        },
+        "Char": {},
+        "List": {
+          "codeFiles": 37,
+          "definitionHeaders": 143,
+          "definitionFiles": 31,
+          "dataDeclarations": 11,
+          "dataFiles": 7,
+          "proofHeaders": 275
+        },
+        "Array": {},
+        "ByteArray": {},
+        "packed/scientific arrays": {},
+        "Option": {
+          "codeFiles": 5,
+          "dataDeclarations": 1,
+          "dataFiles": 1,
+          "definitionHeaders": 2,
+          "proofHeaders": 2,
+          "definitionFiles": 2
+        },
+        "Prod/tuples": {
+          "codeFiles": 94,
+          "definitionHeaders": 480,
+          "definitionFiles": 61,
+          "proofHeaders": 906,
+          "dataDeclarations": 9,
+          "dataFiles": 7
+        },
+        "Sum/Except": {
+          "codeFiles": 10,
+          "definitionHeaders": 7,
+          "definitionFiles": 5,
+          "proofHeaders": 11,
+          "dataDeclarations": 1,
+          "dataFiles": 1
+        },
+        "Fin/BitVec": {
+          "codeFiles": 41,
+          "definitionHeaders": 157,
+          "proofHeaders": 416,
+          "definitionFiles": 30,
+          "dataDeclarations": 10,
+          "dataFiles": 7
+        },
+        "Subtype/Vector": {
+          "codeFiles": 12,
+          "proofHeaders": 9,
+          "definitionHeaders": 2,
+          "definitionFiles": 2,
+          "dataDeclarations": 1,
+          "dataFiles": 1
+        },
+        "Rat": {
+          "codeFiles": 1,
+          "dataDeclarations": 3,
+          "dataFiles": 1
+        },
+        "Real/Complex specifications": {
+          "codeFiles": 128,
+          "definitionHeaders": 894,
+          "proofHeaders": 2462,
+          "definitionFiles": 101,
+          "dataDeclarations": 63,
+          "dataFiles": 32
+        },
+        "maps/sets": {},
+        "mathematical sets": {
+          "codeFiles": 120,
+          "definitionHeaders": 145,
+          "proofHeaders": 600,
+          "definitionFiles": 37,
+          "dataDeclarations": 14,
+          "dataFiles": 11
+        },
+        "JSON": {},
+        "IO/EIO/BaseIO": {
+          "codeFiles": 2,
+          "definitionHeaders": 2,
+          "definitionFiles": 2
+        },
+        "monad transformers/runners": {},
+        "async/resources": {},
+        "paths/time/URI": {},
+        "metaprogramming values": {}
+      },
+      "examples": {
+        "Nat": [
+          {
+            "path": "formal/Mcmc/Examples/ContinuousWarmupAdaptation.lean",
+            "line": 20,
+            "kind": "def"
+          },
+          {
+            "path": "formal/Mcmc/Examples/ContinuousWarmupAdaptation.lean",
+            "line": 31,
+            "kind": "def"
+          },
+          {
+            "path": "formal/Mcmc/Examples/ContinuousWarmupAdaptation.lean",
+            "line": 44,
+            "kind": "def"
+          },
+          {
+            "path": "formal/Mcmc/Examples/ContinuousWarmupAdaptation.lean",
+            "line": 67,
+            "kind": "def"
+          },
+          {
+            "path": "formal/Mcmc/Examples/GeneralStatePgHmc.lean",
+            "line": 90,
+            "kind": "def"
+          }
+        ],
+        "Int": [
+          {
+            "path": "formal/Mcmc/Hamiltonian/QuadraticGaussian.lean",
+            "line": 3100,
+            "kind": "def"
+          },
+          {
+            "path": "formal/Mcmc/Hamiltonian/RandomizedTrajectory.lean",
+            "line": 51,
+            "kind": "def"
+          },
+          {
+            "path": "formal/Mcmc/Kernel/PracticalSlice.lean",
+            "line": 285,
+            "kind": "def"
+          },
+          {
+            "path": "formal/Mcmc/Kernel/PracticalSlice.lean",
+            "line": 309,
+            "kind": "def"
+          },
+          {
+            "path": "formal/Mcmc/Kernel/PracticalSlice.lean",
+            "line": 352,
+            "kind": "def"
+          }
+        ],
+        "Bool": [
+          {
+            "path": "formal/Mcmc/Docs/Graph.lean",
+            "line": 20,
+            "kind": "structure"
+          },
+          {
+            "path": "formal/Mcmc/Examples/ComposableInference.lean",
+            "line": 23,
+            "kind": "def"
+          },
+          {
+            "path": "formal/Mcmc/Examples/ComposableInference.lean",
+            "line": 55,
+            "kind": "def"
+          },
+          {
+            "path": "formal/Mcmc/Examples/FiniteVelocityFlip.lean",
+            "line": 16,
+            "kind": "def"
+          },
+          {
+            "path": "formal/Mcmc/Examples/FiniteVelocityFlip.lean",
+            "line": 21,
+            "kind": "def"
+          }
+        ],
+        "String": [
+          {
+            "path": "formal/Mcmc/Docs/Assurance.lean",
+            "line": 23,
+            "kind": "structure"
+          },
+          {
+            "path": "formal/Mcmc/Docs/Assurance.lean",
+            "line": 33,
+            "kind": "structure"
+          },
+          {
+            "path": "formal/Mcmc/Docs/Assurance.lean",
+            "line": 43,
+            "kind": "def"
+          },
+          {
+            "path": "formal/Mcmc/Docs/Assurance.lean",
+            "line": 49,
+            "kind": "def"
+          },
+          {
+            "path": "formal/Mcmc/Docs/Assurance.lean",
+            "line": 52,
+            "kind": "def"
+          }
+        ],
+        "Unit": [
+          {
+            "path": "formal/Mcmc/Examples/EuclideanBirthDeathReversibleJump.lean",
+            "line": 28,
+            "kind": "def"
+          },
+          {
+            "path": "formal/Mcmc/Examples/EuclideanBirthDeathReversibleJump.lean",
+            "line": 31,
+            "kind": "def"
+          },
+          {
+            "path": "formal/Mcmc/Examples/PlanarBirthDeathReversibleJump.lean",
+            "line": 42,
+            "kind": "def"
+          },
+          {
+            "path": "formal/Mcmc/Examples/PlanarBirthDeathReversibleJump.lean",
+            "line": 45,
+            "kind": "def"
+          },
+          {
+            "path": "formal/Mcmc/Examples/PlanarBirthDeathReversibleJump.lean",
+            "line": 100,
+            "kind": "def"
+          }
+        ],
+        "Float/Float32": [],
+        "machine integers": [
+          {
+            "path": "formal/Mcmc/GenerateDocs.lean",
+            "line": 5,
+            "kind": "def"
+          },
+          {
+            "path": "formal/Mcmc/GenerateIR.lean",
+            "line": 5,
+            "kind": "def"
+          }
+        ],
+        "Char": [],
+        "List": [
+          {
+            "path": "formal/Mcmc/Docs/Assurance.lean",
+            "line": 68,
+            "kind": "def"
+          },
+          {
+            "path": "formal/Mcmc/Docs/Graph.lean",
+            "line": 28,
+            "kind": "structure"
+          },
+          {
+            "path": "formal/Mcmc/Examples/ComposableInference.lean",
+            "line": 41,
+            "kind": "def"
+          },
+          {
+            "path": "formal/Mcmc/Examples/ParticleGibbs.lean",
+            "line": 42,
+            "kind": "def"
+          },
+          {
+            "path": "formal/Mcmc/Examples/UniformRefreshSMC.lean",
+            "line": 726,
+            "kind": "def"
+          }
+        ],
+        "Array": [],
+        "ByteArray": [],
+        "packed/scientific arrays": [],
+        "Option": [
+          {
+            "path": "formal/Mcmc/Docs/Graph.lean",
+            "line": 20,
+            "kind": "structure"
+          },
+          {
+            "path": "formal/Mcmc/Finite/MarginalRepair.lean",
+            "line": 163,
+            "kind": "def"
+          },
+          {
+            "path": "formal/Mcmc/Finite/ProbabilisticCoroutine.lean",
+            "line": 28,
+            "kind": "def"
+          }
+        ],
+        "Prod/tuples": [
+          {
+            "path": "formal/Mcmc/Examples/ComposableInference.lean",
+            "line": 23,
+            "kind": "def"
+          },
+          {
+            "path": "formal/Mcmc/Examples/ContinuousWarmupAdaptation.lean",
+            "line": 44,
+            "kind": "def"
+          },
+          {
+            "path": "formal/Mcmc/Examples/ContinuousWarmupAdaptation.lean",
+            "line": 67,
+            "kind": "def"
+          },
+          {
+            "path": "formal/Mcmc/Examples/IndefiniteAdaptiveBool.lean",
+            "line": 137,
+            "kind": "def"
+          },
+          {
+            "path": "formal/Mcmc/Examples/IndefiniteContinuousRefresh.lean",
+            "line": 46,
+            "kind": "def"
+          }
+        ],
+        "Sum/Except": [
+          {
+            "path": "formal/Mcmc/Finite/GreedyTransportCompleteness.lean",
+            "line": 55,
+            "kind": "def"
+          },
+          {
+            "path": "formal/Mcmc/Finite/MarginalRepair.lean",
+            "line": 163,
+            "kind": "def"
+          },
+          {
+            "path": "formal/Mcmc/Finite/TransportPolytope.lean",
+            "line": 257,
+            "kind": "def"
+          },
+          {
+            "path": "formal/Mcmc/Kernel/PracticalSlice.lean",
+            "line": 1860,
+            "kind": "def"
+          },
+          {
+            "path": "formal/Mcmc/Kernel/PracticalSlice.lean",
+            "line": 8907,
+            "kind": "def"
+          }
+        ],
+        "Fin/BitVec": [
+          {
+            "path": "formal/Mcmc/Examples/ActiveSketchSMMALA.lean",
+            "line": 16,
+            "kind": "def"
+          },
+          {
+            "path": "formal/Mcmc/Finite/CertifiedDynamicTree.lean",
+            "line": 273,
+            "kind": "structure"
+          },
+          {
+            "path": "formal/Mcmc/Finite/CertifiedDynamicTree.lean",
+            "line": 334,
+            "kind": "def"
+          },
+          {
+            "path": "formal/Mcmc/Finite/CertifiedDynamicTree.lean",
+            "line": 364,
+            "kind": "def"
+          },
+          {
+            "path": "formal/Mcmc/Finite/CertifiedDynamicTree.lean",
+            "line": 370,
+            "kind": "def"
+          }
+        ],
+        "Subtype/Vector": [
+          {
+            "path": "formal/Mcmc/PDMP/Path.lean",
+            "line": 45,
+            "kind": "def"
+          },
+          {
+            "path": "formal/Mcmc/PDMP/TimedPath.lean",
+            "line": 96,
+            "kind": "def"
+          },
+          {
+            "path": "formal/Mcmc/PDMP/TimedPath.lean",
+            "line": 290,
+            "kind": "structure"
+          }
+        ],
+        "Rat": [
+          {
+            "path": "formal/Mcmc/Relativistic/FixedPointIteration.lean",
+            "line": 213,
+            "kind": "structure"
+          },
+          {
+            "path": "formal/Mcmc/Relativistic/FixedPointIteration.lean",
+            "line": 268,
+            "kind": "structure"
+          },
+          {
+            "path": "formal/Mcmc/Relativistic/FixedPointIteration.lean",
+            "line": 320,
+            "kind": "structure"
+          }
+        ],
+        "Real/Complex specifications": [
+          {
+            "path": "formal/Mcmc/Examples/ActiveSketchSMMALA.lean",
+            "line": 16,
+            "kind": "def"
+          },
+          {
+            "path": "formal/Mcmc/Examples/BoundedUniformSlice.lean",
+            "line": 21,
+            "kind": "def"
+          },
+          {
+            "path": "formal/Mcmc/Examples/BoundedUniformSlice.lean",
+            "line": 32,
+            "kind": "def"
+          },
+          {
+            "path": "formal/Mcmc/Examples/BoundedUniformSlice.lean",
+            "line": 39,
+            "kind": "def"
+          },
+          {
+            "path": "formal/Mcmc/Examples/ContinuousWarmupAdaptation.lean",
+            "line": 20,
+            "kind": "def"
+          }
+        ],
+        "maps/sets": [],
+        "mathematical sets": [
+          {
+            "path": "formal/Mcmc/Examples/ContinuousWarmupAdaptation.lean",
+            "line": 20,
+            "kind": "def"
+          },
+          {
+            "path": "formal/Mcmc/Examples/ContinuousWarmupAdaptation.lean",
+            "line": 31,
+            "kind": "def"
+          },
+          {
+            "path": "formal/Mcmc/Examples/ContinuousWarmupAdaptation.lean",
+            "line": 67,
+            "kind": "def"
+          },
+          {
+            "path": "formal/Mcmc/Examples/GeneralStatePgHmc.lean",
+            "line": 90,
+            "kind": "def"
+          },
+          {
+            "path": "formal/Mcmc/Examples/GeneralStatePgHmc.lean",
+            "line": 98,
+            "kind": "instance"
+          }
+        ],
+        "JSON": [],
+        "IO/EIO/BaseIO": [
+          {
+            "path": "formal/Mcmc/GenerateDocs.lean",
+            "line": 5,
+            "kind": "def"
+          },
+          {
+            "path": "formal/Mcmc/GenerateIR.lean",
+            "line": 5,
+            "kind": "def"
+          }
+        ],
+        "monad transformers/runners": [],
+        "async/resources": [],
+        "paths/time/URI": [],
+        "metaprogramming values": []
+      },
+      "toolchainSource": "formal/lean-toolchain",
+      "toolchain": "leanprover/lean4:v4.33.1"
+    },
+    "mathlib-data-probability": {
+      "commit": "0df444a360eaa60ab8c11dca51a86af692955474",
+      "prefixes": [
+        "Mathlib/Data/",
+        "Mathlib/Probability/"
+      ],
+      "excludePrefixes": [],
+      "files": 786,
+      "sourceBytes": 7926128,
+      "skippedOversizedFiles": [],
+      "declarationKinds": {
+        "structure": 53,
+        "instance": 1964,
+        "theorem": 16370,
+        "def": 2438,
+        "lemma": 5017,
+        "example": 75,
+        "class": 60,
+        "abbrev": 109,
+        "inductive": 36
+      },
+      "families": {
+        "Nat": {
+          "codeFiles": 451,
+          "definitionHeaders": 649,
+          "definitionFiles": 189,
+          "proofHeaders": 3487,
+          "dataDeclarations": 27,
+          "dataFiles": 21
+        },
+        "Int": {
+          "codeFiles": 97,
+          "proofHeaders": 503,
+          "definitionHeaders": 90,
+          "definitionFiles": 34,
+          "dataDeclarations": 2,
+          "dataFiles": 2
+        },
+        "Bool": {
+          "codeFiles": 62,
+          "proofHeaders": 133,
+          "definitionHeaders": 69,
+          "definitionFiles": 24,
+          "dataDeclarations": 3,
+          "dataFiles": 2
+        },
+        "String": {
+          "codeFiles": 6,
+          "definitionHeaders": 10,
+          "definitionFiles": 4,
+          "proofHeaders": 8
+        },
+        "Unit": {
+          "codeFiles": 32,
+          "proofHeaders": 39,
+          "definitionHeaders": 23,
+          "definitionFiles": 12
+        },
+        "Float/Float32": {
+          "codeFiles": 1,
+          "dataDeclarations": 1,
+          "definitionHeaders": 23,
+          "definitionFiles": 1,
+          "dataFiles": 1
+        },
+        "machine integers": {
+          "codeFiles": 4,
+          "definitionHeaders": 24,
+          "definitionFiles": 3
+        },
+        "Char": {
+          "codeFiles": 6,
+          "definitionHeaders": 8,
+          "definitionFiles": 3,
+          "proofHeaders": 8
+        },
+        "List": {
+          "codeFiles": 198,
+          "definitionHeaders": 229,
+          "definitionFiles": 75,
+          "proofHeaders": 1396,
+          "dataDeclarations": 7,
+          "dataFiles": 6
+        },
+        "Array": {
+          "codeFiles": 6,
+          "definitionHeaders": 3,
+          "definitionFiles": 2,
+          "proofHeaders": 3
+        },
+        "ByteArray": {},
+        "packed/scientific arrays": {},
+        "Option": {
+          "codeFiles": 76,
+          "proofHeaders": 188,
+          "definitionHeaders": 108,
+          "definitionFiles": 37,
+          "dataDeclarations": 1,
+          "dataFiles": 1
+        },
+        "Prod/tuples": {
+          "codeFiles": 196,
+          "definitionHeaders": 279,
+          "definitionFiles": 89,
+          "proofHeaders": 880,
+          "dataDeclarations": 7,
+          "dataFiles": 5
+        },
+        "Sum/Except": {
+          "codeFiles": 53,
+          "definitionHeaders": 116,
+          "definitionFiles": 27,
+          "proofHeaders": 239
+        },
+        "Fin/BitVec": {
+          "codeFiles": 93,
+          "proofHeaders": 708,
+          "definitionHeaders": 159,
+          "definitionFiles": 44,
+          "dataDeclarations": 2,
+          "dataFiles": 2
+        },
+        "Subtype/Vector": {
+          "codeFiles": 161,
+          "definitionHeaders": 77,
+          "definitionFiles": 19,
+          "proofHeaders": 198
+        },
+        "Rat": {
+          "codeFiles": 41,
+          "proofHeaders": 335,
+          "definitionHeaders": 63,
+          "definitionFiles": 23,
+          "dataDeclarations": 6,
+          "dataFiles": 4
+        },
+        "Real/Complex specifications": {
+          "codeFiles": 135,
+          "dataDeclarations": 22,
+          "definitionHeaders": 344,
+          "proofHeaders": 1763,
+          "definitionFiles": 66,
+          "dataFiles": 15
+        },
+        "maps/sets": {},
+        "mathematical sets": {
+          "codeFiles": 431,
+          "definitionHeaders": 513,
+          "proofHeaders": 4054,
+          "dataDeclarations": 19,
+          "definitionFiles": 146,
+          "dataFiles": 15
+        },
+        "JSON": {},
+        "IO/EIO/BaseIO": {},
+        "monad transformers/runners": {
+          "codeFiles": 6,
+          "definitionHeaders": 3,
+          "definitionFiles": 2
+        },
+        "async/resources": {
+          "codeFiles": 3
+        },
+        "paths/time/URI": {},
+        "metaprogramming values": {
+          "codeFiles": 7,
+          "definitionHeaders": 2,
+          "definitionFiles": 1
+        }
+      },
+      "examples": {
+        "Nat": [
+          {
+            "path": "Mathlib/Data/Array/Defs.lean",
+            "line": 30,
+            "kind": "def"
+          },
+          {
+            "path": "Mathlib/Data/Array/Defs.lean",
+            "line": 41,
+            "kind": "def"
+          },
+          {
+            "path": "Mathlib/Data/BitVec.lean",
+            "line": 107,
+            "kind": "def"
+          },
+          {
+            "path": "Mathlib/Data/Bool/Basic.lean",
+            "line": 175,
+            "kind": "def"
+          },
+          {
+            "path": "Mathlib/Data/Countable/Basic.lean",
+            "line": 79,
+            "kind": "instance"
+          }
+        ],
+        "Int": [
+          {
+            "path": "Mathlib/Data/Countable/Basic.lean",
+            "line": 27,
+            "kind": "instance"
+          },
+          {
+            "path": "Mathlib/Data/DFinsupp/Defs.lean",
+            "line": 259,
+            "kind": "instance"
+          },
+          {
+            "path": "Mathlib/Data/FP/Basic.lean",
+            "line": 24,
+            "kind": "def"
+          },
+          {
+            "path": "Mathlib/Data/FP/Basic.lean",
+            "line": 53,
+            "kind": "def"
+          },
+          {
+            "path": "Mathlib/Data/FP/Basic.lean",
+            "line": 57,
+            "kind": "def"
+          }
+        ],
+        "Bool": [
+          {
+            "path": "Mathlib/Data/Bool/Basic.lean",
+            "line": 142,
+            "kind": "instance"
+          },
+          {
+            "path": "Mathlib/Data/Bool/Basic.lean",
+            "line": 175,
+            "kind": "def"
+          },
+          {
+            "path": "Mathlib/Data/Bool/Basic.lean",
+            "line": 209,
+            "kind": "def"
+          },
+          {
+            "path": "Mathlib/Data/Bool/Basic.lean",
+            "line": 213,
+            "kind": "def"
+          },
+          {
+            "path": "Mathlib/Data/Countable/Defs.lean",
+            "line": 106,
+            "kind": "instance"
+          }
+        ],
+        "String": [
+          {
+            "path": "Mathlib/Data/Fintype/EquivFin.lean",
+            "line": 494,
+            "kind": "instance"
+          },
+          {
+            "path": "Mathlib/Data/Ineq.lean",
+            "line": 55,
+            "kind": "def"
+          },
+          {
+            "path": "Mathlib/Data/String/Basic.lean",
+            "line": 140,
+            "kind": "instance"
+          },
+          {
+            "path": "Mathlib/Data/String/Defs.lean",
+            "line": 29,
+            "kind": "def"
+          },
+          {
+            "path": "Mathlib/Data/String/Defs.lean",
+            "line": 33,
+            "kind": "def"
+          }
+        ],
+        "Unit": [
+          {
+            "path": "Mathlib/Data/Countable/Defs.lean",
+            "line": 100,
+            "kind": "instance"
+          },
+          {
+            "path": "Mathlib/Data/FinEnum.lean",
+            "line": 123,
+            "kind": "instance"
+          },
+          {
+            "path": "Mathlib/Data/Fintype/Basic.lean",
+            "line": 134,
+            "kind": "instance"
+          },
+          {
+            "path": "Mathlib/Data/Fintype/Basic.lean",
+            "line": 140,
+            "kind": "instance"
+          },
+          {
+            "path": "Mathlib/Data/List/Defs.lean",
+            "line": 63,
+            "kind": "def"
+          }
+        ],
+        "Float/Float32": [
+          {
+            "path": "Mathlib/Data/FP/Basic.lean",
+            "line": 62,
+            "kind": "inductive"
+          },
+          {
+            "path": "Mathlib/Data/FP/Basic.lean",
+            "line": 68,
+            "kind": "def"
+          },
+          {
+            "path": "Mathlib/Data/FP/Basic.lean",
+            "line": 73,
+            "kind": "def"
+          },
+          {
+            "path": "Mathlib/Data/FP/Basic.lean",
+            "line": 95,
+            "kind": "def"
+          },
+          {
+            "path": "Mathlib/Data/FP/Basic.lean",
+            "line": 98,
+            "kind": "instance"
+          }
+        ],
+        "machine integers": [
+          {
+            "path": "Mathlib/Data/FinEnum.lean",
+            "line": 263,
+            "kind": "instance"
+          },
+          {
+            "path": "Mathlib/Data/FinEnum.lean",
+            "line": 267,
+            "kind": "instance"
+          },
+          {
+            "path": "Mathlib/Data/FinEnum.lean",
+            "line": 271,
+            "kind": "instance"
+          },
+          {
+            "path": "Mathlib/Data/FinEnum.lean",
+            "line": 275,
+            "kind": "instance"
+          },
+          {
+            "path": "Mathlib/Data/FinEnum.lean",
+            "line": 279,
+            "kind": "instance"
+          }
+        ],
+        "Char": [
+          {
+            "path": "Mathlib/Data/Char.lean",
+            "line": 24,
+            "kind": "instance"
+          },
+          {
+            "path": "Mathlib/Data/String/Defs.lean",
+            "line": 23,
+            "kind": "def"
+          },
+          {
+            "path": "Mathlib/Data/String/Defs.lean",
+            "line": 29,
+            "kind": "def"
+          },
+          {
+            "path": "Mathlib/Data/String/Defs.lean",
+            "line": 33,
+            "kind": "def"
+          },
+          {
+            "path": "Mathlib/Data/String/Defs.lean",
+            "line": 41,
+            "kind": "def"
+          }
+        ],
+        "List": [
+          {
+            "path": "Mathlib/Data/Array/Defs.lean",
+            "line": 30,
+            "kind": "def"
+          },
+          {
+            "path": "Mathlib/Data/Array/Defs.lean",
+            "line": 41,
+            "kind": "def"
+          },
+          {
+            "path": "Mathlib/Data/DList/Instances.lean",
+            "line": 30,
+            "kind": "def"
+          },
+          {
+            "path": "Mathlib/Data/Fin/Tuple/NatAntidiagonal.lean",
+            "line": 63,
+            "kind": "def"
+          },
+          {
+            "path": "Mathlib/Data/FinEnum.lean",
+            "line": 51,
+            "kind": "def"
+          }
+        ],
+        "Array": [
+          {
+            "path": "Mathlib/Data/Array/Defs.lean",
+            "line": 30,
+            "kind": "def"
+          },
+          {
+            "path": "Mathlib/Data/Array/Defs.lean",
+            "line": 41,
+            "kind": "def"
+          },
+          {
+            "path": "Mathlib/Data/Vector/Basic.lean",
+            "line": 526,
+            "kind": "def"
+          }
+        ],
+        "ByteArray": [],
+        "packed/scientific arrays": [],
+        "Option": [
+          {
+            "path": "Mathlib/Data/Countable/Basic.lean",
+            "line": 74,
+            "kind": "instance"
+          },
+          {
+            "path": "Mathlib/Data/Countable/Basic.lean",
+            "line": 81,
+            "kind": "instance"
+          },
+          {
+            "path": "Mathlib/Data/Fin/Fin2.lean",
+            "line": 66,
+            "kind": "def"
+          },
+          {
+            "path": "Mathlib/Data/FinEnum/Option.lean",
+            "line": 28,
+            "kind": "def"
+          },
+          {
+            "path": "Mathlib/Data/FinEnum/Option.lean",
+            "line": 34,
+            "kind": "instance"
+          }
+        ],
+        "Prod/tuples": [
+          {
+            "path": "Mathlib/Data/Analysis/Filter.lean",
+            "line": 295,
+            "kind": "def"
+          },
+          {
+            "path": "Mathlib/Data/Bundle.lean",
+            "line": 113,
+            "kind": "def"
+          },
+          {
+            "path": "Mathlib/Data/Bundle.lean",
+            "line": 133,
+            "kind": "def"
+          },
+          {
+            "path": "Mathlib/Data/Complex/Basic.lean",
+            "line": 52,
+            "kind": "def"
+          },
+          {
+            "path": "Mathlib/Data/Complex/Basic.lean",
+            "line": 282,
+            "kind": "def"
+          }
+        ],
+        "Sum/Except": [
+          {
+            "path": "Mathlib/Data/Countable/Basic.lean",
+            "line": 63,
+            "kind": "instance"
+          },
+          {
+            "path": "Mathlib/Data/Countable/Basic.lean",
+            "line": 68,
+            "kind": "instance"
+          },
+          {
+            "path": "Mathlib/Data/Countable/Basic.lean",
+            "line": 71,
+            "kind": "instance"
+          },
+          {
+            "path": "Mathlib/Data/Countable/Basic.lean",
+            "line": 137,
+            "kind": "instance"
+          },
+          {
+            "path": "Mathlib/Data/FinEnum.lean",
+            "line": 131,
+            "kind": "instance"
+          }
+        ],
+        "Fin/BitVec": [
+          {
+            "path": "Mathlib/Data/BitVec.lean",
+            "line": 87,
+            "kind": "instance"
+          },
+          {
+            "path": "Mathlib/Data/BitVec.lean",
+            "line": 99,
+            "kind": "instance"
+          },
+          {
+            "path": "Mathlib/Data/BitVec.lean",
+            "line": 107,
+            "kind": "def"
+          },
+          {
+            "path": "Mathlib/Data/Countable/Defs.lean",
+            "line": 93,
+            "kind": "instance"
+          },
+          {
+            "path": "Mathlib/Data/Fin/Basic.lean",
+            "line": 45,
+            "kind": "def"
+          }
+        ],
+        "Subtype/Vector": [
+          {
+            "path": "Mathlib/Data/Countable/Defs.lean",
+            "line": 89,
+            "kind": "instance"
+          },
+          {
+            "path": "Mathlib/Data/DFinsupp/Defs.lean",
+            "line": 341,
+            "kind": "def"
+          },
+          {
+            "path": "Mathlib/Data/DFinsupp/Defs.lean",
+            "line": 369,
+            "kind": "def"
+          },
+          {
+            "path": "Mathlib/Data/DFinsupp/Module.lean",
+            "line": 120,
+            "kind": "def"
+          },
+          {
+            "path": "Mathlib/Data/Finite/Vector.lean",
+            "line": 18,
+            "kind": "instance"
+          }
+        ],
+        "Rat": [
+          {
+            "path": "Mathlib/Data/FP/Basic.lean",
+            "line": 73,
+            "kind": "def"
+          },
+          {
+            "path": "Mathlib/Data/FP/Basic.lean",
+            "line": 174,
+            "kind": "def"
+          },
+          {
+            "path": "Mathlib/Data/FP/Basic.lean",
+            "line": 182,
+            "kind": "def"
+          },
+          {
+            "path": "Mathlib/Data/FP/Basic.lean",
+            "line": 186,
+            "kind": "def"
+          },
+          {
+            "path": "Mathlib/Data/Finset/Density.lean",
+            "line": 65,
+            "kind": "def"
+          }
+        ],
+        "Real/Complex specifications": [
+          {
+            "path": "Mathlib/Data/Complex/Basic.lean",
+            "line": 35,
+            "kind": "structure"
+          },
+          {
+            "path": "Mathlib/Data/Complex/Basic.lean",
+            "line": 47,
+            "kind": "instance"
+          },
+          {
+            "path": "Mathlib/Data/Complex/Basic.lean",
+            "line": 52,
+            "kind": "def"
+          },
+          {
+            "path": "Mathlib/Data/Complex/Basic.lean",
+            "line": 83,
+            "kind": "def"
+          },
+          {
+            "path": "Mathlib/Data/Complex/Basic.lean",
+            "line": 85,
+            "kind": "instance"
+          }
+        ],
+        "maps/sets": [],
+        "mathematical sets": [
+          {
+            "path": "Mathlib/Data/Analysis/Filter.lean",
+            "line": 80,
+            "kind": "def"
+          },
+          {
+            "path": "Mathlib/Data/Analysis/Filter.lean",
+            "line": 95,
+            "kind": "structure"
+          },
+          {
+            "path": "Mathlib/Data/Analysis/Filter.lean",
+            "line": 101,
+            "kind": "def"
+          },
+          {
+            "path": "Mathlib/Data/Analysis/Filter.lean",
+            "line": 140,
+            "kind": "def"
+          },
+          {
+            "path": "Mathlib/Data/Analysis/Filter.lean",
+            "line": 157,
+            "kind": "instance"
+          }
+        ],
+        "JSON": [],
+        "IO/EIO/BaseIO": [],
+        "monad transformers/runners": [
+          {
+            "path": "Mathlib/Data/Ineq.lean",
+            "line": 78,
+            "kind": "def"
+          },
+          {
+            "path": "Mathlib/Data/Ineq.lean",
+            "line": 97,
+            "kind": "def"
+          },
+          {
+            "path": "Mathlib/Data/Stream/Defs.lean",
+            "line": 101,
+            "kind": "def"
+          }
+        ],
+        "async/resources": [],
+        "paths/time/URI": [],
+        "metaprogramming values": [
+          {
+            "path": "Mathlib/Data/Ineq.lean",
+            "line": 78,
+            "kind": "def"
+          },
+          {
+            "path": "Mathlib/Data/Ineq.lean",
+            "line": 97,
+            "kind": "def"
+          }
+        ]
+      },
+      "toolchainSource": "lean-toolchain",
+      "toolchain": "leanprover/lean4:v4.33.1"
+    },
+    "todomvc-app": {
+      "commit": "ac777a8d4db46584463365e4e89175fa72a51380",
+      "prefixes": [
+        ""
+      ],
+      "excludePrefixes": [],
+      "files": 40,
+      "sourceBytes": 307111,
+      "skippedOversizedFiles": [],
+      "declarationKinds": {
+        "def": 455,
+        "inductive": 4,
+        "structure": 19,
+        "abbrev": 6,
+        "theorem": 9
+      },
+      "families": {
+        "Nat": {
+          "codeFiles": 15,
+          "definitionHeaders": 19,
+          "definitionFiles": 8,
+          "dataDeclarations": 4,
+          "dataFiles": 3
+        },
+        "Int": {
+          "codeFiles": 3,
+          "definitionHeaders": 1,
+          "definitionFiles": 1
+        },
+        "Bool": {
+          "codeFiles": 21,
+          "dataDeclarations": 9,
+          "dataFiles": 8,
+          "definitionHeaders": 19,
+          "definitionFiles": 16
+        },
+        "String": {
+          "codeFiles": 31,
+          "definitionHeaders": 153,
+          "definitionFiles": 29,
+          "dataDeclarations": 16,
+          "dataFiles": 9,
+          "proofHeaders": 2
+        },
+        "Unit": {
+          "codeFiles": 22,
+          "definitionHeaders": 132,
+          "definitionFiles": 20,
+          "dataDeclarations": 3,
+          "dataFiles": 3
+        },
+        "Float/Float32": {},
+        "machine integers": {
+          "codeFiles": 7,
+          "definitionHeaders": 7,
+          "definitionFiles": 4,
+          "dataDeclarations": 2,
+          "dataFiles": 1
+        },
+        "Char": {},
+        "List": {
+          "codeFiles": 20,
+          "definitionHeaders": 51,
+          "definitionFiles": 19,
+          "dataDeclarations": 4,
+          "dataFiles": 3,
+          "proofHeaders": 2
+        },
+        "Array": {
+          "codeFiles": 17,
+          "definitionHeaders": 31,
+          "definitionFiles": 15,
+          "dataDeclarations": 3,
+          "dataFiles": 2,
+          "proofHeaders": 1
+        },
+        "ByteArray": {
+          "codeFiles": 4,
+          "definitionHeaders": 4,
+          "definitionFiles": 4
+        },
+        "packed/scientific arrays": {},
+        "Option": {
+          "codeFiles": 21,
+          "definitionHeaders": 58,
+          "definitionFiles": 18,
+          "dataDeclarations": 4,
+          "dataFiles": 2,
+          "proofHeaders": 1
+        },
+        "Prod/tuples": {
+          "codeFiles": 8,
+          "definitionHeaders": 15,
+          "definitionFiles": 8
+        },
+        "Sum/Except": {
+          "codeFiles": 4,
+          "definitionHeaders": 4,
+          "dataDeclarations": 4,
+          "definitionFiles": 3,
+          "dataFiles": 3
+        },
+        "Fin/BitVec": {},
+        "Subtype/Vector": {},
+        "Rat": {},
+        "Real/Complex specifications": {},
+        "maps/sets": {
+          "codeFiles": 1,
+          "dataDeclarations": 1,
+          "dataFiles": 1
+        },
+        "mathematical sets": {},
+        "JSON": {
+          "codeFiles": 9,
+          "definitionHeaders": 19,
+          "definitionFiles": 6,
+          "dataDeclarations": 5,
+          "dataFiles": 3
+        },
+        "IO/EIO/BaseIO": {
+          "codeFiles": 25,
+          "definitionHeaders": 201,
+          "definitionFiles": 24,
+          "dataDeclarations": 6,
+          "dataFiles": 4
+        },
+        "monad transformers/runners": {
+          "codeFiles": 8,
+          "dataDeclarations": 4,
+          "dataFiles": 3,
+          "definitionHeaders": 6,
+          "definitionFiles": 5
+        },
+        "async/resources": {
+          "codeFiles": 17,
+          "definitionHeaders": 64,
+          "definitionFiles": 9,
+          "dataDeclarations": 6,
+          "dataFiles": 4
+        },
+        "paths/time/URI": {
+          "codeFiles": 5,
+          "definitionHeaders": 5,
+          "definitionFiles": 4
+        },
+        "metaprogramming values": {
+          "codeFiles": 1,
+          "definitionHeaders": 1,
+          "definitionFiles": 1
+        }
+      },
+      "examples": {
+        "Nat": [
+          {
+            "path": "LambdaMain.lean",
+            "line": 144,
+            "kind": "def"
+          },
+          {
+            "path": "Main.lean",
+            "line": 28,
+            "kind": "def"
+          },
+          {
+            "path": "Todo/App.lean",
+            "line": 123,
+            "kind": "def"
+          },
+          {
+            "path": "Todo/App.lean",
+            "line": 132,
+            "kind": "def"
+          },
+          {
+            "path": "Todo/App.lean",
+            "line": 139,
+            "kind": "def"
+          }
+        ],
+        "Int": [
+          {
+            "path": "Todo/Migrations.lean",
+            "line": 28,
+            "kind": "def"
+          }
+        ],
+        "Bool": [
+          {
+            "path": "Todo/AccountViews.lean",
+            "line": 37,
+            "kind": "structure"
+          },
+          {
+            "path": "Todo/App.lean",
+            "line": 611,
+            "kind": "def"
+          },
+          {
+            "path": "Todo/Auth.lean",
+            "line": 308,
+            "kind": "def"
+          },
+          {
+            "path": "Todo/Auth.lean",
+            "line": 317,
+            "kind": "structure"
+          },
+          {
+            "path": "Todo/AuthViews.lean",
+            "line": 62,
+            "kind": "def"
+          }
+        ],
+        "String": [
+          {
+            "path": "LambdaMain.lean",
+            "line": 138,
+            "kind": "def"
+          },
+          {
+            "path": "Todo/AccountViews.lean",
+            "line": 26,
+            "kind": "inductive"
+          },
+          {
+            "path": "Todo/AccountViews.lean",
+            "line": 37,
+            "kind": "structure"
+          },
+          {
+            "path": "Todo/AccountViews.lean",
+            "line": 44,
+            "kind": "def"
+          },
+          {
+            "path": "Todo/AccountViews.lean",
+            "line": 58,
+            "kind": "def"
+          }
+        ],
+        "Unit": [
+          {
+            "path": "LambdaMain.lean",
+            "line": 165,
+            "kind": "def"
+          },
+          {
+            "path": "Main.lean",
+            "line": 66,
+            "kind": "def"
+          },
+          {
+            "path": "Todo/Auth.lean",
+            "line": 106,
+            "kind": "def"
+          },
+          {
+            "path": "Todo/Auth.lean",
+            "line": 200,
+            "kind": "def"
+          },
+          {
+            "path": "Todo/Auth.lean",
+            "line": 208,
+            "kind": "def"
+          }
+        ],
+        "Float/Float32": [],
+        "machine integers": [
+          {
+            "path": "Main.lean",
+            "line": 32,
+            "kind": "def"
+          },
+          {
+            "path": "Todo/ChatTools.lean",
+            "line": 53,
+            "kind": "def"
+          },
+          {
+            "path": "Todo/Db.lean",
+            "line": 44,
+            "kind": "def"
+          },
+          {
+            "path": "Todo/Db.lean",
+            "line": 48,
+            "kind": "def"
+          },
+          {
+            "path": "Todo/Db.lean",
+            "line": 52,
+            "kind": "def"
+          }
+        ],
+        "Char": [],
+        "List": [
+          {
+            "path": "Todo/AccountViews.lean",
+            "line": 50,
+            "kind": "def"
+          },
+          {
+            "path": "Todo/AccountViews.lean",
+            "line": 92,
+            "kind": "def"
+          },
+          {
+            "path": "Todo/AccountViews.lean",
+            "line": 141,
+            "kind": "def"
+          },
+          {
+            "path": "Todo/App.lean",
+            "line": 250,
+            "kind": "def"
+          },
+          {
+            "path": "Todo/App.lean",
+            "line": 261,
+            "kind": "def"
+          }
+        ],
+        "Array": [
+          {
+            "path": "Todo/App.lean",
+            "line": 78,
+            "kind": "def"
+          },
+          {
+            "path": "Todo/AuthMail.lean",
+            "line": 123,
+            "kind": "def"
+          },
+          {
+            "path": "Todo/Chat.lean",
+            "line": 50,
+            "kind": "def"
+          },
+          {
+            "path": "Todo/Chat.lean",
+            "line": 52,
+            "kind": "def"
+          },
+          {
+            "path": "Todo/Chat.lean",
+            "line": 83,
+            "kind": "structure"
+          }
+        ],
+        "ByteArray": [
+          {
+            "path": "TodoTests/App.lean",
+            "line": 35,
+            "kind": "def"
+          },
+          {
+            "path": "TodoTests/Chat.lean",
+            "line": 215,
+            "kind": "def"
+          },
+          {
+            "path": "TodoTests/Harness.lean",
+            "line": 369,
+            "kind": "def"
+          },
+          {
+            "path": "TodoTests/Tracing.lean",
+            "line": 32,
+            "kind": "def"
+          }
+        ],
+        "packed/scientific arrays": [],
+        "Option": [
+          {
+            "path": "LambdaMain.lean",
+            "line": 69,
+            "kind": "def"
+          },
+          {
+            "path": "Todo/AccountViews.lean",
+            "line": 50,
+            "kind": "def"
+          },
+          {
+            "path": "Todo/AccountViews.lean",
+            "line": 84,
+            "kind": "def"
+          },
+          {
+            "path": "Todo/AccountViews.lean",
+            "line": 92,
+            "kind": "def"
+          },
+          {
+            "path": "Todo/AccountViews.lean",
+            "line": 106,
+            "kind": "def"
+          }
+        ],
+        "Prod/tuples": [
+          {
+            "path": "Todo/AuthMail.lean",
+            "line": 35,
+            "kind": "def"
+          },
+          {
+            "path": "Todo/AuthMail.lean",
+            "line": 38,
+            "kind": "def"
+          },
+          {
+            "path": "Todo/AuthMail.lean",
+            "line": 40,
+            "kind": "def"
+          },
+          {
+            "path": "Todo/AuthMail.lean",
+            "line": 44,
+            "kind": "def"
+          },
+          {
+            "path": "Todo/ChatTools.lean",
+            "line": 29,
+            "kind": "def"
+          }
+        ],
+        "Sum/Except": [
+          {
+            "path": "Todo/Auth.lean",
+            "line": 297,
+            "kind": "def"
+          },
+          {
+            "path": "Todo/Auth.lean",
+            "line": 317,
+            "kind": "structure"
+          },
+          {
+            "path": "Todo/Authorization.lean",
+            "line": 133,
+            "kind": "structure"
+          },
+          {
+            "path": "Todo/ChatTools.lean",
+            "line": 67,
+            "kind": "def"
+          },
+          {
+            "path": "Todo/ChatTools.lean",
+            "line": 78,
+            "kind": "structure"
+          }
+        ],
+        "Fin/BitVec": [],
+        "Subtype/Vector": [],
+        "Rat": [],
+        "Real/Complex specifications": [],
+        "maps/sets": [
+          {
+            "path": "Todo/Chat.lean",
+            "line": 121,
+            "kind": "structure"
+          }
+        ],
+        "mathematical sets": [],
+        "JSON": [
+          {
+            "path": "Todo/App.lean",
+            "line": 442,
+            "kind": "def"
+          },
+          {
+            "path": "Todo/Authorization.lean",
+            "line": 81,
+            "kind": "def"
+          },
+          {
+            "path": "Todo/Authorization.lean",
+            "line": 102,
+            "kind": "structure"
+          },
+          {
+            "path": "Todo/Authorization.lean",
+            "line": 133,
+            "kind": "structure"
+          },
+          {
+            "path": "Todo/Chat.lean",
+            "line": 31,
+            "kind": "structure"
+          }
+        ],
+        "IO/EIO/BaseIO": [
+          {
+            "path": "LambdaMain.lean",
+            "line": 25,
+            "kind": "def"
+          },
+          {
+            "path": "LambdaMain.lean",
+            "line": 42,
+            "kind": "def"
+          },
+          {
+            "path": "LambdaMain.lean",
+            "line": 58,
+            "kind": "def"
+          },
+          {
+            "path": "LambdaMain.lean",
+            "line": 69,
+            "kind": "def"
+          },
+          {
+            "path": "LambdaMain.lean",
+            "line": 82,
+            "kind": "def"
+          }
+        ],
+        "monad transformers/runners": [
+          {
+            "path": "Todo/Chat.lean",
+            "line": 83,
+            "kind": "structure"
+          },
+          {
+            "path": "Todo/ChatTools.lean",
+            "line": 78,
+            "kind": "structure"
+          },
+          {
+            "path": "Todo/ChatTools.lean",
+            "line": 92,
+            "kind": "structure"
+          },
+          {
+            "path": "Todo/ChatTools.lean",
+            "line": 101,
+            "kind": "def"
+          },
+          {
+            "path": "Todo/ChatTurn.lean",
+            "line": 105,
+            "kind": "def"
+          }
+        ],
+        "async/resources": [
+          {
+            "path": "Todo/App.lean",
+            "line": 53,
+            "kind": "def"
+          },
+          {
+            "path": "Todo/App.lean",
+            "line": 65,
+            "kind": "def"
+          },
+          {
+            "path": "Todo/App.lean",
+            "line": 78,
+            "kind": "def"
+          },
+          {
+            "path": "Todo/App.lean",
+            "line": 88,
+            "kind": "def"
+          },
+          {
+            "path": "Todo/App.lean",
+            "line": 93,
+            "kind": "def"
+          }
+        ],
+        "paths/time/URI": [
+          {
+            "path": "Todo/App.lean",
+            "line": 388,
+            "kind": "def"
+          },
+          {
+            "path": "Todo/Assets.lean",
+            "line": 56,
+            "kind": "def"
+          },
+          {
+            "path": "Todo/AuthMail.lean",
+            "line": 134,
+            "kind": "def"
+          },
+          {
+            "path": "Todo/Migrations.lean",
+            "line": 18,
+            "kind": "def"
+          },
+          {
+            "path": "Todo/Migrations.lean",
+            "line": 24,
+            "kind": "def"
+          }
+        ],
+        "metaprogramming values": [
+          {
+            "path": "Todo/App.lean",
+            "line": 38,
+            "kind": "def"
+          }
+        ]
+      },
+      "toolchainSource": "lean-toolchain",
+      "toolchain": "leanprover/lean4:v4.35.0"
+    }
+  }
+}

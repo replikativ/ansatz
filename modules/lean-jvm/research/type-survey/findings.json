@@ -1,0 +1,161 @@
+{
+  "schema": "lean-type-family-survey-findings/1",
+  "scope": "Source survey and recommendations, not runtime compatibility or release acceptance.",
+  "files": 3903,
+  "sourceBytes": 45648872,
+  "definitionFilesExamples": {
+    "scilean-example-float": {
+      "corpusFiles": 37,
+      "definitionFiles": 16
+    },
+    "todomvc-array": {
+      "corpusFiles": 40,
+      "definitionFiles": 15
+    },
+    "todomvc-option": {
+      "corpusFiles": 40,
+      "definitionFiles": 18
+    },
+    "mcmc-executable-except-sum": {
+      "corpusFiles": 68,
+      "definitionFiles": 9
+    },
+    "mcmc-executable-real-complex": {
+      "corpusFiles": 68,
+      "definitionFiles": 38
+    }
+  },
+  "recommendedMechanisms": [
+    {
+      "priority": 1,
+      "family": "Primitive scalar carriers",
+      "types": [
+        "Float",
+        "Float32",
+        "UInt8",
+        "UInt16",
+        "UInt32",
+        "UInt64",
+        "USize",
+        "Int8",
+        "Int16",
+        "Int32",
+        "Int64",
+        "ISize",
+        "Char"
+      ],
+      "requirements": [
+        "native boxed/raw ABI",
+        "width and signedness",
+        "no truncation",
+        "Unicode scalar validity",
+        "floating width/signed zero/nonfinite behavior"
+      ]
+    },
+    {
+      "priority": 2,
+      "family": "Special runtime containers",
+      "types": [
+        "Array α",
+        "ByteArray"
+      ],
+      "requirements": [
+        "logical size vs capacity",
+        "bounded copied data",
+        "proper runtime kind",
+        "owned construction"
+      ]
+    },
+    {
+      "priority": 3,
+      "family": "Native-witnessed first-order datatype graph",
+      "types": [
+        "Prod",
+        "Option",
+        "List",
+        "Sum",
+        "Except",
+        "closed records",
+        "enums",
+        "regular recursive data"
+      ],
+      "requirements": [
+        "nominal identities",
+        "instantiated field types",
+        "actual constructor layouts",
+        "erased/trivial/scalar-field handling",
+        "reject function/resource fields",
+        "do not synthesize erased invariants"
+      ]
+    },
+    {
+      "priority": 4,
+      "family": "Checked invariant/library adapters",
+      "types": [
+        "Fin n",
+        "Vector α n",
+        "Subtype",
+        "Rat",
+        "maps/sets",
+        "validated identifiers",
+        "paths/URI/time",
+        "JSON"
+      ],
+      "requirements": [
+        "bound/length checks",
+        "smart constructors for general predicates",
+        "exact rationals",
+        "library conversion rather than internal hash-table layouts",
+        "preserve nested options and JSON numeric semantics"
+      ]
+    },
+    {
+      "priority": 5,
+      "family": "Scoped executable handles and effects",
+      "types": [
+        "Lean function handles",
+        "ReaderT/StateT runners",
+        "EIO/BaseIO",
+        "IO resources",
+        "Task/Async",
+        "callbacks"
+      ],
+      "requirements": [
+        "explicit runners/specialization",
+        "lifetime and ownership",
+        "reentrancy/cancellation",
+        "separate runtime capability acceptance"
+      ]
+    },
+    {
+      "priority": 6,
+      "family": "Frontend/kernel interoperability",
+      "types": [
+        "Name",
+        "Syntax",
+        "Expr",
+        "Level",
+        "Environment"
+      ],
+      "requirements": [
+        "reuse appropriate datatype support",
+        "scoped handles for large/opaque state",
+        "separate kernel declaration/proof import"
+      ]
+    }
+  ],
+  "importantLimits": [
+    "Lexical source headers are not elaborated signatures or a population-wide frequency estimate.",
+    "SciLean snapshot pins4.28.0-rc1 and TodoMVC4.35.0; current runtime is4.33.1. Sources are survey evidence, not passed application compatibility.",
+    "mcmc executable directory includes mathematical noncomputable real semantics; Real must not be converted silently to Float.",
+    "Supporting data shapes does not implement network/database/filesystem/task capabilities or remove current source import limits."
+  ],
+  "firstPartyReferences": [
+    "https://lean-lang.org/doc/reference/latest/Basic-Types/",
+    "https://lean-lang.org/doc/reference/latest/Run-Time-Code/Foreign-Function-Interface/",
+    "https://lean-lang.org/doc/reference/latest/Basic-Types/Finite-Natural-Numbers/",
+    "https://lean-lang.org/doc/reference/latest/Basic-Types/Subtypes/",
+    "https://github.com/paulbutcher/lean-todomvc-max/blob/ac777a8d4db46584463365e4e89175fa72a51380/Todo/Store.lean"
+  ],
+  "checks": "Scanner masking/header/data-field examples and exact git corpus inventory passed; no Lean project build or execution performed by scanner."
+}

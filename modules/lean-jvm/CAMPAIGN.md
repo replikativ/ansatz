@@ -49,7 +49,12 @@ local module DAG, not general Lake, Std, Lean or Mathlib project imports.
    Clojure function calls, DSL usage alongside them, editing/reloading Lean source,
    multi-argument Bool/product/container examples, and precise unsupported cases.
    Check actual native Lean behavior and packaged Java consumers as separate gates.
-6. Review completeness, compatibility, performance and remaining issues with the
+6. Review documentation against the actual tested implementation before release:
+   root and SDK guides, Clojure REPL and Java examples, type/arity and IO support
+   tables, producer setup, project/import limits, reload/lifetime behavior, and
+   release notes. Run examples from packaged artifacts and audit paths/links.
+   Separate released behavior, working prototypes and future work explicitly.
+7. Review completeness, compatibility, performance and remaining issues with the
    user. Agree the next release scope before merging or publishing. Passing tests
    alone does not satisfy this release coordination gate.
 
@@ -80,12 +85,73 @@ local module DAG, not general Lake, Std, Lean or Mathlib project imports.
 - Public Clojure ergonomics, Java API shape, artifact separation, producer updates
   and release gating. Factoring out the Clojure elaborator can be considered
   independently of runtime execution support.
+- Documentation and launch wording: explain the practical supported profile,
+  show core Ansatz and Lean calls together in one REPL, and verify examples
+  against the exact package being proposed for release.
 
 ## Current follow-up work
 
-The `feat/lean-jvm-general-call` working branch contains an unlanded prototype of
-the general Java function handle and public Clojure wrapper. It still uses the
-three existing checked profiles. REPL probes established general-call syntax,
-exact integer conversion, named IO calls and argument-refusal behavior; they do
-not establish the broader type/arity slice above. Complete exporter and codec
-work, review, and acceptance remain necessary before making those claims.
+### Survey-driven scope proposal
+
+The [reproducible source census](research/type-survey/results.json) covers 3,903
+Lean files across nine source strata: pinned Lean Init/Std, compiler/metaprogramming,
+compile benchmarks, SciLean library/examples, MCMC executable/formal code, selected
+Mathlib data/probability modules, and a TodoMVC application. The
+[scanner](research/type-survey/scan.py) reads immutable git blobs and masks comments
+and strings. Counts describe lexical definition-header and record-field mentions,
+not elaborated signatures, execution coverage, or ecosystem-wide popularity.
+[Structured findings](research/type-survey/findings.json) record priorities and
+limitations. Corpora pin different Lean versions; their source shapes do not
+establish that the current runtime can load those applications.
+
+Concrete observations: Float/Float32 occurs in definition headers in 16 of 37
+SciLean example files; Array in 15 of 40 TodoMVC files; Option in 18 of those 40;
+Sum/Except in 9 of 68 MCMC executable-directory files. Mathematical real/complex
+types also occur in 38 of those 68 MCMC files, including explicitly noncomputable
+semantics. Supporting Float or their records cannot make such semantics executable.
+
+Proposed expansion for scope discussion, following the current n-ary/common-value
+work:
+
+1. Move Float/Float32 and machine signed/unsigned integers earlier; include Char
+   with Unicode-scalar validation. Preserve width, range and floating-point
+   semantics explicitly.
+2. Add Array and ByteArray as special runtime container families. Their logical
+   definitions do not describe their runtime storage; distinguish logical size,
+   capacity, copying and ownership.
+3. Generalize the constructor codec to closed first-order records, enums, Sum,
+   Except and regular recursive datatypes. Use nominal identities, instantiated
+   field types and compiler layouts rather than a growing list of special names.
+   Reject function/resource fields and unhandled erased invariants explicitly.
+4. Add checked adapters for Fin/Vector/Subtype constraints, exact Rat, and selected
+   map/set, JSON, URI/path/time interfaces. Prefer actual Lean smart constructors
+   and public collection conversions over rebuilding internal representations.
+5. Keep function handles, callbacks, Async/Task/IO resources and frontend values
+   as separate ownership/capability work. A data codec does not implement a DB
+   connection, HTTP stream or filesystem service. Do not promise broad application
+   loading solely from the type survey.
+
+The implementation mechanism should remain semantic descriptors plus actual
+compiler representation evidence, a small carrier/constructor algebra, and
+explicit invariant adapters. These proposals broaden the campaign; they are not
+additional released support or a substitute for the release discussion gate.
+
+### Implementation checkpoint
+
+The `feat/lean-jvm-general-call` branch is unlanded. Its native v2 producer
+successfully inferred and checked 13 application entries, including multiple
+arguments, zero-argument constants, five primitive families, container results and
+IO with a nested result. Independent canonical type reconstruction agreed for all
+13 entries. A 99-row native-document REPL prototype initialized the real module
+world and ran signed integer, Bool, String, Unit and zero-argument value calls.
+This prototype bypasses the final source/artifact admission path and is not an
+acceptance claim for that public path. Shared admission validation, borrowed
+container decoding, container inputs and complete public API acceptance still
+need integration and review. The published `0.2.578` boundary remains the three
+original profiles.
+
+Documentation review should also reconcile historical Init-tier/count examples
+with the actual proposed package. In the retained combined REPL, published core
+`0.2.578` loaded 5,118 declarations in its reported medium tier and ran the DSL
+alongside the optional interpreter. Preserve historical receipts as historical;
+verify current examples instead of copying their older counts into launch claims.
