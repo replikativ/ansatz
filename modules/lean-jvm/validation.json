@@ -124,8 +124,13 @@
     }
   },
   "currentSource": {
-    "engineSourceSHA256": "28cd4296572af05d1800eb0c2f2414b9c22bb954f6fd4303792620fa3d27ce77",
-    "freshBuildAfterFutureRebaseRequired": true
+    "landingBaseCommit": "a2b7ee2d89235aed869ed09cc6c575c12f137462",
+    "engineSourceSHA256": "9a3af598cf1168d15ba67b5dac49a302028329d885d18b91df97344baf37430e",
+    "status": "rebased-source-only-final-build-pending",
+    "freshJarBuilt": false,
+    "retainedJvmModelsRerun": false,
+    "javaOnlyConsumerRerun": false,
+    "historicalEvidenceEstablishesCurrentEngine": false
   },
   "sourceInventory": [
     {
@@ -151,12 +156,12 @@
     {
       "path": "modules/lean-jvm/runtime-closure.edn",
       "bytes": 482,
-      "sha256": "740c59c13c8d7032b56361924455bdb4064fa9ad1b426d726acd1cc890b5f1ba"
+      "sha256": "41d5ca259ff0d8fe5f60553fbdbebbcbce6382282a13ceee52d72d2339af26db"
     },
     {
       "path": "modules/lean-jvm/resources/META-INF/ansatz-lean-jvm/runtime.edn",
       "bytes": 456,
-      "sha256": "ae64f76c872f659bb981bf206a247c73f1d4c722cd3a537349c8249b2fab3935"
+      "sha256": "8fc37665f4903cc4489ca235fecf18312e8d201a053cbf469abf201a7159fae2"
     },
     {
       "path": "modules/lean-jvm/test/build_audit_checks.clj",

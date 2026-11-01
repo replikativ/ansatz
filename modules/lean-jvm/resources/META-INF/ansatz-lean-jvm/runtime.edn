@@ -2,7 +2,7 @@
  :status :internal-packaging-skeleton
  :adapter-namespace ansatz.lean.jvm.ir
  :engine-class "ansatz.research.ir.Interpreter"
- :engine-source-sha256 "28cd4296572af05d1800eb0c2f2414b9c22bb954f6fd4303792620fa3d27ce77"
+ :engine-source-sha256 "9a3af598cf1168d15ba67b5dac49a302028329d885d18b91df97344baf37430e"
  :upstream-lean-commit "819816b2e0a3bf405af45ae5c7af2491d8f5bee6"
  :java-release 17
  :precompiled-engine true
