@@ -4683,9 +4683,9 @@ public final class Interpreter implements AutoCloseable {
         catch(java.security.NoSuchAlgorithmException failure) { throw new IllegalStateException(failure); }
     }
     /** Trusted-source research install, before any engine execution. */
-    public void installEntropy(EntropyCapability capability,Header entropy,Header userError,byte[] originalUserErrorRow) {
-        require(capability!=null&&entropy!=null&&userError!=null&&originalUserErrorRow!=null
-                &&originalUserErrorRow.length<=16384,"Actual entropy capability/source evidence required");
+    public void installEntropy(EntropyCapability capability,Header entropy,Header userError,byte[] codecWitnessBytes) {
+        require(capability!=null&&entropy!=null&&userError!=null&&codecWitnessBytes!=null
+                &&codecWitnessBytes.length<=16384,"Actual entropy capability/source evidence required");
         require(explicit&&taskRuntime==null&&!closed&&!disposed&&!advancing&&!everStarted&&entropyCapability==null
                 &&phase==IDLE&&!pendingOwnedResult&&sp==0&&continuationDepth==0&&!untrackedFailure
                 &&runtimeAction==null&&hostCompletion==null&&hostGuestRecord==null&&hostRequest==null&&codeRequest==null
@@ -4693,18 +4693,23 @@ public final class Interpreter implements AutoCloseable {
         require(entropy.source==userError.source,"Entropy/error codec source binding differs");
         Function ef=program.functions[program.functionId(entropy)],uf=program.functions[program.functionId(userError)];
         require(ef.header==entropy&&ef.intrinsic==IO_RANDOM_BYTES&&program.guestExports[ef.id]==null
-                &&entropy.originalSha256.equals("afc15888b42a236a70bd422ced2bacca2d0808810d0ee7540495985d7ff9c368")
+                &&entropy.kind.equals("extern")&&ordinaryEntropyRole(entropy)
+                &&"lean_io_get_random_bytes".equals(externSymbol(entropy.declaration))
+                &&Arrays.equals(entropy.paramTypes,new String[]{"usize","void"})
+                &&Arrays.equals(entropy.borrowed,new boolean[]{false,false})&&entropy.resultType.equals("object")
                 &&entropy.exactName.equals(List.of("str",List.of("str",List.of("anonymous"),"IO"),"getRandomBytes")),
                 "Original canonical entropy Header differs");
         require(uf.header==userError&&uf.intrinsic==0&&uf.hostExtern==null&&program.guestExports[uf.id]==null
-                &&userError.originalSha256.equals("53b224c8fa037b144260872e3b14878aff86dbb61b598e1ea49f991dabc1fb6b")
-                &&digest(originalUserErrorRow).equals(userError.originalSha256)
+                &&userError.kind.equals("fdecl")&&ordinaryEntropyRole(userError)
+                &&digest(codecWitnessBytes).equals("53b224c8fa037b144260872e3b14878aff86dbb61b598e1ea49f991dabc1fb6b")
                 &&userError.exactName.equals(List.of("str",List.of("str",List.of("anonymous"),"IO"),"userError"))
                 &&Arrays.equals(userError.paramTypes,new String[]{"object"})
                 &&Arrays.equals(userError.borrowed,new boolean[]{false})&&userError.resultType.equals("tobject")
                 &&Arrays.equals(userError.params,new int[]{1}),"Original canonical IO.userError evidence differs");
-        // Headers intentionally omit bodies. Authenticate the original raw bytes
-        // (which name IO.Error.userError), AND inspect the actual prepared body.
+        // The frozen raw witness authenticates the codec layout independently
+        // of current-row provenance serialization. The trusted issuer verifies
+        // current rows/cohort; their truthful Header hashes must not be relabeled.
+        // Headers omit bodies, so also inspect the actual prepared dataflow.
         Body body=preparedBody(uf).body;
         require(body!=null&&body.op==VDECL&&body.a==2&&body.type==OBJ&&body.expr!=null
                 &&body.expr.op==CTOR&&body.expr.tag==18&&body.expr.size==1&&body.expr.scalarBytes==0
@@ -4712,6 +4717,13 @@ public final class Interpreter implements AutoCloseable {
                 &&body.next.a==2&&body.next.next==null,"Actual IO.userError constructor body differs");
         require(!Thread.currentThread().isInterrupted(),"Entropy installation interrupted");
         entropyHeader=entropy; entropyErrorHeader=userError; entropyCapability=capability;
+    }
+    private static boolean ordinaryEntropyRole(Header header) {
+        Object value=header.evidence.get("runtime");
+        if(!(value instanceof Map)) return false;
+        Map<String,Object> runtime=map(value);
+        return "ordinary".equals(runtime.get("role"))&&runtime.get("initializer")==null
+                &&runtime.get("initializationAction")==null&&header.evidence.get("redirect")==null;
     }
     private int validateEntropy(Function function,Object[] args) {
         require(explicit&&taskRuntime==null&&entropyCapability!=null&&function.header==entropyHeader

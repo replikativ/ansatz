@@ -5,7 +5,7 @@
             [java-ir-baseline-checks :as c] [java-ir-generation-checks :as g]
             [java-ir-host-checks :as host] [java-ir-byte-array-checks :as bytes]
             [lean-compatibility-corpus :as corpus])
-  (:import [java.nio.file Files] [java.math BigInteger]))
+  (:import [java.nio.file Files] [java.math BigInteger] [java.security MessageDigest]))
 (def ^:dynamic *basis* nil)
 (def ^:dynamic *directory* "test/fixtures/java-entropy-runtime")
 (defonce ^:private packets (atom []))
@@ -18,14 +18,20 @@
 (defn pattern-cap [pattern] (cap "deterministicForTesting" [(class (byte-array 0)) Integer/TYPE] [pattern (int 8)]))
 (defn failing-cap [kind] (cap "failureForTesting" [String String Integer/TYPE] [kind "expected test source failure" (int 8)]))
 (defn draws [capability] (.invoke (.getMethod (class capability) "draws" (make-array Class 0)) capability (object-array 0)))
+(defn row-sha [r]
+  (apply str (map #(format "%02x" (bit-and 255 %))
+                 (.digest (MessageDigest/getInstance "SHA-256") (.getBytes (json/write-str r) "UTF-8")))))
 (defn context
-  ([] (context identity))
-  ([error-transform]
+  ([] (context identity identity))
+  ([error-transform] (context error-transform identity))
+  ([error-transform row-transform]
    (let [names ["entropy-raw.json" "entropy-boxed.json" "user-error.json" "uint64-to-nat.json"
                 "usize-of-nat.json" "usize-of-nat-boxed.json"]
-         provenance (row "provenance.json") rs (mapv row names)
-         base (j/prepare-host-program *basis* [] []) source (j/source-binding base {"entropy-fixtures" provenance})
-         headers (into {} (map (fn [f r] [(get r "name") (j/declaration-header source r (get-in provenance ["files" f "sha256"]))]) names rs))
+         provenance (row "provenance.json") originals (mapv row names) rs (mapv row-transform originals)
+         pins (into {} (map (fn [f original r] [(get r "name")
+                            (if (= original r) (get-in provenance ["files" f "sha256"]) (row-sha r))]) names originals rs))
+         base (j/prepare-host-program *basis* [] []) source (j/source-binding base {"entropy-fixtures" provenance "current-row-hashes" pins})
+         headers (into {} (map (fn [r] [(get r "name") (j/declaration-header source r (pins (get r "name")))]) rs))
          registered (j/register-headers base (vec (vals headers)))
          prepared (reduce (fn [ctx r]
                             (if (get-in r ["ir" "fdecl"])
@@ -92,6 +98,42 @@
     (is (g/bad? #(install! s capability fresh (read-bytes "user-error.json"))))
     (install! s capability) (is (g/bad? #(install! s capability)))
     (close! s)))
+
+(deftest current-row-provenance-hashes-are-independent-of-frozen-codec-witness
+  (let [metadata #(-> % (dissoc "pretty") (assoc "sourceLocal" false)
+                        (assoc-in ["runtime" "initializationAction"] nil))
+        s (engine (context identity metadata)) capability (pattern-cap (byte-array 8))
+        entropy (get-in s [:ctx :headers (get (row "entropy-raw.json") "name")])
+        error (get-in s [:ctx :headers (get (row "user-error.json") "name")])]
+    (is (not= (get-in (row "provenance.json") ["files" "entropy-raw.json" "sha256"])
+              (j/request-value entropy "originalSha256")))
+    (is (not= (get-in (row "provenance.json") ["files" "user-error.json" "sha256"])
+              (j/request-value error "originalSha256")))
+    (install! s capability)
+    (is (true? (get (status s) "configured"))) (is (= 0 (draws capability)))
+    (close! s)))
+
+(deftest current-canonical-rows-must-still-be-ordinary-uninitialized-and-correct-kind
+  (doseq [target [(get (row "entropy-raw.json") "name") (get (row "user-error.json") "name")]
+          change [#(assoc-in % ["runtime" "role"] "value")
+                  #(assoc-in % ["runtime" "initializer"] (get (row "user-error.json") "name"))
+                  #(assoc-in % ["runtime" "initializationAction"] "io")
+                  #(assoc % "redirect" {})]]
+    (let [transform #(if (= target (get % "name")) (change %) %)
+          s (engine (context identity transform)) capability (pattern-cap (byte-array 8))]
+      (is (g/bad? #(install! s capability))) (is (= 0 (draws capability))) (close! s)))
+  (let [entropy-name (get (row "entropy-raw.json") "name")
+        error-name (get (row "user-error.json") "name")]
+    (doseq [transform [(fn [r] (if (= entropy-name (get r "name"))
+                                (assoc r "ir" {"fdecl" (-> (get-in r ["ir" "extern"])
+                                                           (dissoc "ext") (assoc "body" ["unreachable"] "info" {}))}) r))
+                      (fn [r] (if (= error-name (get r "name"))
+                                (assoc r "ir" {"extern" (-> (get-in r ["ir" "fdecl"])
+                                                           (dissoc "body" "info")
+                                                           (assoc "ext" {"entries" [{"standard" {"backend" ["str" ["anonymous"] "all"]
+                                                                                                  "fn" "unavailable_entropy_test_codec"}}]}))}) r))]]
+      (let [s (engine (context identity transform)) capability (pattern-cap (byte-array 8))]
+        (is (g/bad? #(install! s capability))) (is (= 0 (draws capability))) (close! s)))))
 
 (deftest freshness-is-monotonic-even-after-zero-instruction-native-call
   (let [s (engine (context)) {:keys [ctx engine]} s capability (pattern-cap (byte-array 8))]

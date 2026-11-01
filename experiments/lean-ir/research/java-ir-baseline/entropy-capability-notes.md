@@ -204,3 +204,23 @@ strip initializer metadata from original rows, or relax the runtime direct-set
 guard. The research helper's first prepare failed before creating any engine;
 normalizing the separate issuer borrow list fixes that adapter error without a
 runtime/source change.
+
+## Current-row identity and independent codec witness
+
+The first prior-CAS gate used historical afc/53 row hashes. A genuine newer
+startup producer adds source-origin and initialization-action metadata, changing
+the current row hashes while preserving the exact IR/ABI. Never relabel those
+current rows with the old hashes. The trusted issuer authenticates the actual
+current producer/cohort and hashes before minting Headers; runtime installation
+then validates actual canonical same-source Header identity, exact entropy
+extern symbol/ABI, ordinary uninitialized/no-redirect roles, and the actual
+ordinary userError fdecl ABI/prepared constructor dataflow.
+
+The separate raw codec witness remains byte-pinned at53b224c8fa037b144260872e3b14878aff86dbb61b598e1ea49f991dabc1fb6b.
+It establishes the known IO.Error.userError layout, independently of the current
+Header's serialization hash. This is not current-source authentication and does
+not replace the issuer. Metadata-only positive models retain their new truthful
+hashes and source binding; wrong roles, initializer/action/redirect metadata,
+wrong kinds and altered prepared bodies still refuse installation. Earlier
+ba746 execution records remain historical gates for the original63-row capture;
+the new producer's62-row capture needs its own actual execution record.
