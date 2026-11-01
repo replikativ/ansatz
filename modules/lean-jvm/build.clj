@@ -1,6 +1,6 @@
 (ns build
   "Build the internal JVM adapter with its single authoritative Java engine.
-   No native compiler, runtime compilation or public project API."
+   Native source producers remain outside the runtime JAR."
   (:require [clojure.tools.build.api :as b] [clojure.java.io :as io] [clojure.edn :as edn]
             [ansatz-lean-jvm-build-audit :as audit]
             [ansatz-lean-jvm-release :as release]))
@@ -26,6 +26,7 @@
     (b/delete {:path java-source-dir})
     (audit/capture-engine-source! (get-in closure [:java :path])
                                   (get-in closure [:java :sha256]) java-source-dir)
+    (audit/capture-api-sources! (:java-api closure) java-source-dir)
     (b/delete {:path class-dir})
     (b/delete {:path jar-file})
     (b/copy-dir {:src-dirs ["src" "resources"] :target-dir class-dir})
@@ -43,7 +44,7 @@
                                          [:url "https://www.apache.org/licenses/LICENSE-2.0"]]]]})
     (b/jar {:class-dir class-dir :jar-file jar-file})
     {:jar jar-file :version version :java-release 17 :engine-compilations 1
-     :source-loaded-namespaces 1 :public-project-api false}))
+     :source-loaded-namespaces 1 :public-project-api (:public-project-api (edn/read-string (slurp (io/file class-dir "META-INF/ansatz-lean-jvm/runtime.edn"))))}))
 
 
 (defn prepare-release

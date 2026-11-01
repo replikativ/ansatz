@@ -51,5 +51,86 @@
     "sha256": "60acde6367af93015bb381b5a7cbcdbe1c4daa7dba6de2ccdeab23b811c16926",
     "purpose": "SDK-pinned explicit external native producer bundle"
   },
-  "runtimeAcceptance": "Pending fresh canonical namespace/source/JAR acceptance; research receipts historical"
+  "runtimeAcceptance": "Source reviewed candidate. Fresh canonical source/JAR consumer gates remain pending; public metadata false until root acceptance.",
+  "runtimeSources": [
+    {
+      "originalCommit": "e48626e9",
+      "originalPath": "experiments/lean-ir/research/java-ir-baseline/entropy-research/capabilities.clj",
+      "originalSHA256": "1718f644c42ef402486e8a4da37126ecf4ecad4ba3b30298154378d3fa615fa9",
+      "canonicalPath": "src/ansatz/lean/jvm/capabilities.clj",
+      "canonicalSHA256": "8f78255b88c61405ba854562af683e14de769ffc047e5dec0d5b984782c3d650",
+      "changes": [
+        "Mechanical namespace, require, qualified issuer/profile names; source receipt accessor is canonical/lazy"
+      ]
+    },
+    {
+      "originalCommit": "e48626e9",
+      "originalPath": "experiments/lean-ir/research/java-ir-baseline/entropy-research/module-startup.clj",
+      "originalSHA256": "8aa9cdd575edb3725db80f4a107614a05b478a44e645a8d8000dfbe0edee9e40",
+      "canonicalPath": "src/ansatz/lean/jvm/startup.clj",
+      "canonicalSHA256": "250b223e4109799442c171f9da9995b896fd4bb3d64714013cebb8c04d8adfe2",
+      "changes": [
+        "Mechanical namespace, require, qualified issuer/profile names; source receipt accessor is canonical/lazy"
+      ]
+    },
+    {
+      "originalCommit": "e48626e9",
+      "originalPath": "experiments/lean-ir/research/java-ir-baseline/entropy-research/project-startup.clj",
+      "originalSHA256": "4c7aedcead0fa445fe7db76d262899675d7702d4ece06680cade78aa88320a77",
+      "canonicalPath": "src/ansatz/lean/jvm/publisher.clj",
+      "canonicalSHA256": "c7ba644e35d84eeaa85e58bf3e5cc51f959a885c495167918c2f30049425d5f6",
+      "changes": [
+        "Mechanical namespace, require, qualified issuer/profile names; source receipt accessor is canonical/lazy"
+      ]
+    }
+  ],
+  "artifact": {
+    "originalCommit": "5ae35a1c91b74ddc22451a7c87745f6aa03439b7",
+    "path": "src/ansatz/lean/jvm/artifact.clj",
+    "sha256": "4df977646273efe5c01f13bbe2ef8ba0fb5d4801129272a074f65d250c17250f",
+    "changes": []
+  },
+  "engine": {
+    "path": "experiments/lean-ir/research/java-ir-baseline/src/ansatz/research/ir/Interpreter.java",
+    "sha256": "70f6a6fc937be9604e887bdd85ff12bd9d9ce4218387f8cf4a122f26018ead29",
+    "origin": "Reviewed atomic Nat/String/output limit engine plus final diagnostic-label correction",
+    "changes": [
+      "Verbatim source copy; ABI/intrinsic IDs unchanged"
+    ]
+  },
+  "projectService": {
+    "path": "src/ansatz/lean/jvm/project.clj",
+    "sha256": "9f367837770a6dc4eec3cb862ba052e70aedef289d4a75b8b6cdaa83f3bf81dd",
+    "review": "Focused source review cleared; fresh runtime and JAR acceptance pending"
+  },
+  "javaAPI": [
+    {
+      "path": "src-java/ansatz/lean/jvm/Bridge.java",
+      "sha256": "0acbd07111a8b1a1a82ae454a2265ed9952624f24154a23ea03cd01b0e49d1b0"
+    },
+    {
+      "path": "src-java/ansatz/lean/jvm/Lean.java",
+      "sha256": "5dfd42d509fd029ab5a4e222cae512ebaea79b32cb03a6246c4e0f3d8bd3c57f"
+    },
+    {
+      "path": "src-java/ansatz/lean/jvm/LeanException.java",
+      "sha256": "04f42ebdbd5c761b8ab2d04ed1f3a5f21f3df8f4a7f6aab21079799e79e24117"
+    },
+    {
+      "path": "src-java/ansatz/lean/jvm/LeanProject.java",
+      "sha256": "db2649b6d771453ecc5c5eb20ac41c818494c5e50ecc099d73459b0e31624701"
+    },
+    {
+      "path": "src-java/ansatz/lean/jvm/MainResult.java",
+      "sha256": "e82cc335d2b483291d2f1d7bf80420411d62a37d32f50819ea82b92fdc1510c6"
+    },
+    {
+      "path": "src-java/ansatz/lean/jvm/NativeCompilerOptions.java",
+      "sha256": "51b8c9d38dfde1568b09aa85083be4a2347768bdf5ad4ad2e5d0852067c5d54f"
+    },
+    {
+      "path": "src-java/ansatz/lean/jvm/ProjectOptions.java",
+      "sha256": "1cb4f36a6c920fae1feb9432830f167431c5e29e8f096aaf39e4c4033f05b81e"
+    }
+  ]
 }
