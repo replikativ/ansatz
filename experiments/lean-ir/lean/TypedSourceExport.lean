@@ -174,7 +174,12 @@ unsafe def main (args : List String) : IO Unit := do
   let mod ← moduleArgument (args[1]!)
   let env ← if sourceMode then do
       let input ← IO.FS.readFile sourcePath
-      let some env ← Elab.runFrontend input {} sourcePath mod (oleanFileName? := oleanPath?.map System.FilePath.mk)
+      -- The original frontend reports warnings, info and errors on current stdout.
+      -- Keep them visible on stderr; withStdout restores the structural output
+      -- stream in finally, including when the frontend throws or returns none.
+      let frontend? ← IO.withStdout (← IO.getStderr) <|
+        Elab.runFrontend input {} sourcePath mod (oleanFileName? := oleanPath?.map System.FilePath.mk)
+      let some env := frontend?
         | throw <| IO.userError "Source frontend failed; no initialization plan exported"
       pure env
     else
