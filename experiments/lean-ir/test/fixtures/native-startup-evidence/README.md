@@ -20,7 +20,7 @@ Do not replace the accepted entry-helper corpus or binaries.
 | header-module.lean | Actual module mode; original public import flags |
 | header-invalid-meta.lean | Original legacy meta-import parser error, header=null |
 | header-invalid-all-public.lean | Original public+all parser error, header=null |
-| header-crlf-unicode.lean | Exact CRLF/Unicode byte extent and original raw parser/source spans |
+| header-crlf-unicode.lean | Exact CRLF/Unicode bytes and original raw-parser CR diagnostic; no invented normalized spans |
 | header-quoted-name.lean | One literal string component A.B; do not split into two module components |
 | invalid-meta-request.json | Refuse meta substitution before import |
 | invalid-profile-request.json | Refuse unsupported mode before import |

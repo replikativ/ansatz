@@ -1,9 +1,10 @@
 # Standalone native startup evidence producer
 
-Source prototype only. This package has not been Lean-compiled or executed by
-its author. The root's bounded native build and fixture gates are required
-before accepting any output. No Java initialization, kernel admission or
-complete module-ready receipt is produced here.
+The root compiled the standalone helper and passed its supervised native Init
+and 24-case fixture gates; [validation.json](validation.json) pins the exact
+sources, binary, outputs and receipts. Its author launched no native/JVM process.
+No Java initialization, kernel admission or complete module-ready receipt is
+produced here.
 
 The new [NativeStartupEvidence source](../../../../lean/NativeStartupEvidence.lean)
 is independent of the accepted NativeEntryEvidence and Export helpers. Its
@@ -95,11 +96,30 @@ this purpose label nor a displayed constructor name is layout authority.
 
 The static union includes raw global/action, genuine boxed selection, redirect,
 auxiliary and all dependency/error/panic rows. Overlapping canonical rows and
-origins must agree. Roles, initialized-global metadata and actual compiled-module
-origin stay unchanged; imported rows remain sourceLocal=false. Dynamic AP sites
+origins must agree. Initialized-global metadata and actual compiled-module
+origin are retained; imported rows remain sourceLocal=false. Dynamic AP sites
 are counted and dynamicClosureProven=false. Missing declarations/sorry dependencies
 refuse. The saved Init census's original 60 raw action/global rows should be
-covered; genuine boxed/codec roots may increase the final count. Do not force60.
+covered; genuine boxed/codec roots may increase the final count. Do not force 60.
+
+Runtime roles here are observations in the imported environment, not source
+compilation receipts. Pinned ClosedTermCache and SimpleGroundExpr use ordinary
+registerEnvExtension, whose state is not saved across imports. The actual Init
+comparison found fifteen source-closed nullary declarations observed as generic
+value after import, with identical full IR/ABI/occurrence dependencies and no
+initializer. This is not inferred from `_closed_` text and neither record is
+rewritten. The selected Java interpreter caches all nullary fdecls; only the
+initialized role requires explicit publication. Consumers needing original
+closed/ground source classification or native-C startup must obtain a tied
+source-compilation receipt rather than reconstruct lost compiler caches.
+
+The raw header mode intentionally disables mkInputContext's usual CRLF
+normalization. Pinned whitespace rejects raw CR, including a CRLF pair at a
+whitespace position. The CRLF fixture therefore expects the original parser
+error and header=null while preserving all original bytes. A separate explicitly
+derived LF-Unicode fixture tests successful raw byte spans. This strict mode
+does not establish support for all files accepted by the normalizing frontend;
+a future normalized mode needs its own provenance/position mapping.
 
 ## Bounds, compilation and receipts
 
@@ -128,7 +148,8 @@ link are separate commands so each can have its own recorded resource budget.
 It is not itself
 a complete process/RSS supervisor. Root must enforce one native process at a
 time, 2 GiB MemAvailable floor, the approved RSS/CPU/wall/output limits and actual
-owned-process cancellation. No author/native build has been run for this source.
+owned-process cancellation. The author ran no native build; the root's actual
+stage budgets/results are recorded separately in validation.json.
 
 For EVERY accepted build/run preserve an external receipt with:
 
@@ -162,17 +183,37 @@ Run header ordinary/prelude/module/meta/error and CRLF/Unicode cases, preserving
 actual diagnostics/provenance. Compile the pure selection model to verify the
 first-list/IR duplicate rule and all phase branches. Actual legacy/private
 imports yield source all-phase decisions; that is not a runtime-phase skip test.
-All fixture/build/output acceptance remains pending until those native gates run.
+Those native gates passed on the recorded helper/source cohort. The
+[serial gate script](../../../../scripts/gate-startup-evidence.py) accepts explicit
+repository, toolchain/helper/exporter, old reference, census, existing Init output
+and fresh output-directory paths. It runs under the root's process-group resource
+supervisor, records every native command/output digest, continues independent
+semantic failures and blocks startup dependent on a failed compile. It does not
+invoke a Java runtime or mint a public artifact capability.
 
 The root attempted emission on initial source `0e3054ac…`: the 900 MiB supervised
 attempt stopped cleanly at sampled 921960 KiB without diagnostics; a separately
 admitted 1.3 GiB attempt exited1 with three record-layout parse errors. Current
 source separates JSON construction from uniformly indented record literals;
 no type/lookup/selection policy changed. The source manifest preserves the two
-negative receipt hashes. This correction still requires actual native compilation
-and fixture validation; neither attempt established accepted producer output.
+negative receipt hashes. Neither attempt established accepted producer output.
 
 The next attempt on source `c25900fb…` passed its resource gate but found two
 type errors from one IO.userError proof binding: pinned mkArrow returns CoreM
 Expr. That binding now uses monadic bind before native DefEq/instantiation. It
-was the only mkArrow occurrence in this new producer. Acceptance remains pending.
+was the only mkArrow occurrence in this new producer. The corrected source
+`f8c92d65…` then passed emission, selection checks and linking, producing helper
+`2693f971…`. Ordinary Init produced 631 modules, one actual named Random pair
+and 62 rows: the original raw60 plus the actual selected boxed action and the
+separate IO.userError codec. It reported no unsupported activation reasons or
+dynamic AP sites.
+
+The first fixture batch recorded 21 passes and two failures. Investigation found
+incorrect gate expectations, not IR/ABI changes: raw CRLF is rejected without
+normalization, and source-only closed marks do not survive import. Original
+outputs, bytes and hashes were preserved. The corrected batch passed all 24
+cases: ten header cases, four compile/startup pairs, three invalid requests,
+the compiler identity probe and two metadata/tool-pin checks. Its 62 common
+declarations exactly matched old IR, ABI, dependency occurrences and redirects;
+the fifteen closed→value observations and sourceLocal provenance difference are
+reported explicitly. No role or original Header hash was spoofed.

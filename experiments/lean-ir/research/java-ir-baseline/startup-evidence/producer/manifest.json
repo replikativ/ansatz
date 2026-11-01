@@ -11,8 +11,8 @@
     },
     {
       "file": "experiments/lean-ir/research/java-ir-baseline/startup-evidence/producer/README.md",
-      "bytes": 10386,
-      "sha256": "b921e70a474f7f2bbbe9ab173d794dd13f4f4de58fe5b22c778134469cb1eb39"
+      "bytes": 13190,
+      "sha256": "e4cd4955ca52f898def5369a9f057da2fdf395084dfddf7b81ed4a1607e5dfbe"
     },
     {
       "file": "experiments/lean-ir/research/java-ir-baseline/startup-evidence/producer/verify-source.py",
@@ -31,8 +31,8 @@
     },
     {
       "file": "experiments/lean-ir/test/fixtures/native-startup-evidence/README.md",
-      "bytes": 2591,
-      "sha256": "58db6cef3b32d96e98cb779719bcd64563af830eecf1483586e0aa58e31f8d56"
+      "bytes": 2616,
+      "sha256": "e65dc361bc460a376089c40d788934a4d1dbb9729fd7f4810130e62645144c8c"
     },
     {
       "file": "experiments/lean-ir/test/fixtures/native-startup-evidence/SelectionChecks.lean",
@@ -133,6 +133,16 @@
       "file": "experiments/lean-ir/test/fixtures/native-startup-evidence/invalid-profile-request.json",
       "bytes": 298,
       "sha256": "7c662fdf0e96328260a363d82daf272fc66bcf89a49448ffab551dd25f8cb37b"
+    },
+    {
+      "file": "experiments/lean-ir/scripts/gate-startup-evidence.py",
+      "bytes": 28441,
+      "sha256": "2ef539532fc0bed164ce711ad75df92e6ecf66f4da051bda3a26ba694f029071"
+    },
+    {
+      "file": "experiments/lean-ir/research/java-ir-baseline/startup-evidence/producer/validation.json",
+      "bytes": 4702,
+      "sha256": "51cdc25ac3e45584b36640654e88eda249562e7da116445302beaa554cbd7fd4"
     }
   ],
   "unchangedAcceptedSources": [
@@ -148,11 +158,11 @@
     }
   ],
   "acceptance": {
-    "nativeCompiled": false,
+    "nativeCompiled": true,
     "JVMExecuted": false,
-    "nativeEvidenceGenerated": false,
+    "nativeEvidenceGenerated": true,
     "JavaInitializationExecuted": false,
-    "status": "source prototype; root native gates pending"
+    "status": "root native Init and24-case fixture gate passed; no Java startup claimed"
   },
   "requiredExternalReceipts": [
     "source-and-compiler-build-cohort",
@@ -187,5 +197,8 @@
         "sha256": "02d958bf9186ac0a9745b5ddbbbaad7e33d5153ed5ec3b2aad2c0cc9d9aeabc5"
       }
     }
-  ]
+  ],
+  "validation": "validation.json",
+  "runtimeMetadataScope": "actual imported environment observations; source-local closed/ground caches are nonpersistent",
+  "rawCRLFHeader": "original rejection with normalization disabled; separate positive LF-Unicode fixture"
 }
