@@ -4,6 +4,7 @@
          '[ansatz-lean-jvm-signature-checks :as signature-models]
          '[ansatz-lean-jvm-codec-checks :as codec-models]
          '[ansatz-lean-jvm-value-checks :as value-models]
+         '[ansatz-lean-jvm-argument-checks :as argument-models]
          '[ansatz-lean-jvm-module-startup-models :as module-models]
          '[ansatz-lean-jvm-publisher-models :as publisher-models]
          '[ansatz-lean-jvm-capability-models :as capability-models]
@@ -36,10 +37,11 @@
                (signature-models/check!) (codec-models/check!)
                (ansatz-lean-jvm-entry-checks/check! ".")
                (ansatz-lean-jvm-extended-entry-checks/check! ".")
-               (value-models/check! "test/fixtures/value-codec-witnesses.json")]
+               (value-models/check! "test/fixtures/value-codec-witnesses.json")
+               (argument-models/check! "test/fixtures/value-codec-witnesses.json")]
       tests (reduce + (map :test results))
       assertions (reduce + (map #(+ (:pass %) (:fail %) (:error %)) results))
-      successful (and (= 92 tests) (= 496 assertions)
+      successful (and (= 103 tests) (= 536 assertions)
                       (every? #(zero? (+ (:fail %) (:error %))) results))]
   (println "SDK_JAR_MODELS" {:tests tests :assertions assertions :successful successful})
   (shutdown-agents)

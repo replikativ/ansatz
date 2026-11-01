@@ -162,11 +162,13 @@ are not invocation receipts. Signature coverage is not yet codec coverage.
 A scalar-free managed constructor recipe API was added to the Java engine.
 Its 176 actual-JVM checks cover fresh ownership, explicit release, bounds,
 invalid references/aliases, caller-array isolation and refused lifecycle states.
-The public argument planner and construction/start ownership journal must still
-be integrated before container input support is advertised. Focused models
+The host-only argument planner passes 11 tests / 40 assertions, including
+nested options, proper lists, copied sharing, cycle refusal and layout field
+order. Its runtime materializer and construction/start ownership journal must
+still be integrated before container input support is advertised. Focused models
 currently pass: signatures 4/67, entry observations 6/36, expanded entry
 observations 7/73, borrowed values 14/54, package audit 5/23 (tests/assertions).
-The built SDK JAR passes 92 tests / 496 assertions. The separate Java
+The built SDK JAR, including the argument planner, passes 103 tests / 536 assertions. The separate Java
 application-JAR consumer also passes typed and general calls, generic arity/type
 rejection without poisoning the Project, Clojure wrapper calls, generic IO Unit,
 thread handoff and close checks using a genuine historical artifact. This is

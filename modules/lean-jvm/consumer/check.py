@@ -18,7 +18,7 @@ POM = "META-INF/maven/org.replikativ/ansatz-lean-jvm/pom.xml"
 ADAPTER = "ansatz/lean/jvm/ir.clj"
 METADATA = "META-INF/ansatz-lean-jvm/runtime.edn"
 SOURCES = {"ansatz/lean/jvm/" + name + ".clj" for name in
-           ["ir", "artifact", "original", "capabilities", "startup", "publisher", "project", "signature", "codec", "entry", "value",
+           ["ir", "argument", "artifact", "original", "capabilities", "startup", "publisher", "project", "signature", "codec", "entry", "value",
             "compiler/encoding", "compiler/transport", "compiler/local", "compiler/evidence", "compiler/bundle"]}
 SOURCES.add("ansatz/lean/jvm.clj")
 SDK_RESOURCES = {METADATA, "META-INF/ansatz-lean-jvm/user-error.json", "META-INF/ansatz-lean-jvm/NOTICE"}

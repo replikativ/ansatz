@@ -1,5 +1,6 @@
 {:schema "ansatz-lean-jvm-source-closure/1"
  :sources [{:path "ansatz/lean/jvm.clj" :namespace ansatz.lean.jvm}
+           {:path "ansatz/lean/jvm/argument.clj" :namespace ansatz.lean.jvm.argument}
            {:path "ansatz/lean/jvm/artifact.clj" :namespace ansatz.lean.jvm.artifact}
            {:path "ansatz/lean/jvm/capabilities.clj" :namespace ansatz.lean.jvm.capabilities}
            {:path "ansatz/lean/jvm/codec.clj" :namespace ansatz.lean.jvm.codec}
