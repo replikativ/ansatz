@@ -4578,6 +4578,10 @@ public final class Interpreter implements AutoCloseable {
     private boolean graphInstalled,moduleGraphInstalled;
     private PreparedGlobalSource preparedModuleSource;
     private boolean initializing;
+    // Narrow interpreted [init] protocol; this is not a module-completeness ledger.
+    private BitSet initializerAttempts=new BitSet();
+    private Header pendingInitializerGlobal,pendingInitializerAction;
+    private boolean initializerFailed;
     private Map<Integer,PreparedGlobalSource> preparedGlobalSources=Collections.emptyMap();
     private boolean closed;
     private boolean untrackedFailure;
@@ -6023,9 +6027,91 @@ public final class Interpreter implements AutoCloseable {
     /** One-way host launch boundary, analogous to native mark_end_initialization.
      * Program/header/graph operations never infer or change this phase. */
     public void finishInitialization() {
-        if(closed||disposed||advancing||phase!=IDLE||pendingOwnedResult||sp!=0||untrackedFailure)
-            throw new IllegalStateException("Initialization completion requires an open idle engine");
+        if(closed||disposed||advancing||phase!=IDLE||pendingOwnedResult||sp!=0||untrackedFailure
+                ||pendingInitializerGlobal!=null||initializerFailed)
+            throw new IllegalStateException("Initialization completion requires an open idle successful engine");
         initializing=false;
+    }
+
+    /** Begin one source-bound interpreted regular [init] pair. The trusted
+     * adapter owns module order and must mark its module entered BEFORE calling.
+     * Only the ordinary (World : void) -> object action ABI is admitted. This
+     * does not eagerly evaluate ordinary nullary constants or run native init.
+     * An attempted global is never replayed, including after IO.error. */
+    public void startInitializer(Header global,Header action) {
+        explicitOnly();
+        require(initializing&&taskRuntime==null&&!initializerFailed,
+                "Initializer requires a fresh task-free initialization engine");
+        require(!closed&&!disposed&&!advancing&&!untrackedFailure&&phase==IDLE&&!pendingOwnedResult
+                &&sp==0&&pendingInitializerGlobal==null,"Initializer requires an open idle engine");
+        require(global!=null&&action!=null&&global.source==action.source,
+                "Initializer pair requires one SourceBinding");
+        int globalId=program.functionId(global),actionId=program.functionId(action);
+        Function gf=program.functions[globalId],af=program.functions[actionId];
+        require(gf.header==global&&af.header==action,"Initializer requires original registered Headers");
+        require(global.kind.equals("fdecl")&&global.initialized()&&gf.params.length==0
+                &&(global.resultType.equals("object")||global.resultType.equals("tobject")),
+                "Initializer global requires object/tobject initialized fdecl");
+        Map<String,Object> runtime=map(global.evidence.get("runtime"));
+        require(action.exactName.equals(frozenName(runtime.get("initializer"))),
+                "Initializer action Name differs from global evidence");
+        require(action.kind.equals("fdecl")&&!action.initialized()&&action.params.length==1
+                &&action.paramTypes[0].equals("void")&&!action.borrowed[0]
+                &&action.resultType.equals("object"),"Initializer action ABI must be (void) -> object");
+        require(!constantReady[globalId]&&!constantRetired[globalId]&&!initializerAttempts.get(globalId),
+                "Initializer global is occupied, retired or already attempted");
+        // All rejection that can be checked without executing guest code precedes
+        // claiming the attempt. start can still fail terminally; it is not replayed.
+        rootEntry(af); preflightCallable(af,true); validateEntryArguments(af,new Object[]{ERASED});
+        initializerAttempts.set(globalId);
+        try { start(actionId,new Object[]{ERASED}); }
+        catch(Throwable failure) { initializerFailed=true; throw failure; }
+        pendingInitializerGlobal=global; pendingInitializerAction=action;
+    }
+
+    /** Consume ONLY the result of this engine's pending initializer invocation.
+     * IO.error transfers the original result unchanged and forbids finishing
+     * startup. On IO.ok publish the SAME payload after markPersistent, consume
+     * the wrapper, and return an owned IO.ok Unit. No supplied value can be
+     * installed. Validation/cancellation/allocation precede the nonthrowing
+     * RC-and-cache commit; a rejected completion retains its original result. */
+    public Object completeInitializer() {
+        explicitOnly();
+        require(!closed&&!disposed&&!advancing&&initializing&&taskRuntime==null
+                &&pendingInitializerGlobal!=null&&phase==COMPLETE&&pendingOwnedResult
+                &&entry!=null&&entry.header==pendingInitializerAction,
+                "No completed initializer result available");
+        int id=program.functionId(pendingInitializerGlobal);
+        require(program.functions[id].header==pendingInitializerGlobal
+                &&!constantReady[id]&&!constantRetired[id],"Initializer global changed or is occupied");
+        Node wrapper=node(result);
+        require(kindMetadata(wrapper)==null&&!wrapper.array&&!wrapper.ref&&!wrapper.readyTask
+                &&wrapper.closure==null&&wrapper.scalars.length==0&&wrapper.fields.length==1
+                &&(wrapper.tag==0||wrapper.tag==1)&&wrapper.rc>=0,
+                "Initializer must return a plain IO.Result");
+        validateHostObject(wrapper.fields[0]);
+        if(wrapper.tag==1) {
+            Object error=detachCompletedResult();
+            pendingInitializerGlobal=null; pendingInitializerAction=null; initializerFailed=true;
+            return error;
+        }
+        Object payload=wrapper.fields[0];
+        ArrayList<Node> commit=persistentPreflight(payload);
+        require(releaseTransaction==null&&!releaseRoot&&releasePending==0&&quietCurrent==null,
+                "Initializer completion cannot overlap release work");
+        Node status=new Node(0,1,0); status.fields[0]=ERASED;
+        if(Thread.currentThread().isInterrupted()) throw error("Initializer completion interrupted");
+        // No allocations, validation, callbacks or cancellation points below.
+        // Payload persistence makes consuming this known wrapper finalizer-free.
+        for(int i=0;i<commit.size();i++) commit.get(i).rc=0;
+        if(wrapper.rc!=0) {
+            wrapper.rc--; releases++;
+            if(wrapper.rc==0) { wrapper.dead=true; wrapper.fields[0]=null; }
+        }
+        constants[id]=payload; constantReady[id]=true; allocations++;
+        detachCompletedResult();
+        pendingInitializerGlobal=null; pendingInitializerAction=null;
+        return status;
     }
 
     /** Eager research fork, O(allocated stack capacity + reachable graph), not
@@ -6050,10 +6136,12 @@ public final class Interpreter implements AutoCloseable {
     public Fork eagerFork(Object[] externalRoots) {
         if(closed||disposed||advancing||phase==FAILED||untrackedFailure||(!explicit&&sp!=0))
             throw new IllegalStateException("Fork requires an open idle or paused instruction boundary");
+        if(pendingInitializerGlobal!=null) throw error("Cannot fork a pending initializer");
         if(externalRoots==null) throw error("Explicit fork roots required");
         // phase RUNNING between advance calls is a paused dispatch/release-work
         // boundary. No Java call frame is captured in that state.
         Interpreter child=new Interpreter(program,explicit,initializing,buildIdentity,taskRuntime,profilingPolicy);
+        child.initializerAttempts=(BitSet)initializerAttempts.clone(); child.initializerFailed=initializerFailed;
         child.pointerHashPolicy=pointerHashPolicy; child.levelInstantiationPolicy=levelInstantiationPolicy; child.exprInstantiationPolicy=exprInstantiationPolicy; child.shareCommonLayout=shareCommonLayout; child.exprTransformPolicy=exprTransformPolicy;
         ForkCopy copy=new ForkCopy(child);
         copy.bind(constants,child.constants);
@@ -10050,6 +10138,7 @@ public final class Interpreter implements AutoCloseable {
     /** Bind an owned external invocation, without executing its body. */
     public void start(int function,Object[] args) {
         explicitOnly();
+        require(pendingInitializerGlobal==null,"Complete the pending initializer before another start");
         if(advancing||phase!=IDLE||(taskRuntime!=null&&(disposed||untrackedFailure))) throw new IllegalStateException("Take the result or finish the current execution before start");
         Function f=program.functions[function];
         rootEntry(f);
@@ -10323,6 +10412,10 @@ public final class Interpreter implements AutoCloseable {
     /** Transfer the completed external result exactly once. */
     public Object takeResult() {
         explicitOnly();
+        require(pendingInitializerGlobal==null,"Use completeInitializer for the pending initializer result");
+        return detachCompletedResult();
+    }
+    private Object detachCompletedResult() {
         if(phase!=COMPLETE||!pendingOwnedResult) throw new IllegalStateException("No owned result available");
         Object value=releaseRoot?ERASED:entry==null||entry.resultType==OBJ?result:externalScalar(scalarResult,entry.resultType);
         pendingOwnedResult=false; result=null; entry=null; releaseRoot=false; phase=IDLE;
