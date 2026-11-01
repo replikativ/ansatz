@@ -23,7 +23,7 @@
  :resources ["META-INF/ansatz-lean-jvm/runtime.edn"
              "META-INF/ansatz-lean-jvm/user-error.json"
              "META-INF/ansatz-lean-jvm/NOTICE"]
- :java {:path "../../experiments/lean-ir/research/java-ir-baseline/src/ansatz/research/ir/Interpreter.java"
+ :java {:path "engine/src/ansatz/research/ir/Interpreter.java"
         :class "ansatz.research.ir.Interpreter"
         :sha256 "c1e28e8a5b2350167bad2a61fd22b1efa81ad44918f1ccdd934be86bf5bf582f"}
  :java-api [{:path "ansatz/lean/jvm/LeanChoice.java" :class "ansatz.lean.jvm.LeanChoice" :sha256 "ce51cc7e5a8b82309945d3c20e44e84ad12fd3d40408b4651f563ce6ed1a0b14"}

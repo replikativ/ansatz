@@ -3,7 +3,7 @@
   (:require [clojure.edn :as edn] [clojure.java.io :as io] [clojure.string :as str])
   (:import [java.nio.file Files StandardOpenOption] [java.security MessageDigest]))
 
-(def engine-source "../../experiments/lean-ir/research/java-ir-baseline/src/ansatz/research/ir/Interpreter.java")
+(def engine-source "engine/src/ansatz/research/ir/Interpreter.java")
 (def runtime-resources ["META-INF/ansatz-lean-jvm/runtime.edn"
                         "META-INF/ansatz-lean-jvm/user-error.json"
                         "META-INF/ansatz-lean-jvm/NOTICE"])

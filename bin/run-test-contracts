@@ -56,7 +56,7 @@ javac -J-Xmx256m -source 11 -target 11 -d "$cold_check_classes" experiments/lean
 echo
 echo "Running bounded Java Lean interpreter baseline from an isolated jar"
 javac -J-Xmx256m --release 11 -g -d "$cold_check_classes/java-ir-baseline" \
-  experiments/lean-ir/research/java-ir-baseline/src/ansatz/research/ir/Interpreter.java
+  modules/lean-jvm/engine/src/ansatz/research/ir/Interpreter.java
 jar cf "$cold_check_classes/java-ir-baseline.jar" -C "$cold_check_classes/java-ir-baseline" .
 (
   cd experiments/lean-ir
