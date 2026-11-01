@@ -427,7 +427,7 @@ private def namedEvidence (env : Environment) (target action : Name) : IO Action
       !selected.params[0]!.borrow && boxedLane selected.params[0]!.ty && selected.resultType == .object do
     unsupported := unsupported.push "original-boxed-action-ABI-outside-profile"
   let some owner := origin env action | throw <| IO.userError "initializer action has no actual module origin"
-  return { evidence := Json.mkObj [
+  let evidence := Json.mkObj [
       ("kind", toJson "named-global"), ("targetCI", ← ciJson globalCI),
       ("actionCI", ← ciJson actionCI), ("ioPayloadTypeProof", proof),
       ("globalRaw", abiJson globalDecl), ("actionRaw", abiJson raw),
@@ -436,11 +436,14 @@ private def namedEvidence (env : Environment) (target action : Name) : IO Action
       ("javaTransactionRoute", Json.mkObj [("name", nameJson raw.name),
         ("world", toJson "canonical-erased-unit-zero"),
         ("relationship", toJson "original-raw-not-the-boxed-selection"),
-        ("boxedBridgeStructuralValidation", toJson "required-before-Java-activation")])],
-    roots := #[target, raw.name, selected.name],
-    origins := ({} : NameMap Name).insert selected.name owner,
-    forced := (({} : NameMap IR.Decl).insert target globalDecl).insert raw.name raw |>.insert selected.name selected,
-    unsupported }
+        ("boxedBridgeStructuralValidation", toJson "required-before-Java-activation")])]
+  return {
+    evidence := evidence
+    roots := #[target, raw.name, selected.name]
+    origins := ({} : NameMap Name).insert selected.name owner
+    forced := ((({} : NameMap IR.Decl).insert target globalDecl).insert raw.name raw).insert selected.name selected
+    unsupported := unsupported
+  }
 private def anonymousEvidence (env : Environment) (action : Name) : IO ActionEvidence := do
   let ci ← actualCI env action
   let proof ← ioTypeProof env ci (mkConst ``Unit)
@@ -449,12 +452,16 @@ private def anonymousEvidence (env : Environment) (action : Name) : IO ActionEvi
   let selected := boxed.getD raw
   checkedIO <| checkDecl selected
   let some owner := origin env action | throw <| IO.userError "anonymous action has no actual module origin"
-  return { evidence := Json.mkObj [("kind", toJson "anonymous-io-unit"),
+  let evidence := Json.mkObj [("kind", toJson "anonymous-io-unit"),
       ("actionCI", ← ciJson ci), ("ioPayloadTypeProof", proof),
-      ("actionRaw", abiJson raw), ("interpreterCallable", abiJson selected)],
-    roots := #[raw.name, selected.name], origins := ({} : NameMap Name).insert selected.name owner,
-    forced := (({} : NameMap IR.Decl).insert raw.name raw).insert selected.name selected,
-    unsupported := #["anonymous-regular-activation-not-supported-in-v1"] }
+      ("actionRaw", abiJson raw), ("interpreterCallable", abiJson selected)]
+  return {
+    evidence := evidence
+    roots := #[raw.name, selected.name]
+    origins := ({} : NameMap Name).insert selected.name owner
+    forced := (({} : NameMap IR.Decl).insert raw.name raw).insert selected.name selected
+    unsupported := #["anonymous-regular-activation-not-supported-in-v1"]
+  }
 
 private def userErrorEvidence (env : Environment) : IO ActionEvidence := do
   let n := ``IO.userError
@@ -469,14 +476,18 @@ private def userErrorEvidence (env : Environment) : IO ActionEvidence := do
   let raw ← originalDecl env n
   unless !raw.isExtern && raw.params.size == 1 && boxedLane raw.params[0]!.ty && boxedLane raw.resultType do
     throw <| IO.userError "IO.userError codec raw ABI differs"
-  return { evidence := Json.mkObj [("purpose", toJson "portable-entropy-io-error-user-error-codec"),
+  let evidence := Json.mkObj [("purpose", toJson "portable-entropy-io-error-user-error-codec"),
       ("name", nameJson n), ("CI", ← ciJson ci), ("raw", abiJson raw),
       ("typeProof", Json.mkObj [("algorithm", toJson "Lean.Meta.isDefEq"),
         ("transparency", toJson "default"), ("actualType", ← checkedIO <| encodeType actual),
         ("expectedType", ← checkedIO <| encodeType expected)]),
       ("notAnInitializerAction", toJson true),
-      ("consumerRawConstructorBodyCheck", toJson "required")],
-    roots := #[n], forced := ({} : NameMap IR.Decl).insert n raw }
+      ("consumerRawConstructorBodyCheck", toJson "required")]
+  return {
+    evidence := evidence
+    roots := #[n]
+    forced := ({} : NameMap IR.Decl).insert n raw
+  }
 
 private partial def checkModuleName : Name → Except String Unit
   | .anonymous => pure ()

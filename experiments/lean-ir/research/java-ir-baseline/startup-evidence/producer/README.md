@@ -163,3 +163,11 @@ actual diagnostics/provenance. Compile the pure selection model to verify the
 first-list/IR duplicate rule and all phase branches. Actual legacy/private
 imports yield source all-phase decisions; that is not a runtime-phase skip test.
 All fixture/build/output acceptance remains pending until those native gates run.
+
+The root attempted emission on initial source `0e3054ac…`: the 900 MiB supervised
+attempt stopped cleanly at sampled 921960 KiB without diagnostics; a separately
+admitted 1.3 GiB attempt exited1 with three record-layout parse errors. Current
+source separates JSON construction from uniformly indented record literals;
+no type/lookup/selection policy changed. The source manifest preserves the two
+negative receipt hashes. This correction still requires actual native compilation
+and fixture validation; neither attempt established accepted producer output.
