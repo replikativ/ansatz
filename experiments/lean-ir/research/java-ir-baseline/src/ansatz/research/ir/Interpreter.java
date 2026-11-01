@@ -9837,6 +9837,93 @@ public final class Interpreter implements AutoCloseable {
         if(closed||disposed||advancing||untrackedFailure||(phase!=IDLE&&phase!=HOST_CALL&&phase!=CODE_CALL)||(!explicit&&sp!=0))
             throw new IllegalStateException(operation+" requires an open idle, host-call or code-call boundary");
     }
+    /** A recipe reference, never an existing guest value or owner credit. */
+    public static final class DataRef {
+        public final int index;
+        public DataRef(int index) { this.index=index; }
+    }
+    /** Scalar-free constructor recipe. Caller arrays are snapshotted at construction time below. */
+    public static final class DataCtor {
+        private final int tag;
+        private final Object[] fields;
+        public DataCtor(int tag,Object[] fields) { this.tag=tag; this.fields=fields; }
+    }
+    private static final int MAX_DATA_OCCURRENCES=100_000,MAX_DATA_INTEGER_BITS=4_194_304,
+            MAX_DATA_STRING_UNITS=1_048_576;
+    private static void dataRequire(boolean condition,String message) {
+        if(!condition) throw new IllegalArgumentException(message);
+    }
+    private static void checkDataValue(Object value,int before,int[] owners,long[] budgets) {
+        dataRequire(++budgets[0]<=MAX_DATA_OCCURRENCES,"Managed data occurrence budget exceeded");
+        if(value!=null&&value.getClass()==DataRef.class) {
+            int index=((DataRef)value).index;
+            dataRequire(index>=0&&index<before,"Managed data references must select an earlier constructor");
+            dataRequire(++owners[index]==1,"Managed constructor requires exactly one owning occurrence");
+        } else if(value!=null&&value.getClass()==Long.class) {
+            budgets[1]+=64;
+        } else if(value!=null&&value.getClass()==BigInteger.class) {
+            BigInteger integer=(BigInteger)value;
+            dataRequire(integer.bitLength()<=4096,"Managed data integer exceeds leaf budget");
+            long bits=integer.abs().bitLength();
+            dataRequire(bits<=4096,"Managed data integer exceeds leaf budget"); budgets[1]+=bits;
+        } else if(value!=null&&value.getClass()==String.class) {
+            String text=(String)value;
+            dataRequire(text.length()<=65_536,"Managed data String exceeds leaf budget");
+            budgets[2]+=text.length();
+            dataRequire(budgets[2]<=MAX_DATA_STRING_UNITS,"Managed data String aggregate budget exceeded");
+            for(int i=0;i<text.length();i++) {
+                char c=text.charAt(i);
+                if(Character.isHighSurrogate(c)) {
+                    dataRequire(i+1<text.length()&&Character.isLowSurrogate(text.charAt(i+1)),
+                            "Managed data String has unpaired surrogate"); i++;
+                } else dataRequire(!Character.isLowSurrogate(c),"Managed data String has unpaired surrogate");
+            }
+        } else throw new IllegalArgumentException("Managed data accepts only exact immutable leaves or DataRef");
+        dataRequire(budgets[1]<=MAX_DATA_INTEGER_BITS,"Managed data integer aggregate budget exceeded");
+    }
+    private static Object dataValue(Object value,Node[] shells) {
+        return value instanceof DataRef?shells[((DataRef)value).index]:value;
+    }
+    /** Construct fresh managed argument trees, without importing a graph or changing code/globals.
+     * Every constructor has one incoming parent edge or argument-root occurrence; there is no INC.
+     * The returned roots transfer those fresh credits to the caller. Keep them in its pre-start
+     * journal until start adopts them; uncertain start failures require the reviewed abandonment path.
+     * Empty constructors are immediate Long tags, not recipes. Scalar/kind variants require a future
+     * explicit profile. Validation and all snapshots precede guest allocation; allocation failures
+     * leave only unpublished fresh Java heap, never a claim of guest RC unwinding.
+     */
+    public Object[] constructDataArguments(DataCtor[] constructors,Object[] roots) {
+        generationBoundary("Managed data construction");
+        if(!explicit||phase!=IDLE||taskRuntime!=null||pendingOwnedResult||sp!=0||jsp!=0||continuationDepth!=0
+                ||runtimeAction!=null||releaseTransaction!=null||releaseRoot||releasePending!=0||quietCurrent!=null
+                ||pendingInitializerGlobal!=null||initializerFailed||pendingEntropy!=null||hostRequest!=null||hostCompletion!=null||hostGuestRecord!=null||codeRequest!=null)
+            throw new IllegalStateException("Managed data construction requires an explicit idle task-free boundary");
+        dataRequire(constructors!=null&&roots!=null&&constructors.length<=MAX_DATA_OCCURRENCES
+                &&roots.length<=MAX_DATA_OCCURRENCES,"Managed data recipe/root extent exceeds profile");
+        DataCtor[] snapshot=constructors.clone(); Object[] rootSnapshot=roots.clone();
+        Object[][] fields=new Object[snapshot.length][]; int[] tags=new int[snapshot.length],owners=new int[snapshot.length];
+        long[] budgets=new long[3];
+        for(int i=0;i<snapshot.length;i++) {
+            DataCtor recipe=snapshot[i];
+            dataRequire(recipe!=null&&recipe.tag>=0&&recipe.tag<=243&&recipe.fields!=null
+                    &&recipe.fields.length>0&&recipe.fields.length<=MAX_DATA_OCCURRENCES,
+                    "Managed data requires a bounded nonempty scalar-free constructor");
+            dataRequire(budgets[0]+recipe.fields.length<=MAX_DATA_OCCURRENCES,"Managed data occurrence budget exceeded");
+            tags[i]=recipe.tag; fields[i]=recipe.fields.clone();
+            for(Object value:fields[i]) checkDataValue(value,i,owners,budgets);
+        }
+        for(Object value:rootSnapshot) checkDataValue(value,snapshot.length,owners,budgets);
+        for(int owner:owners) dataRequire(owner==1,"Managed constructor has no owning occurrence");
+        Object[] output=new Object[rootSnapshot.length]; Node[] shells=new Node[snapshot.length];
+        long nextAllocations=Math.addExact(allocations,snapshot.length);
+        for(int i=0;i<shells.length;i++) shells[i]=new Node(tags[i],fields[i].length,0);
+        // Only bounded private field wiring remains; no allocations, RC operations or caller-owned arrays.
+        for(int i=0;i<shells.length;i++)
+            for(int j=0;j<fields[i].length;j++) shells[i].fields[j]=dataValue(fields[i][j],shells);
+        for(int i=0;i<output.length;i++) output[i]=dataValue(rootSnapshot[i],shells);
+        allocations=nextAllocations; return output;
+    }
+
     /** Install only an actual descendant. Preserve all initialized cache owners
      * and readiness; new slots start unready. Both arrays are allocated before
      * the thread-confined publication, with no guest calls or initializer replay. */
