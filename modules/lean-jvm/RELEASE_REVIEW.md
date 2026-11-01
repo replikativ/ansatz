@@ -86,3 +86,19 @@ experiment tree is gone, and closed probe implementations were retired.
    `0.2.578` version or a candidate test JAR. Retain exact CI JAR/POM receipts.
 
 This sequence is prepared for review. Passing checks does not authorize steps 3–5.
+
+## Prelanding follow-up validation (2026-11-01)
+
+The current candidate passes 143 packaged-JAR model tests with 833 assertions,
+all three Java application-JAR consumers, and an actual two-file project with
+35 selected exports through both public preparation APIs: 48 checks using a
+192 MiB Java heap. Preparation leaves the JVM execution namespaces unloaded;
+subsequent artifact loading and function calls exercise the actual engine.
+The Java CLI also prepares an artifact with only the SDK and its four ordinary
+runtime JARs and refuses an existing destination.
+
+The exact candidate JAR and regenerated producer archive are recorded in
+[release-candidate.json](release-candidate.json). Prior broad engine/native-oracle,
+warning/edit source and research receipts remain separately labeled there;
+they were not all rerun for this follow-up. Engine sources, core kernel and
+stores are unchanged. Eight current guides passed their local-link audit.

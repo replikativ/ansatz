@@ -4,108 +4,74 @@
   "merged": false,
   "published": false,
   "upstreamMain": "7e6d8c309757283eaef6b91ec7f848d948207460",
-  "implementationCommit": "ccccd34853baba5f0f5102ec2d972571d1b01c49",
-  "candidateVersion": "0.2.607",
+  "implementationCommit": "635bef35ef2be7132b968398dfee3e40aa88d749",
+  "candidateVersion": "0.2.608",
   "candidateVersionIsUnpublishedTestBuild": true,
   "releaseVersion": "computed by landing CI",
   "candidateJar": {
-    "bytes": 415951,
-    "sha256": "b369cad2713e4fda225aafe19e48def6211c73def4fddbbac6ac111b88a0293f",
+    "bytes": 423884,
+    "sha256": "1a446df98c753b66e50661c5200d902afd89bb5956a04a8f283aa5571dd3d070",
     "javaRelease": 17,
-    "runtimeSourceCount": 21,
+    "runtimeSourceCount": 22,
     "engineSourceSHA256": "79c09ff073b8be8bc8b32b2655dd55eacb1a9af6ab55e1fb5daad36dc9853a86",
     "engineClosureSHA256": "a75cd86ee3d1568ca9ecc2023ebacd4ef5f21b3ae2e4d5f10edf1b6508b2b75b",
-    "pomSHA256": "ab25b599b9eeec9b928f09f6caa8eb407e358bc6b84e0d4547c5df61eeb611d1"
+    "pomSHA256": "6883576b58a7e3ad49a43e287eba0bfb9765cd3d6f6d083ebd4d4ecead598dae"
   },
   "packagedJARModels": {
-    "tests": 124,
-    "assertions": 733,
+    "tests": 143,
+    "assertions": 833,
     "passed": true,
     "heapMiB": 384
   },
   "applicationJARConsumers": {
-    "legacy": "PASS typed/general calls, exact Nat/String, repeated main, rejections, thread handoff, close",
+    "legacy": {
+      "passed": true,
+      "applicationJarSHA256": "72dfe4447c8deb8c12f7aad6718419c6a44493eb10c95906a4d704207f23c798"
+    },
     "common": {
-      "checks": 31,
-      "passed": true
+      "passed": true,
+      "applicationJarSHA256": "00804245f68d0e31c0ed53c9951c93ed89baaa540ae6b9fa68bd58a3e6dc1abf"
     },
     "scalar": {
-      "checks": 31,
-      "passed": true
+      "passed": true,
+      "applicationJarSHA256": "f6635648db20483525a142b541c37f31bbef0881374ff39cd401155234a7f912"
     },
     "sameCandidateJar": true,
     "nativeToolchainAtRuntime": false
   },
   "sourceAcceptance": {
-    "schema": "ansatz-lean-jvm-source-acceptance/1",
-    "checks": 35,
-    "timings-ms": {
-      "common-cold": 8388.515407,
-      "common-warm": 5625.355204,
-      "reload": 5966.941953,
-      "artifact-load": 132.725349,
-      "scalar-cold": 6239.771464
-    },
-    "module-cache-observations": [
-      {
-        "cache-key": "c7a991c5b5716a4dec12bae727a7a426884694a908f52b54a17d949d142a1624",
-        "cache-hit": false
-      },
-      {
-        "cache-key": "c7a991c5b5716a4dec12bae727a7a426884694a908f52b54a17d949d142a1624",
-        "cache-hit": true
-      },
-      {
-        "cache-key": "660c4ca18dec27435b361d0c0d13d2ca52085528ab709dd176e189c980646e7e",
-        "cache-hit": false
-      },
-      {
-        "cache-key": "24395196de0e9a3563db9024b8fff57d98780f32b4811c87d4a613735ba49296",
-        "cache-hit": false
-      },
-      {
-        "cache-key": "1ca6ae3a049c9b3ccaa8d3b74702004673b146e88697c2dd89dd5a96fb11ecd6",
-        "cache-hit": false
-      },
-      {
-        "cache-key": "1ca6ae3a049c9b3ccaa8d3b74702004673b146e88697c2dd89dd5a96fb11ecd6",
-        "cache-hit": true
-      },
-      {
-        "cache-key": "62022e54f9e25e074ab6271d622969956ed93c5bd0e4e9c8f26fbfbf035dad06",
-        "cache-hit": false
-      },
-      {
-        "cache-key": "8d63e92982cbf3f993e8d0339284dce784c60ab0505003c48943396eef733d16",
-        "cache-hit": false
-      },
-      {
-        "cache-key": "67c636b5b075b851ee3002a241ddcf73246a4d82afd463f3d3c6a68dc705f212",
-        "cache-hit": false
-      }
-    ],
-    "sdk-resource-protocol": "jar",
-    "runtime-heap-mib": 512,
-    "scope": "Actual public source cold/cache/edit/reload/artifact, common/scalar values, warnings, errors, capability and type refusal",
-    "passed": true,
-    "sameCandidateJarSHA256": "b369cad2713e4fda225aafe19e48def6211c73def4fddbbac6ac111b88a0293f"
+    "status": "pass",
+    "checks": 48,
+    "selectedEntries": 35,
+    "manifestSHA256": "9e59464df628d2baa3b164e8410834888f8e05f9b1e23af220bf75cd9af73b0e",
+    "archiveSHA256": "18f9ad0a92b36bf8933be2d76f56fbadc034b22e473e3e1a057873041d49e121",
+    "scope": "Java and Clojure preparation of a two-file project,35 selected entries,32 arithmetic calls,nested mixed carriers,IO and portable artifact reload; no JVM execution namespaces during Java preparation",
+    "heapMiB": 192,
+    "ordinaryRuntimeDependencyJars": 4,
+    "sameCandidateJarSHA256": "1a446df98c753b66e50661c5200d902afd89bb5956a04a8f283aa5571dd3d070",
+    "passed": true
   },
   "actualJVMChecks": {
     "resourceLimits": 41,
     "managedOwnership": 176,
     "managedScalarBuffer": 102,
     "passed": true,
-    "statelessScalarUtf8": 3918
+    "statelessScalarUtf8": 3918,
+    "carriedForwardFromPriorCandidateJarSHA256": "b369cad2713e4fda225aafe19e48def6211c73def4fddbbac6ac111b88a0293f",
+    "engineSourceClosureUnchanged": true
   },
   "archiveChecks": {
     "actualJARAudit": true,
-    "rejectionCases": 11,
-    "passed": true
+    "passed": true,
+    "previousNegativeArchiveCases": 11,
+    "negativeArchiveGateRerun": false,
+    "priorCandidateJarSHA256": "b369cad2713e4fda225aafe19e48def6211c73def4fddbbac6ac111b88a0293f"
   },
   "nativeOracle": {
     "mode": "official Lean --run",
     "passed": true,
-    "scope": "scalar/array/bytes/choice results"
+    "scope": "scalar/array/bytes/choice results",
+    "carriedForwardFromPriorCandidateJarSHA256": "b369cad2713e4fda225aafe19e48def6211c73def4fddbbac6ac111b88a0293f"
   },
   "producerArchive": {
     "schema": "ansatz-native-producer-archive-candidate/1",
@@ -121,11 +87,13 @@
     "documentation": "Sol read-only review; candidate visibility and execution-failure timing clarified",
     "relativeLinks": "PASS nine affected guides",
     "sourceClosure": "Sol review fixed self-inventoried class/source additions; reviewed external engine closure and primary source pin required",
-    "consolidation": "Sol agents implemented producer/research migrations and helper extraction; independent source-closure review finding fixed; original historical bytes independently verified from Git."
+    "consolidation": "Sol agents implemented producer/research migrations and helper extraction; independent source-closure review finding fixed; original historical bytes independently verified from Git.",
+    "prelandingFollowUp": "Sol review: no remaining correctness blockers; hashes,source custody,cleanup,limits and documentation links checked"
   },
   "notRun": [
     "Full core/kernel/mathlib verification was not repeated; kernel/store implementation is unchanged.",
-    "Other JVM platforms were not acceptance-tested."
+    "Other JVM platforms were not acceptance-tested.",
+    "Broad engine/research/native-oracle and legacy warning/edit source gates not repeated for this follow-up; exact prior candidate receipts retained and engine sources unchanged."
   ],
   "publicationGate": "User scope/docs/landing discussion required before merge or publish",
   "consolidation": {
@@ -160,5 +128,133 @@
     "coreJavaSourcesCompiled": 23,
     "publicAPIBehaviorChanged": false,
     "decompositionScope": "Central state/identity/ownership remains in Interpreter; stateless ScalarBits and Utf8Bytes extracted as package-private helpers."
-  }
+  },
+  "previousCandidateValidation": {
+    "candidateVersion": "0.2.607",
+    "candidateJar": {
+      "bytes": 415951,
+      "sha256": "b369cad2713e4fda225aafe19e48def6211c73def4fddbbac6ac111b88a0293f",
+      "javaRelease": 17,
+      "runtimeSourceCount": 21,
+      "engineSourceSHA256": "79c09ff073b8be8bc8b32b2655dd55eacb1a9af6ab55e1fb5daad36dc9853a86",
+      "engineClosureSHA256": "a75cd86ee3d1568ca9ecc2023ebacd4ef5f21b3ae2e4d5f10edf1b6508b2b75b",
+      "pomSHA256": "ab25b599b9eeec9b928f09f6caa8eb407e358bc6b84e0d4547c5df61eeb611d1"
+    },
+    "packagedJARModels": {
+      "tests": 124,
+      "assertions": 733,
+      "passed": true,
+      "heapMiB": 384
+    },
+    "applicationJARConsumers": {
+      "legacy": "PASS typed/general calls, exact Nat/String, repeated main, rejections, thread handoff, close",
+      "common": {
+        "checks": 31,
+        "passed": true
+      },
+      "scalar": {
+        "checks": 31,
+        "passed": true
+      },
+      "sameCandidateJar": true,
+      "nativeToolchainAtRuntime": false
+    },
+    "sourceAcceptance": {
+      "schema": "ansatz-lean-jvm-source-acceptance/1",
+      "checks": 35,
+      "timings-ms": {
+        "common-cold": 8388.515407,
+        "common-warm": 5625.355204,
+        "reload": 5966.941953,
+        "artifact-load": 132.725349,
+        "scalar-cold": 6239.771464
+      },
+      "module-cache-observations": [
+        {
+          "cache-key": "c7a991c5b5716a4dec12bae727a7a426884694a908f52b54a17d949d142a1624",
+          "cache-hit": false
+        },
+        {
+          "cache-key": "c7a991c5b5716a4dec12bae727a7a426884694a908f52b54a17d949d142a1624",
+          "cache-hit": true
+        },
+        {
+          "cache-key": "660c4ca18dec27435b361d0c0d13d2ca52085528ab709dd176e189c980646e7e",
+          "cache-hit": false
+        },
+        {
+          "cache-key": "24395196de0e9a3563db9024b8fff57d98780f32b4811c87d4a613735ba49296",
+          "cache-hit": false
+        },
+        {
+          "cache-key": "1ca6ae3a049c9b3ccaa8d3b74702004673b146e88697c2dd89dd5a96fb11ecd6",
+          "cache-hit": false
+        },
+        {
+          "cache-key": "1ca6ae3a049c9b3ccaa8d3b74702004673b146e88697c2dd89dd5a96fb11ecd6",
+          "cache-hit": true
+        },
+        {
+          "cache-key": "62022e54f9e25e074ab6271d622969956ed93c5bd0e4e9c8f26fbfbf035dad06",
+          "cache-hit": false
+        },
+        {
+          "cache-key": "8d63e92982cbf3f993e8d0339284dce784c60ab0505003c48943396eef733d16",
+          "cache-hit": false
+        },
+        {
+          "cache-key": "67c636b5b075b851ee3002a241ddcf73246a4d82afd463f3d3c6a68dc705f212",
+          "cache-hit": false
+        }
+      ],
+      "sdk-resource-protocol": "jar",
+      "runtime-heap-mib": 512,
+      "scope": "Actual public source cold/cache/edit/reload/artifact, common/scalar values, warnings, errors, capability and type refusal",
+      "passed": true,
+      "sameCandidateJarSHA256": "b369cad2713e4fda225aafe19e48def6211c73def4fddbbac6ac111b88a0293f"
+    },
+    "actualJVMChecks": {
+      "resourceLimits": 41,
+      "managedOwnership": 176,
+      "managedScalarBuffer": 102,
+      "passed": true,
+      "statelessScalarUtf8": 3918
+    },
+    "archiveChecks": {
+      "actualJARAudit": true,
+      "rejectionCases": 11,
+      "passed": true
+    },
+    "nativeOracle": {
+      "mode": "official Lean --run",
+      "passed": true,
+      "scope": "scalar/array/bytes/choice results"
+    }
+  },
+  "publicPreparation": {
+    "javaAPI": "LeanPreparation.prepareProject",
+    "clojureAPI": "ansatz.lean.jvm/prepare-project",
+    "javaCLI": "ansatz.lean.jvm.LeanPreparation",
+    "models": {
+      "tests": 11,
+      "assertions": 58,
+      "passed": true
+    },
+    "cliHelpPassed": true,
+    "cliPreparation": {
+      "passed": true,
+      "descriptor": {
+        "manifest-sha256": "37e837a0d37f0be08258491a7ef51b019516afaf561279daa56a4080491005b1",
+        "archive-sha256": "a83338ab733e943d1b49e505a656be7aff68ddedb4d43bf8469f1d084b6cc349"
+      },
+      "outputBytes": 82459,
+      "ordinaryRuntimeJars": 4,
+      "heapMiB": 192,
+      "jvmOnlyArtifactCalls": 2,
+      "artifactCallsPassed": true
+    },
+    "noOverwriteRefusalPassed": true
+  },
+  "selectedEntryResourceBound": 1024,
+  "maximumExplicitArity": 64
 }

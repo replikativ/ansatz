@@ -237,3 +237,12 @@ A genuine project with more than 16 selected functions must pass preparation,
 artifact loading and calls against the built SDK JAR. Keep this separate from
 builder boundary tests and from claims that every 1,024-entry project fits the
 other resource budgets.
+
+The follow-up is implemented on the release branch. Validation passed against the
+built SDK: 143 tests/833 assertions, three Java application-JAR consumers, a
+35-export two-file preparation/artifact/call gate (48 checks, 192 MiB heap), and
+actual Java CLI preparation, no-overwrite refusal and JVM-only calls into its
+artifact. Producer archive inventory and current Java source pins were audited.
+The release record preserves prior broad validation separately. Final Sol review
+found no remaining correctness blocker. Publication and merge remain gated by the
+user's release discussion; the original frontend-hosting agenda is unchanged.
