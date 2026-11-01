@@ -53,3 +53,16 @@ These guards are not a global heap or runtime proof. Existing array/byte-array,
 String.pushn/set, expression and other intrinsic profile limits remain separate
 and require their existing cohort tests. Native comparison establishes admitted
 values, not worst-case allocation or preemption behavior.
+
+Additional growth audit closes Nat addition, signed Int add/sub/negative-successor,
+signed negate/absolute-value allocation, safe String next-position arithmetic and
+both String replacement paths. Sum preflight allows one result carry bit before
+math and conservatively accounts for a negative BigInteger's magnitude using
+bitLength+1 without allocating abs/negate merely to inspect it. Zero identities
+and exact self-subtraction retain nonallocating paths. Conservative refusal can
+occur for a cap-sized operand even if cancellation would make a small result.
+String replacement preflights encoded source bytes minus old scalar width plus
+new scalar width before concatenation. String.ofList is already bounded by the
+existing one-million-element traversal ceiling (at most four million UTF-8 bytes),
+and array factories retain their one-million-capacity ceiling. These are bounds
+on individual operations, not a bound on total live guest graph storage.

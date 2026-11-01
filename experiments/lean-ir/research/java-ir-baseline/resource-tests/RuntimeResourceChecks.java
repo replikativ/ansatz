@@ -13,12 +13,15 @@ public final class RuntimeResourceChecks {
         catch(InvocationTargetException e) { if(e.getCause() instanceof Exception) throw (Exception)e.getCause(); throw e; }
     }
     static void stringPrimitive(Interpreter e,int operation,Object left,Object right) throws Exception {
+        stringPrimitive(e,operation,left,right,0L);
+    }
+    static void stringPrimitive(Interpreter e,int operation,Object left,Object right,Object third) throws Exception {
         Class<?> function=Class.forName("ansatz.research.ir.Interpreter$Function");
         Constructor<?> constructor=function.getDeclaredConstructor(String.class,int.class,int[].class,
             int[].class,int.class,int.class,Class.forName("ansatz.research.ir.Interpreter$HostExtern"),Object.class);
         constructor.setAccessible(true);
         Object f=constructor.newInstance("resource-check",-1,new int[0],new int[0],0,operation,null,null);
-        invoke(e,"runtimeIntrinsic",new Class<?>[]{function,Object.class,Object.class,Object.class},f,left,right,0L);
+        invoke(e,"runtimeIntrinsic",new Class<?>[]{function,Object.class,Object.class,Object.class},f,left,right,third);
     }
     static final Class<?>[] NATS={BigInteger.class,BigInteger.class};
     static final Class<?>[] TEXT={Object.class};
@@ -47,6 +50,18 @@ public final class RuntimeResourceChecks {
         try { invoke(e,"natPow",NATS,one,one.shiftLeft(32)); throw new AssertionError(); }
         catch(RuntimeException expected) { check(expected.getMessage().contains("exponent is too big")); }
         limited(()->invoke(e,"natPow",NATS,two,maxExponent),"ResourceLimit");
+        int bitCap=16*1024*1024;
+        BigInteger boundaryOperand=one.shiftLeft(bitCap-2);
+        Class<?>[] addTypes={BigInteger.class,BigInteger.class,boolean.class};
+        check(invoke(e,"boundedAdd",addTypes,boundaryOperand,boundaryOperand,false).equals(one.shiftLeft(bitCap-1)));
+        BigInteger capOperand=one.shiftLeft(bitCap-1);
+        limited(()->invoke(e,"boundedAdd",addTypes,capOperand,one,false),"ResourceLimit");
+        check(invoke(e,"boundedAdd",addTypes,capOperand,BigInteger.ZERO,false)==capOperand);
+        check(invoke(e,"boundedAdd",addTypes,capOperand,capOperand,true).equals(BigInteger.ZERO));
+        BigInteger negative=one.shiftLeft(bitCap-3).negate();
+        check(invoke(e,"boundedAdd",addTypes,negative,negative,false).equals(one.shiftLeft(bitCap-2).negate()));
+        check(invoke(e,"magnitudeBits",new Class<?>[]{BigInteger.class},BigInteger.valueOf(-8)).equals(4L));
+        limited(()->invoke(e,"boundedAdd",addTypes,capOperand.negate(),one,true),"ResourceLimit");
         Method estimate=Interpreter.class.getDeclaredMethod("natMultiplyEstimate",long.class,long.class);
         estimate.setAccessible(true);
         check(estimate.invoke(null,1L<<20,1L<<20).equals(1L<<40));
@@ -76,6 +91,14 @@ public final class RuntimeResourceChecks {
         limited(()->stringPrimitive(e,19,full,"x"),"ResourceLimit");
         limited(()->stringPrimitive(e,15,full,0x1f600L),"ResourceLimit");
         stringPrimitive(e,15,repeated(cap-4),0x1f600L);
+        check(((String)result.get(e)).getBytes(java.nio.charset.StandardCharsets.UTF_8).length==cap);
+        result.set(e,null);
+        Class<?>[] replacementTypes={int.class,int.class,int.class};
+        invoke(e,"stringReplacementExtent",replacementTypes,cap,4,0x1f600);
+        limited(()->invoke(e,"stringReplacementExtent",replacementTypes,cap,1,0x1f600),"ResourceLimit");
+        invoke(e,"stringReplacementExtent",replacementTypes,cap-3,1,0x1f600);
+        limited(()->stringPrimitive(e,56,full,0L,0x1f600L),"ResourceLimit");
+        stringPrimitive(e,56,repeated(cap-3),0L,0x1f600L);
         check(((String)result.get(e)).getBytes(java.nio.charset.StandardCharsets.UTF_8).length==cap);
         result.set(e,null);
         limited(()->invoke(e,"utf8",TEXT,full+"x"),"ResourceLimit");

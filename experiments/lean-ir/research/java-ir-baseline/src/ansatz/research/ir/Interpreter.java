@@ -7936,7 +7936,7 @@ public final class Interpreter implements AutoCloseable {
             if(position.compareTo(BigInteger.valueOf(length))<0) {
                 int p=position.intValue(); width=leadingByte(bytes[p])?utf8Width(bytes[p]):1;
             }
-            result=normalize(position.add(BigInteger.valueOf(width))); return;
+            result=normalize(boundedAdd(position,BigInteger.valueOf(width),false)); return;
         }
         if(f.intrinsic==STR_PREV) {
             if(position.signum()==0) { result=ERASED; return; }
@@ -7969,6 +7969,7 @@ public final class Interpreter implements AutoCloseable {
             int replacement=codePoint(c);
             if(!inRange||!leadingByte(bytes[position.intValue()])) { result=a; return; }
             int p=position.intValue(),width=utf8Width(bytes[p]);
+            stringReplacementExtent(length,width,replacement);
             result=new String(bytes,0,p,StandardCharsets.UTF_8)+new String(Character.toChars(replacement))
                     +new String(bytes,p+width,length-p-width,StandardCharsets.UTF_8); return;
         }
@@ -7997,15 +7998,18 @@ public final class Interpreter implements AutoCloseable {
     /** Modern proof-carrying Pos is an erased wrapper around a Nat byte offset.
      * Unlike legacy Raw.set, this exact ABI owns its position and proves non-end.
      * Java String is immutable, so native in-place ASCII identity is not claimed. */
+    private static void stringReplacementExtent(int bytes,int oldWidth,int cp) {
+        int newWidth=cp<128?1:cp<2048?2:cp<65536?3:4;
+        resource((long)bytes-oldWidth+newWidth<=MAX_STRING_OUTPUT_BYTES,
+                "String.set output outside bounded runtime profile");
+    }
     private void stringPosSet(Object source,Object position,Object replacement,Object proof) {
         require(ERASED.equals(proof),"String.Pos.set proof requires erased placeholder");
         byte[] bytes=utf8(source); BigInteger offset=nat(position); int cp=codePoint(replacement);
         require(offset.compareTo(BigInteger.valueOf(bytes.length))<0,"String.Pos.set requires a non-end position");
         int p=offset.intValue();
         require(leadingByte(bytes[p]),"String.Pos.set requires a valid UTF-8 scalar position");
-        int oldWidth=utf8Width(bytes[p]); int newWidth=cp<128?1:cp<2048?2:cp<65536?3:4;
-        require((long)bytes.length-oldWidth+newWidth<=MAX_STRING_OUTPUT_BYTES,
-                "String.Pos.set output outside bounded runtime profile");
+        int oldWidth=utf8Width(bytes[p]); stringReplacementExtent(bytes.length,oldWidth,cp);
         String changed=new String(bytes,0,p,StandardCharsets.UTF_8)+new String(Character.toChars(cp))
                 +new String(bytes,p+oldWidth,bytes.length-p-oldWidth,StandardCharsets.UTF_8);
         result=changed; releaseQuiet(source,1); releaseQuiet(position,1);
@@ -8114,14 +8118,14 @@ public final class Interpreter implements AutoCloseable {
             }
         }
         if(f.intrinsic==INT_OF_NAT) { result=normalizeSigned(nat(a)); return; }
-        if(f.intrinsic==INT_NEG_SUCC) { result=normalizeSigned(nat(a).add(BigInteger.ONE).negate()); return; }
+        if(f.intrinsic==INT_NEG_SUCC) { result=normalizeSigned(boundedAdd(nat(a),BigInteger.ONE,false).negate()); return; }
         BigInteger x=signedInteger(a);
-        if(f.intrinsic==INT_NEG) { result=normalizeSigned(x.negate()); return; }
-        if(f.intrinsic==INT_ABS) { result=normalize(x.abs()); return; }
+        if(f.intrinsic==INT_NEG) { boundedMagnitude(x); result=normalizeSigned(x.negate()); return; }
+        if(f.intrinsic==INT_ABS) { boundedMagnitude(x); result=normalize(x.abs()); return; }
         BigInteger y=signedInteger(b);
         switch(f.intrinsic) {
-            case INT_ADD: result=normalizeSigned(x.add(y)); return;
-            case INT_SUB: result=normalizeSigned(x.subtract(y)); return;
+            case INT_ADD: result=normalizeSigned(boundedAdd(x,y,false)); return;
+            case INT_SUB: result=normalizeSigned(boundedAdd(x,y,true)); return;
             case INT_EQ: scalarResult=x.equals(y)?1:0; return;
             case INT_LT: scalarResult=x.compareTo(y)<0?1:0; return;
             case INT_LE: scalarResult=x.compareTo(y)<=0?1:0; return;
@@ -9495,6 +9499,22 @@ public final class Interpreter implements AutoCloseable {
             default: throw error("Invalid scalar intrinsic");
         }
     }
+    // Negative BigInteger.bitLength omits the sign extension; +1 safely bounds
+    // absolute magnitude without allocating abs()/negate() just to inspect it.
+    private static long magnitudeBits(BigInteger value) {
+        return (long)value.bitLength()+(value.signum()<0?1:0);
+    }
+    private static void boundedMagnitude(BigInteger value) {
+        resource(magnitudeBits(value)<=MAX_NAT_RESULT_BITS,"Integer magnitude outside bounded runtime bit limit");
+    }
+    private static BigInteger boundedAdd(BigInteger left,BigInteger right,boolean subtract) {
+        if(right.signum()==0) return left;
+        if(!subtract&&left.signum()==0) return right;
+        if(subtract&&left.equals(right)) return BigInteger.ZERO;
+        long bits=Math.max(magnitudeBits(left),magnitudeBits(right));
+        resource(bits<MAX_NAT_RESULT_BITS,"Integer sum outside bounded runtime bit limit");
+        return subtract?left.subtract(right):left.add(right);
+    }
     private static long natMultiplyEstimate(long left,long right) {
         resource(left>=0&&right>=0&&left<=MAX_NAT_RESULT_BITS&&right<=MAX_NAT_RESULT_BITS
                 &&left+right<=MAX_NAT_RESULT_BITS,"Nat product outside bounded runtime bit limit");
@@ -9571,7 +9591,7 @@ public final class Interpreter implements AutoCloseable {
         } else {
             BigInteger x=nat(a),y=nat(b);
             switch(f.intrinsic) {
-                case ADD: result=normalize(x.add(y)); break;
+                case ADD: result=normalize(boundedAdd(x,y,false)); break;
                 case SUB: result=normalize(x.compareTo(y)<0?BigInteger.ZERO:x.subtract(y)); break;
                 case MOD: result=normalize(y.signum()==0?x:x.remainder(y)); break;
                 case MUL: result=normalize(natMultiply(x,y)); break;
