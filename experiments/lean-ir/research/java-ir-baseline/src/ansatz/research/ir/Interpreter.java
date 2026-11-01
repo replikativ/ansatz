@@ -17,6 +17,8 @@ import java.lang.ref.WeakReference;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
 import java.util.concurrent.atomic.AtomicLong;
+import java.security.SecureRandom;
+import java.security.ProviderException;
 
 public final class Interpreter implements AutoCloseable {
     private static final int OBJ=0, U8=1, U32=2, USIZE=3, U64=4, F64=5, U16=6, F32=7;
@@ -60,6 +62,7 @@ public final class Interpreter implements AutoCloseable {
     private static final int U8_TO_U64=513,U32_TO_U64=514,USIZE_TO_U64=515;
     private static final int BYTE_MK=200,BYTE_GET=201,BYTE_SIZE=202,BYTE_PUSH=203;
     private static final int BYTE_GET_DEFAULT=557;
+    private static final int IO_RANDOM_BYTES=558;
     private static final int INT_OF_NAT=210,INT_NEG_SUCC=211,INT_NEG=212,INT_ABS=213,INT_ADD=214,INT_SUB=215,INT_EQ=216,INT_LT=217,INT_LE=218;
     private static final int STR_MEMCMP=230,STR_SUBSTRING_EQ=231,STR_POS_OF=232,STR_OFFSET_OF_POS=233,STR_PUSHN=234;
     private static final int MAX_STRING_OUTPUT_BYTES=16*1024*1024;
@@ -587,6 +590,8 @@ public final class Interpreter implements AutoCloseable {
                 new String[]{"object","tobject","erased"},new boolean[]{true,true,false}));
         register(registry,new ExternSpec("lean_byte_array_get",BYTE_GET_DEFAULT,"uint8",
                 new String[]{"object","tobject"},new boolean[]{true,true}));
+        register(registry,new ExternSpec("lean_io_get_random_bytes",IO_RANDOM_BYTES,"object",
+                new String[]{"usize","void"},new boolean[]{false,false}));
         register(registry,new ExternSpec("lean_byte_array_size",BYTE_SIZE,"tagged",
                 new String[]{"object"},new boolean[]{true}));
         register(registry,new ExternSpec("lean_byte_array_push",BYTE_PUSH,"object",
@@ -4588,6 +4593,199 @@ public final class Interpreter implements AutoCloseable {
     private Map<Integer,PreparedGlobalSource> preparedGlobalSources=Collections.emptyMap();
     private boolean closed;
     private boolean untrackedFailure;
+    private boolean everStarted;
+    private EntropyCapability entropyCapability;
+    private Header entropyHeader,entropyErrorHeader;
+    private EntropyAttempt pendingEntropy;
+    private long entropyCalls,entropyBytes;
+    // Private deterministic-capability fault injection, never a production option.
+    private int entropyTestFault;
+    /** External service shared by idle forks; no guest heap or engine backedge. */
+    public static final class EntropyCapability {
+        private interface Source { void fill(byte[] bytes); }
+        private final Source source;
+        private final String profile,algorithm,provider;
+        private final int maximumBytes,patternSize;
+        private final AtomicLong draws=new AtomicLong();
+        private EntropyCapability(Source source,String profile,String algorithm,String provider,int maximumBytes,int patternSize) {
+            require(maximumBytes>=0&&maximumBytes<=MAX_BYTE_CAPACITY,"Entropy bound outside ByteArray profile");
+            this.source=source; this.profile=profile; this.algorithm=algorithm; this.provider=provider;
+            this.maximumBytes=maximumBytes; this.patternSize=patternSize;
+        }
+        public static EntropyCapability secureRandom(String algorithm,String provider,int maximumBytes)
+                throws java.security.NoSuchAlgorithmException,java.security.NoSuchProviderException {
+            require(algorithm!=null&&!algorithm.isEmpty()&&algorithm.length()<=128&&provider!=null&&provider.length()<=128,
+                    "Explicit bounded JDK entropy algorithm/provider required");
+            require(maximumBytes>=0&&maximumBytes<=MAX_BYTE_CAPACITY,"Entropy bound outside ByteArray profile");
+            SecureRandom random=provider.isEmpty()?SecureRandom.getInstance(algorithm):SecureRandom.getInstance(algorithm,provider);
+            return new EntropyCapability(random::nextBytes,"portable-jdk-entropy/1",random.getAlgorithm(),
+                    random.getProvider().getName()+"/"+random.getProvider().getVersionStr(),maximumBytes,-1);
+        }
+        public static EntropyCapability deterministicForTesting(byte[] pattern,int maximumBytes) {
+            require(pattern!=null&&pattern.length<=MAX_BYTE_CAPACITY,"Bounded deterministic test pattern required");
+            byte[] frozen=pattern.clone();
+            return new EntropyCapability(bytes->System.arraycopy(frozen,0,bytes,0,frozen.length),
+                    "deterministic-entropy-test-only/1","fixed-pattern","test-only",maximumBytes,frozen.length);
+        }
+        public static EntropyCapability failureForTesting(String kind,String message,int maximumBytes) {
+            require(kind!=null&&Set.of("provider","runtime","vm","interrupt").contains(kind),"Unknown entropy test failure");
+            require(message!=null&&message.length()<=4096,"Bounded entropy test message required");
+            return new EntropyCapability(bytes->{
+                if(kind.equals("runtime")) throw new IllegalStateException(message);
+                if(kind.equals("vm")) throw new InternalError(message);
+                if(kind.equals("interrupt")) Thread.currentThread().interrupt();
+                throw new ProviderException(message);
+            },"failing-entropy-test-only/1","fault","test-only",maximumBytes,-1);
+        }
+        public String profile() { return profile; }
+        public String algorithm() { return algorithm; }
+        public String provider() { return provider; }
+        public int maximumBytes() { return maximumBytes; }
+        public long draws() { return draws.get(); }
+        private void fill(byte[] bytes) {
+            long count;
+            do { count=draws.get(); require(count<Long.MAX_VALUE,"Entropy service counter overflow"); }
+            while(!draws.compareAndSet(count,count+1));
+            source.fill(bytes);
+        }
+    }
+    private static final class EntropyAttempt {
+        int stage,size;
+        Thread thread;
+        boolean effectEntered,effectReturned,bytesOwned,successOwned,errorValueOwned,errorOwned,successReleaseStarted,deliveryStarted,delivered;
+        byte[] host;
+        Node bytes,success,errorValue,error;
+    }
+    /** No ownership transferred: diagnostic scalar snapshot only. */
+    public Map<String,Object> entropyStatus() {
+        Map<String,Object> out=new LinkedHashMap<>();
+        out.put("configured",entropyCapability!=null); out.put("calls",entropyCalls); out.put("bytesRequested",entropyBytes);
+        if(entropyCapability!=null) {
+            out.put("profile",entropyCapability.profile); out.put("algorithm",entropyCapability.algorithm);
+            out.put("provider",entropyCapability.provider); out.put("maximumBytes",entropyCapability.maximumBytes);
+        }
+        EntropyAttempt attempt=pendingEntropy;
+        if(attempt!=null) {
+            out.put("stage",attempt.stage); out.put("size",attempt.size); out.put("effectEntered",attempt.effectEntered);
+            out.put("effectReturned",attempt.effectReturned); out.put("bytesOwned",attempt.bytesOwned);
+            out.put("successOwned",attempt.successOwned); out.put("errorValueOwned",attempt.errorValueOwned);
+            out.put("errorOwned",attempt.errorOwned); out.put("successReleaseStarted",attempt.successReleaseStarted);
+            out.put("delivered",attempt.delivered);
+            out.put("deliveryStarted",attempt.deliveryStarted);
+        }
+        return Collections.unmodifiableMap(out);
+    }
+    private static String digest(byte[] bytes) {
+        try { return HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256").digest(bytes)); }
+        catch(java.security.NoSuchAlgorithmException failure) { throw new IllegalStateException(failure); }
+    }
+    /** Trusted-source research install, before any engine execution. */
+    public void installEntropy(EntropyCapability capability,Header entropy,Header userError,byte[] originalUserErrorRow) {
+        require(capability!=null&&entropy!=null&&userError!=null&&originalUserErrorRow!=null
+                &&originalUserErrorRow.length<=16384,"Actual entropy capability/source evidence required");
+        require(explicit&&taskRuntime==null&&!closed&&!disposed&&!advancing&&!everStarted&&entropyCapability==null
+                &&phase==IDLE&&!pendingOwnedResult&&sp==0&&continuationDepth==0&&!untrackedFailure
+                &&runtimeAction==null&&hostCompletion==null&&hostGuestRecord==null&&hostRequest==null&&codeRequest==null
+                &&pendingInitializerGlobal==null,"Entropy installation requires fresh task-free explicit engine");
+        require(entropy.source==userError.source,"Entropy/error codec source binding differs");
+        Function ef=program.functions[program.functionId(entropy)],uf=program.functions[program.functionId(userError)];
+        require(ef.header==entropy&&ef.intrinsic==IO_RANDOM_BYTES&&program.guestExports[ef.id]==null
+                &&entropy.originalSha256.equals("afc15888b42a236a70bd422ced2bacca2d0808810d0ee7540495985d7ff9c368")
+                &&entropy.exactName.equals(List.of("str",List.of("str",List.of("anonymous"),"IO"),"getRandomBytes")),
+                "Original canonical entropy Header differs");
+        require(uf.header==userError&&uf.intrinsic==0&&uf.hostExtern==null&&program.guestExports[uf.id]==null
+                &&userError.originalSha256.equals("53b224c8fa037b144260872e3b14878aff86dbb61b598e1ea49f991dabc1fb6b")
+                &&digest(originalUserErrorRow).equals(userError.originalSha256)
+                &&userError.exactName.equals(List.of("str",List.of("str",List.of("anonymous"),"IO"),"userError"))
+                &&Arrays.equals(userError.paramTypes,new String[]{"object"})
+                &&Arrays.equals(userError.borrowed,new boolean[]{false})&&userError.resultType.equals("tobject")
+                &&Arrays.equals(userError.params,new int[]{1}),"Original canonical IO.userError evidence differs");
+        // Headers intentionally omit bodies. Authenticate the original raw bytes
+        // (which name IO.Error.userError), AND inspect the actual prepared body.
+        Body body=preparedBody(uf).body;
+        require(body!=null&&body.op==VDECL&&body.a==2&&body.type==OBJ&&body.expr!=null
+                &&body.expr.op==CTOR&&body.expr.tag==18&&body.expr.size==1&&body.expr.scalarBytes==0
+                &&Arrays.equals(body.expr.args,new int[]{1})&&body.next!=null&&body.next.op==RET
+                &&body.next.a==2&&body.next.next==null,"Actual IO.userError constructor body differs");
+        require(!Thread.currentThread().isInterrupted(),"Entropy installation interrupted");
+        entropyHeader=entropy; entropyErrorHeader=userError; entropyCapability=capability;
+    }
+    private int validateEntropy(Function function,Object[] args) {
+        require(explicit&&taskRuntime==null&&entropyCapability!=null&&function.header==entropyHeader
+                &&program.functions[program.functionId(entropyHeader)]==function
+                &&program.functions[program.functionId(entropyErrorHeader)].header==entropyErrorHeader,
+                "Entropy requires installed same-source canonical capability");
+        require(!Thread.currentThread().isInterrupted(),"Entropy interruption guard");
+        require(args!=null&&args.length==2&&args[0]!=null&&args[0].getClass()==Long.class&&ERASED.equals(args[1]),
+                "Entropy requires actual usize and erased world");
+        long size=(Long)args[0];
+        require(Long.compareUnsigned(size,entropyCapability.maximumBytes)<=0,"Entropy request exceeds configured unsigned bound");
+        require(size==0||entropyCapability.patternSize<0||size==entropyCapability.patternSize,"Deterministic entropy pattern extent differs");
+        require(entropyCalls<Long.MAX_VALUE&&entropyBytes<=Long.MAX_VALUE-size,"Entropy branch counter overflow");
+        return (int)size;
+    }
+    private static boolean expectedEntropyFailure(ProviderException failure) {
+        if(Thread.currentThread().isInterrupted()) return false;
+        Throwable cause=failure;
+        for(int i=0;i<8;i++) {
+            if(cause==null) return true;
+            if(cause instanceof Error||cause instanceof InterruptedException||cause instanceof java.io.InterruptedIOException
+                    ||cause instanceof java.util.concurrent.CancellationException) return false;
+            cause=cause.getCause();
+        }
+        return false;
+    }
+    private static String entropyMessage(ProviderException failure) {
+        String message="JDK entropy source failed: "+String.valueOf(failure.getMessage());
+        if(message.length()>4096) message=message.substring(0,4096);
+        return new String(message.getBytes(StandardCharsets.UTF_8),StandardCharsets.UTF_8);
+    }
+    private void stepEntropy(RuntimeAction action) {
+        EntropyAttempt attempt=action.entropy;
+        require(attempt!=null&&pendingEntropy==attempt&&Thread.currentThread()==attempt.thread,
+                "Entropy action custody differs");
+        require(!Thread.currentThread().isInterrupted(),"Entropy action interrupted");
+        if(attempt.stage==0) {
+            attempt.bytes=newByteArray(attempt.size,attempt.size); attempt.bytesOwned=true;
+            if(entropyTestFault==4&&entropyCapability.patternSize>=0) throw new OutOfMemoryError("Entropy test allocation boundary");
+            attempt.success=new Node(0,1,0); allocations++; attempt.successOwned=true;
+            attempt.success.fields[0]=attempt.bytes; attempt.bytesOwned=false;
+            attempt.host=new byte[attempt.size]; attempt.stage=1; return;
+        }
+        if(attempt.stage==1) {
+            if(entropyTestFault==1&&entropyCapability.patternSize>=0) throw new IllegalStateException("Entropy test before effect");
+            attempt.stage=2;
+            if(attempt.size!=0) {
+                entropyCalls++; entropyBytes+=attempt.size; attempt.effectEntered=true;
+                try { entropyCapability.fill(attempt.host); }
+                catch(ProviderException failure) {
+                    if(!expectedEntropyFailure(failure)) throw failure;
+                    String message=entropyMessage(failure);
+                    require(!Thread.currentThread().isInterrupted(),"Entropy interrupted before error mapping");
+                    attempt.errorValue=new Node(18,1,0); allocations++; attempt.errorValueOwned=true;
+                    attempt.errorValue.fields[0]=message;
+                    attempt.error=new Node(1,1,0); allocations++; attempt.errorOwned=true;
+                    attempt.error.fields[0]=attempt.errorValue; attempt.errorValueOwned=false;
+                    attempt.successReleaseStarted=true; releaseQuiet(attempt.success,1); attempt.successOwned=false;
+                    attempt.successReleaseStarted=false; attempt.stage=3; attempt.host=null; return;
+                }
+                attempt.effectReturned=true;
+            }
+            require(!Thread.currentThread().isInterrupted(),"Entropy interrupted after effect");
+            if(entropyTestFault==2&&entropyCapability.patternSize>=0) throw new IllegalStateException("Entropy test after effect");
+            System.arraycopy(attempt.host,0,attempt.bytes.scalars,0,attempt.size);
+            attempt.host=null; attempt.stage=3; return;
+        }
+        require(attempt.stage==3,"Entropy effect cannot be retried");
+        if(entropyTestFault==3&&entropyCapability.patternSize>=0) throw new IllegalStateException("Entropy test before delivery");
+        Node output=attempt.errorOwned?attempt.error:attempt.success;
+        // Engine-level pendingEntropy keeps custody even if finishAction throws
+        // after popping its RuntimeAction. No history keeps delivered heap roots.
+        action.output=output; finishAction(action,output);
+        require(attempt.delivered,"Entropy output delivery did not commit");
+        attempt.bytes=null; attempt.success=null; attempt.errorValue=null; attempt.error=null; attempt.host=null;
+        action.entropy=null; pendingEntropy=null;
+    }
     private final Object runtimeIdentity=new Object();
     private Node stdoutRoot; // legacy root; opt-in stdio default stdout occurrence
     private Node stdinDefaultRoot,stderrRoot;
@@ -4641,7 +4839,7 @@ public final class Interpreter implements AutoCloseable {
     private HostGuestRecord hostGuestRecord;
     private HostCall hostCompletion;
     private RuntimeAction runtimeAction,failedRuntimeAction;
-    private static final int ACTION_RELEASE=1,ACTION_DISPOSE=2,ACTION_NATIVE=3,ACTION_HOST=4,ACTION_TASK=5,ACTION_RESOLVE=6,ACTION_RUN_TASK=7,ACTION_PROFILE=8,ACTION_FIND=9,ACTION_LEVEL_MVARS=10,ACTION_EXPR_MACHINERY=11,ACTION_MVAR_SESSION_RESEARCH=12,ACTION_SHARECOMMON=13,ACTION_EXPR_DIRECT_RESEARCH=14,ACTION_EXPR_REPLACE=15,ACTION_EXPR_ABSTRACT=16,ACTION_DELAYED_FOUNDATION_RESEARCH=17,ACTION_EXPR_PURE=18,ACTION_EXPR_FULL_RESEARCH=19,ACTION_HOST_GUEST=20;
+    private static final int ACTION_RELEASE=1,ACTION_DISPOSE=2,ACTION_NATIVE=3,ACTION_HOST=4,ACTION_TASK=5,ACTION_RESOLVE=6,ACTION_RUN_TASK=7,ACTION_PROFILE=8,ACTION_FIND=9,ACTION_LEVEL_MVARS=10,ACTION_EXPR_MACHINERY=11,ACTION_MVAR_SESSION_RESEARCH=12,ACTION_SHARECOMMON=13,ACTION_EXPR_DIRECT_RESEARCH=14,ACTION_EXPR_REPLACE=15,ACTION_EXPR_ABSTRACT=16,ACTION_DELAYED_FOUNDATION_RESEARCH=17,ACTION_EXPR_PURE=18,ACTION_EXPR_FULL_RESEARCH=19,ACTION_HOST_GUEST=20,ACTION_ENTROPY=21;
     private static final Body ACTION_BODY=new Body();
     /** Typed ownership/control state, separate from NodeMetadata. The output
      * scratch slot is reserved before callbacks may enter generic AP. */
@@ -4656,6 +4854,7 @@ public final class Interpreter implements AutoCloseable {
         ExprDirectResearchState exprDirect;
         DelayedResearchState delayedResearch;
         ExprFullResearchState exprFull;
+        EntropyAttempt entropy;
         int operation,stage,savedSp,slot,dest,kind,cursor,limit,pending;
         Function function;
         Body next;
@@ -4687,13 +4886,17 @@ public final class Interpreter implements AutoCloseable {
         objects[action.slot]=null; sp=action.savedSp; runtimeAction=action.parent;
         if((action.kind&ROOT)!=0) {
             if(type==OBJ) result=value; else scalarResult=raw;
-            pendingOwnedResult=true; phase=COMPLETE; return;
+            pendingOwnedResult=true; phase=COMPLETE; entropyDelivered(action); return;
         }
         if((action.kind&APPLY)!=0) {
             Object answer=type==OBJ?value:boxScalar(raw,type);
             if(action.surplus!=null) {
+                if(action.entropy!=null) {
+                    action.entropy.deliveryStarted=true; action.entropy.successOwned=false; action.entropy.errorOwned=false;
+                }
                 try { applyExplicit(answer,action.surplus,action.next,action.dest); }
                 catch(Throwable failure) { failedRuntimeAction=action; throw failure; }
+                entropyDelivered(action);
                 return;
             }
             if(action.dest>=0) objects[action.dest]=answer;
@@ -4701,6 +4904,13 @@ public final class Interpreter implements AutoCloseable {
             if(type==OBJ) objects[action.dest]=value; else numbers[action.dest]=raw;
         }
         pc=action.next;
+        entropyDelivered(action);
+    }
+    private static void entropyDelivered(RuntimeAction action) {
+        if(action.entropy!=null) {
+            action.entropy.deliveryStarted=true; action.entropy.delivered=true;
+            action.entropy.successOwned=false; action.entropy.errorOwned=false;
+        }
     }
     private void markReleaseClaim(Object value) {
         if(runtimeAction!=null&&runtimeAction.retiring==value) runtimeAction.releaseClaimed=true;
@@ -4843,6 +5053,7 @@ public final class Interpreter implements AutoCloseable {
     }
     private boolean actionPrimitive(Function function) {
         int op=function.intrinsic;
+        if(op==IO_RANDOM_BYTES) return true;
         return taskRuntime!=null&&(pureExprTransform(op)||abstractPrimitive(op)||op==EXPR_REPLACE||op==SHARECOMMON_QUICK||op==LEVEL_INSTANTIATE||op==EXPR_INSTANTIATE_MVARS||op==VOID_MK||op==PROFILE_IT||findPrimitive(op)||taskPrimitive(op)||op==TASK_MAP||op==REF_SET||op==ARRAY_POP||op==ARRAY_FSET||op==ARRAY_USET||op==ARRAY_CHECKED_SET||op==ARRAY_REPLICATE);
     }
     private Object[] savedArguments(Function function,int[] slots) {
@@ -4921,6 +5132,7 @@ public final class Interpreter implements AutoCloseable {
         releaseQuiet(value,1); result=ERASED;
     }
     private void validateNative(Function function,Object[] args) {
+        if(function.intrinsic==IO_RANDOM_BYTES) { validateEntropy(function,args); return; }
         if(pureExprTransform(function.intrinsic)) { validatePureExprTransform(function,args); return; }
         if(function.intrinsic==EXPR_REPLACE) { validateExprReplace(function,args); return; }
         if(abstractPrimitive(function.intrinsic)) { validateAbstractArguments(function,args); return; }
@@ -4956,9 +5168,14 @@ public final class Interpreter implements AutoCloseable {
     }
     private void enterNative(Function function,Object[] args,Body next,int dest,int kind,Object[] surplus) {
         validateNative(function,args);
-        RuntimeAction action=newAction(function.intrinsic==EXPR_INSTANTIATE_MVARS?ACTION_EXPR_FULL_RESEARCH:pureExprTransform(function.intrinsic)?ACTION_EXPR_PURE:abstractPrimitive(function.intrinsic)?ACTION_EXPR_ABSTRACT:function.intrinsic==EXPR_REPLACE?ACTION_EXPR_REPLACE:function.intrinsic==SHARECOMMON_QUICK?ACTION_SHARECOMMON:function.intrinsic==LEVEL_INSTANTIATE?ACTION_LEVEL_MVARS:findPrimitive(function.intrinsic)?ACTION_FIND:function.intrinsic==PROFILE_IT?ACTION_PROFILE:
+        RuntimeAction action=newAction(function.intrinsic==IO_RANDOM_BYTES?ACTION_ENTROPY:function.intrinsic==EXPR_INSTANTIATE_MVARS?ACTION_EXPR_FULL_RESEARCH:pureExprTransform(function.intrinsic)?ACTION_EXPR_PURE:abstractPrimitive(function.intrinsic)?ACTION_EXPR_ABSTRACT:function.intrinsic==EXPR_REPLACE?ACTION_EXPR_REPLACE:function.intrinsic==SHARECOMMON_QUICK?ACTION_SHARECOMMON:function.intrinsic==LEVEL_INSTANTIATE?ACTION_LEVEL_MVARS:findPrimitive(function.intrinsic)?ACTION_FIND:function.intrinsic==PROFILE_IT?ACTION_PROFILE:
                 taskPrimitive(function.intrinsic)||function.intrinsic==TASK_MAP?ACTION_TASK:ACTION_NATIVE,function,next,dest,kind,surplus);
         action.arguments=args;
+        if(function.intrinsic==IO_RANDOM_BYTES) {
+            require(pendingEntropy==null,"Entropy attempt is already pending");
+            EntropyAttempt attempt=new EntropyAttempt(); attempt.size=(int)(long)(Long)args[0];
+            attempt.thread=Thread.currentThread(); action.entropy=attempt; pendingEntropy=attempt;
+        }
         if(function.intrinsic==EXPR_INSTANTIATE_MVARS) prepareExprFullAction(action,exprInstantiationPolicy,args[0],exprNode(args[1]));
         if(pureExprTransform(function.intrinsic)) preparePureExprTransform(action,function,args);
         if(abstractPrimitive(function.intrinsic)) prepareAbstractAction(action,function,args);
@@ -5963,6 +6180,7 @@ public final class Interpreter implements AutoCloseable {
         if(action.operation==ACTION_RELEASE) stepRelease(action);
         else if(action.operation==ACTION_DISPOSE) stepDispose(action);
         else if(action.operation==ACTION_NATIVE) stepNative(action);
+        else if(action.operation==ACTION_ENTROPY) stepEntropy(action);
         else if(action.operation==ACTION_TASK) stepTask(action);
         else if(action.operation==ACTION_RESOLVE) stepResolve(action);
         else if(action.operation==ACTION_RUN_TASK) stepRunTask(action);
@@ -6137,6 +6355,10 @@ public final class Interpreter implements AutoCloseable {
     }
     public Fork eagerFork() { return eagerFork(new Object[0]); }
     public Fork eagerFork(Object[] externalRoots) {
+        if(entropyCapability!=null) require(phase==IDLE&&!pendingOwnedResult&&pendingEntropy==null
+                &&runtimeAction==null&&releaseTransaction==null&&hostCompletion==null&&hostRequest==null
+                &&codeRequest==null&&hostGuestRecord==null&&currentTask==null,
+                "Entropy capability fork requires an idle completed-effect boundary");
         if(closed||disposed||advancing||phase==FAILED||untrackedFailure||(!explicit&&sp!=0))
             throw new IllegalStateException("Fork requires an open idle or paused instruction boundary");
         if(pendingInitializerGlobal!=null) throw error("Cannot fork a pending initializer");
@@ -6144,6 +6366,9 @@ public final class Interpreter implements AutoCloseable {
         // phase RUNNING between advance calls is a paused dispatch/release-work
         // boundary. No Java call frame is captured in that state.
         Interpreter child=new Interpreter(program,explicit,initializing,buildIdentity,taskRuntime,profilingPolicy);
+        child.everStarted=everStarted; child.entropyCapability=entropyCapability;
+        child.entropyHeader=entropyHeader; child.entropyErrorHeader=entropyErrorHeader;
+        child.entropyCalls=entropyCalls; child.entropyBytes=entropyBytes;
         child.initializerAttempts=(BitSet)initializerAttempts.clone(); child.initializerFailed=initializerFailed;
         child.pointerHashPolicy=pointerHashPolicy; child.levelInstantiationPolicy=levelInstantiationPolicy; child.exprInstantiationPolicy=exprInstantiationPolicy; child.shareCommonLayout=shareCommonLayout; child.exprTransformPolicy=exprTransformPolicy;
         ForkCopy copy=new ForkCopy(child);
@@ -7372,6 +7597,7 @@ public final class Interpreter implements AutoCloseable {
         } else scalarIntrinsic(f,a,b);
     }
     private void intrinsicExternal(Function f,Object[] args) {
+        require(f.intrinsic!=IO_RANDOM_BYTES,"Entropy requires its explicit owned action");
         if(f.intrinsic==BYTE_COPY_SLICE) {
             byteCopySlice(args[0],args[1],args[2],args[3],args[4],inputScalar(args[5],U8)); return;
         }
@@ -10155,6 +10381,7 @@ public final class Interpreter implements AutoCloseable {
         rootEntry(f);
         f=preflightCallable(f,true);
         validateEntryArguments(f,args);
+        everStarted=true;
         if(f.params.length==0&&constantReady[f.id]) {
             if(f.resultType==OBJ) { result=constants[f.id]; inc(result,1); }
             else scalarResult=(Long)constants[f.id];
@@ -10230,7 +10457,7 @@ public final class Interpreter implements AutoCloseable {
         Object[] combined=new Object[closure.fields.length+args.length];
         System.arraycopy(closure.fields,0,combined,0,closure.fields.length);
         System.arraycopy(args,0,combined,closure.fields.length,args.length);
-        if(combined.length>=f.params.length&&(taskRuntime!=null||called.intrinsic==VOID_MK||called.intrinsic==MARK_PERSISTENT||called.intrinsic==ARRAY_CHECKED_SET)) {
+        if(combined.length>=f.params.length&&(taskRuntime!=null||called.intrinsic==IO_RANDOM_BYTES||called.intrinsic==VOID_MK||called.intrinsic==MARK_PERSISTENT||called.intrinsic==ARRAY_CHECKED_SET)) {
             Object[] actual=combined.length==f.params.length?combined:Arrays.copyOf(combined,f.params.length);
             if(called.intrinsic==MARK_PERSISTENT) validatePersistentArguments(actual[0],actual[1],actual[2]);
             else if(called.intrinsic==ARRAY_CHECKED_SET) validateCheckedArraySet(actual);
@@ -10324,6 +10551,7 @@ public final class Interpreter implements AutoCloseable {
         if(phase==COMPLETE) return true;
         if(phase==HOST_CALL||phase==CODE_CALL||phase==WAITING||phase==HOST_GUEST_RESULT) return false;
         if(phase!=RUNNING) throw new IllegalStateException("No resumable execution: "+phase());
+        if(budget>0) everStarted=true;
         advancing=true;
         try {
             if(releaseTransaction!=null) runReleaseLoop(budget); else runExplicitLoop(budget);
@@ -10471,6 +10699,7 @@ public final class Interpreter implements AutoCloseable {
         if(f.hostExtern!=null) throw new UnsupportedOperationException("Host extern requires explicit driver: "+f.hostExtern.symbol);
         f=preflightCallable(f);
         validateEntryArguments(f,args);
+        everStarted=true;
         callsLeft=10_000_000;
         try {
             if(f.params.length==0) { load(f); if(f.resultType==OBJ) inc(result,1); }
@@ -10493,6 +10722,7 @@ public final class Interpreter implements AutoCloseable {
     }
     @Override public void close() {
         if(closed) return;
+        if(pendingEntropy!=null) throw new IllegalStateException("Pending entropy custody prevents close");
         if(hostGuestRecord!=null) throw new IllegalStateException("Host guest operation requires explicit completion before close");
         if(taskRuntime!=null) {
             if(!disposed||stdioRoots()||runtimeAction!=null||hostCompletion!=null||quietCurrent!=null||releasePending!=0)
@@ -10516,5 +10746,6 @@ public final class Interpreter implements AutoCloseable {
         utf8Key=null; utf8Bytes=null;
         for(int i=0;i<constants.length;i++) if(constantReady[i]&&program.functions[i].resultType==OBJ) releaseQuiet(constants[i],1);
         Arrays.fill(constants,null); Arrays.fill(objects,null); result=null; taskRecords.clear();
+        entropyCapability=null; entropyHeader=null; entropyErrorHeader=null;
     }
 }
