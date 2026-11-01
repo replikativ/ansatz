@@ -246,7 +246,7 @@
       (finally (j/close! ctx engine)))))
 
 (deftest allocator-exhaustion-and-no-common-node-state-growth
-  (let [loader (:loader *basis*) cls (Class/forName "ansatz.research.ir.Interpreter$PointerAllocator" true loader)
+  (let [loader (:loader *basis*) cls (Class/forName "ansatz.lean.jvm.internal.exec.Interpreter$PointerAllocator" true loader)
         ctor (.getDeclaredConstructor cls (into-array Class [Long/TYPE]))
         _ (.setAccessible ctor true) allocator (.newInstance ctor (object-array [(long -8)]))
         allocate (.getDeclaredMethod cls "allocate" (make-array Class 0))]
@@ -336,7 +336,7 @@
       (finally (j/release! ctx engine raw) (j/close! ctx engine)))))
 
 (defn private-instance [ctx suffix]
-  (let [cls (Class/forName (str "ansatz.research.ir.Interpreter$" suffix) true (:loader ctx))
+  (let [cls (Class/forName (str "ansatz.lean.jvm.internal.exec.Interpreter$" suffix) true (:loader ctx))
         ctor (.getDeclaredConstructor cls (make-array Class 0))]
     (.setAccessible ctor true) (.newInstance ctor (object-array 0))))
 (defn private-set! [object field value]

@@ -17,11 +17,11 @@ EXCLUDED = {
 }
 PREFIXES = (
     ("src/", ""),
-    ("experiments/lean-ir/src/", ""),
+    ("research/lean-hosting/src/", ""),
     ("src-java/", "src-java/"),
     ("resources/", ""),
 )
-MEMO = "experiments/lean-ir/java/prototype/TypedLongMemo.java"
+MEMO = "research/lean-hosting/java/prototype/TypedLongMemo.java"
 
 
 def git(repo, *args):
@@ -44,7 +44,7 @@ def main():
     if output.exists():
         parser.error("output must be a new directory")
     paths = git(repo, "ls-tree", "-r", "-z", "--name-only", args.commit,
-                "--", "src", "src-java", "resources", "experiments/lean-ir/src", MEMO)
+                "--", "src", "src-java", "resources", "research/lean-hosting/src", MEMO)
     rows = []
     seen = set()
     total = 0

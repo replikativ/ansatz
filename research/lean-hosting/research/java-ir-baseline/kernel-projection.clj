@@ -118,8 +118,8 @@
   (when-not (identical? (:class basis) (class engine))
     (fail "Interpreter basis/class differs from borrowed engine" {}))
   (let [cls ^Class (:class basis) node-class ^Class (:node-class basis)
-        guest-class (Class/forName "ansatz.research.ir.Interpreter$HostGuestRecord" false (:loader basis))
-        token-class (Class/forName "ansatz.research.ir.Interpreter$HostGuestOperation" false (:loader basis))
+        guest-class (Class/forName "ansatz.lean.jvm.internal.exec.Interpreter$HostGuestRecord" false (:loader basis))
+        token-class (Class/forName "ansatz.lean.jvm.internal.exec.Interpreter$HostGuestOperation" false (:loader basis))
         guard (doto (.getDeclaredMethod cls "constructorNode" (into-array Class [Object])) (.setAccessible true))
         state {:engine engine :thread (Thread/currentThread) :node-class node-class
                :max-nodes max-nodes :deadline-nanos deadline-nanos

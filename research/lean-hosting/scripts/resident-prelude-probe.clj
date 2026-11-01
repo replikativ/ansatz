@@ -1,4 +1,4 @@
-;; Run from experiments/lean-ir after compiling the parent Java sources:
+;; Run from research/lean-hosting after compiling the parent Java sources:
 ;; clojure -J-Xmx3g -J-Xss16m -M scripts/resident-prelude-probe.clj [paths.edn]
 ;; Requires the explicitly prepared, ignored artifacts named below. This is an
 ;; archived PRELUDE-ONLY acceptance probe, not an ordinary/full-Init bootstrap.

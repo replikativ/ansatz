@@ -1,4 +1,4 @@
-;; Definitions only. Workdir experiments/lean-ir. Draft: candidate SHA supplied
+;; Definitions only. Workdir research/lean-hosting. Draft: candidate SHA supplied
 ;; explicitly after the fresh native build; there is deliberately no default.
 (require '[clojure.java.io :as snl-io]
          '[prototype.import-ir :as snl-ir]

@@ -302,7 +302,7 @@
   (doseq [key (vec (keys @(:owners s)))] (drop! s key))
   {:status :session-owners-released :budget @(:used s)})
 
-;; RETAINED REPL, from experiments/lean-ir; no JVM launch:
+;; RETAINED REPL, from research/lean-hosting; no JVM launch:
 ;; Pass the Env PAYLOAD, not mkEmptyEnvironment's outer IO.Result/EST.Out.ok.
 ;; If sync-env-io is the caller-owned real successful IO result:
 ;;   payload = field0 of that verified tag0/1field/0scalar wrapper.

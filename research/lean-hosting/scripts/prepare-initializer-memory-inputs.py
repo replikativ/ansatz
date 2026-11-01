@@ -1,5 +1,5 @@
 """Extract initializer-only benchmark inputs from the authenticated IR index.
-Run from experiments/lean-ir. No declarations, guest state or stores are created.
+Run from research/lean-hosting. No declarations, guest state or stores are created.
 The suffix extraction relies on this exact pinned canonical index, not arbitrary JSON.
 """
 import argparse

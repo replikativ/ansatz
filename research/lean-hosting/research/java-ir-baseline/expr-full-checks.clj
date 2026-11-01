@@ -16,7 +16,7 @@
  (loop [a (sync/action e)] (when a (if (pv a "exprFull") a (recur (pv a "parent"))))))
 (defn state [e] (some-> (action e) (pv "exprFull")))
 (defn start! [{:keys [ctx headers]} e m input]
- (let [cls (Class/forName "ansatz.research.ir.Interpreter$Header" true (:loader ctx))
+ (let [cls (Class/forName "ansatz.lean.jvm.internal.exec.Interpreter$Header" true (:loader ctx))
        hs (into-array cls (mapv headers direct/helpers)) cs (into-array cls (mapv headers expr/roles))
        method (.getDeclaredMethod ^Class (:class ctx) "startExprFullResearch"
                 (into-array Class [(class hs) (class cs) Object Object]))]

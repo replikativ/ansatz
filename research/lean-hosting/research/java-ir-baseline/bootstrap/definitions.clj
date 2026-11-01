@@ -54,14 +54,14 @@
         expected (.toRealPath (.toPath (io/file jar-file)) (make-array LinkOption 0))]
     (need (instance? URLClassLoader loader) "Owned URLClassLoader basis required")
     (doseq [suffix ["" "$Program" "$Node" "$SourceBinding" "$Header" "$PreparedGraph"]]
-      (let [cls (Class/forName (str "ansatz.research.ir.Interpreter" suffix) false loader)
+      (let [cls (Class/forName (str "ansatz.lean.jvm.internal.exec.Interpreter" suffix) false loader)
             location (some-> cls .getProtectionDomain .getCodeSource .getLocation .toURI io/file .toPath
                              (.toRealPath (make-array LinkOption 0)))]
         (need (and (identical? loader (.getClassLoader cls)) (= expected location))
               "Interpreter class delegated or came from another jar")))
-    (need (identical? (:class basis) (Class/forName "ansatz.research.ir.Interpreter" false loader))
+    (need (identical? (:class basis) (Class/forName "ansatz.lean.jvm.internal.exec.Interpreter" false loader))
           "Mixed Interpreter basis class")
-    (need (identical? (:node-class basis) (Class/forName "ansatz.research.ir.Interpreter$Node" false loader))
+    (need (identical? (:node-class basis) (Class/forName "ansatz.lean.jvm.internal.exec.Interpreter$Node" false loader))
           "Mixed Node basis class")
     (doseq [key [:tag :rc :fields :scalars]]
       (need (and (instance? java.lang.reflect.Field (get basis key))

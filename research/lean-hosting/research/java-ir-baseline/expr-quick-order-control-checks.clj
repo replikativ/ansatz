@@ -10,7 +10,7 @@
 (defn context [extra] (binding [order/*basis* *basis*] (order/context extra)))
 (defn model-context [] (let [ctx (context [])] (assoc ctx :engine (j/machine ctx))))
 (defn comparator [ctx]
- (let [cls (Class/forName "ansatz.research.ir.Interpreter$ExprOrder" true (:loader ctx))
+ (let [cls (Class/forName "ansatz.lean.jvm.internal.exec.Interpreter$ExprOrder" true (:loader ctx))
        ctor (.getDeclaredConstructor cls (into-array Class [(:class ctx)]))]
   (.setAccessible ctor true) (.newInstance ctor (object-array [(:engine ctx)]))))
 (defn compare! [cmp a b]

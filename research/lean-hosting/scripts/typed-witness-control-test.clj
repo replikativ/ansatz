@@ -1,5 +1,5 @@
 ;; Small HOST CONTROL MODELS ONLY: no actual Lean/guest/native execution.
-;; cwd experiments/lean-ir; load typed-witness-next.clj first, then this file.
+;; cwd research/lean-hosting; load typed-witness-next.clj first, then this file.
 (require '[clojure.test :refer [deftest is testing]]
          '[prototype.native-heap :as tw-control-native])
 

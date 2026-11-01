@@ -343,7 +343,7 @@ def main():
     for label, path in vars(args).items():
         setattr(args, label, path.resolve(strict=label != "out"))
     repo = args.repository
-    fixtures = repo / "experiments/lean-ir/test/fixtures/native-startup-evidence"
+    fixtures = repo / "research/lean-hosting/test/fixtures/native-startup-evidence"
     args.out.mkdir(parents=False, exist_ok=False)
     capsule, build = args.out / "source", args.out / "build"
     capsule.mkdir(); build.mkdir()

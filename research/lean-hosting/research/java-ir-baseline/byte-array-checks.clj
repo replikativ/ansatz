@@ -23,7 +23,7 @@
         bytes ^bytes (.get ^java.lang.reflect.Field (:scalars ctx) node)]
     (mapv #(Byte/toUnsignedInt (aget bytes %)) (range length))))
 (defn raw-descriptor [ctx id rc data]
-  (let [cls (Class/forName "ansatz.research.ir.Interpreter$ImportNode" true (:loader ctx))]
+  (let [cls (Class/forName "ansatz.lean.jvm.internal.exec.Interpreter$ImportNode" true (:loader ctx))]
     (j/invoke-static (.getMethod cls "byteArray" (into-array Class [Long/TYPE Integer/TYPE (class (byte-array 0))]))
                      [(long id) (int rc) data])))
 (defn install [ctx engine nodes roots selected?]

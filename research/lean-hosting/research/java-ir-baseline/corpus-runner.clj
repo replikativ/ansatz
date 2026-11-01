@@ -1,4 +1,4 @@
-;; From experiments/lean-ir; inventory only, never executes guest code.
+;; From research/lean-hosting; inventory only, never executes guest code.
 (load-file "research/unchanged-program-benchmark.clj")
 (load-file "research/java-ir-baseline/repl.clj")
 (load-file "research/java-ir-baseline/corpus.clj")

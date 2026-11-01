@@ -1,4 +1,4 @@
-;; DRAFT: definitions only. Working directory: experiments/lean-ir.
+;; DRAFT: definitions only. Working directory: research/lean-hosting.
 ;; First load scripts/prepare-ir-witness.clj and
 ;; scripts/prepare-shared-names-witness.clj (both definitions only).
 ;; No finalizer, native command, archive restore or source closure on load.

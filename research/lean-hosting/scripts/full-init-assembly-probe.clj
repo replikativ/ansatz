@@ -1,4 +1,4 @@
-;; DRAFT. Load from experiments/lean-ir. Loading defines functions only.
+;; DRAFT. Load from research/lean-hosting. Loading defines functions only.
 ;; No archive restore, native process, guest invocation, or finalizer runs on load.
 (require '[clojure.edn :as edn]
          '[clojure.data.json :as json]

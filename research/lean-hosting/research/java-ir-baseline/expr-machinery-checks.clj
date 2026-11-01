@@ -58,7 +58,7 @@
 (defn fvar! [ctx e text]
   (call ctx e "Lean.Expr.fvar._override" [(call ctx e "Lean.Name.str._override" [0 text])]))
 (defn start! [{:keys [ctx headers]} e mode input args cutoff amount]
-  (let [hs (into-array (Class/forName "ansatz.research.ir.Interpreter$Header" true (:loader ctx)) (mapv headers roles))
+  (let [hs (into-array (Class/forName "ansatz.lean.jvm.internal.exec.Interpreter$Header" true (:loader ctx)) (mapv headers roles))
         m (.getDeclaredMethod ^Class (:class ctx) "startExprMachineryResearch"
             (into-array Class [(class hs) Integer/TYPE Object (class (object-array 0)) Long/TYPE Long/TYPE]))]
     (.setAccessible m true)

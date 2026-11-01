@@ -10,7 +10,7 @@
 (defn context [options] (binding [loose/*basis* *basis*] (loose/context options)))
 (defn query-context [] (binding [loose/*basis* *basis*] (loose/query-context)))
 (defn search-object [ctx e]
- (let [cls (Class/forName "ansatz.research.ir.Interpreter$LooseBVarSearch" true (:loader ctx))
+ (let [cls (Class/forName "ansatz.lean.jvm.internal.exec.Interpreter$LooseBVarSearch" true (:loader ctx))
        ctor (.getDeclaredConstructor cls (into-array Class [(:class ctx)]))]
   (.setAccessible ctor true) (.newInstance ctor (object-array [e]))))
 (defn search! [search input i]

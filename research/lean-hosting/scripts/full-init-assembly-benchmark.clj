@@ -1,4 +1,4 @@
-;; DRAFT: load from experiments/lean-ir; definitions only, no guest work on load.
+;; DRAFT: load from research/lean-hosting; definitions only, no guest work on load.
 ;; Pass a FRESH, still-open result of assemble-full-init-only. This never calls
 ;; finalizeTransport, verifies constants, creates an association, or closes source.
 (require '[prototype.machine :as bench-m]

@@ -1,4 +1,4 @@
-;; Run from experiments/lean-ir with a separately compiled class directory/jar.
+;; Run from research/lean-hosting with a separately compiled class directory/jar.
 ;; Neither the engine nor this classpath belongs to normal Ansatz loading.
 (load-file "research/unchanged-program-benchmark.clj")
 (load-file "research/java-ir-baseline/repl.clj")

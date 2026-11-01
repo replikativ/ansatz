@@ -1,0 +1,85 @@
+#!/bin/bash
+set -eo pipefail
+
+# Optional legacy World/facade and compiler research, never an SDK release gate.
+repo_root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+cd "$repo_root"
+
+echo "Checking optional Lean source closure and audit contracts"
+(
+  cd research/lean-hosting/legacy-facade
+  clojure -J-Xmx384m -T:build check-package
+)
+
+echo "Running fixture-free experimental checkpoint, world validation, IR dependency and continuation readiness contracts"
+# Keep the experimental interpreter source paths scoped to this separate JVM;
+# they are not added to the core artifact or its normal test classpath.
+clojure -J-Xmx384m -J-Xss8m \
+  -Sdeps '{:paths ["src" "classes" "resources" "research/lean-hosting/src" "research/lean-hosting/test"]}' \
+  -M -e '(require (quote [clojure.test :as t])
+                  (quote prototype.checkpoint-wire-test)
+                  (quote prototype.restore-validation-test)
+                  (quote prototype.import-ir-dag-test)
+                  (quote prototype.continuation-readiness-test))
+         (def seen (atom #{}))
+         (defmethod t/report :begin-test-var [event] (swap! seen conj (:var event)))
+         (defmethod t/report :fail [event]
+           (t/inc-report-counter :fail)
+           (println "BOUNDED_ASSERTION_FAILURE" (:file event) (:line event)))
+         (defmethod t/report :error [event]
+           (t/inc-report-counter :error)
+           (loop [cause (:actual event) remaining 8]
+             (when (and cause (pos? remaining))
+               (let [message (or (.getMessage ^Throwable cause) "")]
+                 (println (.getName (class cause)) (subs message 0 (min 512 (count message)))))
+               (recur (.getCause ^Throwable cause) (dec remaining)))))
+         (let [nss [(quote prototype.checkpoint-wire-test) (quote prototype.restore-validation-test)
+                    (quote prototype.import-ir-dag-test) (quote prototype.continuation-readiness-test)]
+               expected (set (for [n nss [_ v] (ns-publics n) :when (:test (meta v))] v))
+               result (apply t/run-tests nss)]
+           (System/exit (if (and (= 37 (count expected) (:test result)) (= expected @seen)
+                                 (zero? (+ (:fail result) (:error result)))) 0 1)))'
+
+echo
+echo "Running compact checking progress, cold controller, native Store and code-cache admission contracts"
+mkdir -p target
+cold_check_classes=$(mktemp -d "$PWD/target/cold-check-classes.XXXXXX")
+cleanup_cold_check_classes() {
+  if [[ -n "${cold_check_classes:-}" && -d "$cold_check_classes" ]]; then
+    rm -r -- "$cold_check_classes"
+  fi
+}
+trap cleanup_cold_check_classes EXIT
+javac -J-Xmx256m -source 11 -target 11 -d "$cold_check_classes" research/lean-hosting/java/prototype/TypedLongMemo.java
+(
+  cd research/lean-hosting
+  clojure -J-Xmx384m -J-Xss8m -Sdeps "{:paths [\"src\" \"test\" \"$cold_check_classes\"]}" \
+    -M scripts/test-cold-check-progress.clj
+)
+
+echo
+echo "Running native project metadata and filesystem contracts (no native compiler)"
+(
+  cd research/lean-hosting
+  clojure -J-Xmx384m -J-Xss8m -Sdeps "{:paths [\"src\" \"test\" \"$cold_check_classes\"]}" \
+    -M scripts/test-native-project.clj
+)
+
+echo
+echo "Running portable RAW casesOn constructor and preseal policy tests"
+(
+  cd research/lean-hosting
+  clojure -J-Xmx384m -J-Xss8m -M scripts/test-cases-on.clj
+)
+
+echo
+echo "Running fixture-free coherent consumer infrastructure tests"
+python3 research/lean-hosting/scripts/test-coherent.py
+
+echo
+echo "Running optional Pattern typed tail-region preparation contracts"
+(
+  cd research/lean-hosting
+  clojure -J-Xmx384m -J-Xss8m -Sdeps "{:paths [\"src\" \"test\" \"$cold_check_classes\"]}" \
+    -M:typed-tail scripts/test-typed-tail.clj
+)

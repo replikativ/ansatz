@@ -26,7 +26,7 @@
 (defn budget [e] (some-> (state e) (pv "budget")))
 (defn context-value [e] (some-> (state e) (pv "context") (pv "current") (pv "value")))
 (defn start! [{:keys [ctx headers]} e m inputs input amount]
-  (let [hs (into-array (Class/forName "ansatz.research.ir.Interpreter$Header" true (:loader ctx)) (mapv headers expr/roles))
+  (let [hs (into-array (Class/forName "ansatz.lean.jvm.internal.exec.Interpreter$Header" true (:loader ctx)) (mapv headers expr/roles))
         method (.getDeclaredMethod ^Class (:class ctx) "startMVarSessionResearch"
                  (into-array Class [(class hs) Object (class (object-array 0)) Object Long/TYPE]))]
     (.setAccessible method true)

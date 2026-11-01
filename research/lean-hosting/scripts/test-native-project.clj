@@ -1,4 +1,4 @@
-;; Run from experiments/lean-ir. Metadata and filesystem contracts only:
+;; Run from research/lean-hosting. Metadata and filesystem contracts only:
 ;; no Lean process, guest execution, Init replay or store loading.
 (ns native-project-contracts
   (:require [clojure.java.io :as io]

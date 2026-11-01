@@ -92,7 +92,7 @@
 (defn authentic-functions []
   (vec (mapcat (fn [path]
                  (with-open [reader (io/reader (or (io/resource path)
-                                           (io/file "experiments/lean-ir/test" path)))]
+                                           (io/file "research/lean-hosting/test" path)))]
                    (doall (keep (fn [line]
                                   (let [row (json/read-str line :key-fn keyword)]
                                     (when (get-in row [:ir :fdecl]) (ir/lower-declaration row))))

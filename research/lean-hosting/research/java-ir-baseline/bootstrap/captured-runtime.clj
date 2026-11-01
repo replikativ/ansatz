@@ -17,7 +17,7 @@
    Java World, owner mutation, callback or full heap restore is used."
   [ctx roots]
   (let [seen (IdentityHashMap.) queue (ArrayDeque.)
-        cls (Class/forName "ansatz.research.ir.Interpreter$Node" false (:loader ctx))
+        cls (Class/forName "ansatz.lean.jvm.internal.exec.Interpreter$Node" false (:loader ctx))
         rc-field (.getField cls "rc") fields-field (.getField cls "fields") scalars-field (.getField cls "scalars")]
     (need (and (sequential? roots) (<= (count roots) 4096)) "Bounded actual root occurrence list required")
     (doseq [x roots] (when (.isInstance cls x) (.add queue x)))

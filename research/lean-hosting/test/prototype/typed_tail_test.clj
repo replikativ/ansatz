@@ -14,7 +14,7 @@
               :max-registers 65536 :max-params 16 :max-emission 8192 :max-constants 8192 :max-chunk-cost 2048})
 (def fixture-dir
   (first (filter #(.exists (io/file % "typed-tail-programs.jsonl"))
-                 [(io/file "fixtures") (io/file "experiments/lean-ir/fixtures")
+                 [(io/file "fixtures") (io/file "research/lean-hosting/fixtures")
                   (io/file (.getParentFile (.getParentFile (.getParentFile (.getAbsoluteFile (io/file *file*))))) "fixtures")])))
 (defn read-rows [file]
   (with-open [r (io/reader (io/file fixture-dir file))]

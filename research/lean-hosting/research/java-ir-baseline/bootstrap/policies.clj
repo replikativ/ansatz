@@ -237,7 +237,7 @@
     {:required-bindings 21 :actual-program-bindings-verified true :guest-work 0}))
 (defn- configure-level! [driver receipt catalogue headers]
   (let [before (check-driver! driver receipt catalogue)
-        policy-class (Class/forName "ansatz.research.ir.Interpreter$LevelInstantiationPolicy" true (:loader before))
+        policy-class (Class/forName "ansatz.lean.jvm.internal.exec.Interpreter$LevelInstantiationPolicy" true (:loader before))
         header-class (class (first headers))
         policy (j/invoke-static (.getMethod policy-class "originalHelpers" (into-array Class (repeat 5 header-class))) headers)
         registered (j/register-headers before headers)]

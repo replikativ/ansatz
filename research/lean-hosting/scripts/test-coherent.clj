@@ -1,6 +1,6 @@
 ;; Coherent protocol models, bounded 17-CI admission fixtures and small runtimes.
 ;; No full Init image, genuine frontend/provider run or bootstrap restore.
-;; Run from experiments/lean-ir with src, test,
+;; Run from research/lean-hosting with src, test,
 ;; main-library sources, coherent Java classes and dependencies on the classpath.
 (require '[clojure.test :as t] '[clojure.java.io :as io])
 (when-let [expected (System/getProperty "ansatz.coherent.test.class-root")]

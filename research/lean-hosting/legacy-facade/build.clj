@@ -18,7 +18,7 @@
    must be listed separately and reviewed; this is not a bootstrap asset pack."
   [closure]
   (let [paths (set (:sources closure))
-        root (io/file "../../experiments/lean-ir/src")]
+        root (io/file "../src")]
     (when-not (= [] (:java closure))
       (throw (ex-info "Unaudited optional runtime Java helpers" {})))
     (doseq [path paths]
@@ -39,7 +39,7 @@
     closure))
 
 (defn check-closure
-  "Run the strict source inventory audit from modules/lean without a core jar."
+  "Run the strict source inventory audit from the legacy facade without a core jar."
   [_]
   (let [closure (verify-closure! (edn/read-string (slurp "runtime-closure.edn")))]
     (println "Optional Lean runtime closure verified:" (count (:sources closure)) "sources")
@@ -95,9 +95,9 @@
     result))
 
 (defn jar
-  "Run from modules/lean. Requires an explicit pinned core jar and its actual
+  "Run from research/lean-hosting/legacy-facade. Requires an explicit pinned core jar and its actual
    Maven version; source-tree root classes are never accepted as the core basis.
-   Example: clj -T:build jar :core-jar '\"../../target/ansatz.jar\"'
+   Example: clj -T:build jar :core-jar '\"../../../target/ansatz.jar\"'
             :core-version '\"0.2.<revision>\"'. No implicit deploy/publish."
   [{:keys [core-jar core-version version] :or {version "0.1.0-experimental"}}]
   (when-not (and (string? core-jar) (.isFile (io/file core-jar))
@@ -114,7 +114,7 @@
     (b/delete {:path jar-file})
     (b/copy-dir {:src-dirs ["src"] :target-dir class-dir})
     (doseq [path (concat (:sources closure) (:resources closure))]
-      (let [source (io/file "../../experiments/lean-ir/src" path)
+      (let [source (io/file "../src" path)
             target (io/file class-dir path)]
         (io/make-parents target)
         (io/copy source target)))

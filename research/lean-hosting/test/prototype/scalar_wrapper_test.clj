@@ -18,7 +18,7 @@
               :abi-generation "ansatz-runtime/1" :target :jvm})
 (def fixture-dir
   (first (filter #(.exists (io/file % "scalar-wrapper-declarations.jsonl"))
-                 [(io/file "fixtures") (io/file "experiments/lean-ir/fixtures")
+                 [(io/file "fixtures") (io/file "research/lean-hosting/fixtures")
                   (io/file (.getParentFile (.getParentFile (.getParentFile (.getAbsoluteFile (io/file *file*))))) "fixtures")])))
 (defn read-rows [file]
   (with-open [r (io/reader (io/file fixture-dir file))]

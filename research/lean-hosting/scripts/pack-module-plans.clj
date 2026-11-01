@@ -1,4 +1,4 @@
-;; Run from experiments/lean-ir:
+;; Run from research/lean-hosting:
 ;; clojure -J-Xss32m -J-Xmx4g -M scripts/pack-module-plans.clj
 ;; Optional arguments: input-directory store-directory index-hash-file stats-file.
 (require '[clojure.data.json :as json]

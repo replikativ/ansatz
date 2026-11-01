@@ -33,7 +33,7 @@
 (defn session [e] (some-> (state e) (pv "session")))
 (defn task [e] (.peekLast ^java.util.Deque (pv (session e) "tasks")))
 (defn start! [{:keys [ctx headers]} e m input]
-  (let [cls (Class/forName "ansatz.research.ir.Interpreter$Header" true (:loader ctx))
+  (let [cls (Class/forName "ansatz.lean.jvm.internal.exec.Interpreter$Header" true (:loader ctx))
         hs (into-array cls (mapv headers helpers)) cs (into-array cls (mapv headers expr/roles))
         method (.getDeclaredMethod ^Class (:class ctx) "startExprDirectResearch" (into-array Class [(class hs) (class cs) Object Object]))]
     (.setAccessible method true) (.invoke method e (object-array [hs cs m input]))))

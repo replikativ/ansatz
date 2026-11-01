@@ -13,7 +13,7 @@
 (defn file [name] (io/file (str *directory*) name))
 (defn row [name] (json/read-str (slurp (file name))))
 (defn read-bytes [name] (Files/readAllBytes (.toPath (file name))))
-(defn cap-class [] (Class/forName "ansatz.research.ir.Interpreter$EntropyCapability" true (:loader *basis*)))
+(defn cap-class [] (Class/forName "ansatz.lean.jvm.internal.exec.Interpreter$EntropyCapability" true (:loader *basis*)))
 (defn cap [method types args] (j/invoke-static (.getMethod ^Class (cap-class) method (into-array Class types)) args))
 (defn pattern-cap [pattern] (cap "deterministicForTesting" [(class (byte-array 0)) Integer/TYPE] [pattern (int 8)]))
 (defn failing-cap [kind] (cap "failureForTesting" [String String Integer/TYPE] [kind "expected test source failure" (int 8)]))

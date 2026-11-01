@@ -75,7 +75,7 @@ with zipfile.ZipFile(optional) as archive:
     assert not any(n.startswith(('ansatz/kernel/', 'ansatz/runtime/')) for n in names), 'Duplicated core classes'
     assert not any(n.endswith('__init.class') for n in names), 'Ansatz prototype/facade must remain source-loaded'
     for name in closure:
-        assert archive.read(name) == (module / '../../experiments/lean-ir/src' / name).read_bytes(), name
+        assert archive.read(name) == (module / '../src' / name).read_bytes(), name
 for path in core:
     with zipfile.ZipFile(path) as archive:
         assert not pattern_entries(archive.namelist()), 'Pattern leaked into the core-only dependency closure'
@@ -109,7 +109,7 @@ with tempfile.TemporaryDirectory(prefix='clean-consumer-', dir=module / 'target'
         shutil.copy2(module / 'consumer' / name, staging / name)
     fixtures = staging / 'compiler-fixtures.jar'
     with zipfile.ZipFile(fixtures, 'w') as archive:
-        archive.write(module / '../../experiments/lean-ir/fixtures/boxed-scalar-wrapper-programs.jsonl',
+        archive.write(module / '../fixtures/boxed-scalar-wrapper-programs.jsonl',
                       'compiler-consumer/boxed-scalar-wrapper-programs.jsonl')
     fixture_cp = os.pathsep.join([module_cp, str(fixtures)])
     negative = "(require 'ansatz.core) (assert (nil? (clojure.java.io/resource \"ansatz/lean.clj\"))) (assert (try (Class/forName \"ansatz.lean.LeanRuntime\") false (catch ClassNotFoundException _ true))) (println :core-alone-passed)"

@@ -208,11 +208,11 @@
   (validate-inventory* true true true true true :v1 recipe inventory expected))
 
 (def provenance-scripts
-  #{"experiments/lean-ir/scripts/full-init-assembly-probe.clj"
-    "experiments/lean-ir/scripts/prepare-ir-witness.clj"
-    "experiments/lean-ir/scripts/prepare-shared-names-linear-witness.clj"
-    "experiments/lean-ir/scripts/prepare-shared-names-witness.clj"
-    "experiments/lean-ir/scripts/typed-witness-next.clj"})
+  #{"research/lean-hosting/scripts/full-init-assembly-probe.clj"
+    "research/lean-hosting/scripts/prepare-ir-witness.clj"
+    "research/lean-hosting/scripts/prepare-shared-names-linear-witness.clj"
+    "research/lean-hosting/scripts/prepare-shared-names-witness.clj"
+    "research/lean-hosting/scripts/typed-witness-next.clj"})
 (defn input-role [{:keys [id kind]}]
   (cond
     (contains? #{:kernel-class :runtime-class} kind) :selected-class

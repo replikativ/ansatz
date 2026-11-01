@@ -24,7 +24,7 @@
 (def fixture-dir
   (first (filter #(.exists (io/file % "compiled-version-a.jsonl"))
                  [(io/file (.getParentFile (.getParentFile (.getParentFile (.getAbsoluteFile (io/file *file*))))) "fixtures")
-                  (io/file "fixtures") (io/file "experiments/lean-ir/fixtures")])))
+                  (io/file "fixtures") (io/file "research/lean-hosting/fixtures")])))
 (defn version [label]
   (let [rows (with-open [reader (io/reader (io/file fixture-dir (str "compiled-version-" label ".jsonl")))]
                (mapv #(json/read-str % :key-fn keyword) (rest (line-seq reader))))]

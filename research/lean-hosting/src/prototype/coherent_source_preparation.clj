@@ -1,5 +1,5 @@
 (ns prototype.coherent-source-preparation
-  "Definitions-only explicit source-import code preparation. Cwd experiments/lean-ir.
+  "Definitions-only explicit source-import code preparation. Cwd research/lean-hosting.
    Optimized consumer: original producer artifacts are authenticated by exact pins.
    This file uses globals-consumer-factory; the legacy factory must remain unloaded.
    Wrappers absent from the lazy original closure are independently linked additions.

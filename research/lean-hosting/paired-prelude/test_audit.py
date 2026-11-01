@@ -1,6 +1,6 @@
 """Mutation tests against a real native pair (no synthetic replacement artifacts).
 Run: PAIRED_PRELUDE_FIXTURE=/absolute/final-pair python3 -m unittest discover \
-  -s experiments/lean-ir/paired-prelude -p 'test_*.py'
+  -s research/lean-hosting/paired-prelude -p 'test_*.py'
 """
 import json
 import os

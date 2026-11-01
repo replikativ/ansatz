@@ -8,7 +8,7 @@
 
 (def fixture-dir
   (first (filter #(.exists (io/file % "globals.jsonl"))
-                 [(io/file "fixtures") (io/file "experiments/lean-ir/fixtures")
+                 [(io/file "fixtures") (io/file "research/lean-hosting/fixtures")
                   (io/file (.getParentFile (.getParentFile (.getParentFile (.getAbsoluteFile (io/file *file*))))) "fixtures")])))
 (defn actual-rows [file wanted]
   (with-open [input (io/reader (io/file fixture-dir file))]

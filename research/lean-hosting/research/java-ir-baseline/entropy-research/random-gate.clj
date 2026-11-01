@@ -41,7 +41,7 @@
                 (assoc :explicit true :initializing true :build-identity (j/supported-build-identity basis)))
         entropy-name ["str" ["str" ["anonymous"] "IO"] "getRandomBytes"]
         error-name ["str" ["str" ["anonymous"] "IO"] "userError"]
-        cap-class (Class/forName "ansatz.research.ir.Interpreter$EntropyCapability" true (:loader ctx))
+        cap-class (Class/forName "ansatz.lean.jvm.internal.exec.Interpreter$EntropyCapability" true (:loader ctx))
         capability (j/invoke-static (.getMethod cap-class "deterministicForTesting" (into-array Class [(class (byte-array 0)) Integer/TYPE]))
                                    [(byte-array (range 8)) (int 8)])
         error-bytes (.getBytes ^String (first (filter #(= error-name (get (json/read-str %) "name")) lines)) "UTF-8")]

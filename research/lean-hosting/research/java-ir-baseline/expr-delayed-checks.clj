@@ -16,8 +16,8 @@
 (defn state [e] (some-> (action e) (pv "delayedResearch")))
 (defn session [e] (some-> (state e) (pv "session")))
 (defn start! [{:keys [ctx headers]} e mode m anchors commands]
-  (let [hs (into-array (Class/forName "ansatz.research.ir.Interpreter$Header" true (:loader ctx)) (mapv headers direct/helpers))
-        cs (into-array (Class/forName "ansatz.research.ir.Interpreter$Header" true (:loader ctx)) (mapv headers expr/roles))
+  (let [hs (into-array (Class/forName "ansatz.lean.jvm.internal.exec.Interpreter$Header" true (:loader ctx)) (mapv headers direct/helpers))
+        cs (into-array (Class/forName "ansatz.lean.jvm.internal.exec.Interpreter$Header" true (:loader ctx)) (mapv headers expr/roles))
         rows (into-array (Class/forName "[I") (map int-array commands))
         method (.getDeclaredMethod ^Class (:class ctx) "startDelayedFoundationResearch"
                  (into-array Class [(class hs) (class cs) Integer/TYPE Object (class (object-array 0)) (class rows)]))]

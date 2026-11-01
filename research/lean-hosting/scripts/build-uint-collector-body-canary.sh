@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Explicit invocation only. Run under a separate memory/deadline process guard.
-# Relative input and output paths resolve from experiments/lean-ir.
+# Relative input and output paths resolve from research/lean-hosting.
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 canary_output="${ANSATZ_UINT_CANARY_OUTPUT:-target/actual-uint-body-canary}"

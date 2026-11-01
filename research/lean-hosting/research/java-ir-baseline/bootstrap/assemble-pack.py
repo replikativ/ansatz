@@ -87,7 +87,7 @@ def assemble(plan_path, expected_sha, output, roots):
         need(artifacts[runtime["jar"]]["sha256"] == JAR and artifacts[runtime["source"]]["sha256"] == JAVA, "accepted runtime identity")
         need(runtime["build-receipt"] == build_id, "build receipt reference")
         with zipfile.ZipFile(stage / artifacts[runtime["jar"]]["path"]) as jar:
-            info = jar.getinfo("ansatz/research/ir/Interpreter.class")
+            info = jar.getinfo("ansatz/lean/jvm/internal/exec/Interpreter.class")
             need(info.file_size <= 4 * 1024 * 1024, "class extent")
             with jar.open(info) as inp: head = inp.read(8)
         need(len(head) == 8 and head[:4] == bytes.fromhex("cafebabe") and struct.unpack(">H", head[6:8])[0] == 55, "actual Java11 class major")

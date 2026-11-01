@@ -122,7 +122,7 @@
     (is (= :tail (get-in r [:unit :functions (name-of "tail") :blocks 0 :terminator :op])))))
 
 (deftest actual-selected-producer-scalar-declarations
-  (let [path (io/file "fixtures/scalar.jsonl") path (if (.exists path) path (io/file "experiments/lean-ir/fixtures/scalar.jsonl"))
+  (let [path (io/file "fixtures/scalar.jsonl") path (if (.exists path) path (io/file "research/lean-hosting/fixtures/scalar.jsonl"))
         rows (with-open [r (io/reader path)]
                (into [] (comp (map #(json/read-str % :key-fn keyword))
                               (filter #(and (:name %) (contains? #{"ScalarProbe.identity8" "ScalarProbe.identity64"} (ir/name-label (:name %))))))

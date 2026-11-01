@@ -124,7 +124,7 @@
 (defn private-set! [target label value]
   (let [f (.getDeclaredField (class target) label)] (.setAccessible f true) (.set f target value)))
 (defn record-chain [ctx class-name field n]
-  (let [cls (.loadClass (:loader ctx) (str "ansatz.research.ir.Interpreter$" class-name))
+  (let [cls (.loadClass (:loader ctx) (str "ansatz.lean.jvm.internal.exec.Interpreter$" class-name))
         ctor (.getDeclaredConstructor cls (make-array Class 0))]
     (.setAccessible ctor true)
     (loop [i 0 head nil]

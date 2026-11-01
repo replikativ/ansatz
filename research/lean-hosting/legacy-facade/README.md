@@ -1,4 +1,6 @@
-# Experimental optional Lean facade
+# Maintained legacy provider-first facade
+
+This unpublished research facade is retained for migration and compatibility tests. It is not the public Lean/JVM SDK, whose maintained module is [modules/lean-jvm](../../../modules/lean-jvm/README.md). Its historical `ansatz.lean` namespace and local staging coordinate remain unchanged; this directory does not participate in SDK publication. No claim is made that Java eager-fork or compiled-artifact semantics replace the legacy World checkpoint/fork contracts.
 
 `ansatz.lean` adapts the resident frontend without adding prototype requirements to
 core Ansatz. This is a **provider-first prototype**, not a zero-configuration Lean
@@ -119,7 +121,7 @@ This advanced Clojure API accepts the existing bounded `:scalar-wrappers` and
 not derive facts from source names or a FileHandle. Callers must prepare matching
 facts from their active admitted rows and select eligible unboxed workers; public
 boxed wrappers can enter those workers through the ordinary caller-frame path.
-See the [selection contract and remaining convenience plan](../../experiments/lean-ir/research/COMPILER_SELECTION_API_PLAN.md).
+See the [selection contract and remaining convenience plan](../research/COMPILER_SELECTION_API_PLAN.md).
 There is no corresponding Java compiler-map method yet. Small Nat values supplied
 as BigInteger/Clojure BigInt are not implicitly converted to Long for a compiler
 guard. Automatic optimized file loading remains a separate acceptance gate.
@@ -176,7 +178,7 @@ Maven version and Pattern `1.0.452` as its direct dependencies. It does not publ
 machine-local paths or inherit the build tool's default Clojure dependency.
 
 ```sh
-clj -T:build jar :core-jar '"../../target/ansatz.jar"' :core-version '"0.2.<actual-revision>"'
+clj -T:build jar :core-jar '"../../../target/ansatz.jar"' :core-version '"0.2.<actual-revision>"'
 clj -M:dev:test
 ```
 
@@ -207,7 +209,7 @@ The full closed inventory is embedded at
 ```sh
 clj -T:build check-closure
 clj -T:build test-audit
-clj -T:build consumer-bases :core-jar '"../../target/ansatz.jar"' \
+clj -T:build consumer-bases :core-jar '"../../../target/ansatz.jar"' \
   :module-jar '"target/ansatz-lean.jar"' :output-dir '"target/consumer-bases"'
 python3 consumer/check.py --core-classpath '<contents-of-target/consumer-bases/default.cp>' \
   --core-version '0.2.<actual-revision>' \

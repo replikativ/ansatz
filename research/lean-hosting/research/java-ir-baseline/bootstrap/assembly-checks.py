@@ -14,7 +14,7 @@ class AssemblyChecks(unittest.TestCase):
         self.inputs = self.root / "inputs"; self.inputs.mkdir()
         self.jar = self.inputs / "runtime.jar"
         with zipfile.ZipFile(self.jar, "w") as jar:
-            jar.writestr("ansatz/research/ir/Interpreter.class", bytes.fromhex("cafebabe00000037"))
+            jar.writestr("ansatz/lean/jvm/internal/exec/Interpreter.class", bytes.fromhex("cafebabe00000037"))
         (self.inputs / "runtime.java").write_text("synthetic source")
         (self.inputs / "dependency.json").write_text('{"basis":"synthetic model"}')
         (self.inputs / "unit.clj").write_text("(ns example.unit)\n")

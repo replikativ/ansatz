@@ -1,4 +1,4 @@
-;; Bounded definitions/model gate. Run from experiments/lean-ir with src, test,
+;; Bounded definitions/model gate. Run from research/lean-hosting with src, test,
 ;; main-library sources, coherent Java classes and dependencies on the classpath.
 (require '[clojure.test :as t] '[clojure.java.io :as io])
 (def observed (atom #{}))

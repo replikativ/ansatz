@@ -13,9 +13,9 @@
 (defn class-basis [directory]
   (let [loader (URLClassLoader. (into-array URL [(.toURL (.toURI (io/file directory)))])
                                (clojure.lang.RT/baseLoader))
-        cls (Class/forName "ansatz.research.ir.Interpreter" true loader)
-        program (Class/forName "ansatz.research.ir.Interpreter$Program" true loader)
-        node (Class/forName "ansatz.research.ir.Interpreter$Node" true loader)]
+        cls (Class/forName "ansatz.lean.jvm.internal.exec.Interpreter" true loader)
+        program (Class/forName "ansatz.lean.jvm.internal.exec.Interpreter$Program" true loader)
+        node (Class/forName "ansatz.lean.jvm.internal.exec.Interpreter$Node" true loader)]
     {:loader loader :class cls :node-class node
      :prepare (.getMethod cls "prepare" (into-array Class [java.util.List]))
      :constructor (.getConstructor cls (into-array Class [program]))
@@ -49,8 +49,8 @@
     (:task-runtime basis)
     (let [cls ^Class (:class basis)
           loader (.getClassLoader cls)
-          identity-class (.loadClass loader "ansatz.research.ir.Interpreter$BuildIdentity")
-          runtime-class (.loadClass loader "ansatz.research.ir.Interpreter$TaskRuntime")
+          identity-class (.loadClass loader "ansatz.lean.jvm.internal.exec.Interpreter$BuildIdentity")
+          runtime-class (.loadClass loader "ansatz.lean.jvm.internal.exec.Interpreter$TaskRuntime")
           policy (:profiling-policy basis)
           parameters [(class (:program basis)) Boolean/TYPE Boolean/TYPE identity-class runtime-class]
           arguments [(:program basis) (boolean (:explicit basis)) (boolean (:initializing basis))
@@ -61,7 +61,7 @@
         (.newInstance (.getConstructor cls (into-array Class parameters)) (object-array arguments))))
     (:build-identity basis)
     (let [cls ^Class (:class basis)
-          identity-class (.loadClass (.getClassLoader cls) "ansatz.research.ir.Interpreter$BuildIdentity")
+          identity-class (.loadClass (.getClassLoader cls) "ansatz.lean.jvm.internal.exec.Interpreter$BuildIdentity")
           identity (:build-identity basis)]
       (.newInstance (.getConstructor cls (into-array Class [(class (:program basis)) Boolean/TYPE Boolean/TYPE identity-class]))
                     (object-array [(:program basis) (boolean (:explicit basis)) (boolean (:initializing basis)) identity])))
@@ -73,15 +73,15 @@
     (.newInstance ^Constructor (:constructor-explicit basis) (object-array [(:program basis) true]))
     :else (.newInstance ^Constructor (:constructor basis) (object-array [(:program basis)]))))
 (defn logical-sync-task-runtime [basis]
-  (let [cls (.loadClass (.getClassLoader ^Class (:class basis)) "ansatz.research.ir.Interpreter$TaskRuntime")]
+  (let [cls (.loadClass (.getClassLoader ^Class (:class basis)) "ansatz.lean.jvm.internal.exec.Interpreter$TaskRuntime")]
     (invoke-static (.getMethod cls "logicalSynchronous" (make-array Class 0)) [])))
 (defn require-disabled-profiling [basis getter]
-  (let [cls (.loadClass (.getClassLoader ^Class (:class basis)) "ansatz.research.ir.Interpreter$ProfilingPolicy")]
+  (let [cls (.loadClass (.getClassLoader ^Class (:class basis)) "ansatz.lean.jvm.internal.exec.Interpreter$ProfilingPolicy")]
     (invoke-static (.getMethod cls "requireDisabled" (into-array Class [(class getter)])) [getter])))
 (defn start-dispose! [basis engine]
   (.invoke (.getMethod ^Class (:class basis) "startDispose" (make-array Class 0)) engine (object-array 0)))
 (defn supported-build-identity [basis]
-  (let [cls (.loadClass (.getClassLoader ^Class (:class basis)) "ansatz.research.ir.Interpreter$BuildIdentity")]
+  (let [cls (.loadClass (.getClassLoader ^Class (:class basis)) "ansatz.lean.jvm.internal.exec.Interpreter$BuildIdentity")]
     (invoke-static (.getMethod cls "supportedLean4331" (make-array Class 0)) [])))
 (defn finish-initialization! [basis engine]
   (.invoke (.getMethod ^Class (:class basis) "finishInitialization" (make-array Class 0))
@@ -117,8 +117,8 @@
    Old computational-control artifacts remain usable through class-basis."
   [basis]
   (let [loader (:loader basis)
-        host (Class/forName "ansatz.research.ir.Interpreter$HostExtern" true loader)
-        request (Class/forName "ansatz.research.ir.Interpreter$HostRequest" true loader)
+        host (Class/forName "ansatz.lean.jvm.internal.exec.Interpreter$HostExtern" true loader)
+        request (Class/forName "ansatz.lean.jvm.internal.exec.Interpreter$HostRequest" true loader)
         host-array (class (java.lang.reflect.Array/newInstance host 0))
         string-array (class (make-array String 0)) bool-array (class (boolean-array 0))
         cls ^Class (:class basis)]
@@ -160,7 +160,7 @@
   "Create a binding for the trusted adapter's accepted lightweight source token.
    This is an authority boundary, not verification of supplied bytes or hashes."
   [basis accepted-source-token]
-  (let [cls (Class/forName "ansatz.research.ir.Interpreter$SourceBinding" true (:loader basis))]
+  (let [cls (Class/forName "ansatz.lean.jvm.internal.exec.Interpreter$SourceBinding" true (:loader basis))]
     (.newInstance (.getConstructor cls (into-array Class [Object]))
                   (object-array [accepted-source-token]))))
 
@@ -169,7 +169,7 @@
            binding (object-array [original-header-row original-sha256])))
 
 (defn- header-array [basis headers]
-  (let [cls (Class/forName "ansatz.research.ir.Interpreter$Header" true (:loader basis))
+  (let [cls (Class/forName "ansatz.lean.jvm.internal.exec.Interpreter$Header" true (:loader basis))
         array (java.lang.reflect.Array/newInstance cls (count headers))]
     (doseq [[index header] (map-indexed vector headers)]
       (java.lang.reflect.Array/set array index header))
@@ -191,8 +191,8 @@
   [basis bindings]
   (when-not (sequential? bindings)
     (throw (ex-info "Explicit guest export pairs required" {})))
-  (let [cls (Class/forName "ansatz.research.ir.Interpreter$GuestExportBinding" true (:loader basis))
-        header (Class/forName "ansatz.research.ir.Interpreter$Header" true (:loader basis))
+  (let [cls (Class/forName "ansatz.lean.jvm.internal.exec.Interpreter$GuestExportBinding" true (:loader basis))
+        header (Class/forName "ansatz.lean.jvm.internal.exec.Interpreter$Header" true (:loader basis))
         constructor (.getConstructor cls (into-array Class [header header]))
         array (java.lang.reflect.Array/newInstance cls (count bindings))
         program (class (:program basis))
@@ -258,7 +258,7 @@
   (.invoke (.getMethod ^Class (:class basis) "codeFailure" (make-array Class 0))
            engine (object-array 0)))
 (defn graph-ref [basis source-id]
-  (let [cls (Class/forName "ansatz.research.ir.Interpreter$GraphRef" true (:loader basis))]
+  (let [cls (Class/forName "ansatz.lean.jvm.internal.exec.Interpreter$GraphRef" true (:loader basis))]
     (.newInstance (.getConstructor cls (into-array Class [Long/TYPE])) (object-array [(long source-id)]))))
 (defn- unsigned-graph-bytes [values]
   (when-not (and (some? values) (or (and (sequential? values) (counted? values))
@@ -283,7 +283,7 @@
             (throw (ex-info "Ref requires exactly one payload" {})))
         _ (when (and (= kind :closure) (nil? target))
             (throw (ex-info "Closure requires an actual Header" {})))
-        cls (Class/forName "ansatz.research.ir.Interpreter$ImportNode" true (:loader basis))
+        cls (Class/forName "ansatz.lean.jvm.internal.exec.Interpreter$ImportNode" true (:loader basis))
         objects (class (object-array 0)) bytes (class (byte-array 0))
         [types arguments]
         (case kind
@@ -298,12 +298,12 @@
 (defn graph-int [basis value]
   (when-not (integer? value)
     (throw (ex-info "GraphInt requires an exact integer" {:value value})))
-  (let [cls (Class/forName "ansatz.research.ir.Interpreter$GraphInt" true (:loader basis))]
+  (let [cls (Class/forName "ansatz.lean.jvm.internal.exec.Interpreter$GraphInt" true (:loader basis))]
     (.newInstance (.getConstructor cls (into-array Class [java.math.BigInteger]))
                   (object-array [(biginteger value)]))))
 (defn- graph-recipe [factory basis source state-token nodes globals global-values owned-roots]
-  (let [cls (Class/forName "ansatz.research.ir.Interpreter$PreparedGraph" true (:loader basis))
-        node-class (Class/forName "ansatz.research.ir.Interpreter$ImportNode" true (:loader basis))
+  (let [cls (Class/forName "ansatz.lean.jvm.internal.exec.Interpreter$PreparedGraph" true (:loader basis))
+        node-class (Class/forName "ansatz.lean.jvm.internal.exec.Interpreter$ImportNode" true (:loader basis))
         node-array (java.lang.reflect.Array/newInstance node-class (count nodes))
         global-array (header-array basis globals) objects (class (object-array 0))]
     (doseq [[i node] (map-indexed vector nodes)] (java.lang.reflect.Array/set node-array i node))
@@ -325,8 +325,8 @@
 (defn module-data-graph
   "Separate bounded persistent aggregate ModuleData profile; no globals."
   [basis source state-token nodes root]
-  (let [cls (Class/forName "ansatz.research.ir.Interpreter$PreparedGraph" true (:loader basis))
-        node-class (Class/forName "ansatz.research.ir.Interpreter$ImportNode" true (:loader basis))
+  (let [cls (Class/forName "ansatz.lean.jvm.internal.exec.Interpreter$PreparedGraph" true (:loader basis))
+        node-class (Class/forName "ansatz.lean.jvm.internal.exec.Interpreter$ImportNode" true (:loader basis))
         array (java.lang.reflect.Array/newInstance node-class (count nodes))]
     (doseq [[i node] (map-indexed vector nodes)] (java.lang.reflect.Array/set array i node))
     (invoke-static (.getMethod cls "moduleData"
@@ -419,21 +419,21 @@
 (defn host-guest-policy
   "Capture independently selected exact Headers; this does not authenticate source bytes."
   [basis outer-headers helper-headers]
-  (let [cls (Class/forName "ansatz.research.ir.Interpreter$HostGuestPolicy" true (:loader basis))
+  (let [cls (Class/forName "ansatz.lean.jvm.internal.exec.Interpreter$HostGuestPolicy" true (:loader basis))
         outers (header-array basis outer-headers) helpers (header-array basis helper-headers)]
     (invoke-static (.getMethod cls "of" (into-array Class [(class outers) (class helpers)])) [outers helpers])))
 (defn configure-host-guest! [basis engine policy]
   (.invoke (.getMethod ^Class (:class basis) "configureHostGuestCalls" (into-array Class [(class policy)]))
            engine (object-array [policy])))
 (defn host-owned-argument [basis value]
-  (let [cls (Class/forName "ansatz.research.ir.Interpreter$HostGuestArgument" true (:loader basis))]
+  (let [cls (Class/forName "ansatz.lean.jvm.internal.exec.Interpreter$HostGuestArgument" true (:loader basis))]
     (invoke-static (.getMethod cls "owned" (into-array Class [Object])) [value])))
 (defn host-transferred-argument [basis request index]
-  (let [cls (Class/forName "ansatz.research.ir.Interpreter$HostGuestArgument" true (:loader basis))]
+  (let [cls (Class/forName "ansatz.lean.jvm.internal.exec.Interpreter$HostGuestArgument" true (:loader basis))]
     (invoke-static (.getMethod cls "fromHostArgument" (into-array Class [(class request) Integer/TYPE]))
                    [request (int index)])))
 (defn start-host-guest! [basis engine request header arguments]
-  (let [cls (Class/forName "ansatz.research.ir.Interpreter$HostGuestArgument" true (:loader basis))
+  (let [cls (Class/forName "ansatz.lean.jvm.internal.exec.Interpreter$HostGuestArgument" true (:loader basis))
         array (java.lang.reflect.Array/newInstance cls (count arguments))]
     (doseq [[index argument] (map-indexed vector arguments)] (java.lang.reflect.Array/set array index argument))
     (.invoke (.getMethod ^Class (:class basis) "startHostGuestCall"
@@ -454,7 +454,7 @@
 (defn level-instantiation-policy
   "Bind five exact ordinary source Headers; caller authenticates their source bytes."
   [basis getter setter succ max imax]
-  (let [cls (Class/forName "ansatz.research.ir.Interpreter$LevelInstantiationPolicy" true (:loader basis))
+  (let [cls (Class/forName "ansatz.lean.jvm.internal.exec.Interpreter$LevelInstantiationPolicy" true (:loader basis))
         hs [getter setter succ max imax]]
     (invoke-static (.getMethod cls "originalHelpers" (into-array Class (map class hs))) hs)))
 (defn configure-level-instantiation! [basis engine policy]
@@ -464,7 +464,7 @@
 (defn jvm-carrier-layout-v1
   "Explicit normalized target value/layout equality, not native memory parity."
   [basis]
-  (let [cls (Class/forName "ansatz.research.ir.Interpreter$JvmCarrierLayoutV1" true (:loader basis))]
+  (let [cls (Class/forName "ansatz.lean.jvm.internal.exec.Interpreter$JvmCarrierLayoutV1" true (:loader basis))]
     (invoke-static (.getMethod cls "normalizedValues" (make-array Class 0)) [])))
 (defn configure-share-common! [basis engine layout]
   (.invoke (.getMethod ^Class (:class basis) "configureShareCommon" (into-array Class [(class layout)]))
@@ -473,8 +473,8 @@
 (defn expr-transform-policy
   "Bind the nine exact original constructor Headers; caller authenticates bytes."
   [basis headers]
-  (let [cls (Class/forName "ansatz.research.ir.Interpreter$ExprTransformPolicy" true (:loader basis))
-        hc (Class/forName "ansatz.research.ir.Interpreter$Header" true (:loader basis))
+  (let [cls (Class/forName "ansatz.lean.jvm.internal.exec.Interpreter$ExprTransformPolicy" true (:loader basis))
+        hc (Class/forName "ansatz.lean.jvm.internal.exec.Interpreter$Header" true (:loader basis))
         hs (into-array hc headers)]
     (invoke-static (.getMethod cls "originalHelpers" (into-array Class [(class hs)])) [hs])))
 (defn configure-expr-transforms! [basis engine policy]
@@ -487,7 +487,7 @@
   [basis headers]
   (when-not (= 3 (count headers))
     (throw (ex-info "Three original FoldConsts hash role Headers required" {})))
-  (let [cls (Class/forName "ansatz.research.ir.Interpreter$PointerHashPolicy" true (:loader basis))]
+  (let [cls (Class/forName "ansatz.lean.jvm.internal.exec.Interpreter$PointerHashPolicy" true (:loader basis))]
     (invoke-static (.getMethod cls "originalFoldConsts" (into-array Class (map class headers))) headers)))
 (defn configure-pointer-hashes! [basis engine policy]
   (.invoke (.getMethod ^Class (:class basis) "configurePointerHashes" (into-array Class [(class policy)]))
@@ -497,8 +497,8 @@
   "Bind the existing exact nineteen-role validator. LEVEL-POLICY must be the
    actual policy configured on the engine; caller authenticates all source bytes."
   [basis level-policy expr-headers constructor-headers]
-  (let [cls (Class/forName "ansatz.research.ir.Interpreter$ExprInstantiationPolicy" true (:loader basis))
-        header-class (Class/forName "ansatz.research.ir.Interpreter$Header" true (:loader basis))
+  (let [cls (Class/forName "ansatz.lean.jvm.internal.exec.Interpreter$ExprInstantiationPolicy" true (:loader basis))
+        header-class (Class/forName "ansatz.lean.jvm.internal.exec.Interpreter$Header" true (:loader basis))
         hs (into-array header-class expr-headers) cs (into-array header-class constructor-headers)]
     (invoke-static (.getMethod cls "originalHelpers"
                     (into-array Class [(class level-policy) (class hs) (class cs)]))

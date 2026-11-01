@@ -110,7 +110,7 @@
       (is (thrown-with-msg? clojure.lang.ExceptionInfo #"provenance script drift"
                             (profile/authenticate-input! (assoc row :sha256 model-hash) resolve-source)))))
   (is (= :selected-resource
-         (profile/input-role {:id "experiments/lean-ir/scripts/unapproved.clj" :kind :host-source}))))
+         (profile/input-role {:id "research/lean-hosting/scripts/unapproved.clj" :kind :host-source}))))
 
 (deftest arbitrary-or-forged-factories-are-not-capabilities
   (doseq [value [(fn [_] {}) {} nil

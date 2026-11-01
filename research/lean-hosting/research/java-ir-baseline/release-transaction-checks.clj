@@ -67,7 +67,7 @@
 
 (deftest invalid-carriers-counts-and-recursive-entry-are-pure-preflight
   (let [ctx (context) engine (j/machine ctx) value (cons! ctx engine 7)
-        bits-class (.loadClass (:loader ctx) "ansatz.research.ir.Interpreter$F64Bits")
+        bits-class (.loadClass (:loader ctx) "ansatz.lean.jvm.internal.exec.Interpreter$F64Bits")
         ctor (.getDeclaredConstructor bits-class (into-array Class [Long/TYPE]))
         _ (.setAccessible ctor true) bits (.newInstance ctor (object-array [(long 0)]))]
     (try

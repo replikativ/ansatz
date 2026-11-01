@@ -93,7 +93,7 @@
 (deftest actual-producer-fixtures-retain-legacy-functions
   (doseq [fixture ["list-reverse.jsonl" "list-map.jsonl"]]
     (let [path (io/file "fixtures" fixture)
-          path (if (.exists path) path (io/file "experiments/lean-ir/fixtures" fixture))
+          path (if (.exists path) path (io/file "research/lean-hosting/fixtures" fixture))
           rows (with-open [r (io/reader path)]
                  (doall (map #(json/read-str % :key-fn keyword) (line-seq r))))]
       (doseq [r rows :when (get-in r [:ir :fdecl])]
