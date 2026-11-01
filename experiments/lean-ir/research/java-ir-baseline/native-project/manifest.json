@@ -13,7 +13,7 @@
     },
     {
       "file": "README.md",
-      "sha256": "1da57c99779ff825d17f0fa786e31dbdba09e22e09fbb1f0747f84b01b59e66a"
+      "sha256": "5d30e0b6e245a67c99f1ef03e168fd51dc9c97e2a45a173b8a943df5b742d75d"
     },
     {
       "file": "compiler-models.clj",
@@ -74,6 +74,14 @@
     {
       "file": "typed-bridge/validation.json",
       "sha256": "d7d8476fcc836f60db8ae99bf0b55fb1b1055c6b5a61a9d364a39856c4babdf3"
+    },
+    {
+      "file": "GENERAL_PROJECT_PLAN.md",
+      "sha256": "d7642776843a49f2ac23838b9105f220474b98f3023f22c624deba0ccc18f4f1"
+    },
+    {
+      "file": "SOURCE_REVIEW_GATES.md",
+      "sha256": "91e52eb508665d59be1db6896e929d58f47dbaf3993c8daaf53b6105042dc31e"
     }
   ],
   "producer-artifact": {
@@ -411,5 +419,27 @@
       "sameEngine": true,
       "normalClose": true
     }
+  },
+  "general-project-design": {
+    "status": "source-only requirements and review decisions; unimplemented by these documents",
+    "files": [
+      "GENERAL_PROJECT_PLAN.md",
+      "SOURCE_REVIEW_GATES.md"
+    ],
+    "draftPlanSHA256": "c0faa952a925b9941d4a16345fe7c5749ca62b89d9a96bc17c81767391d2726d",
+    "sourceReviewDecisionsDate": "2026-10-31",
+    "runtimeSourcesChanged": false,
+    "nativeOrJVMExecuted": false,
+    "callerProofAccepted": false,
+    "releaseSequence": [
+      "compact-startup-capability",
+      "generic-artifact-and-reused-project",
+      "jar-only-java-api"
+    ],
+    "entropyProfile": "portable JDK, actual IO.Error.userError for expected provider failures; no fake POSIX errno",
+    "limits": "cooperative bit/work guards; no hard heap/deadline claim",
+    "publicFork": "deferred",
+    "draftBaseCommit": "a2b7ee2d89235aed869ed09cc6c575c12f137462",
+    "reviewedBaseCommit": "a75ab26cad4d9ba15409c0cc89e6aa8e356ad06c"
   }
 }
