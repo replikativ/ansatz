@@ -2871,3 +2871,8 @@ Int.sub_pos
 Int.lt_of_le_of_lt
 Int.mul_nonpos_of_nonpos_of_nonneg
 Int.mul_neg_of_neg_of_pos
+Int.mul_ne_zero
+Int.pow_mul
+Int.pow_ne_zero
+Nat.add_pos_left
+Nat.mul_ne_zero
