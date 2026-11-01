@@ -1,6 +1,6 @@
 {
   "schema": "ansatz-lean-jvm-packaging-validation/1",
-  "scope": "Internal canonical adapter packaging; no public Project API or generic project loader",
+  "scope": "Historical internal packaging receipts plus the observed experimental bounded public Java SDK acceptance below",
   "acceptedHistorical": {
     "packagingCommit": "3a20cc7bfcef57ea0b35cdc15284185c71e638b4",
     "engineSourceSHA256": "28cd4296572af05d1800eb0c2f2414b9c22bb954f6fd4303792620fa3d27ce77",
@@ -557,5 +557,168 @@
       ]
     },
     "receipt": "experiments/lean-ir/research/java-ir-baseline/entropy-research/receipts/sdk-entropy-jdk11-digest-consumer-v1.json"
+  },
+  "publicJavaSDK": {
+    "assemblyCommit": "3059131f",
+    "ciCommit": "3adb81d0",
+    "status": "accepted-experimental-bounded-profile",
+    "engineSourceSHA256": "70f6a6fc937be9604e887bdd85ff12bd9d9ce4218387f8cf4a122f26018ead29",
+    "profile": "lean-native-local-init-dag/1",
+    "producerHeapMiB": 512,
+    "consumerHeapMiB": 384,
+    "publicProjectAPI": true,
+    "candidateJar": {
+      "jarBytes": 369824,
+      "jarSHA256": "eb2ac632dcf7bf856e6d9adf84426feec263648a5111d074aaca571d81600011",
+      "entryCount": 171,
+      "engineClassCount": 133,
+      "javaAPIClassCount": 9,
+      "publicProjectAPIAccepted": false,
+      "javaRelease": 17,
+      "engineSourceSHA256": "70f6a6fc937be9604e887bdd85ff12bd9d9ce4218387f8cf4a122f26018ead29",
+      "runtimeResources": [
+        "ansatz/lean/jvm/artifact.clj",
+        "ansatz/lean/jvm/capabilities.clj",
+        "ansatz/lean/jvm/compiler/bundle.clj",
+        "ansatz/lean/jvm/compiler/encoding.clj",
+        "ansatz/lean/jvm/compiler/evidence.clj",
+        "ansatz/lean/jvm/compiler/local.clj",
+        "ansatz/lean/jvm/compiler/transport.clj",
+        "ansatz/lean/jvm/ir.clj",
+        "ansatz/lean/jvm/original.clj",
+        "ansatz/lean/jvm/project.clj",
+        "ansatz/lean/jvm/publisher.clj",
+        "ansatz/lean/jvm/startup.clj"
+      ],
+      "pomDependencies": [
+        [
+          "org.clojure",
+          "clojure",
+          "1.12.0"
+        ],
+        [
+          "org.clojure",
+          "data.json",
+          "2.5.1"
+        ]
+      ],
+      "adapterSHA256": "c719e42623d39779f8a366d3fac852a7c3be320037285075dd8b37db24ad5b9c",
+      "metadataSHA256": "78b0a0ad278904726825f621aaf204d258302ceaef045b987e67ab7c799cffe2",
+      "pomSHA256": "1c1952434ab7b8a32daae9a4c0b6bdb92590b269086823e9b4295ef5b7934e9a"
+    },
+    "candidateJarMarkerWasFalse": true,
+    "metadataAcceptanceUpdate": "Public marker changed to true only after the observed gates; executable Java/Clojure sources remained frozen",
+    "applicationJar": {
+      "sha256": "3fe1069e76bfbc1fc7ad6f1c4908e7e2d534e881f221d5e23572de23c2a0effc",
+      "stages": [
+        {
+          "stage": "javac",
+          "exit": 0,
+          "stdoutSHA256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "stderrSHA256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "stage": "java",
+          "exit": 0,
+          "stdoutSHA256": "9ecb107fd2e0fee0e9322fd8d4315d4fa736ee13ed6beeea4360f848bd6fb87a",
+          "stderrSHA256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      ],
+      "receipt": "consumer/receipts/public-consumer-candidate-v1.json",
+      "sourceCheckoutOnClasspath": false,
+      "runtimeNativeCompiler": false,
+      "runtimeJavaCompilation": false
+    },
+    "canonicalModels": {
+      "buildAudit": [
+        5,
+        23
+      ],
+      "adapter": [
+        4,
+        14
+      ],
+      "encoding": [
+        2,
+        16
+      ],
+      "release": [
+        2,
+        12
+      ],
+      "facade": [
+        2,
+        12
+      ],
+      "failures": 0,
+      "errors": 0
+    },
+    "canonicalSourceAPI": {
+      "receipt": "consumer/receipts/source-api-v1.edn",
+      "modules": 3,
+      "root": "Main",
+      "coldOpenSeconds": 5.147926668,
+      "validatedCacheOpenSeconds": 3.594750752,
+      "cacheHit": true,
+      "nativeEvidenceStatus": "native-evidence-issued",
+      "nat42": 85,
+      "unicodeExact": true,
+      "bothProjectsClosed": true,
+      "note": "Cache hit avoids module compilation; identity/evidence helpers still run during a separately requested source load. Repeated calls reuse the opened engine."
+    },
+    "actualLifecycle": {
+      "receipt": "consumer/receipts/lifecycle-v1.edn",
+      "activeCancellationAndThreadRefusal": true,
+      "hostFailureBeforeEntropyDraws": 0,
+      "hostFailureAfterEntropyDraws": 1,
+      "stoppedFailedEnginesAbandonedAndObservedCollectible": true,
+      "ownedResultDecodeFailureClosed": true,
+      "retainedClosedFacadeAndHandleReleasedEngine": true,
+      "collectionQualification": "Weak reachability observations supplement issuer/resource tests; prepared value collected after stale WeakHashMap entry expunge and a second GC observation; no GC timing guarantee."
+    },
+    "externalTutorial": {
+      "upstream": "https://github.com/leanprover/fp-lean",
+      "commit": "0abeea545d560a324e2561f7210fbd6ed154fa02",
+      "subdirectory": "examples/first-lake/expected",
+      "unchangedSourceFiles": 3,
+      "callsOnOneProject": 2,
+      "stdoutBytesEach": 14,
+      "sourceAPIReceipt": "consumer/receipts/tutorial-source-api-v1.edn",
+      "ordinarySDKClasspathJavaLaunchReceipt": "consumer/receipts/tutorial-java-launch-v1.json",
+      "sourceNotIncludedInSDK": true
+    },
+    "runtimeChecks": {
+      "tests": 155,
+      "assertions": 9879,
+      "standaloneResourceChecks": 41,
+      "failures": 0,
+      "errors": 0
+    },
+    "sdkCILauncherObservedByRoot": {
+      "modelTests": 57,
+      "modelAssertions": 245,
+      "actualArchiveAudit": true,
+      "archiveRejectionCases": 6,
+      "publicApplicationJar": true,
+      "standaloneResourceChecks": 41,
+      "remoteCircleCIJob": "Not yet run for the new SDK workflow at the time of this receipt"
+    },
+    "remainingReleaseOperations": [
+      "Rebuild exact coordinated release JAR/POM with accepted metadata and identify their final hashes",
+      "Run new remote SDK CircleCI job on the landing PR",
+      "Publish optional artifact through verified deploy-prepared job"
+    ],
+    "nativeProducerDistribution": {
+      "release": "https://github.com/replikativ/ansatz-stores/releases/tag/lean-native-producer-4.33.1-v1",
+      "asset": "https://github.com/replikativ/ansatz-stores/releases/download/lean-native-producer-4.33.1-v1/ansatz-lean-native-producer-4.33.1-linux-x86_64-v1.tar.zst",
+      "bytes": 156057976,
+      "sha256": "7211fc653371845dc8a8234060781bb4ef176277b36c95cdb955c201e20ff1bd",
+      "serverState": "uploaded",
+      "draft": false,
+      "serverSizeAndDigestMatch": true,
+      "archiveRoot": "producer-bundle.json, bin/, sources and license/notice files",
+      "automaticInstallation": false,
+      "mavenRuntimeDependency": false
+    }
   }
 }

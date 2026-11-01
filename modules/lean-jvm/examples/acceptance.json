@@ -1,0 +1,45 @@
+{
+  "schema": "ansatz-java-tutorial-launch/1",
+  "exit": 0,
+  "seconds": 5.114190571010113,
+  "stdout": "Hello, world!\nHello, world!\n",
+  "stderr": "",
+  "heapMiB": 384,
+  "sourceCheckoutOnRuntimeClasspath": false,
+  "sourceLauncher": true,
+  "nativeSourceCompilation": "explicit source API; cache populated in retained REPL",
+  "leanCompilation": "explicit native producer; JVM interpretation",
+  "candidateSourceCommit": "3059131f22024ee674b88baec88481041ea2a418",
+  "testedSdkSHA256": "eb2ac632dcf7bf856e6d9adf84426feec263648a5111d074aaca571d81600011",
+  "upstreamRepository": "https://github.com/leanprover/fp-lean",
+  "upstreamCommit": "0abeea545d560a324e2561f7210fbd6ed154fa02",
+  "upstreamDirectory": "examples/first-lake/expected",
+  "ordinaryLocalSourceFiles": 3,
+  "assertions": [
+    "exact repeated stdout",
+    "empty stderr",
+    "one reusable Project",
+    "public Java source-loading API",
+    "SDK and four Maven dependency JARs only on runtime classpath"
+  ],
+  "sourceReceipts": [
+    {
+      "path": "Main.lean",
+      "bytes": 72,
+      "sha256": "84b2361691c0d105c438b137563c447e36e38827aaa633707ca99d14c4d20316",
+      "upstreamURL": "https://github.com/leanprover/fp-lean/blob/0abeea545d560a324e2561f7210fbd6ed154fa02/examples/first-lake/expected/Main.lean"
+    },
+    {
+      "path": "Greeting.lean",
+      "bytes": 151,
+      "sha256": "b23733091936f7b4318c98880382dc901d5ca5830870bd40bbaa1128cbc91ed2",
+      "upstreamURL": "https://github.com/leanprover/fp-lean/blob/0abeea545d560a324e2561f7210fbd6ed154fa02/examples/first-lake/expected/Greeting.lean"
+    },
+    {
+      "path": "Greeting/Basic.lean",
+      "bytes": 20,
+      "sha256": "b186dbcbc8cd3f04b6f9d39f4f130996ee75093b3d0923a9ceda2e2b70220afb",
+      "upstreamURL": "https://github.com/leanprover/fp-lean/blob/0abeea545d560a324e2561f7210fbd6ed154fa02/examples/first-lake/expected/Greeting/Basic.lean"
+    }
+  ]
+}

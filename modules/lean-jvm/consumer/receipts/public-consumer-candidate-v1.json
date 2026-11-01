@@ -1,0 +1,59 @@
+{
+  "jarAudit": {
+    "jarBytes": 369824,
+    "jarSHA256": "eb2ac632dcf7bf856e6d9adf84426feec263648a5111d074aaca571d81600011",
+    "entryCount": 171,
+    "engineClassCount": 133,
+    "javaAPIClassCount": 9,
+    "publicProjectAPIAccepted": false,
+    "javaRelease": 17,
+    "engineSourceSHA256": "70f6a6fc937be9604e887bdd85ff12bd9d9ce4218387f8cf4a122f26018ead29",
+    "runtimeResources": [
+      "ansatz/lean/jvm/artifact.clj",
+      "ansatz/lean/jvm/capabilities.clj",
+      "ansatz/lean/jvm/compiler/bundle.clj",
+      "ansatz/lean/jvm/compiler/encoding.clj",
+      "ansatz/lean/jvm/compiler/evidence.clj",
+      "ansatz/lean/jvm/compiler/local.clj",
+      "ansatz/lean/jvm/compiler/transport.clj",
+      "ansatz/lean/jvm/ir.clj",
+      "ansatz/lean/jvm/original.clj",
+      "ansatz/lean/jvm/project.clj",
+      "ansatz/lean/jvm/publisher.clj",
+      "ansatz/lean/jvm/startup.clj"
+    ],
+    "pomDependencies": [
+      [
+        "org.clojure",
+        "clojure",
+        "1.12.0"
+      ],
+      [
+        "org.clojure",
+        "data.json",
+        "2.5.1"
+      ]
+    ],
+    "adapterSHA256": "c719e42623d39779f8a366d3fac852a7c3be320037285075dd8b37db24ad5b9c",
+    "metadataSHA256": "78b0a0ad278904726825f621aaf204d258302ceaef045b987e67ab7c799cffe2",
+    "pomSHA256": "1c1952434ab7b8a32daae9a4c0b6bdb92590b269086823e9b4295ef5b7934e9a"
+  },
+  "stages": [
+    {
+      "stage": "javac",
+      "exit": 0,
+      "stdoutSHA256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderrSHA256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "stage": "java",
+      "exit": 0,
+      "stdoutSHA256": "9ecb107fd2e0fee0e9322fd8d4315d4fa736ee13ed6beeea4360f848bd6fb87a",
+      "stderrSHA256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  ],
+  "applicationJARSHA256": "3fe1069e76bfbc1fc7ad6f1c4908e7e2d534e881f221d5e23572de23c2a0effc",
+  "sourceCheckoutOnClasspath": false,
+  "runtimeNativeCompiler": false,
+  "runtimeJavaCompilation": false
+}

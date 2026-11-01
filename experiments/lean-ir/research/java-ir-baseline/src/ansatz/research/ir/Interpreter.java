@@ -70,7 +70,18 @@ public final class Interpreter implements AutoCloseable {
     private static final int POINTER_IDENTITY=93, NAME_EQ=94, BUILD_GITHASH=95, BUILD_TARGET=96;
     private static final int FLOAT_BITS=240,FLOAT_U64=241,FLOAT_SUB=242,FLOAT_MUL=243,FLOAT_DIV=244,FLOAT_EQ=245,FLOAT_LT=246,FLOAT_STRING=247;
     private static final int MAX_NAME_COMPARISON_STEPS=1_000_000;
-    private static final int MAX_SHIFT_RESULT_BITS=16*1024*1024;
+    private static final int MAX_NAT_RESULT_BITS=16*1024*1024;
+    private static final int MAX_SHIFT_RESULT_BITS=MAX_NAT_RESULT_BITS;
+    // Conservative schoolbook bit-product accounting; not a JVM heap bound.
+    private static final long MAX_NAT_MULTIPLY_WORK=1L<<40;
+    public static final class RuntimeLimitException extends RuntimeException {
+        private final String code;
+        private RuntimeLimitException(String code,String message) { super(message); this.code=code; }
+        public String code() { return code; }
+    }
+    private static void resource(boolean admitted,String message) {
+        if(!admitted) throw new RuntimeLimitException("ResourceLimit",message);
+    }
     private static final int MAX_ARRAY_CAPACITY=1_000_000;
     private static final int PROMISE_NEW=300,PROMISE_RESOLVE=301,PROMISE_RESULT=302,TASK_BIND=303,
                              IO_TASK_MAP=304,IO_TASK_BIND=305,TASK_STATE=306,TASK_WAIT=307,
@@ -4821,6 +4832,30 @@ public final class Interpreter implements AutoCloseable {
     private static final class StdioContext { final Node[] current=new Node[3]; }
     private StdioContext stdioContext;
     private final StringBuilder output=new StringBuilder();
+    private int outputBytes,stderrOutputBytes;
+    private long atomicDeadlineNanos;
+    /** Relative cooperative deadline; at most ten minutes, never a preemption guarantee. */
+    public void configureAtomicDeadlineAfterNanos(long durationNanos) {
+        requireAtomicIdle("Atomic deadline configuration");
+        if(durationNanos<=0||durationNanos>600_000_000_000L)
+            throw new IllegalArgumentException("Atomic deadline duration outside bounded profile");
+        atomicDeadlineNanos=System.nanoTime()+durationNanos; atomicDeadlineEnabled=true;
+    }
+    public void clearAtomicDeadline() {
+        requireAtomicIdle("Atomic deadline configuration"); atomicDeadlineEnabled=false;
+    }
+    private boolean atomicDeadlineEnabled;
+    private void requireAtomicIdle(String operation) {
+        if(closed||disposed||advancing||phase!=IDLE||pendingOwnedResult||taskRuntime!=null
+                ||runtimeAction!=null||releaseTransaction!=null||pendingInitializerGlobal!=null)
+            throw new IllegalStateException(operation+" requires an open idle task-free engine");
+    }
+    private void atomicPoll() {
+        if(Thread.currentThread().isInterrupted())
+            throw new RuntimeLimitException("Cancelled","Atomic Nat operation interrupted");
+        if(atomicDeadlineEnabled&&System.nanoTime()-atomicDeadlineNanos>=0)
+            throw new RuntimeLimitException("ResourceLimit","Atomic Nat operation deadline reached");
+    }
     private WeakReference<String> utf8Key;
     private byte[] utf8Bytes;
     private Object[] releaseWork=new Object[32];
@@ -6416,6 +6451,8 @@ public final class Interpreter implements AutoCloseable {
             for(int i=0;i<3;i++) child.stdioContext.current[i]=(Node)copy.value(stdioContext.current[i]);
         }
         child.output.append(output); child.stderrOutput.append(stderrOutput);
+        child.outputBytes=outputBytes; child.stderrOutputBytes=stderrOutputBytes;
+        child.atomicDeadlineNanos=atomicDeadlineNanos; child.atomicDeadlineEnabled=atomicDeadlineEnabled;
         String key=utf8Key==null?null:utf8Key.get();
         child.utf8Key=key==null?null:new WeakReference<>(key);
         child.utf8Bytes=utf8Bytes==null?null:utf8Bytes.clone();
@@ -7899,7 +7936,7 @@ public final class Interpreter implements AutoCloseable {
             if(position.compareTo(BigInteger.valueOf(length))<0) {
                 int p=position.intValue(); width=leadingByte(bytes[p])?utf8Width(bytes[p]):1;
             }
-            result=normalize(position.add(BigInteger.valueOf(width))); return;
+            result=normalize(boundedAdd(position,BigInteger.valueOf(width),false)); return;
         }
         if(f.intrinsic==STR_PREV) {
             if(position.signum()==0) { result=ERASED; return; }
@@ -7932,6 +7969,7 @@ public final class Interpreter implements AutoCloseable {
             int replacement=codePoint(c);
             if(!inRange||!leadingByte(bytes[position.intValue()])) { result=a; return; }
             int p=position.intValue(),width=utf8Width(bytes[p]);
+            stringReplacementExtent(length,width,replacement);
             result=new String(bytes,0,p,StandardCharsets.UTF_8)+new String(Character.toChars(replacement))
                     +new String(bytes,p+width,length-p-width,StandardCharsets.UTF_8); return;
         }
@@ -7960,15 +7998,21 @@ public final class Interpreter implements AutoCloseable {
     /** Modern proof-carrying Pos is an erased wrapper around a Nat byte offset.
      * Unlike legacy Raw.set, this exact ABI owns its position and proves non-end.
      * Java String is immutable, so native in-place ASCII identity is not claimed. */
+    private static void stringReplacementExtent(int bytes,int oldWidth,int cp) {
+        stringReplacementExtent(bytes,oldWidth,cp,"String.set");
+    }
+    private static void stringReplacementExtent(int bytes,int oldWidth,int cp,String operation) {
+        int newWidth=cp<128?1:cp<2048?2:cp<65536?3:4;
+        resource((long)bytes-oldWidth+newWidth<=MAX_STRING_OUTPUT_BYTES,
+                operation+" output outside bounded runtime profile");
+    }
     private void stringPosSet(Object source,Object position,Object replacement,Object proof) {
         require(ERASED.equals(proof),"String.Pos.set proof requires erased placeholder");
         byte[] bytes=utf8(source); BigInteger offset=nat(position); int cp=codePoint(replacement);
         require(offset.compareTo(BigInteger.valueOf(bytes.length))<0,"String.Pos.set requires a non-end position");
         int p=offset.intValue();
         require(leadingByte(bytes[p]),"String.Pos.set requires a valid UTF-8 scalar position");
-        int oldWidth=utf8Width(bytes[p]); int newWidth=cp<128?1:cp<2048?2:cp<65536?3:4;
-        require((long)bytes.length-oldWidth+newWidth<=MAX_STRING_OUTPUT_BYTES,
-                "String.Pos.set output outside bounded runtime profile");
+        int oldWidth=utf8Width(bytes[p]); stringReplacementExtent(bytes.length,oldWidth,cp,"String.Pos.set");
         String changed=new String(bytes,0,p,StandardCharsets.UTF_8)+new String(Character.toChars(cp))
                 +new String(bytes,p+oldWidth,bytes.length-p-oldWidth,StandardCharsets.UTF_8);
         result=changed; releaseQuiet(source,1); releaseQuiet(position,1);
@@ -8077,14 +8121,14 @@ public final class Interpreter implements AutoCloseable {
             }
         }
         if(f.intrinsic==INT_OF_NAT) { result=normalizeSigned(nat(a)); return; }
-        if(f.intrinsic==INT_NEG_SUCC) { result=normalizeSigned(nat(a).add(BigInteger.ONE).negate()); return; }
+        if(f.intrinsic==INT_NEG_SUCC) { result=normalizeSigned(boundedAdd(nat(a),BigInteger.ONE,false).negate()); return; }
         BigInteger x=signedInteger(a);
-        if(f.intrinsic==INT_NEG) { result=normalizeSigned(x.negate()); return; }
-        if(f.intrinsic==INT_ABS) { result=normalize(x.abs()); return; }
+        if(f.intrinsic==INT_NEG) { boundedMagnitude(x); result=normalizeSigned(x.negate()); return; }
+        if(f.intrinsic==INT_ABS) { boundedMagnitude(x); result=normalize(x.abs()); return; }
         BigInteger y=signedInteger(b);
         switch(f.intrinsic) {
-            case INT_ADD: result=normalizeSigned(x.add(y)); return;
-            case INT_SUB: result=normalizeSigned(x.subtract(y)); return;
+            case INT_ADD: result=normalizeSigned(boundedAdd(x,y,false)); return;
+            case INT_SUB: result=normalizeSigned(boundedAdd(x,y,true)); return;
             case INT_EQ: scalarResult=x.equals(y)?1:0; return;
             case INT_LT: scalarResult=x.compareTo(y)<0?1:0; return;
             case INT_LE: scalarResult=x.compareTo(y)<=0?1:0; return;
@@ -8184,7 +8228,7 @@ public final class Interpreter implements AutoCloseable {
                 require(!Character.isLowSurrogate(ch),"Invalid Unicode String");
                 size+=ch<0x80?1:ch<0x800?2:3;
             }
-            require(size<=MAX_BYTE_CAPACITY,"UTF8 conversion outside bounded byte capacity profile");
+            resource(size<=MAX_BYTE_CAPACITY,"UTF8 conversion outside bounded byte capacity profile");
         }
         return (int)size;
     }
@@ -8242,14 +8286,8 @@ public final class Interpreter implements AutoCloseable {
     }
     private String text(Object value) { require(value instanceof String,"Expected immutable String"); return (String)value; }
     private byte[] utf8(Object value) {
-        String s=text(value);
+        String s=text(value); utf8Extent(s);
         if(utf8Key!=null&&utf8Key.get()==s) return utf8Bytes;
-        for(int i=0;i<s.length();i++) {
-            char ch=s.charAt(i);
-            if(Character.isHighSurrogate(ch)) {
-                require(i+1<s.length()&&Character.isLowSurrogate(s.charAt(i+1)),"Invalid Unicode String"); i++;
-            } else require(!Character.isLowSurrogate(ch),"Invalid Unicode String");
-        }
         byte[] bytes=s.getBytes(StandardCharsets.UTF_8);
         if(bytes.length<=1_048_576) { utf8Key=new WeakReference<>(s); utf8Bytes=bytes; }
         return bytes;
@@ -8295,6 +8333,22 @@ public final class Interpreter implements AutoCloseable {
     }
     public String capturedStdout() { return output.toString(); }
     public String capturedStderr() { return stderrOutput.toString(); }
+    /** Copies and relinquishes both captures; caller owns the returned immutable Strings. */
+    public String[] drainCapturedOutput() {
+        requireAtomicIdle("Captured output drain");
+        String[] captured={output.toString(),stderrOutput.toString()};
+        output.setLength(0); stderrOutput.setLength(0); outputBytes=0; stderrOutputBytes=0;
+        if(output.capacity()>65536) output.trimToSize();
+        if(stderrOutput.capacity()>65536) stderrOutput.trimToSize();
+        return captured;
+    }
+    private void appendCaptured(Object value,boolean stderr) {
+        String text=text(value); int bytes=utf8Extent(text);
+        int previous=stderr?stderrOutputBytes:outputBytes;
+        resource(bytes<=MAX_STRING_OUTPUT_BYTES-previous,"Captured output outside bounded runtime profile");
+        (stderr?stderrOutput:output).append(text);
+        if(stderr) stderrOutputBytes=previous+bytes; else outputBytes=previous+bytes;
+    }
     private Node streamNode(Object value) {
         Node stream=constructorNode(value);
         require(stream.rc>=0,"Invalid FS.Stream reference count");
@@ -9249,8 +9303,16 @@ public final class Interpreter implements AutoCloseable {
         }
         if(f.intrinsic>=STR_END&&f.intrinsic<=STR_SET) { stringIntrinsic(f,a,b,c); return; }
         switch(f.intrinsic) {
-            case STR_PUSH: utf8(a); result=text(a)+new String(Character.toChars(codePoint(b))); break;
-            case STR_APPEND: utf8(a); utf8(b); result=text(a)+text(b); break;
+            case STR_PUSH: {
+                int bytes=utf8Extent(a),cp=codePoint(b),width=cp<0x80?1:cp<0x800?2:cp<0x10000?3:4;
+                resource(bytes<=MAX_STRING_OUTPUT_BYTES-width,"String.push output outside bounded runtime profile");
+                result=text(a)+new String(Character.toChars(cp)); break;
+            }
+            case STR_APPEND: {
+                int left=utf8Extent(a),right=utf8Extent(b);
+                resource(left<=MAX_STRING_OUTPUT_BYTES-right,"String.append output outside bounded runtime profile");
+                result=text(a)+text(b); break;
+            }
             case STR_SIZE: result=Long.valueOf(utf8(a).length); break;
             case STR_GET: case STR_NEXT: {
                 require(ERASED.equals(c),"String position proof requires erased placeholder");
@@ -9291,8 +9353,8 @@ public final class Interpreter implements AutoCloseable {
                 require(ERASED.equals(b),"Stdio world placeholder required");
                 result=standardStream(f.intrinsic==SET_STDIN?0:f.intrinsic==SET_STDOUT?1:2,true,a); break;
             case STREAM_FLUSH: result=ioUnit(); break;
-            case STREAM_PUT: utf8(a); output.append(text(a)); result=ioUnit(); break;
-            case STDERR_PUT: utf8(a); stderrOutput.append(text(a)); result=ioUnit(); break;
+            case STREAM_PUT: appendCaptured(a,false); result=ioUnit(); break;
+            case STDERR_PUT: appendCaptured(a,true); result=ioUnit(); break;
             case STREAM_TTY: result=ERASED; break;
             case STREAM_READ: case STREAM_WRITE: case STREAM_LINE:
                 throw new UnsupportedOperationException("Captured-output stream operation not implemented: "+f.label);
@@ -9440,22 +9502,72 @@ public final class Interpreter implements AutoCloseable {
             default: throw error("Invalid scalar intrinsic");
         }
     }
-    private static Object natPow(BigInteger base,BigInteger exponent) {
+    // Negative BigInteger.bitLength omits the sign extension; +1 safely bounds
+    // absolute magnitude without allocating abs()/negate() just to inspect it.
+    private static long magnitudeBits(BigInteger value) {
+        return (long)value.bitLength()+(value.signum()<0?1:0);
+    }
+    private static void boundedMagnitude(BigInteger value) {
+        resource(magnitudeBits(value)<=MAX_NAT_RESULT_BITS,"Integer magnitude outside bounded runtime bit limit");
+    }
+    private static BigInteger boundedAdd(BigInteger left,BigInteger right,boolean subtract) {
+        if(right.signum()==0) return left;
+        if(!subtract&&left.signum()==0) return right;
+        if(subtract&&left.equals(right)) return BigInteger.ZERO;
+        long bits=Math.max(magnitudeBits(left),magnitudeBits(right));
+        resource(bits<MAX_NAT_RESULT_BITS,"Integer sum outside bounded runtime bit limit");
+        return subtract?left.subtract(right):left.add(right);
+    }
+    private static long natMultiplyEstimate(long left,long right) {
+        resource(left>=0&&right>=0&&left<=MAX_NAT_RESULT_BITS&&right<=MAX_NAT_RESULT_BITS
+                &&left+right<=MAX_NAT_RESULT_BITS,"Nat product outside bounded runtime bit limit");
+        resource(right==0||left<=MAX_NAT_MULTIPLY_WORK/right,"Nat multiplication outside bounded runtime work limit");
+        return left*right;
+    }
+    private BigInteger natMultiply(BigInteger left,BigInteger right) {
+        atomicPoll();
+        if(left.signum()==0||right.signum()==0) return BigInteger.ZERO;
+        if(left.equals(BigInteger.ONE)) { resource(right.bitLength()<=MAX_NAT_RESULT_BITS,"Nat product outside bounded runtime bit limit"); return right; }
+        if(right.equals(BigInteger.ONE)) { resource(left.bitLength()<=MAX_NAT_RESULT_BITS,"Nat product outside bounded runtime bit limit"); return left; }
+        natMultiplyEstimate(left.bitLength(),right.bitLength());
+        BigInteger product=left.multiply(right); atomicPoll(); return product;
+    }
+    private Object natPow(BigInteger base,BigInteger exponent) {
         // Pinned lean_nat_pow rejects > UINT_MAX, even for bases zero and one.
         if(exponent.bitLength()>32) throw error("Nat.pow exponent is too big");
-        long n=exponent.longValue();
+        atomicPoll(); long n=exponent.longValue();
+        if(n==0) return Long.valueOf(1);
+        if(base.signum()==0) return ERASED;
+        if(base.equals(BigInteger.ONE)) return Long.valueOf(1);
+        // Simulate every multiply's conservative bit extent and total work first.
+        // All estimates are <=16M before products; overflow cannot authorize work.
+        long powerBits=base.bitLength(),answerBits=0,totalWork=0,remaining=n;
+        resource(powerBits<=MAX_NAT_RESULT_BITS,"Nat.pow outside bounded runtime bit limit");
+        while(remaining!=0) {
+            if((remaining&1)!=0) {
+                long work=answerBits==0?0:natMultiplyEstimate(answerBits,powerBits);
+                resource(work<=MAX_NAT_MULTIPLY_WORK-totalWork,"Nat.pow outside bounded runtime work limit");
+                totalWork+=work; answerBits+=powerBits;
+            }
+            remaining>>>=1;
+            if(remaining!=0) {
+                long work=natMultiplyEstimate(powerBits,powerBits);
+                resource(work<=MAX_NAT_MULTIPLY_WORK-totalWork,"Nat.pow outside bounded runtime work limit");
+                totalWork+=work; powerBits+=powerBits;
+            }
+        }
         BigInteger answer=BigInteger.ONE;
         while(n!=0) {
-            if((n&1)!=0) answer=answer.multiply(base);
+            if((n&1)!=0) answer=natMultiply(answer,base);
             n>>>=1;
-            if(n!=0) base=base.multiply(base);
+            if(n!=0) base=natMultiply(base,base);
         }
-        return normalize(answer);
+        atomicPoll(); return normalize(answer);
     }
     private static Object natShiftLeft(BigInteger value,BigInteger exponent) {
         if(value.signum()==0) return ERASED;
         if(exponent.signum()==0) return normalize(value);
-        require(exponent.compareTo(BigInteger.valueOf(MAX_SHIFT_RESULT_BITS))<=0
+        resource(exponent.compareTo(BigInteger.valueOf(MAX_SHIFT_RESULT_BITS))<=0
                 &&(long)value.bitLength()+exponent.longValue()<=MAX_SHIFT_RESULT_BITS,
                 "Nat.shiftLeft result outside bounded runtime bit limit");
         return normalize(value.shiftLeft(exponent.intValue()));
@@ -9482,10 +9594,10 @@ public final class Interpreter implements AutoCloseable {
         } else {
             BigInteger x=nat(a),y=nat(b);
             switch(f.intrinsic) {
-                case ADD: result=normalize(x.add(y)); break;
+                case ADD: result=normalize(boundedAdd(x,y,false)); break;
                 case SUB: result=normalize(x.compareTo(y)<0?BigInteger.ZERO:x.subtract(y)); break;
                 case MOD: result=normalize(y.signum()==0?x:x.remainder(y)); break;
-                case MUL: result=normalize(x.multiply(y)); break;
+                case MUL: result=normalize(natMultiply(x,y)); break;
                 case DIV: result=normalize(y.signum()==0?BigInteger.ZERO:x.divide(y)); break;
                 case POW: result=natPow(x,y); break;
                 case EQ: scalarResult=x.equals(y)?1:0; break;

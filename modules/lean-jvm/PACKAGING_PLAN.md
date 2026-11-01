@@ -1,10 +1,10 @@
-# Extraction boundary and remaining package acceptance
+# Historical extraction boundary and remaining package acceptance
 
 Source-only proposal accompanying this internal skeleton. No public Java API has
 been added. The next review decides whether the extracted resource/classpath
 boundary is sound before public Java facade work begins.
 
-## Inventory
+## Initial inventory (historical)
 
 - Runtime source: `src/ansatz/lean/jvm/ir.clj`, namespace `ansatz.lean.jvm.ir`.
 - Runtime metadata: `resources/META-INF/ansatz-lean-jvm/runtime.edn`.
@@ -50,3 +50,42 @@ Native compilation service extraction, bundled helper/platform distribution,
 resource-backed compiled artifacts, StoreManager, one-branch-per-Project reuse,
 actual Init completion and generically checked entry evidence remain separate
 work. Do not expose the fixed tutorial profile as a generic project loader.
+
+
+## Canonical source service checkpoint
+
+The current closure additionally inventories the five canonical
+`ansatz.lean.jvm.compiler.*` namespaces and data.json 2.5.1. The explicit
+producer contract and pins are under `producer/`; helper binaries are excluded
+from the SDK. Source lineage and deliberate extraction changes are recorded in
+`producer/migration.json`. Maintain these canonical sources going forward;
+research files preserve historical receipts.
+
+Initial jar counts, hashes and consumer receipts above remain historical. They
+do not validate the new closure. Public metadata stayed false at that checkpoint.
+Subsequent canonical namespace/models, native source cold/cache, lifetime and
+rebuilt five-JAR consumer gates passed; `validation.json` records their observed
+acceptance separately from historical receipts.
+
+## Accepted experimental bounded public SDK
+
+The accepted canonical closure has twelve Clojure namespaces, seven Java source
+files producing nine facade classes, one canonical engine and three runtime
+resources including its source-bound codec and attribution notice. The observed
+candidate JAR contains 133 engine classes and is 369,824 bytes. Its exact historical
+hash and false pre-acceptance marker remain in the receipt; final release hashes
+are generated from accepted metadata by `prepare-release`.
+
+Root acceptance includes the public application-JAR consumer, native source
+cold/cache, unchanged external tutorial source through the actual Java API,
+failed/cancelled branch retirement and retained-handle reachability observations.
+The complete SDK CI launcher passed 57 model tests / 245 assertions, actual archive
+plus six rejection cases, application JAR and 41 resource checks against the same
+compiled engine. Runtime/API sources were unchanged by acceptance metadata.
+
+The source profile admits one root's closed local DAG and installed Init only.
+Installed Std, Lean and Mathlib imports are not resolved; external packages,
+arbitrary Lake scripts and module-header profiles beyond legacy private/ordinary
+are unsupported. Optional kernel/store services are separate. The verified native
+producer bundle is published independently, as documented under `producer/`, and
+is not a Maven dependency or automatic installation.

@@ -9,9 +9,10 @@
 (defn closure [] (edn/read-string (slurp (io/file *module-root* "runtime-closure.edn"))))
 (deftest actual-package-is-explicit-and-source-only
   (let [result (audit/verify! {:module-root *module-root*})]
-    (is (= 1 (:sources result))) (is (= 1 (:resources result)))
-    (is (= 1 (:java-sources result)))
-    (is (= '{org.clojure/clojure {:mvn/version "1.12.0"}} (:runtime-dependencies result)))))
+    (is (= 12 (:sources result))) (is (= 3 (:resources result)))
+    (is (= 8 (:java-sources result)))
+    (is (= '{org.clojure/clojure {:mvn/version "1.12.0"}
+             org.clojure/data.json {:mvn/version "2.5.1"}} (:runtime-dependencies result)))))
 (deftest source-paths-and-dependency-closure-cannot-drift
   (let [original (closure)]
     (doseq [changed [(assoc-in original [:sources 0 :path] "prototype/machine.cljc")

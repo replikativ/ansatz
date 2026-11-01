@@ -38,5 +38,18 @@
   (is (rejected? #(ir/basis-for-class String)))
   (let [ctx (empty-context)]
     (is (rejected? #(ir/machine (assoc ctx :task-runtime (Object.)))))))
+(deftest engine-issued-build-identity-does-not-enable-task-runtime
+  (let [ctx (empty-context) identity (ir/supported-build-identity ctx)
+        configured (assoc ctx :build-identity identity)
+        engine (ir/machine configured)
+        field-value (fn [name] (let [field (.getDeclaredField (class engine) name)]
+                                (.setAccessible field true) (.get field engine)))]
+    (try
+      (is (identical? identity (field-value "buildIdentity")))
+      (is (nil? (field-value "taskRuntime")))
+      (is (= "idle" (ir/phase configured engine)))
+      (is (rejected? #(ir/machine (assoc configured :task-runtime (Object.)))))
+      (is (rejected? #(ir/machine (assoc configured :profiling-policy (Object.)))))
+      (finally (ir/close! configured engine)))))
 (defn check! [engine-class]
   (binding [*engine-class* engine-class] (run-tests 'ansatz-lean-jvm-prepare-checks)))

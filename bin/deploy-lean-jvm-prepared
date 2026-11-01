@@ -1,0 +1,18 @@
+#!/bin/bash
+set -euo pipefail
+
+repo_root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+cd "$repo_root/modules/lean-jvm"
+# Use a unique workspace prefix rather than assume the orb's checkout directory.
+# Recreate the module-relative paths recorded in the already checked receipt.
+[[ -f /home/circleci/lean-jvm-sdk-release/target/release.edn ]] || {
+  echo "The checked SDK release workspace is missing" >&2
+  exit 1
+}
+mkdir -p target
+cp -a /home/circleci/lean-jvm-sdk-release/target/. target/
+release_version="0.2.$(git rev-list HEAD --count)"
+[[ "$release_version" =~ ^0\.2\.[0-9]+$ ]] || { echo "Invalid coordinated release version" >&2; exit 1; }
+# deploy-prepared verifies coordinate, version, embedded POM and exact file hashes.
+# No producer compilation or JAR rebuild occurs in this deployment job.
+clojure -J-Xmx384m -T:build deploy-prepared :version "\"$release_version\""

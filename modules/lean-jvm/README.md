@@ -1,81 +1,168 @@
-# Internal Java interpreter packaging skeleton
+# Optional Lean JVM SDK
 
-This optional module packages the authoritative Java interpreter and a small
-Clojure adapter at `ansatz/lean/jvm/ir.clj`. It is not a public LeanProject API,
-generic loader, compiler installation, complete Init image or new execution
-backend. The existing provider-first `modules/lean` module is unchanged.
+`org.replikativ/ansatz-lean-jvm` is a separate optional JDK 17 artifact. Its Java
+facade loads checked compiled Lean projects and runs them on one persistent,
+serialized JVM engine per Project. The runtime POM depends on Clojure 1.12.0 and
+data.json 2.5.1; their normal Maven dependencies resolve transitively. It does not
+require the Ansatz core/kernel artifact, Mathlib, Pattern or the older resident
+World backend.
 
-The runtime dependency is currently only Clojure 1.12.0. A later admitted artifact
-loader can add data.json, and actual Name/store integration can add the pinned
-core dependency; neither unused dependency is included by this extraction.
-Build tooling is a producer alias and is absent from the emitted runtime POM.
+This is an experimental bounded profile. The root validated the rebuilt SDK
+from an application JAR with an empty working directory, exact Nat/String and
+repeated IO Unit calls, canonical source compilation/cache, and failure/close
+lifetime gates. [Portable receipts](validation.json) retain their exact scope;
+they do not claim unrestricted Lean/Lake, hosted frontend or kernel integration.
 
-`runtime-closure.edn` names every source/resource and the one canonical engine
-source. The producer build captures its bounded, hash-checked bytes into the
-owned `target/java-source/ansatz/research/ir/Interpreter.java`, then compiles only
-that staging tree once with `--release 17`. The staging copy is generated build
-material; no second Interpreter.java is tracked. Source neighbors are never
-compiler inputs, and changes before capture fail the digest check. The build
-copies the adapter source and runtime metadata into the jar. Runtime callers use `linked-basis`, which resolves the compiled
-class on the application classpath. It creates no classloader, calls no javac,
-and does not discover a source checkout or class-directory path.
+## Ordinary Java dependency and artifact loading
 
-`basis-for-class` is an internal seam for testing the adapter against an already
-loaded Class. The initial wrappers intentionally resemble the research j/*
-operations, but contain no IR/object/execution semantics. The Java interpreter
-remains their authority. Research repl.clj and its legacy helpers remain intact;
-this small extraction does not require rewriting that test suite.
+Add the Clojars repository and this optional artifact, using the actual coordinated
+published Ansatz release version for `ansatz.version`:
 
-The adapter creates task-free engines. SourceBinding/Header metadata remains
-trusted adapter input, not source authentication. Host descriptors register an
-ABI, never a callback. Explicit execution may suspend or fail under the existing
-engine protocol. Raw Nodes are internal trusted carriers: this module does not
-claim universal engine ownership tags. Future Java handles must bind the actual
-Project lease/version while exposing immutable Java values.
+```xml
+<repositories>
+  <repository><id>clojars</id><url>https://repo.clojars.org/</url></repository>
+</repositories>
+<dependencies>
+  <dependency>
+    <groupId>org.replikativ</groupId>
+    <artifactId>ansatz-lean-jvm</artifactId>
+    <version>${ansatz.version}</version>
+  </dependency>
+</dependencies>
+```
 
-## Producer commands
+A precompiled artifact resource belongs in the application JAR. Its independently
+expected manifest digest comes from the application's trusted build descriptor;
+a digest supplied by the same untrusted input is not that trust boundary.
 
-From this module directory, a producer with the standard build tooling may run:
+```java
+try (Lean lean = Lean.open();
+     LeanProject project = lean.loadArtifact(
+         MyApplication.class.getClassLoader(), "lean/my-project.zip", expectedManifestSHA256)) {
+    var step = project.natFunction("Example.step");
+    BigInteger answer = step.apply(BigInteger.ONE.shiftLeft(200));
+    var echo = project.stringFunction("Example.echo");
+    String text = echo.apply("λ\0😀");
+    MainResult result = project.runMain();
+    System.out.print(result.stdout());
+}
+```
+
+The classes are in `ansatz.lean.jvm`. The InputStream overload leaves the supplied
+stream owned by its caller; the classloader overload closes the resource stream
+it opens. Artifact loading validates bounded bytes, format, target, native checked
+entry evidence, exact runtime ABIs and the admitted capability profile. It does
+not discover a toolchain, launch Lean, fetch a store, load a source compiler,
+invoke javac or require Python, Clojure CLI or a source checkout. A compiled
+artifact is native frontend evidence, not a Java kernel proof certificate.
+
+## Explicit trusted source compilation
+
+Source compilation additionally needs a pinned installed official toolchain and
+the separate [native producer bundle](producer/README.md). The library invokes
+its helpers itself; callers do not perform a manual export step.
+
+```java
+var nativeCompiler = new NativeCompilerOptions(leanSysroot, producerBundle, cacheDirectory);
+var options = ProjectOptions.builder(nativeCompiler)
+    .sourceRoot(".")
+    .rootModule("Main")
+    .main("main")
+    .natFunction("answer")
+    .stringFunction("echo")
+    .build();
+try (Lean lean = Lean.open(); LeanProject project = lean.loadProject(projectDirectory, options)) {
+    System.out.print(project.runMain().stdout());
+}
+```
+
+`NativeCompilerOptions.compatibilityProfile()` identifies
+`lean-native-local-init-dag/1`. The initial profile is Linux x86-64, pinned Lean
+4.33.1, one selected root module and a closed acyclic local import DAG with
+installed Init. Requested entries are checked in that root's imported native
+Environment, so imported local definitions can be selected there. Names use
+string segments; numeric-looking segments are not parsed as numeric Names. The
+string convenience form cannot express a literal dot inside one Name segment.
+`rootModule` defaults to `Main`; `sourceRoot` is an explicit relative directory.
+
+Installed Std, Lean and Mathlib imports are not resolved by this profile: a
+non-Init import must belong to the captured local DAG. External package fetching,
+arbitrary Lake scripts and plugins are unsupported. The admitted file header
+profile is legacy private/ordinary. Unsupported paths fail explicitly; this is
+not unrestricted Lake project support. Compilation can execute native
+metaprograms and compile-time IO. It is a trusted-source profile, not a sandbox.
+The installed sysroot is a trusted dependency with mutation checks, not full
+cryptographic attestation of every library file. A separately hosted, hash-verified Linux helper bundle is available through the
+producer guide. Automatic installation and platform expansion remain separate
+work.
+
+## Values, resources and lifetime
+
+The initial entries are closed monomorphic Nat-to-Nat, String-to-String and IO
+Unit. Lookup requests a genuinely native-checked signature. It never grants
+caller-supplied type authority. Nat uses exact nonnegative `BigInteger`, with a
+4096-bit public codec bound; String preserves Unicode and NUL, rejects malformed
+UTF-16 and has a 65536-unit public codec bound. No raw guest Nodes, arbitrary Java
+objects, task callbacks, fork, polymorphic or dependent entry API is exposed.
+
+One Project initializes its module world once. Calls reuse its code and globals,
+including initialized random state, and are serialized across threads. One Lean
+scope lazily owns a shared JDK DRBG capability using its actually selected JDK
+provider. It neither clones nor reseeds that service per call. Project close
+never claims to close undocumented JDK provider resources.
+
+Calls use a cooperative two-million-instruction/five-second budget with bounded
+quanta, guarded Nat operations, and the engine's allocation/output profile.
+These are not hard JVM heap caps, preemption or wall-clock guarantees; an atomic
+JDK/library call can occupy its thread until it returns. Host interruption stops
+at a supported boundary. A failed branch becomes unusable and is never replayed
+or silently executed natively. `runMain` returns per-call captured stdout/stderr;
+initialization output, if any, is included in the first main result.
+
+`LeanProject.close()` invalidates retained handles and retires known owners.
+Supported stopped failures use the issuer's independently checked task-free
+pure-heap abandonment path: private graph references are dropped for JVM GC,
+without claiming guest DEC, finalizers, rollback or that GC ran. Close is
+idempotent; Lean close attempts all its children. Ordinary `LeanException`
+diagnostics are bounded value-only code/category/message data, without raw
+causes or owner packets. Actual fatal host `Error` values retain their identity,
+class and standard JVM Throwable semantics, including any cause they own.
+
+## Producer build and acceptance
+
+From this module directory:
 
 ```sh
 clojure -T:build check-package
-clojure -T:build jar
+clojure -T:build prepare-release :version '"0.2.1234"'
 ```
 
-The root built the final captured-source jar with
-`clojure -J-Xmx384m -T:build jar`. Source audits passed 5 tests / 23 assertions,
-and adapter checks passed 3 tests / 9 assertions in the retained JVM. The tracked
-Java-only consumer then passed from an empty working directory with only the
-SDK and three normal Clojure dependency jars. Archive audits accepted the actual
-jar and rejected six deliberately invalid variants. The worker's archive checks
-started no JVM. Portable evidence and source pins are recorded in
-`validation.json`; the earlier 28cd engine jar remains a separate historical
-record from the final 9a3 engine/captured-producer acceptance. A consumer
-of a future published jar will not need Clojure CLI, build tooling or a source
-checkout. No release or deploy target is provided here.
+Replace the example with the chosen root release version. The optional artifact
+uses the same `0.2.<git-count>` rule as the root release. `runtime-closure.edn`
+inventories every runtime source/resource and pins the one canonical interpreter
+plus Java facade source files. The producer captures their exact bounded bytes,
+compiles that staging tree with `--release 17`, and emits an ordinary Maven POM.
+Consumers never compile Java sources at runtime.
 
-## Checks for the root's retained JVM
+`target/release.edn` records exact JAR/POM digests, version and runtime cohort.
+After reviewing those bytes and completing required runtime gates, the release
+owner can explicitly run `deploy-prepared` with the same version. It verifies
+unchanged reviewed bytes and does not rebuild. Preparation publishes nothing.
+Build/deploy tools are confined to the producer alias.
 
-The source-only audit does not require loading an engine or adapter. Load
-`ansatz_lean_jvm_build_audit.clj`, then `test/build_audit_checks.clj`, and invoke
-`ansatz-lean-jvm-build-audit-checks/check!` with this module directory. It checks
-the actual namespace/resource inventory, exact runtime dependency set and engine
-pin, plus negative namespace, resource-path and dependency cases. Capture tests
-verify that an unlisted neighbor is ignored, the staged source stays fixed after
-a canonical-file change, and a pre-capture mutation fails without publishing
-compiler input. These source-only tests create no Java/native processes.
+The [consumer checks](consumer/README.md), source inventory/capture tests,
+strict JSON checks, lifecycle/profile checks and fresh canonical source/cache
+acceptance are independent gates. [Source migration records](producer/migration.json)
+identify the frozen originals, mechanical namespace changes and reviewed SDK
+changes. Maintain canonical `ansatz.lean.jvm.*` sources going forward; research
+snapshots preserve historical evidence.
 
-For adapter execution, load `src/ansatz/lean/jvm/ir.clj` and
-`test/prepare_checks.clj`. Invoke `ansatz-lean-jvm-prepare-checks/check!` with the
-root's already loaded Interpreter Class. These models exercise real in-memory
-original-row preparation, source-bound Header mechanics, selected-body materialization
-and explicit execution; they are not native evidence or source authentication.
 
-The final acceptance also verified the built jar inventory/POM, required
-`ansatz.lean.jvm.ir` from its jar resource and exercised `linked-basis` with no
-research roots on the consumer classpath. These checks establish the internal
-packaging boundary; they do not establish a public Project API or generic loader.
-
-The tracked [Java-only consumer](consumer/README.md) includes the actual accepted
-Java smoke source, bounded reproduction tooling, and static positive/negative
-archive checks. Producer/test scripts and validation records are not jar resources.
+CI builds this optional SDK once, then runs 57 canonical JAR model tests / 245
+assertions, the public application-JAR consumer, six archive rejection cases and
+41 standalone resource checks against the same compiled engine. Its launcher
+requires Java and javac 17 or later and uses bounded sequential JVMs. Source
+compiler helper provisioning is not part of mandatory SDK CI. The main-only SDK
+deployment job receives the exact checked JAR/POM/release receipt through the
+workspace and deploys verified bytes without rebuilding. GitHub release waits
+for both core and optional Clojars deployment.

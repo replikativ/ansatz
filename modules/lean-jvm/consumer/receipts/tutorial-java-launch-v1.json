@@ -1,0 +1,12 @@
+{
+  "schema": "ansatz-java-tutorial-launch/1",
+  "exit": 0,
+  "seconds": 5.114190571010113,
+  "stdout": "Hello, world!\nHello, world!\n",
+  "stderr": "",
+  "heapMiB": 384,
+  "sourceCheckoutOnRuntimeClasspath": false,
+  "sourceLauncher": true,
+  "nativeSourceCompilation": "explicit source API; cache populated in retained REPL",
+  "leanCompilation": "explicit native producer; JVM interpretation"
+}

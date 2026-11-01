@@ -44,15 +44,30 @@
 
 (defn invoke-static [^Method method args] (.invoke method nil (object-array args)))
 
-(defn machine
-  "Create a task-free engine; execution and initialization remain explicit.
-   Extended task/build/profiling policies are outside this initial adapter."
+(defn supported-build-identity
+  "The engine's admitted pinned Lean identity; no native process or caller label."
   [basis]
-  (when (some #(get basis %) [:task-runtime :build-identity :profiling-policy])
-    (throw (ex-info "Extended runtime policies are outside this adapter" {})))
-  (.newInstance ^Constructor (:constructor-initializing basis)
-                (object-array [(:program basis) (boolean (:explicit basis))
-                               (boolean (:initializing basis))])))
+  (let [cls (.loadClass (.getClassLoader ^Class (:class basis))
+                        "ansatz.research.ir.Interpreter$BuildIdentity")]
+    (invoke-static (.getMethod cls "supportedLean4331" (make-array Class 0)) [])))
+
+(defn machine
+  "Create a task-free engine, optionally with the engine-issued BuildIdentity.
+   TaskRuntime and profiling policies remain outside this admitted adapter."
+  [basis]
+  (when (some #(get basis %) [:task-runtime :profiling-policy])
+    (throw (ex-info "Task/profiling policies are outside this adapter" {})))
+  (if-let [identity (:build-identity basis)]
+    (let [cls ^Class (:class basis)
+          identity-class (.loadClass (.getClassLoader cls)
+                                      "ansatz.research.ir.Interpreter$BuildIdentity")]
+      (.newInstance (.getConstructor cls (into-array Class [(class (:program basis))
+                       Boolean/TYPE Boolean/TYPE identity-class]))
+                    (object-array [(:program basis) (boolean (:explicit basis))
+                                   (boolean (:initializing basis)) identity])))
+    (.newInstance ^Constructor (:constructor-initializing basis)
+                  (object-array [(:program basis) (boolean (:explicit basis))
+                                 (boolean (:initializing basis))]))))
 
 (defn finish-initialization! [basis engine]
   (.invoke (.getMethod ^Class (:class basis) "finishInitialization" (make-array Class 0))

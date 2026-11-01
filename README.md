@@ -732,6 +732,22 @@ Ansatz provides three extension points, following Lean 4's metaprogramming model
 
 See [examples/metaprogramming.clj](examples/metaprogramming.clj) for working examples.
 
+## Optional Lean execution SDK for Java
+
+The separate [`org.replikativ/ansatz-lean-jvm`](modules/lean-jvm/README.md)
+artifact provides an experimental Java API for executing checked Lean code on
+the JVM. It supports packaged artifacts without a native toolchain, and trusted
+source loading with an explicitly configured Lean installation and producer
+bundle. The initial source profile covers Init and local acyclic imports;
+it does not cover arbitrary Lake projects, Std, Lean or Mathlib imports.
+
+The [multi-file tutorial example](modules/lean-jvm/examples/README.md) loads
+unchanged Functional Programming in Lean sources and calls their main twice
+through one reusable Java Project. The SDK has ordinary Maven dependencies and
+requires JDK 17. It is optional and does not change core Ansatz startup or store
+loading. Executing Lean IR does not itself import definitions or theorems into
+the Ansatz DSL/kernel environment.
+
 ## Development
 
 ```bash

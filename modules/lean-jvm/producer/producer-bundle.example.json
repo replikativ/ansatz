@@ -1,0 +1,27 @@
+{
+  "schema": "lean-native-producer-bundle/1",
+  "leanCommit": "819816b2e0a3bf405af45ae5c7af2491d8f5bee6",
+  "leanVersion": "4.33.1",
+  "target": "x86_64-unknown-linux-gnu",
+  "wordBits": 64,
+  "producers": {
+    "entry": {
+      "binary": "bin/lean-native-entry-evidence",
+      "binarySHA256": "a94b830bcada8032736e3bbd43e7dce559054e2214cb74489bd58709ac486593",
+      "source": "src/NativeEntryEvidence.lean",
+      "sourceSHA256": "e89beefe6ebb864d830367a377360d68cbce89c97fa6a5a5e9dab8877b6c6629"
+    },
+    "startupHeader": {
+      "binary": "bin/lean-native-startup-evidence",
+      "binarySHA256": "2693f971452aa28190ca5c1033bf2b1030f9703b22f53181cd0591b1ab90399c",
+      "source": "src/NativeStartupEvidence.lean",
+      "sourceSHA256": "f8c92d652c596b9bf656135348b190a5c09cf61ec40c8775835cf180a8833dd1"
+    },
+    "typedSource": {
+      "binary": "bin/lean-typed-source-export",
+      "binarySHA256": "83342c9582dd43aef3974ffadb6f989c1f7bd23d66b3c406258ca31223030041",
+      "source": "src/TypedSourceExport.lean",
+      "sourceSHA256": "a48e00225fe08c1a74b66fff1102fd0c11ecefaaafc20ddcf6e28aaf363c99d3"
+    }
+  }
+}

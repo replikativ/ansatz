@@ -1,0 +1,7 @@
+{
+  "schema": "ansatz-lean-jvm-example/1",
+  "artifact": "lean/interop.zip",
+  "manifestSHA256": "fc19283c5ada0f62f291ef11789b04d67874b57c293372a298d101aec0f8ae8b",
+  "archiveSHA256": "5528173ff9018ff2353aa869d15c5d338335a8004fa43ed7654ef9a658e7d3e3",
+  "source": "Original Ansatz interop fixture; generated Init declarations under pinned Lean Apache-2.0 cohort"
+}

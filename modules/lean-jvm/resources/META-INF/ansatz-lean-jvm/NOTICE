@@ -1,0 +1,14 @@
+Ansatz Lean JVM optional runtime
+Copyright (c) 2026 Christian Weilbach and contributors.
+Licensed under the Apache License, Version 2.0.
+
+This runtime interoperates with Lean 4.33.1, commit
+819816b2e0a3bf405af45ae5c7af2491d8f5bee6.
+Lean 4 and the compiled Init declarations represented in producer artifacts are
+licensed under the Apache License, Version 2.0, by Microsoft Corporation and
+the Lean 4 contributors. See https://github.com/leanprover/lean4/blob/master/LICENSE.
+
+The SDK codec witness is original Lean compiler output for IO.userError under
+that pinned Lean cohort. Example application artifacts are packaged separately
+from the runtime. The FP Lean tutorial is external research evidence and is not
+relicensed or included as an SDK example.
