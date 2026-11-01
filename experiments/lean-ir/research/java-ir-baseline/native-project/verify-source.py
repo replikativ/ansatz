@@ -17,7 +17,8 @@ for name, digest in expected.items():
 assert expected["runner.clj"] == manifest["tested-runner-sha256"]
 assert manifest["acceptance"]["hostedFrontend"] is False
 assert manifest["acceptance"]["javaKernelChecked"] is False
-for item in manifest.get("entry-evidence-source", {}).get("files", []):
+for item in (manifest.get("entry-evidence-source", {}).get("files", []) +
+             manifest.get("generic-local-project", {}).get("external-sources", [])):
     assert hashlib.sha256((root.parents[4] / item["file"]).read_bytes()).hexdigest() == item["sha256"], item["file"]
 print(json.dumps({"source-files": len(expected), "byte-inventory": "PASS",
                   "native-or-JVM-executed": False,
