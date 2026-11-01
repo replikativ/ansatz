@@ -146,3 +146,57 @@ validating and closing a fresh engine on every invocation. After 30 warmups,
 about 26,592 thread-allocated bytes per call. Compilation/cache loading is
 excluded. This is evidence of repeated invocation without an image/Prelude
 reload, not a general Lean performance comparison.
+
+## Internal local module compiler preparation
+
+`local-project.clj` adds a separate `native-local-project-prepare/2` path. It
+captures exact UTF-8 bytes for reachable ordinary local modules, invokes the
+source-pinned `NativeStartupEvidence --header` producer, validates the original
+implicit Init pair and explicit import provenance, preserves duplicate import
+occurrences, and schedules the structural typed DAG in stable dependency order.
+`prepare!` returns planning metadata. `compile-modules!` also uses the separately
+pinned typed source exporter and validates each genuine local stream, module
+identity, direct imports and source origin. Neither function issues an entry,
+runtime artifact, startup receipt or ready Project.
+
+The opt-in helper `lean/TypedSourceExport.lean` is a mechanical copy of the
+accepted `lean/Export.lean` at SHA-256
+`3311d15c99dc91b599771e328475f2a65a70a0c4fe4c71bfe82b1c2883499f95`.
+The only semantic changes are a bounded structural string-Name decoder and a
+strict source/local/output command shape. Original frontend invocation, IR row
+encoding, dependency emission, runtime roles, exports and source initializer
+observations remain unchanged. The accepted exporter is untouched. The new
+helper accepts:
+
+```
+--source SOURCE --olean OUTPUT --local --typed-module STRUCTURAL_NAME_JSON
+```
+
+Arguments are separate `ProcessBuilder` elements. A string component containing
+a dot remains one component; no dotted-name parser is used for module identity.
+Numeric module Name components are rejected. This helper is source compilation
+transport, not checked-entry or ordinary-startup evidence.
+
+Both functions take the actual configured fixed compiler, an explicit
+configuration map and a fresh journal atom. Required configuration fields are
+`:project`, `:source-root`, `:roots` (bounded vector of structural module Names),
+`:helper`, `:helper-source`, `:helper-sha256` and `:helper-source-sha256`.
+`compile-modules!` additionally requires `:typed-exporter`,
+`:typed-exporter-source`, `:typed-exporter-sha256` and
+`:typed-exporter-source-sha256`. These independently reviewed pins are trusted
+compiler configuration; an arbitrary caller-produced Header JSON is never
+accepted in place of an actual monitored helper run.
+
+The manifest-last `lean-local-compiled-modules/2` cache binds captured source
+records, ordered typed edges/roots, implementation, helper/exporter and installed
+toolchain descriptors. Reuse validates the complete bounded file set before
+using compiled products. A hit still performs native header preparation and
+toolchain checks; it skips native local-module compilation. This is not a claim
+of zero native processes on a cache hit. Entry evidence, full static union,
+ordinary startup, capability admission and Project lifetime remain subsequent
+release gates. The fixed tutorial compiler and its artifact reader are unchanged.
+
+`local-project-models.clj` contains structural negative models. Synthetic Header2
+records in those tests are deliberately model data, not native acceptance
+receipts. Native/JVM execution and integrated acceptance remain with the root
+review runner; do not infer a run from source presence.
