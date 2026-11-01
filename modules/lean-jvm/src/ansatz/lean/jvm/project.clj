@@ -3,9 +3,11 @@
    native producer receipts or mutable engine aliases cross that facade."
   (:require [ansatz.lean.jvm.ir :as ir] [ansatz.lean.jvm.artifact :as artifact]
             [ansatz.lean.jvm.publisher :as publisher] [ansatz.lean.jvm.startup :as startup]
+            [ansatz.lean.jvm.signature :as signature] [ansatz.lean.jvm.codec :as codec]
+            [ansatz.lean.jvm.value :as value]
             [clojure.java.io :as io] [clojure.string :as str])
   (:import [java.math BigInteger] [java.nio.charset StandardCharsets]
-           [java.util WeakHashMap] [ansatz.lean.jvm MainResult]))
+           [java.util WeakHashMap] [ansatz.lean.jvm MainResult IOResult LeanUnit]))
 (deftype Services [basis capability])
 (deftype Project [])
 (deftype Handle [owner name signature])
@@ -135,22 +137,36 @@
           (finally (compiler-close compiler)))
         basis (.-basis ^Services services)]
     (open-prepared! services (publisher/prepare-build-bytes! basis receipt (codec-bytes)))))
-(defn lookup-function! [project name signature]
+(defn- descriptor [profile]
+  (if (string? profile) (signature/from-legacy profile) (signature/validate! profile)))
+(defn lookup-function! [project name requested-profile]
   (let [cell (cell! project) name (typed-name name)]
     (locking cell
       (live! cell)
-      (let [matched (startup/with-ready-engine! (:run @cell)
+      (let [[actual-signature callable?] (startup/with-ready-engine! (:run @cell)
                       (fn [{:keys [entries headers]}]
                         (let [entry (first (filter #(= name (get % "name")) entries))]
-                          (and entry (= signature (get-in entry ["typeCheck" "signature"]))
-                               (some? (get headers (get-in entry ["callable" "name"])))))))]
+                          [(get-in entry ["typeCheck" "signature"])
+                           (some? (get headers (get-in entry ["callable" "name"])))])))]
         ;; Ordinary requested-name/type rejection is outside the runtime callback.
-        (need matched "EntryRejected" "No checked entry matches this name and requested signature")
-        (Handle. project name signature)))))
-(defn- entry! [entries headers name signature]
+        (need (and actual-signature callable?) (if requested-profile "EntryRejected" "EntryNotAdmitted")
+              "No admitted checked entry matches this name; it may not have been exported")
+        (need (or (nil? requested-profile) (= (descriptor requested-profile) (descriptor actual-signature))) "EntryRejected"
+              "Checked entry has another signature")
+        (Handle. project name (descriptor actual-signature))))))
+(defn function-descriptor! [project handle]
+  (let [cell (cell! project)]
+    (locking cell
+      (live! cell)
+      (need (and (= Handle (class handle)) (identical? project (.-owner ^Handle handle)))
+            "EntryRejected" "Function handle belongs to another Project")
+      (.-signature ^Handle handle))))
+(defn function-type! [project handle] (signature/display (function-descriptor! project handle)))
+(defn function-arity! [project handle] (signature/arity (function-descriptor! project handle)))
+(defn- entry! [entries headers name expected-descriptor]
   (let [entry (first (filter #(= name (get % "name")) entries))]
-    (need (= signature (get-in entry ["typeCheck" "signature"])) "EntryRejected" "Checked entry signature changed")
-    [(get headers (get-in entry ["callable" "name"])) (label (get-in entry ["callable" "name"]))]))
+    (need (= expected-descriptor (descriptor (get-in entry ["typeCheck" "signature"]))) "EntryRejected" "Checked entry signature changed")
+    [(get headers (get-in entry ["callable" "name"])) (label (get-in entry ["callable" "name"])) entry]))
 (defn- drive! [ctx engine callable args slot]
   (deadline! engine)
   (let [deadline (+ (System/nanoTime) duration-nanos)]
@@ -178,26 +194,6 @@
   (aset ^objects slot 0 nil) (aset ^objects slot 1 :released) (aset ^objects slot 2 nil)
   (invoke-zero engine "clearAtomicDeadline")
   (drain! engine))
-(defn invoke-function! [project handle input]
-  (let [cell (cell! project)]
-    (locking cell
-      (live! cell)
-      (need (and (= Handle (class handle)) (identical? project (.-owner ^Handle handle)))
-            "EntryRejected" "Function handle belongs to another Project lease")
-      (let [signature (.-signature ^Handle handle)
-            _ ((if (= signature "nat-to-nat") nat! string!) input)
-            slot (:slot @cell)]
-        (try
-          (startup/with-ready-engine! (:run @cell)
-            (fn [{:keys [ctx engine entries headers]}]
-              (let [[header callable] (entry! entries headers (.-name ^Handle handle) signature)
-                    _ (aset ^objects slot 2 header)
-                    value (drive! ctx engine callable [input] slot)
-                    answer ((if (= signature "nat-to-nat") result-nat! string!) value)
-                    output (finish-result! ctx engine value slot)]
-                (need (= ["" ""] output) "RuntimeBoundary" "Pure checked entry unexpectedly produced captured output")
-                answer)))
-          (catch Throwable failure (swap! cell assoc :status :failed) (throw failure)))))))
 (defn- io-result! [ctx value]
   (need (= (:node-class ctx) (class value)) "RuntimeBoundary" "IO entry returned another carrier")
   (let [tag (.get ^java.lang.reflect.Field (:tag ctx) value)
@@ -215,32 +211,58 @@
       (do (need (and (= Long (class (aget ^objects fields 0))) (zero? (long (aget ^objects fields 0))))
                 "RuntimeBoundary" "IO Unit entry returned another payload") :ok)
       :io-error)))
+(defn invoke-arguments! [project handle arguments]
+  (let [cell (cell! project)]
+    (locking cell
+      (live! cell)
+      (let [descriptor (function-descriptor! project handle)
+            ;; Complete host validation before the callback can begin guest work.
+            encoded (codec/encode-arguments descriptor arguments)
+            io? (= "io" (get descriptor "effect"))
+            runtime-arguments (cond-> (vec encoded) io? (conj (long 0)))
+            slot (:slot @cell)]
+        (try
+          (let [{:keys [decoded output]}
+                (startup/with-ready-engine! (:run @cell)
+                  (fn [{:keys [ctx engine entries headers]}]
+                    (let [[header callable entry] (entry! entries headers (.-name ^Handle handle) descriptor)
+                          _ (aset ^objects slot 2 header)
+                          raw (drive! ctx engine callable runtime-arguments slot)
+                          decoded
+                          (if io?
+                            (if (string? (get-in entry ["typeCheck" "signature"]))
+                              ;; Legacy IO Unit has the independently pinned SDK codec
+                              ;; witness; v2 must use its actual compiler layout evidence.
+                              {:kind (io-result! ctx raw) :value LeanUnit/INSTANCE}
+                              (value/decode-io ctx entry raw))
+                            (value/decode ctx (get descriptor "result") (get entry "codecWitnesses") raw))
+                          output (finish-result! ctx engine raw slot)]
+                      {:decoded decoded :output output})))]
+            (if io?
+              (do
+                (need (= :ok (:kind decoded)) "GuestIOError" "Lean IO entry returned an error")
+                (let [[out err] output [prefix-out prefix-err] (:prefix @cell)]
+                  (swap! cell assoc :prefix ["" ""])
+                  (IOResult. (:value decoded) (str prefix-out out) (str prefix-err err))))
+              (do (need (= ["" ""] output) "RuntimeBoundary" "Pure checked entry produced captured output")
+                  decoded)))
+          (catch Throwable failure (swap! cell assoc :status :failed) (throw failure)))))))
+(defn invoke-function! [project handle input]
+  (let [descriptor (function-descriptor! project handle)]
+    (need (contains? #{(signature/from-legacy "nat-to-nat") (signature/from-legacy "string-to-string")} descriptor)
+          "EntryRejected" "Typed unary convenience requires its checked unary profile")
+    (invoke-arguments! project handle (object-array [input]))))
 (defn run-main! [project]
   (let [cell (cell! project)]
     (locking cell
       (live! cell)
-      (let [slot (:slot @cell)
+      (let [io-unit (signature/from-legacy "io-unit")
             mains (startup/with-ready-engine! (:run @cell)
                     (fn [{:keys [entries]}]
-                      (filterv #(= "io-unit" (get-in % ["typeCheck" "signature"])) entries)))]
+                      (filterv #(= io-unit (descriptor (get-in % ["typeCheck" "signature"]))) entries)))]
         (need (= 1 (count mains)) "EntryRejected" "Exactly one checked IO Unit entry is required")
-        (try
-          (let [result (startup/with-ready-engine! (:run @cell)
-                         (fn [{:keys [ctx engine entries headers]}]
-                           (let [mains (filterv #(= "io-unit" (get-in % ["typeCheck" "signature"])) entries)]
-                             (need (= 1 (count mains)) "EntryRejected" "Exactly one checked IO Unit entry is required")
-                             (let [entry (first mains) [header callable] (entry! entries headers (get entry "name") "io-unit")
-                                   _ (aset ^objects slot 2 header)
-                                   value (drive! ctx engine callable [(long 0)] slot)
-                                   kind (io-result! ctx value)
-                                   output (finish-result! ctx engine value slot)]
-                               {:kind kind :output output}))))]
-            (if (= :ok (:kind result))
-              (let [[out err] (:output result) [prefix-out prefix-err] (:prefix @cell)]
-                (swap! cell assoc :prefix ["" ""])
-                (MainResult. (str prefix-out out) (str prefix-err err)))
-              (throw (ex-info "IO Unit entry returned an IO error" {:code "GuestIOError"}))))
-          (catch Throwable failure (swap! cell assoc :status :failed) (throw failure)))))))
+        (let [^IOResult result (invoke-arguments! project (Handle. project (get (first mains) "name") io-unit) (object-array 0))]
+          (MainResult. (.stdout result) (.stderr result)))))))
 (defn close! [project]
   (let [cell (cell! project)]
     (locking cell

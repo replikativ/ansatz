@@ -18,7 +18,8 @@
   "Independently admitted source/binary pairs. New producer builds enter only
    after root-owned compilation/acceptance; the original v2 pair stays explicit."
   {1 #{[(get-in cohorts [1 :source]) (get-in cohorts [1 :binary])]}
-   2 #{[(get-in cohorts [2 :source]) (get-in cohorts [2 :binary])]}})
+   2 #{[(get-in cohorts [2 :source]) (get-in cohorts [2 :binary])]
+       ["1a8a0bf73fc7d6a18cd2b2d8cf9a693264ad3801cde396bd42190f2ebcca5a13" "736374c5c4baa38d952f1ed4d332754da171d53f67ca8f3a5104b997417a539a"]}})
 (defn- need [ok stage]
   (when-not ok (throw (ex-info "Native entry observation rejected" {:code "EntryRejected" :stage stage}))))
 (defn schema-for-pins! [source binary]

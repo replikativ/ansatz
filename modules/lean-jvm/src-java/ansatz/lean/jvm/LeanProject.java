@@ -15,6 +15,32 @@ public final class LeanProject implements AutoCloseable {
         this.token = Objects.requireNonNull(token, "issued project");
     }
 
+    /** Resolve an exported checked entry without choosing a type-specific API. */
+    @SuppressWarnings("unchecked")
+    public synchronized LeanFunction function(String name) {
+        ensureOpen();
+        Object handle = lookup(name, null);
+        try {
+            String signature = (String) Bridge.SIGNATURE.invoke(token, handle);
+            int arity = ((Number) Bridge.ARITY.invoke(token, handle)).intValue();
+            java.util.Map<String, Object> descriptor = (java.util.Map<String, Object>) Bridge.DESCRIPTOR.invoke(token, handle);
+            return new LeanFunction(this, handle, name, signature, arity, descriptor);
+        } catch (Throwable failure) { throw Bridge.failure(failure); }
+    }
+
+    public synchronized Object call(String name, Object... arguments) {
+        return function(name).invoke(arguments);
+    }
+
+    synchronized Object invokeFunction(Object handle, int arity, Object[] arguments) {
+        ensureOpen();
+        if (arguments == null || arguments.length != arity) {
+            throw new LeanException("ArityMismatch", "arguments", "Expected " + arity + " explicit arguments");
+        }
+        try { return Bridge.CALL.invoke(token, handle, arguments.clone()); }
+        catch (Throwable failure) { throw Bridge.failure(failure); }
+    }
+
     public synchronized UnaryOperator<BigInteger> natFunction(String name) {
         ensureOpen();
         Object handle = lookup(name, "nat-to-nat");

@@ -1,0 +1,12 @@
+{
+  "schema": "ansatz-general-entry-fixture/1",
+  "producerSourceSHA256": "1a8a0bf73fc7d6a18cd2b2d8cf9a693264ad3801cde396bd42190f2ebcca5a13",
+  "producerBinarySHA256": "736374c5c4baa38d952f1ed4d332754da171d53f67ca8f3a5104b997417a539a",
+  "leanCommit": "819816b2e0a3bf405af45ae5c7af2491d8f5bee6",
+  "evidenceSHA256": "f62af485965b0e6d26a28e4342d35a4fc383484ea1e4cd544a3dcc86af67f01f",
+  "requestSHA256": "09d2cda89df1023991fa80b5c8281da9225940c4a4b87a0f22134d419e2b8376",
+  "programSourceSHA256": "3316e838a055c04bd76c6c522860dcf56bb22ddf61a5394d658af4cf8c846daf",
+  "entries": 12,
+  "rows": 198,
+  "authority": "Actual root-owned native producer run and metadata/IR-row validation. This fixture does not issue a source/artifact receipt or demonstrate public invocation support."
+}

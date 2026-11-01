@@ -34,6 +34,8 @@ public final class ProjectOptions {
             return this;
         }
         public Builder main(String name) { entries.add(new Entry(name, "io-unit")); return this; }
+        /** Ask a v2 native producer to discover and check the closed signature. */
+        public Builder function(String name) { entries.add(new Entry(name, "auto")); return this; }
         public Builder natFunction(String name) { entries.add(new Entry(name, "nat-to-nat")); return this; }
         public Builder stringFunction(String name) { entries.add(new Entry(name, "string-to-string")); return this; }
         public ProjectOptions build() {

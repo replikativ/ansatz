@@ -2,7 +2,9 @@
   "Policy models only. Synthetic representation maps are not native evidence,
    do not authenticate a producer, and never issue a build/artifact receipt."
   (:require [clojure.test :refer [deftest is run-tests]]
-            [ansatz.lean.jvm.entry :as entry]))
+            [ansatz.lean.jvm.entry :as entry]
+            [clojure.data.json :as json] [clojure.java.io :as io]))
+(def ^:dynamic *module-root* ".")
 (defn- rejected? [f] (try (f) false (catch clojure.lang.ExceptionInfo _ true)))
 (defn- descriptor [type] {"arguments" [] "result" type "effect" "pure"})
 (defn- observation [type lane]
@@ -59,4 +61,22 @@
 (deftest new-producer-pairs-require-explicit-admission
   (is (= 2 (entry/schema-for-pins! (get-in entry/cohorts [2 :source]) (get-in entry/cohorts [2 :binary]))))
   (is (rejected? #(entry/schema-for-pins! (apply str (repeat 64 "0")) (get-in entry/cohorts [2 :binary])))))
-(defn check! [] (run-tests 'ansatz-lean-jvm-extended-entry-checks))
+(deftest actual-expanded-native-observations
+  (let [read-json #(json/read-str (slurp (io/file *module-root* "test/fixtures" %)))
+        document (read-json "extended-entry-v2.json")
+        request (read-json "extended-entry-v2.request.json")
+        receipt (read-json "extended-entry-v2.receipt.json")
+        entries (get document "entries")
+        rows (into {} (map #(vector (get % "name") %) (get document "declarations")))]
+    (is (= 12 (count entries)))
+    (is (= 198 (count rows)))
+    (is (identical? entries (entry/validate-document! (get document "compiledModule") request document)))
+    (is (every? #(identical? % (entry/validate-rows! % rows)) entries))
+    (is (= 2 (entry/schema-for-pins! (get receipt "producerSourceSHA256") (get receipt "producerBinarySHA256"))))
+    (doseq [sample entries]
+      (is (rejected? #(entry/validate! (assoc-in sample ["typeCheck" "expectedType"] [])))))
+    (doseq [sample (filter #(seq (get-in % ["nativeRepresentation" "types"])) entries)]
+      (is (rejected? #(entry/validate! (assoc-in sample ["nativeRepresentation" "types"] [])))))))
+(defn check!
+  ([] (check! "."))
+  ([root] (binding [*module-root* root] (run-tests 'ansatz-lean-jvm-extended-entry-checks))))

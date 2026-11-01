@@ -145,9 +145,33 @@ IO with a nested result. Independent canonical type reconstruction agreed for al
 13 entries. A 99-row native-document REPL prototype initialized the real module
 world and ran signed integer, Bool, String, Unit and zero-argument value calls.
 This prototype bypasses the final source/artifact admission path and is not an
-acceptance claim for that public path. Shared admission validation, borrowed
-container decoding, container inputs and complete public API acceptance still
-need integration and review. The published `0.2.578` boundary remains the three
+acceptance claim for that public path. Shared admission validation and borrowed container decoding now pass focused
+models. Real native-program REPL calls decoded pairs, both Option branches,
+Some Unit distinctly from None, lists, and nested IO results, releasing only
+the actual owned root. Container inputs and complete public API acceptance
+still need integration and review.
+
+The expanded producer was compiled against the pinned Lean checkout and linked
+with interpreter symbol export. A second native corpus inferred 12 entries for
+machine integers, both float widths, Char, USize, Array, ByteArray, Sum, Except,
+and raw nullary scalar results. Independent expected-type reconstruction and
+shared row validation agreed for all 12 entries (198 rows). Checked-in actual
+metadata fixtures record source/binary/program/request/evidence hashes; they
+are not invocation receipts. Signature coverage is not yet codec coverage.
+
+A scalar-free managed constructor recipe API was added to the Java engine.
+Its 176 actual-JVM checks cover fresh ownership, explicit release, bounds,
+invalid references/aliases, caller-array isolation and refused lifecycle states.
+The public argument planner and construction/start ownership journal must still
+be integrated before container input support is advertised. Focused models
+currently pass: signatures 4/67, entry observations 6/36, expanded entry
+observations 7/73, borrowed values 14/54, package audit 5/23 (tests/assertions).
+The built SDK JAR passes 92 tests / 496 assertions. The separate Java
+application-JAR consumer also passes typed and general calls, generic arity/type
+rejection without poisoning the Project, Clojure wrapper calls, generic IO Unit,
+thread handoff and close checks using a genuine historical artifact. This is
+v1 artifact compatibility plus the general facade; the v2 public source/cache/
+artifact round trip and actual container input calls remain pending. The published `0.2.578` boundary remains the three
 original profiles.
 
 Documentation review should also reconcile historical Init-tier/count examples

@@ -19,6 +19,10 @@ final class Bridge {
     static final IFn SOURCE;
     static final IFn LOOKUP;
     static final IFn INVOKE;
+    static final IFn SIGNATURE;
+    static final IFn DESCRIPTOR;
+    static final IFn ARITY;
+    static final IFn CALL;
     static final IFn MAIN;
     static final IFn CLOSE;
 
@@ -29,6 +33,10 @@ final class Bridge {
         SOURCE = Clojure.var(NS, "open-project!");
         LOOKUP = Clojure.var(NS, "lookup-function!");
         INVOKE = Clojure.var(NS, "invoke-function!");
+        SIGNATURE = Clojure.var(NS, "function-type!");
+        DESCRIPTOR = Clojure.var(NS, "function-descriptor!");
+        ARITY = Clojure.var(NS, "function-arity!");
+        CALL = Clojure.var(NS, "invoke-arguments!");
         MAIN = Clojure.var(NS, "run-main!");
         CLOSE = Clojure.var(NS, "close!");
     }
