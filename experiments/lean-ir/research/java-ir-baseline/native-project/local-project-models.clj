@@ -76,3 +76,58 @@
     (write (.resolve root "Huge.lean") (byte-array 1048577))
     (is (thrown? clojure.lang.ExceptionInfo (#'local/capture! root copied (name-of "Huge"))))
     {:workspace (str root) :assertions 7}))
+
+(defn check-cache-files!
+  "Synthetic theorem-only stream models validate cache semantics, not native proof."
+  [directory]
+  (let [attrs (make-array java.nio.file.attribute.FileAttribute 0)
+        root (java.nio.file.Files/createTempDirectory ^java.nio.file.Path directory "local-cache-model-" attrs)
+        write (fn [relative bytes]
+                (let [path (.resolve root ^String relative)]
+                  (java.nio.file.Files/createDirectories (.getParent path) attrs)
+                  (java.nio.file.Files/write path ^bytes bytes
+                    (into-array java.nio.file.OpenOption [java.nio.file.StandardOpenOption/CREATE_NEW java.nio.file.StandardOpenOption/WRITE])) path))
+        record #(#'native-project-compiler-v1/file-record % (* 32 1048576))
+        bytes #(.getBytes ^String % java.nio.charset.StandardCharsets/UTF_8)
+        name (name-of "A")
+        source (record (write "project/A.lean" (bytes "-- synthetic theorem-only source\n")))
+        olean (record (write "build/A.olean" (bytes "synthetic module product; NOT native evidence")))
+        imports [{"module" (name-of "Init") "isMeta" false "importAll" false "isExported" true}
+                 {"module" (name-of "Init") "isMeta" true "importAll" false "isExported" true}]
+        plan {"module" name "moduleSystem" false "imports" (mapv #(hash-map "module" (get % "module") "meta" (get % "isMeta")) imports) "actions" []}
+        stream {"schema" "lean-ir-probe/1" "leanVersion" "4.33.1"
+                "runtimeProfile" {"target" "x86_64-unknown-linux-gnu" "wordBits" 64} "initializationPlan" plan}
+        stdout (record (write "module-0.jsonl" (bytes (str (clojure.data.json/write-str stream) "\n"))))
+        stderr (record (write "module-0.stderr" (bytes "")))
+        receipt {"label" "module-0" "exit" 0 "stdout" "module-0.jsonl" "stderr" "module-0.stderr"
+                 "stdoutRecord" stdout "stderrRecord" stderr}
+        _ (#'native-project-compiler-v1/write-json! (.resolve root "module-0.receipt.json") receipt)
+        product {"module" name "source" source "olean" "A.olean" "oleanRecord" olean
+                 "localStream" receipt "rowCount" 0 "initializationPlan" plan}
+        inputs {"modules" [{":name" name ":record" source ":imports" imports}]}
+        files (#'local/inventory! root)
+        validate #(#'local/validate-compiled! root inputs % files)]
+    (is (= [product] (validate [product])))
+    (doseq [bad [[] [product product] [(assoc product "module" (name-of "Other"))]
+                 [(assoc product "source" {"bytes" 0 "sha256" "wrong"})]
+                 [(assoc product "olean" "../A.olean")]
+                 [(assoc product "oleanRecord" nil)]
+                 [(assoc product "oleanRecord" {"bytes" 0 "sha256" "wrong"})]
+                 [(assoc-in product ["localStream" "stdout"] "../module-0.jsonl")]
+                 [(assoc-in product ["localStream" "stdoutRecord"] {"bytes" 0 "sha256" "wrong"})]
+                 [(assoc product "rowCount" 1)] [(assoc-in product ["initializationPlan" "module"] (name-of "Other"))]]]
+      (is (thrown? clojure.lang.ExceptionInfo (validate bad))))
+    (#'local/verify-files! root files)
+    (java.nio.file.Files/write (.resolve root "project/A.lean") (bytes "mutated capture")
+      (into-array java.nio.file.OpenOption [java.nio.file.StandardOpenOption/TRUNCATE_EXISTING java.nio.file.StandardOpenOption/WRITE]))
+    (is (thrown? clojure.lang.ExceptionInfo (#'local/verify-files! root files))))
+  {:assertions 13})
+
+(deftest aggregate-deadline-refuses-before-native-effects
+  (let [expired {:build-start-nanos (- (System/nanoTime) 600000000001) :max-build-nanos 600000000000}
+        journal (atom {})]
+    (is (nil? (#'native-project-compiler-v1/check-build-deadline! {})))
+    (is (nil? (#'native-project-compiler-v1/check-build-deadline! {:build-start-nanos (System/nanoTime) :max-build-nanos 600000000000})))
+    (is (thrown? clojure.lang.ExceptionInfo (#'native-project-compiler-v1/check-build-deadline! expired)))
+    (is (thrown? clojure.lang.ExceptionInfo (#'native-project-compiler-v1/run-process! expired journal nil "must-not-start" [] {})))
+    (is (= {} @journal))))

@@ -11,6 +11,7 @@
            [java.util Locale]))
 
 (def profile "native-local-project-prepare/2")
+(def ^:dynamic *build-start-nanos* nil)
 (def ^:private no-links (into-array LinkOption [LinkOption/NOFOLLOW_LINKS]))
 (def ^:private attrs (make-array FileAttribute 0))
 (defn- require! [ok code facts]
@@ -119,12 +120,49 @@
           (let [relative (str (.relativize root p)) record (#'compiler/file-record p (* 32 1048576))]
             (recur tail (inc visited) (+ total (get record "bytes"))
                    (if (= relative "prepared-manifest.json") files (assoc files relative record)))))))))
+(defn- verify-files! [^Path directory expected]
+  (doseq [[relative record] expected]
+    (require! (= record (#'compiler/file-record (source-path! directory relative) (* 32 1048576)))
+              "ArtifactConflict" {:stage :frozen-product-mutation :relative relative})))
+(defn- expected-olean [module]
+  (let [relative (module-relative module)] (str (subs relative 0 (- (count relative) 5)) ".olean")))
+(defn- validate-compiled! [^Path directory inputs compiled files]
+  (let [expected (get inputs "modules")]
+    (require! (and (vector? compiled) (= (count expected) (count compiled)) (<= (count compiled) 128))
+              "ArtifactConflict" {:stage :compiled-module-order})
+    (doseq [[index source product] (map vector (range) expected compiled)]
+      (let [name (get source ":name") relative (expected-olean name) label (str "module-" index)
+            stdout (str label ".jsonl") stderr (str label ".stderr") receipt (get product "localStream")
+            raw-path (source-path! directory stdout)
+            [manifest rows] (#'compiler/read-stream! raw-path)
+            plan (get manifest "initializationPlan")]
+        (require! (and (= name (get product "module")) (= (get source ":record") (get product "source"))
+                       (= relative (get product "olean")) (map? (get product "oleanRecord"))
+                       (map? (get receipt "stdoutRecord")) (map? (get receipt "stderrRecord"))
+                       (= 0 (get-in receipt ["stderrRecord" "bytes"]))
+                       (= (get product "oleanRecord") (get files (str "build/" relative)))
+                       (= (get source ":record") (get files (str "project/" (module-relative name))))
+                       (= label (get receipt "label")) (= stdout (get receipt "stdout")) (= stderr (get receipt "stderr"))
+                       (= 0 (get receipt "exit")) (= (get receipt "stdoutRecord") (get files stdout))
+                       (= (get receipt "stderrRecord") (get files stderr))
+                       (= receipt (#'compiler/read-json! (.resolve directory (str label ".receipt.json")) 1048576))
+                       (= (get product "rowCount") (count rows)) (= plan (get product "initializationPlan"))
+                       (= name (get plan "module")) (false? (get plan "moduleSystem"))
+                       (= (mapv #(hash-map "module" (get % "module") "meta" (get % "isMeta")) (get source ":imports"))
+                          (get plan "imports"))
+                       (every? #(and (true? (get % "sourceLocal")) (= name (get % "sourceModule"))) rows)
+                       (= (count rows) (count (set (map #(get % "name") rows)))))
+                  "ArtifactConflict" {:stage :compiled-product-provenance :module name})))
+    compiled))
 (defn- cache-hit! [^Path directory key inputs]
   (require! (and (not (Files/isSymbolicLink directory)) (Files/isDirectory directory no-links)) "ArtifactConflict" {})
-  (let [manifest (#'compiler/read-json! (.resolve directory "prepared-manifest.json") (* 4 1048576))]
+  (let [manifest (#'compiler/read-json! (.resolve directory "prepared-manifest.json") (* 4 1048576))
+        files (inventory! directory)]
     (require! (and (= "lean-local-compiled-modules/2" (get manifest "schema"))
                    (= key (get manifest "cacheKey")) (= inputs (get manifest "inputs"))
-                   (= (get manifest "files") (inventory! directory))) "ArtifactConflict" {:cache-key key}) manifest))
+                   (= (get manifest "files") files)) "ArtifactConflict" {:cache-key key})
+    (validate-compiled! directory inputs (get manifest "compiled") files)
+    manifest))
 
 (defn prepare!
   "Trusted helper configuration supplies independently reviewed source/binary pins.
@@ -143,10 +181,11 @@
   (vector! roots 128 "UnsupportedProjectConfig")
   (doseq [root roots] (module-components root) (require! (not (init? root)) "ModulePathConflict" {:module root}))
   (require! (and (instance? clojure.lang.IAtom journal) (= {} @journal)) "UnsupportedProjectConfig" {})
-  (let [state (#'compiler/issued compiler)]
+  (let [started (or *build-start-nanos* (System/nanoTime)) state (#'compiler/issued compiler)]
     (locking (:lock state)
       (require! (identical? state (#'compiler/issued compiler)) "UnsupportedProjectConfig" {})
-      (let [project (project-path! project)
+      (let [state (assoc state :build-start-nanos started :max-build-nanos 600000000000)
+            project (project-path! project)
             _ (require! (and (string? source-root) (<= 1 (utf8-size! source-root) 4096)
                                 (not (str/includes? source-root "\\")) (not (str/includes? source-root (str (char 0)))) (or (= "." source-root)
                                 (and (not (str/starts-with? source-root "/"))
@@ -173,7 +212,7 @@
             _ (Files/createDirectory copied attrs) _ (Files/createDirectory build attrs)
             env (#'compiler/environment state (str build ":" (.resolve ^Path (:sysroot state) "lib/lean")))
             execution (assoc state :working-directory copied)]
-        (swap! journal assoc :status :capturing :stage-directory (str stage) :processes [])
+        (swap! journal assoc :status :capturing :stage-directory (str stage) :processes [] :process-slot (object-array 1) :process-handles (atom []))
         (try
           (let [toolchain (#'compiler/toolchain! state journal stage)
                 modules
@@ -199,19 +238,27 @@
                                  (assoc found name (assoc source :imports imports :dependencies deps :header receipt))
                                  (assoc paths folded name) (+ total (get-in source [:record "bytes"])) (+ edges (count deps))))))))
                 order (dependency-order roots modules)
-                inputs {"implementation" implementation-record "profile" profile "roots" roots "modules" (mapv #(dissoc (modules %) :header) order)
+                inputs {"implementation" implementation-record "transportImplementation" @#'compiler/implementation-record "profile" profile "roots" roots "modules" (mapv #(dissoc (modules %) :header) order)
                         "toolchain" toolchain "helper" helper-record "helperSource" source-record
-                        "typedExporter" exporter-record "typedExporterSource" exporter-source-record}
+                        "typedExporter" exporter-record "typedExporterSource" exporter-source-record "maxBuildSeconds" 600}
                 inputs (json/read-str (String. ^bytes (#'compiler/canonical inputs) StandardCharsets/UTF_8))
                 key (#'compiler/digest (#'compiler/canonical inputs))
                 target (.resolve ^Path (:cache state) (str "local-modules-" key))
                 hit (when (and compile? (Files/exists target no-links)) (cache-hit! target key inputs))
+                frozen-files (atom (inventory! stage))
+                verify-sources! (fn []
+                                  (doseq [[name m] modules]
+                                    (doseq [source-root [root copied]]
+                                      (require! (= (:record m) (#'compiler/file-record (source-path! source-root (:relative m)) 1048576))
+                                                "ArtifactConflict" {:stage :captured-source-mutation :module name}))))
+                _ (verify-sources!)
                 compiled (if hit (get hit "compiled") (when compile?
                            (mapv (fn [index name]
                                    (let [m (get modules name)
                                          relative (str (subs (:relative m) 0 (- (count (:relative m)) 5)) ".olean")
                                          olean (.resolve build relative)
                                          _ (Files/createDirectories (.getParent olean) attrs)
+                                         _ (verify-sources!) _ (verify-files! stage @frozen-files)
                                          receipt (#'compiler/run-process! execution journal stage (str "module-" index)
                                                    [exporter "--source" (.resolve copied (:relative m)) "--olean" olean
                                                     "--local" "--typed-module" (json/write-str name)] env)
@@ -225,6 +272,10 @@
                                                     (every? #(and (true? (get % "sourceLocal")) (= name (get % "sourceModule"))) rows)
                                                     (= (count rows) (count (set (map #(get % "name") rows)))))
                                                "NativeCompileFailed" {:module name :stage :local-stream-provenance})
+                                     (verify-sources!) (verify-files! stage @frozen-files)
+                                     (require! (= (get receipt "stdoutRecord") (#'compiler/file-record (.resolve stage (get receipt "stdout")) (* 32 1048576)))
+                                               "ArtifactConflict" {:stage :native-output-mutation :module name})
+                                     (reset! frozen-files (inventory! stage))
                                      {"module" name "source" (:record m) "olean" relative
                                       "oleanRecord" (#'compiler/file-record olean (* 32 1048576))
                                       "localStream" receipt "initializationPlan" plan "rowCount" (count rows)}))
@@ -232,9 +283,7 @@
                 after (.resolve stage "identity-after")
                 _ (Files/createDirectory after attrs)]
             (require! (= toolchain (#'compiler/toolchain! state journal (.resolve stage "identity-after"))) "NativeCompileFailed" {:stage :toolchain-mutation})
-            (doseq [[name m] modules]
-              (require! (= (:record m) (#'compiler/file-record (source-path! root (:relative m)) 1048576))
-                        "NativeCompileFailed" {:module name :stage :source-mutation}))
+            (verify-sources!) (verify-files! stage @frozen-files)
             (require! (and (= helper-record (#'compiler/file-record helper (* 256 1048576)))
                            (= source-record (#'compiler/file-record helper-source (* 2 1048576)))
                            (or (not compile?)
@@ -243,6 +292,8 @@
                       "NativeCompileFailed" {:stage :producer-mutation})
             (require! (= implementation-record (#'compiler/source-record! implementation-source))
                       "NativeCompileFailed" {:stage :implementation-mutation})
+            (#'compiler/guard-code!)
+            (#'compiler/check-build-deadline! state)
             (when (and compile? (not hit))
               (#'compiler/write-json! (.resolve stage "prepared-manifest.json")
                                      {"schema" "lean-local-compiled-modules/2" "cacheKey" key "inputs" inputs
@@ -253,9 +304,13 @@
                    (catch java.nio.file.FileAlreadyExistsException _ (cache-hit! target key inputs))
                    (catch java.nio.file.DirectoryNotEmptyException _ (cache-hit! target key inputs)))
               (cache-hit! target key inputs))
-            (swap! journal assoc :status (if compile? :modules-compiled :planned) :cache-key key :cache-hit (boolean hit))
+            (let [winner (when compile? (cache-hit! target key inputs))
+                  header-directory (if (Files/exists stage no-links) stage target)]
+            (#'compiler/check-build-deadline! state)
+            (swap! journal assoc :status (if compile? :modules-compiled :planned) :cache-key key :cache-hit (boolean hit)
+                   :published-directory (when compile? (str target)) :current-header-directory (str header-directory))
             {:status (if compile? :modules-compiled :planned) :profile profile :cache-key key :directory (str (if compile? target stage)) :cache-hit (boolean hit) :order order :modules modules :inputs inputs
-             :compiled compiled :runtime-ready false})
+             :compiled (if compile? (get winner "compiled") compiled) :header-directory (str header-directory) :runtime-ready false}))
           (catch Throwable error (#'compiler/abort! journal error)))))))
 
 (defn compile-modules!

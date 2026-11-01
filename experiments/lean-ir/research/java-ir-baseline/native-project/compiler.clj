@@ -226,7 +226,11 @@
   (with-open [children (.descendants (.toHandle process))]
     (doseq [handle (iterator-seq (.iterator children))] (remember-process! handles handle)))
   (owned-rss-kib handles))
+(defn- check-build-deadline! [state]
+  (when-let [start (:build-start-nanos state)]
+    (need (< (- (System/nanoTime) start) (:max-build-nanos state)) "Native aggregate build deadline exceeded")))
 (defn- run-process! [state journal ^Path directory label arguments env]
+  (check-build-deadline! state)
   (need (>= (available-kib) (* 2 1024 1024)) "MemAvailable below 2 GiB floor; no native process started")
   (let [stdout (.resolve directory (str label ".jsonl")) stderr (.resolve directory (str label ".stderr"))
         argv (into [(str (:launcher state)) "--cpu=90:90" "--core=0:0" "--fsize=33554432:33554432" "--"] (mapv str arguments))
@@ -242,12 +246,14 @@
         (remember-process! handles (.toHandle process))
         (loop []
           (when-not (.waitFor process 20 TimeUnit/MILLISECONDS)
+            (check-build-deadline! state)
             (swap! peak max (rss-kib process handles))
             (need (<= @peak (* 900 1024)) "Native RSS exceeds 900 MiB")
             (need (>= (available-kib) (* 2 1024 1024)) "Native MemAvailable below 2 GiB")
             (need (<= (- (System/nanoTime) start) 120000000000) "Native wall deadline exceeded")
             (need (and (<= (Files/size stdout) max-bytes) (<= (Files/size stderr) (* 1024 1024))) "Native output extent exceeded")
             (recur)))
+        (check-build-deadline! state)
         (need (not-any? #(.isAlive ^ProcessHandle %) @handles) "Owned native descendant still running after compiler exit")
         (let [receipt {"label" label "command" argv "exit" (.exitValue process)
                        "stdout" (str (.getFileName stdout)) "stdoutRecord" (file-record stdout max-bytes)
