@@ -39,10 +39,13 @@ clojure -T:build check-package
 clojure -T:build jar
 ```
 
-Those commands were not run by the extraction worker. No dependency resolution,
-JVM/native process or jar build has been performed as part of its source audit.
-A consumer of a future published jar will not need Clojure CLI, build tooling or
-a source checkout. No release or deploy target is provided here.
+The root built the initial jar with `clojure -J-Xmx384m -T:build jar` and
+accepted the retained-JVM source checks and Java-only jar consumer. The worker
+performed static archive audits without starting a JVM. Portable evidence and
+source pins are recorded in `validation.json`; distinguish the accepted initial
+engine revision from any later rebased source awaiting a fresh build. A consumer
+of a future published jar will not need Clojure CLI, build tooling or a source
+checkout. No release or deploy target is provided here.
 
 ## Checks for the root's retained JVM
 
@@ -62,3 +65,7 @@ Before accepting a built package, separately verify its jar inventory and POM,
 then require `ansatz.lean.jvm.ir` and execute these models using `linked-basis` in
 a jar-only consumer classpath with no research roots. The root may build and
 validate that boundary later; it is not established by source checks alone.
+
+The tracked [Java-only consumer](consumer/README.md) includes the actual accepted
+Java smoke source, bounded reproduction tooling, and static positive/negative
+archive checks. Producer/test scripts and validation records are not jar resources.

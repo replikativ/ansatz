@@ -1,0 +1,194 @@
+{
+  "schema": "ansatz-lean-jvm-packaging-validation/1",
+  "scope": "Internal canonical adapter packaging; no public Project API or generic project loader",
+  "acceptedHistorical": {
+    "packagingCommit": "3a20cc7bfcef57ea0b35cdc15284185c71e638b4",
+    "engineSourceSHA256": "28cd4296572af05d1800eb0c2f2414b9c22bb954f6fd4303792620fa3d27ce77",
+    "producer": {
+      "command": "clojure -J-Xmx384m -T:build jar",
+      "cwd": "modules/lean-jvm",
+      "heapMiB": 384,
+      "exit": 0,
+      "warnings": "Existing strictfp warning"
+    },
+    "retainedJvmModels": {
+      "adapter": {
+        "tests": 3,
+        "assertions": 9,
+        "failures": 0,
+        "errors": 0
+      },
+      "sourceAudit": {
+        "tests": 3,
+        "assertions": 17,
+        "failures": 0,
+        "errors": 0
+      },
+      "receiptPrecedesJarBuild": true
+    },
+    "jarAudit": {
+      "jarBytes": 297613,
+      "jarSHA256": "43264892ff05575bc192a90234f2449a37477e21118d84725982edf7b8cc2b7e",
+      "entryCount": 144,
+      "engineClassCount": 129,
+      "javaRelease": 17,
+      "engineSourceSHA256": "28cd4296572af05d1800eb0c2f2414b9c22bb954f6fd4303792620fa3d27ce77",
+      "runtimeResources": [
+        "ansatz/lean/jvm/ir.clj"
+      ],
+      "pomDependencies": [
+        [
+          "org.clojure",
+          "clojure",
+          "1.12.0"
+        ]
+      ],
+      "adapterSHA256": "111699a1c26034147cc633ce28bc78fa87f23eab6cd3493b0f084ff7a97ac77d",
+      "metadataSHA256": "9cf7c603af5960a15ee486db50a177da7fe370a4c99d92d88d79c073b3cac80d",
+      "pomSHA256": "d83a9f68a2058db9ef7bbfc3148bcb29e36975775cf7996d80f7ce02d2f9bbf6"
+    },
+    "javaOnlyConsumer": {
+      "javacRelease": 17,
+      "javacExit": 0,
+      "javaHeapMiB": 192,
+      "javaExit": 0,
+      "workingDirectoryEmpty": true,
+      "classpathJars": [
+        "ansatz-lean-jvm.jar",
+        "clojure-1.12.0.jar",
+        "spec.alpha-0.5.238.jar",
+        "core.specs.alpha-0.4.74.jar"
+      ],
+      "sourceCheckoutOnConsumerClasspath": false,
+      "clojureCLIOnConsumerClasspath": false,
+      "adapterLoadedFromJar": true,
+      "precompiledEngine": true,
+      "reusedEngineResults": [
+        37,
+        42
+      ],
+      "closed": true,
+      "legacyBackendNamespacesLoaded": false
+    },
+    "workerStaticAudit": {
+      "actualJarAudits": 1,
+      "negativeCases": 6,
+      "javaProcesses": 0,
+      "nativeProcesses": 0
+    },
+    "externalEvidence": {
+      "primaryCheckout": [
+        {
+          "path": "target/java-source-exchange-v1/jvm-packaging-models-v1.edn",
+          "bytes": 176,
+          "sha256": "09e769c472a48aa8dea6adf596fb17fe5c8172c24e35794f0cd4dc4083cadb27"
+        }
+      ],
+      "authorCheckout": [
+        {
+          "path": "modules/lean-jvm/target/consumer/src/JarSmoke.java",
+          "bytes": 2015,
+          "sha256": "8680f151e6a4155233659b89167f1ca5791ed82d5b509d0ca7035a2f44686462"
+        },
+        {
+          "path": "modules/lean-jvm/target/consumer/result.json",
+          "bytes": 407,
+          "sha256": "d42d873583a41ddaf03b181f4c7bb1642c5f623b96d466ce82caed7efe36696b"
+        },
+        {
+          "path": "modules/lean-jvm/target/consumer/javac.stdout",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "path": "modules/lean-jvm/target/consumer/javac.stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "path": "modules/lean-jvm/target/consumer/java.stdout",
+          "bytes": 101,
+          "sha256": "50c4b64a9c0084b2f387ce5d88be251d842ca27b1a9a90b1c3f129fe8f07ae82"
+        },
+        {
+          "path": "modules/lean-jvm/target/consumer/java.stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "path": "modules/lean-jvm/target/consumer/portable-jar-audit-v1.json",
+          "bytes": 678,
+          "sha256": "3a202228dc3dd5466e9d55cf9ca959942b95c1dc11ea191e063b1ec5f1756a77"
+        }
+      ]
+    }
+  },
+  "currentSource": {
+    "engineSourceSHA256": "28cd4296572af05d1800eb0c2f2414b9c22bb954f6fd4303792620fa3d27ce77",
+    "freshBuildAfterFutureRebaseRequired": true
+  },
+  "sourceInventory": [
+    {
+      "path": "modules/lean-jvm/src/ansatz/lean/jvm/ir.clj",
+      "bytes": 11356,
+      "sha256": "111699a1c26034147cc633ce28bc78fa87f23eab6cd3493b0f084ff7a97ac77d"
+    },
+    {
+      "path": "modules/lean-jvm/ansatz_lean_jvm_build_audit.clj",
+      "bytes": 5234,
+      "sha256": "937248c26aa6f3c12724ee5f738b5a6208aafdf421748aa3e2432e8a3b00bb56"
+    },
+    {
+      "path": "modules/lean-jvm/build.clj",
+      "bytes": 1778,
+      "sha256": "e6a4538a0d23960a8a965c7400c7307af3f4167f2d42e4dae6c3d8044daff735"
+    },
+    {
+      "path": "modules/lean-jvm/deps.edn",
+      "bytes": 286,
+      "sha256": "1bbab0e41b05ded980f44bb9ceac6c5f5b5bb772ffd2a2996e80b99dd93c4a14"
+    },
+    {
+      "path": "modules/lean-jvm/runtime-closure.edn",
+      "bytes": 482,
+      "sha256": "740c59c13c8d7032b56361924455bdb4064fa9ad1b426d726acd1cc890b5f1ba"
+    },
+    {
+      "path": "modules/lean-jvm/resources/META-INF/ansatz-lean-jvm/runtime.edn",
+      "bytes": 456,
+      "sha256": "ae64f76c872f659bb981bf206a247c73f1d4c722cd3a537349c8249b2fab3935"
+    },
+    {
+      "path": "modules/lean-jvm/test/build_audit_checks.clj",
+      "bytes": 2231,
+      "sha256": "ae320544299da7b9a2295ba9325461e984cd51d7515796a221275adafaa6c747"
+    },
+    {
+      "path": "modules/lean-jvm/test/prepare_checks.clj",
+      "bytes": 2332,
+      "sha256": "b5023b0cdf789a3d1df930eda1d6d2f7159c9ccaedbd229b5494238a8546968d"
+    },
+    {
+      "path": "modules/lean-jvm/consumer/JarSmoke.java",
+      "bytes": 2015,
+      "sha256": "8680f151e6a4155233659b89167f1ca5791ed82d5b509d0ca7035a2f44686462"
+    },
+    {
+      "path": "modules/lean-jvm/consumer/check.py",
+      "bytes": 7658,
+      "sha256": "c1dfa18c1fb0017ac191e2f6711c7df2e193e0e95fdb195c47784ad66126fb5c"
+    },
+    {
+      "path": "modules/lean-jvm/consumer/audit_checks.py",
+      "bytes": 2331,
+      "sha256": "ac453d7035df30fc21c8c1a72060c53693c547b8f4ba5784b01b4a6ab3fdba78"
+    }
+  ],
+  "notEstablished": [
+    "public Java Project API",
+    "general loadProject/loadArtifact",
+    "native compiler inclusion",
+    "complete Init startup",
+    "new native execution evidence"
+  ]
+}
