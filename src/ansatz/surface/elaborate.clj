@@ -1009,8 +1009,13 @@
                   (not (numeral-tree? b-form))
                   (let [b0 (elab-term vest b-form)] [(carrier-of b0) a-form b0])
                   :else [(e/const' (name/from-string "Nat") []) a-form b-form])
+        ;; binop%: an all-numeral operand tree (`(* 0 0)`) takes the carrier too, rather
+        ;; than defaulting to Nat on its own (which left `Nat.mul 0 0 ≤ 2 * a` over Int)
+        at-carrier (fn [x] (if (and (seq? x) (numeral-tree? x))
+                             (elab-arith-operand vest T (type-head-name est T) x)
+                             x))
         rel (case hs "==" 'Eq ("<" ">") 'lt 'le)]
-    (elab-term est (list rel T a b))))
+    (elab-term est (list rel T (at-carrier a) (at-carrier b)))))
 
 (defn- elab-if-branches
   "Elaborate the branches of `if` form `sexpr`. Their type is the declared
