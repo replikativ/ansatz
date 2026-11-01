@@ -202,11 +202,12 @@
                         (let [q (quot a b)
                               r (rem a b)]
                           (if (and (not (zero? r)) (not= (neg? a) (neg? b)))
-                            (dec q) q)))
+                            (dec' q) q)))
+            ;; exact integers: bounds routinely exceed a long (2^63 and beyond)
             new-constraint {:lower (when-let [l (:lower constraint)]
-                                     (- (floor-div (- (long l)) (long g))))
+                                     (-' (floor-div (-' l) g)))
                             :upper (when-let [u (:upper constraint)]
-                                     (floor-div (long u) (long g)))}
+                                     (floor-div u g))}
             new-j (justification-tidy justification new-constraint new-coeffs)]
         (mk-fact new-coeffs new-constraint new-j)))))
 
@@ -320,7 +321,7 @@
    assumption-wrap-fn: wraps raw proof in addInequality_sat (provided by caller)."
   [problem const coeffs proof-fn assumption-wrap-fn]
   (let [i (count (:assumptions problem))
-        s (constraint-geq (- const))
+        s (constraint-geq (-' const))
         x (vec coeffs)
         j (justification-assumption i s x)
         assumption-proof (assumption-wrap-fn const x proof-fn)
@@ -335,7 +336,7 @@
    assumption-wrap-fn: wraps raw proof in addEquality_sat (provided by caller)."
   [problem const coeffs proof-fn assumption-wrap-fn]
   (let [i (count (:assumptions problem))
-        s (constraint-exact (- const))
+        s (constraint-exact (-' const))
         x (vec coeffs)
         j (justification-assumption i s x)
         assumption-proof (assumption-wrap-fn const x proof-fn)
@@ -1155,70 +1156,79 @@
             lhs (mk-nat-hmul k-expr var-nat)]
         (mk-eq-trans-nat lhs (:lhs right) (:rhs right) comm-prf (:proof right))))))
 
+(declare to-lean-int)
+
+(defn lc-mul
+  "Init/Omega/LinearCombo.lean `mul`: `l₂.const • l₁ + l₁.const • l₂ - {const := l₁.const * l₂.const}`,
+   computed with the same list operations, so the kernel reduces `mul l₁ l₂` to this value."
+  [l1 l2]
+  (lc-sub (lc-add (lc-scale l1 (:const l2)) (lc-scale l2 (:const l1)))
+          (mk-lc (*' (:const l1) (:const l2)))))
+
+(defn mk-mul-eval-proof
+  "Lean's `asLinearCombo` HMul case: when one factor is a constant (its coefficients are
+   zero), `LinearCombo.mul_eval_of_const_left/right` with `Int.mul_congr`:
+   (mul l₁ l₂).eval v = l₁.eval v * l₂.eval v = e₁ * e₂. `rhs`, if given, is a term
+   definitionally equal to `e₁ * e₂` to report as the right-hand side (the Int version of a
+   Nat product)."
+  [lc1 lc2 proof-fn1 proof-fn2 const-side & [rhs-override]]
+  (om/guarded
+   (fn [atoms-expr]
+     (let [p1 (if (fn? proof-fn1) (proof-fn1 atoms-expr) proof-fn1)
+           p2 (if (fn? proof-fn2) (proof-fn2 atoms-expr) proof-fn2)
+           result (lc-mul lc1 lc2)
+           lhs (mk-lc-eval-expr result atoms-expr)
+           eval1 (mk-lc-eval-expr lc1 atoms-expr)
+           eval2 (mk-lc-eval-expr lc2 atoms-expr)
+           mid (mk-int-mul eval1 eval2)
+           rhs (mk-int-mul (:rhs p1) (:rhs p2))
+           w (e/lam "x" int-type
+                    (e/lam "h" (e/app* (e/const' (name/from-string "Membership.mem") [lvl/zero lvl/zero])
+                                       int-type
+                                       (e/app (e/const' (name/from-string "List") [lvl/zero]) int-type)
+                                       (e/app (e/const' (name/from-string "List.instMembership") [lvl/zero]) int-type)
+                                       (e/app (e/const' (name/from-string "List.nil") [lvl/zero]) int-type)
+                                       (e/bvar 0))
+                           (e/app* (e/const' (name/from-string "False.elim") [lvl/zero])
+                                   (e/app* (e/const' (name/from-string "Eq") [u1]) int-type (e/bvar 1)
+                                           (to-lean-int 0))
+                                   (e/app* (e/const' (name/from-string "List.not_mem_nil") [lvl/zero])
+                                           int-type (e/bvar 1) (e/bvar 0)))
+                           :default)
+                    :default)
+           mul-eval (e/app* (e/const' (name/from-string (if (= const-side :left)
+                                                          "Lean.Omega.LinearCombo.mul_eval_of_const_left"
+                                                          "Lean.Omega.LinearCombo.mul_eval_of_const_right")) [])
+                            (to-lean-linear-combo lc1) (to-lean-linear-combo lc2) atoms-expr w)
+           congr (e/app* (e/const' (name/from-string "Lean.Omega.Int.mul_congr") [])
+                         eval1 (:rhs p1) eval2 (:rhs p2) (:proof p1) (:proof p2))
+           proof (mk-eq-trans lhs mid rhs mul-eval congr)]
+       (if rhs-override
+         {:proof (mk-eq-trans lhs rhs rhs-override proof (mk-eq-refl-int rhs-override))
+          :lhs lhs :rhs rhs-override}
+         {:proof proof :lhs lhs :rhs rhs})))))
+
 (defn mk-scale-eval-proof
-  "Build eval proof for scalar multiplication.
-   Strategy: expand k*x as x+x+...+x using mk-add-eval-proof, then bridge to
-   Int.ofNat(original_mul_expr) using Nat.mul_succ/Nat.mul_comm chains.
+  "Eval proof for `k * a` / `a * k` with a Nat literal `k`: Lean's `mul_eval` route (one
+   multiplication, whatever the size of k), reporting the Int version of the original
+   Nat product as the right-hand side (`↑(k * a)` is definitionally `↑k * ↑a`).
 
-   The proof chain:
-   1. lc.eval atoms = rhs_a + rhs_a + ...           (by repeated add_eval)
-   2. rhs_a + rhs_a + ... defEq Int.ofNat(a+a+...)  (by kernel reduction)
-   3. Int.ofNat(a+a+...) = Int.ofNat(mul_expr)       (by congrArg Int.ofNat (Eq.symm bridge))
-   Final: lc.eval atoms = Int.ofNat(mul_expr)  via Eq.trans.
-
-   Parameters:
-   - lc, k, proof-fn: as before
-   - var-nat-expr: the Nat expression for the variable (a)
-   - original-nat-expr: the original Nat mul expression (a*k or k*a)
-   - literal-pos: :left if literal is first arg (k*a), :right if second (a*k)"
-  [lc k proof-fn var-nat-expr original-nat-expr literal-pos]
+   Parameters: lc / proof-fn for the variable factor `a`, `var-nat-expr` (unused, kept for
+   the call sites), `original-nat-expr` (the Nat product), `literal-pos` (:left for k * a)."
+  [lc k proof-fn _var-nat-expr original-nat-expr literal-pos]
   (cond
-    (zero? k)
-    (mk-eval-rfl-proof (mk-lc 0))
-
-    (== k 1)
-    proof-fn
-
+    (zero? k) (mk-eval-rfl-proof (mk-lc 0))
     :else
-    ;; Step 1: Build repeated addition eval proof
-    (let [add-prf (loop [i 1 acc-lc lc acc-proof proof-fn]
-                    ;; Charge before allocating each delayed addition node. Lean
-                    ;; uses mul_eval; this retained Nat bridge is linear in k.
-                    (om/charge!)
-                    (if (>= i k)
-                      acc-proof
-                      (recur (inc i) (lc-add acc-lc lc)
-                             (mk-add-eval-proof acc-lc lc acc-proof proof-fn))))
-          ;; Step 2: Build Nat-level bridge proof: mul_expr = a+a+...+a
-          nat-bridge (mk-nat-mul-expand-proof var-nat-expr k literal-pos)]
-      (if (nil? nat-bridge)
-        ;; Should not happen for k >= 2, but fall back just in case
-        add-prf
-        (let [original-int (nat-to-int original-nat-expr)
-              nat-add-expr (mk-nat-add-chain var-nat-expr k)]
-          (om/guarded (fn [atoms-expr]
-                        (let [p-add (if (fn? add-prf) (add-prf atoms-expr) add-prf)
-                              add-rhs (:rhs p-add)
-                              add-lhs (:lhs p-add)
-                  ;; nat-bridge : mul_expr = a+a+... (Nat level)
-                  ;; congrArg Int.ofNat nat-bridge : Int.ofNat(mul_expr) = Int.ofNat(a+a+...)
-                              congr-proof (e/app* (e/const' (:congr-arg omega-names) [u1 u1])
-                                                  (e/const' (:nat-name omega-names) [])
-                                                  int-type
-                                                  original-nat-expr  ;; a1 = mul_expr
-                                                  nat-add-expr        ;; a2 = a+a+...
-                                                  (e/const' (:int-ofnat omega-names) [])
-                                                  nat-bridge)
-                  ;; Eq.symm : Int.ofNat(a+a+...) = Int.ofNat(mul_expr)
-                              bridge-proof (mk-eq-symm (nat-to-int original-nat-expr)
-                                                       (nat-to-int nat-add-expr)
-                                                       congr-proof)
-                  ;; Final: Eq.trans p-add.proof bridge-proof
-                              final-proof (mk-eq-trans add-lhs add-rhs original-int
-                                                       (:proof p-add) bridge-proof)]
-                          {:proof final-proof
-                           :lhs add-lhs
-                           :rhs original-int}))))))))
+    (let [klc (mk-lc k)
+          kprf (mk-eval-rfl-proof klc)
+          ;; mk-eval-rfl-proof's rhs is the eval expression itself; report the literal
+          kprf (om/guarded (fn [atoms-expr]
+                             (let [p (kprf atoms-expr)]
+                               (assoc p :rhs (to-lean-int k)))))
+          original-int (nat-to-int original-nat-expr)]
+      (if (= literal-pos :left)
+        (mk-mul-eval-proof klc lc kprf proof-fn :left original-int)
+        (mk-mul-eval-proof lc klc proof-fn kprf :right original-int)))))
 
 ;; ============================================================
 ;; Reification: Ansatz expr → LinearCombo + eval proof

@@ -533,12 +533,23 @@
    pass through untouched."
   [est T tn x]
   (if (e/lit-nat? x)
-    (case tn
-      "Nat" x
-      "Float" (e/app (e/const' (name/from-string "Float.ofNat") []) x)
-      (let [u (type-sort-level est T)
-            goal (e/app* (e/const' (name/from-string "OfNat") [u]) T x)]
-        (e/app* (e/const' (name/from-string "OfNat.ofNat") [u]) T x (inst-mvar! est goal))))
+    (let [v (e/lit-nat-val x)]
+      (if (neg? v)
+        ;; A negative surface integer is Lean's `-n`: `Neg.neg (OfNat.ofNat T n)`, never a raw
+        ;; literal (a kernel Nat literal is a natural number). Over Nat there is no `Neg`.
+        (do (when (= tn "Nat")
+              (throw (ex-info (str "negative literal " v " cannot have type Nat")
+                              {:kind :elab-error :literal v})))
+            (let [u (type-sort-level est T)]
+              (e/app* (e/const' (name/from-string "Neg.neg") [u]) T
+                      (inst-mvar! est (e/app (e/const' (name/from-string "Neg") [u]) T))
+                      (num-lit-at-type est T tn (e/lit-nat (- v))))))
+        (case tn
+          "Nat" x
+          "Float" (e/app (e/const' (name/from-string "Float.ofNat") []) x)
+          (let [u (type-sort-level est T)
+                goal (e/app* (e/const' (name/from-string "OfNat") [u]) T x)]
+            (e/app* (e/const' (name/from-string "OfNat.ofNat") [u]) T x (inst-mvar! est goal))))))
     x))
 
 (defn- elab-arith-operand
@@ -998,8 +1009,13 @@
                   (not (numeral-tree? b-form))
                   (let [b0 (elab-term vest b-form)] [(carrier-of b0) a-form b0])
                   :else [(e/const' (name/from-string "Nat") []) a-form b-form])
+        ;; binop%: an all-numeral operand tree (`(* 0 0)`) takes the carrier too, rather
+        ;; than defaulting to Nat on its own (which left `Nat.mul 0 0 ≤ 2 * a` over Int)
+        at-carrier (fn [x] (if (and (seq? x) (numeral-tree? x))
+                             (elab-arith-operand vest T (type-head-name est T) x)
+                             x))
         rel (case hs "==" 'Eq ("<" ">") 'lt 'le)]
-    (elab-term est (list rel T a b))))
+    (elab-term est (list rel T (at-carrier a) (at-carrier b)))))
 
 (defn- elab-if-branches
   "Elaborate the branches of `if` form `sexpr`. Their type is the declared
@@ -1373,6 +1389,13 @@
                 (cond
                   (> (count args) 2)
                   (elab-term est (reduce (fn [a b] (list head a b)) args))
+
+                  ;; unary minus `(- a)` is Lean's `-a`, Neg.neg at the operand's type (over
+                  ;; Nat, which has no Neg, the former partial `Nat.sub a` is kept)
+                  (and (= op "-") (= 1 (count args))
+                       (let [[_ tn] (arith-type est (first args))] (and tn (not= tn "Nat"))))
+                  (let [[T _] (arith-type est (first args))]
+                    (elab-arith-at-type* est "neg" T args))
 
                   (< (count args) 2)
                   (elab-app est (symbol (get-in ingest/arith-lift [op "Nat"])) args)

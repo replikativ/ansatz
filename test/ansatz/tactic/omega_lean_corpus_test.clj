@@ -90,7 +90,7 @@
 (defn- i* [a b] (hbin "HMul.hMul" "Int.instMul" INT a b))
 (defn- idiv [a b] (hbin "HDiv.hDiv" "Int.instDiv" INT a b))
 (defn- imod [a b] (hbin "HMod.hMod" "Int.instMod" INT a b))
-(defn- ineg [a] (e/app* (c "Neg.neg") INT (c "Int.instNegInt") a))
+(defn- ineg [a] (e/app* (e/const' (name/from-string "Neg.neg") [lvl/zero]) INT (c "Int.instNegInt") a))
 
 ;; --- propositions ---
 (defn- le* [T inst a b] (e/app* (c1 "LE.le") T (c inst) a b))
@@ -266,12 +266,8 @@
     (proves "n*n + n ≥ 0"
             (ex [["n" NAT]] (fn [n] {:hyps [] :concl (n<= (nlit 0) (n+ (n* n n) n))})))
     ;; L402
-    (gap "a * 1 = a"
-         "the k=1 shortcut in mk-scale-eval-proof returns the operand's eval proof unchanged,
-          so the proof claims `lc.eval = ↑a` while the goal needs `↑(a * 1)`; `Nat.mul a 1`
-          is NOT definitionally `a` (Nat.mul recurses on its second argument), so the bridge
-          has to go through Nat.mul_one"
-         (ex [["a" NAT]] (fn [a] {:hyps [] :concl (n= (n* a (nlit 1)) a)})))
+    (proves "a * 1 = a"
+            (ex [["a" NAT]] (fn [a] {:hyps [] :concl (n= (n* a (nlit 1)) a)})))
     ;; L394 / L395 / L396
     (proves "n * 2 = n + n"
             (ex [["n" NAT]] (fn [n] {:hyps [] :concl (n= (n* n (nlit 2)) (n+ n n))})))
@@ -527,10 +523,6 @@
 ;; What is still missing is Int SCALAR MULTIPLICATION: folding `2 * x` over Int needs an
 ;; Int-level scale eval proof, and `mk-scale-eval-proof`'s bridge is built out of
 ;; Nat.mul_succ/Nat.mul_comm and is Nat-only. Same for `Neg.neg` applied to a literal.
-(def ^:private int-mul-gap
-  "Int scalar multiplication / literal negation needs an Int-level scale eval proof;
-   mk-scale-eval-proof's Nat.mul_succ/Nat.mul_comm bridge is Nat-only")
-
 (deftest corpus-int-linear
   (testing "lean4 omega.lean — Int linear fragment"
     ;; L6 / L8
@@ -554,17 +546,17 @@
     (proves "(14:Int) - 7 ≤ 0 → False"
             (ex [] (fn [] {:hyps [(i<= (i- (ilit 14) (ilit 7)) (ilit 0))] :concl FALSE})))
     ;; L113 / L115 — Neg.neg
-    (gap "-(7:Int) = 0 → False" int-mul-gap
-         (ex [] (fn [] {:hyps [(i= (ineg (ilit 7)) (ilit 0))] :concl FALSE})))
-    (gap "-(-7:Int) ≤ 0 → False" int-mul-gap
-         (ex [] (fn [] {:hyps [(i<= (ineg (ilit -7)) (ilit 0))] :concl FALSE})))
+    (proves "-(7:Int) = 0 → False"
+            (ex [] (fn [] {:hyps [(i= (ineg (ilit 7)) (ilit 0))] :concl FALSE})))
+    (proves "-(-7:Int) ≤ 0 → False"
+            (ex [] (fn [] {:hyps [(i<= (ineg (ilit -7)) (ilit 0))] :concl FALSE})))
     ;; L121 — gcd tightening (2 ∤ 1), reached without any Int literal folding
     (proves "x + x + 1 = 0 → False"
             (ex [["x" INT]] (fn [x] {:hyps [(i= (i+ (i+ x x) (ilit 1)) (ilit 0))] :concl FALSE})))
     ;; L123
-    (gap "2*x + 1 = 0 → False" int-mul-gap
-         (ex [["x" INT]] (fn [x] {:hyps [(i= (i+ (i* (ilit 2) x) (ilit 1)) (ilit 0))]
-                                  :concl FALSE})))
+    (proves "2*x + 1 = 0 → False"
+            (ex [["x" INT]] (fn [x] {:hyps [(i= (i+ (i* (ilit 2) x) (ilit 1)) (ilit 0))]
+                                     :concl FALSE})))
     ;; L125 / L127
     (proves "x + x + y + y + 1 = 0 → False"
             (ex [["x" INT] ["y" INT]]
@@ -576,24 +568,24 @@
                                 (i<= (ilit 0) (i- (ilit 3) x))]
                          :concl FALSE})))
     ;; L133 / L135
-    (gap "0 ≤ 2*x + 1 → 2*x + 1 ≤ 0 → False" int-mul-gap
-         (ex [["x" INT]]
-             (fn [x] {:hyps [(i<= (ilit 0) (i+ (i* (ilit 2) x) (ilit 1)))
-                             (i<= (i+ (i* (ilit 2) x) (ilit 1)) (ilit 0))]
-                      :concl FALSE})))
+    (proves "0 ≤ 2*x + 1 → 2*x + 1 ≤ 0 → False"
+            (ex [["x" INT]]
+                (fn [x] {:hyps [(i<= (ilit 0) (i+ (i* (ilit 2) x) (ilit 1)))
+                                (i<= (i+ (i* (ilit 2) x) (ilit 1)) (ilit 0))]
+                         :concl FALSE})))
     ;; L137 — equality hypothesis chaining
-    (gap "0 ≤ 2*x+1 → x = y → 2*y+1 ≤ 0 → False" int-mul-gap
-         (ex [["x" INT] ["y" INT]]
-             (fn [x y] {:hyps [(i<= (ilit 0) (i+ (i* (ilit 2) x) (ilit 1)))
-                               (i= x y)
-                               (i<= (i+ (i* (ilit 2) y) (ilit 1)) (ilit 0))]
-                        :concl FALSE})))
+    (proves "0 ≤ 2*x+1 → x = y → 2*y+1 ≤ 0 → False"
+            (ex [["x" INT] ["y" INT]]
+                (fn [x y] {:hyps [(i<= (ilit 0) (i+ (i* (ilit 2) x) (ilit 1)))
+                                  (i= x y)
+                                  (i<= (i+ (i* (ilit 2) y) (ilit 1)) (ilit 0))]
+                           :concl FALSE})))
     ;; L145
-    (gap "1 ≤ -3*x → 1 ≤ 2*x → False" int-mul-gap
-         (ex [["x" INT]]
-             (fn [x] {:hyps [(i<= (ilit 1) (i* (ilit -3) x))
-                             (i<= (ilit 1) (i* (ilit 2) x))]
-                      :concl FALSE})))
+    (proves "1 ≤ -3*x → 1 ≤ 2*x → False"
+            (ex [["x" INT]]
+                (fn [x] {:hyps [(i<= (ilit 1) (i* (ilit -3) x))
+                                (i<= (ilit 1) (i* (ilit 2) x))]
+                         :concl FALSE})))
     ;; L205
     (proves "a < b → b < a → False"
             (ex [["a" INT] ["b" INT]] (fn [a b] {:hyps [(i< a b) (i< b a)] :concl FALSE})))
@@ -620,15 +612,15 @@
             (ex [["x" INT]]
                 (fn [x] {:hyps [(p-and (i< (ilit 0) x) (i< x (ilit -1)))] :concl FALSE})))
     ;; L213 — the product A*B is atomised, then scaled
-    (gap "0 < A*B → 0 < 8*(A*B)" int-mul-gap
-         (ex [["A" INT] ["B" INT]]
-             (fn [A B] {:hyps [(i< (ilit 0) (i* A B))]
-                        :concl (i< (ilit 0) (i* (ilit 8) (i* A B)))})))
+    (proves "0 < A*B → 0 < 8*(A*B)"
+            (ex [["A" INT] ["B" INT]]
+                (fn [A B] {:hyps [(i< (ilit 0) (i* A B))]
+                           :concl (i< (ilit 0) (i* (ilit 8) (i* A B)))})))
     ;; L265
-    (gap "0 ≤ a → 0*0 ≤ 2*a" int-mul-gap
-         (ex [["a" INT]]
-             (fn [a] {:hyps [(i<= (ilit 0) a)]
-                      :concl (i<= (i* (ilit 0) (ilit 0)) (i* (ilit 2) a))})))
+    (proves "0 ≤ a → 0*0 ≤ 2*a"
+            (ex [["a" INT]]
+                (fn [a] {:hyps [(i<= (ilit 0) a)]
+                         :concl (i<= (i* (ilit 0) (ilit 0)) (i* (ilit 2) a))})))
     ;; L207 — an Int EQUALITY goal; by_contra needs the ≠ → disjunction lemma
     ;; (Int.lt_or_gt_of_ne)
     (proves "v0 + v1 + c = 10 → v0 + 5 + (v1 - 3) + (c - 2) = 10"
@@ -669,44 +661,30 @@
     (proves "x < y → x ≠ y"
             (ex [["x" INT] ["y" INT]] (fn [x y] {:hyps [(i< x y)] :concl (i-ne x y)})))
     ;; L186 — 5×5 dense Int system
-    (gap "5-variable dense Int system ⊢ e = 3"
-         "Int equality GOAL needs Int.lt_or_gt_of_ne (absent from init-medium); the
-          hypotheses also hit the Int literal gap"
-         (ex [["a" INT] ["b" INT] ["c" INT] ["d" INT] ["e" INT]]
-             (fn [a b c d e]
-               (let [s (fn [& xs] (reduce i+ xs))]
-                 {:hyps [(i= (s (i* (ilit 2) a) b c d e) (ilit 4))
-                         (i= (s a (i* (ilit 2) b) c d e) (ilit 5))
-                         (i= (s a b (i* (ilit 2) c) d e) (ilit 6))
-                         (i= (s a b c (i* (ilit 2) d) e) (ilit 7))
-                         (i= (s a b c d (i* (ilit 2) e)) (ilit 8))]
-                  :concl (i= e (ilit 3))}))))))
-
-(def ^:private int-div-gap
-  "Int division bounds are EMITTED and kernel-checkable now — `Int.mul_ediv_self_le`
-   and `Int.lt_mul_ediv_self_add` are in the bundled store and `add-div-bounds` states
-   both over the goal's own divisor spelling (see int-div-bounds-are-emitted below).
-   They are still useless to the solver, for the same reason as `int-mul-gap`: the
-   bounds are stated as `k * (x / k)`, and Int scalar multiplication reifies as a fresh
-   opaque atom `z` instead of `k · q`, so what reaches the solver is `0 ≤ x - z ≤ k-1`
-   — true, certified, and saying nothing about `q`. Unblocking these needs an Int-level
-   scale eval proof, not a lemma.")
+    (proves "5-variable dense Int system ⊢ e = 3"
+            (ex [["a" INT] ["b" INT] ["c" INT] ["d" INT] ["e" INT]]
+                (fn [a b c d e]
+                  (let [s (fn [& xs] (reduce i+ xs))]
+                    {:hyps [(i= (s (i* (ilit 2) a) b c d e) (ilit 4))
+                            (i= (s a (i* (ilit 2) b) c d e) (ilit 5))
+                            (i= (s a b (i* (ilit 2) c) d e) (ilit 6))
+                            (i= (s a b c (i* (ilit 2) d) e) (ilit 7))
+                            (i= (s a b c d (i* (ilit 2) e)) (ilit 8))]
+                     :concl (i= e (ilit 3))}))))))
 
 (deftest corpus-int-div
   (testing "lean4 omega.lean — Int division"
     ;; L222
-    (gap "ε > 0 → ε / 2 < ε" int-div-gap
-         (ex [["e" INT]] (fn [ee] {:hyps [(i< (ilit 0) ee)]
-                                   :concl (i< (idiv ee (ilit 2)) ee)})))
+    (proves "ε > 0 → ε / 2 < ε"
+            (ex [["e" INT]] (fn [ee] {:hyps [(i< (ilit 0) ee)]
+                                      :concl (i< (idiv ee (ilit 2)) ee)})))
     ;; L17
-    (gap "2 * (x / 2) > x → False" int-div-gap
-         (ex [["x" INT]] (fn [x] {:hyps [(i< x (i* (ilit 2) (idiv x (ilit 2))))]
-                                  :concl FALSE})))
+    (proves "2 * (x / 2) > x → False"
+            (ex [["x" INT]] (fn [x] {:hyps [(i< x (i* (ilit 2) (idiv x (ilit 2))))]
+                                     :concl FALSE})))
     ;; L15
-    (gap "x % 2 > 5 → False"
-         "the Int emod decomposition still needs the Int.emod_def cast bridge, and rides
-          on the Int div bounds"
-         (ex [["x" INT]] (fn [x] {:hyps [(i< (ilit 5) (imod x (ilit 2)))] :concl FALSE})))
+    (proves "x % 2 > 5 → False"
+            (ex [["x" INT]] (fn [x] {:hyps [(i< (ilit 5) (imod x (ilit 2)))] :concl FALSE})))
     ;; L293 — a quotient by a SYMBOLIC divisor is a plain atom; no bounds needed
     (proves "32 / a < b → b < c → 32 / a < c"
             (ex [["a" INT] ["b" INT] ["c" INT]]
@@ -734,10 +712,10 @@
                              [t p]))}
         (fn []
           (binding [omega-proof/*strict-div-bounds* true]
-            ;; NOT `:ok` — the goal is still undecided (see int-div-gap). The point is
-            ;; that stating the bounds neither throws nor silently no-ops.
-            (is (not= :ok (run-omega example))
-                "still blocked on Int scalar multiplication, not on a missing lemma"))))
+            ;; Decided since Int scalar multiplication is linear (LinearCombo.mul_eval):
+            ;; the bounds are stated as `2 * (e / 2)` and now reach the solver.
+            (is (= :ok (run-omega example))
+                "the Int quotient's bounds decide the goal"))))
       (is (= [1] (distinct (map first @deltas)))
           "the Int quotient must be tagged as a div atom")
       (is (pos? (reduce + (map second @deltas)))

@@ -817,6 +817,32 @@
                                          (keys (:level-depth meta-mctx)))))]
         [(assoc ps :meta-mctx meta-mctx :next-id next-id) expr]))))
 
+(clojure.core/defn- elab-proof-arg
+  "A proof term argument (`linarith [t]`): a hypothesis name, or a term elaborated in the
+   goal's context with its implicit arguments inserted."
+  [ps lctx arg]
+  (let [hyp-fid (when (symbol? arg)
+                  (reduce (fn [best [id d]]
+                            (if (and (= :local (:tag d)) (= (str arg) (:name d))
+                                     (or (nil? best) (> (long id) (long best))))
+                              id best)) nil lctx))]
+    (if hyp-fid
+      (e/fvar hyp-fid)
+      (let [expr (elab/elaborate-in-context (:env ps) lctx arg)]
+        (when (.hasMVar ^ansatz.kernel.Expr expr)
+          (throw (ex-info (str "linarith: could not elaborate " (pr-str arg) " to a closed proof")
+                          {:kind :tactic-error :arg arg})))
+        expr))))
+
+(clojure.core/defn- run-linarith-tactic
+  [ps args nonlinear?]
+  (let [[only? args] (if (= 'only (first args)) [true (rest args)] [false args])
+        terms (if (and (= 1 (count args)) (vector? (first args))) (first args) args)
+        g (proof/current-goal ps)
+        extra (mapv #(elab-proof-arg ps (:lctx g) %) terms)
+        f (requiring-resolve 'ansatz.tactic.linarith/linarith*)]
+    (f ps :only? only? :extra extra :nonlinear? nonlinear?)))
+
 (clojure.core/defn- do-rewrite-one
   "A SINGLE rewrite rule: a local hypothesis (by name), an env lemma (∀-quantified, instantiated by
    matching), or an applied Eq term. `reverse?` rewrites right-to-left."
@@ -1325,8 +1351,10 @@
                 (let [f (requiring-resolve 'ansatz.tactic.decide/decide)] (f ps)))
    'norm_num  (fn [ps _args]
                 (let [f (requiring-resolve 'ansatz.tactic.norm-num/norm-num)] (f ps)))
-   'linarith  (fn [ps _args]
-                (let [f (requiring-resolve 'ansatz.tactic.linarith/linarith)] (f ps)))
+   ;; Mathlib's `linarith [t₁, …]`, `linarith only [h₁, …]`, `nlinarith [...]`: the terms
+   ;; are elaborated in the goal's context and added to its comparisons.
+   'linarith  (fn [ps args] (run-linarith-tactic ps args false))
+   'nlinarith (fn [ps args] (run-linarith-tactic ps args true))
    'ring      (fn [ps _args]
                 (let [f (requiring-resolve 'ansatz.tactic.ring/ring)] (f ps)))
    ;; Inequality automation

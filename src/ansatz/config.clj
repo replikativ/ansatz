@@ -33,13 +33,16 @@
   512)
 
 ;; -- Instance synthesis --
-(def ^:dynamic *max-synth-depth*
-  "Maximum recursion depth for typeclass instance synthesis."
-  16)
+(def ^:dynamic *synth-max-result-size*
+  "Lean's `synthInstance.maxSize`: the maximum number of instances used to construct an answer
+   (answers of this size or more are dropped)."
+  128)
 
-(def ^:dynamic *max-candidates*
-  "Maximum number of instance candidates to try per synthesis goal."
-  32)
+(def ^:dynamic *synth-max-steps*
+  "The resource bound of one instance-synthesis problem: generate/resume steps of the tabled
+   resolution — ansatz's counterpart of Lean's `synthInstance.maxHeartbeats` (which counts
+   allocations, and so has no portable equivalent). Exceeding it is an error, as in Lean."
+  10000)
 
 ;; -- Simp --
 (def ^:dynamic *max-simp-steps*

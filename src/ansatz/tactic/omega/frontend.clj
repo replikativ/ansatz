@@ -311,31 +311,38 @@
         [table' (lc-coordinate idx) (mk-coordinate-eval-proof idx)]))))
 
 (defn- reify-mod-decomp
-  "Reify an INT remainder `a % b` by rewriting it to `a - b * (a / b)` (Lean's
-   `Int.emod_def`). `mk-div` rebuilds the quotient in the SAME spelling as the
-   input; `mk-mul` rebuilds the product in the HMul spelling that
-   `mk-scale-eval-proof`'s bridge is stated in.
-
-   Returns nil (caller falls through) when `b` is not a positive literal.
-
-   NOTE — this is the INT path only, and it is currently DEAD on the bundled init
-   slice: the eval proof it builds claims `lc.eval = ↑a - ↑(b*(a/b))`, whereas the
-   surrounding constraint proof needs `lc.eval = ↑(a % b)`. Those are equal by
-   `Int.emod_def` but NOT definitionally, so the bridge still has to be built and
-   spliced in before this can certify. (It never fired before either — the Int div
-   bounds it depends on need `Int.mul_ediv_self_le`, absent from init-medium.) The
-   Nat path deliberately does NOT come here; see `reify-mod-atom`."
+  "Reify an INT remainder `a % b` (b a positive literal) as Lean's frontend does:
+   rewrite by `Int.emod_def : a % b = a - b * (a / b)` and reify the right-hand side, the
+   quotient `a / b` an atom with its division bounds, the product by `mul_eval`. The eval
+   proof is bridged back to `a % b` with `Eq.symm (Int.emod_def a b)`.
+   Returns nil (caller falls through) when `b` is not a positive literal. The Nat path
+   does not come here; see `reify-mod-atom`."
   [st table a b mk-div mk-mul]
   (let [bv (ground-nat-val (#'tc/cached-whnf st b))]
     (when (and bv (pos? bv))
-      (let [k bv
-            [table' lc-a prf-a] (reify-term st table a)
+      (let [[table lc-a prf-a] (reify-term st table a)
+            [table lc-b prf-b] (reify-term st table b)
             div-expr (mk-div a b)
-            [table'' lc-div prf-div] (reify-term st table' div-expr)
-            lc-bq (lc-scale lc-div k)
-            mul-expr (mk-mul b div-expr)
-            prf-bq (mk-scale-eval-proof lc-div k prf-div div-expr mul-expr :left)]
-        [table'' (lc-sub lc-a lc-bq) (mk-sub-eval-proof lc-a lc-bq prf-a prf-bq)]))))
+            [table lc-div prf-div] (reify-term st table div-expr)
+            _ (when (seq (:coeffs lc-b)) (throw (ex-info "omega: non-constant divisor" {})))
+            lc-bq (op/lc-mul lc-b lc-div)
+            prf-bq (op/mk-mul-eval-proof lc-b lc-div prf-b prf-div :left)
+            lc (lc-sub lc-a lc-bq)
+            prf-sub (mk-sub-eval-proof lc-a lc-bq prf-a prf-bq)
+            mod-expr (e/app* (e/const' (name/from-string "HMod.hMod") [lvl/zero lvl/zero lvl/zero])
+                             op/int-type op/int-type op/int-type
+                             (e/app* (e/const' (name/from-string "instHMod") [lvl/zero]) op/int-type
+                                     (e/const' (name/from-string "Int.instMod") []))
+                             a b)
+            proof (om/guarded
+                   (fn [atoms-expr]
+                     (let [p (if (fn? prf-sub) (prf-sub atoms-expr) prf-sub)
+                           ;; Int.emod_def a b : a % b = a - b * (a / b)
+                           emod (e/app* (e/const' (name/from-string "Int.emod_def") []) a b)
+                           back (op/mk-eq-symm mod-expr (:rhs p) emod)]
+                       {:proof (op/mk-eq-trans (:lhs p) (:rhs p) mod-expr (:proof p) back)
+                        :lhs (:lhs p) :rhs mod-expr})))]
+        [table lc proof]))))
 
 (defn- reify-mod-atom
   "Reify a NAT remainder `a % b` (in ANY spelling) as its own omega atom `r`,
@@ -524,6 +531,18 @@
                       k (e/lit-nat-val b-whnf)
                       result-lc (lc-scale lc-a k)]
                   [table' result-lc (mk-scale-eval-proof lc-a k prf-a (nth args 4) expr :right)])
+                ;; Lean Frontend.lean HMul: reify both factors; when one is a constant
+                ;; (no coefficients) the product is linear, by LinearCombo.mul_eval. Otherwise
+                ;; the whole product is an atom (the factors' table is discarded, as Lean's
+                ;; commitWhen reverts it).
+                (let [ty (#'tc/cached-whnf st (nth args 0))]
+                  (and (e/const? ty) (= (e/const-name ty) (:int-name omega-names))))
+                (let [[t1 l1 p1] (reify-term st table (nth args 4))
+                      [t2 l2 p2] (reify-term st t1 (nth args 5))]
+                  (cond
+                    (empty? (:coeffs l1)) [t2 (op/lc-mul l1 l2) (op/mk-mul-eval-proof l1 l2 p1 p2 :left)]
+                    (empty? (:coeffs l2)) [t2 (op/lc-mul l1 l2) (op/mk-mul-eval-proof l1 l2 p1 p2 :right)]
+                    :else nil))
                 :else nil))  ;; fall through to WHNF path
 
             ;; HDiv.hDiv _ _ _ _ a b → atom + div-bounds tag

@@ -301,7 +301,9 @@
              e)
     :mdata (do (check-fuel!) (recur env (e/mdata-expr e) lctx opts))
     :let (do (check-fuel!) (recur env (e/instantiate1 (e/let-body e) (e/let-value e)) lctx opts))
-    :proj (if-let [r (try-reduce-proj env e (fn [env e] (whnf env e lctx opts)))]
+    ;; the structure is reduced by `whnf`, or by `(:proj-whnf-fn opts)` — the meta layer's whnf at a
+    ;; restricted transparency (Lean's whnfCore reduces it at the current transparency)
+    :proj (if-let [r (try-reduce-proj env e (or (:proj-whnf-fn opts) (fn [env e] (whnf env e lctx opts))))]
             (recur env r lctx opts)
             e)
     :app (let [[head args] (e/get-app-fn-args e)

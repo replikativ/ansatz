@@ -1,11 +1,35 @@
-;; Follows Lean 4 (../lean4), Meta/Instances.lean:instanceExtension/addInstance and
-;; Meta/SynthInstance.lean:getInstances. Candidates come only from registered instances.
+;; Follows Lean 4 (../lean4, checkout 55f80e10a3; behaviour checked against Lean 4.33.1):
+;; Meta/SynthInstance.lean (tabled resolution, synthInstance?, synthPendingImp),
+;; Meta/Instances.lean (instanceExtension, addInstance), Class.lean (out-params).
 
 (ns ansatz.tactic.instance
-  "Typeclass instance resolution following Lean 4's synthesis algorithm.
+  "Typeclass instance synthesis: a port of Lean 4's tabled resolution (Meta/SynthInstance.lean).
 
-   Resolution uses structural matching with isDefEq fallback,
-   recursive synthesis for inst-implicit args, and depth limiting."
+   - Candidates come from Lean's instance discrimination tree (`ansatz.tactic.instance-index`):
+     `getUnify` on the goal, sorted by priority, local instances appended (tried first, newest
+     first), consumed from the end.
+   - `tryResolve` opens the goal's telescope, opens the candidate with metavariables
+     (`getSubgoals`, each `?m : ∀ xs, A` applied to the goal's binders), unifies the conclusions
+     (`ansatz.meta/is-def-eq` with synthPending and `isDefEqStuckEx`), and assigns the goal
+     `fun xs => inst ?m…`. The instance-implicit binders are subgoals in the instance's
+     precomputed synthesis order (`computeSynthOrder`).
+   - Goals are tabled under normalized keys (`mkTableKey`: assignable metavariables become
+     canonical names): a generator node per new goal, consumer nodes waiting on subgoals, answers
+     abstracted over their metavariables (`abstractMVars`) and propagated to every waiter,
+     `removeUnusedArguments?`, the canonical-instances cut, and Lean's result-size bound.
+   - `synthInstance?`: out-params (and out-level-params) of the goal are replaced by fresh
+     metavariables, the search runs one metacontext depth deeper, and the FIRST root answer is
+     checked against the original goal (`assignOutParams`); results are cached per local-instance
+     context, goal, synthPending depth, environment and registry.
+
+   Unification inside the search runs at `.instances` transparency (`meta/*transparency*`),
+   `assignOutParams` at default, as in Lean.
+
+   Deviations: the resource bound counts resolution steps (`config/*synth-max-steps*`) where Lean
+   counts heartbeats; metavariable-free comparisons go to the kernel, which unfolds at default
+   transparency; Lean's reducibility attributes and class extension are not exported, so
+   reducibility and class membership are recovered as `ansatz.meta/reducible-const?` and
+   `ansatz.tactic.instance-index/mk-ctx` describe."
   (:require [ansatz.bundle :as bundle]
             [clojure.string :as str]
             [clojure.java.io :as io]
@@ -15,78 +39,90 @@
             [ansatz.kernel.name :as name]
             [ansatz.kernel.level :as lvl]
             [ansatz.kernel.tc :as tc]
-            [ansatz.config :as config])
+            [ansatz.config :as config]
+            [ansatz.tactic.instance-index :as ii])
   (:import [ansatz.kernel ConstantInfo Env]))
 
 ;; ============================================================
-;; Instance index: class-name → [candidates]
+;; The registry: Lean's instanceExtension, class → entries
 ;; ============================================================
+;; An entry is {:name Name :priority Nat :order n}, `:order` being the registration order (the
+;; dump's line, Lean's DiscrTree insertion order). Within a class the entries are kept in Lean's
+;; try order among equal keys: higher priority first, the most recent registration first among
+;; equals. A store may add `:keys`/`:synth-order` (ansatz.tactic.instance-index/annotate-registry).
 
 (defn- return-type-head
   "Strip foralls from a type to get the return type, then return its head constant name."
   [ty]
-  (loop [t ty arity 0]
+  (loop [t ty]
     (if (e/forall? t)
-      (recur (e/forall-body t) (inc arity))
+      (recur (e/forall-body t))
       (let [[head _] (e/get-app-fn-args t)]
-        (when (e/const? head)
-          [(e/const-name head) arity])))))
+        (when (e/const? head) (e/const-name head))))))
+
+(defn- try-order
+  "Lean's try order among entries of one class: priority descending, newest registration first."
+  [entries]
+  (vec (sort-by (juxt #(- (or (:priority %) 1000)) #(- (or (:order %) 0))) entries)))
 
 (defn add-instance
   "Lean's `addInstance`: a NEW env whose instance table (the `:instances` extension) also
    holds the constant `inst-name`, keyed by the class its type concludes in, at `priority`
-   (Lean's default 1000). Among equal priorities the newest registration is tried FIRST, as
-   in Lean's DiscrTree insertion order; a higher priority still goes ahead of it. An env with
-   no registry starts with the empty table, as Lean's instanceExtension does."
+   (Lean's default 1000). A new registration is the most recent one; registering an instance
+   again replaces its entry IN PLACE with the new priority (Lean's `insertVal`), so it keeps its
+   registration order. An env with no registry starts with the empty table, as Lean's
+   instanceExtension does."
   [^Env env inst-name & {:keys [priority] :or {priority 1000}}]
   (let [ci (or (env/lookup env inst-name)
                (throw (ex-info "add-instance: no such constant" {:name (name/->string inst-name)})))
-        [cls _] (or (return-type-head (.type ci))
-                    (throw (ex-info "add-instance: the type does not conclude in a class"
-                                    {:name (name/->string inst-name)})))
+        cls (or (return-type-head (.type ci))
+                (throw (ex-info "add-instance: the type does not conclude in a class"
+                                {:name (name/->string inst-name)})))
         idx (or (env/get-extension env :instances nil) {})
-        entry {:name inst-name :priority priority}
-        same? (fn [v] (= (:name v) inst-name))]
-    (env/with-extension env :instances
-      (update idx cls (fn [vs]
-                        (->> (remove same? vs)
-                             (cons entry)
-                             (sort-by (fn [v] (- (or (:priority v) 1000))))
-                             vec))))))
+        next-order (inc (reduce max -1 (keep :order (mapcat val idx))))
+        vs (get idx cls [])
+        pos (first (keep-indexed (fn [i v] (when (= (:name v) inst-name) i)) vs))
+        vs (if pos
+             (update vs pos assoc :priority priority)
+             (conj vs {:name inst-name :priority priority :order next-order}))]
+    (env/with-extension env :instances (assoc idx cls (try-order vs)))))
 
 (defn get-instances
-  "Get candidate instances for a class name from the index."
+  "The registry entries of a class, in Lean's try order among equal keys."
   [index class-name]
   (get index class-name []))
 
 (defn parse-instance-tsv
   "Lean's @[instance] registry (scripts/dump_instances.lean: `class<TAB>instance<TAB>priority`
-   lines) → an instance index {class-Name → [{:name Name :priority Nat} …]}. Within a class the
-   candidates are in Lean's try order: HIGHER priority first (`instance (priority := low)` is
-   tried last), the most recently declared first among equals. `present?` (name-string → bool) drops instances the
-   env does not have, so a registry dumped from full Init serves a smaller bundled tier."
+   lines, in registration order) → an instance index {class-Name → [{:name :priority :order} …]}.
+   Within a class the candidates are in Lean's try order: HIGHER priority first (`instance
+   (priority := low)` is tried last), the most recently registered first among equals.
+   `present?` (name-string → bool) drops instances the env does not have, so a registry dumped
+   from full Init serves a smaller bundled tier."
   ([lines] (parse-instance-tsv lines nil))
   ([lines present?]
-   (let [seen (java.util.HashSet.)
-         idx (reduce (fn [idx line]
+   (let [seen (java.util.HashMap.)
+         idx (reduce (fn [idx [line-no line]]
                        (let [parts (str/split line #"\t")]
                          (if (and (>= (count parts) 2)
-                                  (or (nil? present?) (present? (nth parts 1)))
-                                  ;; an instance re-registered by a re-exporting module is one
-                                  ;; instance: keep its first (earliest) registration
-                                  (.add seen [(nth parts 0) (nth parts 1)]))
-                           (update idx (name/from-string (nth parts 0)) (fnil conj [])
-                                   {:name (name/from-string (nth parts 1))
-                                    :priority (if (>= (count parts) 3)
-                                                (Long/parseLong (nth parts 2))
-                                                1000)})
+                                  (or (nil? present?) (present? (nth parts 1))))
+                           (let [cls (name/from-string (nth parts 0))
+                                 prio (if (>= (count parts) 3) (Long/parseLong (nth parts 2)) 1000)
+                                 k [(nth parts 0) (nth parts 1)]]
+                             (if-let [pos (.get seen k)]
+                               ;; an instance registered again (`attribute [instance 50] C.toX` after
+                               ;; the structure-parent registration at 1000, or a re-exporting
+                               ;; module) is ONE entry: Lean's DiscrTree.insertVal replaces the
+                               ;; equal value in place, so it keeps its position and takes the
+                               ;; LATER priority
+                               (assoc-in idx [cls pos :priority] prio)
+                               (do (.put seen k (count (get idx cls [])))
+                                   (update idx cls (fnil conj [])
+                                           {:name (name/from-string (nth parts 1)) :priority prio
+                                            :order line-no}))))
                            idx)))
-                     {} lines)]
-     ;; Lean (SynthInstance.lean): candidates sorted by priority and consumed from the END —
-     ;; highest priority first, and among equals the LAST registered (DiscrTree insertion order
-     ;; = declaration order), so a carrier's own `Real.instMul` beats the generic
-     ;; `CommMagma.toMul` projection declared before it. A stable sort over the reversed list.
-     (into {} (map (fn [[k vs]] [k (vec (sort-by (comp - :priority) (rseq vs)))])) idx))))
+                     {} (map-indexed vector lines))]
+     (into {} (map (fn [[k vs]] [k (try-order vs)])) idx))))
 
 (defn load-instance-tsv
   "Load Lean's instance registry from a TSV file (see parse-instance-tsv)."
@@ -115,29 +151,32 @@
       (throw (ex-info "Tactic error: no instance registry"
                       {:kind :tactic-error}))))
 
-;; ── Candidate selection — Lean's DiscrTree key, one level deep ─────────────────────────────
-;; Lean's `getInstances` looks candidates up in a discrimination tree keyed by the instance
-;; type's conclusion, so `OfNat ℝ 1` only ever sees the generic instances (conclusion `OfNat ?α n`)
-;; and the ℝ-specific ones. A flat per-class list is not a substitute once it is CAPPED at
-;; `*max-candidates*`: Mathlib registers 61 `OfNat` and 115 `Pow` instances, `One.toOfNat1` is
-;; number 58 of the former and `Monoid.toNatPow` number 38 of the latter, and both sat forever
-;; behind the cap. Keying each candidate by the head of its conclusion's FIRST argument (a bound
-;; variable → generic) recovers the relevant subset.
+;; ============================================================
+;; The discrimination tree of one (env, registry)
+;; ============================================================
 
-(def ^:private conclusion-keys
-  "instance Name → its conclusion key (a head-constant Name, or :generic). Filled on demand: only
-   the classes a session actually synthesizes pay for resolving their instances' types."
+(deftype IdKey [o]
+  Object
+  (equals [_ x] (and (instance? IdKey x) (identical? o (.-o ^IdKey x))))
+  (hashCode [_] (System/identityHashCode o)))
+
+(def ^:private index-cache
+  "{[IdKey env, IdKey registry] → index state}: the instance discrimination tree, entry data and
+   class info derived from one registry over one environment. Session state (capture/restore);
+   bounded, so a session that keeps extending its env does not retain every one of them."
   (atom {}))
 
+(def ^:private max-index-states 8)
+
 (defn reset-caches!
-  "Forget the per-name conclusion keys — a new env may spell the same names differently."
+  "Forget every derived instance index."
   []
-  (reset! conclusion-keys {}))
+  (reset! index-cache {}))
 
 (defn capture-caches
-  "Capture immutable instance-selection cache values for a proof session."
+  "Capture the derived instance indexes for a proof session."
   []
-  @conclusion-keys)
+  @index-cache)
 
 (defn validate-caches! [snapshot]
   (when-not (map? snapshot)
@@ -145,541 +184,650 @@
   snapshot)
 
 (defn restore-caches! [snapshot]
-  (reset! conclusion-keys (validate-caches! snapshot)))
+  (reset! index-cache (validate-caches! snapshot)))
 
-(defn- strip
-  "`x` without its mdata wrappers — definitionally transparent, and a matcher must not see it."
-  [x] (if (e/mdata? x) (recur (e/mdata-expr x)) x))
+(defn- insertion-order
+  "The registry's entries in registration (DiscrTree insertion) order: by `:order` when every
+   entry has one, else class by class, each class's try order reversed (oldest first)."
+  [registry]
+  (let [all (for [[cls vs] registry v (rseq (vec vs))] (assoc v ::class cls))]
+    (if (every? :order all) (sort-by :order all) all)))
 
-(defn- head-key
-  "The head constant of `x`, or :generic when it has none (a bound variable, a literal, …)."
-  [x]
-  (let [x (loop [x x] (if (and x (e/mdata? x)) (recur (e/mdata-expr x)) x))
-        [h _] (when x (e/get-app-fn-args x))]
-    (if (and h (e/const? h)) (e/const-name h) :generic)))
+(defn- class-root
+  "The root key name of the instances of a non-inductive class `cls`: the head of the key of
+   `cls ?args` (Lean reduces reducible aliases such as `DecidableEq` and `AddLeftMono` at the root)."
+  [ctx ^ConstantInfo ci]
+  (let [st (:st ctx)]
+    (loop [t (.type ci) mctx meta/empty-context args []]
+      (if (e/forall? t)
+        (let [id (swap! (:next-id st) inc)
+              mctx (meta/add-expr-mvar-decl mctx id (e/forall-type t) (:lctx st))]
+          (recur (e/instantiate1 (e/forall-body t) (e/mvar id)) mctx (conj args (e/mvar id))))
+        (let [goal (apply e/app* (e/const' (.name ci) (mapv lvl/param (.levelParams ci))) args)]
+          (loop [g goal mctx mctx fuel 32]
+            (let [g' (meta/whnf mctx st g)]
+              (if (and (e/forall? g') (pos? fuel))
+                (let [id (swap! (:next-id st) inc)
+                      mctx (meta/add-expr-mvar-decl mctx id (e/forall-type g') (:lctx st))]
+                  (recur (e/instantiate1 (e/forall-body g') (e/mvar id)) mctx (dec fuel)))
+                (let [k (first (ii/mk-path ctx mctx st g))]
+                  (when (= :const (nth k 0)) [:const (nth k 1)]))))))))))
 
-(defn- conclusion-first-arg-key
-  "The DiscrTree-style key path of an instance type: the head constant of its conclusion's
-   first argument, and — when that argument is itself an application — the head of ITS first
-   argument. Two levels, because one is too coarse for the classes that take a proposition:
-   every `Decidable (a ≤ b)` instance keys as `LE.le` at one level, so `Nat.decLe` sat among
-   80 equals (`Real.decidableLE`, `Prod.instDecidableLE`, the whole of `Std.Time`…) and fell
-   behind the candidate cap — `norm_num` could not decide `(2 : Nat) ≤ 3`. With the carrier as
-   the second level, `Decidable (LE.le Nat …)` sees the Nat instances and the generic ones.
-   :generic at a level means the instance applies to anything there."
-  [ty]
-  (let [concl (loop [t ty] (if (e/forall? t) (recur (e/forall-body t)) t))
-        [_ args] (e/get-app-fn-args concl)
-        a (first args)
-        a (loop [x a] (if (and x (e/mdata? x)) (recur (e/mdata-expr x)) x))
-        [_ aargs] (when a (e/get-app-fn-args a))]
-    [(head-key a) (if (seq aargs) (head-key (first aargs)) :generic)]))
+(defn- make-index-state [^Env env registry]
+  (let [ctx (ii/mk-ctx env registry)
+        ordered (delay (vec (insertion-order registry)))
+        unannotated-classes (delay (into #{} (comp (remove ii/annotated?) (map ::class)) @ordered))]
+    {:ctx ctx
+     :entry-data (atom {})
+     :tries (atom {})
+     :instance-names (delay (into #{} (map :name) @ordered))
+     ;; annotated entries grouped by root key, in insertion order
+     :annotated-roots (delay (group-by (comp first :keys)
+                                       (filter #(and (ii/annotated? %) (seq (:keys %))) @ordered)))
+     ;; the unannotated classes by the root key name their instances key under
+     :class-roots (delay
+                    (reduce (fn [m cls]
+                              (let [ci (env/lookup env cls)]
+                                (cond (nil? ci) m
+                                      (or (env/induct? ci) (env/axiom? ci)) (update m [:const cls] (fnil conj []) cls)
+                                      :else (if-let [k (try (class-root ctx ci) (catch clojure.lang.ExceptionInfo _ nil))]
+                                              (update m k (fnil conj []) cls)
+                                              m))))
+                            {} @unannotated-classes))
+     :ordered ordered}))
 
-(defn- conclusion-key
-  "Cached per instance NAME — and only when the instance is in `env`; an instance the env
-   does not have is `:absent`, never a candidate. A miss is not cached: the cache outlives an
-   env (tests switch envs; a session can too), and a name absent from one env and present in
-   the next would otherwise stay \"generic\" forever — which is how `Nat.decLt` came to be
-   offered, and accepted, for `Decidable (0 = 0)`. Lean's registry only ever names constants
-   of its environment; ours can be wider (a registry dumped from Mathlib attached to a small
-   env), and the 246 absent `Decidable` entries ahead of `instDecidableNot` pushed it past
-   `*max-candidates*` when they counted as generic matches."
-  [^Env env inst-name]
-  (or (get @conclusion-keys inst-name)
-      (if-let [^ConstantInfo ci (env/lookup env inst-name)]
-        (let [k (conclusion-first-arg-key (.type ci))]
-          (swap! conclusion-keys assoc inst-name k)
-          k)
-        :absent)))
+(defn- with-root-classes [state]
+  (assoc state :root-classes
+         (delay (into #{} (keep (fn [k] (when (= :const (nth k 0 nil)) (nth k 1))))
+                      (concat (keys @(:class-roots state)) (keys @(:annotated-roots state)))))))
 
-(defn- key-matches?
-  "Does the candidate's key path fit the goal's? A level is compatible when the keys agree or
-   either side is generic there — Lean's DiscrTree, where a star matches anything."
-  [ck gk]
-  (every? true? (map (fn [c g] (or (= c g) (= c :generic) (= g :generic))) ck gk)))
+(def ^:private fully-annotated
+  "registry → does every entry carry its keys and synthesis order? (weak in the registry)"
+  (java.util.WeakHashMap.))
 
-(defn select-candidates
-  "The candidates of `candidates` (a class's registry entries, in order) worth trying for
-   `goal-type`, in order: the instances whose conclusion key matches the goal's first argument,
-   then the generic ones at equal priority; higher priority always goes first.
-   This approximates Lean's DiscrTree selection with a two-head key.
+(defn- fully-annotated? [registry]
+  (locking fully-annotated
+    (let [hit (.get ^java.util.WeakHashMap fully-annotated registry)]
+      (if (some? hit)
+        hit
+        (let [r (boolean (and (seq registry) (every? ii/annotated? (mapcat val registry))))]
+          (.put ^java.util.WeakHashMap fully-annotated registry r)
+          r)))))
 
-   The ORDER is load-bearing, not just the filtering. `getUnify` returns a class's star (generic)
-   matches before its keyed ones and `SynthInstance.generate` consumes that array BACKWARDS
-   (SynthInstance.lean:597, after a stable ascending sort by priority), so among instances of
-   equal priority Lean tries the carrier-specific ones FIRST. Registry order alone put the
-   generic parent projections first: `Add Int` resolved to `Distrib.toAdd Int Int.instDistrib`
-   instead of `Int.instAdd`, a term defeq to Lean's but syntactically unlike it, so Mathlib's
-   `Int` lemmas and omega's preprocessing — which are stated in Lean's spelling — matched
-   nothing. Parent projections carry the default priority in Lean too (Structure.lean:1516),
-   so specificity is the only thing that separates them."
-  [env candidates goal-type]
-  (let [gkey (let [[_ gargs] (e/get-app-fn-args goal-type)
-                   g (first gargs)
-                   g (loop [x g] (if (and x (e/mdata? x)) (recur (e/mdata-expr x)) x))
-                   [_ gaargs] (when g (e/get-app-fn-args g))]
-               [(head-key g) (if (seq gaargs) (head-key (first gaargs)) :generic)])]
-    (if (= gkey [:generic :generic])
-      (sort-by #(- (or (:priority %) 1000))
-               (remove #(= :absent (conclusion-key env (:name %))) candidates))
-      (let [scored (group-by (fn [c]
-                               (let [ck (conclusion-key env (:name c))]
-                                 (cond (= ck :absent) :no
-                                       (= ck gkey) :exact
-                                       (key-matches? ck gkey) :compatible
-                                       :else :no)))
-                             candidates)
-            picked (into (vec (:exact scored)) (:compatible scored))]
-        (sort-by #(- (or (:priority %) 1000))
-                 (if (empty? picked)
-                   (remove #(= :absent (conclusion-key env (:name %))) candidates)
-                   picked))))))
+(defn- index-state
+  "The index state of `registry` over `env`. A fully annotated registry needs nothing from the
+   env to build its tree, so its state is shared by every env it is used with (a session's env
+   changes with every declaration it adds)."
+  [^Env env registry]
+  (let [k (if (fully-annotated? registry) [(IdKey. registry)] [(IdKey. env) (IdKey. registry)])]
+    (or (get @index-cache k)
+        (let [s (with-root-classes (make-index-state env registry))]
+          (swap! index-cache (fn [m] (cond (contains? m k) m
+                                           (>= (count m) max-index-states) {k s}
+                                           :else (assoc m k s))))
+          (get @index-cache k s)))))
 
-;; ============================================================
-;; Structural matching (avoids proof irrelevance)
-;; ============================================================
+(defn- entry-data
+  "Keys and synthesis order of a registry entry: persisted, or computed once per index."
+  [state entry]
+  (if (ii/annotated? entry)
+    entry
+    (let [n (:name entry)]
+      (or (get @(:entry-data state) n)
+          (let [d (or (try (ii/entry-data (:ctx state) n) (catch clojure.lang.ExceptionInfo _ nil))
+                      {:keys nil :synth-order nil})]
+            (swap! (:entry-data state) assoc n d)
+            d)))))
 
-(defn- structural-match
-  "First-order structural match: pattern vs target.
-   fvar-ids is a set of fvar IDs treated as unification variables.
-   Returns a substitution map {fvar-id → Expr} or nil on failure.
-
-   Unlike is-def-eq, this does NOT unfold definitions or use proof irrelevance."
-  [pattern target fvar-ids]
-  (let [subst (atom {})
-        ok (atom true)]
-    (letfn [(strip [x] (if (e/mdata? x) (recur (e/mdata-expr x)) x))
-            (go [p0 t0]
-                ;; mdata is definitionally transparent — the kernel ignores it, and so must a
-                ;; matcher. Store-imported instance types carry it (the Mathlib export
-                ;; preserves mdata so imported declarations stay close to Lean's trace space)
-                ;; while an elaborated goal does not, so `Decidable (LE.le (mdata Nat) …)` vs
-                ;; `Decidable (LE.le Nat …)` failed on the tag comparison alone: every
-                ;; `Decidable` synthesis over Mathlib missed, which is what left `norm_num`
-                ;; with "no instance found" on goals as simple as `(2 : Nat) ≤ 3`.
-                (let [p (strip p0) t (strip t0)]
-                  (when @ok
-                    (cond
-                  ;; Pattern is a unification variable
-                      (and (e/fvar? p) (contains? fvar-ids (e/fvar-id p)))
-                      (let [id (e/fvar-id p)]
-                        (if-let [existing (get @subst id)]
-                          (when-not (= existing t)
-                            (reset! ok false))
-                          (swap! subst assoc id t)))
-
-                  ;; Both same tag — recurse structurally
-                      (= (e/tag p) (e/tag t))
-                      (case (e/tag p)
-                        :bvar (when-not (= (e/bvar-idx p) (e/bvar-idx t))
-                                (reset! ok false))
-                        :sort (when-not (lvl/level= (e/sort-level p) (e/sort-level t))
-                                (reset! ok false))
-                        :const (do (when-not (= (e/const-name p) (e/const-name t))
-                                     (reset! ok false))
-                                   (when @ok
-                                     (let [pl (e/const-levels p)
-                                           tl (e/const-levels t)]
-                                       (when-not (and (= (count pl) (count tl))
-                                                      (every? true? (map lvl/level= pl tl)))
-                                         (reset! ok false)))))
-                        :app (do (go (e/app-fn p) (e/app-fn t))
-                                 (go (e/app-arg p) (e/app-arg t)))
-                        :lam (do (go (e/lam-type p) (e/lam-type t))
-                                 (go (e/lam-body p) (e/lam-body t)))
-                        :forall (do (go (e/forall-type p) (e/forall-type t))
-                                    (go (e/forall-body p) (e/forall-body t)))
-                        :fvar (when-not (= (e/fvar-id p) (e/fvar-id t))
-                                (reset! ok false))
-                        :proj (do (when-not (and (= (e/proj-type-name p) (e/proj-type-name t))
-                                                 (= (e/proj-idx p) (e/proj-idx t)))
-                                    (reset! ok false))
-                                  (go (e/proj-struct p) (e/proj-struct t)))
-                        (:lit-nat :lit-str) (when-not (= p t) (reset! ok false))
-                        (reset! ok false))
-
-                      :else (reset! ok false)))))]
-      (go pattern target))
-    (when @ok @subst)))
+(defn- root-trie
+  "The trie of instances whose key path starts with root key `k`."
+  [state k]
+  (if-let [hit (find @(:tries state) k)]
+    (val hit)
+    (let [classes (when (= :const (nth k 0)) (get @(:class-roots state) [:const (nth k 1)]))
+          unannotated (when (seq classes)
+                        (let [wanted (set classes)]
+                          (filter #(and (wanted (::class %)) (not (ii/annotated? %))) @(:ordered state))))
+          annotated (get @(:annotated-roots state) k)
+          entries (let [es (concat annotated unannotated)]
+                    (if (every? :order es) (sort-by :order es) es))
+          roots (reduce (fn [roots en]
+                          (let [{:keys [keys synth-order]} (entry-data state en)]
+                            (if (= k (first keys))
+                              (ii/trie-insert roots keys {:name (:name en) :priority (or (:priority en) 1000)
+                                                          :synth-order synth-order})
+                              roots)))
+                        {} entries)
+          t (get roots k)]
+      (swap! (:tries state) assoc k t)
+      t)))
 
 ;; ============================================================
-;; Synthesis engine
+;; Telescopes, binders, classes
 ;; ============================================================
 
-(defn- whnf [st expr]
-  (#'tc/cached-whnf st expr))
+(defn- whnf-i
+  "whnf at Lean's `.instances` transparency (TC resolution's setting)."
+  [ctx mctx st x]
+  (meta/whnf-at mctx st x :instances (:instance-name? ctx)))
 
-(declare synthesize* synthesize-uncached*)
+(defn- add-local [st fid nm type bi]
+  (assoc st :lctx (assoc (:lctx st) fid {:tag :local :id fid :name nm :type type :binder-info bi})))
 
-(defn- rigid-fvar-mismatch?
-  "A candidate result-arg with a CONST head can never be defeq to a goal arg
-   whose head is a (rigid, :local) fvar: closed registry terms cannot reduce
-   to a stuck fvar application. Cheap sound pre-filter before defeq/recursive
-   synthesis — kills e.g. every concrete `MetricSpace ℝ`-style leaf against an
-   `fvar-applied` subject like `m β` without a kernel call (E0 cliff)."
-  [r g]
-  (let [[rh _] (e/get-app-fn-args r)
-        [gh _] (e/get-app-fn-args g)]
-    (and (e/const? rh) (e/fvar? gh))))
+(defn- forall-telescope
+  "Lean's `forallTelescope`/`forallTelescopeReducing` (at `.instances`): [st' fvar-ids body]."
+  [ctx mctx st ty reducing?]
+  (loop [t ty st st ids []]
+    (let [t (meta/zonk-expr mctx t)]
+      (if (e/forall? t)
+        (let [fid (swap! (:next-id st) inc)]
+          (recur (e/instantiate1 (e/forall-body t) (e/fvar fid))
+                 (add-local st fid (e/forall-name t) (e/forall-type t) (e/forall-info t))
+                 (conj ids fid)))
+        (if reducing?
+          (let [t' (whnf-i ctx mctx st t)]
+            (if (e/forall? t') (recur t' st ids) [st ids t]))
+          [st ids t])))))
 
-(defn- candidate-application
-  "Check domains and the complete instantiated result before building a candidate term.
-   Lean Meta/SynthInstance.lean:getSubgoals/tryResolve uses typed metavariables and
-   full-result unification; an incompatible candidate is a mismatch, not an inference error."
-  [st candidate-type goal-type candidate-term args]
-  (loop [ty candidate-type remaining (seq args)]
-    (if remaining
-      (let [ty (whnf st ty)
-            arg (first remaining)]
-        (when (and (e/forall? ty)
-                   (tc/is-def-eq st (tc/infer-type st arg) (e/forall-type ty)))
-          (recur (e/instantiate1 (e/forall-body ty) arg) (next remaining))))
-      (when (tc/is-def-eq st ty goal-type)
-        (reduce e/app candidate-term args)))))
+(defn- mk-binding
+  "Lean's `mkForallFVars`/`mkLambdaFVars` over the fvars `xs` of `st` (eta-reducing lambdas)."
+  [st xs body lam?]
+  (if (empty? xs)
+    body
+    (let [decls (mapv #(get (:lctx st) %) xs)]
+      (reduce (fn [acc i]
+                (let [{:keys [name type binder-info]} (nth decls i)
+                      type (e/abstract-many type (subvec xs 0 i))]
+                  (if lam?
+                    (if (and (e/app? acc) (e/bvar? (e/app-arg acc)) (zero? (e/bvar-idx (e/app-arg acc)))
+                             (not (#'ii/has-loose-bvar? (e/app-fn acc) 0)))
+                      ;; etaReduce: `fun x => f x` ↦ `f`
+                      (e/instantiate1 (e/app-fn acc) (e/bvar 0))
+                      (e/lam name type acc (or binder-info :default)))
+                    (e/forall' name type acc (or binder-info :default)))))
+              (e/abstract-many body xs)
+              (range (dec (count xs)) -1 -1)))))
 
-(defn- candidate-level-subst
-  "Solve the declared class head's universe equations before opening binders."
-  [ctype goal-type level-params fallback]
-  ;; SynthInstance.lean:tryResolve instantiates candidate universes with fresh
-  ;; metavariables. Reuse the shared level unifier: succ u = 1 determines u = 0,
-  ;; unlike assigning u directly from DecidableEq's Sort-level argument.
-  (let [result (loop [t ctype] (if (e/forall? t) (recur (e/forall-body t)) t))
-        [rh _] (e/get-app-fn-args result)
-        [gh _] (e/get-app-fn-args goal-type)]
-    (if (and (seq level-params) (e/const? rh) (e/const? gh)
-             (= (e/const-name rh) (e/const-name gh)))
-      (let [ids (zipmap level-params (range))
-            mctx (reduce meta/add-level-mvar-decl meta/empty-context (vals ids))
-            pattern (e/instantiate-level-params result (update-vals ids lvl/mvar))
-            [ph _] (e/get-app-fn-args pattern)
-            pl (e/const-levels ph) gl (e/const-levels gh)
-            solved (when (= (count pl) (count gl))
-                     (reduce (fn [ctx [a b]] (when ctx (meta/is-level-def-eq ctx a b)))
-                             mctx (map vector pl gl)))]
-        (if solved
-          (reduce-kv (fn [subst p id]
-                       (let [l (meta/zonk-level solved (lvl/mvar id))]
-                         (if (lvl/has-mvar? l) subst (assoc subst p l))))
-                     fallback ids)
-          fallback))
-      fallback)))
+(defn- class-of
+  "Lean's `isClass?`: the class constant of a type, looking through its reducing telescope and
+   `.instances` reduction (a class is an inductive or an axiom of the class extension)."
+  [ctx mctx st ty]
+  (let [[st _ body] (forall-telescope ctx mctx st ty true)]
+    (loop [t body fuel 32]
+      (let [h (e/get-app-fn t)]
+        (cond
+          (and (e/const? h) ((:class? ctx) (e/const-name h))
+               (let [ci (env/lookup (:env ctx) (e/const-name h))]
+                 (and ci (or (env/induct? ci) (env/axiom? ci)))))
+          (e/const-name h)
+          (zero? fuel) nil
+          :else (let [t' (whnf-i ctx mctx st t)]
+                  (when (not= t' t)
+                    (let [[_ _ b] (forall-telescope ctx mctx st t' true)] (recur b (dec fuel))))))))))
 
-(defn- try-candidate
-  "Try a single candidate instance against a goal type.
-   Returns the fully-applied instance term, or nil on mismatch; unexpected errors propagate.
-   Lean Meta/SynthInstance.lean:tryResolve represents mismatch with none, not an exception."
-  [st env index candidate goal-type depth]
-  (let [^ConstantInfo ci (env/lookup! env (:name candidate))
-        ctype (.type ci)
-        level-params (vec (.levelParams ci))
-          ;; Infer level assignments from the goal
-        goal-head-levels (let [[h _] (e/get-app-fn-args goal-type)]
-                           (when (e/const? h) (e/const-levels h)))
-        level-subst (if (and (seq level-params) (seq goal-head-levels))
-                      (into {} (map vector level-params
-                                    (take (count level-params)
-                                          (concat goal-head-levels (repeat lvl/zero)))))
-                      (into {} (map (fn [p] [p lvl/zero]) level-params)))
-        level-subst (candidate-level-subst ctype goal-type level-params level-subst)
-        ctype (if (seq level-subst)
-                (e/instantiate-level-params ctype level-subst)
-                ctype)
-        inst-levels (mapv (fn [p] (get level-subst p lvl/zero)) level-params)
-          ;; Peel foralls, creating fvars as pattern variables
-        fvar-ids (atom #{})
-        arg-info (atom [])
-          ;; Peel foralls, WHNF at each step to handle type aliases
-          ;; (e.g., DecidableEq Nat → ∀ a b, Decidable (Eq Nat a b))
-          ;; …but stop at the instance's DECLARED conclusion when it already has the goal's
-          ;; class head: `instDecidableEqFin : (n : Nat) → DecidableEq (Fin n)` for the goal
-          ;; `DecidableEq (Fin 3)` must match at `DecidableEq (Fin ?n)`. Unfolding the alias to
-          ;; `∀ a b, Decidable (a = b)` peels two binders the goal does not have, so nothing
-          ;; matches (a zero-arity instance like `instDecidableEqBool` only got through the
-          ;; name-based fallback).
-        goal-head (let [[h _] (e/get-app-fn-args goal-type)] (when (e/const? h) (e/const-name h)))
-        result-type (loop [t ctype]
-                      (let [[th _] (e/get-app-fn-args t)
-                            tw (if (and goal-head (not (e/forall? t)) (e/const? th)
-                                        (= (e/const-name th) goal-head))
-                                 t
-                                 (or (whnf st t) t))]
-                        (if (e/forall? tw)
-                          (let [fv-id (swap! (:next-id st) inc)
-                                fv (e/fvar fv-id)
-                                info (e/forall-info tw)
-                                arg-type (e/forall-type tw)]
-                            (swap! fvar-ids conj fv-id)
-                            (swap! arg-info conj {:fvar-id fv-id :fvar fv
-                                                  :type arg-type :info info})
-                            (recur (e/instantiate1 (e/forall-body tw) fv)))
-                          tw)))]
-      ;; Propose substitutions from the result type. Prefix/positional matches are
-      ;; provisional: candidate-application checks domains and the full result.
-    (let [result-type-w (or (whnf st result-type) result-type)
-          goal-type-w (or (whnf st goal-type) goal-type)
-            ;; Extract head + args from both sides
-          [rh ra] (e/get-app-fn-args result-type-w)
-          [gh ga] (e/get-app-fn-args goal-type-w)]
-      (when-let [subst (or (structural-match result-type goal-type @fvar-ids)
-                           (when (not= result-type result-type-w)
-                             (structural-match result-type-w goal-type-w @fvar-ids))
-                            ;; A matching prefix can propose substitutions, but cannot
-                            ;; bypass the final complete-result check.
-                           (when (and (e/const? rh) (e/const? gh)
-                                      (tc/is-def-eq st rh gh)
-                                      (>= (count ra) (count ga)))
-                             (let [s (atom {}) ok (atom true)]
-                                ;; Match only the first (count ga) args
-                               (doseq [[r g] (map vector (take (count ga) ra) ga)]
-                                 (when @ok
-                                   (if (and (e/fvar? r) (contains? @fvar-ids (e/fvar-id r)))
-                                     (swap! s assoc (e/fvar-id r) g)
-                                     (when-not (and (not (rigid-fvar-mismatch? r g))
-                                                    (tc/is-def-eq st r g))
-                                       (reset! ok false)))))
-                               (when @ok @s)))
-                            ;; LENIENT positional match — DERIVED instances. Same head +
-                            ;; arity; fill ONLY the pattern-fvar positions and SKIP the
-                            ;; rest. A derived instance's result args are PROJECTIONS
-                            ;; (`AddCommMonoid.toAdd α ?fv`) that are not structurally
-                            ;; equal to the goal's DIRECT instances (`instAddNat`) but ARE
-                            ;; defeq once ?fv is synthesized. So we don't require those
-                            ;; positions to match here — the instance fvars get filled by
-                            ;; recursive synthesis and the final is-def-eq below GATES
-                            ;; soundness. (Only fires when the earlier, stricter matches
-                            ;; failed, so ordinary instances are unaffected.)
-                           (when (and (e/const? rh) (e/const? gh)
-                                      (tc/is-def-eq st rh gh)
-                                      (= (count ra) (count ga)))
-                             (let [s (atom {}) ok (atom true)]
-                               (doseq [[r g] (map vector ra ga)]
-                                 (if (and (e/fvar? r) (contains? @fvar-ids (e/fvar-id r)))
-                                   (swap! s assoc (e/fvar-id r) g)
-                                     ;; skipped positions are gated by the final
-                                     ;; is-def-eq — but a rigid const-vs-fvar head
-                                     ;; mismatch can never pass it, and neither can two
-                                     ;; DIFFERENT constant heads (`LT.lt …` against
-                                     ;; `Eq …`): Lean's DiscrTree never offers such a
-                                     ;; candidate, and this path once accepted `Nat.decLt`
-                                     ;; for `Decidable (0 = 0)`. Fail fast.
-                                   (let [[rh' _] (e/get-app-fn-args (strip r))
-                                         [gh' _] (e/get-app-fn-args (strip g))]
-                                     (when (or (rigid-fvar-mismatch? r g)
-                                               (and (e/const? rh') (e/const? gh')
-                                                    (not= (e/const-name rh') (e/const-name gh'))))
-                                       (reset! ok false)))))
-                               (when (and @ok (seq @s)) @s))))]
-        ;; Try to fill all arguments
-        (let [;; A structure-`extends` parent projection (e.g. `LawfulBEq.toReflBEq`). Lean auto-
-                ;; registers these as instances whose structure argument is an instance subgoal,
-                ;; even though as a plain function that argument is EXPLICIT. We mirror that ONLY for
-                ;; projection-named candidates, so ordinary instances with genuine explicit args are
-                ;; untouched (Lean gates on class metadata; this name gate is the faithful proxy).
-              proj-candidate? (let [s (name/->string (:name candidate))]
-                                (or (.contains s ".to") (.contains s ".toImpl")))
-              filled-args
-              (reduce
-               (fn [acc {:keys [fvar-id fvar type info]}]
-                 (when acc
-                   (if-let [val (get subst fvar-id)]
-                     ;; Solved by structural matching
-                     (conj acc val)
-                     ;; Not in subst — try other strategies
-                     (let [resolved-type (reduce (fn [ty [fid val]]
-                                                   (e/instantiate1 (e/abstract1 ty fid) val))
-                                                 type subst)]
-                       (case info
-                         :inst-implicit
-                           ;; Instance-implicit: synthesize recursively.
-                         (if-let [inst (synthesize* st env index resolved-type (inc depth))]
-                           (conj acc inst)
-                           nil)
+(defn- local-instances
+  "Lean's `getLocalInstances`: the local declarations whose type is a class, in declaration
+   (fvar id) order: [[class fvar-id] …]."
+  [ctx st]
+  (let [lctx (:lctx st)
+        memo (:synth-memo st)
+        cached (when memo (get @memo ::local-instances))]
+    (if (and cached (identical? (nth cached 0) lctx) (identical? (nth cached 1) (:index ctx)))
+      (nth cached 2)
+      (let [r (->> lctx
+                   (filter (fn [[_ d]] (and (#{:local :let-decl} (:tag d)) (:type d))))
+                   (sort-by key)
+                   (keep (fn [[fid d]]
+                           (when-let [c (try (class-of ctx meta/empty-context st (:type d))
+                                             (catch clojure.lang.ExceptionInfo _ nil))]
+                             [c fid])))
+                   vec)]
+        (when memo (swap! memo assoc ::local-instances [lctx (:index ctx) r]))
+        r))))
 
-                         (:implicit :strict-implicit)
-                           ;; Implicit arg not determined by structural match.
-                           ;; This can happen if the arg appears only in other args' types.
-                           ;; Try: look at other solved args to determine this one.
-                         nil
+;; ============================================================
+;; getInstances, tryResolve
+;; ============================================================
 
-                           ;; :default — explicit arg. For a structure-`extends` parent projection
-                           ;; (`X.toY`), Lean treats the structure argument as an instance subgoal
-                           ;; (the projection is registered as an instance `[X …] : Y …`). We mirror
-                           ;; that here, gated to projection candidates so ordinary explicit args are
-                           ;; not synthesized. `synthesize*` self-gates further (succeeds only for real
-                           ;; class goals) and the full term is type-checked against the goal below, so
-                           ;; this never loosens soundness.
-                         (if proj-candidate?
-                           (if-let [inst (synthesize* st env index resolved-type (inc depth))]
-                             (conj acc inst)
-                             nil)
-                           nil))))))
-               []
-               @arg-info)]
-          (when filled-args
-            (candidate-application st ctype goal-type
-                                   (e/const' (:name candidate) inst-levels)
-                                   filled-args)))))))
+(defn- get-instances*
+  "Lean's `getInstances`: the candidates for an instance goal of type `ty`, in Lean's array order
+   (consumed from the END): global matches (`getUnify`) stably sorted by ascending priority, then
+   the local instances of the goal's class, oldest first."
+  [ctx mctx st ty]
+  (let [linsts (local-instances ctx st)
+        [st' _ body] (forall-telescope ctx mctx st ty true)]
+    (when-let [cls (class-of ctx mctx st' body)]
+      (let [globals (->> (ii/get-unify mctx st' #(root-trie (:state ctx) %) body)
+                         (sort-by :priority)
+                         (mapv (fn [v] {:global v})))
+            locals (for [[c fid] linsts :when (= c cls)]
+                     (let [[st'' xs _] (forall-telescope ctx meta/empty-context st (:type (get (:lctx st) fid)) true)]
+                       {:local fid
+                        :synth-order (vec (keep-indexed (fn [i x] (when (= :inst-implicit (:binder-info (get (:lctx st'') x))) i))
+                                                        xs))}))]
+        (into globals locals)))))
 
-(defn- at-least-two-instance
-  "`Nat.AtLeastTwo n` for a numeral n >= 2. This is the side condition of Mathlib's
-   `instOfNatAtLeastTwo`, i.e. of EVERY numeric literal >= 2 at a non-`Nat` type (`(2 : R)`).
-   Lean discharges it with `instance [NeZero n] : (n+1).AtLeastTwo` plus literal unification —
-   matching `?n + 1` against `2` is arithmetic our first-order matcher cannot do. The class is a
-   one-field Prop (`2 <= n`), so build it directly from the decidable comparison, which the
-   kernel evaluates on a literal. Returns nil for anything else."
-  [^Env env goal-type]
-  (let [[h args] (e/get-app-fn-args goal-type)]
-    (when (and (e/const? h)
-               (= "Nat.AtLeastTwo" (name/->string (e/const-name h)))
-               (= 1 (count args))
-               (e/lit-nat? (first args))
-               (>= (e/lit-nat-val (first args)) 2)
-               (env/lookup env (name/from-string "Nat.AtLeastTwo.mk"))
-               (env/lookup env (name/from-string "Nat.le_of_ble_eq_true")))
-      (let [n (first args)]
-        (e/app* (e/const' (name/from-string "Nat.AtLeastTwo.mk") []) n
-                (e/app* (e/const' (name/from-string "Nat.le_of_ble_eq_true") [])
-                        (e/lit-nat 2) n
-                        (e/app* (e/const' (name/from-string "Eq.refl") [(lvl/succ lvl/zero)])
-                                (e/const' (name/from-string "Bool") [])
-                                (e/const' (name/from-string "Bool.true") []))))))))
+(defn- fresh-mvar [st mctx type]
+  (let [id (swap! (:next-id st) inc)]
+    [(meta/add-expr-mvar-decl mctx id type (:lctx st)) (e/mvar id)]))
 
-(declare synthesize*)
+(defn- def-eq
+  "Unification inside synthesis. A mismatch is nil; an ExceptionInfo raised by the meta layer
+   on an ill-typed speculative term is a mismatch too. isDefEqStuck and resource exhaustion
+   propagate."
+  [mctx st bound a b]
+  (try (meta/is-def-eq mctx st bound a b)
+       (catch clojure.lang.ExceptionInfo ex
+         (if (or (meta/is-def-eq-stuck? ex) (= :synth-exhausted (:reason (ex-data ex))))
+           (throw ex)
+           nil))))
 
-(defn- decidable-eq-instance
-  "`Decidable (@Eq.{u} T a b)` ⇐ `(inst a b)` for a synthesized `inst : DecidableEq.{u} T`,
-   type-checked against the goal. nil for any other goal."
-  [st env index goal-type head-info depth]
-  (when (= "Decidable" (name/->string head-info))
-    (let [[_ gargs] (e/get-app-fn-args goal-type)
-          [eh eargs] (when (= 1 (count gargs)) (e/get-app-fn-args (first gargs)))]
-      (when (and eh (e/const? eh) (= "Eq" (name/->string (e/const-name eh))) (= 3 (count eargs)))
-        (let [[T a b] eargs
-              deq (e/app (e/const' (name/from-string "DecidableEq") (vec (e/const-levels eh))) T)]
-          (when-let [inst (synthesize* st env index deq (inc depth))]
-            (let [t (e/app* inst a b)]
-              (when (tc/is-def-eq st (tc/infer-type st t) goal-type)
-                t))))))))
+(defn- instance-value
+  "The candidate's value, type and synthesis order: a global constant with fresh level mvars, or a
+   local fvar. nil for a registry entry the env does not have."
+  [ctx st mctx inst]
+  (if-let [fid (:local inst)]
+    [mctx (e/fvar fid) (:type (get (:lctx st) fid)) (:synth-order inst)]
+    (let [{:keys [name synth-order]} (:global inst)]
+      (when-let [^ConstantInfo ci (env/lookup (:env ctx) name)]
+        (let [lps (vec (.levelParams ci))
+              lids (vec (repeatedly (count lps) #(swap! (:next-id st) inc)))
+              mctx (reduce meta/add-level-mvar-decl mctx lids)
+              lvls (mapv lvl/mvar lids)]
+          [mctx (e/const' name lvls)
+           (cond-> (.type ci) (seq lps) (e/instantiate-level-params (zipmap lps lvls)))
+           synth-order])))))
 
-(declare synthesize-tracked*)
+(defn- try-resolve
+  "Lean's `tryResolve`: [mctx subgoals] or nil."
+  [ctx st mctx mvar inst]
+  (when-let [[mctx val itype synth-order] (instance-value ctx st mctx inst)]
+    (let [mvar-type (meta/zonk-expr mctx (:type (meta/expr-decl! mctx (e/mvar-id mvar))))
+          [st' xs body] (forall-telescope ctx mctx st mvar-type true)
+          xs-args (mapv e/fvar xs)
+          ;; getSubgoals: `?m : ∀ xs, A` in the goal's context, applied to xs
+          [mctx val tbody mvars]
+          (loop [t itype mctx mctx val val mvars []]
+            (if (e/forall? t)
+              (let [[mctx mv] (fresh-mvar st mctx (mk-binding st' xs (e/forall-type t) false))
+                    arg (apply e/app* mv xs-args)]
+                (recur (e/instantiate1 (e/forall-body t) arg) mctx (e/app val arg) (conj mvars mv)))
+              (let [t' (whnf-i ctx mctx st' t)]
+                (if (e/forall? t')
+                  (recur t' mctx val mvars)
+                  [mctx val t mvars]))))]
+      (when-let [mctx (def-eq mctx st' (set xs) body tbody)]
+        (let [val (mk-binding st' xs (meta/zonk-expr mctx val) true)]
+          (when-let [mctx (def-eq mctx st #{} mvar val)]
+            [mctx (into [] (comp (filter #(< % (count mvars))) (map #(nth mvars %))) synth-order)]))))))
 
-(def ^:dynamic *depth-hits*
-  "Within one `synthesize` call: an atom of the goals at which the depth bound cut a path."
-  nil)
+;; ============================================================
+;; Tabled resolution (SynthInstance.lean)
+;; ============================================================
 
-(defn synthesize*
-  "Synthesis with depth limit and backtracking, memoized on the tc-state
-   (`:synth-memo`, Lean's synthInstance cache — failures memoize too, which is
-   what collapses the repeated exploration of an unsatisfiable class goal
-   across hundreds of candidate chains).
-   Candidates come from the explicitly supplied registry. The environment
-   must carry its instance extension even when that registry is empty."
-  [st env index goal-type depth]
-  (index-for env)
-  (if (nil? *depth-hits*)
-    ;; every top-level search tracks its own depth cuts, so no caller can memoize a cut path;
-    ;; a search that fails after a cut is exhausted, not negative (Lean checkSystem names its
-    ;; limit), so it says so instead of returning nil
-    (binding [*depth-hits* (atom [])]
-      (or (synthesize-tracked* st env index goal-type depth)
-          (when-let [hits (seq @*depth-hits*)]
-            (throw (ex-info (str "Tactic error: instance synthesis exhausted the search depth bound "
-                                 "(*max-synth-depth* " config/*max-synth-depth* ", " (count hits) " path(s) cut)")
-                            {:kind :tactic-error :reason :depth-exhausted
-                             :limit config/*max-synth-depth* :goal goal-type :depth-limit-hits (count hits)})))))
-    (synthesize-tracked* st env index goal-type depth)))
+(defn- mk-table-key
+  "Lean's `mkTableKey`: assignable expression mvars become `_tc.i` placeholders (here fvars with
+   reserved negative ids), level mvars of the current depth `_tc.i` params."
+  [mctx x]
+  (let [x (meta/zonk-expr mctx x)
+        depth (:depth mctx 0)
+        emap (atom {})
+        lstate (atom {:lmap {} :params []})
+        x (meta/replace-mvars
+           x (fn [m]
+               (let [id (e/mvar-id m)
+                     decl (meta/expr-decl mctx id)]
+                 (when (and decl (= depth (:depth decl 0)))
+                   (or (get @emap id)
+                       (let [fv (e/fvar (- -1000000000 (count @emap)))]
+                         (swap! emap assoc id fv)
+                         fv))))))]
+    (meta/map-levels x #(meta/level-mvars->params % (fn [id] (= depth (get-in mctx [:level-depth id]))) lstate "_tc"))))
 
-(defn- synthesize-tracked*
-  [st env index goal-type depth]
-  ;; The depth bound is an artifact of this depth-first search (Lean's tabled resolution needs
-  ;; none): exceeding it fails THIS candidate path, so the search goes on with the next
-  ;; candidate, and the hit is recorded (`synthesize` reports it if the whole search fails).
-  ;; A failure that involved a cut holds only for the remaining budget it was searched with, so
-  ;; it is memoized as `{::cut-fail remaining}` and reused by attempts with no more budget left;
-  ;; never memoizing it re-explores the same subgoals exponentially on Mathlib-sized registries.
-  (if (> depth config/*max-synth-depth*)
-    (do (when *depth-hits* (swap! *depth-hits* conj goal-type))
-        nil)
-    (let [memo (:synth-memo st)
-          remaining (- config/*max-synth-depth* depth)
-          hit (when memo (find @memo goal-type))
-          cached (when hit (val hit))]
+(defn- mvar-type [mctx mvar]
+  (meta/zonk-expr mctx (:type (meta/expr-decl! mctx (e/mvar-id mvar)))))
+
+(defn- new-subgoal
+  "Lean's `newSubgoal`: a generator node for `mvar` (unless it has no candidates) and a table
+   entry waited on by `waiter`."
+  [ctx st s mctx key mvar waiter]
+  (let [ty (mvar-type mctx mvar)
+        insts (get-instances* ctx mctx st ty)]
+    (if (empty? insts)
+      s
+      (-> s
+          (update :generators conj {:mvar mvar :key key :mctx mctx :instances insts
+                                    :idx (count insts) :type-has-mvars? (meta/zonked-has-mvar? ty)})
+          (assoc-in [:table key] {:waiters [waiter] :answers []})))))
+
+(defn- unused-arguments?
+  "Lean's `hasUnusedArguments` (syntactic)."
+  [t]
+  (loop [t t]
+    (and (e/forall? t)
+         (or (not (#'ii/has-loose-bvar? (e/forall-body t) 0))
+             (recur (e/forall-body t))))))
+
+(defn- remove-unused-arguments
+  "Lean's `removeUnusedArguments?`: [type' transformer] for a goal `∀ xs, B` some of whose binders
+   B does not use (directly or through the types of used ones), or nil."
+  [ctx st mctx mvar]
+  (let [ty (mvar-type mctx mvar)]
+    (when (unused-arguments? ty)
+      (let [[st' xs body] (forall-telescope ctx mctx st ty false)
+            type-of #(:type (get (:lctx st') %))
+            ys (vec (reduce (fn [ys x]
+                              (if (or (contains? (#'ii/fvar-ids-in body) x)
+                                      (some #(contains? (#'ii/fvar-ids-in (type-of %)) x) ys))
+                                (cons x ys)
+                                ys))
+                            () (rseq xs)))
+            ty' (mk-binding st' ys body false)
+            fid (swap! (:next-id st) inc)
+            st'' (add-local st' fid "redf" ty' :default)
+            inner (mk-binding st'' xs (apply e/app* (e/fvar fid) (map e/fvar ys)) true)
+            transformer (mk-binding st'' [fid] inner true)]
+        [ty' transformer]))))
+
+(defn- beta1 [f a]
+  (if (e/lam? f) (e/instantiate1 (e/lam-body f) a) (e/app f a)))
+
+(defn- push-resume [s cnode answers]
+  (update s :resume into (map (fn [a] [cnode a]) answers)))
+
+(defn- add-answer
+  "Lean's `addAnswer`: a finished consumer is an answer of its goal's table entry (unless it is
+   too large, or an equal answer is known), propagated to the entry's waiters."
+  [st s cnode]
+  (if (>= (:size cnode) config/*synth-max-result-size*)
+    s
+    (let [mctx (:mctx cnode)
+          result (meta/abstract-mvars mctx st (meta/zonk-expr mctx (:mvar cnode)))
+          answer {:result result
+                  :result-type (meta/infer-type mctx st (:expr result))
+                  :size (inc (:size cnode))}
+          {:keys [waiters answers]} (get-in s [:table (:key cnode)])]
+      (if (every? #(not= (:result-type %) (:result-type answer)) answers)
+        (reduce (fn [s w]
+                  (if (= w :root)
+                    (if (zero? (:num-mvars result)) (assoc s :result result) s)
+                    (update s :resume conj [w answer])))
+                (assoc-in s [:table (:key cnode) :answers] (conj answers answer))
+                waiters)
+        s))))
+
+(defn- consume
+  "Lean's `consume`: drop the subgoals already assigned; with none left the node is an answer;
+   else wait on the table entry of the next subgoal (a new generator when there is none)."
+  [ctx st s cnode]
+  (let [{:keys [mctx]} cnode
+        subgoals (vec (remove #(meta/expr-assigned? mctx (e/mvar-id %)) (:subgoals cnode)))
+        cnode (assoc cnode :subgoals subgoals)]
+    (if (empty? subgoals)
+      (add-answer st s cnode)
+      (let [mvar (first subgoals)
+            key (mk-table-key mctx (mvar-type mctx mvar))]
+        (if-let [entry (get-in s [:table key])]
+          (-> (push-resume s cnode (:answers entry))
+              (update-in [:table key :waiters] conj cnode))
+          (if-let [[ty' transformer] (remove-unused-arguments ctx st mctx mvar)]
+            (let [key' (mk-table-key mctx ty')]
+              (if-let [entry' (get-in s [:table key'])]
+                (let [answers' (mapv (fn [a]
+                                       (let [x (beta1 transformer (meta/zonk-expr mctx (:expr (:result a))))]
+                                         (-> a (assoc-in [:result :expr] x)
+                                             (assoc :result-type (meta/infer-type mctx st x)))))
+                                     (:answers entry'))]
+                  (-> (push-resume s cnode answers')
+                      (update-in [:table key' :waiters] conj cnode)))
+                (let [[mctx' mvar'] (fresh-mvar st mctx ty')]
+                  (new-subgoal ctx st s mctx' key' mvar'
+                               (assoc cnode :mctx mctx' :subgoals (into [mvar'] subgoals))))))
+            (new-subgoal ctx st s mctx key mvar cnode)))))))
+
+(defn- generate
+  "Lean's `generate`: the next candidate of the top generator node."
+  [ctx st s]
+  (let [g (peek (:generators s))]
+    (if (zero? (:idx g))
+      (update s :generators pop)
+      (if (and (not (:type-has-mvars? g))
+               (some #(zero? (:num-mvars (:result %))) (get-in s [:table (:key g) :answers])))
+        ;; canonical instances: a goal without metavariables needs one answer
+        (update s :generators pop)
+        (let [idx (dec (:idx g))
+              inst (nth (:instances g) idx)
+              s (update s :generators #(assoc-in % [(dec (count %)) :idx] idx))]
+          (if-let [[mctx subgoals] (try-resolve ctx st (:mctx g) (:mvar g) inst)]
+            (consume ctx st s {:key (:key g) :mvar (:mvar g) :subgoals subgoals :mctx mctx :size 0})
+            s))))))
+
+(defn- resume
+  "Lean's `resume`: feed an answer to the next subgoal of a consumer."
+  [ctx st s]
+  (let [[cnode answer] (peek (:resume s))
+        s (update s :resume pop)
+        [mvar & rest] (:subgoals cnode)
+        [mctx _ val] (meta/open-abstract-mvars-result (:mctx cnode) st (:result answer))]
+    (if-let [mctx (def-eq mctx st #{} mvar val)]
+      (consume ctx st s (assoc cnode :subgoals (vec rest) :mctx mctx :size (+ (:size cnode) (:size answer))))
+      s)))
+
+(declare synth-main*)
+
+(defn- synth-main
+  "Lean's `SynthInstance.main`: the first root answer (an abstract result without expression
+   mvars) for `type` in `mctx` (already one depth deeper than the caller), or nil. Unification
+   runs at `.instances` transparency, as Lean's `synthInstance?` configures it."
+  [ctx st mctx type]
+  (binding [meta/*transparency* :instances
+            meta/*instance-name?* (:instance-name? ctx)]
+    (synth-main* ctx st mctx type)))
+
+(defn- synth-main*
+  [ctx st mctx type]
+  (let [[mctx mvar] (fresh-mvar st mctx type)
+        key (mk-table-key mctx type)
+        s0 (new-subgoal ctx st {:generators [] :resume [] :table {} :result nil} mctx key mvar :root)]
+    (loop [s s0 steps 0]
       (cond
-        (and hit (not (map? cached)))
-        cached
+        (:result s) (:result s)
+        (>= steps config/*synth-max-steps*)
+        (throw (ex-info (str "Tactic error: instance synthesis exceeded its resource bound ("
+                             "*synth-max-steps* " config/*synth-max-steps* ")")
+                        {:kind :tactic-error :reason :synth-exhausted :goal type
+                         :limit config/*synth-max-steps*}))
+        (seq (:resume s)) (recur (resume ctx st s) (inc steps))
+        (seq (:generators s)) (recur (generate ctx st s) (inc steps))
+        :else nil))))
 
-        (and hit (<= remaining (::cut-fail cached)))
-        (do (when *depth-hits* (swap! *depth-hits* conj goal-type))
-            nil)
+;; ============================================================
+;; synthInstance? — out-params, the cache, the root answer
+;; ============================================================
 
-        :else
-        (let [hits-before (some-> *depth-hits* deref count)
-              result (synthesize-uncached* st env index goal-type depth)
-              cut? (not= hits-before (some-> *depth-hits* deref count))]
+(def ^:private wildcard (e/fvar -1))
+(def ^:private level-wildcard (lvl/param (name/from-string "__wild__")))
+
+(defn- class-info [ctx cls] ((:class-info (:ictx ctx)) cls))
+
+(defn- preprocess
+  "Lean's `preprocess`: {:type :cache-key-type :kind}."
+  [ctx mctx st type]
+  (let [[st' xs body] (forall-telescope ctx mctx st type true)
+        body (whnf-i ctx mctx st' body)
+        type (mk-binding st' xs body false)
+        [h args] (e/get-app-fn-args body)
+        info (when (and (e/const? h) (seq args)) (class-info ctx (e/const-name h)))
+        outs (:out-params info) louts (:out-level-params info)]
+    (cond
+      (not (meta/zonked-has-mvar? type)) {:type type :cache-key-type type :kind :no-mvars}
+      (or (not (e/const? h)) (empty? args) (and (empty? outs) (empty? louts)))
+      {:type type :cache-key-type type :kind :mvars-no-output-params}
+      :else
+      (let [c (if (empty? louts) h
+                  (e/const' (e/const-name h) (vec (map-indexed (fn [i u] (if (contains? louts i) level-wildcard u))
+                                                               (e/const-levels h)))))
+            body' (apply e/app* c (map-indexed (fn [i a] (if (contains? outs i) wildcard a)) args))]
+        {:type type :cache-key-type (mk-binding st' xs body' false) :kind :mvars-output-params}))))
+
+(defn- preprocess-out-param
+  "Lean's `preprocessOutParam`: the goal with its out-params (and out-level-params) replaced by
+   fresh metavariables of `mctx`'s depth. [mctx type]."
+  [ctx mctx st type]
+  (let [[st' xs body] (forall-telescope ctx mctx st type false)
+        [h args] (e/get-app-fn-args body)
+        info (when (and (e/const? h) (seq args)) (class-info ctx (e/const-name h)))
+        outs (:out-params info) louts (:out-level-params info)]
+    (if (or (not (e/const? h)) (empty? args) (and (empty? outs) (empty? louts)))
+      [mctx type]
+      (let [[mctx c] (if (empty? louts)
+                       [mctx h]
+                       (let [[mctx us] (reduce (fn [[mctx us] [i u]]
+                                                 (if (contains? louts i)
+                                                   (let [id (swap! (:next-id st) inc)]
+                                                     [(meta/add-level-mvar-decl mctx id) (conj us (lvl/mvar id))])
+                                                   [mctx (conj us u)]))
+                                               [mctx []] (map-indexed vector (e/const-levels h)))]
+                         [mctx (e/const' (e/const-name h) us)]))
+            [mctx args] (if (empty? outs)
+                          [mctx args]
+                          (loop [i 0 ty (meta/infer-type mctx st' c) mctx mctx acc []]
+                            (if (< i (count args))
+                              (let [ty (let [t (meta/zonk-expr mctx ty)] (if (e/forall? t) t (meta/whnf mctx st' t)))
+                                    [mctx arg] (if (contains? outs i)
+                                                 ;; created outside the telescope, applied to it
+                                                 (let [[mctx mv] (fresh-mvar st mctx (mk-binding st' xs (e/forall-type ty) false))]
+                                                   [mctx (apply e/app* mv (map e/fvar xs))])
+                                                 [mctx (nth args i)])]
+                                (recur (inc i) (e/instantiate1 (e/forall-body ty) arg) mctx (conj acc arg)))
+                              [mctx acc])))]
+        [mctx (mk-binding st' xs (apply e/app* c args) false)]))))
+
+(defn- assign-out-params
+  "Lean's `assignOutParams`: the result's type unified with the goal (`withDefault`)."
+  [mctx st type result]
+  (binding [meta/*transparency* :default]
+    (some-> (def-eq (meta/with-synthetic-opaque-assignment mctx true) st #{} type (meta/infer-type mctx st result))
+            (meta/with-synthetic-opaque-assignment false))))
+
+(defn- check-result
+  "Lean's `check` of a root answer: a metavariable-free answer to a metavariable-free goal is
+   type-checked by the kernel checker."
+  [mctx st type result]
+  (let [type (meta/zonk-expr mctx type)]
+    (or (meta/zonked-has-mvar? result) (meta/zonked-has-mvar? type)
+        (try (tc/is-def-eq st (tc/infer-type st result) type)
+             (catch clojure.lang.ExceptionInfo _ false)))))
+
+(defn- apply-abstract-result
+  "Lean's `applyAbstractResult?`: open the root answer in the caller's metacontext and check it
+   against the goal. [mctx result] or nil."
+  [mctx st type abst]
+  (when abst
+    (let [[mctx _ result] (meta/open-abstract-mvars-result mctx st abst)]
+      (when-let [mctx (assign-out-params mctx st type result)]
+        (let [result (meta/zonk-expr mctx result)]
+          (when (check-result mctx st type result)
+            [mctx result]))))))
+
+(defn- apply-cached-abstract-result
+  "Lean's `applyCachedAbstractResult?`."
+  [mctx st type abst]
+  (when abst
+    (if (and (zero? (:num-mvars abst)) (empty? (:param-names abst)))
+      (when-let [mctx (assign-out-params mctx st type (:expr abst))]
+        [mctx (:expr abst)])
+      (apply-abstract-result mctx st type abst))))
+
+(defn- synth-instance*
+  "Lean's `synthInstance?` for `type` in `mctx` (whose mvars it may assign through out-params):
+   [mctx result] or nil. Throws isDefEqStuck when the goal cannot be decided yet."
+  [ctx mctx st type]
+  (binding [meta/*is-def-eq-stuck-ex* true]
+    (let [linsts (local-instances ctx st)
+          type (meta/zonk-expr mctx type)
+          {:keys [type cache-key-type kind]} (preprocess ctx mctx st type)
+          memo (:synth-memo st)
+          cache-key [(IdKey. (:env ctx)) (IdKey. (:index ctx)) linsts cache-key-type meta/*synth-pending-depth*]
+          hit (when memo (find @memo cache-key))]
+      (if hit
+        (apply-cached-abstract-result mctx st type (val hit))
+        (let [nested (meta/inc-depth mctx true)
+              [nested goal] (if (= kind :mvars-no-output-params)
+                              [nested type]
+                              (preprocess-out-param ctx nested st type))
+              abst (synth-main ctx st nested goal)
+              result (apply-abstract-result mctx st type abst)]
           (when memo
-            (swap! memo assoc goal-type
-                   (cond result result
-                         cut? {::cut-fail (max remaining (or (::cut-fail cached) -1))}
-                         :else nil)))
+            (swap! memo assoc cache-key
+                   (cond
+                     (nil? abst) nil
+                     (and (zero? (:num-mvars abst)) (empty? (:param-names abst))
+                          (#{:no-mvars :mvars-no-output-params} kind))
+                     (when result {:param-names [] :num-mvars 0 :expr (second result)})
+                     :else abst)))
           result)))))
 
-(defn- synthesize-uncached*
-  [st env index goal-type depth]
-  ;; Get the goal's head class name (try raw, then WHNF)
-  (let [head-info (or (let [[h _] (e/get-app-fn-args goal-type)]
-                        (when (e/const? h) (e/const-name h)))
-                      (let [w (whnf st goal-type)
-                            [h _] (e/get-app-fn-args w)]
-                        (when (e/const? h) (e/const-name h))))]
-    (when head-info
-      (let [;; Local instances FIRST (Lean synthInstance checks local-context instances): an lctx
-              ;; hypothesis whose type head is this class and is def-eq to the goal (e.g. a polymorphic
-              ;; `dec : DecidableEq K` discharging a `DecidableEq K` obligation).
-            local-inst
-            (some (fn [[fid decl]]
-                    (when (and (= :local (:tag decl)) (:type decl))
-                      (let [[dh _] (e/get-app-fn-args (:type decl))]
-                        (when (and (e/const? dh) (= (e/const-name dh) head-info)
-                                   (tc/is-def-eq st (:type decl) goal-type))
-                          (e/fvar fid)))))
-                  (:lctx st))
-            candidates (get-instances index head-info)
-            ;; Lean Meta/SynthInstance.lean:getInstances/generate tries all keyed matches;
-            ;; a candidate count must never change a successful search into a miss.
-            from-candidates (when-not local-inst
-                              (some (fn [candidate]
-                                      (try-candidate st env index candidate goal-type depth))
-                                    (select-candidates env candidates goal-type)))]
-        (or local-inst
-            from-candidates
-              ;; `Nat.AtLeastTwo <numeral>` — built, not searched (see above). Type-checked
-              ;; against the goal like every other path here.
-            (when-let [t (at-least-two-instance env goal-type)]
-              (when (tc/is-def-eq st (tc/infer-type st t) goal-type)
-                t))
-              ;; `Decidable (@Eq T a b)` from a `DecidableEq T` instance. Lean keys DecidableEq
-              ;; instances under their unfolded conclusion `Decidable (Eq _ _ _)`, so they answer
-              ;; such goals directly; the registry here lists them under `DecidableEq`. Type-checked.
-            (decidable-eq-instance st env index goal-type head-info depth))))))
+(defn- root-class?
+  "Is `n` the class some registered instance concludes in after reduction (Lean only registers an
+   instance whose type is a class, so this is class-extension knowledge the registry carries:
+   the instances of `DecidableEq` make `Decidable` a class)?"
+  [state n]
+  (contains? @(:root-classes state) n))
+
+(defn- synth-ctx [^Env env index]
+  (let [state (index-state env index)
+        class? (:class? (:ctx state))]
+    {:env env :index index :state state :ictx (:ctx state)
+     :class? (fn [n] (or (class? n) (root-class? state n)))
+     :instance-name? (fn [n] (contains? @(:instance-names state) n))}))
+
+(defn synth-instance
+  "Lean's `synthInstance?` in a metacontext: [mctx result] or nil (also nil when the problem is
+   stuck on metavariables of `mctx`). `st`'s local context supplies the local instances."
+  ([mctx st goal] (synth-instance mctx st (index-for (:env st)) goal))
+  ([mctx st index goal]
+   (try (synth-instance* (synth-ctx (:env st) index) mctx st goal)
+        (catch clojure.lang.ExceptionInfo ex
+          (if (meta/is-def-eq-stuck? ex) nil (throw ex))))))
 
 ;; ============================================================
 ;; Public API
 ;; ============================================================
 
+(defn synthesize*
+  "Synthesize an instance of the metavariable-free `goal-type` in the local context of `st`
+   against the registry `index` (the env must carry its instance extension even when that
+   registry is empty). Returns the instance term, or nil when there is none. Throws when the
+   search exceeds its resource bound, and when the answer leaves universe levels undetermined
+   (Lean returns it with level metavariables, which a closed term cannot carry). `_depth` is
+   accepted for compatibility and ignored."
+  [st env index goal-type _depth]
+  (index-for env)
+  (when-let [[mctx r] (try (synth-instance* (synth-ctx env index) meta/empty-context st goal-type)
+                           (catch clojure.lang.ExceptionInfo ex
+                             (if (meta/is-def-eq-stuck? ex) nil (throw ex))))]
+    (let [r (meta/zonk-expr mctx r)]
+      (when (meta/zonked-has-mvar? r)
+        (throw (ex-info "Tactic error: the instance leaves universe levels undetermined"
+                        {:kind :tactic-error :reason :universe-mvars :goal goal-type :instance r})))
+      r)))
+
 (defn synthesize
   "Synthesize a typeclass instance for the given goal type.
    Returns the fully-applied instance term, or throws if not found."
   [env index goal-type]
-  (let [st (tc/mk-tc-state env)]
-    (binding [*depth-hits* (or *depth-hits* (atom []))]
-      (or (synthesize* st env index goal-type 0)
-          (let [hits @*depth-hits*]
-            (throw (ex-info (str "Tactic error: instance resolution: no instance found"
-                                 (when (seq hits)
-                                   (str "; the search depth bound (*max-synth-depth* "
-                                        config/*max-synth-depth* ") cut " (count hits) " path(s)")))
-                            {:kind :tactic-error :reason :no-instance :goal goal-type
-                             :depth-limit-hits (count hits)})))))))
+  (or (synthesize* (tc/mk-tc-state env) env index goal-type 0)
+      (throw (ex-info "Tactic error: instance resolution: no instance found"
+                      {:kind :tactic-error :reason :no-instance :goal goal-type}))))
+
+(defn candidates
+  "The candidates for the goal `goal-type` in the local context of `st`, in Lean's try order (the
+   reverse of `getInstances`' array): instance names, and [:local fvar-id] for local instances."
+  ([env index goal-type] (candidates (tc/mk-tc-state env) env index goal-type))
+  ([st env index goal-type]
+   (mapv #(or (:name (:global %)) [:local (:local %)])
+         (rseq (vec (get-instances* (synth-ctx env index) meta/empty-context st goal-type))))))
 
 (defn resolve-decidable
   "Convenience: resolve a Decidable instance for a proposition, against the session's registry."
@@ -699,84 +847,33 @@
     (tc/is-def-eq st inferred expected)))
 
 ;; ============================================================
-;; Tabled Resolution — additive, does NOT modify existing code
-;; ============================================================
-
-(defn tabled-synthesize
-  "Tabled typeclass synthesis for deep instance chains.
-   Iterative state machine — call explicitly for complex cases
-   like AddRightMono Real that recursive synthesize* can't handle.
-   Does NOT modify synthesize or synthesize*."
-  [st env index goal-type]
-  (index-for env)
-  (let [max-steps 200
-        result (atom nil)
-        gen-stack (atom [])
-
-        get-cands (fn [gtype]
-                    (let [[h _] (e/get-app-fn-args gtype)]
-                      (when (e/const? h)
-                        (vec (select-candidates env
-                                                (get-instances index (e/const-name h))
-                                                gtype)))))
-
-        try-fill (fn [candidate gtype]
-                   (let [^ConstantInfo ci (env/lookup env (:name candidate))
-                         cty (.type ci)
-                         lps (vec (.levelParams ci))
-                         lvls (mapv (fn [_] lvl/zero) lps)
-                         cty (if (seq lps)
-                               (e/instantiate-level-params cty (zipmap lps lvls))
-                               cty)
-                         [_ gargs] (e/get-app-fn-args gtype)
-                         type-arg (first gargs)]
-                     (loop [t cty args []]
-                       (if (e/forall? t)
-                         (let [pty (e/forall-type t)
-                               pty-sub (reduce (fn [ty val] (e/instantiate1 ty val))
-                                               pty (reverse args))
-                               tw (#'tc/cached-whnf st pty-sub)
-                               val (cond
-                                     (and tw (e/sort? tw)) type-arg
-                                     :else (synthesize* st env index pty-sub 10))]
-                           (if val
-                             (recur (e/instantiate1 (e/forall-body t) val)
-                                    (conj args val))
-                             nil))
-                         (candidate-application st cty gtype
-                                                (e/const' (:name candidate) lvls)
-                                                args)))))]
-
-    (when-let [cands (get-cands goal-type)]
-      (swap! gen-stack conj {:type goal-type :candidates cands :idx 0}))
-
-    (loop [steps 0]
-      (cond
-        @result @result
-        (>= steps max-steps)
-        (throw (ex-info "Tactic error: tabled instance synthesis exceeded max-steps"
-                        {:kind :tactic-error :limit max-steps :goal goal-type}))
-        (seq @gen-stack)
-        (let [gnode (peek @gen-stack)]
-          (if (>= (:idx gnode) (count (:candidates gnode)))
-            (do (swap! gen-stack pop) (recur (inc steps)))
-            (let [cand (nth (:candidates gnode) (:idx gnode))]
-              (swap! gen-stack update (dec (count @gen-stack)) update :idx inc)
-              (when-let [term (try-fill cand (:type gnode))]
-                (reset! result term))
-              (recur (inc steps)))))
-        :else nil))))
-
-;; ============================================================
 ;; synthPending — instance synthesis from inside unification
 ;; ============================================================
 
 (defn synth-pending-instance
-  "`ansatz.meta/*synth-pending-fn*`: synthesize the instance goal that `isDefEq` got stuck on
-   (Lean's `synthPending`). Uses the session's registry (`index-for`) and the tc-state's synth
-   memo, so a goal that keeps recurring during one match costs a single resolution."
-  [_mctx st goal]
-  (synthesize* st (:env st) (index-for (:env st)) goal 0))
+  "`ansatz.meta/*synth-pending-fn*`, Lean's `synthPendingImp`: synthesize the instance
+   metavariable `mvar-id` that unification is stuck on, in the metavariable's own local context,
+   unless it is synthetic opaque, its type is not a class, or synthPending is nested deeper than
+   `meta/max-synth-pending-depth`. Returns the metacontext with it assigned, or nil. Only
+   isDefEqStuck counts as \"not yet\"; other failures propagate."
+  [mctx st mvar-id]
+  (let [decl (meta/expr-decl mctx mvar-id)
+        env (:env st)
+        index (env/get-extension env :instances nil)]
+    (when (and decl index
+               (not= :syntheticOpaque (:kind decl))
+               (not (meta/expr-assigned-or-delayed? mctx mvar-id)))
+      (let [st (if (:lctx decl) (assoc st :lctx (:lctx decl)) st)
+            ctx (synth-ctx env index)
+            type (meta/zonk-expr mctx (:type decl))]
+        (when (and (<= meta/*synth-pending-depth* meta/max-synth-pending-depth)
+                   (class-of ctx mctx st type))
+          (binding [meta/*synth-pending-depth* (inc meta/*synth-pending-depth*)]
+            (when-let [[mctx val] (try (synth-instance* ctx mctx st type)
+                                       (catch clojure.lang.ExceptionInfo ex
+                                         (if (meta/is-def-eq-stuck? ex) nil (throw ex))))]
+              (when-not (meta/expr-assigned? mctx mvar-id)
+                (meta/assign-expr mctx mvar-id val)))))))))
 
 ;; Loading this namespace is what makes instances synthesizable; installing the hook here
 ;; keeps `ansatz.meta` free of any dependency on the tactic layer.

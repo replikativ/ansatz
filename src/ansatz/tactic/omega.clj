@@ -3,9 +3,11 @@
 (ns ansatz.tactic.omega
   "Linear arithmetic decision procedure (omega tactic) — user-facing entry point.
 
-   Supported fragment (Int scalar products and Int div/mod are not yet supported):
-   - Nat: +, -, *, /, %, min, max, ≤, <, =, ≠ (ground multiplication/division only)
-   - Int: linear relations and negative literals; scalar/div/mod parity remains staged
+   Supported fragment:
+   - Nat: +, -, *, /, %, min, max, ≤, <, =, ≠ (multiplication by a literal; x*y is an atom)
+   - Int: linear relations, negative literals, products with a constant factor
+     (LinearCombo.mul_eval, as Lean's Frontend.lean HMul case), division and remainder
+     by a literal (`%` by Int.emod_def)
    - Mixed Nat/Int via coercion, Bool→Prop bridges (Nat.ble/Nat.blt)
    - Systems of linear inequalities, equalities and disjunctions
 
@@ -58,11 +60,17 @@
    exactly a carried fact (e.g. a refinement's `.property` after a Bool→Prop bridge);
    `decide` cannot certify a non-ground goal, but `assumption` closes it."
   [ps]
-  (try
-    (let [ps' (basic/assumption ps)]
-      (when (proof/solved? ps') ps'))
-    (catch clojure.lang.ExceptionInfo ex
-      (if (= :tactic-error (:kind (ex-data ex))) nil (throw ex)))))
+  ;; Syntactic match only. Lean's omega has no assumption step; a definitional check here
+  ;; (basic/assumption) compares e.g. `9223372036854775808 ≤ x` with `9223372036854775807 ≤ x`
+  ;; by unfolding Int.le down to the structural recursion of Nat.sub on the literal, which
+  ;; recurses once per unit (Lean's kernel reports "deep recursion" on the same check).
+  (let [goal (proof/current-goal ps)
+        target (:type goal)]
+    (when-let [fid (some (fn [[id decl]]
+                           (when (and (= :local (:tag decl)) (= (:type decl) target)) id))
+                         (reverse (sort-by key (:lctx goal))))]
+      (-> (proof/assign-mvar ps (:id goal) {:kind :assumption :fvar-id fid})
+          (proof/record-tactic :assumption [] (:id goal))))))
 
 (defn omega
   "Close the current goal using the omega decision procedure.

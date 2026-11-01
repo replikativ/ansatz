@@ -218,8 +218,6 @@
                  (catch Throwable _ {}))]
     (or (try (inst/synthesize* st (:env ps) idx goal-type 0)
              (catch Throwable _ nil))
-        (try (inst/tabled-synthesize st (:env ps) idx goal-type)
-             (catch Throwable _ nil))
         (try (let [f (requiring-resolve 'ansatz.core/try-synthesize-instance)]
                (f (:env ps) goal-type idx))
              (catch Throwable _ nil)))))

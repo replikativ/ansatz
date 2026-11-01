@@ -35,6 +35,7 @@
             [ansatz.simp-index :as si]
             [ansatz.export.facts :as facts]
             [ansatz.tactic.instance :as instance]
+            [ansatz.tactic.instance-index :as instance-index]
             [ansatz.kernel.env :as env]
             [clojure.java.io :as io]
             [clojure.string :as str])
@@ -82,11 +83,22 @@
 
 (defn- copy-input! [src dst-dir]
   (when src
-    (let [f (io/file src)]
+    (let [f (io/file src)
+          dst (io/file dst-dir (.getName f))]
       (when (.exists f)
         (.mkdirs (io/file dst-dir))
-        (io/copy f (io/file dst-dir (.getName f)))
+        ;; copying a file onto itself would truncate it (the store's own inputs/ copy)
+        (when-not (= (.getCanonicalPath f) (.getCanonicalPath dst))
+          (io/copy f dst))
         (.getName f)))))
+
+(defn- annotated-instances
+  "Lean's registry with each instance's discrimination-tree keys and synthesis order computed
+   from the store's environment (ansatz.tactic.instance-index/annotate-registry), so a session
+   selects candidates without loading their declarations."
+  [sm branch idx parallelism]
+  (let [env (storage/load-env sm branch :value-policy :defs-only)]
+    (instance-index/annotate-registry env idx :parallelism parallelism)))
 
 (defn import!
   "Import the Lean export at `:ndjson` into the store at `store-path` (created; refuses a
@@ -128,9 +140,11 @@
                              attr-tuples)
             _ (when attr-tuples (storage/write-derived! kstore branch :attrs attr-tuples))
             ;; 3. instances: Lean's TSV registry, else the bundled Init registry
-            inst-index (if (and instances (.exists (io/file instances)))
-                         (instance/load-instance-tsv instances)
-                         (instance/load-bundled-instances {:present? present?}))
+            inst-index (annotated-instances sm branch
+                                            (if (and instances (.exists (io/file instances)))
+                                              (instance/load-instance-tsv instances)
+                                              (instance/load-bundled-instances {:present? present?}))
+                                            (min 4 parallelism))
             _ (storage/write-derived! kstore branch :instances inst-index)
             _ (log! lw "  instances:" (count inst-index) "classes")
             ;; 4. matchers: the bundled Init corpus, intersected
@@ -218,14 +232,15 @@
       (finally (.close lw)))))
 
 (defn rebuild-instances!
-  "Replace an existing format-1 store's derived `:instances` blob from a fresh
-   scripts/dump_instances.lean TSV (module order, real priorities) — for a store whose registry
-   was written by the old inline emitter (hash order, every priority 100). Leaves the blobs
-   alone; keeps the TSV under <store>/inputs/. Returns the class count."
-  [store-path tsv & {:keys [branch] :or {branch "main"}}]
+  "Replace an existing format-1 store's derived `:instances` blob from a
+   scripts/dump_instances.lean TSV (module order, real priorities), with every instance's
+   discrimination-tree keys and synthesis order computed from the store's environment. Leaves
+   the blobs alone; keeps the TSV under <store>/inputs/ (passing that copy itself is fine).
+   Returns the class count."
+  [store-path tsv & {:keys [branch parallelism] :or {branch "main" parallelism 2}}]
   (store/check-format! store-path)
   (let [sm (storage/open-store store-path {:sync-blob? false})
-        idx (instance/load-instance-tsv tsv)]
+        idx (annotated-instances sm branch (instance/load-instance-tsv tsv) parallelism)]
     (storage/write-derived! (:store sm) branch :instances idx)
     (copy-input! tsv (io/file store-path "inputs"))
     (count idx)))
