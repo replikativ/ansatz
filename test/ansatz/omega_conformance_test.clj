@@ -112,9 +112,10 @@
      [(and_then (induction xs) (and_then (simp only [omegaLen List.length_cons List.length_nil]) (omega)))]]])
 
 (def ^:private known-gaps
-  ;; o16_parity and o18_int_div go through since Int scalar products are linearized with
-  ;; LinearCombo.mul_eval (Lean Frontend.lean's HMul case).
-  {'o19_int_mod "Int remainder needs scalar linearization and emod_def eval-proof transport (omega_proof.clj:954)."})
+  ;; o16_parity, o18_int_div and o19_int_mod go through since Int scalar products are
+  ;; linearized with LinearCombo.mul_eval and `%` is rewritten by Int.emod_def (Lean
+  ;; Frontend.lean's HMul and HMod cases).
+  {})
 
 (deftest omega-conformance
   (let [results (cs/run-suite 'ansatz.omega-conformance-test defs theorems)]

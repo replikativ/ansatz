@@ -6,8 +6,8 @@
    Supported fragment:
    - Nat: +, -, *, /, %, min, max, ≤, <, =, ≠ (multiplication by a literal; x*y is an atom)
    - Int: linear relations, negative literals, products with a constant factor
-     (LinearCombo.mul_eval, as Lean's Frontend.lean HMul case), division by a literal;
-     Int `%` remains a gap (omega_conformance_test o19)
+     (LinearCombo.mul_eval, as Lean's Frontend.lean HMul case), division and remainder
+     by a literal (`%` by Int.emod_def)
    - Mixed Nat/Int via coercion, Bool→Prop bridges (Nat.ble/Nat.blt)
    - Systems of linear inequalities, equalities and disjunctions
 

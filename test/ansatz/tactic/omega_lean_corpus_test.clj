@@ -683,9 +683,7 @@
          (ex [["x" INT]] (fn [x] {:hyps [(i< x (i* (ilit 2) (idiv x (ilit 2))))]
                                   :concl FALSE})))
     ;; L15
-    (gap "x % 2 > 5 → False"
-         "the Int emod decomposition still needs the Int.emod_def cast bridge, and rides
-          on the Int div bounds"
+    (proves "x % 2 > 5 → False"
          (ex [["x" INT]] (fn [x] {:hyps [(i< (ilit 5) (imod x (ilit 2)))] :concl FALSE})))
     ;; L293 — a quotient by a SYMBOLIC divisor is a plain atom; no bounds needed
     (proves "32 / a < b → b < c → 32 / a < c"
