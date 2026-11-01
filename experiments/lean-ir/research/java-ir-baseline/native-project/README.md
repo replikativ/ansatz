@@ -246,3 +246,7 @@ never filled with an invented null/action, and original row hashes are not
 relabelled as hashes of a derived object. The runtime publisher must reserve all
 selected Headers under one SourceBinding, using the actual startup side evidence
 for initializer classification and the actual checked entry evidence for handles.
+
+The contract CI job runs `scripts/test-native-project.clj` from the experiment root.
+It exercises the compiler/evidence metadata and owned filesystem models without
+launching Lean, executing a guest program, or loading an Init store.

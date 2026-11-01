@@ -21,7 +21,7 @@
     },
     {
       "file": "README.md",
-      "sha256": "2ccaed969ab6b9c48b671e367d8a3aa300fc7e3337d0d8a6dc158342006a7f16"
+      "sha256": "2822d4846f04e46dcae62468a1b7c76ea67299875c7d37d94bfa1387abef93c9"
     },
     {
       "file": "SOURCE_REVIEW_GATES.md",
@@ -498,6 +498,10 @@
       {
         "file": "experiments/lean-ir/lean/TypedSourceExport.lean",
         "sha256": "a48e00225fe08c1a74b66fff1102fd0c11ecefaaafc20ddcf6e28aaf363c99d3"
+      },
+      {
+        "file": "experiments/lean-ir/scripts/test-native-project.clj",
+        "sha256": "a5a299978bb6cd2a5b5b37c8ca105b61aaa8aa33ea25f0e331327afffe131a68"
       }
     ],
     "mechanicalExporterProvenance": {
@@ -507,6 +511,18 @@
       "acceptedOriginalUnchanged": true
     },
     "publicJavaAPI": false,
-    "portableArtifactDeployment": false
+    "portableArtifactDeployment": false,
+    "automated-contracts": {
+      "runner": "experiments/lean-ir/scripts/test-native-project.clj",
+      "ci": "bin/run-test-contracts",
+      "tests": 29,
+      "assertions": 162,
+      "failures": 0,
+      "errors": 0,
+      "heapMiB": 384,
+      "nativeProcesses": 0,
+      "guestExecution": false,
+      "initStoreLoaded": false
+    }
   }
 }
