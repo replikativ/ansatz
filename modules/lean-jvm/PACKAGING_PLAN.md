@@ -1,5 +1,8 @@
 # Historical extraction boundary and remaining package acceptance
 
+The current next-step agenda and user-required release discussion gate are in
+[CAMPAIGN.md](CAMPAIGN.md). The extraction checkpoints below are historical.
+
 Source-only proposal accompanying this internal skeleton. No public Java API has
 been added. The next review decides whether the extracted resource/classpath
 boundary is sound before public Java facade work begins.
