@@ -13,40 +13,7 @@
     "failures": 0,
     "errors": 0
   },
-  "currentRuntimeSourceSHA256": "e7055544ecfe254af448e03cafb21cace3503da4abee27bc743c232ec50a9981",
-  "currentRootReported": {
-    "focusedTests": 16,
-    "focusedAssertions": 169,
-    "failures": 0,
-    "errors": 0,
-    "newProducerRows": 62,
-    "newProducerSHA256": "f644f89c61f672569743eb11ad6874cb35028b3e4097554f4b96145b54e32ea0",
-    "deterministicInitializerState": [
-      990732983,
-      235670034
-    ],
-    "idleForkNoReseed": true,
-    "bothEnginesClosed": true,
-    "portableReceiptPending": false,
-    "defaultJdk": true,
-    "unsignedAllFF": true,
-    "expectedProviderError": true,
-    "regressionGroupsReported": {
-      "groups": 8,
-      "tests": 89,
-      "assertions": 7448,
-      "failures": 0,
-      "errors": 0,
-      "correctedAggregateReceiptPending": false
-    },
-    "freshSdkProducerAndJavaOnlyConsumer": {
-      "passed": true,
-      "jarSHA256": "9304f90f440e48d2a02343c2b4e9811e936356e6da4fdc7d9ebfd596a81d759b",
-      "jarBytes": 305830,
-      "sourceCheckoutOnConsumerClasspath": false,
-      "classpathJarCount": 4
-    }
-  },
+  "currentRuntimeSourceSHA256": "dacaea8bfcd410614fec6fdd5f170020af2969085a8f4748eb72d0e66d437131",
   "workerChecks": {
     "captureRecreation": "63 rows,98974 bytes,exact manifest and stream hashes",
     "runtimeExecuted": false,
@@ -61,5 +28,58 @@
     "complete Init startup/module ledger",
     "public SDK Project API",
     "POSIX entropy parity"
-  ]
+  ],
+  "acceptedBeforeJdk11DigestFix": {
+    "runtimeSourceSHA256": "e7055544ecfe254af448e03cafb21cace3503da4abee27bc743c232ec50a9981",
+    "rootReported": {
+      "focusedTests": 16,
+      "focusedAssertions": 169,
+      "failures": 0,
+      "errors": 0,
+      "newProducerRows": 62,
+      "newProducerSHA256": "f644f89c61f672569743eb11ad6874cb35028b3e4097554f4b96145b54e32ea0",
+      "deterministicInitializerState": [
+        990732983,
+        235670034
+      ],
+      "idleForkNoReseed": true,
+      "bothEnginesClosed": true,
+      "portableReceiptPending": false,
+      "defaultJdk": true,
+      "unsignedAllFF": true,
+      "expectedProviderError": true,
+      "regressionGroupsReported": {
+        "groups": 8,
+        "tests": 89,
+        "assertions": 7448,
+        "failures": 0,
+        "errors": 0,
+        "correctedAggregateReceiptPending": false
+      },
+      "freshSdkProducerAndJavaOnlyConsumer": {
+        "passed": true,
+        "jarSHA256": "9304f90f440e48d2a02343c2b4e9811e936356e6da4fdc7d9ebfd596a81d759b",
+        "jarBytes": 305830,
+        "sourceCheckoutOnConsumerClasspath": false,
+        "classpathJarCount": 4
+      }
+    }
+  },
+  "currentRootReported": {
+    "baselineJavacRelease": 11,
+    "focusedTests": 16,
+    "focusedAssertions": 169,
+    "regressionTests": 89,
+    "regressionAssertions": 7448,
+    "failures": 0,
+    "errors": 0,
+    "actualCurrent62DeterministicInitializerAndIdleForkClose": true,
+    "freshSdkProducerAndJavaOnlyConsumer": {
+      "passed": true,
+      "jarSHA256": "a8a7381691e98ea23d8a0692de9ae88ca5d63daa99a5ea8306168bf3ba5d3dd7",
+      "jarBytes": 305879,
+      "sourceCheckoutOnConsumerClasspath": false,
+      "classpathJarCount": 4
+    }
+  }
 }

@@ -54,3 +54,9 @@ The first combined attempt had a fixture path error; the corrected aggregate is
 preserved. The fresh Java 17 SDK jar and four-jar Java-only consumer also passed
 without a source checkout or Clojure CLI on the consumer classpath. These gates
 do not establish a complete 631-module startup ledger.
+
+The initial PR CI run found a JDK 17-only HexFormat call in the JDK 11 baseline.
+The final daca source replaces only hex encoding with a portable byte encoder.
+It passed javac --release 11, all 105 tests / 7,617 assertions, the current
+62-row deterministic initializer/fork/close gate, and a freshly built SDK jar
+and Java-only consumer. Earlier e705 receipts remain explicitly historical.

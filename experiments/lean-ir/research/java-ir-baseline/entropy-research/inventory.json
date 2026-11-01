@@ -3,8 +3,8 @@
   "files": [
     {
       "path": "README.md",
-      "bytes": 3553,
-      "sha256": "d33ee0f14ffe4fccc3afafb5bd75a8001d52ba3cb588f264f4017c6ffb5f7b93"
+      "bytes": 3944,
+      "sha256": "942fb8b0a07728aec1b97f7a1c135086939304cd93643cae5f92adf31143f0f7"
     },
     {
       "path": "capture-cas.py",
@@ -47,6 +47,11 @@
       "sha256": "783efdc9238315f4448e1a339bac272f070eb78c741026a5eedb3f8199b97c70"
     },
     {
+      "path": "receipts/entropy-jdk11-digest-acceptance-v1.edn",
+      "bytes": 1613,
+      "sha256": "c33d7c617a4b6a40dbf623cd947810a2e11b640f282f948b7117c4795678a303"
+    },
+    {
       "path": "receipts/original-random-default-actual-v1.edn",
       "bytes": 566,
       "sha256": "41fb8b2388994503a415bc45a9564ebbcb32b194b5baab86822bf18cb826bf78"
@@ -75,6 +80,11 @@
       "path": "receipts/sdk-entropy-java-only-consumer-v1.json",
       "bytes": 1465,
       "sha256": "eb1439ff1dd21a7d53e81d11c5f93951c06c80b638214d84b50f15c9cd3c1a59"
+    },
+    {
+      "path": "receipts/sdk-entropy-jdk11-digest-consumer-v1.json",
+      "bytes": 1465,
+      "sha256": "ac9976b640dcac105bf50f97eb366470d19c5e54896f67ef1f57fd3df4e3f662"
     },
     {
       "path": "receipts/startup-current-default-actual-v1.edn",
@@ -108,8 +118,8 @@
     },
     {
       "path": "validation.json",
-      "bytes": 1887,
-      "sha256": "2131ca71c98a39ecf5a012cb6fe8e2ff7b7cb5f10b8ce25d71491d2e7cdadaee"
+      "bytes": 2630,
+      "sha256": "99b843ade811f853ae8e6a7e656e2ddc40fee066c925ec7831a419ac8569d8b8"
     },
     {
       "path": "verify.py",
