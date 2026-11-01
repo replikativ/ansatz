@@ -25,10 +25,10 @@
 (defn rec [proof type] {:proof proof :type type})
 
 (defn- app-rec
-  "mk-app on records: explicit arguments are records (their types are known)."
+  "mk-app on records: explicit arguments are records (their types are known) or terms."
   [st cname args & opts]
-  (let [terms (mapv :proof args)
-        types (into {} (map (juxt :proof :type)) args)
+  (let [terms (mapv #(if (map? %) (:proof %) %) args)
+        types (into {} (keep #(when (map? %) [(:proof %) (:type %)])) args)
         r (apply ab/mk-app st cname terms :types types opts)]
     (rec (:term r) (:type r))))
 
@@ -182,7 +182,171 @@
                       (e/app* (c "Int.mul_nonneg_of_nonpos_of_nonpos") a a (e/bvar 0) (e/bvar 0)) :default)]
        (rec (e/app* (c "Or.elim") (int-le int-zero a) (int-le a int-zero) goal h0 pos neg) goal)))})
 
+
+;; ------------------------------------------------------------------
+;; Mathlib's lemmas, at any ordered field (instances synthesized)
+;; ------------------------------------------------------------------
+
+(defn- sort-level-of [st ty]
+  (let [s (p/strip-mdata (ansatz.kernel.tc/infer-type st ty))]
+    (when (e/sort? s) (e/sort-level s))))
+
+(defn- numeral-at
+  "`(n : α)` as Lean's `mkNumeral`: `@OfNat.ofNat α n inst` with the instance synthesized."
+  [st ty n]
+  (let [l (sort-level-of st ty)
+        u (if (and l (lvl/succ? l)) (lvl/succ-pred l) lvl/zero)
+        goal (e/app* (c "OfNat" [u]) ty (e/lit-nat n))
+        env (:env st)
+        inst ((requiring-resolve 'ansatz.tactic.instance/synthesize*) st env
+              ((requiring-resolve 'ansatz.tactic.instance/index-for) env) goal 0)]
+    (when-not inst
+      (throw (ex-info (str "linarith: no OfNat instance for numeral " n)
+                      {:kind :tactic-error :type ty})))
+    (e/app* (c "OfNat.ofNat" [u]) ty (e/lit-nat n) inst)))
+
+(defn- rel-parts
+  "[head-const type inst lhs rhs] of `@R α inst a b`."
+  [ty]
+  (let [[h args] (e/get-app-fn-args (p/strip-mdata ty))]
+    (when (= 4 (count args)) (into [h] args))))
+
+(defn- prove-by-norm-num
+  "A proof term of the closed numeral comparison `prop` by Mathlib's norm_num extension."
+  [st prop]
+  (let [env (:env st)
+        [ps _] ((requiring-resolve 'ansatz.tactic.proof/start-proof) env prop)
+        ps' ((requiring-resolve 'ansatz.tactic.norm-num/numeral-order) st ps prop)]
+    (when-not (and ps' ((requiring-resolve 'ansatz.tactic.proof/solved?) ps'))
+      (throw (ex-info "linarith: norm_num could not prove a numeral positive"
+                      {:kind :tactic-error :prop prop})))
+    ((requiring-resolve 'ansatz.tactic.extract/extract) ps')))
+
+(defn- lin [n] (str "Mathlib.Tactic.Linarith." n))
+
+(defn- rewrite-rhs
+  "From h : 0 R x and eqp : x = y (x, y over ty), 0 R y: Eq.mp (congrArg (0 R ·) eqp) h."
+  [st h eqp]
+  (let [[hd ty inst zero _] (rel-parts (:type h))
+        [_ _ x y] (p/ineq? (:type eqp))
+        f (e/lam "y" ty (e/app* hd ty inst zero (e/bvar 0)) :default)
+        congr (app-rec st "congrArg" [(rec f (e/forall' "y" ty (e/sort' lvl/zero) :default)) eqp])
+        r (app-rec st "Eq.mp" [congr h])]
+    (rec (:proof r) (e/app* hd ty inst zero y))))
+
+(defn- generic-mul-of-nonpos
+  "a ≤ 0, b ≤ 0 ⊢ 0 ≤ a * b (or < with `strict?`), through (-a) * (-b) = a * b. Mathlib's
+   mul_nonneg_of_nonpos_of_nonpos needs AddRightReflectLE, which ansatz does not synthesize
+   for ℝ."
+  [st ha hb strict?]
+  (let [a (nth (p/ineq? (:type ha)) 2)
+        b (nth (p/ineq? (:type hb)) 2)
+        na (app-rec st (if strict? "neg_pos_of_neg" "neg_nonneg_of_nonpos") [ha])
+        nb (app-rec st (if strict? "neg_pos_of_neg" "neg_nonneg_of_nonpos") [hb])
+        prod (app-rec st (if strict? "mul_pos" "mul_nonneg") [na nb])
+        eqp (app-rec st "neg_mul_neg" [a b])]
+    (rewrite-rhs st prod eqp)))
+
+(defn- generic-mul-self-nonneg
+  "0 ≤ a * a: Or.elim (le_total 0 a) (fun h => mul_nonneg h h)
+   (fun h => mul_nonneg_of_nonpos_of_nonpos h h)."
+  [st a]
+  (let [tot (app-rec st "le_total" [(rec (numeral-at st (ansatz.kernel.tc/infer-type st a) 0)
+                                         (ansatz.kernel.tc/infer-type st a)) a])
+        [l r] (second (e/get-app-fn-args (p/strip-mdata (:type tot))))
+        hp (e/fvar 990001) hn (e/fvar 990002)
+        st+ (update st :lctx assoc 990001 {:tag :local :id 990001 :name "h" :type l}
+                    990002 {:tag :local :id 990002 :name "h" :type r})
+        pos (app-rec st+ "mul_nonneg" [(rec hp l) (rec hp l)])
+        neg (generic-mul-of-nonpos st+ (rec hn r) (rec hn r) false)
+        goal (:type pos)
+        res (e/app* (c "Or.elim") l r goal (:proof tot)
+                    (e/lam "h" l (e/abstract1 (:proof pos) 990001) :default)
+                    (e/lam "h" r (e/abstract1 (:proof neg) 990002) :default))]
+    (rec res goal)))
+
+(def generic-family
+  {:name :mathlib
+   :carrier? (fn [st ty]
+               (and (some? (env/lookup (:env st) (name/from-string (lin "mul_neg"))))
+                    (not (contains? #{Int Nat} (p/strip-mdata ty)))))
+
+   :sub-nonpos-of-le (fn [st h] (app-rec st (lin "sub_nonpos_of_le") [h]))
+   :sub-neg-of-lt (fn [st h] (app-rec st (lin "sub_neg_of_lt") [h]))
+   :sub-eq-zero-of-eq (fn [st h] (app-rec st "sub_eq_zero_of_eq" [h]))
+
+   :not-le (fn [st h] (app-rec st "lt_of_not_ge" [h]))
+   :not-lt (fn [st h] (app-rec st "le_of_not_gt" [h]))
+
+   :mul-const
+   (fn [st n iq h]
+     ;; Mathlib: `iq.toConstMulName h (by norm_num : c > 0)`
+     (let [[lt-h ty lt-inst] (rel-parts (:type h))
+           zero (nth (p/ineq? (:type h)) 3)
+           ;; the order's `<` at α: from h when it is `<`, else synthesized
+           lt-inst (if (= "LT.lt" (str (e/const-name lt-h)))
+                     lt-inst
+                     ((requiring-resolve 'ansatz.tactic.instance/synthesize*) st (:env st)
+                      ((requiring-resolve 'ansatz.tactic.instance/index-for) (:env st))
+                      (e/app* (c "LT" (e/const-levels lt-h)) ty) 0))
+           cn (numeral-at st ty n)
+           prop (e/app* (c "LT.lt" (e/const-levels lt-h)) ty lt-inst zero cn)
+           cpos (rec (prove-by-norm-num st prop) prop)]
+       (app-rec st (lin (case iq :lt "mul_neg" :le "mul_nonpos" :eq "mul_eq")) [h cpos])))
+
+   :add (fn [st iq1 h1 iq2 h2]
+          (let [[nm iq] (case [iq1 iq2]
+                          [:eq :eq] ["eq_of_eq_of_eq" :eq]
+                          [:eq :le] ["le_of_eq_of_le" :le]
+                          [:eq :lt] ["lt_of_eq_of_lt" :lt]
+                          [:le :eq] ["le_of_le_of_eq" :le]
+                          [:le :le] ["add_nonpos" :le]
+                          [:le :lt] ["add_lt_of_le_of_neg" :lt]
+                          [:lt :eq] ["lt_of_lt_of_eq" :lt]
+                          [:lt :le] ["add_lt_of_neg_of_le" :lt]
+                          [:lt :lt] ["add_neg" :lt])]
+            [iq (app-rec st (lin nm) [h1 h2])]))
+
+   :neg-one-lt-zero (fn [st ty]
+                      (let [zl (ab/mk-app st (lin "zero_lt_one") [] :explicit {0 ty})]
+                        (app-rec st "neg_neg_of_pos" [(rec (:term zl) (:type zl))])))
+
+   :neg-eq-zero (fn [st h]
+                  (let [t (lhs-of h)
+                        iff (ab/mk-app st "neg_eq_zero" [] :explicit {2 t})]
+                    (app-rec st "Iff.mpr" [(rec (:term iff) (:type iff)) h])))
+
+   :contradiction (fn [st hlt heq]
+                    (let [[lt-h ty lt-inst _ zero] (rel-parts (:type hlt))
+                          u (sort-level-of st ty)
+                          f (e/lam "x" ty (e/app* lt-h ty lt-inst (e/bvar 0) zero) :default)
+                          eqp (app-rec st "congrArg" [(rec f (e/forall' "x" ty (e/sort' lvl/zero) :default)) heq])
+                          h00 (app-rec st "Eq.mp" [eqp hlt])
+                          h00 (id-as lvl/zero (e/app* lt-h ty lt-inst zero zero) (:proof h00))]
+                      ;; Linarith.lt_irrefl {α} [Preorder α] {a} : ¬a < a
+                      (let [irr (ab/mk-app st (lin "lt_irrefl") [] :explicit {0 ty 2 zero})]
+                        (rec (e/app (:term irr) (:proof h00)) (c "False")))))
+
+   :le-of-lt (fn [st h] (app-rec st "le_of_lt" [h]))
+   :mul-nonneg-np (fn [st ha hb] (generic-mul-of-nonpos st ha hb false))
+   :mul-pos-nn (fn [st ha hb] (generic-mul-of-nonpos st ha hb true))
+   :zero-mul-eq (fn [st ha hb] (app-rec st (lin "zero_mul_eq") [ha hb]))
+   :mul-zero-eq (fn [st ha hb] (app-rec st (lin "mul_zero_eq") [ha hb]))
+   ;; Mathlib's mul_self_nonneg / sq_nonneg need `ExistsAddOfLE α`, which ansatz's instance
+   ;; synthesis does not reach for ℝ; the same facts by cases on `le_total 0 a`, and
+   ;; `a ^ 2 = a * a` (pow_two).
+   :mul-self-nonneg (fn [st a] (generic-mul-self-nonneg st a))
+   :sq-nonneg (fn [st a]
+                (let [msn (generic-mul-self-nonneg st a)
+                      [h ty inst zero _] (rel-parts (:type msn))
+                      eqp (app-rec st "pow_two" [a])
+                      sq (nth (p/ineq? (:type eqp)) 2)
+                      f (e/lam "y" ty (e/app* h ty inst zero (e/bvar 0)) :default)
+                      congr (app-rec st "congrArg" [(rec f (e/forall' "y" ty (e/sort' lvl/zero) :default)) eqp])
+                      r (app-rec st "Eq.mpr" [congr msn])]
+                  (rec (:proof r) (e/app* h ty inst zero sq))))})
+
 (defn family-for
   "The lemma family for comparisons over `ty`, or nil."
   [st ty]
-  (some #(when ((:carrier? %) st ty) %) [int-family]))
+  (some #(when ((:carrier? %) st ty) %) [int-family generic-family]))

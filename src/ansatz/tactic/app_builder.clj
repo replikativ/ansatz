@@ -68,10 +68,24 @@
 
       (and (e/app? pat) (e/app? tgt))
       (let [[pf pargs] (e/get-app-fn-args pat)
-            [tf targs] (e/get-app-fn-args tgt)]
-        (when (= (count pargs) (count targs))
-          (match-expr holes lholes n pf tf offset)
-          (dorun (map #(match-expr holes lholes n %1 %2 offset) pargs targs))))
+            [tf targs] (e/get-app-fn-args tgt)
+            np (count pargs) nt (count targs)
+            pf* (strip pf) tf* (strip tf)
+            same-head? (or (and (e/const? pf*) (e/const? tf*) (= (e/const-name pf*) (e/const-name tf*)))
+                           (and (e/fvar? pf*) (= pf* tf*))
+                           (not (or (e/const? pf*) (e/fvar? pf*))))]
+        (cond
+          ;; different head constants: no information (e.g. two instance paths to `0`)
+          (not same-head?) nil
+          (= np nt)
+          (do (match-expr holes lholes n pf tf offset)
+              (dorun (map #(match-expr holes lholes n %1 %2 offset) pargs targs)))
+          ;; a hole applied to arguments (`R b 0` for `{R : α → α → Prop}`): the hole takes
+          ;; the target's head applied to its leading arguments (first-order approximation)
+          (and (< np nt) (e/bvar? (strip pf)) (>= (e/bvar-idx (strip pf)) offset))
+          (do (match-expr holes lholes n pf (apply e/app* tf (take (- nt np) targs)) offset)
+              (dorun (map #(match-expr holes lholes n %1 %2 offset) pargs (drop (- nt np) targs))))
+          :else nil))
 
       (and (e/const? pat) (e/const? tgt) (= (e/const-name pat) (e/const-name tgt)))
       (dorun (map #(match-level lholes %1 %2) (e/const-levels pat) (e/const-levels tgt)))
@@ -97,6 +111,44 @@
   (into {} (keep (fn [[k v]] (when v [k v]))) lholes))
 
 (defn infer-type [st x] (tc/infer-type st x))
+
+(declare mk-app)
+
+(def ^:private mixin-instances
+  "Order mixins whose Mathlib instances ansatz's synthesis does not reach (it does not unify
+   the instance paths of their arguments, e.g. `Distrib.toAdd` against the `AddGroup` one):
+   each is tried by its structure-projection instance, applied as `mkAppM` does, against the
+   goal. The kernel checks the resulting instance argument."
+  {"ExistsAddOfLE" ["AddGroup.existsAddOfLE"]
+   "PosMulMono" ["IsOrderedRing.toPosMulMono"]
+   "MulPosMono" ["IsOrderedRing.toMulPosMono"]
+   "PosMulStrictMono" ["IsStrictOrderedRing.toPosMulStrictMono"]
+   "MulPosStrictMono" ["IsStrictOrderedRing.toMulPosStrictMono"]
+   "AddLeftMono" ["IsOrderedAddMonoid.toAddLeftMono"]
+   "AddRightMono" ["IsOrderedAddMonoid.toAddRightMono"]
+   "AddLeftReflectLE" ["IsOrderedCancelAddMonoid.toAddLeftReflectLE"]
+   "AddLeftReflectLT" ["IsOrderedCancelAddMonoid.toAddLeftReflectLT"]
+   "IsOrderedCancelAddMonoid" ["IsStrictOrderedRing.toIsOrderedCancelAddMonoid"]
+   "ZeroLEOneClass" ["IsOrderedRing.toZeroLEOneClass"]
+   "HasDistribNeg" ["NonUnitalNonAssocRing.toHasDistribNeg"]
+   "AddLeftStrictMono" ["IsLeftCancelAdd.addLeftStrictMono_of_addLeftMono"
+                        "addLeftStrictMono_of_addLeftReflectLE"]
+   "IsOrderedAddMonoid" ["IsOrderedRing.toIsOrderedAddMonoid"]
+   "IsOrderedRing" ["IsStrictOrderedRing.toIsOrderedRing"]})
+
+(def ^:private ^:dynamic *fallback-depth* 0)
+
+(defn- mixin-fallback [st goal]
+  (let [[h _] (e/get-app-fn-args (strip goal))]
+    (when (and (e/const? h) (< *fallback-depth* 3))
+      (some (fn [ctor]
+              (when (env/lookup (:env st) (name/from-string ctor))
+                (binding [*fallback-depth* (inc *fallback-depth*)]
+                  (try (let [{:keys [term type]} (mk-app st ctor [] :expected goal)]
+                         ;; only an instance of exactly the goal's class instance
+                         (when (tc/is-def-eq st type goal) term))
+                       (catch Exception _ nil)))))
+            (get mixin-instances (name/->string (e/const-name h)))))))
 
 (defn mk-app
   "Lean's `mkAppM c args` (and, with `:expected`, the conclusion matched against an expected
@@ -129,21 +181,22 @@
         ncons (cond
                 (seq args) (inc (peek used))
                 :else 0)
-        ncons (if expected
-                (let [nxt (some #(when (>= % ncons) %) explicit-idx)]
-                  (or nxt n))
-                ncons)
         ncons (max ncons (count args) (if (seq explicit) (inc (apply max (keys explicit))) 0))
+        ;; trailing implicit and instance binders are instantiated too (Lean's mkAppM fills
+        ;; them by unification and synthesis), up to the next explicit binder
+        ncons (or (some #(when (>= % ncons) %) explicit-idx) n)
         arg-type (fn [x] (if-let [t (get types x)] t (infer-type st x)))]
     ;; explicit args
     (doseq [[i a] (map vector used args)]
       (swap! holes assoc i a))
     ;; conclusion against the expected type
     (when expected
-      (let [rest-ty (loop [t ty0 k 0] (if (< k ncons) (recur (e/forall-body t) (inc k)) t))]
-        (match-expr holes lholes ncons rest-ty expected 0)))
-    ;; argument types against binder types
-    (doseq [[i a] (map vector used args)]
+      ;; the conclusion after the remaining binders, whose bvars below `k` are those binders
+      (let [rest-ty (loop [t ty0 k 0] (if (< k ncons) (recur (e/forall-body t) (inc k)) t))
+            [concl k] (loop [t rest-ty k 0] (if (e/forall? t) (recur (e/forall-body t) (inc k)) [t k]))]
+        (match-expr holes lholes ncons concl expected k)))
+    ;; argument types against binder types (also for the values fixed up front)
+    (doseq [[i a] (concat (map vector used args) (sort-by key explicit))]
       (match-expr holes lholes i (:type (nth binders i)) (arg-type a) 0))
     ;; universe levels that occur only in binder sorts (`{β : Sort v}`): read them off the
     ;; type of the value the binder received
@@ -173,13 +226,23 @@
                   found (or (some (fn [[id decl]]
                                     (when (= (:type decl) goal) (e/fvar id)))
                                   (:lctx st))
-                            (inst/synthesize* st env (inst/index-for env) goal 0))]
+                            (try (inst/synthesize* st env (inst/index-for env) goal 0)
+                                 (catch clojure.lang.ExceptionInfo _ nil))
+                            (mixin-fallback st goal)
+                            (error! (str "failed to synthesize instance for " cname)
+                                    {:const cname :goal goal}))]
               (if found
                 (swap! holes assoc i found)
                 (error! (str "failed to synthesize instance for " cname)
                         {:const cname :goal goal})))
-            (error! (str "could not infer argument " i " of " cname)
-                    {:const cname :binder i}))))
+            ;; an implicit argument that is itself an instance (the class parameters of a
+            ;; projection like `IsOrderedRing.toMulPosMono {inst : Semiring α}`) is fixed by
+            ;; unification in Lean; when matching did not reach it, synthesize it
+            (if-let [found (try (inst/synthesize* st env (inst/index-for env) (inst-ty i) 0)
+                                (catch Exception _ nil))]
+              (swap! holes assoc i found)
+              (error! (str "could not infer argument " i " of " cname)
+                      {:const cname :binder i})))))
       (let [vals (subvec @holes 0 ncons)
             head (e/const' (name/from-string cname) lvls)
             term (apply e/app* head vals)

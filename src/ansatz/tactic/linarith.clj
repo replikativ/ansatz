@@ -23,6 +23,7 @@
             [ansatz.kernel.level :as lvl]
             [ansatz.kernel.reduce :as red]
             [ansatz.kernel.tc :as tc]
+            [ansatz.tactic.app-builder :as ab]
             [ansatz.tactic.linarith.lemmas :as L]
             [ansatz.tactic.linarith.parsing :as p]
             [ansatz.tactic.linarith.preprocessing :as pre]
@@ -130,6 +131,24 @@
                              (e/app* (L/c (str n ".not_lt")) x y)
                              (under-hyp st (lt-ty ty x y) hyps opts)))]
         (e/app* (L/c (str n ".le_antisymm")) a b (not-lt b a) (not-lt a b)))
+
+      ;; any other ordered field (Mathlib): getContrLemma's lt_of_not_ge / le_of_not_gt /
+      ;; eq_of_not_lt_of_not_gt, the hypothesis read off the lemma's binder
+      (and ty (#{:lt :le :eq} iq) (not supported?) (L/family-for st ty))
+      (let [contr (fn [r]
+                    ;; r : ¬ P → goal; returns (r (fun h : P => False-proof))
+                    (let [[_ binder-ty] [nil (e/forall-type (:type r))]
+                          P (p/not? binder-ty)]
+                      (e/app (:term r) (under-hyp st P hyps opts))))]
+        (case iq
+          :lt (contr (ab/mk-app st "lt_of_not_ge" [] :expected target))
+          :le (contr (ab/mk-app st "le_of_not_gt" [] :expected target))
+          :eq (let [r (ab/mk-app st "Mathlib.Tactic.Linarith.eq_of_not_lt_of_not_gt" [a b])
+                    t1 (e/forall-type (:type r))
+                    p1 (p/not? t1)
+                    t2 (e/forall-type (e/forall-body (:type r)))
+                    p2 (p/not? t2)]
+                (e/app* (:term r) (under-hyp st p1 hyps opts) (under-hyp st p2 hyps opts)))))
 
       ;; ¬ p for a comparison p: assume p
       (and (p/not? target) (p/ineq? (p/not? target)))
