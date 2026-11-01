@@ -200,3 +200,49 @@ release gates. The fixed tutorial compiler and its artifact reader are unchanged
 records in those tests are deliberately model data, not native acceptance
 receipts. Native/JVM execution and integrated acceptance remain with the root
 review runner; do not infer a run from source presence.
+
+Cache reuse also checks each compiled module against the expected typed
+source/DAG order, exact contained output paths, stored native receipt and actual
+stream provenance/initializer plan. Before and after each source compilation,
+all captured sources and all previously produced stage files are rehashed;
+those checks include native sidecars and run again before publication. These
+are snapshot mutation guards for trusted native source, not a sandbox or a trace
+of every transient filesystem read.
+
+The returned `:header-directory` explicitly locates this invocation's header
+receipts. On a cache hit it can differ from `:directory`, which locates the
+validated compiled products. Concurrent publication returns the winner's
+validated compiled metadata. Local builds request a 600-second aggregate native
+build deadline in the shared process monitor; the fixed tutorial compiler keeps
+its existing behavior when that optional state is absent. Deadline checks are
+cooperative between bounded host operations and while monitoring native work.
+
+`project-evidence.clj` supplies the next internal issuer seam. Its `build!`
+compiles through the actual compiler, then runs pinned `NativeEntryEvidence
+--entries` for genuine selected root environments and pinned
+`NativeStartupEvidence --startup` for the ordered ordinary root imports. An
+opaque `BuildReceipt` is published only after request/CI/template/callable
+admission, native output-to-receipt hash checks, complete static closure and
+source/toolchain/cache snapshot revalidation. The same 600-second deadline
+covers compiler and evidence processes; aggregate byte admission runs before
+producer JSON parsing and again against the complete final file set.
+
+`authenticated-build` is an internal publisher seam requiring the actual issued
+receipt identity. Caller maps, acceptance flags, hashes and foreign equality
+implementations do not create issuer authority. Parsed immutable observations
+and their original raw-file hashes remain attached to the receipt. This is
+native frontend/compiler authority; it does not assert Java kernel checking,
+hosted Init, an executed startup or a ready Project.
+
+Source-local rows and imported rows have different evidence scopes. Old source
+rows include `pretty` and actual closed/ground-cache observations, while imported
+entry/startup rows additionally report actual `initializationAction` metadata.
+The consumer compares shared executable IR, dependencies, redirects, typed
+module origin and initializer association explicitly. It admits the actual
+source closed/ground to imported value observation caused by nonserialized
+compiler caches. Canonical local rows remain the original source rows;
+additional imported observations stay separate. Missing source metadata is
+never filled with an invented null/action, and original row hashes are not
+relabelled as hashes of a derived object. The runtime publisher must reserve all
+selected Headers under one SourceBinding, using the actual startup side evidence
+for initializer classification and the actual checked entry evidence for handles.
