@@ -64,6 +64,8 @@ public final class Interpreter implements AutoCloseable {
     private static final int BYTE_GET_DEFAULT=557;
     private static final int IO_RANDOM_BYTES=558;
     private static final int U8_ADD=559,FLOAT_ADD=560,FLOAT32_ADD=561;
+    private static final int FLOAT32_BITS=562,FLOAT32_DIV=563,FLOAT32_MUL=564,
+            U64_FLOAT32=565,U32_OWNED_NAT=566;
     private static final int INT_OF_NAT=210,INT_NEG_SUCC=211,INT_NEG=212,INT_ABS=213,INT_ADD=214,INT_SUB=215,INT_EQ=216,INT_LT=217,INT_LE=218;
     private static final int STR_MEMCMP=230,STR_SUBSTRING_EQ=231,STR_POS_OF=232,STR_OFFSET_OF_POS=233,STR_PUSHN=234;
     private static final int MAX_STRING_OUTPUT_BYTES=16*1024*1024;
@@ -658,6 +660,11 @@ public final class Interpreter implements AutoCloseable {
         register(registry,new ExternSpec("lean_int64_neg",U64_NEG,"uint64",new String[]{"uint64"},new boolean[]{false}));
         register(registry,new ExternSpec("lean_float_add",FLOAT_ADD,"float",new String[]{"float","float"},new boolean[]{false,false}));
         register(registry,new ExternSpec("lean_float32_add",FLOAT32_ADD,"float32",new String[]{"float32","float32"},new boolean[]{false,false}));
+        register(registry,new ExternSpec("lean_float32_of_bits",FLOAT32_BITS,"float32",new String[]{"uint32"},new boolean[]{false}));
+        register(registry,new ExternSpec("lean_uint32_of_nat_mk",U32_OWNED_NAT,"uint32",new String[]{"tobject"},new boolean[]{false}));
+        register(registry,new ExternSpec("lean_float32_div",FLOAT32_DIV,"float32",new String[]{"float32","float32"},new boolean[]{false,false}));
+        register(registry,new ExternSpec("lean_float32_mul",FLOAT32_MUL,"float32",new String[]{"float32","float32"},new boolean[]{false,false}));
+        register(registry,new ExternSpec("lean_uint64_to_float32",U64_FLOAT32,"float32",new String[]{"uint64"},new boolean[]{false}));
         registry.replaceAll((symbol,entries)->Collections.unmodifiableList(entries));
         return Collections.unmodifiableMap(registry);
     }
@@ -7717,12 +7724,25 @@ public final class Interpreter implements AutoCloseable {
             runtimeIntrinsic(f,a,b,c);
         } else scalarIntrinsic(f,a,b);
     }
-    private static boolean floatPrimitive(int op) { return op>=FLOAT_BITS&&op<=FLOAT_STRING||op==FLOAT_LE||op==FLOAT_ADD||op==FLOAT32_ADD; }
+    private static boolean floatPrimitive(int op) { return op>=FLOAT_BITS&&op<=FLOAT_STRING||op==FLOAT_LE||op==FLOAT_ADD||op==FLOAT32_ADD
+            ||op==FLOAT32_BITS||op==FLOAT32_DIV||op==FLOAT32_MUL||op==U64_FLOAT32; }
     private static boolean nanBits(long bits) { return (bits&0x7ff0000000000000L)==0x7ff0000000000000L&&(bits&0x000fffffffffffffL)!=0; }
     private strictfp void floatIntrinsic(Function f,long a,long b) {
-        if(f.intrinsic==FLOAT32_ADD) {
+        // Pinned object.cpp: of_bits preserves all non-NaN bits and canonicalizes NaNs.
+        if(f.intrinsic==FLOAT32_BITS) {
+            int bits=(int)a;
+            scalarResult=(bits&0x7f800000)==0x7f800000&&(bits&0x007fffff)!=0
+                    ?0x7fc00000L:Integer.toUnsignedLong(bits); return;
+        }
+        if(f.intrinsic==U64_FLOAT32) {
+            BigInteger unsigned=BigInteger.valueOf(a&Long.MAX_VALUE); if(a<0) unsigned=unsigned.setBit(63);
+            // A direct integer-to-float conversion: routing through double would double-round.
+            scalarResult=Integer.toUnsignedLong(Float.floatToRawIntBits(unsigned.floatValue())); return;
+        }
+        if(f.intrinsic==FLOAT32_ADD||f.intrinsic==FLOAT32_DIV||f.intrinsic==FLOAT32_MUL) {
             float x=Float.intBitsToFloat((int)a),y=Float.intBitsToFloat((int)b);
-            scalarResult=Integer.toUnsignedLong(Float.floatToRawIntBits(x+y)); return;
+            float out=f.intrinsic==FLOAT32_ADD?x+y:f.intrinsic==FLOAT32_DIV?x/y:x*y;
+            scalarResult=Integer.toUnsignedLong(Float.floatToRawIntBits(out)); return;
         }
         if(f.intrinsic==FLOAT_BITS) { scalarResult=nanBits(a)?0x7ff8000000000000L:a; return; }
         if(f.intrinsic==FLOAT_U64) {
@@ -9437,7 +9457,7 @@ public final class Interpreter implements AutoCloseable {
     /** Explicit membership: later IDs need not lie beside the original scalar group. */
     private static boolean u64ScalarPrimitive(int op) {
         switch(op) {
-            case U16_EQ: case U16_NAT: case U8_ADD:
+            case U16_EQ: case U16_NAT: case U8_ADD: case U32_OWNED_NAT:
             case LAYOUT_FIELDS: case LAYOUT_SCALARS: case LAYOUT_TAG: case LAYOUT_USIZE: case U32_LT: case U64_TO_NAT:
             case STR_HASH: case U64_MIX: case U64_NAT: case U64_SHR: case U64_XOR: case U64_USIZE:
             case U64_LT: case U64_EQ: case U64_OWNED_NAT: case U64_TO_U32:
@@ -9505,6 +9525,7 @@ public final class Interpreter implements AutoCloseable {
                 if(f.params.length>1) require(ERASED.equals(b),"UInt64 conversion proof requires erased placeholder");
                 scalarResult=nat(a).longValue(); break;
             case U64_OWNED_NAT: scalarResult=nat(a).longValue(); releaseQuiet(a,1); break;
+            case U32_OWNED_NAT: scalarResult=nat(a).longValue()&0xffffffffL; releaseQuiet(a,1); break;
             case U64_SHR: scalarResult=(Long)a>>>(Long)b; break;
             case U64_XOR: scalarResult=(Long)a^(Long)b; break;
             case U64_USIZE: scalarResult=(Long)a; break;

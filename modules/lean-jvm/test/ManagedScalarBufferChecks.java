@@ -28,18 +28,50 @@ public final class ManagedScalarBufferChecks {
         for(int i=0;i<pairs.length;i+=2) out.put((String)pairs[i],pairs[i+1]); return out;
     }
     private static Object name(String text) { return List.of("str",List.of("anonymous"),text); }
-    private static Map<String,Object> extern(String symbol,String lane,int arity) {
+    private static Map<String,Object> externABI(String symbol,String result,String... lanes) {
         List<Object> xs=new ArrayList<>();
-        for(int i=0;i<arity;i++) xs.add(map("x",map("idx",i+1),"ty",lane,"borrow",false));
-        return map("kind","decl","name",name(symbol),"ir",map("extern",map("f",name(symbol),"xs",xs,"type",lane,
+        for(int i=0;i<lanes.length;i++) xs.add(map("x",map("idx",i+1),"ty",lanes[i],"borrow",false));
+        return map("kind","decl","name",name(symbol),"ir",map("extern",map("f",name(symbol),"xs",xs,"type",result,
                 "ext",map("entries",List.of(map("standard",map("backend",name("all"),"fn",symbol)))))));
     }
-    private static Object call(String symbol,String lane,Object... arguments) {
-        try(Interpreter engine=new Interpreter(Interpreter.prepare(List.of(extern(symbol,lane,arguments.length))),true)) {
+    private static Object callABI(String symbol,String result,String[] lanes,Object... arguments) {
+        try(Interpreter engine=new Interpreter(Interpreter.prepare(List.of(externABI(symbol,result,lanes))),true)) {
             engine.start(0,arguments);
             for(int i=0;i<1000&&!engine.advance(1000);i++) { }
             check("complete".equals(engine.phase()),"Intrinsic did not complete"); return engine.takeResult();
         }
+    }
+    private static Object call(String symbol,String lane,Object... arguments) {
+        String[] lanes=new String[arguments.length]; Arrays.fill(lanes,lane);
+        return callABI(symbol,lane,lanes,arguments);
+    }
+    private static int f32bits(Object value) { return Float.floatToRawIntBits((Float)value); }
+    private static void float32LiteralDependencies() {
+        // Pin819816 object.cpp:1987 canonicalizes NaNs; non-NaNs retain their exact bits.
+        for(long bits:new long[]{0,0x80000000L,1,0x007fffffL,0x00800000L,0x3f800001L,0x7f7fffffL,0x7f800000L,0xff800000L})
+            check(f32bits(callABI("lean_float32_of_bits","float32",new String[]{"uint32"},Long.valueOf(bits)))==(int)bits,"Float32.ofBits non-NaN identity");
+        for(long bits:new long[]{0x7fc01234L,0x7fa00001L,0xffc01234L})
+            check(f32bits(callABI("lean_float32_of_bits","float32",new String[]{"uint32"},Long.valueOf(bits)))==0x7fc00000,"Float32.ofBits NaN canonicalization");
+        BigInteger mask=BigInteger.ONE.shiftLeft(32).subtract(BigInteger.ONE);
+        for(BigInteger input:new BigInteger[]{BigInteger.ZERO,BigInteger.valueOf(17),mask,
+                BigInteger.ONE.shiftLeft(32),BigInteger.ONE.shiftLeft(200).add(new BigInteger("89abcdef",16))})
+            check(callABI("lean_uint32_of_nat_mk","uint32",new String[]{"tobject"},input).equals(Long.valueOf(input.and(mask).longValue())),"Owned Nat narrowing modulo2^32");
+        check(f32bits(call("lean_float32_div","float32",Float.valueOf(1),Float.valueOf(3)))==0x3eaaaaab,"Float32 division rounds to32bits");
+        check(f32bits(call("lean_float32_div","float32",Float.valueOf(Float.MIN_VALUE),Float.valueOf(2)))==0,"Float32 division subnormal tie rounds even");
+        check(f32bits(call("lean_float32_div","float32",Float.valueOf(-0.0f),Float.valueOf(2)))==Integer.MIN_VALUE,"Float32 division preserves negative zero");
+        check(f32bits(call("lean_float32_div","float32",Float.valueOf(1),Float.valueOf(-0.0f)))==0xff800000,"Float32 division signed infinity");
+        check(Float.isNaN((Float)call("lean_float32_div","float32",Float.valueOf(0),Float.valueOf(0))),"Float32 zero divided by zero");
+        check(f32bits(call("lean_float32_mul","float32",Float.valueOf(Float.MIN_NORMAL),Float.valueOf(0.5f)))==0x00400000,"Float32 multiplication subnormal");
+        check(f32bits(call("lean_float32_mul","float32",Float.valueOf(-0.0f),Float.valueOf(2)))==Integer.MIN_VALUE,"Float32 multiplication negative zero");
+        check(Float.isInfinite((Float)call("lean_float32_mul","float32",Float.MAX_VALUE,Float.valueOf(2))),"Float32 multiplication overflow");
+        float aboveOne=Float.intBitsToFloat(0x3f800001);
+        check(f32bits(call("lean_float32_mul","float32",Float.valueOf(aboveOne),Float.valueOf(aboveOne)))==0x3f800002,"Float32 multiplication rounds at24bits");
+        // This exact integer is just above a Float32 midpoint but rounds to that
+        // midpoint in Double. A double-mediated conversion would yield5f000000.
+        BigInteger midpointAbove=BigInteger.ONE.shiftLeft(63).add(BigInteger.ONE.shiftLeft(39)).add(BigInteger.ONE);
+        check(f32bits(callABI("lean_uint64_to_float32","float32",new String[]{"uint64"},midpointAbove))==0x5f000001,"UInt64 to Float32 must not double-round");
+        check(f32bits(callABI("lean_uint64_to_float32","float32",new String[]{"uint64"},BigInteger.ONE.shiftLeft(64).subtract(BigInteger.ONE)))==0x5f800000,"Unsigned64 maximum to Float32");
+        check(f32bits(callABI("lean_uint64_to_float32","float32",new String[]{"uint64"},Long.valueOf(0)))==0,"Unsigned64 zero to Float32");
     }
     public static void main(String[] args) throws Exception {
         try(Interpreter engine=new Interpreter(Interpreter.prepare(List.of()),true)) {
@@ -85,6 +117,7 @@ public final class ManagedScalarBufferChecks {
         check(call("lean_float32_add","float32",Float.valueOf(16777216f),Float.valueOf(1f)).equals(Float.valueOf(16777216f)),"Float32 rounds at24bits");
         check(Float.floatToRawIntBits((Float)call("lean_float32_add","float32",Float.valueOf(-0.0f),Float.valueOf(-0.0f)))==Integer.MIN_VALUE,"Float32 signed zero");
         check(Float.isInfinite((Float)call("lean_float32_add","float32",Float.MAX_VALUE,Float.MAX_VALUE)),"Float32 overflow");
+        float32LiteralDependencies();
         System.out.println("ManagedScalarBufferChecks PASS "+checks);
     }
 }
