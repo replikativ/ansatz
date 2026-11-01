@@ -170,3 +170,25 @@ All references below are to Lean commit
 The compiler evidence configuration accepts `:entry-schema 1` (default) or `2`. A producer bundle derives this value from the independently admitted entry source/binary pair. Schema 1 keeps its existing requests and rejects `:signature "auto"` before compiler/path access. Schema 2 emits name-only requests; callers may request `"auto"` or constrain the result to an existing legacy signature. The outer portable artifact remains `lean-native-local-project/2`; the nested entry evidence and admitted producer cohort distinguish the versions. The published v1 bundle is unchanged.
 
 The metadata-only models in `modules/lean-jvm/test/entry_checks.clj` exercise the existing v1 application archive and the root-observed 13-entry, 38-row v2 fixture, including descriptor/ABI/plan/witness/provenance mutations. Fixture digests and producer pins are recorded beside the fixture. These models do not constitute native execution or end-to-end v2 SDK acceptance.
+
+## Extended finite value families (source checkpoint)
+
+The opt-in producer additionally classifies the following exact descriptors. These extensions keep evidence schema 2; the independently admitted producer source/binary pair identifies the implemented cohort. The original core-only v2 pair remains admitted explicitly. A newly compiled producer must receive its own accepted pair after root-owned native acceptance; no unknown or placeholder binary digest is accepted.
+
+| Descriptor | Canonical Lean type |
+| --- | --- |
+| `{kind: "machine-int", bits: 8/16/32/64, signed: Bool}` | `UInt8/16/32/64` or `Int8/16/32/64` |
+| `{kind: "word", signed: Bool}` | `USize` or `ISize`, with the existing 64-bit runtime profile |
+| `{kind: "float", bits: 32/64}` | `Float32` or `Float` |
+| `{kind: "char"}` | `Char` |
+| `{kind: "array", element: T}` / `{kind: "bytes"}` | `Array T` / `ByteArray` |
+| `{kind: "sum", left: L, right: R}` | `Sum L R` |
+| `{kind: "except", error: E, value: V}` | `Except E V` |
+
+Every encountered special scalar/array/byte type contributes an actual `toLCNFType → toMonoType → toImpureType` compiler observation in `nativeRepresentation`. Its exact shape is `{algorithm: "Lean.Compiler.LCNF.toLCNFType/toMonoType/toImpureType", types: [{type: descriptor, irType: nativeLane}]}`. Duplicate observations, absent nested special types, extra types, unknown fields, or conflicting lanes fail shared validation. Arrays and bytes contribute no invented ordinary constructor layout. Sum and Except contribute actual `getCtorLayout` constructor witnesses.
+
+Owned boxed arguments remain mandatory. A pure nullary scalar may use its exact native raw result lane and `resultABI: "raw-nullary-scalar"`; the original Bool spelling remains compatible. Signed values retain their source signed descriptor even though native wrapper erasure selects an unsigned bit lane. Float codecs must preserve raw-bit semantics (including signed zero and nonfinite values). Char input/output must enforce Unicode scalar validity, rather than accepting every UInt32. These are codec obligations, not extra capabilities inferred from a descriptor.
+
+Pinned implementation references: `src/Lean/Compiler/LCNF/ToImpureType.lean` defines builtin scalar lanes and trivial-wrapper erasure; `src/Lean/Compiler/LCNF/Irrelevant.lean` excludes runtime builtin types from generic trivial-structure treatment; `src/Init/Data/SInt/Basic.lean` defines signed wrappers; `src/Init/Prelude.lean` defines Char's scalar-validity proof and runtime-special arrays. The JVM scalar boxing implementation uses immediate small lanes and dedicated Float32/64-bit scalar payloads; those Node details are not exported as native allocation authority.
+
+`extended_entry_checks.clj` contains synthetic metadata policy models, clearly separate from the immutable actual native core-only fixture. Native probes, boxed ABI acceptance, host codecs, result ownership and runtime intrinsic coverage for the extended producer remain root-owned gates. This checkpoint does not widen the positive capability profile or add arbitrary records, proofs, callbacks, resources, tasks, or streams.

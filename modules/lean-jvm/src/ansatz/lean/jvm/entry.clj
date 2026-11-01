@@ -14,10 +14,15 @@
       :producer "NativeGeneralEntryEvidence.exportEntries"
       :source "e3e6f269769d2155b2367fc12e685b86b18204248b4303639e9fa6a59325f8ed"
       :binary "64fc830a0bc395eed1e11280321331c9877021ce0e69b3aec6dfcb8b7646355a"}})
+(def producer-pins
+  "Independently admitted source/binary pairs. New producer builds enter only
+   after root-owned compilation/acceptance; the original v2 pair stays explicit."
+  {1 #{[(get-in cohorts [1 :source]) (get-in cohorts [1 :binary])]}
+   2 #{[(get-in cohorts [2 :source]) (get-in cohorts [2 :binary])]}})
 (defn- need [ok stage]
   (when-not ok (throw (ex-info "Native entry observation rejected" {:code "EntryRejected" :stage stage}))))
 (defn schema-for-pins! [source binary]
-  (or (some (fn [[schema cohort]] (when (= [source binary] [(:source cohort) (:binary cohort)]) schema)) cohorts)
+  (or (some (fn [[schema pairs]] (when (contains? pairs [source binary]) schema)) producer-pins)
       (throw (ex-info "Unsupported native entry producer cohort" {:code "UnsupportedProjectConfig" :stage :entry-helper-cohort}))))
 (defn- typed-name [parts] (reduce (fn [parent part] ["str" parent part]) ["anonymous"] parts))
 (defn- name! [value]
@@ -63,6 +68,12 @@
    (typed-name ["List"]) {"typeName" (typed-name ["List"]) "irType" "tobject" "trivialStructure" nil
                            "constructors" [(constructor ["List"] "nil" 0 [])
                                            (constructor ["List"] "cons" 1 [(object-field 0) (object-field 1)])]}
+   (typed-name ["Sum"]) {"typeName" (typed-name ["Sum"]) "irType" "object" "trivialStructure" nil
+                         "constructors" [(constructor ["Sum"] "inl" 0 [(object-field 0)])
+                                         (constructor ["Sum"] "inr" 1 [(object-field 0)])]}
+   (typed-name ["Except"]) {"typeName" (typed-name ["Except"]) "irType" "object" "trivialStructure" nil
+                            "constructors" [(constructor ["Except"] "error" 0 [(object-field 0)])
+                                            (constructor ["Except"] "ok" 1 [(object-field 0)])]}
    (typed-name ["EST" "Out"]) {"typeName" (typed-name ["EST" "Out"]) "irType" "object" "trivialStructure" nil
                                 "constructors" [(constructor ["EST" "Out"] "ok" 0 [(object-field 0) {"kind" "void"}])
                                                 (constructor ["EST" "Out"] "error" 1 [(object-field 0) {"kind" "void"}])]}})
@@ -71,6 +82,9 @@
     "product" (into #{(typed-name ["Prod"])} (concat (type-families (get type "first")) (type-families (get type "second"))))
     "option" (conj (type-families (get type "element")) (typed-name ["Option"]))
     "list" (conj (type-families (get type "element")) (typed-name ["List"]))
+    "array" (type-families (get type "element"))
+    "sum" (into #{(typed-name ["Sum"])} (concat (type-families (get type "left")) (type-families (get type "right"))))
+    "except" (into #{(typed-name ["Except"])} (concat (type-families (get type "error")) (type-families (get type "value"))))
     #{}))
 (defn- witnesses! [descriptor witnesses]
   (let [expected (reduce into (type-families (get descriptor "result")) (map type-families (get descriptor "arguments")))
@@ -79,11 +93,43 @@
     (need (and (map? witnesses) (= #{"algorithm" "scope" "families"} (set (keys witnesses)))
                (= "Lean.Compiler.LCNF.getCtorLayout" (get witnesses "algorithm"))
                (= "actual-persisted-native-compiler-layout-not-host-allocation-authority" (get witnesses "scope"))
-               (vector? families) (<= (count families) 4)
+               (vector? families) (<= (count families) 6)
                (= (count families) (count (set (map #(get % "typeName") families))))
                (= expected (set (map #(get % "typeName") families)))) :codec-witness-set)
     (doseq [family families]
       (need (= family (get layout-policy (get family "typeName"))) :codec-witness-layout))))
+(defn- scalar-lane [type]
+  (case (get type "kind")
+    "bool" "uint8"
+    "machine-int" (str "uint" (get type "bits"))
+    "word" "usize"
+    "float" (if (= 32 (get type "bits")) "float32" "float")
+    "char" "uint32"
+    nil))
+(defn- special-types [type]
+  (case (get type "kind")
+    ("machine-int" "word" "float" "char" "bytes") #{type}
+    "array" (conj (special-types (get type "element")) type)
+    "product" (into (special-types (get type "first")) (special-types (get type "second")))
+    "sum" (into (special-types (get type "left")) (special-types (get type "right")))
+    "except" (into (special-types (get type "error")) (special-types (get type "value")))
+    ("option" "list") (special-types (get type "element"))
+    #{}))
+(defn- representation! [descriptor representation]
+  (let [types (reduce into (special-types (get descriptor "result")) (map special-types (get descriptor "arguments")))
+        observations (get representation "types")]
+    ;; The original core-only v2 producer predates this field. Special types
+    ;; always require it; an optional observation on old types must still match.
+    (when (or (seq types) (some? representation))
+      (need (and (map? representation) (= #{"algorithm" "types"} (set (keys representation)))
+                 (= "Lean.Compiler.LCNF.toLCNFType/toMonoType/toImpureType" (get representation "algorithm"))
+                 (vector? observations) (<= (count observations) 512)
+                 (= (count observations) (count (set (map #(get % "type") observations))))
+                 (= types (set (map #(get % "type") observations)))) :native-representation-set)
+      (doseq [observation observations]
+        (let [type (get observation "type") lane (or (scalar-lane type) "object")]
+          (need (and (= #{"type" "irType"} (set (keys observation)))
+                     (= lane (get observation "irType"))) :native-representation-lane))))))
 (defn- abi! [abi]
   (need (and (map? abi) (= #{"name" "xs" "type"} (set (keys abi)))
              (vector? (get abi "xs")) (<= (count (get abi "xs")) 65)) :callable-abi)
@@ -95,9 +141,11 @@
   (let [profile (get-in entry ["typeCheck" "signature"]) v1? (string? profile)
         descriptor (descriptor entry) callable (abi! (get entry "callable")) raw (abi! (get entry "raw"))
         parameters (get callable "xs") arity (if v1? 1 (signature/runtime-arity descriptor))
-        scalar-bool? (and (not v1?) (= "pure" (get descriptor "effect"))
-                          (empty? (get descriptor "arguments")) (= {"kind" "bool"} (get descriptor "result"))
-                          (= "uint8" (get callable "type")))]
+        scalar? (and (not v1?) (= "pure" (get descriptor "effect"))
+                     (empty? (get descriptor "arguments"))
+                     (some? (scalar-lane (get descriptor "result")))
+                     (= (scalar-lane (get descriptor "result")) (get callable "type")))
+        scalar-bool? (and scalar? (= {"kind" "bool"} (get descriptor "result")))]
     (name! (get entry "name")) (name! (get entry "compiledModule"))
     (need (and (#{"definition" "opaque"} (get entry "kind")) (= [] (get entry "levelParams"))
                (= "Lean.Meta.isDefEq" (get-in entry ["typeCheck" "algorithm"]))
@@ -110,7 +158,7 @@
                (= arity (count parameters))
                (every? #(and (false? (get % "borrow")) (#{"object" "tobject" "tagged"} (get % "ty"))) parameters)
                (or (#{"object" "tobject" "tagged"} (get callable "type"))
-                   (and scalar-bool? (= "original-owned-raw" (get entry "selection"))))) :owned-callable)
+                   (and scalar? (= "original-owned-raw" (get entry "selection"))))) :owned-callable)
     (when-not v1?
       (need (and (= (signature/arity descriptor) (get entry "semanticArity"))
                  (= arity (get entry "runtimeArity"))
@@ -118,9 +166,10 @@
                       (= "io" (get descriptor "effect"))
                       (conj {"kind" "io-world" "representation" "canonical-erased-zero"}))
                     (get entry "argumentPlan"))
-                 (= (if scalar-bool? "raw-nullary-bool-uint8" "boxed-object-lane") (get entry "resultABI"))
+                 (= (cond scalar-bool? "raw-nullary-bool-uint8" scalar? "raw-nullary-scalar" :else "boxed-object-lane") (get entry "resultABI"))
                  (if (= "original-owned-raw" (get entry "selection")) (= raw callable) (seq (get raw "xs")))) :v2-call-plan)
-      (witnesses! descriptor (get entry "codecWitnesses")))
+      (witnesses! descriptor (get entry "codecWitnesses"))
+      (representation! descriptor (get entry "nativeRepresentation")))
     entry))
 (defn validate-rows! [entry index]
   (validate! entry)

@@ -28,8 +28,7 @@
   (let [entry-schema (when (= "entry" name)
                        (checked-entry/schema-for-pins! (get descriptor "sourceSHA256") (get descriptor "binarySHA256")))
         supported (if entry-schema
-                    {"binarySHA256" (get-in checked-entry/cohorts [entry-schema :binary])
-                     "sourceSHA256" (get-in checked-entry/cohorts [entry-schema :source])}
+                    (select-keys descriptor ["binarySHA256" "sourceSHA256"])
                     (supported-producers name))]
     (need (and (map? descriptor)
                (= #{"binary" "binarySHA256" "source" "sourceSHA256"} (set (keys descriptor)))

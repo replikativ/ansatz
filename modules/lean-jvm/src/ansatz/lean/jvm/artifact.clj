@@ -168,8 +168,8 @@
   (let [producer (get manifest "producer")
         entry-schema (cond
                        (= (get-in checked-entry/cohorts [1 :source]) (get-in producer ["entryHelperSource" "sha256"])) 1
-                       (and (= (get-in checked-entry/cohorts [2 :source]) (get-in producer ["entryHelperSource" "sha256"]))
-                            (= (get-in checked-entry/cohorts [2 :binary]) (get-in producer ["entryHelper" "sha256"]))) 2)
+                       (contains? (get checked-entry/producer-pins 2)
+                                  [(get-in producer ["entryHelperSource" "sha256"]) (get-in producer ["entryHelper" "sha256"])]) 2)
         source-pins {"startupHelperSource" "f8c92d652c596b9bf656135348b190a5c09cf61ec40c8775835cf180a8833dd1"
                      "typedSourceExporterSource" "a48e00225fe08c1a74b66fff1102fd0c11ecefaaafc20ddcf6e28aaf363c99d3"}
         _ (need (and entry-schema (= lean-commit (get producer "leanCommit")) (= "4.33.1" (get producer "leanVersion"))

@@ -134,10 +134,16 @@ private def readBounded (path : String) (limit : Nat) : IO String :=
     let some text := String.fromUTF8? bytes | throw <| IO.userError "input is not exact UTF-8"
     return text
 private inductive ValueType where
-  | nat | int | bool | string | unit
+  | nat | int | bool | string | unit | char | bytes
+  | machineInt (bits : Nat) (signed : Bool)
+  | word (signed : Bool)
+  | float (bits : Nat)
   | product (first second : ValueType)
   | option (element : ValueType)
   | list (element : ValueType)
+  | array (element : ValueType)
+  | sum (left right : ValueType)
+  | except (error value : ValueType)
   deriving Inhabited
 
 private partial def valueTypeJson : ValueType → Json
@@ -146,10 +152,24 @@ private partial def valueTypeJson : ValueType → Json
   | .bool => Json.mkObj [("kind", toJson "bool")]
   | .string => Json.mkObj [("kind", toJson "string")]
   | .unit => Json.mkObj [("kind", toJson "unit")]
+  | .char => Json.mkObj [("kind", toJson "char")]
+  | .bytes => Json.mkObj [("kind", toJson "bytes")]
+  | .machineInt bits signed => Json.mkObj [("kind", toJson "machine-int"), ("bits", toJson bits), ("signed", toJson signed)]
+  | .word signed => Json.mkObj [("kind", toJson "word"), ("signed", toJson signed)]
+  | .float bits => Json.mkObj [("kind", toJson "float"), ("bits", toJson bits) ]
   | .product first second => Json.mkObj [("kind", toJson "product"),
       ("first", valueTypeJson first), ("second", valueTypeJson second)]
   | .option element => Json.mkObj [("kind", toJson "option"), ("element", valueTypeJson element)]
   | .list element => Json.mkObj [("kind", toJson "list"), ("element", valueTypeJson element)]
+  | .array element => Json.mkObj [("kind", toJson "array"), ("element", valueTypeJson element)]
+  | .sum left right => Json.mkObj [("kind", toJson "sum"), ("left", valueTypeJson left), ("right", valueTypeJson right)]
+  | .except error value => Json.mkObj [("kind", toJson "except"), ("error", valueTypeJson error), ("value", valueTypeJson value)]
+
+private def machineIntName (bits : Nat) (signed : Bool) : Name :=
+  if signed then
+    if bits == 8 then ``Int8 else if bits == 16 then ``Int16 else if bits == 32 then ``Int32 else ``Int64
+  else
+    if bits == 8 then ``UInt8 else if bits == 16 then ``UInt16 else if bits == 32 then ``UInt32 else ``UInt64
 
 private partial def valueTypeExpr : ValueType → Expr
   | .nat => mkConst ``Nat
@@ -157,9 +177,17 @@ private partial def valueTypeExpr : ValueType → Expr
   | .bool => mkConst ``Bool
   | .string => mkConst ``String
   | .unit => mkConst ``Unit
+  | .char => mkConst ``Char
+  | .bytes => mkConst ``ByteArray
+  | .machineInt bits signed => mkConst (machineIntName bits signed)
+  | .word signed => mkConst (if signed then ``ISize else ``USize)
+  | .float bits => mkConst (if bits == 32 then ``Float32 else ``Float)
   | .product first second => mkApp2 (mkConst ``Prod [.zero, .zero]) (valueTypeExpr first) (valueTypeExpr second)
   | .option element => mkApp (mkConst ``Option [.zero]) (valueTypeExpr element)
   | .list element => mkApp (mkConst ``List [.zero]) (valueTypeExpr element)
+  | .array element => mkApp (mkConst ``Array [.zero]) (valueTypeExpr element)
+  | .sum left right => mkApp2 (mkConst ``Sum [.zero, .zero]) (valueTypeExpr left) (valueTypeExpr right)
+  | .except error value => mkApp2 (mkConst ``Except [.zero, .zero]) (valueTypeExpr error) (valueTypeExpr value)
 
 private structure Signature where
   arguments : Array ValueType
@@ -186,7 +214,13 @@ private partial def inferValueType (type : Expr) (depth remaining : Nat) : MetaM
   if ← Meta.isProp type then throwError "UnsupportedProofType: proofs are not host values"
   let remaining := remaining - 1
   for (name, result) in #[( ``Nat, ValueType.nat), (``Int, .int), (``Bool, .bool),
-                         (``String, .string), (``Unit, .unit)] do
+                         (``String, .string), (``Unit, .unit), (``Char, .char), (``ByteArray, .bytes),
+                         (``UInt8, .machineInt 8 false), (``UInt16, .machineInt 16 false),
+                         (``UInt32, .machineInt 32 false), (``UInt64, .machineInt 64 false),
+                         (``Int8, .machineInt 8 true), (``Int16, .machineInt 16 true),
+                         (``Int32, .machineInt 32 true), (``Int64, .machineInt 64 true),
+                         (``USize, .word false), (``ISize, .word true),
+                         (``Float, .float 64), (``Float32, .float 32)] do
     if ← Meta.withTransparency .default (Meta.isDefEq type (mkConst name)) then return (result, remaining)
   match type with
   | .sort _ => throwError "UnsupportedTypeFormer: universe/type arguments are not host values"
@@ -204,6 +238,14 @@ private partial def inferValueType (type : Expr) (depth remaining : Nat) : MetaM
   if head.isConstOf ``List && arguments.size == 1 then
     let (element, remaining) ← inferValueType arguments[0]! (depth + 1) remaining
     return (.list element, remaining)
+  if head.isConstOf ``Array && arguments.size == 1 then
+    let (element, remaining) ← inferValueType arguments[0]! (depth + 1) remaining
+    return (.array element, remaining)
+  for (name, isExcept) in #[( ``Sum, false), (``Except, true)] do
+    if head.isConstOf name && arguments.size == 2 then
+      let (left, remaining) ← inferValueType arguments[0]! (depth + 1) remaining
+      let (right, remaining) ← inferValueType arguments[1]! (depth + 1) remaining
+      return (if isExcept then .except left right else .sum left right, remaining)
   throwError "UnsupportedValueType: no descriptor for this actual native type"
 
 /-- This probe must run BEFORE reducing a Pi telescope: IO unfolds to an internal
@@ -317,6 +359,9 @@ private partial def containerNames (type : ValueType) : Array Name :=
   | .product first second => #[``Prod] ++ containerNames first ++ containerNames second
   | .option element => #[``Option] ++ containerNames element
   | .list element => #[``List] ++ containerNames element
+  | .array element => containerNames element
+  | .sum left right => #[``Sum] ++ containerNames left ++ containerNames right
+  | .except error value => #[``Except] ++ containerNames error ++ containerNames value
   | _ => #[]
 
 private def familyLayout (name : Name) : MetaM Json := do
@@ -343,6 +388,42 @@ private def codecWitnesses (signature : Signature) : MetaM Json := do
   return Json.mkObj [("algorithm", toJson "Lean.Compiler.LCNF.getCtorLayout"),
     ("scope", toJson "actual-persisted-native-compiler-layout-not-host-allocation-authority"),
     ("families", Json.arr layouts)]
+
+/-- Observe special value representations through the actual pinned compiler
+    pipeline. Arrays and bytes are runtime-special values, never constructor
+    recipes. Signed wrappers/Char must retain their source descriptor even when
+    the compiler erases their wrapper into an unsigned scalar lane. -/
+private partial def specialTypes (type : ValueType) : Array ValueType :=
+  match type with
+  | .machineInt .. | .word .. | .float .. | .char | .bytes => #[type]
+  | .array element => #[type] ++ specialTypes element
+  | .product first second | .sum first second | .except first second => specialTypes first ++ specialTypes second
+  | .option element | .list element => specialTypes element
+  | _ => #[]
+
+private def nativeRepresentation (signature : Signature) : MetaM Json := do
+  let types := signature.arguments.foldl (fun types argument => types ++ specialTypes argument)
+    (specialTypes signature.result)
+  let mut seen : Array Json := #[]
+  let mut observations : Array Json := #[]
+  for type in types do
+    let descriptor := valueTypeJson type
+    if seen.contains descriptor then continue
+    seen := seen.push descriptor
+    let lcnf ← Compiler.LCNF.toLCNFType (valueTypeExpr type)
+    let mono ← Compiler.LCNF.toMonoType lcnf
+    let impure ← Compiler.LCNF.toImpureType mono
+    observations := observations.push <| Json.mkObj [("type", descriptor), ("irType", toJson (IR.toIRType impure))]
+  return Json.mkObj [("algorithm", toJson "Lean.Compiler.LCNF.toLCNFType/toMonoType/toImpureType"),
+    ("types", Json.arr observations)]
+
+private def scalarResultType? : ValueType → Option IR.IRType
+  | .bool => some .uint8
+  | .machineInt bits _ => some (if bits == 8 then .uint8 else if bits == 16 then .uint16 else if bits == 32 then .uint32 else .uint64)
+  | .word _ => some .usize
+  | .float bits => some (if bits == 32 then .float32 else .float)
+  | .char => some .uint32
+  | _ => none
 
 private partial def checkIRType (t : IR.IRType) (depth : Nat := 0) : EncodeM Unit := do
   depth! depth
@@ -458,6 +539,8 @@ private def entry (env : Environment) (request : Json) : IO (Json × Array Name 
     { fileName := "<compiled-native-entry>", fileMap := default, maxRecDepth := 256, maxHeartbeats := 200000 } { env }
   let (witnesses, _, _) ← (codecWitnesses signature).toIO
     { fileName := "<compiled-native-codec-layout>", fileMap := default, maxRecDepth := 256, maxHeartbeats := 200000 } { env }
+  let (representation, _, _) ← (nativeRepresentation signature).toIO
+    { fileName := "<compiled-native-representation>", fileMap := default, maxRecDepth := 256, maxHeartbeats := 200000 } { env }
   let actual ← checkedIO <| encodeType actual
   let expected ← checkedIO <| encodeType expected
   let some raw := findInterpreterDecl env n | throw <| IO.userError "original interpreter raw lookup found no IR"
@@ -466,12 +549,13 @@ private def entry (env : Environment) (request : Json) : IO (Json × Array Name 
   let boxed := if raw.params.isEmpty then none else findInterpreterDeclBoxed env n
   let selected := boxed.getD raw
   let runtimeArity := signature.arguments.size + (if signature.io then 1 else 0)
-  let nullaryBoolScalar := !signature.io && signature.arguments.isEmpty &&
-    (signature.result matches .bool) && selected.resultType == .uint8
+  let nullaryScalar := !signature.io && signature.arguments.isEmpty &&
+    scalarResultType? signature.result == some selected.resultType
+  let nullaryBoolScalar := nullaryScalar && (signature.result matches .bool)
   unless !selected.isExtern && selected.params.size == runtimeArity &&
       selected.params.all (fun parameter => !parameter.borrow && boxedLane parameter.ty) &&
-      (boxedLane selected.resultType || nullaryBoolScalar) && selected.getInfo.sorryDep?.isNone do
-    throw <| IO.userError "UnsupportedCallableABI: actual interpreter callable is not exact owned boxed arity (or supported nullary Bool scalar)"
+      (boxedLane selected.resultType || nullaryScalar) && selected.getInfo.sorryDep?.isNone do
+    throw <| IO.userError "UnsupportedCallableABI: actual interpreter callable is not exact owned boxed arity (or supported nullary scalar)"
   checkedIO <| checkDecl raw
   checkedIO <| checkDecl selected
   let some module := origin env n | throw <| IO.userError "entry is not attributed to an actual compiled module"
@@ -483,11 +567,11 @@ private def entry (env : Environment) (request : Json) : IO (Json × Array Name 
     ("typeCheck", Json.mkObj [("algorithm", toJson "Lean.Meta.isDefEq"),
       ("signature", signatureJson signature), ("transparency", toJson "default"), ("expectedType", expected)]),
     ("semanticArity", toJson signature.arguments.size), ("runtimeArity", toJson runtimeArity),
-    ("codecWitnesses", witnesses),
+    ("codecWitnesses", witnesses), ("nativeRepresentation", representation),
     ("argumentPlan", Json.arr ((signature.arguments.mapIdx fun index _ => Json.mkObj [
       ("kind", toJson "argument"), ("index", toJson index)]) ++
       (if signature.io then #[Json.mkObj [("kind", toJson "io-world"), ("representation", toJson "canonical-erased-zero")]] else #[]))),
-    ("resultABI", toJson (if nullaryBoolScalar then "raw-nullary-bool-uint8" else "boxed-object-lane")),
+    ("resultABI", toJson (if nullaryBoolScalar then "raw-nullary-bool-uint8" else if nullaryScalar then "raw-nullary-scalar" else "boxed-object-lane")),
     ("raw", abiJson raw), ("callable", abiJson selected),
     ("selection", toJson (if boxed.isSome then "original-interpreter-boxed-lookup" else "original-owned-raw"))],
     #[n, selected.name], origins, forced)
