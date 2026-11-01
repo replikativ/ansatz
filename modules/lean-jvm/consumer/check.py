@@ -21,7 +21,8 @@ SOURCES = {"ansatz/lean/jvm/" + name + ".clj" for name in
            ["ir", "argument", "construction", "producer", "scalar_buffer", "artifact", "original", "capabilities", "startup", "publisher", "project", "signature", "codec", "entry", "value",
             "compiler/encoding", "compiler/transport", "compiler/local", "compiler/evidence", "compiler/bundle"]}
 SOURCES.add("ansatz/lean/jvm.clj")
-SDK_RESOURCES = {METADATA, "META-INF/ansatz-lean-jvm/user-error.json", "META-INF/ansatz-lean-jvm/NOTICE"}
+CLASS_INVENTORY = "META-INF/ansatz-lean-jvm/java-classes.json"
+SDK_RESOURCES = {CLASS_INVENTORY, METADATA, "META-INF/ansatz-lean-jvm/user-error.json", "META-INF/ansatz-lean-jvm/NOTICE"}
 API_CLASSES = {"Bridge", "Lean", "LeanException", "LeanProject", "LeanFunction", "LeanUnit", "LeanChoice", "IOResult", "MainResult", "NativeCompilerOptions", "ProjectOptions"}
 DEPENDENCIES = {"clojure-1.12.0.jar", "spec.alpha-0.5.238.jar", "core.specs.alpha-0.4.74.jar", "data.json-2.5.1.jar"}
 
@@ -52,11 +53,36 @@ def audit_jar(path, expected_engine_sha=None):
                              "META-INF/maven/org.replikativ/ansatz-lean-jvm/pom.properties"}
         require(all(name.endswith("/") or name in allowed_resources or name in classes for name in names),
                 "Uninventoried runtime file or research source in jar")
-        require(classes and all(re.fullmatch(r"ansatz/lean/jvm/internal/exec/Interpreter(?:\$[^/]+)?\.class", name)
-                               or (re.fullmatch(r"ansatz/lean/jvm/([A-Za-z]+)(?:\$[^/]+)?\.class", name)
-                                   and re.fullmatch(r"ansatz/lean/jvm/([A-Za-z]+)(?:\$[^/]+)?\.class", name).group(1) in API_CLASSES)
-                               for name in classes),
-                "Unexpected or duplicate engine implementation classes")
+        require(CLASS_INVENTORY in names, "Missing captured Java class inventory")
+        inventory = json.loads(archive.read(CLASS_INVENTORY))
+        require(inventory.get("schema") == "ansatz-java-class-inventory/1", "Unknown Java class inventory")
+        sources = inventory.get("sources", [])
+        require(isinstance(sources, list) and 1 <= len(sources) <= 128, "Bounded Java source inventory required")
+        roots = set()
+        engine_sources = []
+        api_sources = set()
+        for source in sources:
+            require(set(source) == {"path", "class", "sha256"}, "Unknown Java source descriptor")
+            source_path = source["path"]
+            require(re.fullmatch(r"ansatz/lean/jvm/(?:internal/(?:[a-z]+/)+)?[A-Z][A-Za-z0-9]*\.java", source_path)
+                    and source["class"] == source_path[:-5].replace("/", ".")
+                    and re.fullmatch(r"[0-9a-f]{64}", source["sha256"]), "Malformed Java source descriptor")
+            require(source_path[:-5] + ".class" not in roots, "Duplicate Java source")
+            roots.add(source_path[:-5] + ".class")
+            if "/internal/" in source_path: engine_sources.append(source)
+            else: api_sources.add(source["class"].rsplit(".", 1)[-1])
+        require(api_sources == API_CLASSES, "Java API source inventory differs")
+        closure_text = "".join(s["path"] + "\t" + s["class"] + "\t" + s["sha256"] + "\n"
+                               for s in sorted(engine_sources, key=lambda s: s["path"]))
+        closure_sha = digest(closure_text.encode("utf-8"))
+        require(closure_sha == inventory.get("engineClosureSHA256"), "Java engine source closure differs")
+        class_pins = inventory.get("classes", {})
+        require(set(classes) == set(class_pins), "Uninventoried or missing compiled class")
+        require(roots <= set(classes), "Captured source has no compiled top-level class")
+        for name in classes:
+            top_level = name.split("$", 1)[0].removesuffix(".class") + ".class"
+            require(top_level in roots and digest(archive.read(name)) == class_pins[name],
+                    "Compiled class source association or byte pin differs")
         for api_class in API_CLASSES:
             require("ansatz/lean/jvm/" + api_class + ".class" in classes, "Missing Java facade class " + api_class)
         for nested in ["", "$Program", "$Node", "$Header", "$SourceBinding", "$HostExtern"]:
@@ -74,6 +100,9 @@ def audit_jar(path, expected_engine_sha=None):
         require(pom.findtext("m:groupId", namespaces=ns) == "org.replikativ"
                 and pom.findtext("m:artifactId", namespaces=ns) == "ansatz-lean-jvm", "SDK coordinate differs")
         metadata = archive.read(METADATA)
+        closure_match = re.search(rb':engine-closure-sha256\s+"([0-9a-f]{64})"', metadata)
+        require(closure_match is not None and closure_match.group(1).decode() == closure_sha,
+                "Runtime metadata/engine closure differs")
         for key, value in [(b"precompiled-engine", b"true"), (b"runtime-java-compilation", b"false"),
                            (b"native-compiler-included", b"false")]:
             require(re.search(rb":" + key + rb"\s+" + value + rb"(?:[,\s}]|$)", metadata) is not None,
@@ -89,9 +118,9 @@ def audit_jar(path, expected_engine_sha=None):
         require(expected_engine_sha is None or engine_sha == expected_engine_sha, "Jar engine source pin differs")
         return {"jarBytes": path.stat().st_size, "jarSHA256": digest(path.read_bytes()),
                 "entryCount": len(names), "engineClassCount": sum(name.startswith("ansatz/lean/jvm/internal/exec/") for name in classes),
-                "javaAPIClassCount": sum(name.startswith("ansatz/lean/jvm/") for name in classes),
+                "javaAPIClassCount": sum(name.startswith("ansatz/lean/jvm/") and "/" not in name[len("ansatz/lean/jvm/"):] for name in classes),
                 "publicProjectAPIAccepted": public_match.group(1) == b"true", "javaRelease": 17,
-                "engineSourceSHA256": engine_sha, "runtimeResources": resources,
+                "engineSourceSHA256": engine_sha, "engineClosureSHA256": closure_sha, "runtimeResources": resources,
                 "pomDependencies": [list(item) for item in dependencies],
                 "adapterSHA256": digest(archive.read(ADAPTER)), "metadataSHA256": digest(metadata),
                 "pomSHA256": digest(archive.read(POM))}

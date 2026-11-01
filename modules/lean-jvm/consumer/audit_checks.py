@@ -17,6 +17,8 @@ def main():
     with zipfile.ZipFile(args.sdk_jar) as archive:
         originals = [(entry.filename, archive.read(entry)) for entry in archive.infolist()]
     cases = {
+        "missing-class-inventory": [(name, data) for name, data in originals if name != "META-INF/ansatz-lean-jvm/java-classes.json"],
+        "changed-class-bytes": [(name, data + b"changed") if name == "ansatz/lean/jvm/internal/exec/Interpreter.class" else (name, data) for name, data in originals],
         "missing-adapter": [(name, data) for name, data in originals if name != "ansatz/lean/jvm/ir.clj"],
         "legacy-namespace": originals + [("prototype/machine.cljc", b"(ns prototype.machine)")],
         "duplicate-class": originals + [("ansatz/lean/jvm/internal/exec/Interpreter.class", b"duplicate")],
@@ -45,7 +47,7 @@ def main():
         pass
     else:
         raise AssertionError("Jar audit accepted wrong engine source pin")
-    print("PASS 1 actual jar audit and 6 static rejection cases; no Java/native processes")
+    print("PASS 1 actual jar audit and 8 static rejection cases; no Java/native processes")
 
 
 if __name__ == "__main__":
