@@ -109,8 +109,8 @@ interrupts around it. Public release guarantees must reflect this limitation.
 
 An EntropyCapability is a deliberately external shared service, not guest state.
 Its immutable descriptor/private source reference may be shared by an idle fork.
-JDK SecureRandom is thread-safe; sibling future calls consume independent draws
-from the same external source, not cloned RNG state. The deterministic test
+JDK SecureRandom is thread-safe; sibling future calls make separate draws
+from the same external source, not cloned RNG state; statistical independence is not claimed. The deterministic test
 pattern source has no advancing private cursor, so sharing has explicit semantics.
 Branch counters are copied as historical counters and then grow separately. No statistical independence is claimed for shared-generator draws.
 
@@ -162,3 +162,30 @@ replaces instruction-count freshness. task-free prepareExplicitApply prevalidate
 entropy before closure ownership changes. Engine pendingEntropy retains attempt
 and output across finishAction; commit hooks distinguish owned, transfer-started
 unresolved and delivered aliases. Successful history retains scalar counters only.
+
+## Frozen implementation and model loading
+
+The runtime source is an isolated reviewed patch; no worker JVM, javac or native
+job ran. The focused namespace is java-ir-entropy-capability-checks. Root should
+compile the frozen Java once, load entropy-capability-checks.clj after existing
+baseline/check/ByteArray helpers, then invoke check! with the new basis and its
+explicit fixture directory. Fourteen families exercise original bytes/ABIs,
+actual prepared error body (including mutated-body refusal), monotonic freshness,
+zero/preflight/copy behavior, genuine boxed IO bridge via original boxed USize,
+provider/error/fault custody, idle fork and per-attempt thread guards. Test owner-
+packets deliberately retain failed engines; close is not claimed for them.
+
+Raw native entropy closures have unboxed parameters and public closure factories
+continue to reject them. Exclusive/shared surplus-preflight tests use a clearly
+labelled controlled internal closure fixture solely to test ownership ordering.
+They do not claim the compiler emits such closures. Both explicit and legacy AP
+reject surplus before ownership changes; enterNative repeats the no-surplus
+check before publication. Actual SDK-style boxed calls use only genuine original
+compiler bridge IR.
+
+On expected provider error, success-wrapper retirement records both started and
+completed flags; while started but incomplete, its diagnostic alias is retiring
+with unresolved consumption, not an intact owned root or a discharged credit.
+The outer ByteArray reference is borrowed once its wrapper owns it. All delivered
+Node/hostbuffer aliases are dropped after the finishAction commit; only scalar
+statistics remain.

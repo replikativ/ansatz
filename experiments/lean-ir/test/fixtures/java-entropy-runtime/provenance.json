@@ -124,6 +124,52 @@
         ],
         "2"
       ]
+    },
+    "uint64-to-nat.json": {
+      "sha256": "1d1927ab93d589889deb80a4784e495d6c6806f9a39e5ab45e0928913fcad17e",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "anonymous"
+          ],
+          "UInt64"
+        ],
+        "toNat"
+      ]
+    },
+    "usize-of-nat.json": {
+      "sha256": "b4d790636963b4b8ea5e2d09dfa6a171301d0780d8bdc7c919a4494ac74e552b",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "anonymous"
+          ],
+          "USize"
+        ],
+        "ofNat"
+      ]
+    },
+    "usize-of-nat-boxed.json": {
+      "sha256": "cf2acc18a8a030ba651b6c3c29252c36aa40d7ea6689f972cfe76fb2a0679217",
+      "name": [
+        "str",
+        [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "USize"
+          ],
+          "ofNat"
+        ],
+        "_boxed"
+      ]
     }
   }
 }

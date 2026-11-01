@@ -4623,6 +4623,8 @@ public final class Interpreter implements AutoCloseable {
         }
         public static EntropyCapability deterministicForTesting(byte[] pattern,int maximumBytes) {
             require(pattern!=null&&pattern.length<=MAX_BYTE_CAPACITY,"Bounded deterministic test pattern required");
+            require(maximumBytes>=0&&maximumBytes<=MAX_BYTE_CAPACITY&&pattern.length<=maximumBytes,
+                    "Deterministic entropy bound differs from pattern extent");
             byte[] frozen=pattern.clone();
             return new EntropyCapability(bytes->System.arraycopy(frozen,0,bytes,0,frozen.length),
                     "deterministic-entropy-test-only/1","fixed-pattern","test-only",maximumBytes,frozen.length);
@@ -4652,7 +4654,7 @@ public final class Interpreter implements AutoCloseable {
     private static final class EntropyAttempt {
         int stage,size;
         Thread thread;
-        boolean effectEntered,effectReturned,bytesOwned,successOwned,errorValueOwned,errorOwned,successReleaseStarted,deliveryStarted,delivered;
+        boolean effectEntered,effectReturned,bytesOwned,successOwned,errorValueOwned,errorOwned,successReleaseStarted,successReleaseComplete,deliveryStarted,delivered;
         byte[] host;
         Node bytes,success,errorValue,error;
     }
@@ -4670,6 +4672,7 @@ public final class Interpreter implements AutoCloseable {
             out.put("effectReturned",attempt.effectReturned); out.put("bytesOwned",attempt.bytesOwned);
             out.put("successOwned",attempt.successOwned); out.put("errorValueOwned",attempt.errorValueOwned);
             out.put("errorOwned",attempt.errorOwned); out.put("successReleaseStarted",attempt.successReleaseStarted);
+            out.put("successReleaseComplete",attempt.successReleaseComplete);
             out.put("delivered",attempt.delivered);
             out.put("deliveryStarted",attempt.deliveryStarted);
         }
@@ -4736,8 +4739,9 @@ public final class Interpreter implements AutoCloseable {
         return false;
     }
     private static String entropyMessage(ProviderException failure) {
-        String message="JDK entropy source failed: "+String.valueOf(failure.getMessage());
-        if(message.length()>4096) message=message.substring(0,4096);
+        String prefix="JDK entropy source failed: ",raw=String.valueOf(failure.getMessage());
+        if(raw.length()>4096-prefix.length()) raw=raw.substring(0,4096-prefix.length());
+        String message=prefix+raw;
         return new String(message.getBytes(StandardCharsets.UTF_8),StandardCharsets.UTF_8);
     }
     private void stepEntropy(RuntimeAction action) {
@@ -4766,8 +4770,9 @@ public final class Interpreter implements AutoCloseable {
                     attempt.errorValue.fields[0]=message;
                     attempt.error=new Node(1,1,0); allocations++; attempt.errorOwned=true;
                     attempt.error.fields[0]=attempt.errorValue; attempt.errorValueOwned=false;
-                    attempt.successReleaseStarted=true; releaseQuiet(attempt.success,1); attempt.successOwned=false;
-                    attempt.successReleaseStarted=false; attempt.stage=3; attempt.host=null; return;
+                    attempt.successReleaseStarted=true; attempt.successOwned=false;
+                    releaseQuiet(attempt.success,1); attempt.successReleaseComplete=true;
+                    attempt.stage=3; attempt.host=null; return;
                 }
                 attempt.effectReturned=true;
             }
@@ -5167,6 +5172,7 @@ public final class Interpreter implements AutoCloseable {
         }
     }
     private void enterNative(Function function,Object[] args,Body next,int dest,int kind,Object[] surplus) {
+        if(function.intrinsic==IO_RANDOM_BYTES) require(surplus==null,"Entropy overapplication is outside the capability profile");
         validateNative(function,args);
         RuntimeAction action=newAction(function.intrinsic==IO_RANDOM_BYTES?ACTION_ENTROPY:function.intrinsic==EXPR_INSTANTIATE_MVARS?ACTION_EXPR_FULL_RESEARCH:pureExprTransform(function.intrinsic)?ACTION_EXPR_PURE:abstractPrimitive(function.intrinsic)?ACTION_EXPR_ABSTRACT:function.intrinsic==EXPR_REPLACE?ACTION_EXPR_REPLACE:function.intrinsic==SHARECOMMON_QUICK?ACTION_SHARECOMMON:function.intrinsic==LEVEL_INSTANTIATE?ACTION_LEVEL_MVARS:findPrimitive(function.intrinsic)?ACTION_FIND:function.intrinsic==PROFILE_IT?ACTION_PROFILE:
                 taskPrimitive(function.intrinsic)||function.intrinsic==TASK_MAP?ACTION_TASK:ACTION_NATIVE,function,next,dest,kind,surplus);
@@ -6356,6 +6362,7 @@ public final class Interpreter implements AutoCloseable {
     public Fork eagerFork() { return eagerFork(new Object[0]); }
     public Fork eagerFork(Object[] externalRoots) {
         if(entropyCapability!=null) require(phase==IDLE&&!pendingOwnedResult&&pendingEntropy==null
+                &&!initializerFailed&&pendingInitializerGlobal==null&&!untrackedFailure
                 &&runtimeAction==null&&releaseTransaction==null&&hostCompletion==null&&hostRequest==null
                 &&codeRequest==null&&hostGuestRecord==null&&currentTask==null,
                 "Entropy capability fork requires an idle completed-effect boundary");
@@ -9590,6 +9597,8 @@ public final class Interpreter implements AutoCloseable {
         Object[] combined=new Object[closure.fields.length+args.length];
         System.arraycopy(closure.fields,0,combined,0,closure.fields.length);
         System.arraycopy(args,0,combined,closure.fields.length,args.length);
+        if(called.intrinsic==IO_RANDOM_BYTES&&combined.length>=f.params.length)
+            require(combined.length==f.params.length,"Entropy overapplication is outside the capability profile");
         if(combined.length>=f.params.length&&called.intrinsic==MARK_PERSISTENT)
             validatePersistentArguments(combined[0],combined[1],combined[2]);
         if(combined.length>=f.params.length&&called.intrinsic==VOID_MK) validateVoidArguments(combined[0],combined[1]);
@@ -10457,6 +10466,8 @@ public final class Interpreter implements AutoCloseable {
         Object[] combined=new Object[closure.fields.length+args.length];
         System.arraycopy(closure.fields,0,combined,0,closure.fields.length);
         System.arraycopy(args,0,combined,closure.fields.length,args.length);
+        if(called.intrinsic==IO_RANDOM_BYTES&&combined.length>=f.params.length)
+            require(combined.length==f.params.length,"Entropy overapplication is outside the capability profile");
         if(combined.length>=f.params.length&&(taskRuntime!=null||called.intrinsic==IO_RANDOM_BYTES||called.intrinsic==VOID_MK||called.intrinsic==MARK_PERSISTENT||called.intrinsic==ARRAY_CHECKED_SET)) {
             Object[] actual=combined.length==f.params.length?combined:Arrays.copyOf(combined,f.params.length);
             if(called.intrinsic==MARK_PERSISTENT) validatePersistentArguments(actual[0],actual[1],actual[2]);
