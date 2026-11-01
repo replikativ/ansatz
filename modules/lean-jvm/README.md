@@ -26,7 +26,8 @@ operations, but contain no IR/object/execution semantics. The Java interpreter
 remains their authority. Research repl.clj and its legacy helpers remain intact;
 this small extraction does not require rewriting that test suite.
 
-The adapter creates task-free engines. SourceBinding/Header metadata remains
+The adapter creates task-free engines and optionally installs the actual engine-issued
+pinned Lean build identity. It still refuses TaskRuntime and profiling policies. SourceBinding/Header metadata remains
 trusted adapter input, not source authentication. Host descriptors register an
 ABI, never a callback. Explicit execution may suspend or fail under the existing
 engine protocol. Raw Nodes are internal trusted carriers: this module does not

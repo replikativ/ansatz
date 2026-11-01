@@ -20,11 +20,20 @@
   (apply str (map #(format "%02x" (bit-and 255 %))
                   (.digest (MessageDigest/getInstance "SHA-256") bytes))))
 (defn- file-record [path]
-  (let [file (io/file path)]
-    (need (and (.isFile file) (<= (.length file) (* 64 1024 1024)))
+  (let [file (io/file path) maximum (* 64 1024 1024)
+        hash (MessageDigest/getInstance "SHA-256") buffer (byte-array 65536)]
+    (need (and (.isFile file) (<= (.length file) maximum))
           "A bounded existing release file is required")
-    (let [bytes (Files/readAllBytes (.toPath file))]
-      {:path (str path) :bytes (alength bytes) :sha256 (digest bytes)})))
+    (with-open [input (io/input-stream file)]
+      (loop [total 0]
+        (let [n (.read input buffer)]
+          (if (neg? n)
+            {:path (str path) :bytes total
+             :sha256 (apply str (map #(format "%02x" (bit-and 255 %)) (.digest hash)))}
+            (let [next (+ total n)]
+              (need (<= next maximum) "Release file grew beyond its byte bound")
+              (.update hash buffer 0 n)
+              (recur next))))))))
 (defn- entry-bytes [^ZipFile archive name]
   (let [entry (.getEntry archive name)]
     (need (and entry (<= 0 (.getSize entry) (* 1024 1024)))
