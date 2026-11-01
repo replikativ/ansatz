@@ -1,0 +1,165 @@
+{
+  "schema": "native-startup-evidence-source-package/1",
+  "leanCommit": "819816b2e0a3bf405af45ae5c7af2491d8f5bee6",
+  "leanVersion": "4.33.1",
+  "profile": "legacy-private-ordinary/1",
+  "files": [
+    {
+      "file": "experiments/lean-ir/lean/NativeStartupEvidence.lean",
+      "bytes": 36495,
+      "sha256": "0e3054acdbe3413ffef3636c5242e08c167f8becc0c571cbfe2325af90e2c70d"
+    },
+    {
+      "file": "experiments/lean-ir/research/java-ir-baseline/startup-evidence/producer/README.md",
+      "bytes": 9506,
+      "sha256": "bb8cb1dee0b8309b3a886d0136456e3da1d25a9121b76451fff2557fb74e15bc"
+    },
+    {
+      "file": "experiments/lean-ir/research/java-ir-baseline/startup-evidence/producer/verify-source.py",
+      "bytes": 2610,
+      "sha256": "3d58a867aded9f445be1b3b7116738a7514ba9f82f6ee4b38e8bf1194f6daaf1"
+    },
+    {
+      "file": "experiments/lean-ir/scripts/build-startup-evidence.sh",
+      "bytes": 1726,
+      "sha256": "4289e2ac8be49cb539225ded9332eb0518a1afdbe1e911d1a40251d20a2a10c2"
+    },
+    {
+      "file": "experiments/lean-ir/test/fixtures/native-startup-evidence/Init-request.json",
+      "bytes": 306,
+      "sha256": "5f7ab5a90aee1a55833d3c155fa918d22352ffb3d29ff8bdafec6b269b5fb737"
+    },
+    {
+      "file": "experiments/lean-ir/test/fixtures/native-startup-evidence/README.md",
+      "bytes": 2591,
+      "sha256": "58db6cef3b32d96e98cb779719bcd64563af830eecf1483586e0aa58e31f8d56"
+    },
+    {
+      "file": "experiments/lean-ir/test/fixtures/native-startup-evidence/SelectionChecks.lean",
+      "bytes": 645,
+      "sha256": "870a94b3bf19cd3f54c027ba098ad348ffcac142c1f6f16c81f08e1b6ec679f8"
+    },
+    {
+      "file": "experiments/lean-ir/test/fixtures/native-startup-evidence/StartupAnonymous-request.json",
+      "bytes": 318,
+      "sha256": "f96aad8e43786490ee9fb4b6745a04952bb0246b74735d2f0413fd30d6e86f41"
+    },
+    {
+      "file": "experiments/lean-ir/test/fixtures/native-startup-evidence/StartupAnonymous.lean",
+      "bytes": 19,
+      "sha256": "6ec2b3b0a67b13aa7fa3546a21b2bbd3efa76cdf9f1cbfa7d27ba156137e41df"
+    },
+    {
+      "file": "experiments/lean-ir/test/fixtures/native-startup-evidence/StartupBuiltin-request.json",
+      "bytes": 316,
+      "sha256": "77e33c14832140be95918a4a81427403d5f1ddb562f8562c4018ca24d78e6981"
+    },
+    {
+      "file": "experiments/lean-ir/test/fixtures/native-startup-evidence/StartupBuiltin.lean",
+      "bytes": 59,
+      "sha256": "9b6ae52d163538cc3681bf7e9fbd670342a3219335cec3b123d6f2df1f742122"
+    },
+    {
+      "file": "experiments/lean-ir/test/fixtures/native-startup-evidence/StartupNamed-request.json",
+      "bytes": 314,
+      "sha256": "2eaf6c1500c9ce1bb988c28594c33859907d73bcdcb6fe715a62ebacb9144fb9"
+    },
+    {
+      "file": "experiments/lean-ir/test/fixtures/native-startup-evidence/StartupNamed.lean",
+      "bytes": 50,
+      "sha256": "7864fbcf26c3b2de723c52f6dfe6562d5593e5b24b8663b6c1300b1e19adefa9"
+    },
+    {
+      "file": "experiments/lean-ir/test/fixtures/native-startup-evidence/StartupPhase-request.json",
+      "bytes": 314,
+      "sha256": "8d9dbe41dce421d6e8454947ef792163bb0b04e4a7983823c2f2d3db719b198e"
+    },
+    {
+      "file": "experiments/lean-ir/test/fixtures/native-startup-evidence/StartupPhase.lean",
+      "bytes": 147,
+      "sha256": "579beb2394d521511a9a29a2f92cf7c74f503b7a7fd89e55bb049bd8f0d263d2"
+    },
+    {
+      "file": "experiments/lean-ir/test/fixtures/native-startup-evidence/header-crlf-unicode.lean",
+      "bytes": 52,
+      "sha256": "cbce6d8e3633f6d07991e94ffa4c38e19c1966295d22c078bc698f311d18b2c9"
+    },
+    {
+      "file": "experiments/lean-ir/test/fixtures/native-startup-evidence/header-explicit-meta.lean",
+      "bytes": 40,
+      "sha256": "9559a03a4a09b480a85f04c084f3596d78b626b049d65214001ccb6eb48ff607"
+    },
+    {
+      "file": "experiments/lean-ir/test/fixtures/native-startup-evidence/header-invalid-all-public.lean",
+      "bytes": 38,
+      "sha256": "956d4517732bcaa67c441796d05f563bbff7ca8d0ce914721a3a25595b71b6a8"
+    },
+    {
+      "file": "experiments/lean-ir/test/fixtures/native-startup-evidence/header-invalid-meta.lean",
+      "bytes": 17,
+      "sha256": "fd0c505a55284639b470c4b4e6f4c05d365941a7d0e53f4b31dd0937c782f211"
+    },
+    {
+      "file": "experiments/lean-ir/test/fixtures/native-startup-evidence/header-module.lean",
+      "bytes": 26,
+      "sha256": "23bb16e799eb4183a5b7e83582d97ea9b0b61ec93a36c8b8d1cb3cc54851d812"
+    },
+    {
+      "file": "experiments/lean-ir/test/fixtures/native-startup-evidence/header-ordinary.lean",
+      "bytes": 38,
+      "sha256": "80ef6de3d2bc83ffeae1d5e866e6bddd3490911e1aa1abcb7838a31d0c81775c"
+    },
+    {
+      "file": "experiments/lean-ir/test/fixtures/native-startup-evidence/header-prelude.lean",
+      "bytes": 39,
+      "sha256": "5e66a8561775b346ce41b5af95ccf4520eb88893645e564e4975cb74645823ab"
+    },
+    {
+      "file": "experiments/lean-ir/test/fixtures/native-startup-evidence/header-quoted-name.lean",
+      "bytes": 23,
+      "sha256": "7fea57579ee88c87c8e46d90681e5aa528d292d56f7fb5bbaf08d14d9c74ef3d"
+    },
+    {
+      "file": "experiments/lean-ir/test/fixtures/native-startup-evidence/invalid-meta-request.json",
+      "bytes": 305,
+      "sha256": "7901aabade5da5d03f217b0f7727171f9b893e58c7e09ab34ee5bcd1c5796189"
+    },
+    {
+      "file": "experiments/lean-ir/test/fixtures/native-startup-evidence/invalid-numeric-module-request.json",
+      "bytes": 303,
+      "sha256": "6c792f679455583848d06d1c3a0db5cd37a2fbdf2959d2b19ac556ec97a8873e"
+    },
+    {
+      "file": "experiments/lean-ir/test/fixtures/native-startup-evidence/invalid-profile-request.json",
+      "bytes": 298,
+      "sha256": "7c662fdf0e96328260a363d82daf272fc66bcf89a49448ffab551dd25f8cb37b"
+    }
+  ],
+  "unchangedAcceptedSources": [
+    {
+      "file": "experiments/lean-ir/lean/NativeEntryEvidence.lean",
+      "bytes": 26013,
+      "sha256": "e89beefe6ebb864d830367a377360d68cbce89c97fa6a5a5e9dab8877b6c6629"
+    },
+    {
+      "file": "experiments/lean-ir/lean/Export.lean",
+      "bytes": 10514,
+      "sha256": "3311d15c99dc91b599771e328475f2a65a70a0c4fe4c71bfe82b1c2883499f95"
+    }
+  ],
+  "acceptance": {
+    "nativeCompiled": false,
+    "JVMExecuted": false,
+    "nativeEvidenceGenerated": false,
+    "JavaInitializationExecuted": false,
+    "status": "source prototype; root native gates pending"
+  },
+  "requiredExternalReceipts": [
+    "source-and-compiler-build-cohort",
+    "actual-binary-pin-and-input-digests",
+    "actual-output-and-exit-resource-receipt",
+    "semantic-header-and-startup-gates"
+  ],
+  "dynamicClosureProven": false,
+  "builtinAndAnonymousActivation": "unsupported v1"
+}
