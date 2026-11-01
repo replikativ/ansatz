@@ -25,8 +25,9 @@ java --class-path "$CLASSPATH" RunTutorial.java \
 ```
 
 The expected output is `Hello, world!` on two lines. The
-[producer bundle](../producer/README.md) must be supplied separately; automatic
-installation and a hosted bundle download are not part of this first profile.
+[producer bundle](../producer/README.md) has a separate verified download; supply
+its extracted directory explicitly. Automatic installation is not part of this
+first profile.
 The application does not run a separate exporter or preprocessing command.
 Native source compilation can execute compile-time IO and is for trusted sources.
 After compilation, reusable artifact loading can run without the native toolchain;
