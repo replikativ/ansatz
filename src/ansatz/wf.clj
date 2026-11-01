@@ -148,18 +148,20 @@
 
 (clojure.core/defn- wf-guard-of
   "Map a surface boolean condition + polarity to a Prop guard usable by omega, or nil if the
-   condition isn't an arithmetic comparison. Assumes Nat operands (WF measures are Nat).
-   (== a b) → (= Nat a b);  (<= a b) → (<= Nat a b);  (< a b) → (< Nat a b);
-   (>= a b) → (<= Nat b a);  (> a b) → (< Nat b a).  Negative polarity wraps in (Not …)."
+   condition isn't an arithmetic comparison. The guard is the 2-arg comparison, elaborated
+   as a hypothesis type, so its carrier is read off the operands (binrel%): Nat for Nat
+   operands as before, Int for an Int condition such as (<= i 0) with i : Int.
+   (== a b) → (== a b);  (<= a b) → (<= a b);  (< a b) → (< a b);
+   (>= a b) → (<= b a);  (> a b) → (< b a).  Negative polarity wraps in (Not …)."
   [cond-form pos?]
   (when (and (seq? cond-form) (= 3 (count cond-form)))
     (let [[op a b] cond-form
           prop (case op
-                 == (list '= 'Nat a b)
-                 <= (list '<= 'Nat a b)
-                 <  (list '< 'Nat a b)
-                 >= (list '<= 'Nat b a)
-                 >  (list '< 'Nat b a)
+                 == (list '== a b)
+                 <= (list '<= a b)
+                 <  (list '< a b)
+                 >= (list '<= b a)
+                 >  (list '< b a)
                  nil)]
       (when prop (if pos? prop (list 'Not prop))))))
 
