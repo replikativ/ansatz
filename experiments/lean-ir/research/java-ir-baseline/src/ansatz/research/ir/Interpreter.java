@@ -4679,7 +4679,16 @@ public final class Interpreter implements AutoCloseable {
         return Collections.unmodifiableMap(out);
     }
     private static String digest(byte[] bytes) {
-        try { return HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256").digest(bytes)); }
+        try {
+            byte[] hash=java.security.MessageDigest.getInstance("SHA-256").digest(bytes);
+            char[] hex=new char[hash.length*2];
+            final String digits="0123456789abcdef";
+            for(int i=0;i<hash.length;i++) {
+                int value=hash[i]&255;
+                hex[2*i]=digits.charAt(value>>>4); hex[2*i+1]=digits.charAt(value&15);
+            }
+            return new String(hex);
+        }
         catch(java.security.NoSuchAlgorithmException failure) { throw new IllegalStateException(failure); }
     }
     /** Trusted-source research install, before any engine execution. */
