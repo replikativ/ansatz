@@ -7576,18 +7576,10 @@ public final class Interpreter implements AutoCloseable {
         return Math.addExact(Math.multiplyExact(Math.subtractExact(word,n.fields.length),8),extra);
     }
     private static long readScalar(Node n,int offset,int type) {
-        int width=scalarWidth(type);
-        if(offset<0||offset>n.scalars.length-width) throw error("Scalar field outside payload");
-        if(type==U8) return Byte.toUnsignedInt(n.scalars[offset]);
-        long value=0;
-        for(int i=0;i<width;i++) value|=(long)Byte.toUnsignedInt(n.scalars[offset+i])<<(8*i);
-        return value;
+        return ScalarBits.readLittleEndian(n.scalars,offset,scalarWidth(type));
     }
     private static void writeScalar(Node n,int offset,int type,long value) {
-        int width=scalarWidth(type);
-        if(offset<0||offset>n.scalars.length-width) throw error("Scalar field outside payload");
-        if(type==U8) { n.scalars[offset]=(byte)value; return; }
-        for(int i=0;i<width;i++) n.scalars[offset+i]=(byte)(value>>>(8*i));
+        ScalarBits.writeLittleEndian(n.scalars,offset,scalarWidth(type),value);
     }
     private Object boxScalar(long value,int type) {
         if(type==F32) {
@@ -7726,12 +7718,11 @@ public final class Interpreter implements AutoCloseable {
     }
     private static boolean floatPrimitive(int op) { return op>=FLOAT_BITS&&op<=FLOAT_STRING||op==FLOAT_LE||op==FLOAT_ADD||op==FLOAT32_ADD
             ||op==FLOAT32_BITS||op==FLOAT32_DIV||op==FLOAT32_MUL||op==U64_FLOAT32; }
-    private static boolean nanBits(long bits) { return (bits&0x7ff0000000000000L)==0x7ff0000000000000L&&(bits&0x000fffffffffffffL)!=0; }
     private strictfp void floatIntrinsic(Function f,long a,long b) {
         // Pinned object.cpp: of_bits preserves all non-NaN bits and canonicalizes NaNs.
         if(f.intrinsic==FLOAT32_BITS) {
             int bits=(int)a;
-            scalarResult=(bits&0x7f800000)==0x7f800000&&(bits&0x007fffff)!=0
+            scalarResult=ScalarBits.isNaN32Bits(bits)
                     ?0x7fc00000L:Integer.toUnsignedLong(bits); return;
         }
         if(f.intrinsic==U64_FLOAT32) {
@@ -7744,7 +7735,7 @@ public final class Interpreter implements AutoCloseable {
             float out=f.intrinsic==FLOAT32_ADD?x+y:f.intrinsic==FLOAT32_DIV?x/y:x*y;
             scalarResult=Integer.toUnsignedLong(Float.floatToRawIntBits(out)); return;
         }
-        if(f.intrinsic==FLOAT_BITS) { scalarResult=nanBits(a)?0x7ff8000000000000L:a; return; }
+        if(f.intrinsic==FLOAT_BITS) { scalarResult=ScalarBits.isNaN64Bits(a)?0x7ff8000000000000L:a; return; }
         if(f.intrinsic==FLOAT_U64) {
             BigInteger unsigned=BigInteger.valueOf(a&Long.MAX_VALUE); if(a<0) unsigned=unsigned.setBit(63);
             scalarResult=Double.doubleToRawLongBits(unsigned.doubleValue()); return;
@@ -7759,7 +7750,7 @@ public final class Interpreter implements AutoCloseable {
             case FLOAT_LT: scalarResult=x<y?1:0; break;
             case FLOAT_LE: scalarResult=x<=y?1:0; break;
             case FLOAT_STRING:
-                if(nanBits(a)) result="NaN";
+                if(ScalarBits.isNaN64Bits(a)) result="NaN";
                 else if(Double.isInfinite(x)) result=x<0?"-inf":"inf";
                 else {
                     BigDecimal rounded=new BigDecimal(x).setScale(6,RoundingMode.HALF_EVEN);
@@ -7945,17 +7936,6 @@ public final class Interpreter implements AutoCloseable {
         }
         throw error("Invalid ST.Ref intrinsic");
     }
-    private static boolean leadingByte(byte value) { return (value&0xc0)!=0x80; }
-    private static int utf8Width(byte value) {
-        int b=Byte.toUnsignedInt(value);
-        return b<128?1:b<224?2:b<240?3:4;
-    }
-    private static int utf8CodePoint(byte[] bytes,int p) {
-        int first=Byte.toUnsignedInt(bytes[p]),width=utf8Width(bytes[p]);
-        int cp=width==1?first:first&((1<<(7-width))-1);
-        for(int i=1;i<width;i++) cp=(cp<<6)|(bytes[p+i]&63);
-        return cp;
-    }
     /** Native strings use byte positions, including defined safe invalid-index
      * behavior. Java carriers are validated Unicode; no normalization occurs. */
     private void stringPositionIntrinsic(Function f,Object a,Object b,Object c) {
@@ -7965,7 +7945,7 @@ public final class Interpreter implements AutoCloseable {
         if(f.intrinsic==STR_SAFE_NEXT) {
             int width=1;
             if(position.compareTo(BigInteger.valueOf(length))<0) {
-                int p=position.intValue(); width=leadingByte(bytes[p])?utf8Width(bytes[p]):1;
+                int p=position.intValue(); width=Utf8Bytes.leadingByte(bytes[p])?Utf8Bytes.width(bytes[p]):1;
             }
             result=normalize(boundedAdd(position,BigInteger.valueOf(width),false)); return;
         }
@@ -7973,21 +7953,21 @@ public final class Interpreter implements AutoCloseable {
             if(position.signum()==0) { result=ERASED; return; }
             if(position.compareTo(BigInteger.valueOf(length))>0) { result=normalize(position.subtract(BigInteger.ONE)); return; }
             int p=position.intValue()-1;
-            while(p>0&&!leadingByte(bytes[p])) p--;
+            while(p>0&&!Utf8Bytes.leadingByte(bytes[p])) p--;
             result=Long.valueOf(p); return;
         }
         if(f.intrinsic==STR_VALID) {
             scalarResult=position.compareTo(BigInteger.valueOf(length))<=0
-                    &&(position.intValue()==length||leadingByte(bytes[position.intValue()]))?1:0; return;
+                    &&(position.intValue()==length||Utf8Bytes.leadingByte(bytes[position.intValue()]))?1:0; return;
         }
         if(f.intrinsic==STR_EXTRACT) {
             BigInteger end=nat(c);
             if(position.bitLength()>63||end.bitLength()>63) { result=a; return; }
             if(position.compareTo(end)>=0||position.compareTo(BigInteger.valueOf(length))>=0) { result=""; return; }
             int begin=position.intValue();
-            if(!leadingByte(bytes[begin])) { result=""; return; }
+            if(!Utf8Bytes.leadingByte(bytes[begin])) { result=""; return; }
             int stop=end.compareTo(BigInteger.valueOf(length))>=0?length:end.intValue();
-            if(stop<length&&!leadingByte(bytes[stop])) stop=length;
+            if(stop<length&&!Utf8Bytes.leadingByte(bytes[stop])) stop=length;
             result=new String(bytes,begin,stop-begin,StandardCharsets.UTF_8); return;
         }
         boolean inRange=position.compareTo(BigInteger.valueOf(length))<0;
@@ -7998,13 +7978,13 @@ public final class Interpreter implements AutoCloseable {
         }
         if(f.intrinsic==STR_SET) {
             int replacement=codePoint(c);
-            if(!inRange||!leadingByte(bytes[position.intValue()])) { result=a; return; }
-            int p=position.intValue(),width=utf8Width(bytes[p]);
+            if(!inRange||!Utf8Bytes.leadingByte(bytes[position.intValue()])) { result=a; return; }
+            int p=position.intValue(),width=Utf8Bytes.width(bytes[p]);
             stringReplacementExtent(length,width,replacement);
             result=new String(bytes,0,p,StandardCharsets.UTF_8)+new String(Character.toChars(replacement))
                     +new String(bytes,p+width,length-p-width,StandardCharsets.UTF_8); return;
         }
-        scalarResult=inRange&&leadingByte(bytes[position.intValue()])?utf8CodePoint(bytes,position.intValue()):65;
+        scalarResult=inRange&&Utf8Bytes.leadingByte(bytes[position.intValue()])?Utf8Bytes.codePoint(bytes,position.intValue()):65;
     }
     private void stringIntrinsic(Function f,Object a,Object b,Object c) {
         if(f.intrinsic>=STR_END&&f.intrinsic<=STR_EXTRACT||f.intrinsic==STR_BYTE||f.intrinsic==STR_SET) {
@@ -8042,8 +8022,8 @@ public final class Interpreter implements AutoCloseable {
         byte[] bytes=utf8(source); BigInteger offset=nat(position); int cp=codePoint(replacement);
         require(offset.compareTo(BigInteger.valueOf(bytes.length))<0,"String.Pos.set requires a non-end position");
         int p=offset.intValue();
-        require(leadingByte(bytes[p]),"String.Pos.set requires a valid UTF-8 scalar position");
-        int oldWidth=utf8Width(bytes[p]); stringReplacementExtent(bytes.length,oldWidth,cp,"String.Pos.set");
+        require(Utf8Bytes.leadingByte(bytes[p]),"String.Pos.set requires a valid UTF-8 scalar position");
+        int oldWidth=Utf8Bytes.width(bytes[p]); stringReplacementExtent(bytes.length,oldWidth,cp,"String.Pos.set");
         String changed=new String(bytes,0,p,StandardCharsets.UTF_8)+new String(Character.toChars(cp))
                 +new String(bytes,p+oldWidth,bytes.length-p-oldWidth,StandardCharsets.UTF_8);
         result=changed; releaseQuiet(source,1); releaseQuiet(position,1);
@@ -8064,7 +8044,7 @@ public final class Interpreter implements AutoCloseable {
     }
     private static int repairedStringPosition(byte[] bytes,BigInteger position) {
         if(position.compareTo(BigInteger.valueOf(bytes.length))>=0) return bytes.length;
-        int p=position.intValue(); return leadingByte(bytes[p])?p:bytes.length;
+        int p=position.intValue(); return Utf8Bytes.leadingByte(bytes[p])?p:bytes.length;
     }
     /** Transient validated view, never retained by an engine or guest Node. */
     private static final class SubstringView {
@@ -8091,14 +8071,14 @@ public final class Interpreter implements AutoCloseable {
         }
         if(f.intrinsic==STR_POS_OF) {
             byte[] bytes=utf8(a); int cp=codePoint(b),p=0;
-            while(p<bytes.length&&utf8CodePoint(bytes,p)!=cp) p+=utf8Width(bytes[p]);
+            while(p<bytes.length&&Utf8Bytes.codePoint(bytes,p)!=cp) p+=Utf8Bytes.width(bytes[p]);
             result=Long.valueOf(p); releaseQuiet(a,1); return;
         }
         if(f.intrinsic==STR_OFFSET_OF_POS) {
             byte[] bytes=utf8(a); BigInteger position=nat(b);
             int stop=position.compareTo(BigInteger.valueOf(bytes.length))>=0?bytes.length:position.intValue();
             int p=0,count=0;
-            while(p<stop) { p+=utf8Width(bytes[p]); count++; }
+            while(p<stop) { p+=Utf8Bytes.width(bytes[p]); count++; }
             result=Long.valueOf(count); releaseQuiet(a,1); releaseQuiet(b,1); return;
         }
         require(f.intrinsic==STR_PUSHN,"Invalid String completion intrinsic");
@@ -8228,27 +8208,6 @@ public final class Interpreter implements AutoCloseable {
         ByteArrayState target=(ByteArrayState)kindMetadata(out);
         out.scalars[target.size++]=(byte)value; stores++; result=out;
     }
-    /** Pinned runtime/utf8.cpp validator over the live prefix, with no ownership effects. */
-    private static boolean validUtf8(byte[] bytes,int size) {
-        for(int at=0;at<size;) {
-            int c=Byte.toUnsignedInt(bytes[at]);
-            if(c<0x80) { at++; continue; }
-            int length,min,code;
-            if((c&0xe0)==0xc0) { length=2; min=0x80; code=c&0x1f; }
-            else if((c&0xf0)==0xe0) { length=3; min=0x800; code=c&0x0f; }
-            else if((c&0xf8)==0xf0) { length=4; min=0x10000; code=c&7; }
-            else return false;
-            if(length>size-at) return false;
-            for(int i=1;i<length;i++) {
-                int continuation=Byte.toUnsignedInt(bytes[at+i]);
-                if((continuation&0xc0)!=0x80) return false;
-                code=(code<<6)|(continuation&0x3f);
-            }
-            if(code<min||code>0x10ffff||(code>=0xd800&&code<=0xdfff)) return false;
-            at+=length;
-        }
-        return true;
-    }
     private int utf8Extent(Object value) {
         String text=text(value); long size=0;
         for(int i=0;i<text.length();i++) {
@@ -8273,7 +8232,7 @@ public final class Interpreter implements AutoCloseable {
     private Node validateFromUtf8(Object value,Object proof) {
         require(ERASED.equals(proof),"String.ofByteArray proof requires erased placeholder");
         Node bytes=byteArray(value); int size=((ByteArrayState)kindMetadata(bytes)).size;
-        require(validUtf8(bytes.scalars,size),"Malformed unchecked UTF8 String outside JVM Unicode profile");
+        require(Utf8Bytes.validPrefix(bytes.scalars,size),"Malformed unchecked UTF8 String outside JVM Unicode profile");
         return bytes;
     }
     private void stringFromUtf8(Object value,Object proof) {
@@ -9313,7 +9272,7 @@ public final class Interpreter implements AutoCloseable {
         if(f.intrinsic==STR_TO_UTF8) { stringToUtf8(a); return; }
         if(f.intrinsic==STR_FROM_UTF8) { stringFromUtf8(a,b); return; }
         if(f.intrinsic==STR_VALIDATE_UTF8) {
-            Node bytes=byteArray(a); scalarResult=validUtf8(bytes.scalars,((ByteArrayState)kindMetadata(bytes)).size)?1:0; return;
+            Node bytes=byteArray(a); scalarResult=Utf8Bytes.validPrefix(bytes.scalars,((ByteArrayState)kindMetadata(bytes)).size)?1:0; return;
         }
         if(f.intrinsic>=STR_SUBSTRING_EQ&&f.intrinsic<=STR_PUSHN) { stringCompletionIntrinsic(f,a,b,c); return; }
         if(f.intrinsic>=INT_OF_NAT&&f.intrinsic<=INT_LE) { intIntrinsic(f,a,b); return; }
