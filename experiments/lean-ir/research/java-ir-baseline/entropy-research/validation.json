@@ -37,7 +37,14 @@
       "assertions": 7448,
       "failures": 0,
       "errors": 0,
-      "correctedAggregateReceiptPending": true
+      "correctedAggregateReceiptPending": false
+    },
+    "freshSdkProducerAndJavaOnlyConsumer": {
+      "passed": true,
+      "jarSHA256": "9304f90f440e48d2a02343c2b4e9811e936356e6da4fdc7d9ebfd596a81d759b",
+      "jarBytes": 305830,
+      "sourceCheckoutOnConsumerClasspath": false,
+      "classpathJarCount": 4
     }
   },
   "workerChecks": {
@@ -53,7 +60,6 @@
   "notEstablished": [
     "complete Init startup/module ledger",
     "public SDK Project API",
-    "fresh SDK jar producer/consumer for current source",
     "POSIX entropy parity"
   ]
 }

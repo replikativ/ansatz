@@ -154,10 +154,10 @@
   "currentSource": {
     "landingBaseCommit": "9dbbecad7747863279fd6ee2d3ecdcad4e4f6f45",
     "engineSourceSHA256": "e7055544ecfe254af448e03cafb21cace3503da4abee27bc743c232ec50a9981",
-    "status": "retained-runtime-gates-passed-sdk-build-consumer-pending",
-    "freshJarBuilt": false,
+    "status": "passed-entropy-runtime-and-fresh-sdk-jar-consumer",
+    "freshJarBuilt": true,
     "retainedJvmModelsRerun": true,
-    "javaOnlyConsumerRerun": false,
+    "javaOnlyConsumerRerun": true,
     "focusedModels": {
       "tests": 16,
       "assertions": 169,
@@ -430,5 +430,61 @@
         "engineAndFeatureBytesChanged": false
       }
     }
+  },
+  "acceptedFinal": {
+    "engineSourceSHA256": "e7055544ecfe254af448e03cafb21cace3503da4abee27bc743c232ec50a9981",
+    "producer": {
+      "command": "clojure -J-Xmx384m -T:build jar",
+      "cwd": "modules/lean-jvm",
+      "exit": 0,
+      "executedBy": "parent retained campaign operator"
+    },
+    "javaOnlyConsumer": {
+      "jarAudit": {
+        "jarBytes": 305830,
+        "jarSHA256": "9304f90f440e48d2a02343c2b4e9811e936356e6da4fdc7d9ebfd596a81d759b",
+        "entryCount": 147,
+        "engineClassCount": 132,
+        "javaRelease": 17,
+        "engineSourceSHA256": "e7055544ecfe254af448e03cafb21cace3503da4abee27bc743c232ec50a9981",
+        "runtimeResources": [
+          "ansatz/lean/jvm/ir.clj"
+        ],
+        "pomDependencies": [
+          [
+            "org.clojure",
+            "clojure",
+            "1.12.0"
+          ]
+        ],
+        "adapterSHA256": "111699a1c26034147cc633ce28bc78fa87f23eab6cd3493b0f084ff7a97ac77d",
+        "metadataSHA256": "f8f27bb288a83e470ca928ca776fc6db0a5626adf7130a4ea823268353e88e95",
+        "pomSHA256": "d83a9f68a2058db9ef7bbfc3148bcb29e36975775cf7996d80f7ce02d2f9bbf6"
+      },
+      "publicProjectAPI": false,
+      "steps": [
+        {
+          "stage": "javac",
+          "exit": 0,
+          "stdoutSHA256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "stderrSHA256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "stage": "java",
+          "exit": 0,
+          "stdoutSHA256": "50c4b64a9c0084b2f387ce5d88be251d842ca27b1a9a90b1c3f129fe8f07ae82",
+          "stderrSHA256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      ],
+      "classpathJarCount": 4,
+      "sourceCheckoutOnConsumerClasspath": false,
+      "resolvedJarNames": [
+        "ansatz-lean-jvm.jar",
+        "clojure-1.12.0.jar",
+        "spec.alpha-0.5.238.jar",
+        "core.specs.alpha-0.4.74.jar"
+      ]
+    },
+    "receipt": "experiments/lean-ir/research/java-ir-baseline/entropy-research/receipts/sdk-entropy-java-only-consumer-v1.json"
   }
 }

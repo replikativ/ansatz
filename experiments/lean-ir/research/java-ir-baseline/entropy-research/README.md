@@ -47,3 +47,10 @@ guest generator state is copied, no reseeding occurs, and statistical independen
 is not asserted. Cooperative execution budgets do not impose a hard deadline on
 a provider callback. No worker JVM or native process was launched to package
 these records.
+
+The final e705 source cohort passed 16 focused tests / 169 assertions and eight
+regression groups / 89 tests / 7,448 assertions in the parent retained JVM.
+The first combined attempt had a fixture path error; the corrected aggregate is
+preserved. The fresh Java 17 SDK jar and four-jar Java-only consumer also passed
+without a source checkout or Clojure CLI on the consumer classpath. These gates
+do not establish a complete 631-module startup ledger.
