@@ -36,7 +36,52 @@ def digest(data):
     return hashlib.sha256(data).hexdigest()
 
 
+def reviewed_engine_sources():
+    """Read the one reviewed source manifest, independently of the candidate JAR.
+
+    This deliberately accepts only the manifest's explicit ordered java-engine
+    records, not general EDN. A format expansion must update this producer gate
+    explicitly; candidate archive metadata never chooses the expectation.
+    """
+    path = Path(__file__).resolve().parent.parent / "runtime-closure.edn"
+    require(path.is_file() and path.stat().st_size <= 128 * 1024, "Bounded reviewed source closure required")
+    text = path.read_text(encoding="utf-8")
+    require(len(re.findall(r':schema\s+"ansatz-lean-jvm-source-closure/2"', text)) == 1,
+            "Unknown reviewed source closure")
+    blocks = re.findall(r":java-engine\s*\[([^\[\]]*)\]", text)
+    require(len(blocks) == 1, "One explicit reviewed engine source block required")
+    record = re.compile(r'\{\s*:path\s+"([^"\\]+)"\s+:class\s+"([^"\\]+)"\s+:sha256\s+"([0-9a-f]{64})"\s*\}')
+    sources = []
+    block = blocks[0]
+    position = 0
+    while position < len(block):
+        whitespace = re.match(r"[\s,]*", block[position:])
+        position += whitespace.end()
+        if position == len(block):
+            break
+        match = record.match(block, position)
+        require(match is not None, "Unexpected reviewed engine descriptor syntax")
+        source_path, source_class, source_sha = match.groups()
+        require(re.fullmatch(r"ansatz/lean/jvm/internal/(?:[a-z]+/)*[A-Z][A-Za-z0-9]*\.java", source_path)
+                and source_class == source_path[:-5].replace("/", "."), "Malformed reviewed engine descriptor")
+        sources.append({"path": source_path, "class": source_class, "sha256": source_sha})
+        position = match.end()
+    require(1 <= len(sources) <= 64 and len({s["path"] for s in sources}) == len(sources)
+            and len({s["class"] for s in sources}) == len(sources), "Duplicate or excessive reviewed engine sources")
+    primary = [source for source in sources if source["class"] == "ansatz.lean.jvm.internal.exec.Interpreter"]
+    require(len(primary) == 1, "Reviewed primary engine source required")
+    require(re.findall(r':engine-class\s+"([^"\\]+)"', text) == [primary[0]["class"]],
+            "Reviewed engine class differs")
+    closure_text = "".join(s["path"] + "\t" + s["class"] + "\t" + s["sha256"] + "\n"
+                           for s in sorted(sources, key=lambda s: s["path"]))
+    closure_sha = digest(closure_text.encode("utf-8"))
+    require(re.findall(r':engine-closure-sha256\s+"([0-9a-f]{64})"', text) == [closure_sha],
+            "Reviewed engine closure digest differs")
+    return sources, closure_sha, primary[0]["sha256"]
+
+
 def audit_jar(path, expected_engine_sha=None):
+    expected_sources, expected_closure_sha, reviewed_primary_sha = reviewed_engine_sources()
     path = Path(path)
     require(path.is_file() and path.stat().st_size <= 64 * 1024 * 1024, "Bounded SDK jar required")
     with zipfile.ZipFile(path) as archive:
@@ -72,10 +117,12 @@ def audit_jar(path, expected_engine_sha=None):
             if "/internal/" in source_path: engine_sources.append(source)
             else: api_sources.add(source["class"].rsplit(".", 1)[-1])
         require(api_sources == API_CLASSES, "Java API source inventory differs")
+        require(engine_sources == expected_sources, "Java engine sources differ from reviewed external closure")
         closure_text = "".join(s["path"] + "\t" + s["class"] + "\t" + s["sha256"] + "\n"
                                for s in sorted(engine_sources, key=lambda s: s["path"]))
         closure_sha = digest(closure_text.encode("utf-8"))
-        require(closure_sha == inventory.get("engineClosureSHA256"), "Java engine source closure differs")
+        require(closure_sha == inventory.get("engineClosureSHA256") == expected_closure_sha,
+                "Java engine source closure differs")
         class_pins = inventory.get("classes", {})
         require(set(classes) == set(class_pins), "Uninventoried or missing compiled class")
         require(roots <= set(classes), "Captured source has no compiled top-level class")
@@ -115,6 +162,7 @@ def audit_jar(path, expected_engine_sha=None):
         match = re.search(rb':engine-source-sha256\s+"([0-9a-f]{64})"', metadata)
         require(match is not None, "Missing engine source pin")
         engine_sha = match.group(1).decode("ascii")
+        require(engine_sha == reviewed_primary_sha, "Runtime metadata/primary reviewed source pin differs")
         require(expected_engine_sha is None or engine_sha == expected_engine_sha, "Jar engine source pin differs")
         return {"jarBytes": path.stat().st_size, "jarSHA256": digest(path.read_bytes()),
                 "entryCount": len(names), "engineClassCount": sum(name.startswith("ansatz/lean/jvm/internal/exec/") for name in classes),
