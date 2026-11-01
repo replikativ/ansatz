@@ -217,3 +217,18 @@
                                                     "State:\tR (running)\nVmRSS:\t321 kB\n"))
                       #'compiler/pause-rss-sample! (fn [] nil)}
         #(do (is (= 321 (#'compiler/handle-rss-kib live))) (is (= 2 @calls)))))))
+
+(deftest native-json-consumes-one-value-and-only-json-whitespace
+  (doseq [text ["{}" "{} \t\r\n" " \t\r\n{\"message\":\"brace } and escaped \\\" quote\"}\n"]]
+    (is (map? (#'compiler/json! text))))
+  (doseq [text ["{} {}" "{}true" "{}garbage" "{}\n[]" "{};ignored" (str "{}" (char 0))
+                (str "{}" (char 11)) (str "{}" (char 0x2003)) "[1] trailing"]]
+    (is (thrown? Exception (#'compiler/json! text)))))
+(deftest native-json-depth-and-single-parse-stream-boundaries
+  (is (= [1 {"text" "[]{}"}] (#'compiler/json! "[1,{\"text\":\"[]{}\"}]\n")))
+  (is (thrown? Exception (#'compiler/json! (str (apply str (repeat 257 "[")) "0" (apply str (repeat 257 "]"))))))
+  (let [directory (temp) path (write! directory "trailing.json" "{} {}")]
+    (is (thrown? Exception (#'compiler/read-json! path 65536))))
+  (let [directory (temp) manifest "{\"schema\":\"lean-ir-probe/1\",\"leanVersion\":\"4.33.1\",\"runtimeProfile\":{\"target\":\"x86_64-unknown-linux-gnu\",\"wordBits\":64}}"
+        path (write! directory "trailing-stream.jsonl" (str manifest " {}\n"))]
+    (is (thrown? Exception (#'compiler/read-stream! path)))))

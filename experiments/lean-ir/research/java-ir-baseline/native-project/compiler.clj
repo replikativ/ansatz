@@ -59,7 +59,32 @@
   (cond (map? value) (into (sorted-map) (map (fn [[k v]] [(str k) (ordered v)]) value))
         (sequential? value) (mapv ordered value) :else value))
 (defn- canonical [value] (.getBytes (json/write-str (ordered value)) StandardCharsets/UTF_8))
-(defn- read-json! [path maximum] (#'entry/json! (#'entry/text! (bytes! path maximum))))
+(defn- json! [text]
+  ;; Depth preflight only: the real JSON parser handles syntax exactly once.
+  ;; This codec belongs to this source-authenticated transport, not runner.clj.
+  (need (and (string? text) (<= (count text) max-bytes)) "Native JSON text extent exceeds bound")
+  (loop [characters (seq text) depth 0 quoted false escaped false]
+    (need (<= 0 depth 256) "Native JSON nesting exceeds bound")
+    (when-let [c (first characters)]
+      (cond
+        escaped (recur (next characters) depth quoted false)
+        (and quoted (= c \\)) (recur (next characters) depth quoted true)
+        (= (int c) 34) (recur (next characters) depth (not quoted) false)
+        quoted (recur (next characters) depth quoted false)
+        (contains? #{\{ \[} c) (recur (next characters) (inc depth) false false)
+        (contains? #{\} \]} c) (recur (next characters) (dec depth) false false)
+        :else (do (need (or (not (or (< (int c) 32) (Character/isWhitespace (int c))))
+                            (contains? #{32 9 10 13} (int c))) "Non-JSON whitespace outside string")
+                  (recur (next characters) depth false false)))))
+  (json/read-str text :extra-data-fn
+    (fn [value ^java.io.Reader reader]
+      (loop [read 0]
+        (need (<= read (count text)) "Native JSON trailing data exceeds bound")
+        (let [c (.read reader)]
+          (cond (= -1 c) value
+                (contains? #{32 9 10 13} c) (recur (inc read))
+                :else (throw (ex-info "Trailing non-whitespace after native JSON value" {:profile profile}))))))))
+(defn- read-json! [path maximum] (json! (#'entry/text! (bytes! path maximum))))
 (defn- write-json! [^Path path value]
   (let [data (canonical value)]
     (with-open [channel (FileChannel/open path (into-array java.nio.file.OpenOption [StandardOpenOption/CREATE_NEW StandardOpenOption/WRITE]))]
@@ -322,7 +347,7 @@
 (defn- validate-hit! [^Path directory key inputs]
   (need (and (Files/isDirectory directory no-links) (not (Files/isSymbolicLink directory))) "Invalid cache entry directory")
   (let [raw (bytes! (.resolve directory "manifest.json") (* 4 1024 1024))
-        manifest (#'entry/json! (#'entry/text! raw))]
+        manifest (json! (#'entry/text! raw))]
     (need (and (= "native-compiled-project/1" (get manifest "schema")) (= key (get manifest "cacheKey"))
                (= inputs (get manifest "inputs")) (= (get manifest "files") (inventory directory)))
           "Cache key/profile or complete file set changed")
@@ -331,7 +356,7 @@
 (defn- read-stream! [^Path path]
   (let [text (#'entry/text! (bytes! path max-bytes)) lines (str/split-lines text)
         _ (need (<= 1 (count lines) 20001) "IR stream row bound")
-        manifest (#'entry/json! (first lines)) rows (mapv #'entry/json! (rest lines))]
+        manifest (json! (first lines)) rows (mapv json! (rest lines))]
     (need (and (= "lean-ir-probe/1" (get manifest "schema")) (= "4.33.1" (get manifest "leanVersion"))
                (= {"target" "x86_64-unknown-linux-gnu" "wordBits" 64} (get manifest "runtimeProfile"))
                (every? #(= "decl" (get % "kind")) rows)) "Missing/unsupported native IR stream")
