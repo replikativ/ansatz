@@ -1,7 +1,8 @@
 (ns ansatz.lean.jvm.publisher
   "Combined program publisher over actual native build receipts. No process launch."
   (:require [ansatz.lean.jvm.startup :as startup]
-            [clojure.string :as str]))
+            [clojure.string :as str]
+            [ansatz.lean.jvm.entry :as checked-entry]))
 (defn- need [p message] (when-not p (throw (ex-info message {:profile :ansatz.lean.jvm.publisher}))))
 (defn- vector! [value limit]
   (need (and (vector? value) (<= (count value) limit)) "Bounded immutable vector required") value)
@@ -33,8 +34,6 @@
                (or (= expected-role selected-role)
                    (and (= expected-role "value") (#{"closed" "ground"} selected-role))))
           "Selected canonical row conflicts with genuine startup observation")))
-(defn- callable-abi [row]
-  (let [f (get-in row ["ir" "fdecl"])] {"name" (get f "f") "xs" (get f "xs") "type" (get f "type")}))
 (defn- validate-combined! [payload]
   (need (contains? #{"native-project-build-evidence/2" "lean-native-local-project/2"} (:profile payload)) "Build/artifact receipt profile differs")
   (let [index (:rows payload) entries (vector! (:entries payload) 16)
@@ -50,13 +49,7 @@
         (#'startup/name! dependency)
         (need (contains? index dependency) "Selected combined declaration closure incomplete")))
     (doseq [row (:rows plan)] (startup-observation! (get index (get row "name")) row))
-    (doseq [entry entries]
-      (need (and (#{"io-unit" "nat-to-nat" "string-to-string"} (get-in entry ["typeCheck" "signature"]))
-                 (= "Lean.Meta.isDefEq" (get-in entry ["typeCheck" "algorithm"]))
-                 (= "default" (get-in entry ["typeCheck" "transparency"]))
-                 (empty? (get entry "levelParams"))) "Missing checked supported entry evidence")
-      (doseq [role ["raw" "callable"]]
-        (need (= (get entry role) (callable-abi (get index (get-in entry [role "name"])))) "Original entry callable differs")))
+    (doseq [entry entries] (checked-entry/validate-rows! entry index))
     {:plan plan :rows (vec (sort-by #(name-label (get % "name")) rows)) :entries entries}))
 (defn- prepare-payload! [basis payload codec-bytes]
   (let [{:keys [plan rows entries]} (validate-combined! payload)

@@ -1,7 +1,8 @@
 (ns ansatz.lean.jvm.artifact
   "Bounded portable native-project artifacts. Reading requires an independent
    expected manifest digest and performs no native/toolchain discovery."
-  (:require [clojure.data.json :as json] [clojure.java.io :as io] [clojure.string :as str])
+  (:require [clojure.data.json :as json] [clojure.java.io :as io] [clojure.string :as str]
+            [ansatz.lean.jvm.entry :as checked-entry])
   (:import [java.io InputStream OutputStream FilterInputStream FilterOutputStream ByteArrayOutputStream]
            [java.nio.file Path Files LinkOption]
            [java.nio.charset StandardCharsets CodingErrorAction]
@@ -160,22 +161,18 @@
               (when-let [old (get out n)] (need (= old row) "ArtifactConflict" {:name n :stage :imported-observation}))
               (need (or (contains? out n) (< (count out) 4096)) "BuildResourceLimit" {}) (assoc out n row)))
           {} (mapcat #(vector! (get % "declarations") 2048) documents)))
-(defn- expected-type! [signature type]
-  (let [constant #(vector "const" ["str" ["anonymous"] %] [])]
-    (if (= signature "io-unit")
-      (need (= ["app" (constant "IO") (constant "Unit")] type) "EntryRejected" {})
-      (let [base (constant (if (= signature "nat-to-nat") "Nat" "String"))]
-        (need (and (vector? type) (= 5 (count type)) (= "forall" (first type))
-                   (= "default" (nth type 2)) (= base (nth type 3)) (= base (nth type 4))) "EntryRejected" {})))))
 (defn- validate! [manifest files]
   (need (and (= schema (get manifest "schema")) (= "legacy-local-init-v2" (get manifest "profile"))
              (= {"frontend" "official-native" "javaKernelChecked" false "hostedInitImported" false "startupExecutionReceipt" false}
                 (get manifest "trust"))) "ArtifactConflict" {:stage :artifact-profile})
   (let [producer (get manifest "producer")
-        source-pins {"entryHelperSource" "e89beefe6ebb864d830367a377360d68cbce89c97fa6a5a5e9dab8877b6c6629"
-                     "startupHelperSource" "f8c92d652c596b9bf656135348b190a5c09cf61ec40c8775835cf180a8833dd1"
+        entry-schema (cond
+                       (= (get-in checked-entry/cohorts [1 :source]) (get-in producer ["entryHelperSource" "sha256"])) 1
+                       (and (= (get-in checked-entry/cohorts [2 :source]) (get-in producer ["entryHelperSource" "sha256"]))
+                            (= (get-in checked-entry/cohorts [2 :binary]) (get-in producer ["entryHelper" "sha256"]))) 2)
+        source-pins {"startupHelperSource" "f8c92d652c596b9bf656135348b190a5c09cf61ec40c8775835cf180a8833dd1"
                      "typedSourceExporterSource" "a48e00225fe08c1a74b66fff1102fd0c11ecefaaafc20ddcf6e28aaf363c99d3"}
-        _ (need (and (= lean-commit (get producer "leanCommit")) (= "4.33.1" (get producer "leanVersion"))
+        _ (need (and entry-schema (= lean-commit (get producer "leanCommit")) (= "4.33.1" (get producer "leanVersion"))
                      (= "x86_64-unknown-linux-gnu" (get producer "target")) (= 64 (get producer "wordBits"))
                      (every? (fn [[field pin]] (= pin (get-in producer [field "sha256"]))) source-pins)
                      (false? (get-in manifest ["code" "dynamicClosureProven"]))) "ArtifactConflict" {:stage :supported-producer})
@@ -213,34 +210,16 @@
         documents (mapv (fn [e]
                           (let [d (json! (path-ref! files (get e "raw")) (* 16 1048576))
                                 request (json! (path-ref! files (get e "request")) 65536)]
-                            (producer! d "lean-native-entry-evidence/1" "NativeEntryEvidence.exportEntries")
-                            (need (and (= "lean-native-entry-requests/1" (get request "schema"))
-                                       (= (get e "rootModule") (get d "compiledModule") (get request "module"))
-                                       (= (mapv #(get % "name") (get request "entries")) (mapv #(get % "name") (get d "entries"))))
-                                  "EntryRejected" {})
+                            (need (= (get-in checked-entry/cohorts [entry-schema :evidence]) (get d "schema"))
+                                  "EntryRejected" {:stage :entry-producer-version})
+                            (checked-entry/validate-document! (get e "rootModule") request d)
                             {:document d :request request})) (vector! (get manifest "entryEvidence") 16))
         entries (vec (mapcat #(get-in % [:document "entries"]) documents))
-        requested (vec (mapcat #(get-in % [:request "entries"]) documents))
         imported (merge-imported! (into [startup] (map :document documents)))]
     (need (and (<= 1 (count entries) 16) (= (count entries) (count (set (map #(get % "name") entries))))) "EntryRejected" {})
-    (doseq [[entry request] (map vector entries requested)]
-      (let [signature (get request "signature")]
-        (need (and (#{"io-unit" "nat-to-nat" "string-to-string"} signature)
-                   (= signature (get-in entry ["typeCheck" "signature"]))
-                   (= "Lean.Meta.isDefEq" (get-in entry ["typeCheck" "algorithm"]))
-                   (= "default" (get-in entry ["typeCheck" "transparency"]))
-                   (#{"definition" "opaque"} (get entry "kind")) (= [] (get entry "levelParams"))
-                   (vector? (get entry "actualType")) (module-names (get entry "compiledModule"))) "EntryRejected" {})
-        (expected-type! signature (get-in entry ["typeCheck" "expectedType"]))
-        (doseq [role ["raw" "callable"]]
-          (let [a (get entry role) row (get index (get a "name"))]
-            (need (and (= a (abi row)) (= (get entry "compiledModule") (get row "sourceModule"))) "EntryRejected" {})))
-        (let [callable (get entry "callable") params (get callable "xs")]
-          (need (and (= (get entry "name") (get-in entry ["raw" "name"]))
-                     (#{"original-interpreter-boxed-lookup" "original-owned-raw"} (get entry "selection"))
-                     (vector? params) (= 1 (count params)) (false? (get-in params [0 "borrow"]))
-                     (#{"object" "tobject" "tagged"} (get-in params [0 "ty"]))
-                     (#{"object" "tobject" "tagged"} (get callable "type"))) "EntryRejected" {}))))
+    (doseq [entry entries]
+      (need (module-names (get entry "compiledModule")) "EntryRejected" {:stage :entry-module})
+      (checked-entry/validate-rows! entry index))
     (doseq [[name row] index]
       (doseq [dep (get row "dependencies")] (need (contains? index dep) "MissingDependency" {:name dep}))
       (let [observed (get imported name)]

@@ -1,12 +1,13 @@
 (ns ansatz.lean.jvm.compiler.bundle
   "Explicit external Linux producer bundle. SDK pins independently authorize its
    helpers; bundle self-description alone never authenticates native producers."
-  (:require [ansatz.lean.jvm.compiler.transport :as transport])
+  (:require [ansatz.lean.jvm.compiler.transport :as transport]
+            [ansatz.lean.jvm.entry :as checked-entry])
   (:import [java.nio.file Path Files LinkOption]))
 
 (def supported-producers
-  {"entry" {"binarySHA256" "a94b830bcada8032736e3bbd43e7dce559054e2214cb74489bd58709ac486593"
-            "sourceSHA256" "e89beefe6ebb864d830367a377360d68cbce89c97fa6a5a5e9dab8877b6c6629"}
+  {"entry" {"binarySHA256" (get-in checked-entry/cohorts [1 :binary])
+            "sourceSHA256" (get-in checked-entry/cohorts [1 :source])}
    "startupHeader" {"binarySHA256" "2693f971452aa28190ca5c1033bf2b1030f9703b22f53181cd0591b1ab90399c"
                     "sourceSHA256" "f8c92d652c596b9bf656135348b190a5c09cf61ec40c8775835cf180a8833dd1"}
    "typedSource" {"binarySHA256" "83342c9582dd43aef3974ffadb6f989c1f7bd23d66b3c406258ca31223030041"
@@ -24,7 +25,12 @@
           "Producer path escapes its bundle or uses a symlink")
     path))
 (defn- producer! [root name descriptor]
-  (let [supported (supported-producers name)]
+  (let [entry-schema (when (= "entry" name)
+                       (checked-entry/schema-for-pins! (get descriptor "sourceSHA256") (get descriptor "binarySHA256")))
+        supported (if entry-schema
+                    {"binarySHA256" (get-in checked-entry/cohorts [entry-schema :binary])
+                     "sourceSHA256" (get-in checked-entry/cohorts [entry-schema :source])}
+                    (supported-producers name))]
     (need (and (map? descriptor)
                (= #{"binary" "binarySHA256" "source" "sourceSHA256"} (set (keys descriptor)))
                (= supported (select-keys descriptor ["binarySHA256" "sourceSHA256"])))
@@ -37,7 +43,7 @@
                     (get (#'transport/file-record source (* 2 1048576)) "sha256")))
             "Producer binary/source bytes differ from the SDK pins")
       {:binary binary :source source :binary-sha256 (get supported "binarySHA256")
-       :source-sha256 (get supported "sourceSHA256")})))
+       :source-sha256 (get supported "sourceSHA256") :entry-schema entry-schema})))
 (defn open!
   "Validate one explicitly supplied bundle, then configure the monitored native
    transport. No compiler is launched until the subsequent source build."
@@ -65,5 +71,6 @@
                          :helper-sha256 (:binary-sha256 header) :helper-source-sha256 (:source-sha256 header)
                          :typed-exporter (:binary typed) :typed-exporter-source (:source typed)
                          :typed-exporter-sha256 (:binary-sha256 typed) :typed-exporter-source-sha256 (:source-sha256 typed)}
-       :evidence-options {:entry-helper (:binary entry) :entry-helper-source (:source entry)
+       :evidence-options {:entry-schema (:entry-schema entry)
+                          :entry-helper (:binary entry) :entry-helper-source (:source entry)
                           :entry-helper-sha256 (:binary-sha256 entry) :entry-helper-source-sha256 (:source-sha256 entry)}})))

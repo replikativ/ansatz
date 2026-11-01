@@ -1,0 +1,10 @@
+{
+  "schema": "ansatz-general-entry-fixture/1",
+  "producerSourceSHA256": "e3e6f269769d2155b2367fc12e685b86b18204248b4303639e9fa6a59325f8ed",
+  "producerBinarySHA256": "64fc830a0bc395eed1e11280321331c9877021ce0e69b3aec6dfcb8b7646355a",
+  "evidenceSHA256": "cb136e012604fde1b3754b33cbfd5f251731f9d6ae65e563a420f967291bcf02",
+  "requestSHA256": "34f9d1a481d954be629c2c5788f4421c7810bb05cd288ad6433859eaa4951066",
+  "entries": 13,
+  "rows": 38,
+  "authority": "Actual root-owned compiled native v2 producer run using original C interpreter lookup; metadata-only validator fixture does not issue a receipt or execute a guest."
+}

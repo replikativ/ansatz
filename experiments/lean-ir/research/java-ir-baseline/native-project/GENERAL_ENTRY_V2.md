@@ -162,3 +162,11 @@ All references below are to Lean commit
 - `src/include/lean/lean.h:3027`: IO world is `lean_box(0)`.
 - `src/Lean/Compiler/IR/UnboxResult.lean:15`: `[unbox]` exists but explicitly has
   no effect at this pin; it must not be cited as an active Option optimization.
+
+## SDK validation seam
+
+`ansatz.lean.jvm.entry` now shares descriptor, document, callable-row, and codec-witness validation between the compiler receipt issuer, portable artifact reader, and publisher. Validation alone issues no receipt or runtime capability. Each issuer retains its existing byte limits, original native/source IR comparison, provenance, file custody, and opaque identity checks.
+
+The compiler evidence configuration accepts `:entry-schema 1` (default) or `2`. A producer bundle derives this value from the independently admitted entry source/binary pair. Schema 1 keeps its existing requests and rejects `:signature "auto"` before compiler/path access. Schema 2 emits name-only requests; callers may request `"auto"` or constrain the result to an existing legacy signature. The outer portable artifact remains `lean-native-local-project/2`; the nested entry evidence and admitted producer cohort distinguish the versions. The published v1 bundle is unchanged.
+
+The metadata-only models in `modules/lean-jvm/test/entry_checks.clj` exercise the existing v1 application archive and the root-observed 13-entry, 38-row v2 fixture, including descriptor/ABI/plan/witness/provenance mutations. Fixture digests and producer pins are recorded beside the fixture. These models do not constitute native execution or end-to-end v2 SDK acceptance.

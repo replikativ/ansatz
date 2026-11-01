@@ -3,7 +3,9 @@
    Load once: issued receipt identities survive only in this namespace cohort."
   (:require [ansatz.lean.jvm.compiler.transport :as compiler]
             [ansatz.lean.jvm.compiler.local :as local]
-            [clojure.data.json :as json])
+            [clojure.data.json :as json]
+            [ansatz.lean.jvm.entry :as checked-entry]
+            [ansatz.lean.jvm.signature :as signature])
   (:import [java.nio.file Path Files LinkOption]
            [java.nio.file.attribute FileAttribute]
            [java.nio.charset StandardCharsets]
@@ -89,41 +91,23 @@
           (let [row (get index n)]
             (need row "MissingDependency" {:name n})
             (recur (into pending (get row "dependencies")) (assoc selected n row))))))))
-(defn- expected-type! [signature type]
-  (let [constant #(vector "const" ["str" ["anonymous"] %] [])]
-    (if (= signature "io-unit")
-      (need (= ["app" (constant "IO") (constant "Unit")] type) "EntryRejected" {:stage :template})
-      (let [base (constant (if (= signature "nat-to-nat") "Nat" "String"))]
-        (need (and (vector? type) (= 5 (count type)) (= "forall" (first type))
-                   (= "default" (nth type 2)) (= base (nth type 3)) (= base (nth type 4)))
-              "EntryRejected" {:stage :template})))))
-(defn- admit-entries! [root requests document modules source-index]
-  (producer! document "lean-native-entry-evidence/1" "NativeEntryEvidence.exportEntries")
-  (let [entries (vector! (get document "entries") 16)
-        index (row-index (get document "declarations"))]
-    (need (and (= root (get document "compiledModule"))
-               (= (mapv #(get % "name") requests) (mapv #(get % "name") entries))
-               (= (count entries) (count (set (map #(get % "name") entries))))) "EntryRejected" {:root root})
-    (doseq [[request entry] (map vector requests entries)]
-      (let [n (get entry "name") signature (get request "signature") owner (get entry "compiledModule")]
-        (need (and (contains? modules owner) (#{"definition" "opaque"} (get entry "kind"))
-                   (= [] (get entry "levelParams")) (= signature (get-in entry ["typeCheck" "signature"]))
-                   (= "Lean.Meta.isDefEq" (get-in entry ["typeCheck" "algorithm"]))
-                   (= "default" (get-in entry ["typeCheck" "transparency"]))
-                   (vector? (get entry "actualType"))) "EntryRejected" {:name n})
-        (expected-type! signature (get-in entry ["typeCheck" "expectedType"]))
-        (doseq [role ["raw" "callable"]]
-          (let [a (get entry role) row (get index (get a "name")) source (get source-index (get a "name"))]
-            (need (and (= a (abi row)) (= owner (get row "sourceModule"))
-                       source (= owner (get source "sourceModule")) (= (get row "ir") (get source "ir")))
-                  "EntryRejected" {:name n :stage :original-callable})))
-        (let [callable (get entry "callable") params (get callable "xs")]
-          (need (and (= n (get-in entry ["raw" "name"]))
-                     (#{"original-interpreter-boxed-lookup" "original-owned-raw"} (get entry "selection"))
-                     (vector? params) (= 1 (count params)) (false? (get-in params [0 "borrow"]))
-                     (#{"object" "tobject" "tagged"} (get-in params [0 "ty"]))
-                     (#{"object" "tobject" "tagged"} (get callable "type"))) "EntryRejected" {:name n}))))
-    {:entries entries :index index}))
+(defn- admit-entries!
+  ([root requests document modules source-index]
+   (admit-entries! root requests document modules source-index 1))
+  ([root requests document modules source-index entry-schema]
+   (let [request {"schema" (get-in checked-entry/cohorts [entry-schema :request]) "module" root "entries" requests}
+         entries (checked-entry/validate-document! root request document)
+         index (row-index (get document "declarations"))]
+     (doseq [entry entries]
+       (let [owner (get entry "compiledModule")]
+         (need (contains? modules owner) "EntryRejected" {:name (get entry "name")})
+         (checked-entry/validate-rows! entry index)
+         ;; Preserve the actual native imported/source-phase IR comparison.
+         (doseq [role ["raw" "callable"]]
+           (let [name (get-in entry [role "name"]) row (get index name) source (get source-index name)]
+             (need (and source (= owner (get source "sourceModule")) (= (get row "ir") (get source "ir")))
+                   "EntryRejected" {:name name :stage :original-callable})))))
+     {:entries entries :index index})))
 (defn authenticated-build
   "Internal publisher seam. Only actual issued identity authenticates the payload;
    copying this descriptive immutable map never creates another receipt."
@@ -148,13 +132,21 @@
   (need (seq entries) "EntryRejected" {})
   (doseq [{:keys [root name signature] :as e} entries]
     (need (and (= #{:root :name :signature} (set (keys e)))
-               (#{"io-unit" "nat-to-nat" "string-to-string"} signature)) "EntryRejected" {})
+               (or (= "auto" signature) (checked-entry/legacy-profiles signature))) "EntryRejected" {})
     (local/module-components root) (name! name))
   (need (= (count entries) (count (set (map :name entries)))) "EntryRejected" {:stage :duplicate-request})
+  (let [entry-schema (get evidence-configuration :entry-schema 1)]
+    (need (#{1 2} entry-schema) "UnsupportedProjectConfig" {:stage :entry-schema})
+    (need (or (= 2 entry-schema) (not-any? #(= "auto" (:signature %)) entries))
+          "UnsupportedSignature" {:stage :auto-requires-entry-v2}))
   (let [started (System/nanoTime)
         {:keys [entry-helper entry-helper-source entry-helper-sha256 entry-helper-source-sha256]} evidence-configuration
+        entry-schema (get evidence-configuration :entry-schema 1)
         _ (need (= #{:entry-helper :entry-helper-source :entry-helper-sha256 :entry-helper-source-sha256}
-                   (set (keys evidence-configuration))) "UnsupportedProjectConfig" {})
+                   (disj (set (keys evidence-configuration)) :entry-schema)) "UnsupportedProjectConfig" {})
+        _ (when (= 2 entry-schema)
+            (need (= 2 (checked-entry/schema-for-pins! entry-helper-source-sha256 entry-helper-sha256))
+                  "UnsupportedProjectConfig" {:stage :entry-helper-cohort}))
         helper (#'compiler/executable! entry-helper) helper-source (#'compiler/path! entry-helper-source)
         helper-record (#'compiler/file-record helper (* 256 1048576))
         helper-source-record (#'compiler/file-record helper-source (* 2 1048576))
@@ -192,8 +184,9 @@
                 grouped (mapv (fn [root] [root (filterv #(= root (:root %)) entries)]) roots)
                 documents
                 (mapv (fn [index [root selected]]
-                        (let [requests (mapv #(hash-map "name" (:name %) "signature" (:signature %)) selected)
-                              request {"schema" "lean-native-entry-requests/1" "module" root "entries" requests}
+                        (let [requests (mapv #(cond-> {"name" (:name %)}
+                                                     (= 1 entry-schema) (assoc "signature" (:signature %))) selected)
+                              request {"schema" (get-in checked-entry/cohorts [entry-schema :request]) "module" root "entries" requests}
                               path (.resolve stage (str "entries-" index ".request.json"))
                               request-bytes (alength ^bytes (#'compiler/canonical request))
                               _ (need (<= request-bytes 65536) "BuildResourceLimit" {})
@@ -202,7 +195,12 @@
                               receipt (#'compiler/run-process! state journal stage (str "entries-" index) [helper "--entries" path] env)
                               _ (charge-produced! byte-budget stage receipt)
                               document (read-produced! stage receipt (* 16 1048576))
-                              admitted (admit-entries! root requests document (:modules build) source-index)]
+                              admitted (admit-entries! root requests document (:modules build) source-index entry-schema)
+                              _ (when (= 2 entry-schema)
+                                  (doseq [[requested emitted] (map vector selected (:entries admitted))]
+                                    (when-not (= "auto" (:signature requested))
+                                      (need (= (signature/from-legacy (:signature requested)) (checked-entry/descriptor emitted))
+                                            "EntryRejected" {:stage :requested-signature :name (:name requested)}))))]
                           {:request request :receipt receipt :document document :admitted admitted}))
                       (range) (filterv #(seq (second %)) grouped))
                 startup-request {"schema" "lean-native-startup-requests/1" "profile" "legacy-private-ordinary/1"
