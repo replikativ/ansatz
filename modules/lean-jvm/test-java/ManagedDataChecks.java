@@ -1,7 +1,7 @@
-import ansatz.research.ir.Interpreter;
-import ansatz.research.ir.Interpreter.DataCtor;
-import ansatz.research.ir.Interpreter.DataRef;
-import ansatz.research.ir.Interpreter.Node;
+import ansatz.lean.jvm.internal.exec.Interpreter;
+import ansatz.lean.jvm.internal.exec.Interpreter.DataCtor;
+import ansatz.lean.jvm.internal.exec.Interpreter.DataRef;
+import ansatz.lean.jvm.internal.exec.Interpreter.Node;
 import java.lang.reflect.Field;
 import java.math.BigInteger;
 import java.util.Arrays;

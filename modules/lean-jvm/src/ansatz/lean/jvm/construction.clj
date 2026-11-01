@@ -5,8 +5,8 @@
 
 (defn materialize! [ctx engine plan]
   (let [loader (:loader ctx)
-        ctor-class (Class/forName "ansatz.research.ir.Interpreter$DataCtor" true loader)
-        ref-class (Class/forName "ansatz.research.ir.Interpreter$DataRef" true loader)
+        ctor-class (Class/forName "ansatz.lean.jvm.internal.exec.Interpreter$DataCtor" true loader)
+        ref-class (Class/forName "ansatz.lean.jvm.internal.exec.Interpreter$DataRef" true loader)
         object-array-class (class (object-array 0))
         ^Constructor ctor (.getConstructor ctor-class (into-array Class [Integer/TYPE object-array-class]))
         ^Constructor ref (.getConstructor ref-class (into-array Class [Integer/TYPE]))

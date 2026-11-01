@@ -19,7 +19,7 @@ def main():
     cases = {
         "missing-adapter": [(name, data) for name, data in originals if name != "ansatz/lean/jvm/ir.clj"],
         "legacy-namespace": originals + [("prototype/machine.cljc", b"(ns prototype.machine)")],
-        "duplicate-class": originals + [("ansatz/research/ir/Interpreter.class", b"duplicate")],
+        "duplicate-class": originals + [("ansatz/lean/jvm/internal/exec/Interpreter.class", b"duplicate")],
         "extra-java-source": originals + [("research/Interpreter.java", b"class Interpreter {}")],
         "dependency-drift": [(name, data.replace(b"<artifactId>clojure</artifactId>", b"<artifactId>pattern</artifactId>"))
                              if name.endswith("pom.xml") else (name, data) for name, data in originals],

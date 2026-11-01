@@ -1,14 +1,14 @@
 /*
- * Experimental JVM port of Lean's lambda-RC interpreter, pinned to
+ * JVM port of Lean's lambda-RC interpreter, pinned to
  * 819816b2e0a3bf405af45ae5c7af2491d8f5bee6:src/library/ir_interpreter.cpp.
  * Upstream: Copyright (c) 2019 Microsoft Corporation. Apache-2.0.
  * Author of upstream interpreter: Sebastian Ullrich.
  *
  * Bounded object/uint8/uint16/uint32/usize/uint64/float profile (64-bit little-endian), not a public API.
- * Research eager graph forks and typed host requests, not a persistent branch
+ * Internal eager graph forks and typed host requests, not a persistent branch
  * store, native ABI invocation, general host IO, or arbitrary World conversion.
  */
-package ansatz.research.ir;
+package ansatz.lean.jvm.internal.exec;
 
 import java.math.BigInteger;
 import java.math.BigDecimal;

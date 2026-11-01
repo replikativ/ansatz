@@ -1,4 +1,4 @@
-import ansatz.research.ir.Interpreter;
+import ansatz.lean.jvm.internal.exec.Interpreter;
 import java.lang.reflect.*;
 import java.math.BigInteger;
 import java.util.Collections;
@@ -16,9 +16,9 @@ public final class RuntimeResourceChecks {
         stringPrimitive(e,operation,left,right,0L);
     }
     static void stringPrimitive(Interpreter e,int operation,Object left,Object right,Object third) throws Exception {
-        Class<?> function=Class.forName("ansatz.research.ir.Interpreter$Function");
+        Class<?> function=Class.forName("ansatz.lean.jvm.internal.exec.Interpreter$Function");
         Constructor<?> constructor=function.getDeclaredConstructor(String.class,int.class,int[].class,
-            int[].class,int.class,int.class,Class.forName("ansatz.research.ir.Interpreter$HostExtern"),Object.class);
+            int[].class,int.class,int.class,Class.forName("ansatz.lean.jvm.internal.exec.Interpreter$HostExtern"),Object.class);
         constructor.setAccessible(true);
         Object f=constructor.newInstance("resource-check",-1,new int[0],new int[0],0,operation,null,null);
         invoke(e,"runtimeIntrinsic",new Class<?>[]{function,Object.class,Object.class,Object.class},f,left,right,third);

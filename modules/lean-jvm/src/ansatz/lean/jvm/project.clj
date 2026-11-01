@@ -57,7 +57,7 @@
       (let [bytes (.readNBytes input 16385)]
         (need (<= (alength bytes) 16384) "RuntimeBoundary" "SDK codec resource exceeds bound") bytes))))
 (defn- entropy [basis]
-  (let [cls (Class/forName "ansatz.research.ir.Interpreter$EntropyCapability" true (:loader basis))]
+  (let [cls (Class/forName "ansatz.lean.jvm.internal.exec.Interpreter$EntropyCapability" true (:loader basis))]
     (ir/invoke-static (.getMethod cls "secureRandom" (into-array Class [String String Integer/TYPE]))
                       ["DRBG" "" (int 1048576)])))
 (defn runtime-service!

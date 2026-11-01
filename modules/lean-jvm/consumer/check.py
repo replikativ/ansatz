@@ -52,7 +52,7 @@ def audit_jar(path, expected_engine_sha=None):
                              "META-INF/maven/org.replikativ/ansatz-lean-jvm/pom.properties"}
         require(all(name.endswith("/") or name in allowed_resources or name in classes for name in names),
                 "Uninventoried runtime file or research source in jar")
-        require(classes and all(re.fullmatch(r"ansatz/research/ir/Interpreter(?:\$[^/]+)?\.class", name)
+        require(classes and all(re.fullmatch(r"ansatz/lean/jvm/internal/exec/Interpreter(?:\$[^/]+)?\.class", name)
                                or (re.fullmatch(r"ansatz/lean/jvm/([A-Za-z]+)(?:\$[^/]+)?\.class", name)
                                    and re.fullmatch(r"ansatz/lean/jvm/([A-Za-z]+)(?:\$[^/]+)?\.class", name).group(1) in API_CLASSES)
                                for name in classes),
@@ -60,7 +60,7 @@ def audit_jar(path, expected_engine_sha=None):
         for api_class in API_CLASSES:
             require("ansatz/lean/jvm/" + api_class + ".class" in classes, "Missing Java facade class " + api_class)
         for nested in ["", "$Program", "$Node", "$Header", "$SourceBinding", "$HostExtern"]:
-            require("ansatz/research/ir/Interpreter" + nested + ".class" in classes, "Missing engine class " + nested)
+            require("ansatz/lean/jvm/internal/exec/Interpreter" + nested + ".class" in classes, "Missing engine class " + nested)
         for name in classes:
             data = archive.read(name)
             require(data[:4] == b"\xca\xfe\xba\xbe" and int.from_bytes(data[6:8], "big") == 61,
@@ -88,7 +88,7 @@ def audit_jar(path, expected_engine_sha=None):
         engine_sha = match.group(1).decode("ascii")
         require(expected_engine_sha is None or engine_sha == expected_engine_sha, "Jar engine source pin differs")
         return {"jarBytes": path.stat().st_size, "jarSHA256": digest(path.read_bytes()),
-                "entryCount": len(names), "engineClassCount": sum(name.startswith("ansatz/research/ir/") for name in classes),
+                "entryCount": len(names), "engineClassCount": sum(name.startswith("ansatz/lean/jvm/internal/exec/") for name in classes),
                 "javaAPIClassCount": sum(name.startswith("ansatz/lean/jvm/") for name in classes),
                 "publicProjectAPIAccepted": public_match.group(1) == b"true", "javaRelease": 17,
                 "engineSourceSHA256": engine_sha, "runtimeResources": resources,

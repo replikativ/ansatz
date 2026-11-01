@@ -32,9 +32,9 @@
                 '(ns ansatz.lean.jvm.ir (:use prototype.machine))
                 '(ns ansatz.lean.jvm.ir (:import [ansatz.kernel Name]))]]
     (is (rejected? #(audit/check-namespace! 'ansatz.lean.jvm.ir form)))))
-(def capture-text "package ansatz.research.ir;\npublic final class Interpreter {}\n")
+(def capture-text "package ansatz.lean.jvm.internal.exec;\npublic final class Interpreter {}\n")
 ;; Independent fixed fixture digest, not computed by the capture implementation.
-(def capture-sha "17201026af9a47a21778efd2073c24ae04ba7f31203fd78b8376c3b128579345")
+(def capture-sha "cc048e93845e7616c981dea368e6c797ac7c8e9982700285a489e626e83fb1c8")
 (defn with-capture-fixture [f]
   (let [parent (.toPath (io/file *module-root* "target/capture-checks"))]
     (Files/createDirectories parent (make-array java.nio.file.attribute.FileAttribute 0))

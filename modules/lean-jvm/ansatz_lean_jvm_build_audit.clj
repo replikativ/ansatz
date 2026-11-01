@@ -3,7 +3,7 @@
   (:require [clojure.edn :as edn] [clojure.java.io :as io] [clojure.string :as str])
   (:import [java.nio.file Files StandardOpenOption] [java.security MessageDigest]))
 
-(def engine-source "engine/src/ansatz/research/ir/Interpreter.java")
+(def engine-source "src-java/ansatz/lean/jvm/internal/exec/Interpreter.java")
 (def runtime-resources ["META-INF/ansatz-lean-jvm/runtime.edn"
                         "META-INF/ansatz-lean-jvm/user-error.json"
                         "META-INF/ansatz-lean-jvm/NOTICE"])
@@ -22,7 +22,7 @@
   (need (= (count (:sources closure)) (count (set (map :path (:sources closure))))) "Duplicate runtime source")
   (need (= runtime-resources (:resources closure)) "Unknown runtime resource inventory")
   (need (and (= engine-source (get-in closure [:java :path]))
-             (= "ansatz.research.ir.Interpreter" (get-in closure [:java :class]))
+             (= "ansatz.lean.jvm.internal.exec.Interpreter" (get-in closure [:java :class]))
              (re-matches #"[0-9a-f]{64}" (or (get-in closure [:java :sha256]) "")))
         "Exactly the authoritative Interpreter source must be compiled")
   (need (and (vector? (:java-api closure)) (seq (:java-api closure))) "Explicit Java API inventory required")
@@ -72,7 +72,7 @@
                                   (make-array java.nio.file.OpenOption 0))]
                 (.readNBytes input (int (inc maximum))))
         actual-sha (sha256-bytes bytes)
-        relative "ansatz/research/ir/Interpreter.java"
+        relative "ansatz/lean/jvm/internal/exec/Interpreter.java"
         destination (io/file staging-root relative)]
     (need (<= (alength bytes) maximum) "Engine source capture exceeds bound")
     (need (= expected-sha actual-sha) "Engine source changed before capture")
@@ -117,7 +117,7 @@
                         (set (map :class (:java-api closure)))))
     (need (= (get-in closure [:java :sha256]) (:engine-source-sha256 metadata) (sha256 java)) "Engine source/metadata pin mismatch")
     (need (and (= "ansatz-lean-jvm-runtime/1" (:schema metadata)) (= 17 (:java-release metadata))
-               (= "ansatz.research.ir.Interpreter" (:engine-class metadata))
+               (= "ansatz.lean.jvm.internal.exec.Interpreter" (:engine-class metadata))
                (= 'ansatz.lean.jvm.ir (:adapter-namespace metadata))
                (true? (:precompiled-engine metadata)) (false? (:runtime-java-compilation metadata))
                (false? (:native-compiler-included metadata)) (boolean? (:public-project-api metadata)))
