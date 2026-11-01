@@ -1,0 +1,129 @@
+{
+  "schema": "byte-array-get-default-validation/1",
+  "scope": "Original borrowed bounds-safe ByteArray.get! and owned compiler wrapper; no entropy/startup acceptance",
+  "leanCommit": "819816b2e0a3bf405af45ae5c7af2491d8f5bee6",
+  "landingBaseCommit": "048f2254249ee95f6b5a1f7c7e4e3792968ffcb3",
+  "sourceInventory": [
+    {
+      "path": "experiments/lean-ir/research/java-ir-baseline/src/ansatz/research/ir/Interpreter.java",
+      "bytes": 743881,
+      "sha256": "9a3af598cf1168d15ba67b5dac49a302028329d885d18b91df97344baf37430e"
+    },
+    {
+      "path": "experiments/lean-ir/research/java-ir-baseline/byte-array-get-default-checks.clj",
+      "bytes": 6887,
+      "sha256": "81b301ac5f281c0a36d56e9b201502562a92e86ed322e9a7127b96de9639b539"
+    },
+    {
+      "path": "experiments/lean-ir/research/java-ir-baseline/byte-array-get-default-notes.md",
+      "bytes": 3487,
+      "sha256": "cbf7ff5354d55a3a025ff95ddb59ca4a14e988128b833644ce6e93aeeed33dcf"
+    },
+    {
+      "path": "experiments/lean-ir/test/fixtures/java-byte-array-get-default/original-boxed.json",
+      "bytes": 1045,
+      "sha256": "a8d6bd074151549784b3fca65e1a5886fe4180f50ccfab618f0b7b78cc2f246c"
+    },
+    {
+      "path": "experiments/lean-ir/test/fixtures/java-byte-array-get-default/original-raw.json",
+      "bytes": 619,
+      "sha256": "4ed4c7387fe8561b580ae83628252560821401449046852e4156a2bcaf259360"
+    },
+    {
+      "path": "experiments/lean-ir/test/fixtures/java-byte-array-get-default/provenance.json",
+      "bytes": 600,
+      "sha256": "0028c5e1f7bb03defa2cd75f5185853d94f344f5a6753361d7769f334f801d21"
+    }
+  ],
+  "compiler": {
+    "owner": "parent",
+    "JavaCompiledOnce": true,
+    "options": [
+      "-J-Xmx384m",
+      "--release",
+      "17"
+    ]
+  },
+  "execution": {
+    "owner": "parent retained 512MiB JVM",
+    "workerJVMOrNativeLaunched": false,
+    "focused": {
+      "tests": 8,
+      "assertions": 53,
+      "failures": 0,
+      "errors": 0
+    },
+    "existingByteArrayRegressions": {
+      "tests": 13,
+      "assertions": 118,
+      "failures": 0,
+      "errors": 0
+    },
+    "combinedFocused": {
+      "tests": 21,
+      "assertions": 171,
+      "failures": 0,
+      "errors": 0
+    },
+    "fullCombinedGate": {
+      "status": "PASS",
+      "tests": 89,
+      "assertions": 7448,
+      "failures": 0,
+      "errors": 0,
+      "groups": 8,
+      "scope": "publication, initialization, forks, Headers, generations, releases, new get-default and existing ByteArray on final9a3 engine"
+    }
+  },
+  "testHistory": {
+    "initial": {
+      "tests": 5,
+      "passes": 45,
+      "failures": 2,
+      "errors": 1,
+      "reason": "Incorrect assumption that plain same-class ByteArrayState had per-engine realm affinity; accepted boxed call consumed owner and model cleanup attempted another decrement",
+      "runtimeSourceChangedAfterFailure": false
+    },
+    "corrected": "Explicit owned transfer admitted; dead/wrong-kind/malformed cases isolated; cleanup does not decrement consumed credit"
+  },
+  "classBoundary": "Plain same-classloader ByteArrayState is not engine-affine. Protected runtime metadata and different runtime classes remain independent admission boundaries; no new per-Node ownership restriction added.",
+  "receipts": [
+    {
+      "file": "target/java-source-exchange-v1/byte-array-get-default-models-v2.edn",
+      "sha256": "ab87ff509d0f05a067db33a443755a6fe22231bc6c5375fb4b61cf945e71cd62",
+      "text": "{:test 8, :pass 53, :fail 0, :error 0, :type :summary}"
+    },
+    {
+      "file": "target/java-source-exchange-v1/byte-array-get-default-regressions-v1.edn",
+      "sha256": "27c28e83fdea8f33aec2fde4af2418afb033957144adcae16e294f456e89cff2",
+      "text": "{:test 13, :pass 118, :fail 0, :error 0, :type :summary}"
+    },
+    {
+      "file": "target/java-source-exchange-v1/byte-array-get-default-combined-v1.edn",
+      "sha256": "29447999e636c4a5a43d98033cbbd0df69d0f1196fb0265d5ba72acc235be025",
+      "bytes": 704
+    }
+  ],
+  "logs": [
+    {
+      "file": "target/byte-array-get-default-v1/models-v1.log",
+      "sha256": "046952f9920fcf021130539ffeaaaf3b9e921b92eec4b09bb4c99ee3ef62fc17",
+      "bytes": 7663
+    },
+    {
+      "file": "target/byte-array-get-default-v1/models-v2.log",
+      "sha256": "9329a74a494d464d77d8375c947357447c5fd6503b63deb69a3efe2d22788896",
+      "bytes": 108
+    },
+    {
+      "file": "target/byte-array-get-default-v1/regressions-v1.log",
+      "sha256": "64de7d345023b4d7eaaf2b18d7a1a248aed8043e6420fda0b4d4f2343d3f50d7",
+      "bytes": 98
+    },
+    {
+      "file": "target/byte-array-get-default-v1/combined-v1.log",
+      "sha256": "badbbd21e034f4d88a7c5abf59735658aa44e5a611f27c2939633b4fbf94ec23",
+      "bytes": 807
+    }
+  ]
+}

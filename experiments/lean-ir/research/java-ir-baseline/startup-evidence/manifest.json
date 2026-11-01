@@ -1,0 +1,26 @@
+{
+  "schema": "compact-startup-source-research/1",
+  "scope": "Source audit and future producer plan; not runtime initialization acceptance",
+  "leanCommit": "819816b2e0a3bf405af45ae5c7af2491d8f5bee6",
+  "nativeOrJVMExecutedByWorker": false,
+  "files": [
+    {
+      "file": "PLAN.md",
+      "sha256": "2ec84730ac379b019f91b5d86f8f8f0149d908b09f80b291389a717fa6fad4ce"
+    },
+    {
+      "file": "census.json",
+      "sha256": "cd66682aed6c1b15c784969524389354f681b1af9faa46e4307769c30440e31a"
+    },
+    {
+      "file": "closure-census.json",
+      "sha256": "de02e7643eb3e79be09152fcb0a6c4a56412124a054c008c9574c352729b3ec2"
+    }
+  ],
+  "runtimeSourceAuditBase": "a9d84ad0c713c68d099dd99cd2c0143f8e4ace67",
+  "ByteArrayGetFollowup": {
+    "commit": "87eeee24",
+    "status": "source implementation and tests; runtime gate owned by parent",
+    "planMeaning": "Missing-symbol statements describe the recorded audit baseline, before this followup"
+  }
+}
