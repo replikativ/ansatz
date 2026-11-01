@@ -1,5 +1,5 @@
 {:schema "ansatz-lean-jvm-runtime/1"
- :status :public-api-candidate
+ :status :experimental-bounded-profile
  :adapter-namespace ansatz.lean.jvm.ir
  :engine-class "ansatz.research.ir.Interpreter"
  :engine-source-sha256 "70f6a6fc937be9604e887bdd85ff12bd9d9ce4218387f8cf4a122f26018ead29"
@@ -8,4 +8,4 @@
  :precompiled-engine true
  :runtime-java-compilation false
  :native-compiler-included false
- :public-project-api false}
+ :public-project-api true}

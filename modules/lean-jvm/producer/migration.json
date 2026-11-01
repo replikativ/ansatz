@@ -2,7 +2,7 @@
   "schema": "ansatz-lean-jvm-source-migration/1",
   "originalCommit": "24f1408ed4551915e7e8b4c78422e23c5609da5c",
   "sourceServicesLazy": true,
-  "publicProjectAPI": false,
+  "publicProjectAPI": true,
   "sources": [
     {
       "originalPath": "experiments/lean-ir/research/java-ir-baseline/native-project/compiler.clj",
@@ -51,7 +51,7 @@
     "sha256": "60acde6367af93015bb381b5a7cbcdbe1c4daa7dba6de2ccdeab23b811c16926",
     "purpose": "SDK-pinned explicit external native producer bundle"
   },
-  "runtimeAcceptance": "Source reviewed candidate. Fresh canonical source/JAR consumer gates remain pending; public metadata false until root acceptance.",
+  "runtimeAcceptance": "Root observed public application-JAR consumer, native source cold/cache, external tutorial source API, lifetime/weak-reachability cases and canonical models. See validation.json for exact observed receipts and pending publication operations.",
   "runtimeSources": [
     {
       "originalCommit": "e48626e9",
@@ -101,7 +101,7 @@
   "projectService": {
     "path": "src/ansatz/lean/jvm/project.clj",
     "sha256": "9f367837770a6dc4eec3cb862ba052e70aedef289d4a75b8b6cdaa83f3bf81dd",
-    "review": "Focused source review cleared; fresh runtime and JAR acceptance pending"
+    "review": "Focused source review cleared; actual canonical source/JAR/lifecycle gates passed, see validation.json"
   },
   "javaAPI": [
     {
@@ -131,6 +131,43 @@
     {
       "path": "src-java/ansatz/lean/jvm/ProjectOptions.java",
       "sha256": "1cb4f36a6c920fae1feb9432830f167431c5e29e8f096aaf39e4c4033f05b81e"
+    }
+  ],
+  "modelPorts": [
+    {
+      "originalPath": "experiments/lean-ir/research/java-ir-baseline/entropy-research/module-startup-models.clj",
+      "originalSHA256": "8b5974bb67fa2f2ca1a2e7fa9db134b11627ef4cd5ad4b026a443719aa4f9620",
+      "canonicalPath": "test/ansatz_lean_jvm_module_startup_models.clj",
+      "canonicalSHA256": "1d9abd6ac3e683833770e0fc163827452b80455dcf6ca7f8f11c41f3cc540577",
+      "changes": "Runtime/model namespace references only; require once in one SDK JAR cohort"
+    },
+    {
+      "originalPath": "experiments/lean-ir/research/java-ir-baseline/entropy-research/project-startup-models.clj",
+      "originalSHA256": "196afbbc90135bd11d46d40feefa779b1a14e9f8369dbeb885818b65edeb85e8",
+      "canonicalPath": "test/ansatz_lean_jvm_publisher_models.clj",
+      "canonicalSHA256": "c058dc0191c58512281fe06e2d3416aa0477091579d35f332eb9d7ee0de7621e",
+      "changes": "Runtime/model namespace references only; require once in one SDK JAR cohort"
+    },
+    {
+      "originalPath": "experiments/lean-ir/research/java-ir-baseline/entropy-research/capability-models.clj",
+      "originalSHA256": "78918bcbdceec1f0659870fb2e93657c0058d79d8980feabba65a5e1280eab22",
+      "canonicalPath": "test/ansatz_lean_jvm_capability_models.clj",
+      "canonicalSHA256": "f5d81982458e7c7534a019aec6df7e26b9760784882fb7ac27361c4ba100f011",
+      "changes": "Runtime/model namespace references only; require once in one SDK JAR cohort"
+    },
+    {
+      "originalPath": "experiments/lean-ir/research/java-ir-baseline/entropy-research/lifecycle-models.clj",
+      "originalSHA256": "2195eb884bd2eda31750736093c462ca4f54193fac058edf3d0798d9f5a18f01",
+      "canonicalPath": "test/ansatz_lean_jvm_lifecycle_models.clj",
+      "canonicalSHA256": "bc067cfbf30b765e9dca6d0be1aa08a9a0e46cfc1a0a138530200ab523e9a4e1",
+      "changes": "Runtime/model namespace references only; require once in one SDK JAR cohort"
+    },
+    {
+      "originalPath": "experiments/lean-ir/research/java-ir-baseline/native-project/artifact-models.clj",
+      "originalSHA256": "22911e54bf0be5954b122dede005b966554697ed9252ebbb90e694ac1fc80e79",
+      "canonicalPath": "test/ansatz_lean_jvm_artifact_models.clj",
+      "canonicalSHA256": "2c93762572f4b4813740b643272b715603ecf2328de8058bf4dcb571003bec70",
+      "changes": "Model namespace only; production artifact namespace unchanged"
     }
   ]
 }

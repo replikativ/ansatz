@@ -39,7 +39,13 @@ archive bytes plus deliberately invalid variants:
 python3 consumer/audit_checks.py --sdk-jar target/ansatz-lean-jvm.jar
 ```
 
-No newly generated result is asserted by this source documentation. The root's
-fresh `target/public-consumer/result.json` records actual archive and execution
-receipts after validation. Producer checks do not publish artifacts or submit
+The root ran this application-JAR consumer successfully with the reviewed
+engine, then ran the complete SDK CI launcher: 57 model tests / 245 assertions,
+actual archive plus six rejection cases, public application JAR and 41 resource
+checks all passed. The [observed candidate receipt](receipts/public-consumer-candidate-v1.json)
+retains its actual JAR hash and false pre-acceptance marker. Acceptance changed
+only that metadata marker afterward; final coordinated release hashes belong to
+the release preparation receipt. [Source](receipts/source-api-v1.edn),
+[lifetime](receipts/lifecycle-v1.edn) and external tutorial receipts record
+separate observed gates. Producer checks do not publish artifacts or submit
 external forms.

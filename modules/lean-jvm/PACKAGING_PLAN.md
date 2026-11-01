@@ -62,9 +62,30 @@ from the SDK. Source lineage and deliberate extraction changes are recorded in
 research files preserve historical receipts.
 
 Initial jar counts, hashes and consumer receipts above remain historical. They
-do not validate the new closure. Public Project metadata stays false here.
-Fresh namespace/models, source cold/cache gates and a rebuilt five-jar consumer
-remain required before new acceptance claims. The source profile admits local
-acyclic imports and installed Init only. Source imports of Std, Lean and Mathlib,
-external packages and arbitrary Lake scripts are unsupported. This is separate
-from optional kernel/store services.
+do not validate the new closure. Public metadata stayed false at that checkpoint.
+Subsequent canonical namespace/models, native source cold/cache, lifetime and
+rebuilt five-JAR consumer gates passed; `validation.json` records their observed
+acceptance separately from historical receipts.
+
+## Accepted experimental bounded public SDK
+
+The accepted canonical closure has twelve Clojure namespaces, seven Java source
+files producing nine facade classes, one canonical engine and three runtime
+resources including its source-bound codec and attribution notice. The observed
+candidate JAR contains 133 engine classes and is 369,824 bytes. Its exact historical
+hash and false pre-acceptance marker remain in the receipt; final release hashes
+are generated from accepted metadata by `prepare-release`.
+
+Root acceptance includes the public application-JAR consumer, native source
+cold/cache, unchanged external tutorial source through the actual Java API,
+failed/cancelled branch retirement and retained-handle reachability observations.
+The complete SDK CI launcher passed 57 model tests / 245 assertions, actual archive
+plus six rejection cases, application JAR and 41 resource checks against the same
+compiled engine. Runtime/API sources were unchanged by acceptance metadata.
+
+The source profile admits one root's closed local DAG and installed Init only.
+Installed Std, Lean and Mathlib imports are not resolved; external packages,
+arbitrary Lake scripts and module-header profiles beyond legacy private/ordinary
+are unsupported. Optional kernel/store services are separate. The verified native
+producer bundle is published independently, as documented under `producer/`, and
+is not a Maven dependency or automatic installation.

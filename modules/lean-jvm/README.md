@@ -7,10 +7,11 @@ data.json 2.5.1; their normal Maven dependencies resolve transitively. It does n
 require the Ansatz core/kernel artifact, Mathlib, Pattern or the older resident
 World backend.
 
-The current assembly is a source-reviewed release candidate. Public API
-acceptance metadata remains false until the rebuilt canonical SDK, native source
-path and application-JAR consumer pass their root-owned runtime gates. Historical
-research receipts do not establish acceptance of this new source closure.
+This is an experimental bounded profile. The root validated the rebuilt SDK
+from an application JAR with an empty working directory, exact Nat/String and
+repeated IO Unit calls, canonical source compilation/cache, and failure/close
+lifetime gates. [Portable receipts](validation.json) retain their exact scope;
+they do not claim unrestricted Lean/Lake, hosted frontend or kernel integration.
 
 ## Ordinary Java dependency and artifact loading
 
@@ -80,16 +81,20 @@ try (Lean lean = Lean.open(); LeanProject project = lean.loadProject(projectDire
 4.33.1, one selected root module and a closed acyclic local import DAG with
 installed Init. Requested entries are checked in that root's imported native
 Environment, so imported local definitions can be selected there. Names use
-string segments; numeric-looking segments are not parsed as numeric Names.
+string segments; numeric-looking segments are not parsed as numeric Names. The
+string convenience form cannot express a literal dot inside one Name segment.
 `rootModule` defaults to `Main`; `sourceRoot` is an explicit relative directory.
 
-Source imports of Std, Lean and Mathlib, external package fetching, arbitrary Lake
-scripts and plugins are unsupported. Unsupported paths fail explicitly; this is
+Installed Std, Lean and Mathlib imports are not resolved by this profile: a
+non-Init import must belong to the captured local DAG. External package fetching,
+arbitrary Lake scripts and plugins are unsupported. The admitted file header
+profile is legacy private/ordinary. Unsupported paths fail explicitly; this is
 not unrestricted Lake project support. Compilation can execute native
 metaprograms and compile-time IO. It is a trusted-source profile, not a sandbox.
 The installed sysroot is a trusted dependency with mutation checks, not full
-cryptographic attestation of every library file. Native helper hosting,
-automatic installation and platform expansion remain separate work.
+cryptographic attestation of every library file. A separately hosted, hash-verified Linux helper bundle is available through the
+producer guide. Automatic installation and platform expansion remain separate
+work.
 
 ## Values, resources and lifetime
 
@@ -151,3 +156,13 @@ acceptance are independent gates. [Source migration records](producer/migration.
 identify the frozen originals, mechanical namespace changes and reviewed SDK
 changes. Maintain canonical `ansatz.lean.jvm.*` sources going forward; research
 snapshots preserve historical evidence.
+
+
+CI builds this optional SDK once, then runs 57 canonical JAR model tests / 245
+assertions, the public application-JAR consumer, six archive rejection cases and
+41 standalone resource checks against the same compiled engine. Its launcher
+requires Java and javac 17 or later and uses bounded sequential JVMs. Source
+compiler helper provisioning is not part of mandatory SDK CI. The main-only SDK
+deployment job receives the exact checked JAR/POM/release receipt through the
+workspace and deploys verified bytes without rebuilding. GitHub release waits
+for both core and optional Clojars deployment.
