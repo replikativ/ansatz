@@ -1,0 +1,130 @@
+{
+  "schema": "entropy-research-inventory/1",
+  "files": [
+    {
+      "path": "README.md",
+      "bytes": 3944,
+      "sha256": "942fb8b0a07728aec1b97f7a1c135086939304cd93643cae5f92adf31143f0f7"
+    },
+    {
+      "path": "capture-cas.py",
+      "bytes": 5927,
+      "sha256": "3713be9bbb4cdf7973c35373d31dcf93fe769862ab9a115d11c3eb2171525ab7"
+    },
+    {
+      "path": "captures/prior-cas/declarations.jsonl",
+      "bytes": 98974,
+      "sha256": "a56c4b244afe6e5fc52de241d26841fca67c2edbdf386892efd679acbb84c27c"
+    },
+    {
+      "path": "captures/prior-cas/manifest.json",
+      "bytes": 29726,
+      "sha256": "5221a039d9a7b4770dfe3fa4d691412978f228ba146c77c70090c0b594fbf45c"
+    },
+    {
+      "path": "direct-header-models.clj",
+      "bytes": 1222,
+      "sha256": "8bc89dead47f4c3101027fad03aea3061845d42170f0f96baf5f2310ff2f22d7"
+    },
+    {
+      "path": "random-gate.clj",
+      "bytes": 5463,
+      "sha256": "b821d58ea98d5456458f2b3ce8d2a0a23dee6e619241a261be9067062a21c87c"
+    },
+    {
+      "path": "receipts/entropy-capability-models-v1.edn",
+      "bytes": 56,
+      "sha256": "bedcac08e423c30094e47922170c0da3f8a58d818163cdc55f9972101f1512b2"
+    },
+    {
+      "path": "receipts/entropy-capability-models-v2.edn",
+      "bytes": 56,
+      "sha256": "4e6d4705a2d10c8d5ff17b2924a3301223b8003bedf820581c6edda243a8472e"
+    },
+    {
+      "path": "receipts/entropy-combined-corrected-v2.edn",
+      "bytes": 832,
+      "sha256": "783efdc9238315f4448e1a339bac272f070eb78c741026a5eedb3f8199b97c70"
+    },
+    {
+      "path": "receipts/entropy-jdk11-digest-acceptance-v1.edn",
+      "bytes": 1613,
+      "sha256": "c33d7c617a4b6a40dbf623cd947810a2e11b640f282f948b7117c4795678a303"
+    },
+    {
+      "path": "receipts/original-random-default-actual-v1.edn",
+      "bytes": 566,
+      "sha256": "41fb8b2388994503a415bc45a9564ebbcb32b194b5baab86822bf18cb826bf78"
+    },
+    {
+      "path": "receipts/original-random-error-actual-v1.edn",
+      "bytes": 567,
+      "sha256": "7b80a1e5fa43bbcd4ebb4dce30a7a37d92a03891f6997bf83a8c4ab8edc29a3c"
+    },
+    {
+      "path": "receipts/original-random-initializer-actual-v2.edn",
+      "bytes": 602,
+      "sha256": "5ae327cb6799438eca8be262cf7a142123f78819b811ad03a511cb4b4a2bcee2"
+    },
+    {
+      "path": "receipts/original-random-native-oracle-v1.edn",
+      "bytes": 186,
+      "sha256": "9161783e824bf5cb10c1a0605a82ee60e102d547e7dc16e5b382b55e608703c2"
+    },
+    {
+      "path": "receipts/original-random-unsigned-actual-v1.edn",
+      "bytes": 609,
+      "sha256": "220a72e07db5aee1eb3469148a31bf309bd9941010a05239823c3df2ddce83d4"
+    },
+    {
+      "path": "receipts/sdk-entropy-java-only-consumer-v1.json",
+      "bytes": 1465,
+      "sha256": "eb1439ff1dd21a7d53e81d11c5f93951c06c80b638214d84b50f15c9cd3c1a59"
+    },
+    {
+      "path": "receipts/sdk-entropy-jdk11-digest-consumer-v1.json",
+      "bytes": 1465,
+      "sha256": "ac9976b640dcac105bf50f97eb366470d19c5e54896f67ef1f57fd3df4e3f662"
+    },
+    {
+      "path": "receipts/startup-current-default-actual-v1.edn",
+      "bytes": 658,
+      "sha256": "2ade9d222aaa8bc74de9cd20935cd128d325b2561319a57cdd00c8270aeb3adf"
+    },
+    {
+      "path": "receipts/startup-current-error-actual-v1.edn",
+      "bytes": 653,
+      "sha256": "73ce0c4b8898299cb3d90ad32af5db0097b46adab2abada608e7588c7e4e5a80"
+    },
+    {
+      "path": "receipts/startup-current-fixed-actual-v1.edn",
+      "bytes": 688,
+      "sha256": "193c0eded0fcfbc1398e20e8859306af9735691d5310bebe6bcd4da538c0e4a0"
+    },
+    {
+      "path": "receipts/startup-current-unsigned-actual-v1.edn",
+      "bytes": 669,
+      "sha256": "1517d1e13df63222a1c63ae7231a58a22a46c8e0c881c83d6f73884145aa17ff"
+    },
+    {
+      "path": "run-original-random-error.clj",
+      "bytes": 3238,
+      "sha256": "7f53e06324ef9851cf57250af7c0591b3b2a84d58a7de25c85a88d9177520d89"
+    },
+    {
+      "path": "run-original-random.clj",
+      "bytes": 4560,
+      "sha256": "649ee4d9df4f573ccddf9211d7b49303a5bd871762fdd0f0b03a7d87c4766a67"
+    },
+    {
+      "path": "validation.json",
+      "bytes": 2630,
+      "sha256": "99b843ade811f853ae8e6a7e656e2ddc40fee066c925ec7831a419ac8569d8b8"
+    },
+    {
+      "path": "verify.py",
+      "bytes": 1378,
+      "sha256": "c36b82b74b8290ed76afe10a2bee09d0ed75ee68f60ced3a81b1b1f427fa06e6"
+    }
+  ]
+}

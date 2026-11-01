@@ -3,5 +3,5 @@
  :resources ["META-INF/ansatz-lean-jvm/runtime.edn"]
  :java {:path "../../experiments/lean-ir/research/java-ir-baseline/src/ansatz/research/ir/Interpreter.java"
         :class "ansatz.research.ir.Interpreter"
-        :sha256 "9a3af598cf1168d15ba67b5dac49a302028329d885d18b91df97344baf37430e"}
+        :sha256 "dacaea8bfcd410614fec6fdd5f170020af2969085a8f4748eb72d0e66d437131"}
  :runtime-dependencies {org.clojure/clojure {:mvn/version "1.12.0"}}}
