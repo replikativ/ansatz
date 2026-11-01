@@ -21,5 +21,25 @@
     "one reusable Project",
     "public Java source-loading API",
     "SDK and four Maven dependency JARs only on runtime classpath"
+  ],
+  "sourceReceipts": [
+    {
+      "path": "Main.lean",
+      "bytes": 72,
+      "sha256": "84b2361691c0d105c438b137563c447e36e38827aaa633707ca99d14c4d20316",
+      "upstreamURL": "https://github.com/leanprover/fp-lean/blob/0abeea545d560a324e2561f7210fbd6ed154fa02/examples/first-lake/expected/Main.lean"
+    },
+    {
+      "path": "Greeting.lean",
+      "bytes": 151,
+      "sha256": "b23733091936f7b4318c98880382dc901d5ca5830870bd40bbaa1128cbc91ed2",
+      "upstreamURL": "https://github.com/leanprover/fp-lean/blob/0abeea545d560a324e2561f7210fbd6ed154fa02/examples/first-lake/expected/Greeting.lean"
+    },
+    {
+      "path": "Greeting/Basic.lean",
+      "bytes": 20,
+      "sha256": "b186dbcbc8cd3f04b6f9d39f4f130996ee75093b3d0923a9ceda2e2b70220afb",
+      "upstreamURL": "https://github.com/leanprover/fp-lean/blob/0abeea545d560a324e2561f7210fbd6ed154fa02/examples/first-lake/expected/Greeting/Basic.lean"
+    }
   ]
 }
