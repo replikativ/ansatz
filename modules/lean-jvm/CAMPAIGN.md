@@ -164,8 +164,8 @@ The source acceptance gate passes 35 checks at a 512 MiB JVM heap: cold/cache
 loads, source edits, old-handle stability, artifact reload, warnings (including
 cache and artifact), frontend errors, unclassified capabilities, higher-order
 entry refusal and nullary Float32/64/high-bit machine results. Observed cold
-common load was about 9 seconds, cached source load 4.3 seconds, and artifact load
-104 ms in that run. These are probe timings, not cross-platform benchmarks or
+common load was about 6.8 seconds, cached source load 4.0 seconds, and artifact load
+132 ms in the final candidate run. These are probe timings, not cross-platform benchmarks or
 performance guarantees. Hashing already streams with a 64 KiB buffer; no whole
 producer executable is read into a JVM byte array for pin checks.
 

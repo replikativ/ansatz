@@ -1,8 +1,9 @@
 {
   "schema": "ansatz-native-producer-archive-candidate/1",
   "archive": "ansatz-lean-native-producer-4.33.1-linux-x86_64-v2.tar.zst",
-  "bytes": 156019083,
-  "sha256": "123efdeba8db8df60cae4c53484366b11e0d38b6e933bee7296a2e897262bff4",
+  "bytes": 156019042,
+  "sha256": "5ad06d07a46b620d2763c290629cd43cd0e4a818bfb976a13029423c27440f52",
   "bundleDescriptor": "producer-bundle-v2.example.json",
+  "streamAuditFiles": 11,
   "published": false
 }

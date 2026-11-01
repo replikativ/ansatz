@@ -1,22 +1,127 @@
 {
   "schema": "ansatz-lean-jvm-release-candidate/1",
-  "status": "final-validation-in-progress",
+  "status": "ready-for-user-landing-discussion",
   "merged": false,
   "published": false,
   "upstreamMain": "7e6d8c309757283eaef6b91ec7f848d948207460",
+  "implementationCommit": "0a13b51c282fadc7be4259d811a8d4d4b49a015f",
+  "candidateVersion": "0.2.595",
+  "candidateVersionIsUnpublishedTestBuild": true,
+  "releaseVersion": "computed by landing CI",
+  "candidateJar": {
+    "bytes": 401510,
+    "sha256": "85f9f7262d5a58ec0d9aec55f2dc516fa7d922be7daea3952285ea023f1a7447",
+    "javaRelease": 17,
+    "runtimeSourceCount": 21,
+    "engineSourceSHA256": "c1e28e8a5b2350167bad2a61fd22b1efa81ad44918f1ccdd934be86bf5bf582f",
+    "pomSHA256": "175a3e8128e82168ac41b369fc9f56186611b08b4a576382d259c14f8489726f"
+  },
+  "packagedJARModels": {
+    "tests": 122,
+    "assertions": 724,
+    "passed": true,
+    "heapMiB": 384
+  },
+  "applicationJARConsumers": {
+    "legacy": "PASS typed/general calls, exact Nat/String, repeated main, rejections, thread handoff, close",
+    "common": {
+      "checks": 31,
+      "passed": true
+    },
+    "scalar": {
+      "checks": 31,
+      "passed": true
+    },
+    "sameCandidateJar": true,
+    "nativeToolchainAtRuntime": false
+  },
   "sourceAcceptance": {
+    "schema": "ansatz-lean-jvm-source-acceptance/1",
     "checks": 35,
-    "heapMiB": 512,
+    "timings-ms": {
+      "common-cold": 6801.293868,
+      "common-warm": 4032.666977,
+      "reload": 4530.629813,
+      "artifact-load": 131.574229,
+      "scalar-cold": 4319.152287
+    },
+    "module-cache-observations": [
+      {
+        "cache-key": "c7a991c5b5716a4dec12bae727a7a426884694a908f52b54a17d949d142a1624",
+        "cache-hit": false
+      },
+      {
+        "cache-key": "c7a991c5b5716a4dec12bae727a7a426884694a908f52b54a17d949d142a1624",
+        "cache-hit": true
+      },
+      {
+        "cache-key": "660c4ca18dec27435b361d0c0d13d2ca52085528ab709dd176e189c980646e7e",
+        "cache-hit": false
+      },
+      {
+        "cache-key": "24395196de0e9a3563db9024b8fff57d98780f32b4811c87d4a613735ba49296",
+        "cache-hit": false
+      },
+      {
+        "cache-key": "1ca6ae3a049c9b3ccaa8d3b74702004673b146e88697c2dd89dd5a96fb11ecd6",
+        "cache-hit": false
+      },
+      {
+        "cache-key": "1ca6ae3a049c9b3ccaa8d3b74702004673b146e88697c2dd89dd5a96fb11ecd6",
+        "cache-hit": true
+      },
+      {
+        "cache-key": "62022e54f9e25e074ab6271d622969956ed93c5bd0e4e9c8f26fbfbf035dad06",
+        "cache-hit": false
+      },
+      {
+        "cache-key": "8d63e92982cbf3f993e8d0339284dce784c60ab0505003c48943396eef733d16",
+        "cache-hit": false
+      },
+      {
+        "cache-key": "67c636b5b075b851ee3002a241ddcf73246a4d82afd463f3d3c6a68dc705f212",
+        "cache-hit": false
+      }
+    ],
+    "sdk-resource-protocol": "jar",
+    "runtime-heap-mib": 512,
+    "scope": "Actual public source cold/cache/edit/reload/artifact, common/scalar values, warnings, errors, capability and type refusal",
+    "passed": true,
+    "sameCandidateJarSHA256": "85f9f7262d5a58ec0d9aec55f2dc516fa7d922be7daea3952285ea023f1a7447"
+  },
+  "actualJVMChecks": {
+    "resourceLimits": 41,
+    "managedOwnership": 176,
+    "managedScalarBuffer": 102,
     "passed": true
   },
-  "generalApplicationConsumer": {
-    "checks": 31,
+  "archiveChecks": {
+    "actualJARAudit": true,
+    "rejectionCases": 6,
     "passed": true
   },
-  "scalarApplicationConsumer": {
-    "checks": 31,
-    "passed": true
+  "nativeOracle": {
+    "mode": "official Lean --run",
+    "passed": true,
+    "scope": "scalar/array/bytes/choice results"
   },
-  "nativeOracle": "Official Lean --run PASS scalar/array/bytes/choice checks",
+  "producerArchive": {
+    "schema": "ansatz-native-producer-archive-candidate/1",
+    "archive": "ansatz-lean-native-producer-4.33.1-linux-x86_64-v2.tar.zst",
+    "bytes": 156019042,
+    "sha256": "5ad06d07a46b620d2763c290629cd43cd0e4a818bfb976a13029423c27440f52",
+    "bundleDescriptor": "producer-bundle-v2.example.json",
+    "streamAuditFiles": 11,
+    "published": false
+  },
+  "reviews": {
+    "implementation": "Sol read-only review; external scalar carrier and IO world budget findings fixed and tested",
+    "documentation": "Sol read-only review; candidate visibility and execution-failure timing clarified",
+    "relativeLinks": "PASS six affected guides"
+  },
+  "notRun": [
+    "Full core/kernel/mathlib verification was not repeated; kernel/store implementation is unchanged.",
+    "Other JVM platforms were not acceptance-tested."
+  ],
   "publicationGate": "User scope/docs/landing discussion required before merge or publish"
 }
