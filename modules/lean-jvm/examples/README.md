@@ -51,3 +51,57 @@ runtime/Init provenance is recorded in its NOTICE.
 The [acceptance receipt](acceptance.json) identifies the tested candidate SDK
 bytes and observed Java launch. Later packaging/CI receipts identify release
 bytes separately; neither receipt broadens the supported source profile.
+
+## Clojure and Superficie
+
+For the candidate general-call API, add the optional SDK to your Clojure
+classpath. Core Ansatz may be included in the same REPL. Set `LEAN_TUTORIAL`
+to the pinned tutorial directory above and set the same three compiler variables
+used in the Java command. This selection uses the legacy checked `IO Unit`
+profile, which works with both admitted v1 and v2 producer bundles.
+
+```clojure
+(require '[ansatz.lean.jvm :as lean])
+
+(def options
+  {:compiler {:sysroot (System/getenv "LEAN_SYSROOT")
+              :producer-bundle (System/getenv "PRODUCER_BUNDLE")
+              :cache (System/getenv "COMPILER_CACHE")}
+   :root-module "Main"
+   :entries {"main" :io-unit}})
+
+(with-open [runtime (lean/open)
+            project (lean/load-project runtime (System/getenv "LEAN_TUTORIAL") options)]
+  (lean/call project "main"))
+```
+
+The returned value is `{:value nil :stdout "Hello, world!\n" :stderr ""}`.
+The Clojure wrapper converts the IO result to ordinary Clojure data; the Java
+example above accesses the same captured output through its Java carrier.
+`with-open` closes the Project before its owning runtime.
+
+Superficie renders the same Clojure forms as:
+
+```superficie
+require('[ansatz.lean.jvm :as lean])
+
+def options: {:compiler {:sysroot System/getenv("LEAN_SYSROOT"),
+                         :producer-bundle System/getenv("PRODUCER_BUNDLE"),
+                         :cache System/getenv("COMPILER_CACHE")},
+              :root-module "Main", :entries {"main" :io-unit}}
+
+with-open [runtime lean/open(),
+           project lean/load-project(runtime,
+                     System/getenv("LEAN_TUTORIAL"), options)]:
+  lean/call(project, "main")
+end
+```
+
+Superficie supplies the surface notation. The call still uses the Clojure API
+and the same Java interpreter, codecs and checked Lean entry. The source-loading
+example needs the explicitly configured native frontend; an application loading
+a [prepared artifact](../PREPARATION.md) only needs the JVM dependencies.
+
+The original acceptance receipt above covers the Java tutorial launch. The
+Superficie form round trip is checked separately; execute this Clojure tutorial
+example against the final released SDK as part of launch validation.

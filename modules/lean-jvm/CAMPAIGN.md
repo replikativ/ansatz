@@ -246,3 +246,36 @@ artifact. Producer archive inventory and current Java source pins were audited.
 The release record preserves prior broad validation separately. Final Sol review
 found no remaining correctness blocker. Publication and merge remain gated by the
 user's release discussion; the original frontend-hosting agenda is unchanged.
+
+
+## Launch article for Simm.is
+
+The user requested a Simm.is blog post after release completion. Treat this as a
+launch deliverable, alongside the final documentation check. Keep the article
+unpublished until the coordinated SDK and producer versions and download links
+have been verified. Use the website's existing Clojure/Superficie tabs, with
+Clojure forms as the single source for both views.
+
+The article should develop one reproducible path:
+
+1. Explain why a JVM application would call Lean code, then map core Ansatz,
+   optional SDK, native frontend preparation and JVM-only deployment in a diagram.
+2. Walk through the pinned, unchanged three-file FP Lean first-lake tutorial.
+   Show its import graph, source loading and captured output from Java and
+   Clojure/Superficie. Attribute and link upstream rather than silently vendoring it.
+3. Add an original small example with several arguments, Bool and a product or
+   Option result, so the general function/value interface is visible. Distinguish
+   executing the tutorial unchanged from adding this separate example.
+4. Prepare the project once, package its artifact with a JVM application and call
+   it without native Lean at deployment. Show actual Maven/Clojars coordinates,
+   the released version and how the manifest hash reaches trusted configuration.
+5. Explain the REPL loop: edit a Lean file, load a new Project, retain or close old
+   handles explicitly. Show ordinary JVM/Clojure values and scoped cleanup.
+6. State the tested import/type/IO scope and the remaining frontend-hosting,
+   kernel declaration import, public fork and specialized JIT work. Keep component
+   capabilities distinct from shipped Simmis product integration.
+
+Before publication, run every Java and Clojure example against the exact released
+JAR, check Clojure/Superficie form equality, verify the pinned upstream tutorial
+again, and build/review the website article and code tabs. Existing source receipts
+alone do not establish that every newly written article example has executed.

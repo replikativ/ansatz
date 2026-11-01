@@ -4,6 +4,46 @@ The production SDK owns one Java interpreter. Native source preparation, JVM
 execution, maintained hosting research and historical evidence have separate homes.
 The public Maven artifact split remains core Ansatz plus the optional Lean/JVM SDK.
 
+## From Lean source to host calls
+
+```mermaid
+flowchart LR
+    Sources["Lean files and local imports"] --> Frontend["Pinned official native Lean frontend"]
+    Frontend --> Evidence["Checked export evidence: IR, signatures, layouts, initialization plan"]
+    Evidence --> Project["JVM Project and Java IR interpreter"]
+    Evidence --> Artifact["Portable artifact ZIP and independent manifest hash"]
+    Artifact --> Project
+    Java["Java facade"] --> Project
+    Clojure["Clojure API and Superficie notation"] --> Java
+    Project --> Values["Host values and captured IO"]
+```
+
+Direct source loading runs the frontend and opens a Project from the resulting
+checked receipt. Build-time preparation exports that receipt as an artifact
+without opening a Project. Later artifact loading requires only the SDK and its
+ordinary Maven dependencies. It validates the independently expected manifest
+hash, prepares code and executes supported initialization before returning the
+Project. The native frontend remains necessary when compiling new source.
+
+The frontend supplies Lean compiler IR, rather than generated Clojure source or
+LLVM code. The Java engine executes that IR and the supported runtime operations.
+The JVM JIT can optimize the Java engine; this release does not provide a dedicated
+Lean-to-JVM machine-code compiler or claim parity with compiled native Lean.
+
+Type-directed codecs convert host arguments using checked signatures and native
+constructor/layout witnesses, then convert results back to host values. Guest
+objects and ownership obligations remain private. Lean's explicit RC operations
+and reuse decisions are implemented on JVM objects; host garbage collection
+reclaims the Java storage. Public Project forking is separate follow-up work.
+
+Core Ansatz supplies the kernel, elaboration DSL and stores in its own JAR. Both
+JARs can coexist in one application or REPL, but executing a Lean module does not
+import its declarations or theorems into the DSL's kernel environment. The optional
+SDK's native checked evidence is not a Java-kernel verification receipt.
+
+See [preparation](PREPARATION.md), [value conventions](VALUE_EXAMPLES.md), and the
+[unchanged multi-file tutorial](examples/README.md) for the corresponding calls.
+
 ## Production boundaries
 
 - `src-java/ansatz/lean/jvm/`: public Java facade and value carriers.
@@ -42,8 +82,9 @@ checks compare it with the independently reviewed source inventory, reject unkno
 or changed classes, and check runtime metadata against the interpreter and full
 engine closure. No broad `internal/**` class wildcard grants packaging authority.
 
-The JAR contains canonical runtime code and ordinary Maven dependencies. Research
-loaders, native helper executables and historical captures do not enter it.
+The JAR contains canonical runtime code; its POM declares ordinary Maven
+dependencies rather than bundling their classes. Research loaders, native helper
+executables and historical captures do not enter it.
 
 ## Maintained research and retirement
 
