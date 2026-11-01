@@ -1,7 +1,13 @@
 {:schema "ansatz-lean-jvm-source-closure/1"
- :sources [{:path "ansatz/lean/jvm/ir.clj" :namespace ansatz.lean.jvm.ir}]
+ :sources [{:path "ansatz/lean/jvm/ir.clj" :namespace ansatz.lean.jvm.ir}
+           {:path "ansatz/lean/jvm/compiler/encoding.clj" :namespace ansatz.lean.jvm.compiler.encoding}
+           {:path "ansatz/lean/jvm/compiler/transport.clj" :namespace ansatz.lean.jvm.compiler.transport}
+           {:path "ansatz/lean/jvm/compiler/local.clj" :namespace ansatz.lean.jvm.compiler.local}
+           {:path "ansatz/lean/jvm/compiler/evidence.clj" :namespace ansatz.lean.jvm.compiler.evidence}
+           {:path "ansatz/lean/jvm/compiler/bundle.clj" :namespace ansatz.lean.jvm.compiler.bundle}]
  :resources ["META-INF/ansatz-lean-jvm/runtime.edn"]
  :java {:path "../../experiments/lean-ir/research/java-ir-baseline/src/ansatz/research/ir/Interpreter.java"
         :class "ansatz.research.ir.Interpreter"
         :sha256 "dacaea8bfcd410614fec6fdd5f170020af2969085a8f4748eb72d0e66d437131"}
- :runtime-dependencies {org.clojure/clojure {:mvn/version "1.12.0"}}}
+ :runtime-dependencies {org.clojure/clojure {:mvn/version "1.12.0"}
+                        org.clojure/data.json {:mvn/version "2.5.1"}}}

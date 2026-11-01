@@ -1,0 +1,55 @@
+{
+  "schema": "ansatz-lean-jvm-source-migration/1",
+  "originalCommit": "24f1408ed4551915e7e8b4c78422e23c5609da5c",
+  "sourceServicesLazy": true,
+  "publicProjectAPI": false,
+  "sources": [
+    {
+      "originalPath": "experiments/lean-ir/research/java-ir-baseline/native-project/compiler.clj",
+      "originalSHA256": "a7bdddb8420fa8d409643cb7622810454077640621fc3e12afeca1ab47ce1827",
+      "canonicalPath": "src/ansatz/lean/jvm/compiler/transport.clj",
+      "canonicalSHA256": "72b90aac7e8036851c50fa30cf5d9aa75aeeab3ebd21c9393e1ba5b2f9ee0f83",
+      "changes": [
+        "Extract shared helpers only; omit fixed tutorial exporter/source pins",
+        "Preserve final ESRCH-safe RSS monitor unchanged",
+        "Independently pinned typedSource replaces fixed exporter identity",
+        "Use canonical encoding instead of old entry runner"
+      ]
+    },
+    {
+      "originalPath": "experiments/lean-ir/research/java-ir-baseline/native-project/runner.clj",
+      "originalSHA256": "ea4502d5a9ab79cbd340155142dc8919ccdcb3291ad018ff871dde45793bff76",
+      "canonicalPath": "src/ansatz/lean/jvm/compiler/encoding.clj",
+      "canonicalSHA256": "665c67fd5bc02935c522a63555014b12bcb3dbf35d59e43b2260a1dc6e6a6e5d",
+      "changes": [
+        "Extract UTF-8 and JSON parsing helpers",
+        "Add strict single-value JSON admission allowing only four trailing JSON whitespace characters",
+        "Bound text/trailing whitespace; generic ArtifactConflict diagnostics"
+      ]
+    },
+    {
+      "originalPath": "experiments/lean-ir/research/java-ir-baseline/native-project/local-project.clj",
+      "originalSHA256": "2fe514595c39087771859fb18d9dd960ead9a8d2b289749e3d6c21690c0faa4d",
+      "canonicalPath": "src/ansatz/lean/jvm/compiler/local.clj",
+      "canonicalSHA256": "1b568f9ba95c7cd6ad2c2b787ab01f70bf114eef75dcd33f0f60e33b27c5b58d",
+      "changes": [
+        "Mechanical namespace/require renames only"
+      ]
+    },
+    {
+      "originalPath": "experiments/lean-ir/research/java-ir-baseline/native-project/project-evidence.clj",
+      "originalSHA256": "03b77a1362858e9e3e8454759d46baa83bf12089252435a52a7c7abfa0f1abe4",
+      "canonicalPath": "src/ansatz/lean/jvm/compiler/evidence.clj",
+      "canonicalSHA256": "01500bd7e8b24c9be6393ac3d649d51bf6956bd711647adf7aeed65770fcb09f",
+      "changes": [
+        "Mechanical namespace/require renames only"
+      ]
+    }
+  ],
+  "newSource": {
+    "path": "src/ansatz/lean/jvm/compiler/bundle.clj",
+    "sha256": "60acde6367af93015bb381b5a7cbcdbe1c4daa7dba6de2ccdeab23b811c16926",
+    "purpose": "SDK-pinned explicit external native producer bundle"
+  },
+  "runtimeAcceptance": "Pending fresh canonical namespace/source/JAR acceptance; research receipts historical"
+}

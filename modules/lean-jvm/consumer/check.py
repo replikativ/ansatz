@@ -17,7 +17,9 @@ import zipfile
 POM = "META-INF/maven/org.replikativ/ansatz-lean-jvm/pom.xml"
 ADAPTER = "ansatz/lean/jvm/ir.clj"
 METADATA = "META-INF/ansatz-lean-jvm/runtime.edn"
-DEPENDENCIES = {"clojure-1.12.0.jar", "spec.alpha-0.5.238.jar", "core.specs.alpha-0.4.74.jar"}
+SOURCES = {ADAPTER, *("ansatz/lean/jvm/compiler/" + name + ".clj"
+                      for name in ["encoding", "transport", "local", "evidence", "bundle"])}
+DEPENDENCIES = {"clojure-1.12.0.jar", "spec.alpha-0.5.238.jar", "core.specs.alpha-0.4.74.jar", "data.json-2.5.1.jar"}
 
 
 def require(ok, message):
@@ -39,10 +41,10 @@ def audit_jar(path, expected_engine_sha=None):
         require(sum(entry.file_size for entry in entries) <= 32 * 1024 * 1024, "Jar expansion exceeds bound")
         require(all(not name.startswith("/") and ".." not in name.split("/") for name in names), "Unsafe jar path")
         resources = sorted(name for name in names if name.endswith((".clj", ".cljc")))
-        require(resources == [ADAPTER], "Research/legacy or missing runtime namespace resource")
+        require(set(resources) == SOURCES, "Research/legacy or missing runtime namespace resource")
         require(POM in names and METADATA in names, "Missing POM/runtime metadata")
         classes = sorted(name for name in names if name.endswith(".class"))
-        allowed_resources = {ADAPTER, METADATA, POM, "META-INF/MANIFEST.MF",
+        allowed_resources = SOURCES | {METADATA, POM, "META-INF/MANIFEST.MF",
                              "META-INF/maven/org.replikativ/ansatz-lean-jvm/pom.properties"}
         require(all(name.endswith("/") or name in allowed_resources or name in classes for name in names),
                 "Uninventoried runtime file or research source in jar")
@@ -59,7 +61,7 @@ def audit_jar(path, expected_engine_sha=None):
         dependencies = [(item.findtext("m:groupId", namespaces=ns), item.findtext("m:artifactId", namespaces=ns),
                          item.findtext("m:version", namespaces=ns))
                         for item in pom.findall("m:dependencies/m:dependency", ns)]
-        require(dependencies == [("org.clojure", "clojure", "1.12.0")], "POM runtime dependencies differ")
+        require(len(dependencies) == 2 and set(dependencies) == {("org.clojure", "clojure", "1.12.0"), ("org.clojure", "data.json", "2.5.1")}, "POM runtime dependencies differ")
         require(pom.findtext("m:groupId", namespaces=ns) == "org.replikativ"
                 and pom.findtext("m:artifactId", namespaces=ns) == "ansatz-lean-jvm", "SDK coordinate differs")
         metadata = archive.read(METADATA)
@@ -103,8 +105,8 @@ def main():
     output.mkdir(parents=True, exist_ok=True)
     if not args.audit_only:
         jars = [args.sdk_jar.resolve(), *(path.resolve() for path in args.dependency_jar)]
-        require(len(jars) == len(set(jars)) == 4 and all(path.is_file() and path.suffix == ".jar" for path in jars),
-                "Exactly four unique SDK/Clojure dependency jars required")
+        require(len(jars) == len(set(jars)) == 5 and all(path.is_file() and path.suffix == ".jar" for path in jars),
+                "Exactly five unique SDK/runtime dependency jars required")
         require({path.name for path in jars[1:]} == DEPENDENCIES, "Unexpected resolved dependency closure")
         source = Path(__file__).resolve().with_name("JarSmoke.java")
         classes = output / "classes"

@@ -1,10 +1,10 @@
-# Extraction boundary and remaining package acceptance
+# Historical extraction boundary and remaining package acceptance
 
 Source-only proposal accompanying this internal skeleton. No public Java API has
 been added. The next review decides whether the extracted resource/classpath
 boundary is sound before public Java facade work begins.
 
-## Inventory
+## Initial inventory (historical)
 
 - Runtime source: `src/ansatz/lean/jvm/ir.clj`, namespace `ansatz.lean.jvm.ir`.
 - Runtime metadata: `resources/META-INF/ansatz-lean-jvm/runtime.edn`.
@@ -50,3 +50,21 @@ Native compilation service extraction, bundled helper/platform distribution,
 resource-backed compiled artifacts, StoreManager, one-branch-per-Project reuse,
 actual Init completion and generically checked entry evidence remain separate
 work. Do not expose the fixed tutorial profile as a generic project loader.
+
+
+## Canonical source service checkpoint
+
+The current closure additionally inventories the five canonical
+`ansatz.lean.jvm.compiler.*` namespaces and data.json 2.5.1. The explicit
+producer contract and pins are under `producer/`; helper binaries are excluded
+from the SDK. Source lineage and deliberate extraction changes are recorded in
+`producer/migration.json`. Maintain these canonical sources going forward;
+research files preserve historical receipts.
+
+Initial jar counts, hashes and consumer receipts above remain historical. They
+do not validate the new closure. Public Project metadata stays false here.
+Fresh namespace/models, source cold/cache gates and a rebuilt five-jar consumer
+remain required before new acceptance claims. The source profile admits local
+acyclic imports and installed Init only. Source imports of Std, Lean and Mathlib,
+external packages and arbitrary Lake scripts are unsupported. This is separate
+from optional kernel/store services.

@@ -4,7 +4,8 @@
   (:import [java.nio.file Files StandardOpenOption] [java.security MessageDigest]))
 
 (def engine-source "../../experiments/lean-ir/research/java-ir-baseline/src/ansatz/research/ir/Interpreter.java")
-(def runtime-dependencies '{org.clojure/clojure {:mvn/version "1.12.0"}})
+(def runtime-dependencies '{org.clojure/clojure {:mvn/version "1.12.0"}
+                             org.clojure/data.json {:mvn/version "2.5.1"}})
 (defn- need [ok message] (when-not ok (throw (ex-info message {:audit :lean-jvm-package}))))
 (defn- namespace-path [value] (str (str/replace (str/replace (str value) "." "/") "-" "_") ".clj"))
 (defn validate-manifest! [closure]
@@ -12,7 +13,7 @@
   (need (and (vector? (:sources closure)) (seq (:sources closure))) "Explicit source inventory required")
   (doseq [{:keys [path namespace]} (:sources closure)]
     (need (and (symbol? namespace) (string? path)
-               (re-matches #"ansatz/lean/jvm/[a-z_]+\.clj" path)
+               (re-matches #"ansatz/lean/jvm/(?:[a-z_]+/)*[a-z_]+\.clj" path)
                (= path (namespace-path namespace))) "Runtime namespace/resource path mismatch"))
   (need (= (count (:sources closure)) (count (set (map :path (:sources closure))))) "Duplicate runtime source")
   (need (= ["META-INF/ansatz-lean-jvm/runtime.edn"] (:resources closure)) "Unknown runtime resource inventory")
@@ -23,19 +24,21 @@
   (need (= runtime-dependencies (:runtime-dependencies closure)) "Unexpected runtime dependency closure")
   closure)
 
-(defn check-namespace! [expected form]
+(defn check-namespace!
+  ([expected form] (check-namespace! expected form #{}))
+  ([expected form runtime-namespaces]
   (need (and (seq? form) (= 'ns (first form)) (= expected (second form))) "Source ns differs from inventory")
   (doseq [clause (drop 2 form) :when (seq? clause)]
     (need (#{:require :import :refer-clojure} (first clause)) "Unsupported runtime namespace loading clause")
     (case (first clause)
       :require (doseq [spec (rest clause)]
-                 (need (and (vector? spec) (#{'clojure.java.io 'clojure.string 'clojure.edn} (first spec)))
+                 (need (and (vector? spec) (contains? (into #{'clojure.java.io 'clojure.string 'clojure.edn 'clojure.data.json} runtime-namespaces) (first spec)))
                        "Research or undeclared dependency in packaged runtime namespace"))
       :import (doseq [spec (rest clause)]
                 (need (str/starts-with? (str (if (vector? spec) (first spec) spec)) "java.")
                       "Non-JDK runtime import outside audited engine linkage"))
       :refer-clojure nil))
-  form)
+  form))
 (defn- source-ns [file]
   (with-open [reader (java.io.PushbackReader. (io/reader file))]
     (binding [*read-eval* false] (read reader))))
@@ -78,7 +81,8 @@
     (need (= (set (map :path (:sources closure))) (paths-under (io/file root "src"))) "Uninventoried or absent runtime source")
     (need (= (set (:resources closure)) (paths-under (io/file root "resources"))) "Uninventoried or absent runtime resource")
     (doseq [{:keys [path namespace]} (:sources closure)]
-      (check-namespace! namespace (source-ns (io/file root "src" path))))
+      (check-namespace! namespace (source-ns (io/file root "src" path))
+                        (set (map :namespace (:sources closure)))))
     (need (= (get-in closure [:java :sha256]) (:engine-source-sha256 metadata) (sha256 java)) "Engine source/metadata pin mismatch")
     (need (and (= "ansatz-lean-jvm-runtime/1" (:schema metadata)) (= 17 (:java-release metadata))
                (= "ansatz.research.ir.Interpreter" (:engine-class metadata))

@@ -5,9 +5,9 @@ Clojure adapter at `ansatz/lean/jvm/ir.clj`. It is not a public LeanProject API,
 generic loader, compiler installation, complete Init image or new execution
 backend. The existing provider-first `modules/lean` module is unchanged.
 
-The runtime dependency is currently only Clojure 1.12.0. A later admitted artifact
-loader can add data.json, and actual Name/store integration can add the pinned
-core dependency; neither unused dependency is included by this extraction.
+Runtime dependencies are Clojure 1.12.0 and data.json 2.5.1. Canonical native
+source services use the bounded JSON codecs; artifact loading uses the same
+ordinary dependency. The core/kernel artifact is not required by this module.
 Build tooling is a producer alias and is absent from the emitted runtime POM.
 
 `runtime-closure.edn` names every source/resource and the one canonical engine
@@ -130,3 +130,13 @@ separate service using an explicitly configured pinned toolchain and independent
 platform helper. Helper distribution is unresolved; this release preparation
 adds no helper binaries or platform-support claim. Core/kernel stores, hosted
 frontend state and Mathlib remain separately selected services/cohorts.
+
+
+Canonical source service snapshots now live under `ansatz.lean.jvm.compiler.*`.
+They are loaded only by explicit source compilation. The shared transport has no
+fixed tutorial exporter or source-hash profile; its primary producer is the SDK's
+independently pinned typed-source helper. The original research namespaces remain
+historical evidence and are excluded from the SDK. New canonical source bytes
+require fresh compilation/cache/runtime acceptance; historical research receipts
+do not establish that acceptance. The explicit external helper installation
+contract is documented under [producer/](producer/README.md).
