@@ -66,6 +66,9 @@ artifact is native frontend evidence, not a Java kernel proof certificate.
 Source compilation additionally needs a pinned installed official toolchain and
 the separate [native producer bundle](producer/README.md). The library invokes
 its helpers itself; callers do not perform a manual export step.
+Maintained helper sources and their immutable cohort rules live in
+[tools/lean-producer](../../tools/lean-producer/README.md); they are separate from
+the JVM runtime and the module's bundle/release configuration.
 
 ```java
 var nativeCompiler = new NativeCompilerOptions(leanSysroot, producerBundle, cacheDirectory);
