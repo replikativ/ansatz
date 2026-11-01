@@ -224,8 +224,9 @@ clojure -T:build prepare-release :version '"0.2.1234"'
 
 Replace the example with the chosen root release version. The optional artifact
 uses the same `0.2.<git-count>` rule as the root release. `runtime-closure.edn`
-inventories every runtime source/resource and pins the one canonical interpreter
-plus Java facade source files. The producer captures their exact bounded bytes,
+inventories every runtime source/resource and pins the complete canonical Java
+engine closure plus facade source files. The [implementation layout](ARCHITECTURE.md)
+explains the production/research boundary and compiled-class inventory. The producer captures their exact bounded bytes,
 compiles that staging tree with `--release 17`, and emits an ordinary Maven POM.
 Consumers never compile Java sources at runtime.
 

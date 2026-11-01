@@ -45,7 +45,7 @@
                (ansatz-lean-jvm-scalar-buffer-checks/check!)]
       tests (reduce + (map :test results))
       assertions (reduce + (map #(+ (:pass %) (:fail %) (:error %)) results))
-      successful (and (= 122 tests) (= 724 assertions)
+      successful (and (= 124 tests) (= 733 assertions)
                       (every? #(zero? (+ (:fail %) (:error %))) results))]
   (println "SDK_JAR_MODELS" {:tests tests :assertions assertions :successful successful})
   (shutdown-agents)

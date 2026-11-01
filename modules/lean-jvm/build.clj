@@ -24,15 +24,14 @@
         ;; Emit only the reviewed runtime coordinates, excluding build tooling.
         pom-basis (assoc basis :libs audit/runtime-dependencies)]
     (b/delete {:path java-source-dir})
-    (audit/capture-engine-source! (get-in closure [:java :path])
-                                  (get-in closure [:java :sha256]) java-source-dir)
-    (audit/capture-api-sources! (:java-api closure) java-source-dir)
+    (audit/capture-java-sources! (concat (:java-engine closure) (:java-api closure)) java-source-dir)
     (b/delete {:path class-dir})
     (b/delete {:path jar-file})
     (b/copy-dir {:src-dirs ["src" "resources"] :target-dir class-dir})
     (let [metadata (io/file class-dir "META-INF/ansatz-lean-jvm/runtime.edn")]
       (spit metadata (pr-str (assoc (edn/read-string (slurp metadata)) :artifact-version version))))
     (b/javac {:src-dirs [java-source-dir] :class-dir class-dir :basis basis :javac-opts ["--release" "17"]})
+    (audit/write-class-inventory! closure class-dir)
     (b/write-pom {:class-dir class-dir :lib lib :version version :basis pom-basis :src-dirs ["src"]
                   :scm {:url "https://github.com/replikativ/ansatz"
                         :connection "scm:git:git://github.com/replikativ/ansatz.git"

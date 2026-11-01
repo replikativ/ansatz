@@ -1,4 +1,4 @@
-{:schema "ansatz-lean-jvm-source-closure/1"
+{:schema "ansatz-lean-jvm-source-closure/2"
  :sources [{:path "ansatz/lean/jvm.clj" :namespace ansatz.lean.jvm}
            {:path "ansatz/lean/jvm/argument.clj" :namespace ansatz.lean.jvm.argument}
            {:path "ansatz/lean/jvm/artifact.clj" :namespace ansatz.lean.jvm.artifact}
@@ -23,13 +23,15 @@
  :resources ["META-INF/ansatz-lean-jvm/runtime.edn"
              "META-INF/ansatz-lean-jvm/user-error.json"
              "META-INF/ansatz-lean-jvm/NOTICE"]
- :java {:path "src-java/ansatz/lean/jvm/internal/exec/Interpreter.java"
-        :class "ansatz.lean.jvm.internal.exec.Interpreter"
-        :sha256 "c1e28e8a5b2350167bad2a61fd22b1efa81ad44918f1ccdd934be86bf5bf582f"}
+ :engine-class "ansatz.lean.jvm.internal.exec.Interpreter"
+ :engine-closure-sha256 "a75cd86ee3d1568ca9ecc2023ebacd4ef5f21b3ae2e4d5f10edf1b6508b2b75b"
+ :java-engine [{:path "ansatz/lean/jvm/internal/exec/Interpreter.java" :class "ansatz.lean.jvm.internal.exec.Interpreter" :sha256 "79c09ff073b8be8bc8b32b2655dd55eacb1a9af6ab55e1fb5daad36dc9853a86"}
+               {:path "ansatz/lean/jvm/internal/exec/ScalarBits.java" :class "ansatz.lean.jvm.internal.exec.ScalarBits" :sha256 "f7f105354cb7c66c3aa1834254113738ed52d14a47fe92308d1dd4e9db5f6fe9"}
+               {:path "ansatz/lean/jvm/internal/exec/Utf8Bytes.java" :class "ansatz.lean.jvm.internal.exec.Utf8Bytes" :sha256 "74eb7745542b95b40ad166517fd79bf60500363792f771a34a2bd4c52a64fb18"}]
  :java-api [{:path "ansatz/lean/jvm/LeanChoice.java" :class "ansatz.lean.jvm.LeanChoice" :sha256 "ce51cc7e5a8b82309945d3c20e44e84ad12fd3d40408b4651f563ce6ed1a0b14"}
             {:path "ansatz/lean/jvm/IOResult.java" :class "ansatz.lean.jvm.IOResult" :sha256 "183799c7ec50c25fde8a28c838715241f23e0f776904d6ff895e46e455ea7dc5"}
             {:path "ansatz/lean/jvm/LeanUnit.java" :class "ansatz.lean.jvm.LeanUnit" :sha256 "f1d0c8703511f24c98af395caf9786bd9667ae0dace912003c5cf8377d0f550d"}
-            {:path "ansatz/lean/jvm/Bridge.java" :class "ansatz.lean.jvm.Bridge" :sha256 "790417a912a5f56e7fb5171c406b2f69082fde17b57b469a57941b89e23649d5"}
+            {:path "ansatz/lean/jvm/Bridge.java" :class "ansatz.lean.jvm.Bridge" :sha256 "9826f858dd1accce30dfc9b7e5124101b37ad6830241c7a5e3bca399f14f974b"}
             {:path "ansatz/lean/jvm/LeanFunction.java" :class "ansatz.lean.jvm.LeanFunction" :sha256 "2c38a12d0b2da42e3a1948df9a49d255f13c7afa678f2be424a724ad1ab3035e"}
             {:path "ansatz/lean/jvm/Lean.java" :class "ansatz.lean.jvm.Lean" :sha256 "5dfd42d509fd029ab5a4e222cae512ebaea79b32cb03a6246c4e0f3d8bd3c57f"}
             {:path "ansatz/lean/jvm/LeanException.java" :class "ansatz.lean.jvm.LeanException" :sha256 "04f42ebdbd5c761b8ab2d04ed1f3a5f21f3df8f4a7f6aab21079799e79e24117"}

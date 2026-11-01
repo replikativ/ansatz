@@ -10,7 +10,7 @@
 (deftest actual-package-is-explicit-and-source-only
   (let [result (audit/verify! {:module-root *module-root*})]
     (is (= 21 (:sources result))) (is (= 3 (:resources result)))
-    (is (= 12 (:java-sources result)))
+    (is (= 14 (:java-sources result)))
     (is (= '{org.clojure/clojure {:mvn/version "1.12.0"}
              org.clojure/data.json {:mvn/version "2.5.1"}} (:runtime-dependencies result)))))
 (deftest source-paths-and-dependency-closure-cannot-drift
@@ -18,7 +18,7 @@
     (doseq [changed [(assoc-in original [:sources 0 :path] "prototype/machine.cljc")
                      (assoc-in original [:sources 0 :namespace] 'native-project-entry-v1)
                      (update original :sources conj (first (:sources original)))
-                     (assoc-in original [:java :path] "src-java/Interpreter.java")
+                     (assoc-in original [:java-engine 0 :path] "src-java/Interpreter.java")
                      (assoc original :resources ["research/repl.clj"])
                      (assoc-in original [:runtime-dependencies 'org.replikativ/pattern] {:mvn/version "1.0.452"})]]
       (is (rejected? #(audit/validate-manifest! changed))))))
@@ -66,6 +66,26 @@
         (spit source "mutated before capture" :encoding "UTF-8")
         (is (rejected? #(audit/capture-engine-source! source capture-sha stage)))
         (is (not (.exists stage)))))))
+
+(deftest engine-source-closure-is-exact-and-disjoint
+  (let [original (closure) sources (:java-engine original)]
+    (is (= (audit/engine-closure-sha256 sources) (audit/engine-closure-sha256 (reverse sources))))
+    (doseq [changed [(update original :java-engine conj (first sources))
+                     (assoc-in original [:java-engine 0 :class] "ansatz.lean.jvm.internal.exec.Unlisted")
+                     (assoc original :engine-closure-sha256 (apply str (repeat 64 "0")))
+                     (update original :java-api conj (first sources))]]
+      (is (rejected? #(audit/validate-manifest! changed))))))
+(deftest complete-java-capture-validates-all-pins-before-writing
+  (with-capture-fixture
+    (fn [root]
+      (let [relative "ansatz/lean/jvm/internal/exec/Interpreter.java"
+            source (io/file root "src-java" relative) stage (io/file root "staged")
+            descriptor {:path relative :class "ansatz.lean.jvm.internal.exec.Interpreter" :sha256 capture-sha}]
+        (io/make-parents source) (spit source capture-text :encoding "UTF-8")
+        (is (rejected? #(audit/capture-java-sources! root [descriptor (assoc descriptor :sha256 (apply str (repeat 64 "0")))] stage)))
+        (is (not (.exists stage)))
+        (is (= {:java-sources 1} (audit/capture-java-sources! root [descriptor] stage)))
+        (is (= capture-text (slurp (io/file stage relative))))))))
 
 (defn check! [module-root]
   (binding [*module-root* module-root] (run-tests 'ansatz-lean-jvm-build-audit-checks)))

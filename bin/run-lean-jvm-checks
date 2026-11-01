@@ -59,6 +59,9 @@ RESOURCE_CHECK
 echo "Checking managed argument ownership and scalar/buffer semantics"
 javac -J-Xmx192m --release 17 -cp target/ansatz-lean-jvm.jar -d target/ci-resource-checks \
   test-java/ManagedDataChecks.java \
-  test-java/ManagedScalarBufferChecks.java
+  test-java/ManagedScalarBufferChecks.java \
+  test-java/ansatz/lean/jvm/internal/exec/ScalarBitsChecks.java
 java -Xmx192m -cp target/ci-resource-checks:target/ansatz-lean-jvm.jar ManagedDataChecks
 java -Xmx192m -cp target/ci-resource-checks:target/ansatz-lean-jvm.jar ManagedScalarBufferChecks
+
+java -Xmx128m -cp target/ci-resource-checks:target/ansatz-lean-jvm.jar ansatz.lean.jvm.internal.exec.ScalarBitsChecks

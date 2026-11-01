@@ -69,7 +69,7 @@ final class Bridge {
                 selected = cursor;
                 code = "Cancelled";
             } else if (!cancelled && cursor.getClass().getName().equals(
-                    "ansatz.research.ir.Interpreter$RuntimeLimitException")) {
+                    "ansatz.lean.jvm.internal.exec.Interpreter$RuntimeLimitException")) {
                 try {
                     Object actual = cursor.getClass().getMethod("code").invoke(cursor);
                     if ("ResourceLimit".equals(actual) || "Cancelled".equals(actual)) {
