@@ -12,6 +12,14 @@ public final class RuntimeResourceChecks {
         try { return m.invoke(engine,values); }
         catch(InvocationTargetException e) { if(e.getCause() instanceof Exception) throw (Exception)e.getCause(); throw e; }
     }
+    static void stringPrimitive(Interpreter e,int operation,Object left,Object right) throws Exception {
+        Class<?> function=Class.forName("ansatz.research.ir.Interpreter$Function");
+        Constructor<?> constructor=function.getDeclaredConstructor(String.class,int.class,int[].class,
+            int[].class,int.class,int.class,Class.forName("ansatz.research.ir.Interpreter$HostExtern"),Object.class);
+        constructor.setAccessible(true);
+        Object f=constructor.newInstance("resource-check",-1,new int[0],new int[0],0,operation,null,null);
+        invoke(e,"runtimeIntrinsic",new Class<?>[]{function,Object.class,Object.class,Object.class},f,left,right,0L);
+    }
     static final Class<?>[] NATS={BigInteger.class,BigInteger.class};
     static final Class<?>[] TEXT={Object.class};
     static void limited(Checked action,String code) throws Exception {
@@ -64,6 +72,13 @@ public final class RuntimeResourceChecks {
         catch(RuntimeException expected) { check(expected.getMessage().contains("Unicode")); }
         check(((byte[])invoke(e,"utf8",TEXT,"\u0000λ😀")).length==7);
         int cap=16*1024*1024; String full=repeated(cap);
+        stringPrimitive(e,19,full,""); check(((String)result.get(e)).length()==cap);
+        limited(()->stringPrimitive(e,19,full,"x"),"ResourceLimit");
+        limited(()->stringPrimitive(e,15,full,0x1f600L),"ResourceLimit");
+        stringPrimitive(e,15,repeated(cap-4),0x1f600L);
+        check(((String)result.get(e)).getBytes(java.nio.charset.StandardCharsets.UTF_8).length==cap);
+        result.set(e,null);
+        limited(()->invoke(e,"utf8",TEXT,full+"x"),"ResourceLimit");
         invoke(e,"appendCaptured",new Class<?>[]{Object.class,boolean.class},full,false);
         limited(()->invoke(e,"appendCaptured",new Class<?>[]{Object.class,boolean.class},"λ",false),"ResourceLimit");
         Interpreter child=e.eagerFork().engine;
