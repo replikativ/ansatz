@@ -533,12 +533,23 @@
    pass through untouched."
   [est T tn x]
   (if (e/lit-nat? x)
-    (case tn
-      "Nat" x
-      "Float" (e/app (e/const' (name/from-string "Float.ofNat") []) x)
-      (let [u (type-sort-level est T)
-            goal (e/app* (e/const' (name/from-string "OfNat") [u]) T x)]
-        (e/app* (e/const' (name/from-string "OfNat.ofNat") [u]) T x (inst-mvar! est goal))))
+    (let [v (e/lit-nat-val x)]
+      (if (neg? v)
+        ;; A negative surface integer is Lean's `-n`: `Neg.neg (OfNat.ofNat T n)`, never a raw
+        ;; literal (a kernel Nat literal is a natural number). Over Nat there is no `Neg`.
+        (do (when (= tn "Nat")
+              (throw (ex-info (str "negative literal " v " cannot have type Nat")
+                              {:kind :elab-error :literal v})))
+            (let [u (type-sort-level est T)]
+              (e/app* (e/const' (name/from-string "Neg.neg") [u]) T
+                      (inst-mvar! est (e/app (e/const' (name/from-string "Neg") [u]) T))
+                      (num-lit-at-type est T tn (e/lit-nat (- v))))))
+        (case tn
+          "Nat" x
+          "Float" (e/app (e/const' (name/from-string "Float.ofNat") []) x)
+          (let [u (type-sort-level est T)
+                goal (e/app* (e/const' (name/from-string "OfNat") [u]) T x)]
+            (e/app* (e/const' (name/from-string "OfNat.ofNat") [u]) T x (inst-mvar! est goal))))))
     x))
 
 (defn- elab-arith-operand
