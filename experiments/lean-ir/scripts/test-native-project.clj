@@ -36,5 +36,5 @@
                       (Files/deleteIfExists path)))))]
   (shutdown-agents)
   (System/exit
-   (if (and (= [15 6 7 1] (mapv :test results))
+   (if (and (= [17 6 7 1] (mapv :test results))
             (every? #(zero? (+ (:fail %) (:error %))) results)) 0 1)))

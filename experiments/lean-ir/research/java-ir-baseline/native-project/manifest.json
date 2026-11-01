@@ -37,11 +37,11 @@
     },
     {
       "file": "compiler-models.clj",
-      "sha256": "86ea447f06daa4968728c42e0566a513a395eaf092e2989bc5c13148dbc7a54c"
+      "sha256": "6a0157ba8ee9db8ad1073e336df552384191f16f3ea8f0fbd777a1313d3bee38"
     },
     {
       "file": "compiler.clj",
-      "sha256": "a7bdddb8420fa8d409643cb7622810454077640621fc3e12afeca1ab47ce1827"
+      "sha256": "093d373f6fdeb4eebfd98626345cf10425b765fa92274a9ca2bb1d56d05143e3"
     },
     {
       "file": "entry-evidence-validation.json",
@@ -501,7 +501,7 @@
       },
       {
         "file": "experiments/lean-ir/scripts/test-native-project.clj",
-        "sha256": "a5a299978bb6cd2a5b5b37c8ca105b61aaa8aa33ea25f0e331327afffe131a68"
+        "sha256": "7fe5367946343ab2f03479943563c75b383c79aeb303ede739ebd66b0163a9c6"
       }
     ],
     "mechanicalExporterProvenance": {
@@ -515,14 +515,26 @@
     "automated-contracts": {
       "runner": "experiments/lean-ir/scripts/test-native-project.clj",
       "ci": "bin/run-test-contracts",
-      "tests": 29,
-      "assertions": 162,
+      "tests": 31,
+      "assertions": 178,
       "failures": 0,
       "errors": 0,
       "heapMiB": 384,
       "nativeProcesses": 0,
       "guestExecution": false,
       "initStoreLoaded": false
+    },
+    "single-json-protocol": {
+      "source": "093d373f6fdeb4eebfd98626345cf10425b765fa92274a9ca2bb1d56d05143e3",
+      "models": {
+        "tests": 17,
+        "assertions": 96,
+        "failures": 0,
+        "errors": 0
+      },
+      "trailing": "Only JSON space/tab/CR/LF permitted after one value; applied to each JSONL record and complete protocol document",
+      "nativeHelpersChanged": false,
+      "priorNativeExecutionCohortsPreserved": true
     }
   }
 }
