@@ -189,3 +189,18 @@ with unresolved consumption, not an intact owned root or a discharged credit.
 The outer ByteArray reference is borrowed once its wrapper owns it. All delivered
 Node/hostbuffer aliases are dropped after the finishAction commit; only scalar
 statistics remain.
+
+## Body-call borrow set versus semantic closure metadata
+
+The genuine Random research union contains duplicate dependency occurrences,
+self recursion, and the initialized global's semantic edge to its action despite
+an unreachable global body. Preserve the original row, dependency vector and
+hash. Capture closure traversal uses all those semantic edges. In contrast,
+Program.materialize borrows exactly the unique external FAP/PAP Headers occurring
+in the actual body, excluding the target itself. Derive that set from the body,
+check every target is declared in the original dependency metadata, and resolve
+the already reserved canonical Headers. Do not pass occurrence vectors directly,
+strip initializer metadata from original rows, or relax the runtime direct-set
+guard. The research helper's first prepare failed before creating any engine;
+normalizing the separate issuer borrow list fixes that adapter error without a
+runtime/source change.
