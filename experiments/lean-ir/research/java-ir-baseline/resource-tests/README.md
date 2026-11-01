@@ -1,7 +1,6 @@
 # Atomic growth profile source changes
 
-Source changes only: no new runtime acceptance receipt is implied. The production
-runtime retains its existing bounded profile and adds guards to Nat.mul/Nat.pow,
+The runtime retains its existing bounded profile and adds guards to Nat.mul/Nat.pow,
 String UTF-8 encoding, String.push/String.append and captured stdout/stderr.
 
 Nat multiplication checks conservative operand-bit sum (16,777,216 bits) and
@@ -66,3 +65,10 @@ new scalar width before concatenation. String.ofList is already bounded by the
 existing one-million-element traversal ceiling (at most four million UTF-8 bytes),
 and array factories retain their one-million-capacity ceiling. These are bounds
 on individual operations, not a bound on total live guest graph storage.
+
+The final source cohort `70f6a6fc937be9604e887bdd85ff12bd9d9ce4218387f8cf4a122f26018ead29`
+passed 41 standalone checks and 155 existing regression tests with 9,879 assertions
+in the release validation. The standalone harness covers primitive boundaries;
+the original-row regression tests separately cover real IR ownership and ABI
+behavior. These results establish the selected bounded profile, not unrestricted
+Lean execution or a hard process heap bound.
