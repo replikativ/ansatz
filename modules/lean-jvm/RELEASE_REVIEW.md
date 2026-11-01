@@ -18,6 +18,15 @@ Clojure elaboration DSL and store loading are unchanged. Core and SDK can share
 a Clojure REPL; runtime invocation does not import kernel declarations or proofs.
 No LLVM or Pattern dependency is introduced.
 
+## Consolidated code organization
+
+The production interpreter is owned by the SDK module in its internal execution
+package. Stateless scalar/UTF-8 helpers are separate; ownership, pending actions,
+frame state and realm-sensitive identities remain centrally controlled.
+The [architecture guide](ARCHITECTURE.md) explains the complete source/class
+inventories and the separation from maintained hosting research. The old tracked
+experiment tree is gone, and closed probe implementations were retired.
+
 ## Required acceptance
 
 - Exact SDK source inventory and Java source pins; JDK 17 build and ordinary Maven

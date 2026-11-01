@@ -184,3 +184,31 @@ Historical Init-tier/count examples should be checked before launch claims. A
 retained combined REPL previously loaded 5,118 declarations in core `0.2.578`'s
 reported medium tier and ran the DSL alongside the optional interpreter; this
 campaign does not change core stores or kernel checking.
+
+### Consolidated implementation
+
+Production Java now lives under `modules/lean-jvm/src-java/ansatz/lean/jvm/`;
+the canonical engine and package-private stateless helpers use
+`internal.exec`. An explicit three-source engine closure and compiled-class
+inventory replace the old single external-source packaging assumption.
+The [architecture guide](ARCHITECTURE.md) documents ownership boundaries.
+
+The tracked `experiments/lean-ir` tree is removed. Maintained frontend work,
+comparison oracles and the unpublished legacy facade have moved to
+`research/lean-hosting`; 19 closed probe implementations were retired. Original
+capture bytes and source-at-commit references remain intact. The production CI
+lane checks the canonical Java engine; legacy World/facade/Pattern checks have
+an explicit optional research lane. Both paths retain their distinct contracts.
+
+Fresh consolidated gates pass 124 SDK tests / 733 assertions, 163 engine groups
+(1,553 tests / 60,565 assertions), all application consumers, native source
+acceptance, ownership/resource tests and stateless helper checks. See the current
+candidate receipt for exact hashes, source cohorts and optional research results.
+The native producer binaries and their independently admitted source bytes are
+unchanged by relocation. No merge or publication has occurred.
+
+The complete optional research lane also passes after using a workspace-local
+Git dependency cache: its legacy facade/World/controller/RAW/coherent checks and
+94 Pattern/compiler tests remain available without gating the public SDK release.
+The current receipt records their separate scope. The consolidated retained REPL
+also loaded a genuine artifact and exercised common calls without JVM restarts.

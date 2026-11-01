@@ -57,8 +57,9 @@ public SDK or the canonical interpreter.
 Closed prepared-interpreter, bulk-sparse and paged-register investigations can be
 retired with their closed probe consumers. Conclusions and immutable capture
 records retain their original provenance. Past acceptance hashes are never
-rewritten to describe current code. See the research consolidation record for
-specific retired files and the optional legacy-contract lane.
+rewritten to describe current code. See [the requirement migration](../../research/lean-hosting/CONTRACT_MIGRATION.md)
+and [relocation history](../../research/lean-hosting/history/relocations-v1.json)
+for specific retired files and the optional legacy-contract lane.
 
 ## Verification
 

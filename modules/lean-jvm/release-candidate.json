@@ -4,21 +4,22 @@
   "merged": false,
   "published": false,
   "upstreamMain": "7e6d8c309757283eaef6b91ec7f848d948207460",
-  "implementationCommit": "0a13b51c282fadc7be4259d811a8d4d4b49a015f",
-  "candidateVersion": "0.2.595",
+  "implementationCommit": "ccccd34853baba5f0f5102ec2d972571d1b01c49",
+  "candidateVersion": "0.2.607",
   "candidateVersionIsUnpublishedTestBuild": true,
   "releaseVersion": "computed by landing CI",
   "candidateJar": {
-    "bytes": 401510,
-    "sha256": "85f9f7262d5a58ec0d9aec55f2dc516fa7d922be7daea3952285ea023f1a7447",
+    "bytes": 415951,
+    "sha256": "b369cad2713e4fda225aafe19e48def6211c73def4fddbbac6ac111b88a0293f",
     "javaRelease": 17,
     "runtimeSourceCount": 21,
-    "engineSourceSHA256": "c1e28e8a5b2350167bad2a61fd22b1efa81ad44918f1ccdd934be86bf5bf582f",
-    "pomSHA256": "175a3e8128e82168ac41b369fc9f56186611b08b4a576382d259c14f8489726f"
+    "engineSourceSHA256": "79c09ff073b8be8bc8b32b2655dd55eacb1a9af6ab55e1fb5daad36dc9853a86",
+    "engineClosureSHA256": "a75cd86ee3d1568ca9ecc2023ebacd4ef5f21b3ae2e4d5f10edf1b6508b2b75b",
+    "pomSHA256": "ab25b599b9eeec9b928f09f6caa8eb407e358bc6b84e0d4547c5df61eeb611d1"
   },
   "packagedJARModels": {
-    "tests": 122,
-    "assertions": 724,
+    "tests": 124,
+    "assertions": 733,
     "passed": true,
     "heapMiB": 384
   },
@@ -39,11 +40,11 @@
     "schema": "ansatz-lean-jvm-source-acceptance/1",
     "checks": 35,
     "timings-ms": {
-      "common-cold": 6801.293868,
-      "common-warm": 4032.666977,
-      "reload": 4530.629813,
-      "artifact-load": 131.574229,
-      "scalar-cold": 4319.152287
+      "common-cold": 8388.515407,
+      "common-warm": 5625.355204,
+      "reload": 5966.941953,
+      "artifact-load": 132.725349,
+      "scalar-cold": 6239.771464
     },
     "module-cache-observations": [
       {
@@ -87,17 +88,18 @@
     "runtime-heap-mib": 512,
     "scope": "Actual public source cold/cache/edit/reload/artifact, common/scalar values, warnings, errors, capability and type refusal",
     "passed": true,
-    "sameCandidateJarSHA256": "85f9f7262d5a58ec0d9aec55f2dc516fa7d922be7daea3952285ea023f1a7447"
+    "sameCandidateJarSHA256": "b369cad2713e4fda225aafe19e48def6211c73def4fddbbac6ac111b88a0293f"
   },
   "actualJVMChecks": {
     "resourceLimits": 41,
     "managedOwnership": 176,
     "managedScalarBuffer": 102,
-    "passed": true
+    "passed": true,
+    "statelessScalarUtf8": 3918
   },
   "archiveChecks": {
     "actualJARAudit": true,
-    "rejectionCases": 6,
+    "rejectionCases": 11,
     "passed": true
   },
   "nativeOracle": {
@@ -117,11 +119,46 @@
   "reviews": {
     "implementation": "Sol read-only review; external scalar carrier and IO world budget findings fixed and tested",
     "documentation": "Sol read-only review; candidate visibility and execution-failure timing clarified",
-    "relativeLinks": "PASS six affected guides"
+    "relativeLinks": "PASS nine affected guides",
+    "sourceClosure": "Sol review fixed self-inventoried class/source additions; reviewed external engine closure and primary source pin required",
+    "consolidation": "Sol agents implemented producer/research migrations and helper extraction; independent source-closure review finding fixed; original historical bytes independently verified from Git."
   },
   "notRun": [
     "Full core/kernel/mathlib verification was not repeated; kernel/store implementation is unchanged.",
     "Other JVM platforms were not acceptance-tested."
   ],
-  "publicationGate": "User scope/docs/landing discussion required before merge or publish"
+  "publicationGate": "User scope/docs/landing discussion required before merge or publish",
+  "consolidation": {
+    "canonicalEngine": "modules/lean-jvm/src-java/ansatz/lean/jvm/internal/exec/Interpreter.java",
+    "engineSourceFiles": 3,
+    "exactRelocations": 1918,
+    "retiredClosedProbeFiles": 19,
+    "experimentalTreeRemoved": true,
+    "legacyFacade": "research/lean-hosting/legacy-facade",
+    "mandatoryEngineContracts": {
+      "groups": 163,
+      "tests": 1553,
+      "assertions": 60565,
+      "passed": true
+    },
+    "codeCatalogueTests": 2,
+    "historicalEvidenceVerifiedFromGit": true,
+    "relocationVerifier": "research/lean-hosting/history/verify_relocations.py",
+    "researchGate": {
+      "passed": true,
+      "clojureTestGroups": 10,
+      "tests": 302,
+      "assertions": 37811,
+      "patternIncluded": true,
+      "gitCache": "workspace-local cache seeded from existing pinned checkout; no shared-cache writes"
+    },
+    "patternContracts": {
+      "tests": 94,
+      "assertions": 23826,
+      "passed": true
+    },
+    "coreJavaSourcesCompiled": 23,
+    "publicAPIBehaviorChanged": false,
+    "decompositionScope": "Central state/identity/ownership remains in Interpreter; stateless ScalarBits and Utf8Bytes extracted as package-private helpers."
+  }
 }
