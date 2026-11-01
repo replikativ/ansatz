@@ -212,3 +212,28 @@ Git dependency cache: its legacy facade/World/controller/RAW/coherent checks and
 94 Pattern/compiler tests remain available without gating the public SDK release.
 The current receipt records their separate scope. The consolidated retained REPL
 also loaded a genuine artifact and exercised common calls without JVM restarts.
+
+## Agreed prelanding follow-up (2026-11-01)
+
+The user authorized these four implementation/review items, while retaining the
+release discussion gate:
+
+1. Provide supported Java and Clojure build-time artifact preparation and a CLI.
+   Preparation uses the checked native compiler/evidence pipeline and exports its
+   receipt; it does not open a JVM Project or invoke guest startup or main. Native
+   frontend metaprograms can still execute during trusted source compilation.
+2. Replace the incidental 16-selected-function limit with an explicit resource
+   bound of 1,024. Keep independent request-byte, IR/dependency, artifact-size,
+   execution and arity limits. Older native producer cohorts retain their own
+   preparation limit; existing artifacts and admitted producer pairs stay valid.
+3. Keep ordinary Clojure values and simple JVM carriers. Preserve the distinctions
+   between None and Some Unit, between Sum branches, exact integer ranges and
+   float widths. Test recursively mixed Clojure and Java carriers.
+4. Review the build/deploy examples and compatibility scope, regenerate the exact
+   unpublished producer candidate, and prepare the publication/merge sequence.
+   Approval to implement these items does not authorize publication or merging.
+
+A genuine project with more than 16 selected functions must pass preparation,
+artifact loading and calls against the built SDK JAR. Keep this separate from
+builder boundary tests and from claims that every 1,024-entry project fits the
+other resource budgets.

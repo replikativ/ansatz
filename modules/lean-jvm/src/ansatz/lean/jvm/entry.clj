@@ -4,6 +4,10 @@
   (:require [ansatz.lean.jvm.signature :as signature])
   (:import [java.nio.charset StandardCharsets]))
 
+(def max-selected-entries
+  "Resource bound on explicitly selected host-callable functions, independent of arity."
+  1024)
+
 (def legacy-profiles #{"nat-to-nat" "string-to-string" "io-unit"})
 (def cohorts
   {1 {:evidence "lean-native-entry-evidence/1" :request "lean-native-entry-requests/1"
@@ -19,7 +23,8 @@
    after root-owned compilation/acceptance; the original v2 pair stays explicit."
   {1 #{[(get-in cohorts [1 :source]) (get-in cohorts [1 :binary])]}
    2 #{[(get-in cohorts [2 :source]) (get-in cohorts [2 :binary])]
-       ["1a8a0bf73fc7d6a18cd2b2d8cf9a693264ad3801cde396bd42190f2ebcca5a13" "736374c5c4baa38d952f1ed4d332754da171d53f67ca8f3a5104b997417a539a"]}})
+       ["1a8a0bf73fc7d6a18cd2b2d8cf9a693264ad3801cde396bd42190f2ebcca5a13" "736374c5c4baa38d952f1ed4d332754da171d53f67ca8f3a5104b997417a539a"]
+       ["9aab83d109979676c7f4f9657366548dca774b3ffefc83806d3e76697fca6b9a" "f970838c6c3d7dfa800e8e6d9780b18ceb9d37f708a7fe127430f18ccf2439d1"]}})
 (defn- need [ok stage]
   (when-not ok (throw (ex-info "Native entry observation rejected" {:code "EntryRejected" :stage stage}))))
 (defn schema-for-pins! [source binary]
@@ -189,7 +194,7 @@
                (= {"wordBits" 64 "target" "x86_64-unknown-linux-gnu"} (get document "runtimeProfile"))
                (false? (get document "dynamicClosureProven"))
                (= root (get request "module") (get document "compiledModule"))
-               (vector? requests) (vector? entries) (<= 1 (count requests) 16)
+               (vector? requests) (vector? entries) (<= 1 (count requests) max-selected-entries)
                (= (count requests) (count entries) (count (set (map #(get % "name") requests))))
                (= (mapv #(get % "name") requests) (mapv #(get % "name") entries))) :entry-document)
     (name! root)

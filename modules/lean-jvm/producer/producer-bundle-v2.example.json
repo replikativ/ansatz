@@ -8,8 +8,8 @@
     "entry": {
       "binary": "bin/entry",
       "source": "sources/NativeGeneralEntryEvidence.lean",
-      "binarySHA256": "736374c5c4baa38d952f1ed4d332754da171d53f67ca8f3a5104b997417a539a",
-      "sourceSHA256": "1a8a0bf73fc7d6a18cd2b2d8cf9a693264ad3801cde396bd42190f2ebcca5a13"
+      "binarySHA256": "f970838c6c3d7dfa800e8e6d9780b18ceb9d37f708a7fe127430f18ccf2439d1",
+      "sourceSHA256": "9aab83d109979676c7f4f9657366548dca774b3ffefc83806d3e76697fca6b9a"
     },
     "startupHeader": {
       "binary": "bin/startupHeader",

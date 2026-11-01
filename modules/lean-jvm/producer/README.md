@@ -36,6 +36,11 @@ messages remain on stderr, while stdout is structural JSON. Compiler errors stil
 fail. Diagnostics bytes remain bounded, hashed and included in cache/artifact
 provenance; they are not ignored or parsed as declarations.
 
+The current candidate admits up to 1,024 explicitly selected host functions,
+subject to the separate request-byte and IR/artifact budgets. Previous helper
+cohorts retain their 16-entry preparation limit; previously prepared artifacts
+remain loadable. Function arity has a separate bound of 64 arguments.
+
 The maintained sources are
 [NativeGeneralEntryEvidence.lean](../../../tools/lean-producer/src/NativeGeneralEntryEvidence.lean),
 [NativeStartupEvidence.lean](../../../tools/lean-producer/src/NativeStartupEvidence.lean)

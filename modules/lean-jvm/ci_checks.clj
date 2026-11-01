@@ -4,6 +4,7 @@
          '[ansatz-lean-jvm-signature-checks :as signature-models]
          '[ansatz-lean-jvm-codec-checks :as codec-models]
          '[ansatz-lean-jvm-value-checks :as value-models]
+         '[ansatz-lean-jvm-value-convention-checks :as value-convention-models]
          '[ansatz-lean-jvm-argument-checks :as argument-models]
          '[ansatz-lean-jvm-producer-checks :as producer-models]
          '[ansatz-lean-jvm-boundary-checks :as boundary-models]
@@ -25,6 +26,7 @@
 (load-file "ansatz_lean_jvm_release.clj")
 (doseq [file ["test/build_audit_checks.clj" "test/prepare_checks.clj"
               "test/encoding_checks.clj" "test/release_checks.clj" "test/facade_checks.clj"
+              "test/preparation_api_checks.clj"
               "test/entry_checks.clj" "test/extended_entry_checks.clj" "test/scalar_buffer_checks.clj"]]
   (load-file file))
 (let [basis (ir/linked-basis)
@@ -33,6 +35,7 @@
                (ansatz-lean-jvm-encoding-checks/check!)
                (ansatz-lean-jvm-release-checks/check! ".")
                (ansatz-lean-jvm-facade-checks/check!)
+               (ansatz-lean-jvm-preparation-api-checks/check! ".")
                (module-models/check!) (publisher-models/check!)
                (capability-models/check! basis) (lifecycle-models/check! basis)
                (artifact-models/check!)
@@ -40,12 +43,13 @@
                (ansatz-lean-jvm-entry-checks/check! ".")
                (ansatz-lean-jvm-extended-entry-checks/check! ".")
                (value-models/check! "test/fixtures/value-codec-witnesses.json")
+               (value-convention-models/check!)
                (argument-models/check! "test/fixtures/value-codec-witnesses.json")
                (producer-models/check! ".") (boundary-models/check! ".")
                (ansatz-lean-jvm-scalar-buffer-checks/check!)]
       tests (reduce + (map :test results))
       assertions (reduce + (map #(+ (:pass %) (:fail %) (:error %)) results))
-      successful (and (= 124 tests) (= 733 assertions)
+      successful (and (= 143 tests) (= 833 assertions)
                       (every? #(zero? (+ (:fail %) (:error %))) results))]
   (println "SDK_JAR_MODELS" {:tests tests :assertions assertions :successful successful})
   (shutdown-agents)

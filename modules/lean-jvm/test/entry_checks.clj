@@ -4,7 +4,9 @@
   (:require [clojure.test :refer [deftest is run-tests]] [clojure.data.json :as json]
             [clojure.java.io :as io] [ansatz.lean.jvm.entry :as entry]
             [ansatz.lean.jvm.compiler.evidence :as evidence])
-  (:import [java.util.zip ZipFile]))
+  (:import [java.util.zip ZipFile]
+           [java.nio.file Path]
+           [ansatz.lean.jvm ProjectOptions NativeCompilerOptions]))
 (def ^:dynamic *module-root* ".")
 (defn- fixture [path] (json/read-str (slurp (io/file *module-root* path))))
 (defn- v2 [] (fixture "test/fixtures/general-entry-v2.json"))
@@ -71,5 +73,16 @@
       (catch clojure.lang.ExceptionInfo error
         (is (= "UnsupportedSignature" (:code (ex-data error))))))
     (is (= {} @journal))))
+(deftest explicit-selection-resource-bound-is-independent-of-arity
+  (let [path (Path/of "." (make-array String 0))
+        compiler (NativeCompilerOptions. path path path)
+        builder #(ProjectOptions/builder compiler)]
+    (is (= entry/max-selected-entries ProjectOptions/MAX_SELECTED_ENTRIES))
+    (is (thrown? IllegalArgumentException (.build (builder))))
+    (let [options (builder)]
+      (doseq [i (range ProjectOptions/MAX_SELECTED_ENTRIES)] (.function options (str "f" i)))
+      (is (= 1024 (count (.entries (.build options)))))
+      (.function options "overflow")
+      (is (thrown? IllegalArgumentException (.build options))))))
 (defn check! [module-root]
   (binding [*module-root* module-root] (run-tests 'ansatz-lean-jvm-entry-checks)))

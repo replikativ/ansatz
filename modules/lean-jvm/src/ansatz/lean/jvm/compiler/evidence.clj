@@ -128,7 +128,7 @@
    ENTRIES is a vector of {:root TypedModule :name TypedName :signature String}."
   [compiler project-configuration evidence-configuration entries journal]
   (guard-source!)
-  (vector! entries 16)
+  (vector! entries checked-entry/max-selected-entries)
   (need (seq entries) "EntryRejected" {})
   (doseq [{:keys [root name signature] :as e} entries]
     (need (and (= #{:root :name :signature} (set (keys e)))

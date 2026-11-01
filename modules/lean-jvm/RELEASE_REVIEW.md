@@ -13,6 +13,11 @@ and a scalar/buffer/choice program, plus the unchanged external FP Lean tutorial
 already covered by the preceding release. Portable fixtures carry actual native
 source/build evidence and run through the same public Java and Clojure APIs.
 
+Build-time artifact preparation is available through the Java `LeanPreparation`
+API, Clojure `prepare-project`, and the Java CLI; see
+[preparation](PREPARATION.md). It exports checked native evidence without opening
+a JVM Project. Public carrier examples are in [VALUE_EXAMPLES.md](VALUE_EXAMPLES.md).
+
 The SDK remains optional, separate from core Ansatz. Existing core kernel,
 Clojure elaboration DSL and store loading are unchanged. Core and SDK can share
 a Clojure REPL; runtime invocation does not import kernel declarations or proofs.
@@ -49,7 +54,8 @@ experiment tree is gone, and closed probe implementations were retired.
   No frontend self-hosting, automatic toolchain install or general Lake support.
 - Init and a bounded local acyclic import graph. Installed Std/Lean/Mathlib imports,
   modern `module` headers and external package resolution remain outside scope.
-- Explicit selection of at most 16 entries per project. No module-wide export,
+- Explicit selection of at most 1,024 entries per project with the current producer
+  (older producer bundles retain their 16-entry preparation limit). No module-wide export,
   implicit specialization, polymorphic/dependent/higher-order entry arguments,
   arbitrary records or recursive ADTs, or erased-proof construction.
 - IO data conversion is broader than IO service coverage. Captured output and a

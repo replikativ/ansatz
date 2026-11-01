@@ -36,7 +36,7 @@
           "Selected canonical row conflicts with genuine startup observation")))
 (defn- validate-combined! [payload]
   (need (contains? #{"native-project-build-evidence/2" "lean-native-local-project/2"} (:profile payload)) "Build/artifact receipt profile differs")
-  (let [index (:rows payload) entries (vector! (:entries payload) 16)
+  (let [index (:rows payload) entries (vector! (:entries payload) checked-entry/max-selected-entries)
         _ (need (and (map? index) (<= 1 (count index) 4096) (seq entries)) "Bounded complete program required")
         rows (vec (vals index)) _ (bounded-rows! (into rows entries))
         plan (startup/validate-capture (:startup payload))

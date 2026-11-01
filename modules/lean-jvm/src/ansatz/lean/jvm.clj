@@ -2,7 +2,7 @@
   "Clojure REPL interface to checked Lean project execution. Core Ansatz can be
    used alongside this optional module; kernel declaration import is separate."
   (:require [clojure.java.io :as io])
-  (:import [ansatz.lean.jvm Lean LeanProject LeanFunction
+  (:import [ansatz.lean.jvm Lean LeanProject LeanFunction LeanPreparation PreparedArtifact
             NativeCompilerOptions ProjectOptions LeanUnit IOResult LeanChoice]
            [java.nio.file Path] [java.util Optional]))
 
@@ -19,8 +19,8 @@
   (let [native (NativeCompilerOptions. (path (:sysroot compiler))
                                       (path (:producer-bundle compiler)) (path (:cache compiler)))
         builder (-> (ProjectOptions/builder native) (.rootModule root-module) (.sourceRoot source-root))]
-    (when-not (<= 1 (bounded-count 17 entries) 16)
-      (throw (ex-info "Request one to sixteen checked entries" {:code "EntryRejected"})))
+    (when-not (<= 1 (bounded-count (inc ProjectOptions/MAX_SELECTED_ENTRIES) entries) ProjectOptions/MAX_SELECTED_ENTRIES)
+      (throw (ex-info "Request one to 1024 checked entries" {:code "EntryRejected"})))
     (doseq [[name signature] (if (map? entries) entries (map #(vector % :auto) entries))]
       (case signature
         :auto (.function builder name)
@@ -37,6 +37,15 @@
   [^Lean runtime directory options]
   (.loadProject runtime (path directory)
                 (if (instance? ProjectOptions options) options (project-options options))))
+
+(defn prepare-project
+  "Compile trusted source into OUTPUT without opening a JVM Project. Caller owns
+   OUTPUT; keep the returned manifest hash separately in trusted configuration."
+  [directory options output]
+  (let [^PreparedArtifact description
+        (LeanPreparation/prepareProject (path directory)
+          (if (instance? ProjectOptions options) options (project-options options)) output)]
+    {:manifest-sha256 (.manifestSHA256 description) :archive-sha256 (.archiveSHA256 description)}))
 
 (defn load-artifact
   "The caller owns INPUT. EXPECTED-MANIFEST-SHA comes from a trusted descriptor."
@@ -83,7 +92,10 @@
                     (LeanChoice/left (visit (get type left-type) (get value left) (inc depth)))
                     (and (map? value) (= #{right} (set (keys value))))
                     (LeanChoice/right (visit (get type right-type) (get value right) (inc depth)))
-                    (= LeanChoice (class value)) value
+                    (= LeanChoice (class value))
+                    (if (.isLeft ^LeanChoice value)
+                      (LeanChoice/left (visit (get type left-type) (.value ^LeanChoice value) (inc depth)))
+                      (LeanChoice/right (visit (get type right-type) (.value ^LeanChoice value) (inc depth))))
                     :else (throw (ex-info "Expected an explicitly tagged branch" {:code "UnsupportedArgumentType"}))))
                 ("product" "list" "array")
                 (do (when-not (and (instance? java.util.List value) (not (instance? clojure.lang.ISeq value)))

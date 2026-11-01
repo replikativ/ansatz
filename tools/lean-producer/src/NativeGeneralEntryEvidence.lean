@@ -585,7 +585,7 @@ private def readRequests (path : String) : IO (Name × Array Json) := do
   unless (← checkedIO <| document.getObjValAs? String "schema") == "lean-native-entry-requests/2" do
     throw <| IO.userError "unknown entry request schema"
   let requests ← checkedIO <| (← checkedIO <| document.getObjVal? "entries").getArr?
-  unless 1 ≤ requests.size && requests.size ≤ 16 do throw <| IO.userError "entry request count must be one to sixteen"
+  unless 1 ≤ requests.size && requests.size ≤ 1024 do throw <| IO.userError "entry request count must be one to 1024"
   let module ← checkedIO <| checkedName (← checkedIO <| document.getObjVal? "module")
   unless !module.isAnonymous do throw <| IO.userError "compiled module must be nonanonymous"
   return (module, requests)

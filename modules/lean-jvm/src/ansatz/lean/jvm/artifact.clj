@@ -213,10 +213,10 @@
                             (need (= (get-in checked-entry/cohorts [entry-schema :evidence]) (get d "schema"))
                                   "EntryRejected" {:stage :entry-producer-version})
                             (checked-entry/validate-document! (get e "rootModule") request d)
-                            {:document d :request request})) (vector! (get manifest "entryEvidence") 16))
+                            {:document d :request request})) (vector! (get manifest "entryEvidence") checked-entry/max-selected-entries))
         entries (vec (mapcat #(get-in % [:document "entries"]) documents))
         imported (merge-imported! (into [startup] (map :document documents)))]
-    (need (and (<= 1 (count entries) 16) (= (count entries) (count (set (map #(get % "name") entries))))) "EntryRejected" {})
+    (need (and (<= 1 (count entries) checked-entry/max-selected-entries) (= (count entries) (count (set (map #(get % "name") entries))))) "EntryRejected" {})
     (doseq [entry entries]
       (need (module-names (get entry "compiledModule")) "EntryRejected" {:stage :entry-module})
       (checked-entry/validate-rows! entry index))
@@ -332,6 +332,15 @@
      "code" {"canonicalRows" (descriptor "program/rows.json") "dynamicClosureProven" false}
      "files" (into (sorted-map) (map (fn [[path data]] [path (record data)]) files))
      "trust" {"frontend" "official-native" "javaKernelChecked" false "hostedInitImported" false "startupExecutionReceipt" false}}))
+(defn- with-export-close [body close]
+  ;; Caller output remains nonclosing. Preserve fatal write errors even when
+  ;; ZIP finish/flush also fails; never attach a private Throwable as suppressed.
+  (let [priority #(cond (or (instance? VirtualMachineError %) (instance? ThreadDeath %)) 3
+                        (instance? Error %) 2 :else 1)
+        original (try (body) nil (catch Throwable failure failure))
+        closing (try (close) nil (catch Throwable failure failure))
+        failure (if (and closing (or (nil? original) (> (priority closing) (priority original)))) closing original)]
+    (when failure (throw failure))))
 (defn export!
   "Write an actual issued native build as a manifest-last ZIP. Return the expected
    manifest digest for trusted application configuration. Caller owns OUTPUT;
@@ -345,10 +354,12 @@
         _ (validate! manifest files)
         hash (MessageDigest/getInstance "SHA-256")
         digest-output (DigestOutputStream. (nonclosing-output output) hash)]
-    (with-open [archive (ZipOutputStream. digest-output StandardCharsets/UTF_8)]
-      (doseq [[path data] (concat files [["manifest.json" manifest-bytes]])]
-        (let [entry (doto (ZipEntry. ^String path) (.setTime 0))]
-          (.putNextEntry archive entry) (.write archive ^bytes data 0 (alength ^bytes data)) (.closeEntry archive))))
+    (let [archive (ZipOutputStream. digest-output StandardCharsets/UTF_8)]
+      (with-export-close
+        #(doseq [[path data] (concat files [["manifest.json" manifest-bytes]])]
+           (let [entry (doto (ZipEntry. ^String path) (.setTime 0))]
+             (.putNextEntry archive entry) (.write archive ^bytes data 0 (alength ^bytes data)) (.closeEntry archive)))
+        #(.close archive)))
     {:schema schema :manifest-sha256 (sha manifest-bytes) :archive-sha256 (hex (.digest hash))
      :files (inc (count files)) :runtime-ready false}))
 (defn load!

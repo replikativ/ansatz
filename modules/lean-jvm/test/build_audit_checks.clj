@@ -9,8 +9,8 @@
 (defn closure [] (edn/read-string (slurp (io/file *module-root* "runtime-closure.edn"))))
 (deftest actual-package-is-explicit-and-source-only
   (let [result (audit/verify! {:module-root *module-root*})]
-    (is (= 21 (:sources result))) (is (= 3 (:resources result)))
-    (is (= 14 (:java-sources result)))
+    (is (= 22 (:sources result))) (is (= 3 (:resources result)))
+    (is (= 16 (:java-sources result)))
     (is (= '{org.clojure/clojure {:mvn/version "1.12.0"}
              org.clojure/data.json {:mvn/version "2.5.1"}} (:runtime-dependencies result)))))
 (deftest source-paths-and-dependency-closure-cannot-drift

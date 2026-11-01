@@ -108,7 +108,9 @@ work.
 Entries have closed monomorphic signatures with up to 64 explicit value
 arguments and either pure or IO results. Discovery uses the actual Lean type
 before erasure, native definitional equality, original callable lookup, and
-compiler layout evidence. Select one to sixteen entry names per project.
+compiler layout evidence. Select one to 1,024 entry names per project with the current producer. Older
+producer bundles retain their 16-entry preparation limit. This count is
+independent of function arity; dependency, byte and execution budgets still apply.
 Discovery does not automatically admit every declaration in a module.
 
 | Lean type | Java carrier | Clojure carrier |
@@ -127,6 +129,10 @@ Discovery does not automatically admit every declaration in a module.
 | ByteArray | Copied `byte[]` | Copied byte array |
 | Sum | `LeanChoice.left(value)` / `.right(value)` | `{:left value}` / `{:right value}` |
 | Except | Left error / right success `LeanChoice` | `{:error value}` / `{:ok value}` |
+
+See [JVM and Clojure value examples](VALUE_EXAMPLES.md) for nested carriers and
+Java varargs calls. The [preparation guide](PREPARATION.md) covers build-time
+artifact export through the Java/Clojure APIs and CLI.
 
 Containers nest over supported types. `none` and `some ()` stay distinct: the
 latter is `Optional.of(LeanUnit.INSTANCE)` or `{:some nil}`. Results contain no
