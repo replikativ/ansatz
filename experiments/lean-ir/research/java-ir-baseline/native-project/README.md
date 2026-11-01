@@ -133,6 +133,13 @@ hosted Init, Java kernel rechecking, generic Lake-project acceptance or public
 Java facade. It includes neither an Init image/store nor the unrelated source,
 kernel or bootstrap implementations used by the wider research campaign.
 
+The next bounded local-project profile is specified in the
+[general project plan](GENERAL_PROJECT_PLAN.md). Its
+[source review gates](SOURCE_REVIEW_GATES.md) cover genuine Init startup,
+portable entropy, atomic arithmetic limits, failed-branch lifetime, deferred
+fork and Java packaging. These documents state requirements and decisions;
+they do not extend the accepted fixed tutorial profile.
+
 A separate tiny-greeting measurement reused the prepared Program while creating,
 validating and closing a fresh engine on every invocation. After 30 warmups,
 100 samples had median 69.415 microseconds and p95 457.489 microseconds, with
