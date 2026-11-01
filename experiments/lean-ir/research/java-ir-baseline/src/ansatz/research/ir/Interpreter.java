@@ -7999,9 +7999,12 @@ public final class Interpreter implements AutoCloseable {
      * Unlike legacy Raw.set, this exact ABI owns its position and proves non-end.
      * Java String is immutable, so native in-place ASCII identity is not claimed. */
     private static void stringReplacementExtent(int bytes,int oldWidth,int cp) {
+        stringReplacementExtent(bytes,oldWidth,cp,"String.set");
+    }
+    private static void stringReplacementExtent(int bytes,int oldWidth,int cp,String operation) {
         int newWidth=cp<128?1:cp<2048?2:cp<65536?3:4;
         resource((long)bytes-oldWidth+newWidth<=MAX_STRING_OUTPUT_BYTES,
-                "String.set output outside bounded runtime profile");
+                operation+" output outside bounded runtime profile");
     }
     private void stringPosSet(Object source,Object position,Object replacement,Object proof) {
         require(ERASED.equals(proof),"String.Pos.set proof requires erased placeholder");
@@ -8009,7 +8012,7 @@ public final class Interpreter implements AutoCloseable {
         require(offset.compareTo(BigInteger.valueOf(bytes.length))<0,"String.Pos.set requires a non-end position");
         int p=offset.intValue();
         require(leadingByte(bytes[p]),"String.Pos.set requires a valid UTF-8 scalar position");
-        int oldWidth=utf8Width(bytes[p]); stringReplacementExtent(bytes.length,oldWidth,cp);
+        int oldWidth=utf8Width(bytes[p]); stringReplacementExtent(bytes.length,oldWidth,cp,"String.Pos.set");
         String changed=new String(bytes,0,p,StandardCharsets.UTF_8)+new String(Character.toChars(cp))
                 +new String(bytes,p+oldWidth,bytes.length-p-oldWidth,StandardCharsets.UTF_8);
         result=changed; releaseQuiet(source,1); releaseQuiet(position,1);
