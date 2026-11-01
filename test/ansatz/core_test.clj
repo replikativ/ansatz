@@ -171,9 +171,11 @@
                        '[^{:- Prop} q ^{:- q} hq]
                        'q
                        '[(apply _) (assumption)])
+      ;; a class (Lean rejects an instance-implicit binder of a non-class type, and only a
+      ;; class-typed local is a local instance)
       (when-not (a/has-constant? "ApplyLocalCls")
-        (a/structure ApplyLocalCls [S Type]
-                     (witness S)))
+        (a/class ApplyLocalCls [S Type]
+                 (witness S)))
       (when-not (a/has-constant? "applyLocalInstEq")
         (a/prove-theorem 'applyLocalInstEq
                          '[S :- Type :implicit inst :- (ApplyLocalCls S) :inst]

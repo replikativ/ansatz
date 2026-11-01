@@ -107,29 +107,20 @@
       (is (= ["a"] (mapv (comp str :name) (inst/get-instances idx (name/from-string "C")))))
       (is (= ["c"] (mapv (comp str :name) (inst/get-instances idx (name/from-string "D"))))))))
 
-(deftest test-select-candidates-keys-on-the-carrier
+(deftest test-candidates-keyed-on-the-carrier
   (let [env (require-env)
-        of (fn [ns] (mapv (fn [n] {:name (name/from-string n) :priority 1000}) ns))
         goal (e/app* (e/const' (name/from-string "OfNat") [lvl/zero])
                      (e/const' (name/from-string "Nat") []) (e/lit-nat 5))
-        select (fn [ns] (mapv (comp str :name) (inst/select-candidates env (of ns) goal)))]
-    (testing "only instances for the goal's carrier plus the generic ones survive — Lean's
-              DiscrTree selection, one level deep, whatever the list's size"
-      (is (= ["instOfNatNat" "Zero.toOfNat0"]
-             (select ["Fin.instOfNat" "instOfNatNat" "BitVec.instOfNat" "Zero.toOfNat0"])))
-      (binding [config/*max-candidates* 2]
-        (is (= ["instOfNatNat" "Zero.toOfNat0"]
-               (select ["Fin.instOfNat" "instOfNatNat" "BitVec.instOfNat" "Zero.toOfNat0"])))))
-    (testing "the carrier's own instances come FIRST, before the generic ones, whatever the
-              registry order — `getUnify` returns star matches before keyed ones and
-              SynthInstance consumes that array backwards, so at equal priority Lean tries the
-              specific instance first. Registry order alone resolved `Add Int` to
-              `Distrib.toAdd`, a term no Mathlib lemma is stated about."
-      (is (= ["instOfNatNat" "Zero.toOfNat0"] (select ["Zero.toOfNat0" "instOfNatNat"]))))
-    (testing "a goal with no constant carrier keeps every candidate (nothing to key on)"
-      (let [open-goal (e/app* (e/const' (name/from-string "OfNat") [lvl/zero])
-                              (e/bvar 0) (e/lit-nat 5))]
-        (is (= 2 (count (inst/select-candidates env (of ["instOfNatNat" "Zero.toOfNat0"]) open-goal))))))))
+        names (mapv str (inst/candidates env @test-index goal))]
+    (testing "Lean's DiscrTree selection: the Nat instance, none keyed on another carrier"
+      (is (= "instOfNatNat" (first names)))
+      (is (not-any? #{"instOfNat" "Fin.instOfNat" "BitVec.instOfNat"} names)))
+    (testing "a goal whose carrier is not known yet keeps every OfNat instance"
+      (let [st (tc/mk-tc-state env)
+            mctx (meta/add-expr-mvar-decl meta/empty-context 77 (e/sort' (lvl/succ lvl/zero)) (:lctx st))
+            ctx (#'inst/synth-ctx env @test-index)
+            open-goal (e/app* (e/const' (name/from-string "OfNat") [lvl/zero]) (e/mvar 77) (e/lit-nat 5))]
+        (is (< (count names) (count (#'inst/get-instances* ctx mctx st open-goal))))))))
 
 (deftest test-index-for-reads-the-env-not-the-process
   (let [env (require-env)
@@ -151,13 +142,15 @@
         inst (name/from-string "instNonemptyOfInhabited")
         env' (inst/add-instance env inst)
         entries (inst/get-instances (inst/index-for env') (name/from-string "Nonempty"))]
-    (is (= [{:name inst :priority 1000}] entries) "only the explicit registration is added")
+    (is (= [{:name inst :priority 1000}] (map #(select-keys % [:name :priority]) entries))
+        "only the explicit registration is added")
     (is (= 1000 (:priority (first entries))) "Lean's default priority")
     (is (nil? (env/get-extension env :instances nil)) "the original env is untouched")
     (is (= [{:name inst :priority 10}]
-           (filter #(= inst (:name %))
-                   (inst/get-instances (inst/index-for (inst/add-instance env' inst :priority 10))
-                                       (name/from-string "Nonempty"))))
+           (map #(select-keys % [:name :priority])
+                (filter #(= inst (:name %))
+                        (inst/get-instances (inst/index-for (inst/add-instance env' inst :priority 10))
+                                            (name/from-string "Nonempty")))))
         "re-registering replaces the entry with the requested priority")))
 
 (deftest add-instance-orders-equal-priorities-newest-first
@@ -169,11 +162,20 @@
                        (inst/add-instance older :priority 1000)
                        (inst/add-instance newer :priority 1000))]
     (is (= [{:name newer :priority 1000} {:name older :priority 1000}]
-           (inst/get-instances (inst/index-for registered) cls))
+           (map #(select-keys % [:name :priority]) (inst/get-instances (inst/index-for registered) cls)))
         "Lean tries the most recent registration first among equal priorities")
     (is (= [{:name older :priority 1000} {:name newer :priority 10}]
-           (inst/get-instances (inst/index-for (inst/add-instance registered newer :priority 10)) cls))
-        "re-registration changes priority without duplicating or dropping candidates")))
+           (map #(select-keys % [:name :priority])
+                (inst/get-instances (inst/index-for (inst/add-instance registered newer :priority 10)) cls)))
+        "re-registration changes priority without duplicating or dropping candidates")
+    (testing "re-registering at the old priority keeps the registration order (Lean's insertVal
+              replaces in place), so the older instance stays behind the newer one"
+      (is (= [newer older]
+             (map :name (inst/get-instances
+                         (inst/index-for (-> registered
+                                             (inst/add-instance older :priority 10)
+                                             (inst/add-instance older :priority 1000)))
+                         cls)))))))
 
 ;; ============================================================
 ;; DecidableEq instances with arguments (Lean keys them by the unfolded conclusion)
@@ -222,8 +224,7 @@
                                             (e/forall' "h" (c "False") goal :inst-implicit)))
                 (.addConstant (env/mk-axiom (nm "capAnswer") [] goal)))
         idx {(nm "CapClass") [{:name (nm "capBlocked")} {:name (nm "capAnswer")}]}]
-    (binding [config/*max-candidates* 1]
-      (is (= (c "capAnswer") (inst/synthesize env idx goal))))))
+    (is (= (c "capAnswer") (inst/synthesize env idx goal)))))
 
 (deftest test-instance-priority-precedes-specificity
   (let [env (require-env)
@@ -232,7 +233,7 @@
         candidates [{:name (name/from-string "instOfNatNat") :priority 1000}
                     {:name (name/from-string "Zero.toOfNat0") :priority 2000}]]
     (is (= ["Zero.toOfNat0" "instOfNatNat"]
-           (mapv (comp str :name) (inst/select-candidates env candidates goal))))))
+           (mapv str (inst/candidates env {(name/from-string "OfNat") candidates} goal))))))
 
 (deftest test-instance-errors-propagate
   (let [env (require-env)
@@ -244,17 +245,9 @@
       (with-redefs-fn {#'meta/is-def-eq (fn [& _] (throw failure))}
         #(is (thrown-with-msg? NullPointerException #"injected synthesis bug"
                                (inst/synthesize env @test-index goal)))))
-    (testing "the synthPending hook propagates bugs"
-      (with-redefs [inst/synthesize* (fn [& _] (throw failure))]
-        (is (thrown-with-msg? NullPointerException #"injected synthesis bug"
-                              (inst/synth-pending-instance nil (tc/mk-tc-state env) goal)))))
-    (testing "depth exhaustion fails only that path, is recorded, and is named when the search fails"
-      (binding [config/*max-synth-depth* 0
-                inst/*depth-hits* (atom [])]
-        (is (nil? (inst/synthesize* (tc/mk-tc-state env) env @test-index goal 1)))
-        (is (= [goal] @inst/*depth-hits*)))
-      (with-redefs [inst/synthesize* (fn [& _] (some-> inst/*depth-hits* (swap! conj goal)) nil)]
-        (is (thrown-with-msg? clojure.lang.ExceptionInfo #"\*max-synth-depth\*"
+    (testing "exceeding the resource bound is an error naming it, not a missing instance"
+      (binding [config/*synth-max-steps* 0]
+        (is (thrown-with-msg? clojure.lang.ExceptionInfo #"\*synth-max-steps\*"
                               (inst/synthesize env @test-index goal)))))))
 
 (deftest test-invalid-instance-priority-fails
@@ -286,8 +279,7 @@
         bad {:name (nm "regrTypeInst") :priority 1100}
         good {:name (nm "regrPropInst") :priority 1000}
         expected (e/app (c "regrPropInst") (c "regrP"))]
-    (doseq [[label resolve] [["recursive" #(inst/synthesize* %1 env %2 goal 0)]
-                             ["legacy tabled" #(inst/tabled-synthesize %1 env %2 goal)]]]
+    (doseq [[label resolve] [["tabled" #(inst/synthesize* %1 env %2 goal 0)]]]
       (testing label
         (is (nil? (resolve (tc/mk-tc-state env) {(nm "RegrU") [bad]}))
             "an incompatible candidate is an ordinary mismatch")
@@ -300,10 +292,9 @@
                         env (env/mk-thm (nm (str "regrChecked" label)) [] goal result)))
                 "the successful proof passes kernel admission")))))))
 
-(deftest test-direct-search-reports-depth-exhaustion
-  ;; A direct synthesize* call whose search fails only because the depth bound cut a path is
-  ;; exhausted, not negative: it names the bound (Lean checkSystem), while backtracking past
-  ;; individual cuts still works.
+(deftest test-direct-search-reports-resource-exhaustion
+  ;; A direct synthesize* call whose search runs out of steps is exhausted, not negative: it names
+  ;; the bound (Lean's checkSystem throws on heartbeats), while the full search succeeds.
   (let [env (require-env)
         goal (e/app (e/const' (name/from-string "Decidable") [])
                     (e/app* (e/const' (name/from-string "And") [])
@@ -313,8 +304,8 @@
         dec (name/from-string "Decidable")
         idx {dec [{:name (name/from-string "instDecidableAnd") :priority 1000}
                   {:name (name/from-string "instDecidableTrue") :priority 1000}]}]
-    (binding [config/*max-synth-depth* 0]
-      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"exhausted the search depth bound"
+    (binding [config/*synth-max-steps* 1]
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"resource bound"
                             (inst/synthesize* (tc/mk-tc-state env) env idx goal 0))))
     (is (some? (inst/synthesize* (tc/mk-tc-state env) env idx goal 0)))))
 

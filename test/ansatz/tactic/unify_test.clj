@@ -81,11 +81,17 @@
                                 (nadd (e/lit-nat 0) (e/mvar 1003))))))))
 
 (deftest test-mismatch-fails
-  (testing "genuinely distinct closed terms do not unify"
+  (testing "an offset constraint without a solution does not unify (Lean: `Nat.add ?y 3 =?= Nat.add 0 2` is false)"
     (let [env (require-env)
           st (tc/mk-tc-state env)
           mctx (fresh-ctx 1004 (c "Nat"))]
-      ;; Nat.add ?x 1  vs  Nat.add 3 2  → arg mismatch 1≠2
       (is (nil? (meta/is-def-eq mctx st
-                                (nadd (e/mvar 1004) (e/lit-nat 1))
-                                (nadd (e/lit-nat 3) (e/lit-nat 2))))))))
+                                (nadd (e/mvar 1004) (e/lit-nat 3))
+                                (nadd (e/lit-nat 0) (e/lit-nat 2)))))))
+  (testing "Lean's isDefEqOffset solves `Nat.add ?x 1 =?= Nat.add 3 2` with ?x := 3 + 1 (not an argument mismatch)"
+    (let [env (require-env)
+          st (tc/mk-tc-state env)
+          mctx (fresh-ctx 1004 (c "Nat"))
+          mctx' (meta/is-def-eq mctx st (nadd (e/mvar 1004) (e/lit-nat 1)) (nadd (e/lit-nat 3) (e/lit-nat 2)))]
+      (is (some? mctx'))
+      (is (tc/is-def-eq st (meta/zonk-expr mctx' (e/mvar 1004)) (e/lit-nat 4))))))
