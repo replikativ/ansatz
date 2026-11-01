@@ -1,8 +1,16 @@
 {
   "schema": "native-project-entry-research-package/1",
-  "scope": "Fixed unchanged tutorial native-frontend compilation and JavaIR entry execution; not hosted Init or JavaTC",
+  "scope": "Internal fixed tutorial and bounded generic local source compilation/evidence; native compiler authority, no public Java API or hosted/kernel claim.",
   "tested-runner-sha256": "ea4502d5a9ab79cbd340155142dc8919ccdcb3291ad018ff871dde45793bff76",
   "sources": [
+    {
+      "file": "ENTRY_EVIDENCE.md",
+      "sha256": "7c6bd6c866f307c34f27c4c2659de90ac4587c965ed53b06df7547bc012e253b"
+    },
+    {
+      "file": "GENERAL_PROJECT_PLAN.md",
+      "sha256": "d7642776843a49f2ac23838b9105f220474b98f3023f22c624deba0ccc18f4f1"
+    },
     {
       "file": "JAVA_API_DESIGN.md",
       "sha256": "907af8bd0aad328071f7600b60c0c21410146debda2eccdc811b0fd8c9b67b67"
@@ -13,23 +21,59 @@
     },
     {
       "file": "README.md",
-      "sha256": "5d30e0b6e245a67c99f1ef03e168fd51dc9c97e2a45a173b8a943df5b742d75d"
+      "sha256": "2822d4846f04e46dcae62468a1b7c76ea67299875c7d37d94bfa1387abef93c9"
+    },
+    {
+      "file": "SOURCE_REVIEW_GATES.md",
+      "sha256": "91e52eb508665d59be1db6896e929d58f47dbaf3993c8daaf53b6105042dc31e"
+    },
+    {
+      "file": "acceptance/interop-execution-v1.edn",
+      "sha256": "1c7b8fc057e1fd6022902ff4d1ec117873541255c0c6022525889d5844cffee6"
+    },
+    {
+      "file": "acceptance/tutorial-execution-v2.edn",
+      "sha256": "de765b617519244367d5e72c7c37999406887872f617d0ba0ceb3ae0a6cbd746"
     },
     {
       "file": "compiler-models.clj",
-      "sha256": "bdb93babb548a2ee145420077fea4eb5cad335d269008df592a4a2f11caf6bf4"
+      "sha256": "6a0157ba8ee9db8ad1073e336df552384191f16f3ea8f0fbd777a1313d3bee38"
     },
     {
       "file": "compiler.clj",
-      "sha256": "4d41b16468ba4be6439ccb9ef9ea63c9548e0e7f18569a0a9621eeefdf843da3"
+      "sha256": "093d373f6fdeb4eebfd98626345cf10425b765fa92274a9ca2bb1d56d05143e3"
+    },
+    {
+      "file": "entry-evidence-validation.json",
+      "sha256": "1810bc1e8277c493b8d338e10a3f3a48bbf37a31f2ea60e137c11a7dedef063b"
+    },
+    {
+      "file": "generic-project-validation.json",
+      "sha256": "767d19129a2a4b5b9e7b6341ccd2c774f40e60a6d06c5f70bb5d506e1e0711a7"
     },
     {
       "file": "loader.clj",
       "sha256": "e4a0f91d80eed72577ff5e7c8471263aa95a97bea35c5284e0543e34a39e4135"
     },
     {
+      "file": "local-project-models.clj",
+      "sha256": "a824d912a30176fe5a7e5907d7ed4e2a313e6c36c42372243088f499cdfd683f"
+    },
+    {
+      "file": "local-project.clj",
+      "sha256": "2fe514595c39087771859fb18d9dd960ead9a8d2b289749e3d6c21690c0faa4d"
+    },
+    {
       "file": "models.clj",
       "sha256": "54bd45cc298e7c74f905b9a432d0ec5dda90ce324864419e911e0c92eaac2e18"
+    },
+    {
+      "file": "project-evidence-models.clj",
+      "sha256": "db118adecb3d0ed8786ef42517f5ae91fde1257ee7b3f1a342aa6834a71bac00"
+    },
+    {
+      "file": "project-evidence.clj",
+      "sha256": "03b77a1362858e9e3e8454759d46baa83bf12089252435a52a7c7abfa0f1abe4"
     },
     {
       "file": "runner.clj",
@@ -42,18 +86,6 @@
     {
       "file": "service.clj",
       "sha256": "aa2a06695ed3c4c74aa6c5897c94ad8a0fc4bb795d34b39bd8fc744a75e8a1a4"
-    },
-    {
-      "file": "verify-source.py",
-      "sha256": "c6803de470996504a15ef9490fbe3956ef247aa6ce1761819a1fea2340302374"
-    },
-    {
-      "file": "ENTRY_EVIDENCE.md",
-      "sha256": "7c6bd6c866f307c34f27c4c2659de90ac4587c965ed53b06df7547bc012e253b"
-    },
-    {
-      "file": "entry-evidence-validation.json",
-      "sha256": "1810bc1e8277c493b8d338e10a3f3a48bbf37a31f2ea60e137c11a7dedef063b"
     },
     {
       "file": "typed-bridge/README.md",
@@ -76,12 +108,8 @@
       "sha256": "d7d8476fcc836f60db8ae99bf0b55fb1b1055c6b5a61a9d364a39856c4babdf3"
     },
     {
-      "file": "GENERAL_PROJECT_PLAN.md",
-      "sha256": "d7642776843a49f2ac23838b9105f220474b98f3023f22c624deba0ccc18f4f1"
-    },
-    {
-      "file": "SOURCE_REVIEW_GATES.md",
-      "sha256": "91e52eb508665d59be1db6896e929d58f47dbaf3993c8daaf53b6105042dc31e"
+      "file": "verify-source.py",
+      "sha256": "db255888c268147f72beba3e03402993031adb74d977d58ccaad6cde2aad8621"
     }
   ],
   "producer-artifact": {
@@ -109,10 +137,9 @@
     "fullInitImported": false
   },
   "pending": [
-    "Current bounded RSS-resampling source model/cold/hit/entry gate; earlier default Loader checkpoint passed",
-    "Hosted default Init and Java kernel rechecking",
-    "Generic bounded project compilation and checked entry type evidence beyond exact tutorial profile",
-    "Public Java API proposal review, persistent project lifetime and Python-free bundled helper packaging"
+    "Public Java facade and jar-only/offline portable artifact acceptance",
+    "Full supported-profile resource/cancellation/lifetime acceptance at the public API",
+    "Optional hosted frontend and Java kernel integration remain separate explicit services"
   ],
   "prototype-build-service": {
     "source": "tutorial-demo/service.py (producer separate unit)",
@@ -227,7 +254,96 @@
     "production-reference": "Ansatz662ac21",
     "reuse": "Existing Java kernel and lazy PSS/fetch APIs; no default full Init/Mathlib replay"
   },
-  "internal-jvm-compiler": {
+  "entry-evidence-source": {
+    "status": "native helper typecheck/link and positive/negative evidence gates passed; JVM typed-handle gate not run",
+    "format": "lean-native-entry-evidence/1",
+    "isolated": true,
+    "legacy-Export.lean-sha256": "3311d15c99dc91b599771e328475f2a65a70a0c4fe4c71bfe82b1c2883499f95",
+    "files": [
+      {
+        "file": "experiments/lean-ir/lean/NativeEntryEvidence.lean",
+        "sha256": "e89beefe6ebb864d830367a377360d68cbce89c97fa6a5a5e9dab8877b6c6629"
+      },
+      {
+        "file": "experiments/lean-ir/scripts/build-entry-evidence.sh",
+        "sha256": "194cfeb9ed368b72a3d2ab2ea5c4d5ccb9b574d2732b4ef76e820b3e97d5285a"
+      },
+      {
+        "file": "experiments/lean-ir/test/fixtures/native-entry-evidence/NativeEntryCases.lean",
+        "sha256": "27ae31b0cad8ed251c24736f86132aa2b3365f97c557a27ed46edd3f25db9129"
+      },
+      {
+        "file": "experiments/lean-ir/test/fixtures/native-entry-evidence/requests.json",
+        "sha256": "70f86b21ca591356bab7e8f5a3489259194c216f253322fe62e614167ce4b67c"
+      },
+      {
+        "file": "experiments/lean-ir/test/fixtures/native-entry-evidence/README.md",
+        "sha256": "4c3656de10f98ce1695dc121debfa76b9e0ea577761e29eb944c5a5e4899b330"
+      },
+      {
+        "file": "experiments/lean-ir/test/fixtures/native-entry-evidence/NativeEntryImported.lean",
+        "sha256": "7830161debb016f7675d73aab73fe528d6f28ad4aca355cc5463df55c45c0814"
+      },
+      {
+        "file": "experiments/lean-ir/test/fixtures/native-entry-evidence/NativeEntryInitCases.lean",
+        "sha256": "ba945b89dd9c92e782c60aa8df9f60d4205a66c0ab056766b575f56d77e112be"
+      },
+      {
+        "file": "experiments/lean-ir/test/fixtures/native-entry-evidence/imported-requests.json",
+        "sha256": "dc87be030ec739d54acbadd3d2e2040ba87c693fffc5377ac16e2f8c8ab623cc"
+      }
+    ],
+    "worker-native-or-JVM-launched": {
+      "native": true,
+      "JVM": false
+    },
+    "validation": "entry-evidence-validation.json"
+  },
+  "typed-bridge-probe": {
+    "status": "parent actual fixed bridge gate passed",
+    "sourceDirectory": "typed-bridge",
+    "autoLoaded": false,
+    "validation": "typed-bridge/validation.json",
+    "moduleStartup": false,
+    "publicJavaAPI": false,
+    "genericTypeEvidenceConsumer": false,
+    "evidenceAuthority": "Exact frozen native gate captures; no caller map or type-descriptor proof",
+    "models": {
+      "tests": 5,
+      "assertions": 38
+    },
+    "calls": {
+      "Nat": 12,
+      "StringBranch": 4,
+      "sameEngine": true,
+      "normalClose": true
+    }
+  },
+  "general-project-design": {
+    "status": "source-only requirements and review decisions; unimplemented by these documents",
+    "files": [
+      "GENERAL_PROJECT_PLAN.md",
+      "SOURCE_REVIEW_GATES.md"
+    ],
+    "draftPlanSHA256": "c0faa952a925b9941d4a16345fe7c5749ca62b89d9a96bc17c81767391d2726d",
+    "sourceReviewDecisionsDate": "2026-10-31",
+    "runtimeSourcesChanged": false,
+    "nativeOrJVMExecuted": false,
+    "callerProofAccepted": false,
+    "releaseSequence": [
+      "compact-startup-capability",
+      "generic-artifact-and-reused-project",
+      "jar-only-java-api"
+    ],
+    "entropyProfile": "portable JDK, actual IO.Error.userError for expected provider failures; no fake POSIX errno",
+    "limits": "cooperative bit/work guards; no hard heap/deadline claim",
+    "publicFork": "deferred",
+    "draftBaseCommit": "a2b7ee2d89235aed869ed09cc6c575c12f137462",
+    "reviewedBaseCommit": "a75ab26cad4d9ba15409c0cc89e6aa8e356ad06c",
+    "implementationValidation": "generic-project-validation.json"
+  },
+  "historical-package-scope": "Fixed unchanged tutorial native-frontend compilation and JavaIR entry execution; not hosted Init or JavaTC",
+  "historical-internal-jvm-compiler": {
     "status": "actual-current-default-loader-cold-hit-and-entry-pass",
     "defaultBackend": "jvm",
     "PythonInvoked": false,
@@ -355,91 +471,70 @@
       }
     }
   },
-  "entry-evidence-source": {
-    "status": "native helper typecheck/link and positive/negative evidence gates passed; JVM typed-handle gate not run",
-    "format": "lean-native-entry-evidence/1",
-    "isolated": true,
-    "legacy-Export.lean-sha256": "3311d15c99dc91b599771e328475f2a65a70a0c4fe4c71bfe82b1c2883499f95",
-    "files": [
+  "internal-jvm-compiler": {
+    "status": "Current shared transport source models and generic native integration PASS; historical fixed default Loader acceptance retained separately.",
+    "sourceSHA256": "a7bdddb8420fa8d409643cb7622810454077640621fc3e12afeca1ab47ce1827",
+    "modelGate": {
+      "tests": 15,
+      "assertions": 80,
+      "failures": 0,
+      "errors": 0
+    },
+    "fixedProfileCurrentSourceExecution": "Not independently rerun at this source; historical 4d41 cohort receipts remain under historical-internal-jvm-compiler.",
+    "validation": "generic-project-validation.json"
+  },
+  "generic-local-project": {
+    "status": "Internal source/compiler/checked-entry/startup integration passed parent research gates; not public API or portable artifact deployment.",
+    "validation": "generic-project-validation.json",
+    "currentSourceCohort": {
+      "compiler.clj": "a7bdddb8420fa8d409643cb7622810454077640621fc3e12afeca1ab47ce1827",
+      "compiler-models.clj": "86ea447f06daa4968728c42e0566a513a395eaf092e2989bc5c13148dbc7a54c",
+      "local-project.clj": "2fe514595c39087771859fb18d9dd960ead9a8d2b289749e3d6c21690c0faa4d",
+      "local-project-models.clj": "a824d912a30176fe5a7e5907d7ed4e2a313e6c36c42372243088f499cdfd683f",
+      "project-evidence.clj": "03b77a1362858e9e3e8454759d46baa83bf12089252435a52a7c7abfa0f1abe4",
+      "project-evidence-models.clj": "db118adecb3d0ed8786ef42517f5ae91fde1257ee7b3f1a342aa6834a71bac00"
+    },
+    "external-sources": [
       {
-        "file": "experiments/lean-ir/lean/NativeEntryEvidence.lean",
-        "sha256": "e89beefe6ebb864d830367a377360d68cbce89c97fa6a5a5e9dab8877b6c6629"
+        "file": "experiments/lean-ir/lean/TypedSourceExport.lean",
+        "sha256": "a48e00225fe08c1a74b66fff1102fd0c11ecefaaafc20ddcf6e28aaf363c99d3"
       },
       {
-        "file": "experiments/lean-ir/scripts/build-entry-evidence.sh",
-        "sha256": "194cfeb9ed368b72a3d2ab2ea5c4d5ccb9b574d2732b4ef76e820b3e97d5285a"
-      },
-      {
-        "file": "experiments/lean-ir/test/fixtures/native-entry-evidence/NativeEntryCases.lean",
-        "sha256": "27ae31b0cad8ed251c24736f86132aa2b3365f97c557a27ed46edd3f25db9129"
-      },
-      {
-        "file": "experiments/lean-ir/test/fixtures/native-entry-evidence/requests.json",
-        "sha256": "70f86b21ca591356bab7e8f5a3489259194c216f253322fe62e614167ce4b67c"
-      },
-      {
-        "file": "experiments/lean-ir/test/fixtures/native-entry-evidence/README.md",
-        "sha256": "4c3656de10f98ce1695dc121debfa76b9e0ea577761e29eb944c5a5e4899b330"
-      },
-      {
-        "file": "experiments/lean-ir/test/fixtures/native-entry-evidence/NativeEntryImported.lean",
-        "sha256": "7830161debb016f7675d73aab73fe528d6f28ad4aca355cc5463df55c45c0814"
-      },
-      {
-        "file": "experiments/lean-ir/test/fixtures/native-entry-evidence/NativeEntryInitCases.lean",
-        "sha256": "ba945b89dd9c92e782c60aa8df9f60d4205a66c0ab056766b575f56d77e112be"
-      },
-      {
-        "file": "experiments/lean-ir/test/fixtures/native-entry-evidence/imported-requests.json",
-        "sha256": "dc87be030ec739d54acbadd3d2e2040ba87c693fffc5377ac16e2f8c8ab623cc"
+        "file": "experiments/lean-ir/scripts/test-native-project.clj",
+        "sha256": "7fe5367946343ab2f03479943563c75b383c79aeb303ede739ebd66b0163a9c6"
       }
     ],
-    "worker-native-or-JVM-launched": {
-      "native": true,
-      "JVM": false
+    "mechanicalExporterProvenance": {
+      "originalFile": "experiments/lean-ir/lean/Export.lean",
+      "originalSHA256": "3311d15c99dc91b599771e328475f2a65a70a0c4fe4c71bfe82b1c2883499f95",
+      "changes": "Separate opt-in copy adds bounded structural string-Name decoder and strict source/local/output command shape; original frontend/IR/role/init-plan logic retained.",
+      "acceptedOriginalUnchanged": true
     },
-    "validation": "entry-evidence-validation.json"
-  },
-  "typed-bridge-probe": {
-    "status": "parent actual fixed bridge gate passed",
-    "sourceDirectory": "typed-bridge",
-    "autoLoaded": false,
-    "validation": "typed-bridge/validation.json",
-    "moduleStartup": false,
     "publicJavaAPI": false,
-    "genericTypeEvidenceConsumer": false,
-    "evidenceAuthority": "Exact frozen native gate captures; no caller map or type-descriptor proof",
-    "models": {
-      "tests": 5,
-      "assertions": 38
+    "portableArtifactDeployment": false,
+    "automated-contracts": {
+      "runner": "experiments/lean-ir/scripts/test-native-project.clj",
+      "ci": "bin/run-test-contracts",
+      "tests": 31,
+      "assertions": 178,
+      "failures": 0,
+      "errors": 0,
+      "heapMiB": 384,
+      "nativeProcesses": 0,
+      "guestExecution": false,
+      "initStoreLoaded": false
     },
-    "calls": {
-      "Nat": 12,
-      "StringBranch": 4,
-      "sameEngine": true,
-      "normalClose": true
+    "single-json-protocol": {
+      "source": "093d373f6fdeb4eebfd98626345cf10425b765fa92274a9ca2bb1d56d05143e3",
+      "models": {
+        "tests": 17,
+        "assertions": 96,
+        "failures": 0,
+        "errors": 0
+      },
+      "trailing": "Only JSON space/tab/CR/LF permitted after one value; applied to each JSONL record and complete protocol document",
+      "nativeHelpersChanged": false,
+      "priorNativeExecutionCohortsPreserved": true
     }
-  },
-  "general-project-design": {
-    "status": "source-only requirements and review decisions; unimplemented by these documents",
-    "files": [
-      "GENERAL_PROJECT_PLAN.md",
-      "SOURCE_REVIEW_GATES.md"
-    ],
-    "draftPlanSHA256": "c0faa952a925b9941d4a16345fe7c5749ca62b89d9a96bc17c81767391d2726d",
-    "sourceReviewDecisionsDate": "2026-10-31",
-    "runtimeSourcesChanged": false,
-    "nativeOrJVMExecuted": false,
-    "callerProofAccepted": false,
-    "releaseSequence": [
-      "compact-startup-capability",
-      "generic-artifact-and-reused-project",
-      "jar-only-java-api"
-    ],
-    "entropyProfile": "portable JDK, actual IO.Error.userError for expected provider failures; no fake POSIX errno",
-    "limits": "cooperative bit/work guards; no hard heap/deadline claim",
-    "publicFork": "deferred",
-    "draftBaseCommit": "a2b7ee2d89235aed869ed09cc6c575c12f137462",
-    "reviewedBaseCommit": "a75ab26cad4d9ba15409c0cc89e6aa8e356ad06c"
   }
 }

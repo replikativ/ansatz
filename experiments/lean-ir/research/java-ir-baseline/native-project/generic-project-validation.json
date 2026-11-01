@@ -1,0 +1,101 @@
+{
+  "schema": "native-local-project-validation/1",
+  "scope": "Parent retained JVM and native integration receipts; not public Java API or portable artifact deployment acceptance.",
+  "authority": "Actual official native checked-entry/startup producers plus one prepared JVM Program/engine; no hosted Init or Java kernel rechecking.",
+  "currentSourceCohort": {
+    "compiler.clj": "a7bdddb8420fa8d409643cb7622810454077640621fc3e12afeca1ab47ce1827",
+    "compiler-models.clj": "86ea447f06daa4968728c42e0566a513a395eaf092e2989bc5c13148dbc7a54c",
+    "local-project.clj": "2fe514595c39087771859fb18d9dd960ead9a8d2b289749e3d6c21690c0faa4d",
+    "local-project-models.clj": "a824d912a30176fe5a7e5907d7ed4e2a313e6c36c42372243088f499cdfd683f",
+    "project-evidence.clj": "03b77a1362858e9e3e8454759d46baa83bf12089252435a52a7c7abfa0f1abe4",
+    "project-evidence-models.clj": "db118adecb3d0ed8786ef42517f5ae91fde1257ee7b3f1a342aa6834a71bac00"
+  },
+  "models": {
+    "compiler": {
+      "tests": 15,
+      "assertions": 80,
+      "failures": 0,
+      "errors": 0
+    },
+    "local": {
+      "tests": 6,
+      "assertions": 34,
+      "failures": 0,
+      "errors": 0
+    },
+    "cacheFilesystem": {
+      "assertions": 13,
+      "failures": 0
+    },
+    "captureFilesystem": {
+      "assertions": 7,
+      "failures": 0
+    },
+    "evidence": {
+      "tests": 7,
+      "assertions": 28,
+      "failures": 0,
+      "errors": 0
+    }
+  },
+  "parentReceipts": [
+    {
+      "case": "tutorial",
+      "file": "acceptance/tutorial-execution-v2.edn",
+      "sha256": "de765b617519244367d5e72c7c37999406887872f617d0ba0ceb3ae0a6cbd746",
+      "originalReceiptSHA256": "de765b617519244367d5e72c7c37999406887872f617d0ba0ceb3ae0a6cbd746",
+      "literalNULsEscaped": 0,
+      "projection": "Only literal NUL bytes replaced by EDN string escape \\u0000; decoded string values preserved."
+    },
+    {
+      "case": "interop",
+      "file": "acceptance/interop-execution-v1.edn",
+      "sha256": "1c7b8fc057e1fd6022902ff4d1ec117873541255c0c6022525889d5844cffee6",
+      "originalReceiptSHA256": "35023e720dd9fbdbcbcc5692305ff01024f307972ff3760b30e5933995c7b1e8",
+      "literalNULsEscaped": 1,
+      "projection": "Only literal NUL bytes replaced by EDN string escape \\u0000; decoded string values preserved."
+    }
+  ],
+  "currentInterop": {
+    "sourceCohort": "a7bdddb transport / 2fe514 local / 03b77a evidence; exact full hashes below and original receipt retained.",
+    "rows": 77,
+    "effectiveModules": 634,
+    "sameEngine": true,
+    "calls": {
+      "Nat": 4,
+      "String": 2,
+      "IOUnitMain": 2
+    },
+    "normalClose": true,
+    "rootReportedResult": "PASS",
+    "nativeReferenceExecution": false,
+    "stdoutScope": "Parent JVM EDN decode confirms each of two main captures has 16 UTF-8 bytes and final character code 10 (LF); original EDN string bytes preserved."
+  },
+  "nonClaims": {
+    "publicJavaAPI": false,
+    "jarOnlyOfflineDeployment": false,
+    "portableArtifactReader": false,
+    "hostedFrontend": false,
+    "javaKernelRechecked": false,
+    "hardHeapOrPreemptionGuarantee": false,
+    "automaticNativeFallback": false
+  },
+  "workerExecution": {
+    "native": false,
+    "JVM": false
+  },
+  "currentValidationOrigin": "Root-reported actual gates; this worker only copied raw receipts, reviewed source, audited bytes and updated metadata.",
+  "currentTutorial": {
+    "rows": 69,
+    "effectiveModules": 634,
+    "sameEngine": true,
+    "IOUnitMainCalls": 2,
+    "stdoutUTF8BytesPerCall": 14,
+    "lastCharacterCode": 10,
+    "normalClose": true,
+    "knownResultsReleased": true,
+    "rootReportedResult": "PASS",
+    "sourceCohort": "Same exact current a7bdddb / 2fe514 / 03b77a source cohort, confirmed in tutorial-execution-v2.edn.",
+    "nativeReferenceExecution": false
+  }
+}

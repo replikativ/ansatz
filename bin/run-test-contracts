@@ -65,6 +65,14 @@ jar cf "$cold_check_classes/java-ir-baseline.jar" -C "$cold_check_classes/java-i
 )
 
 echo
+echo "Running native project metadata and filesystem contracts (no native compiler)"
+(
+  cd experiments/lean-ir
+  clojure -J-Xmx384m -J-Xss8m -Sdeps "{:paths [\"src\" \"test\" \"$cold_check_classes\"]}" \
+    -M scripts/test-native-project.clj
+)
+
+echo
 echo "Running portable RAW casesOn constructor and preseal policy tests"
 (
   cd experiments/lean-ir

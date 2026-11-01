@@ -198,3 +198,37 @@
 (defn check! [workspace]
   (binding [*directory* (.toRealPath (.toPath (io/file (str workspace))) (make-array java.nio.file.LinkOption 0))]
     (run-tests 'native-project-compiler-models-v1)))
+
+(deftest disappearing-proc-read-ioexception-rechecks-liveness-without-native-retry
+  (let [dead (reify ProcessHandle (pid [_] 99999999) (isAlive [_] false))
+        live (ProcessHandle/current)]
+    (with-redefs-fn {#'compiler/proc-text! (fn [_] (throw (java.io.IOException. "No such process")))
+                    #'compiler/pause-rss-sample! (fn [] nil)}
+      #(do (is (zero? (#'compiler/sample-handle-rss-kib dead)))
+           (let [error (try (#'compiler/handle-rss-kib live) nil (catch clojure.lang.ExceptionInfo e e))]
+             (is (= 3 (:status-samples (ex-data error))))
+             (is (:rss-unavailable (ex-data error)))
+             (is (:status-unavailable (ex-data error)))
+             (is (= "java.io.IOException" (:read-failure-class (ex-data error))))
+             (is (instance? java.io.IOException (.getCause ^Throwable (.getCause ^Throwable error)))))))
+    (let [calls (atom 0)]
+      (with-redefs-fn {#'compiler/proc-text! (fn [_] (if (= 1 (swap! calls inc))
+                                                    (throw (java.io.IOException. "No such process"))
+                                                    "State:\tR (running)\nVmRSS:\t321 kB\n"))
+                      #'compiler/pause-rss-sample! (fn [] nil)}
+        #(do (is (= 321 (#'compiler/handle-rss-kib live))) (is (= 2 @calls)))))))
+
+(deftest native-json-consumes-one-value-and-only-json-whitespace
+  (doseq [text ["{}" "{} \t\r\n" " \t\r\n{\"message\":\"brace } and escaped \\\" quote\"}\n"]]
+    (is (map? (#'compiler/json! text))))
+  (doseq [text ["{} {}" "{}true" "{}garbage" "{}\n[]" "{};ignored" (str "{}" (char 0))
+                (str "{}" (char 11)) (str "{}" (char 0x2003)) "[1] trailing"]]
+    (is (thrown? Exception (#'compiler/json! text)))))
+(deftest native-json-depth-and-single-parse-stream-boundaries
+  (is (= [1 {"text" "[]{}"}] (#'compiler/json! "[1,{\"text\":\"[]{}\"}]\n")))
+  (is (thrown? Exception (#'compiler/json! (str (apply str (repeat 257 "[")) "0" (apply str (repeat 257 "]"))))))
+  (let [directory (temp) path (write! directory "trailing.json" "{} {}")]
+    (is (thrown? Exception (#'compiler/read-json! path 65536))))
+  (let [directory (temp) manifest "{\"schema\":\"lean-ir-probe/1\",\"leanVersion\":\"4.33.1\",\"runtimeProfile\":{\"target\":\"x86_64-unknown-linux-gnu\",\"wordBits\":64}}"
+        path (write! directory "trailing-stream.jsonl" (str manifest " {}\n"))]
+    (is (thrown? Exception (#'compiler/read-stream! path)))))
