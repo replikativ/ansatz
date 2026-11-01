@@ -1,0 +1,53 @@
+#!/bin/bash
+set -euo pipefail
+
+repo_root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+cd "$repo_root/modules/lean-jvm"
+
+java_version=$(java -version 2>&1)
+javac_version=$(javac -version 2>&1)
+python3 - "$java_version" "$javac_version" <<'JDK_CHECK'
+import re
+import sys
+for label, text in zip(["java", "javac"], sys.argv[1:]):
+    match = re.search(r'(?:version\s+"|javac\s+)([0-9]+)(?:\.([0-9]+))?', text)
+    feature = int(match.group(2) or 0) if match and match.group(1) == "1" else int(match.group(1)) if match else 0
+    if feature < 17:
+        raise SystemExit("Optional Lean JVM SDK requires JDK 17+ for " + label + "; executor reports: " + text.splitlines()[0])
+print("SDK JDK 17+ runtime/compiler preflight passed")
+JDK_CHECK
+
+echo "Building the optional SDK from its exact source inventory"
+clojure -J-Xmx512m -T:build prepare-release
+
+echo "Checking canonical source inventories and actual JAR model cohorts"
+# Replace the module's ordinary source paths. Only the SDK JAR supplies runtime
+# namespaces/classes; dot and test contain producer helpers and model sources.
+clojure -J-Xmx384m -J-Xss8m -Srepro \
+  -Sdeps '{:paths ["." "test"] :deps {org.replikativ/ansatz-lean-jvm {:local/root "target/ansatz-lean-jvm.jar"}}}' \
+  -M ci_checks.clj
+
+echo "Checking the archive and public Java application-JAR consumer"
+runtime_path=$(clojure -Srepro -Sdeps '{:paths []}' -Spath)
+IFS=':' read -r -a runtime_jars <<< "$runtime_path"
+dependency_args=()
+for runtime_jar in "${runtime_jars[@]}"; do
+  [[ "$runtime_jar" == *.jar ]] || { echo "Unexpected non-JAR runtime classpath entry" >&2; exit 1; }
+  dependency_args+=(--dependency-jar "$runtime_jar")
+done
+python3 consumer/audit_checks.py --sdk-jar target/ansatz-lean-jvm.jar
+python3 consumer/project_check.py --sdk-jar target/ansatz-lean-jvm.jar \
+  "${dependency_args[@]}" --output target/ci-public-consumer
+
+
+echo "Checking atomic resource limits against the same compiled SDK engine"
+rm -rf target/ci-resource-checks
+mkdir -p target/ci-resource-checks
+javac -J-Xmx192m --release 17 -cp target/ansatz-lean-jvm.jar -d target/ci-resource-checks \
+  "$repo_root/experiments/lean-ir/research/java-ir-baseline/resource-tests/RuntimeResourceChecks.java"
+java -Xmx384m -cp target/ci-resource-checks:target/ansatz-lean-jvm.jar RuntimeResourceChecks \
+  | tee target/ci-resource-checks/stdout
+python3 - <<'RESOURCE_CHECK'
+from pathlib import Path
+assert Path("target/ci-resource-checks/stdout").read_text().strip() == "RuntimeResourceChecks checks=41"
+RESOURCE_CHECK

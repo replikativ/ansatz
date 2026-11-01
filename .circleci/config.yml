@@ -33,6 +33,36 @@ jobs:
           command: ./bin/run-unittests contracts
           no_output_timeout: 5m
 
+  test-lean-jvm-sdk:
+    executor: tools/clojurecli
+    resource_class: medium
+    steps:
+      - attach_workspace:
+          at: /home/circleci
+      - run:
+          name: Check optional SDK JAR models and Java application consumer
+          command: ./bin/run-lean-jvm-checks
+          no_output_timeout: 5m
+      - run:
+          name: Retain the exact checked optional release bytes
+          command: |
+            mkdir -p /home/circleci/lean-jvm-sdk-release/target
+            cp -a modules/lean-jvm/target/. /home/circleci/lean-jvm-sdk-release/target/
+      - persist_to_workspace:
+          root: /home/circleci
+          paths:
+            - lean-jvm-sdk-release
+
+  lean-jvm-deploy:
+    executor: tools/clojurecli
+    resource_class: medium
+    steps:
+      - attach_workspace:
+          at: /home/circleci
+      - run:
+          name: Deploy the exact checked optional SDK release to Clojars
+          command: ./bin/deploy-lean-jvm-prepared
+
 workflows:
   build-test-and-deploy:
     jobs:
@@ -54,6 +84,10 @@ workflows:
           context: docker-deploy
           requires:
             - tools/build
+      - test-lean-jvm-sdk:
+          context: docker-deploy
+          requires:
+            - tools/build
       - tools/deploy:
           context:
             - clojars-deploy
@@ -64,6 +98,17 @@ workflows:
           requires:
             - unittests
             - test-contracts
+            - test-lean-jvm-sdk
+      - lean-jvm-deploy:
+          context:
+            - clojars-deploy
+            - docker-deploy
+          filters:
+            branches:
+              only: main
+          requires:
+            - tools/deploy
+            - test-lean-jvm-sdk
       - tools/release:
           context:
             - github-token
@@ -73,3 +118,4 @@ workflows:
               only: main
           requires:
             - tools/deploy
+            - lean-jvm-deploy

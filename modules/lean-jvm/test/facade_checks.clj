@@ -29,9 +29,10 @@
   (let [fatal (OutOfMemoryError. "synthetic model")]
     (is (identical? fatal (try (project-failure (ex-info "wrapper" {} fatal)) nil (catch Error actual actual)))))
   (try
-    (let [^LeanException projected (project-failure (RuntimeException. (InterruptedException. "stop")))]
+    (let [^LeanException projected (project-failure (RuntimeException. (InterruptedException. "stop")))
+          interrupted? (.isInterrupted (Thread/currentThread))]
       (is (= "Cancelled" (.code projected)))
-      (is (.isInterrupted (Thread/currentThread))))
+      (is interrupted?))
     (finally (Thread/interrupted))))
 (deftest lean-close-attempts-all-children-and-preserves-fatal
   (let [lean (Lean/open) first (Object.) second (Object.) third (Object.)
