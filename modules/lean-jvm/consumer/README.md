@@ -49,3 +49,41 @@ the release preparation receipt. [Source](receipts/source-api-v1.edn),
 [lifetime](receipts/lifecycle-v1.edn) and external tutorial receipts record
 separate observed gates. Producer checks do not publish artifacts or submit
 external forms.
+
+## General application-value consumers
+
+`GeneralInteropSmoke.java` loads the original two-file
+[common corpus](resources/lean/general-interop-source/Main.lean) from
+`resources/lean/general-interop.zip`. It checks arity, all five core value types,
+nested products/options/lists, Some Unit versus None, exact named IO dispatch,
+argument refusal without losing a healthy Project, Clojure round-trips and close.
+Its independent trusted descriptor is [general-interop.json](resources/lean/general-interop.json).
+
+`ScalarInteropSmoke.java` loads the original
+[scalar corpus](resources/lean/scalar-interop-source/Main.lean) from
+`resources/lean/scalar-interop.zip`. It checks both float widths, wrapping machine
+arithmetic, all machine integer widths, Unicode scalar chars, array/byte snapshots
+and updates, Sum/Except, nested IO results and explicit range/type rejection.
+Its descriptor is [scalar-interop.json](resources/lean/scalar-interop.json).
+[Oracle.lean](resources/lean/scalar-interop-source/Oracle.lean) checks representative
+results using official native Lean; it is producer test material.
+
+Pass `--main-class GeneralInteropSmoke` or `--main-class ScalarInteropSmoke` to
+`project_check.py` with the same five-JAR closure and a separate output directory.
+Each resulting application JAR runs without a source compiler, Lean installation
+or native helper, and asserts that the source compiler namespace never loaded.
+The fixtures are native frontend evidence, not Java-kernel-checked declarations.
+
+For the explicit native source gate, use the built SDK JAR and ordinary runtime
+JARs on the classpath, run from this module, and provide a new output directory:
+
+```sh
+java -Xmx512m -Xss8m -cp "$CLASSPATH" clojure.main test/source_acceptance.clj \
+  "$LEAN_SYSROOT" "$PRODUCER_BUNDLE" "$NEW_OUTPUT_DIRECTORY"
+```
+
+This gate observes actual compiler cache results and issued build receipts. It
+checks cold/cache/edit/reload/artifact paths, both corpora, warnings and errors,
+unsupported capabilities and higher-order entry rejection. It changes only its
+new owned output directory. The v2 candidate helper bundle is required; no download
+or installation is performed. The mandatory JVM-only CI gate needs no toolchain.

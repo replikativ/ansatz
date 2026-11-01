@@ -138,46 +138,49 @@ additional released support or a substitute for the release discussion gate.
 
 ### Implementation checkpoint
 
-The `feat/lean-jvm-general-call` branch is unlanded. Its native v2 producer
-successfully inferred and checked 13 application entries, including multiple
-arguments, zero-argument constants, five primitive families, container results and
-IO with a nested result. Independent canonical type reconstruction agreed for all
-13 entries. A 99-row native-document REPL prototype initialized the real module
-world and ran signed integer, Bool, String, Unit and zero-argument value calls.
-This prototype bypasses the final source/artifact admission path and is not an
-acceptance claim for that public path. Shared admission validation and borrowed container decoding now pass focused
-models. Real native-program REPL calls decoded pairs, both Option branches,
-Some Unit distinctly from None, lists, and nested IO results, releasing only
-the actual owned root. Container inputs and complete public API acceptance
-still need integration and review.
+The unmerged `feat/lean-jvm-general-call` branch implements the general Java and
+Clojure function boundary, managed constructor/scalar/array/byte arguments,
+borrowed result decoding, exact ABI/evidence validation and bounded recursive
+carriers. The native producer uses actual LCNF representations and constructor
+layouts. Raw result decoding follows the Java engine's external carrier contract,
+rather than confusing those values with raw IR bit words or boxed guest nodes.
 
-The expanded producer was compiled against the pinned Lean checkout and linked
-with interpreter symbol export. A second native corpus inferred 12 entries for
-machine integers, both float widths, Char, USize, Array, ByteArray, Sum, Except,
-and raw nullary scalar results. Independent expected-type reconstruction and
-shared row validation agreed for all 12 entries (198 rows). Checked-in actual
-metadata fixtures record source/binary/program/request/evidence hashes; they
-are not invocation receipts. Signature coverage is not yet codec coverage.
+The genuine two-file, 16-entry common corpus and 16-entry scalar/buffer/choice
+corpus run through source compilation, artifact export/loading and public Java
+and Clojure APIs. Container identity, projection, discarded inputs, both option
+branches (including Some Unit), nested IO results, array/byte updates and all
+machine integer widths have actual execution coverage. Official Lean `--run`
+agrees on the representative scalar/array/bytes/choice oracle. The implementation
+adds only nine exact audited numeric externs needed by the tested closures;
+data codec support is not general IO or application compatibility.
 
-A scalar-free managed constructor recipe API was added to the Java engine.
-Its 176 actual-JVM checks cover fresh ownership, explicit release, bounds,
-invalid references/aliases, caller-array isolation and refused lifecycle states.
-The host-only argument planner passes 11 tests / 40 assertions, including
-nested options, proper lists, copied sharing, cycle refusal and layout field
-order. Its runtime materializer and construction/start ownership journal must
-still be integrated before container input support is advertised. Focused models
-currently pass: signatures 4/67, entry observations 6/36, expanded entry
-observations 7/73, borrowed values 14/54, package audit 5/23 (tests/assertions).
-The built SDK JAR, including the argument planner, passes 103 tests / 536 assertions. The separate Java
-application-JAR consumer also passes typed and general calls, generic arity/type
-rejection without poisoning the Project, Clojure wrapper calls, generic IO Unit,
-thread handoff and close checks using a genuine historical artifact. This is
-v1 artifact compatibility plus the general facade; the v2 public source/cache/
-artifact round trip and actual container input calls remain pending. The published `0.2.578` boundary remains the three
-original profiles.
+The diagnostics-aware typed producer keeps warnings/info on stderr and structural
+JSON on stdout. Process monitoring, cache validation and artifact provenance
+retain the actual bounded diagnostic bytes and independently pinned producer
+pairs. Errors still fail; no diagnostic suppression or guessed JSON recovery is
+used. Both legacy and v2 producer cohorts remain explicit.
 
-Documentation review should also reconcile historical Init-tier/count examples
-with the actual proposed package. In the retained combined REPL, published core
-`0.2.578` loaded 5,118 declarations in its reported medium tier and ran the DSL
-alongside the optional interpreter. Preserve historical receipts as historical;
-verify current examples instead of copying their older counts into launch claims.
+The source acceptance gate passes 35 checks at a 512 MiB JVM heap: cold/cache
+loads, source edits, old-handle stability, artifact reload, warnings (including
+cache and artifact), frontend errors, unclassified capabilities, higher-order
+entry refusal and nullary Float32/64/high-bit machine results. Observed cold
+common load was about 9 seconds, cached source load 4.3 seconds, and artifact load
+104 ms in that run. These are probe timings, not cross-platform benchmarks or
+performance guarantees. Hashing already streams with a 64 KiB buffer; no whole
+producer executable is read into a JVM byte array for pin checks.
+
+The final required packaged-JAR, application-consumer and ownership/resource
+check sequence is recorded in [release-candidate.json](release-candidate.json).
+Read [RELEASE_REVIEW.md](RELEASE_REVIEW.md) for tested scope, remaining limitations
+and the user-controlled publication/landing sequence. The v2 native archive is
+prepared locally and has not been published. Main and published Maven artifacts
+remain unchanged.
+
+The broader type survey's records, regular recursive ADTs, constrained adapters,
+callbacks, public forks and frontend-hosting work remain follow-up work. The
+published `0.2.578` boundary remains its original three profiles until landing.
+
+Historical Init-tier/count examples should be checked before launch claims. A
+retained combined REPL previously loaded 5,118 declarations in core `0.2.578`'s
+reported medium tier and ran the DSL alongside the optional interpreter; this
+campaign does not change core stores or kernel checking.

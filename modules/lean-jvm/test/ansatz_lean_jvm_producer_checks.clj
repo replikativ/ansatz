@@ -109,6 +109,10 @@
     (is (= {:code "ArtifactConflict" :stage :original-build-cohort}
            (rejection fixture (producer-fields "typedSourceExporterSource" "typedSourceExporter" diagnostic-typed))))))
 
+(deftest diagnostics-are-an-explicit-producer-capability
+  (is (producer/diagnostics-supported? (second diagnostic-typed)))
+  (is (not (producer/diagnostics-supported? (second original-typed))))
+  (is (not (producer/diagnostics-supported? (apply str (repeat 64 "0"))))))
 (defn check!
   ([] (check! "."))
   ([module-root]

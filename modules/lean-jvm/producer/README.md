@@ -22,6 +22,21 @@ loading. The source service invokes these three native helpers itself; Java
 callers do not run a separate exporter command. The retired fixed tutorial
 exporter is not required by the canonical source service.
 
+## General-call v2 candidate
+
+General signature discovery (`ProjectOptions.Builder.function`) requires the v2
+entry helper. Its [candidate descriptor](producer-bundle-v2.example.json) also
+pins a diagnostics-aware typed source helper: warnings and informational frontend
+messages remain on stderr, while stdout is structural JSON. Compiler errors still
+fail. Diagnostics bytes remain bounded, hashed and included in cache/artifact
+provenance; they are not ignored or parsed as declarations.
+
+The v2 archive is prepared locally for the [landing discussion](../RELEASE_REVIEW.md)
+and is **not published yet**. Do not use the v1 download below for general signature
+discovery. The v1 bundle and explicit legacy `natFunction`, `stringFunction`, and
+`main` requests remain supported. A producer binary is admitted with its exact
+source/binary pair; mixing independently valid hashes is rejected.
+
 ## Published Linux bundle
 
 The independently verified bundle is published in the

@@ -111,6 +111,21 @@
                   (Double/valueOf (Double/longBitsToDouble raw)))
       "char" (Integer/valueOf (int (scalar! raw "RuntimeBoundary")))
       (throw (ex-info "Not a supported raw scalar" {:code "UnsupportedSignature"})))))
+(defn decode-external-scalar
+  "Decode takeResult's actual external scalar carrier (externalScalar in Java).
+   This is distinct from guest raw IR bit words and object-lane BOX nodes."
+  [type raw]
+  (checked-type! type) (cancelled!)
+  (if (= "float" (get type "kind"))
+    (do (need (= (if (= 32 (get type "bits")) Float Double) (class raw))
+              "RuntimeBoundary" "Malformed external float carrier") raw)
+    (let [bits (if (= "char" (get type "kind")) 32 (width type))]
+      (need (#{Long BigInteger} (class raw)) "RuntimeBoundary" "Malformed external integer carrier")
+      (let [^BigInteger unsigned (if (= Long (class raw)) (BigInteger/valueOf (long raw)) raw)]
+        (need (and (not (neg? (.signum unsigned))) (<= (.bitLength unsigned) bits))
+              "RuntimeBoundary" "External scalar exceeds its unsigned lane")
+        (decode-raw-scalar type (Long/valueOf (.longValue unsigned)))))))
+
 (defn- cohort-class [ctx suffix]
   (let [^Class engine (:class ctx)]
     (Class/forName (str (.getName engine) "$" suffix) false (.getClassLoader engine))))

@@ -1,0 +1,22 @@
+{
+  "schema": "ansatz-lean-jvm-release-candidate/1",
+  "status": "final-validation-in-progress",
+  "merged": false,
+  "published": false,
+  "upstreamMain": "7e6d8c309757283eaef6b91ec7f848d948207460",
+  "sourceAcceptance": {
+    "checks": 35,
+    "heapMiB": 512,
+    "passed": true
+  },
+  "generalApplicationConsumer": {
+    "checks": 31,
+    "passed": true
+  },
+  "scalarApplicationConsumer": {
+    "checks": 31,
+    "passed": true
+  },
+  "nativeOracle": "Official Lean --run PASS scalar/array/bytes/choice checks",
+  "publicationGate": "User scope/docs/landing discussion required before merge or publish"
+}

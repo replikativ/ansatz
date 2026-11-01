@@ -38,6 +38,10 @@ done
 python3 consumer/audit_checks.py --sdk-jar target/ansatz-lean-jvm.jar
 python3 consumer/project_check.py --sdk-jar target/ansatz-lean-jvm.jar \
   "${dependency_args[@]}" --output target/ci-public-consumer
+python3 consumer/project_check.py --sdk-jar target/ansatz-lean-jvm.jar \
+  "${dependency_args[@]}" --main-class GeneralInteropSmoke --output target/ci-general-consumer
+python3 consumer/project_check.py --sdk-jar target/ansatz-lean-jvm.jar \
+  "${dependency_args[@]}" --main-class ScalarInteropSmoke --output target/ci-scalar-consumer
 
 
 echo "Checking atomic resource limits against the same compiled SDK engine"
@@ -51,3 +55,10 @@ python3 - <<'RESOURCE_CHECK'
 from pathlib import Path
 assert Path("target/ci-resource-checks/stdout").read_text().strip() == "RuntimeResourceChecks checks=41"
 RESOURCE_CHECK
+
+echo "Checking managed argument ownership and scalar/buffer semantics"
+javac -J-Xmx192m --release 17 -cp target/ansatz-lean-jvm.jar -d target/ci-resource-checks \
+  "$repo_root/experiments/lean-ir/research/java-ir-baseline/managed-data-tests/ManagedDataChecks.java" \
+  test/ManagedScalarBufferChecks.java
+java -Xmx192m -cp target/ci-resource-checks:target/ansatz-lean-jvm.jar ManagedDataChecks
+java -Xmx192m -cp target/ci-resource-checks:target/ansatz-lean-jvm.jar ManagedScalarBufferChecks

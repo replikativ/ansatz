@@ -2,10 +2,11 @@
   "Borrowed, type-directed result decoding. No guest allocation or RC operation.
    The caller keeps the actual owned result root until decoding completes."
   (:require [ansatz.lean.jvm.codec :as codec]
+            [ansatz.lean.jvm.scalar-buffer :as scalar]
             [ansatz.lean.jvm.entry :as entry]
             [ansatz.lean.jvm.signature :as signature]
             [ansatz.lean.jvm.startup :as startup])
-  (:import [java.lang.reflect Field] [java.util ArrayList IdentityHashMap List Optional]))
+  (:import [ansatz.lean.jvm LeanChoice] [java.lang.reflect Field] [java.util ArrayList IdentityHashMap List Optional]))
 
 (def ^:private maximum-occurrences 100000)
 (def ^:private maximum-depth 128)
@@ -19,7 +20,7 @@
   (reduce (fn [prefix leaf] ["str" prefix leaf]) ["anonymous"] parts))
 (def ^:private family-names
   {"product" (name-of ["Prod"]) "option" (name-of ["Option"])
-   "list" (name-of ["List"]) "io" (name-of ["EST" "Out"])})
+   "list" (name-of ["List"]) "sum" (name-of ["Sum"]) "except" (name-of ["Except"]) "io" (name-of ["EST" "Out"])})
 (defn- witness-index [witnesses]
   (if (nil? witnesses) {}
     (let [families (get witnesses "families")]
@@ -78,12 +79,21 @@
   (and (= Long (class raw)) (= (:tag layout) raw)))
 (defn- decoder [ctx witnesses]
   (let [index (witness-index witnesses) remaining (volatile! maximum-occurrences)
-        active (IdentityHashMap.)]
+        active (IdentityHashMap.) integer-bits (volatile! 0) string-units (volatile! 0) buffer-bytes (volatile! 0)]
     (letfn [(charge! [depth]
               (when (.isInterrupted (Thread/currentThread))
                 (throw (ex-info "Result decoding cancelled" {:code "Cancelled"})))
               (limit! (< depth maximum-depth) "Result nesting exceeds codec depth budget")
               (limit! (not (neg? (vswap! remaining dec))) "Result exceeds codec occurrence budget"))
+            (account! [decoded]
+              (cond
+                (= java.math.BigInteger (class decoded)) (vswap! integer-bits + (.bitLength (.abs ^java.math.BigInteger decoded)))
+                (= String (class decoded)) (vswap! string-units + (.length ^String decoded))
+                (= byte-array-class (class decoded)) (vswap! buffer-bytes + (alength ^bytes decoded))
+                (= Float (class decoded)) (vswap! buffer-bytes + 4)
+                (= Double (class decoded)) (vswap! buffer-bytes + 8))
+              (limit! (and (<= @integer-bits 4194304) (<= @string-units 1048576)
+                           (<= @buffer-bytes scalar/maximum-buffer-bytes)) "Result aggregate codec budget exceeded"))
             (enter! [raw]
               (need (not (.containsKey active raw)) "Cyclic result cannot be decoded as an immutable host value")
               (.put active raw true))
@@ -105,8 +115,15 @@
                   (finally (doseq [node chain] (leave! node))))))
             (visit [type raw depth]
               (charge! depth)
-              (case (get type "kind")
+              (let [decoded (case (get type "kind")
                 ("nat" "int" "bool" "string" "unit") (codec/decode-leaf type raw)
+                ("machine-int" "word" "float" "char") (scalar/decode-scalar ctx type raw)
+                "bytes" (scalar/decode-bytes ctx raw)
+                "array" (do (enter! raw)
+                            (try (List/copyOf ^java.util.Collection
+                                             (mapv #(visit (get type "element") % (inc depth))
+                                                   (scalar/decode-array-fields ctx raw)))
+                                 (finally (leave! raw))))
                 "product"
                 (let [layout (constructor index "product" "mk" 2 0) fields (node-fields! ctx raw layout)
                       [first-index second-index] (:positions layout)]
@@ -122,7 +139,22 @@
                       (try (Optional/of (visit (get type "element") (aget ^objects fields (first (:positions layout))) (inc depth)))
                            (finally (leave! raw))))))
                 "list" (visit-list type raw depth)
-                (throw (ex-info "Unsupported result codec" {:code "UnsupportedSignature"}))))]
+                ("sum" "except")
+                (let [kind (get type "kind") sum? (= kind "sum")
+                      left (constructor index kind (if sum? "inl" "error") 1 0)
+                      right (constructor index kind (if sum? "inr" "ok") 1 0)
+                      _ (need (= (:node-class ctx) (class raw)) "Branch result is not a runtime constructor")
+                      tag (.get ^Field (:tag ctx) raw)
+                      left? (= tag (:tag left))
+                      _ (need (or left? (= tag (:tag right))) "Unknown branch constructor")
+                      layout (if left? left right) fields (node-fields! ctx raw layout)
+                      child (get type (if sum? (if left? "left" "right") (if left? "error" "value")))]
+                  (enter! raw)
+                  (try (let [decoded (visit child (aget ^objects fields (first (:positions layout))) (inc depth))]
+                         (if left? (LeanChoice/left decoded) (LeanChoice/right decoded)))
+                       (finally (leave! raw))))
+                (throw (ex-info "Unsupported result codec" {:code "UnsupportedSignature"})))]
+                (account! decoded) decoded))]
       {:visit visit :charge charge! :enter enter! :leave leave! :index index})))
 
 (defn decode

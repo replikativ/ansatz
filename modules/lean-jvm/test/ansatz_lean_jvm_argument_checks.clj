@@ -99,7 +99,7 @@
   (is (= "RuntimeBoundary"
          (code-of #(argument/plan (descriptor [(list-type (leaf "nat"))]) nil (object-array [(jlist)])))))
   (is (#{"UnsupportedSignature" "UnsupportedArgumentType"}
-        (code-of #(plan [(list-type {"kind" "array" "element" (leaf "nat")})] (jlist))))))
+        (code-of #(plan [(list-type {"kind" "callback"})] (jlist))))))
 
 (deftest field-position-use-is-explicit-not-inferred-from-constructor-shape
   ;; Changed MODEL metadata only. Actual entry admission rejects this cohort change.

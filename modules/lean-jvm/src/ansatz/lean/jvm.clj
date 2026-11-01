@@ -3,7 +3,7 @@
    used alongside this optional module; kernel declaration import is separate."
   (:require [clojure.java.io :as io])
   (:import [ansatz.lean.jvm Lean LeanProject LeanFunction
-            NativeCompilerOptions ProjectOptions LeanUnit IOResult]
+            NativeCompilerOptions ProjectOptions LeanUnit IOResult LeanChoice]
            [java.nio.file Path] [java.util Optional]))
 
 (defn- path [value]
@@ -50,8 +50,52 @@
                (clojure-value (get type "second") (nth value 1))]
     "option" (when (.isPresent ^Optional value)
                {:some (clojure-value (get type "element") (.get ^Optional value))})
-    "list" (mapv #(clojure-value (get type "element") %) value)
+    ("list" "array") (mapv #(clojure-value (get type "element") %) value)
+    ("sum" "except") (let [left? (.isLeft ^LeanChoice value)
+                              sum? (= "sum" (get type "kind"))
+                              key (if sum? (if left? :left :right) (if left? :error :ok))
+                              child (get type (if sum? (if left? "left" "right") (if left? "error" "value")))]
+                          {key (clojure-value child (.value ^LeanChoice value))})
     value))
+
+(defn- host-arguments [descriptor arguments]
+  (let [remaining (volatile! 100000)]
+    (letfn [(visit [type value depth]
+              (when (.isInterrupted (Thread/currentThread))
+                (throw (ex-info "Argument conversion cancelled" {:code "Cancelled"})))
+              (when-not (and (< depth 128) (not (neg? (vswap! remaining dec))))
+                (throw (ex-info "Argument conversion exceeds budget" {:code "ResourceLimit"})))
+              (case (get type "kind")
+                "unit" (if (nil? value) LeanUnit/INSTANCE value)
+                "option" (cond
+                           (nil? value) (Optional/empty)
+                           (and (map? value) (= #{:some} (set (keys value))))
+                           (Optional/of (visit (get type "element") (:some value) (inc depth)))
+                           (= Optional (class value))
+                           (if (.isPresent ^Optional value)
+                             (Optional/of (visit (get type "element") (.get ^Optional value) (inc depth))) value)
+                           :else (throw (ex-info "Option expects nil or {:some value}" {:code "UnsupportedArgumentType"})))
+                ("sum" "except")
+                (let [[left right] (if (= "sum" (get type "kind")) [:left :right] [:error :ok])
+                      [left-type right-type] (if (= "sum" (get type "kind")) ["left" "right"] ["error" "value"])]
+                  (cond
+                    (and (map? value) (= #{left} (set (keys value))))
+                    (LeanChoice/left (visit (get type left-type) (get value left) (inc depth)))
+                    (and (map? value) (= #{right} (set (keys value))))
+                    (LeanChoice/right (visit (get type right-type) (get value right) (inc depth)))
+                    (= LeanChoice (class value)) value
+                    :else (throw (ex-info "Expected an explicitly tagged branch" {:code "UnsupportedArgumentType"}))))
+                ("product" "list" "array")
+                (do (when-not (and (instance? java.util.List value) (not (instance? clojure.lang.ISeq value)))
+                      (throw (ex-info "Expected a bounded vector or java.util.List" {:code "UnsupportedArgumentType"})))
+                    (let [size (.size ^java.util.List value) product? (= "product" (get type "kind"))]
+                      (when-not (and (<= 0 size @remaining) (or (not product?) (= size 2)))
+                        (throw (ex-info "Invalid container extent" {:code "InvalidArgument"})))
+                      (mapv (fn [index]
+                              (visit (if product? (get type (if (zero? index) "first" "second")) (get type "element"))
+                                     (.get ^java.util.List value index) (inc depth))) (range size))))
+                value))]
+      (mapv #(visit %1 %2 0) (get descriptor "arguments") arguments))))
 
 (defn function
   "Resolve an admitted checked function as an IFn bound to this Project. Exact
@@ -65,9 +109,7 @@
       (fn [& arguments]
         (when-not (= arity (bounded-count (inc arity) arguments))
           (throw (ex-info (str "Expected " arity " explicit arguments") {:code "ArityMismatch"})))
-        (let [arguments (mapv (fn [type argument]
-                               (if (and (= "unit" (get type "kind")) (nil? argument)) LeanUnit/INSTANCE argument))
-                             (get descriptor "arguments") arguments)
+        (let [arguments (host-arguments descriptor arguments)
               result (.invoke handle (object-array arguments))]
           (if (= "io" (get descriptor "effect"))
             (let [^IOResult result result]

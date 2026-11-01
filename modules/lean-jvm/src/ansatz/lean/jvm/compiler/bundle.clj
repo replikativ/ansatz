@@ -2,7 +2,8 @@
   "Explicit external Linux producer bundle. SDK pins independently authorize its
    helpers; bundle self-description alone never authenticates native producers."
   (:require [ansatz.lean.jvm.compiler.transport :as transport]
-            [ansatz.lean.jvm.entry :as checked-entry])
+            [ansatz.lean.jvm.entry :as checked-entry]
+            [ansatz.lean.jvm.producer :as producer])
   (:import [java.nio.file Path Files LinkOption]))
 
 (def supported-producers
@@ -32,9 +33,10 @@
                     (supported-producers name))]
     (need (and (map? descriptor)
                (= #{"binary" "binarySHA256" "source" "sourceSHA256"} (set (keys descriptor)))
-               (= supported (select-keys descriptor ["binarySHA256" "sourceSHA256"])))
+               (or entry-schema (producer/supported? name (get descriptor "sourceSHA256") (get descriptor "binarySHA256"))))
           "Producer descriptor is not an independently supported SDK cohort")
-    (let [binary (child! root (get descriptor "binary")) source (child! root (get descriptor "source"))]
+    (let [supported descriptor
+          binary (child! root (get descriptor "binary")) source (child! root (get descriptor "source"))]
       (need (Files/isExecutable binary) "Producer binary is not executable")
       (need (and (= (get supported "binarySHA256")
                     (get (#'transport/file-record binary (* 256 1048576)) "sha256"))

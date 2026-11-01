@@ -2,8 +2,9 @@
   "Pure host planning for scalar-free managed arguments; no guest allocation or RC operation."
   (:require [ansatz.lean.jvm.codec :as codec]
             [ansatz.lean.jvm.signature :as signature]
-            [ansatz.lean.jvm.value :as value])
-  (:import [java.math BigInteger] [java.util IdentityHashMap List Optional]))
+            [ansatz.lean.jvm.value :as value]
+            [ansatz.lean.jvm.scalar-buffer :as scalar])
+  (:import [ansatz.lean.jvm LeanChoice] [java.math BigInteger] [java.util IdentityHashMap List Optional]))
 
 (def ^:private object-array-class (class (object-array 0)))
 (def ^:private maximum-occurrences 100000)
@@ -39,11 +40,16 @@
     (let [arguments (aclone ^objects arguments)
           index (#'value/witness-index codec-witnesses) layouts (volatile! {})
           recipes (volatile! []) active (IdentityHashMap.)
-          visited (volatile! 0) occurrences (volatile! 0) integer-bits (volatile! 0) string-units (volatile! 0)]
+          visited (volatile! 0)
+          ;; The caller appends the canonical IO world. Reserve its exact engine
+          ;; budget now so host-only refusal never crosses the execution lease.
+          occurrences (volatile! (if (= "io" (get descriptor "effect")) 1 0))
+          integer-bits (volatile! (if (= "io" (get descriptor "effect")) 64 0)) string-units (volatile! 0) buffer-bytes (volatile! 0)]
       (letfn [(type! [type]
                 (let [kind (get type "kind")]
                   (case kind
-                    ("nat" "int" "bool" "string" "unit") nil
+                    ("nat" "int" "bool" "string" "unit" "machine-int" "word" "float" "char" "bytes") nil
+                    "array" (type! (get type "element"))
                     "product"
                     (do (vswap! layouts assoc "product" (#'value/constructor index "product" "mk" 2 0))
                         (type! (get type "first")) (type! (get type "second")))
@@ -51,6 +57,12 @@
                     (do (vswap! layouts assoc "none" (#'value/constructor index "option" "none" 0 0)
                                 "some" (#'value/constructor index "option" "some" 1 0))
                         (type! (get type "element")))
+                    ("sum" "except")
+                    (let [kind (get type "kind") sum? (= kind "sum")]
+                      (vswap! layouts assoc (str kind "-left") (#'value/constructor index kind (if sum? "inl" "error") 1 0)
+                              (str kind "-right") (#'value/constructor index kind (if sum? "inr" "ok") 1 0))
+                      (type! (get type (if sum? "left" "error")))
+                      (type! (get type (if sum? "right" "value"))))
                     "list"
                     (do (vswap! layouts assoc "nil" (#'value/constructor index "list" "nil" 0 0)
                                 "cons" (#'value/constructor index "list" "cons" 2 0))
@@ -64,12 +76,19 @@
                   (= String (class item)) (vswap! string-units + (.length ^String item)))
                 (need (<= @integer-bits 4194304) "ResourceLimit" "Argument aggregate integer budget exceeded")
                 (need (<= @string-units 1048576) "ResourceLimit" "Argument aggregate String budget exceeded"))
+              (emit-recipe! [recipe]
+                (let [reference {:ref (count @recipes)}]
+                  (doseq [item (:fields recipe)] (charge! item))
+                  (vswap! buffer-bytes + (case (:kind recipe)
+                                           :bytes (alength ^bytes (:bytes recipe))
+                                           :scalar (if (= "float32" (:lane recipe)) 4 8) 0))
+                  (need (<= @buffer-bytes scalar/maximum-buffer-bytes) "ResourceLimit" "Argument scalar/buffer aggregate budget exceeded")
+                  (vswap! recipes conj recipe) reference))
               (emit! [layout logical-fields]
-                (let [fields (reduce (fn [fields [position item]] (assoc fields position item))
-                                     (vec (repeat (:size layout) nil)) (map vector (:positions layout) logical-fields))
-                      reference {:ref (count @recipes)}]
-                  (doseq [item fields] (charge! item))
-                  (vswap! recipes conj {:tag (long (:tag layout)) :fields fields}) reference))
+                (emit-recipe!
+                  {:tag (long (:tag layout))
+                   :fields (reduce (fn [fields [position item]] (assoc fields position item))
+                                   (vec (repeat (:size layout) nil)) (map vector (:positions layout) logical-fields))}))
               (enter! [input]
                 (need (not (.containsKey active input)) "InvalidArgument" "Cyclic host argument cannot become a managed tree")
                 (.put active input true))
@@ -79,6 +98,14 @@
                 (need (<= (vswap! visited inc) maximum-occurrences) "ResourceLimit" "Host argument occurrence budget exceeded")
                 (case (get type "kind")
                   ("nat" "int" "bool" "string" "unit") (codec/encode-leaf type input)
+                  ("machine-int" "word" "float" "char")
+                  (let [encoded (scalar/encode-scalar type input)]
+                    (if (map? encoded) (emit-recipe! encoded) encoded))
+                  "bytes" (emit-recipe! {:kind :bytes :bytes (scalar/snapshot-bytes input)})
+                  "array" (do (enter! input)
+                              (try (emit-recipe! {:kind :array :fields (mapv #(visit (get type "element") % (inc depth))
+                                                                          (scalar/snapshot-array input))})
+                                   (finally (.remove active input))))
                   "product"
                   (do (enter! input)
                       (try (let [fields (snapshot-list input 2)]
@@ -93,6 +120,12 @@
                             (try (emit! (get @layouts "some") [(visit (get type "element") (.get ^Optional input) (inc depth))])
                                  (finally (.remove active input))))
                         (long (:tag (get @layouts "none")))))
+                  ("sum" "except")
+                  (do (need (= LeanChoice (class input)) "UnsupportedArgumentType" "Sum/Except expects LeanChoice")
+                      (let [kind (get type "kind") sum? (= kind "sum") left? (.isLeft ^LeanChoice input)
+                            child (get type (if sum? (if left? "left" "right") (if left? "error" "value")))]
+                        (emit! (get @layouts (str kind (if left? "-left" "-right")))
+                               [(visit child (.value ^LeanChoice input) (inc depth))])))
                   "list"
                   (do (enter! input)
                       (try (let [elements (snapshot-list input nil)

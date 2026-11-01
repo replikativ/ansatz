@@ -732,10 +732,10 @@ Ansatz provides three extension points, following Lean 4's metaprogramming model
 
 See [examples/metaprogramming.clj](examples/metaprogramming.clj) for working examples.
 
-## Optional Lean execution SDK for Java
+## Optional Lean execution SDK for Java and Clojure
 
 The separate [`org.replikativ/ansatz-lean-jvm`](modules/lean-jvm/README.md)
-artifact provides an experimental Java API for executing checked Lean code on
+artifact provides experimental Java and Clojure APIs for executing Lean code on
 the JVM. It supports packaged artifacts without a native toolchain, and trusted
 source loading with an explicitly configured Lean installation and producer
 bundle. The initial source profile covers Init and local acyclic imports;

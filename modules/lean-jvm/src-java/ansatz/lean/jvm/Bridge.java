@@ -86,7 +86,14 @@ final class Bridge {
                 code = cursor instanceof ProviderException ? "ProviderFailure" : "ProviderUnavailable";
             } else if (cursor instanceof IExceptionInfo && "RuntimeBoundary".equals(code)) {
                 Object actual = ((IExceptionInfo) cursor).getData().valAt(Keyword.intern("code"));
-                if (actual instanceof String && ((String) actual).length() <= 96) code = (String) actual;
+                if (actual instanceof String && ((String) actual).length() <= 96) {
+                    code = (String) actual;
+                    selected = cursor;
+                }
+            } else if ("RuntimeBoundary".equals(code)) {
+                // Prefer the useful ordinary cause over a reflection wrapper;
+                // only bounded strings are copied to the public exception.
+                selected = cursor;
             }
         }
         if (interrupted) Thread.currentThread().interrupt();

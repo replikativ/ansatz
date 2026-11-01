@@ -5,6 +5,8 @@
             [ansatz.lean.jvm.publisher :as publisher] [ansatz.lean.jvm.startup :as startup]
             [ansatz.lean.jvm.signature :as signature] [ansatz.lean.jvm.codec :as codec]
             [ansatz.lean.jvm.value :as value]
+            [ansatz.lean.jvm.scalar-buffer :as scalar]
+            [ansatz.lean.jvm.argument :as argument] [ansatz.lean.jvm.construction :as construction]
             [clojure.java.io :as io] [clojure.string :as str])
   (:import [java.math BigInteger] [java.nio.charset StandardCharsets]
            [java.util WeakHashMap] [ansatz.lean.jvm MainResult IOResult LeanUnit]))
@@ -172,6 +174,9 @@
   (let [deadline (+ (System/nanoTime) duration-nanos)]
     (aset ^objects slot 1 :start-pending)
     (ir/start! ctx engine callable args)
+    ;; Successful owned call adopts the argument roots. A thrown start keeps
+    ;; the actual journal and follows whole-branch abandonment, never guessed DEC.
+    (aset ^objects slot 0 nil)
     (aset ^objects slot 1 :running)
     (loop []
       (when (.isInterrupted (Thread/currentThread)) (throw (ex-info "Project call interrupted" {:code "Cancelled"})))
@@ -216,17 +221,24 @@
     (locking cell
       (live! cell)
       (let [descriptor (function-descriptor! project handle)
-            ;; Complete host validation before the callback can begin guest work.
-            encoded (codec/encode-arguments descriptor arguments)
+            metadata (startup/with-ready-engine! (:run @cell)
+                       (fn [{:keys [entries headers]}]
+                         (nth (entry! entries headers (.-name ^Handle handle) descriptor) 2)))
+            ;; Host input refusal happens before entering the execution lease.
+            planned (argument/plan descriptor (get metadata "codecWitnesses") arguments)
             io? (= "io" (get descriptor "effect"))
-            runtime-arguments (cond-> (vec encoded) io? (conj (long 0)))
+            planned (cond-> planned io? (update :roots conj (long 0)))
             slot (:slot @cell)]
         (try
           (let [{:keys [decoded output]}
                 (startup/with-ready-engine! (:run @cell)
                   (fn [{:keys [ctx engine entries headers]}]
                     (let [[header callable entry] (entry! entries headers (.-name ^Handle handle) descriptor)
+                          _ (need (some? header) "RuntimeBoundary" "Actual callable Header absent")
                           _ (aset ^objects slot 2 header)
+                          runtime-arguments (construction/materialize! ctx engine planned)
+                          _ (aset ^objects slot 0 runtime-arguments)
+                          _ (aset ^objects slot 1 :constructed)
                           raw (drive! ctx engine callable runtime-arguments slot)
                           decoded
                           (if io?
@@ -235,7 +247,9 @@
                               ;; witness; v2 must use its actual compiler layout evidence.
                               {:kind (io-result! ctx raw) :value LeanUnit/INSTANCE}
                               (value/decode-io ctx entry raw))
-                            (value/decode ctx (get descriptor "result") (get entry "codecWitnesses") raw))
+                            (if (= "raw-nullary-scalar" (get entry "resultABI"))
+                              (scalar/decode-external-scalar (get descriptor "result") raw)
+                              (value/decode ctx (get descriptor "result") (get entry "codecWitnesses") raw)))
                           output (finish-result! ctx engine raw slot)]
                       {:decoded decoded :output output})))]
             (if io?

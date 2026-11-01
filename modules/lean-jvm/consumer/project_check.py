@@ -15,6 +15,7 @@ def main():
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--java", default="java")
     parser.add_argument("--javac", default="javac")
+    parser.add_argument("--main-class", default="ProjectSmoke", choices=["ProjectSmoke", "GeneralInteropSmoke", "ScalarInteropSmoke"])
     args = parser.parse_args()
     consumer = Path(__file__).resolve().parent
     helpers = runpy.run_path(str(consumer / "check.py"), run_name="sdk_archive_audit")
@@ -33,7 +34,7 @@ def main():
     empty.mkdir(exist_ok=True)
     classpath = os.pathsep.join(map(str, jars))
     stages = [helpers["run_stage"]([args.javac, "-J-Xmx192m", "--release", "17", "-cp", classpath,
-                                   "-d", str(classes), str(consumer / "ProjectSmoke.java")], empty, output / "javac", 60)]
+                                   "-d", str(classes), str(consumer / (args.main_class + ".java"))], empty, output / "javac", 60)]
     require(stages[0]["exit"] == 0, "Java consumer compilation failed")
     app = output / "interop-consumer.jar"
     with zipfile.ZipFile(app, "w", compression=zipfile.ZIP_DEFLATED) as archive:
@@ -41,7 +42,7 @@ def main():
             for path in sorted(root.rglob("*")):
                 if path.is_file(): archive.write(path, str(path.relative_to(root)))
     stages.append(helpers["run_stage"]([args.java, "-Xmx384m", "-cp", os.pathsep.join([str(app), classpath]),
-                                       "ProjectSmoke"], empty, output / "java", 120))
+                                       args.main_class], empty, output / "java", 120))
     report = {"jarAudit": audit, "stages": stages, "applicationJARSHA256": helpers["digest"](app.read_bytes()),
               "sourceCheckoutOnClasspath": False, "runtimeNativeCompiler": False, "runtimeJavaCompilation": False}
     (output / "result.json").write_text(json.dumps(report, indent=2) + "\n")

@@ -1,7 +1,7 @@
 (ns ansatz.lean.jvm.artifact
   "Bounded portable native-project artifacts. Reading requires an independent
    expected manifest digest and performs no native/toolchain discovery."
-  (:require [clojure.data.json :as json] [clojure.java.io :as io] [clojure.string :as str]
+  (:require [ansatz.lean.jvm.producer :as producer-pins] [clojure.data.json :as json] [clojure.java.io :as io] [clojure.string :as str]
             [ansatz.lean.jvm.entry :as checked-entry])
   (:import [java.io InputStream OutputStream FilterInputStream FilterOutputStream ByteArrayOutputStream]
            [java.nio.file Path Files LinkOption]
@@ -166,15 +166,15 @@
              (= {"frontend" "official-native" "javaKernelChecked" false "hostedInitImported" false "startupExecutionReceipt" false}
                 (get manifest "trust"))) "ArtifactConflict" {:stage :artifact-profile})
   (let [producer (get manifest "producer")
-        entry-schema (cond
-                       (= (get-in checked-entry/cohorts [1 :source]) (get-in producer ["entryHelperSource" "sha256"])) 1
-                       (contains? (get checked-entry/producer-pins 2)
-                                  [(get-in producer ["entryHelperSource" "sha256"]) (get-in producer ["entryHelper" "sha256"])]) 2)
-        source-pins {"startupHelperSource" "f8c92d652c596b9bf656135348b190a5c09cf61ec40c8775835cf180a8833dd1"
-                     "typedSourceExporterSource" "a48e00225fe08c1a74b66fff1102fd0c11ecefaaafc20ddcf6e28aaf363c99d3"}
+        entry-schema (try
+                       (checked-entry/schema-for-pins! (get-in producer ["entryHelperSource" "sha256"])
+                                                      (get-in producer ["entryHelper" "sha256"]))
+                       (catch clojure.lang.ExceptionInfo _
+                         (need false "ArtifactConflict" {:stage :supported-producer})))
         _ (need (and entry-schema (= lean-commit (get producer "leanCommit")) (= "4.33.1" (get producer "leanVersion"))
                      (= "x86_64-unknown-linux-gnu" (get producer "target")) (= 64 (get producer "wordBits"))
-                     (every? (fn [[field pin]] (= pin (get-in producer [field "sha256"]))) source-pins)
+                     (producer-pins/supported? "startupHeader" (get-in producer ["startupHelperSource" "sha256"]) (get-in producer ["startupHelper" "sha256"]))
+                     (producer-pins/supported? "typedSource" (get-in producer ["typedSourceExporterSource" "sha256"]) (get-in producer ["typedSourceExporter" "sha256"]))
                      (false? (get-in manifest ["code" "dynamicClosureProven"]))) "ArtifactConflict" {:stage :supported-producer})
         original-inputs (json! (path-ref! files (get-in manifest ["inputs" "originalBuildInputs"])) (* 4 1048576))
         _ (need (and (= (get original-inputs "helper") (get producer "startupHelper"))
