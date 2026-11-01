@@ -9458,6 +9458,7 @@ public final class Interpreter implements AutoCloseable {
                 scalarResult=nat(a).longValue(); break;
             case USIZE_REPR: result=Long.toUnsignedString((Long)a); break;
             case U16_NAT: case U32_NAT: result=a; break;
+            case U8_ADD: scalarResult=((Long)a+(Long)b)&255L; break;
             case U16_EQ: case U32_EQ: scalarResult=((Long)a).longValue()==((Long)b).longValue()?1:0; break;
             case U32_LT: scalarResult=(Long)a<(Long)b?1:0; break;
             case U64_TO_NAT: result=externalScalar((Long)a,U64); break;

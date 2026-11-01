@@ -30,7 +30,7 @@
    ;; Existing Interpreter PANIC terminates with an unsupported-operation
    ;; failure; it never invents Lean's default-return result.
    :terminal-trap ["PANIC"]})
-(defn- need [p message] (when-not p (throw (ex-info message {:profile :task-free-captured-output-v1}))))
+(defn- need [p message] (when-not p (throw (ex-info message {:code "CapabilityMissing" :profile :task-free-captured-output-v1}))))
 (defn- field [object name]
   (let [f (.getDeclaredField (class object) name)] (.setAccessible f true) (.get f object)))
 (defn- static-field [^Class cls name]
@@ -53,7 +53,10 @@
   (let [cls (:class basis) registry (static-field cls "EXTERNS") index (family-index cls)
         externs (into {}
                       (for [row rows :let [declaration (get-in row ["ir" "extern"])] :when declaration]
-                        (let [symbol (j/invoke-static (.getMethod ^Class cls "validateExternAbi" (into-array Class [java.util.Map])) [row])
+                        (let [symbol (try (j/invoke-static (.getMethod ^Class cls "validateExternAbi" (into-array Class [java.util.Map])) [row])
+                                          (catch java.lang.reflect.InvocationTargetException failure
+                                            (throw (ex-info "Unsupported Lean runtime extern or ABI"
+                                                            {:code "CapabilityMissing" :name (get row "name")} failure))))
                               matches (filter #(= (abi declaration) (spec-abi %)) (get registry symbol))
                               _ (need (= 1 (count matches)) "Unknown or ambiguous runtime extern ABI")
                               intrinsic (field (first matches) "intrinsic") family (get index intrinsic)]
