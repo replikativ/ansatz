@@ -171,3 +171,8 @@ source separates JSON construction from uniformly indented record literals;
 no type/lookup/selection policy changed. The source manifest preserves the two
 negative receipt hashes. This correction still requires actual native compilation
 and fixture validation; neither attempt established accepted producer output.
+
+The next attempt on source `c25900fb…` passed its resource gate but found two
+type errors from one IO.userError proof binding: pinned mkArrow returns CoreM
+Expr. That binding now uses monadic bind before native DefEq/instantiation. It
+was the only mkArrow occurrence in this new producer. Acceptance remains pending.

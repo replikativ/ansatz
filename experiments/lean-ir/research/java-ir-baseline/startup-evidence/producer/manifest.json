@@ -6,13 +6,13 @@
   "files": [
     {
       "file": "experiments/lean-ir/lean/NativeStartupEvidence.lean",
-      "bytes": 36606,
-      "sha256": "c25900fb21e81f0de9e413ea8c4c5c24176f5085e63605c11bb2b7cce5001732"
+      "bytes": 36607,
+      "sha256": "f8c92d652c596b9bf656135348b190a5c09cf61ec40c8775835cf180a8833dd1"
     },
     {
       "file": "experiments/lean-ir/research/java-ir-baseline/startup-evidence/producer/README.md",
-      "bytes": 10066,
-      "sha256": "49464f9e431ec2237e2def5eb2fa24d4f970016dc7e4b189bbfcd739cd774a13"
+      "bytes": 10386,
+      "sha256": "b921e70a474f7f2bbbe9ab173d794dd13f4f4de58fe5b22c778134469cb1eb39"
     },
     {
       "file": "experiments/lean-ir/research/java-ir-baseline/startup-evidence/producer/verify-source.py",
@@ -177,6 +177,14 @@
       "receipt": {
         "file": "target/native-startup-gate-v1/emit-v2.receipt.json",
         "sha256": "8c698299abcf2d5b44682c02a323d4fd38734831ab9130c8a9cb842d9f994d82"
+      }
+    },
+    {
+      "sourceSHA256": "c25900fb21e81f0de9e413ea8c4c5c24176f5085e63605c11bb2b7cce5001732",
+      "status": "resource pass; exit1 from monadic mkArrow binding type errors",
+      "receipt": {
+        "file": "target/native-startup-gate-v1/emit-v3.receipt.json",
+        "sha256": "02d958bf9186ac0a9745b5ddbbbaad7e33d5153ed5ec3b2aad2c0cc9d9aeabc5"
       }
     }
   ]

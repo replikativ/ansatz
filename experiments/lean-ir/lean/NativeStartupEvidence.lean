@@ -467,7 +467,7 @@ private def userErrorEvidence (env : Environment) : IO ActionEvidence := do
   let n := ``IO.userError
   let ci ← actualCI env n
   let ((actual, expected), _, _) ← (do
-    let expected := mkArrow (mkConst ``String) (mkConst ``IO.Error)
+    let expected ← mkArrow (mkConst ``String) (mkConst ``IO.Error)
     unless ← Meta.withTransparency .default (Meta.isDefEq ci.type expected) do
       throwError "actual IO.userError type differs from String to IO.Error"
     pure (← instantiateMVars ci.type, ← instantiateMVars expected) : MetaM (Expr × Expr)).toIO
