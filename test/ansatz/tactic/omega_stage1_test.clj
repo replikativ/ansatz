@@ -207,9 +207,10 @@
     (is (= :omega-implementation-error (:kind (ex-data ex))))
     (is (= :analyze-atom (:operation (ex-data ex))))))
 
-(deftest large-scale-charges-before-allocation
-  ;; Exercise reification's actual Nat scaling constructor with a positive budget.
-  ;; With the old loop this attempted a billion allocations before its next guard.
+(deftest large-scale-is-one-multiplication
+  ;; `1000000000 * x` over Nat: Lean's mul_eval route builds ONE product proof, whatever the
+  ;; literal. The former Nat bridge expanded it into a billion additions (and needed a work
+  ;; budget to stop); now it finishes within a small budget and adds nothing.
   (let [nat (const-expr "Nat")
         x (e/fvar 123)
         st (tc/attach-lctx (tc/mk-tc-state @te/bundled-init-env)
@@ -218,16 +219,17 @@
         additions (atom 0)
         work (atom 0)
         build c/mk-add-eval-proof
-        ex (binding [m/*work* work m/*work-limit* 24 m/*depth-limit* 128]
-             (with-redefs [c/mk-add-eval-proof (fn [& args]
-                                                 (swap! additions inc)
-                                                 (apply build args))]
-               (try (#'f/reify-term st (m/mk-state) expr)
-                    (catch clojure.lang.ExceptionInfo ex ex))))]
-    (is (= {:kind :tactic-error :tactic :omega :limit :work :value 24} (ex-data ex)))
-    (is (pos? @additions) "the budget allows entry into the real construction loop")
-    (is (< @additions 24) "work is charged before each addition is allocated")
-    (is (= 25 @work))))
+        [_ lc prf] (binding [m/*work* work m/*work-limit* 24 m/*depth-limit* 128]
+                     (with-redefs [c/mk-add-eval-proof (fn [& args]
+                                                         (swap! additions inc)
+                                                         (apply build args))]
+                       (let [[t lc prf] (#'f/reify-term st (m/mk-state) expr)]
+                         ;; force the delayed proof under the same budget
+                         [t lc (prf (c/build-atoms-expr (m/mk-state)))])))]
+    (is (= 1000000000 (first (:coeffs lc))))
+    (is (zero? @additions) "no repeated additions")
+    (is (< @work 24) "within a small work budget")
+    (is (some? (:proof prf)))))
 
 (deftest delayed-eval-descent-is-accounted
   (let [lc (c/mk-lc 0)

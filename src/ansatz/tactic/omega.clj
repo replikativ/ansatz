@@ -3,9 +3,11 @@
 (ns ansatz.tactic.omega
   "Linear arithmetic decision procedure (omega tactic) — user-facing entry point.
 
-   Supported fragment (Int scalar products and Int div/mod are not yet supported):
-   - Nat: +, -, *, /, %, min, max, ≤, <, =, ≠ (ground multiplication/division only)
-   - Int: linear relations and negative literals; scalar/div/mod parity remains staged
+   Supported fragment:
+   - Nat: +, -, *, /, %, min, max, ≤, <, =, ≠ (multiplication by a literal; x*y is an atom)
+   - Int: linear relations, negative literals, products with a constant factor
+     (LinearCombo.mul_eval, as Lean's Frontend.lean HMul case), division by a literal;
+     Int `%` remains a gap (omega_conformance_test o19)
    - Mixed Nat/Int via coercion, Bool→Prop bridges (Nat.ble/Nat.blt)
    - Systems of linear inequalities, equalities and disjunctions
 

@@ -112,9 +112,9 @@
      [(and_then (induction xs) (and_then (simp only [omegaLen List.length_cons List.length_nil]) (omega)))]]])
 
 (def ^:private known-gaps
-  {'o16_parity "Int scalar products remain opaque; reify-term tests lit-nat factors and scale eval bridge is Nat-only (omega_proof.clj:699,1149)."
-   'o18_int_div "Int scalar linearization/quotient bounds incomplete: solver cannot derive contradiction (omega_proof.clj:699,3025)."
-   'o19_int_mod "Int remainder needs scalar linearization and emod_def eval-proof transport (omega_proof.clj:954)."})
+  ;; o16_parity and o18_int_div go through since Int scalar products are linearized with
+  ;; LinearCombo.mul_eval (Lean Frontend.lean's HMul case).
+  {'o19_int_mod "Int remainder needs scalar linearization and emod_def eval-proof transport (omega_proof.clj:954)."})
 
 (deftest omega-conformance
   (let [results (cs/run-suite 'ansatz.omega-conformance-test defs theorems)]

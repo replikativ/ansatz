@@ -524,6 +524,18 @@
                       k (e/lit-nat-val b-whnf)
                       result-lc (lc-scale lc-a k)]
                   [table' result-lc (mk-scale-eval-proof lc-a k prf-a (nth args 4) expr :right)])
+                ;; Lean Frontend.lean HMul: reify both factors; when one is a constant
+                ;; (no coefficients) the product is linear, by LinearCombo.mul_eval. Otherwise
+                ;; the whole product is an atom (the factors' table is discarded, as Lean's
+                ;; commitWhen reverts it).
+                (let [ty (#'tc/cached-whnf st (nth args 0))]
+                  (and (e/const? ty) (= (e/const-name ty) (:int-name omega-names))))
+                (let [[t1 l1 p1] (reify-term st table (nth args 4))
+                      [t2 l2 p2] (reify-term st t1 (nth args 5))]
+                  (cond
+                    (empty? (:coeffs l1)) [t2 (op/lc-mul l1 l2) (op/mk-mul-eval-proof l1 l2 p1 p2 :left)]
+                    (empty? (:coeffs l2)) [t2 (op/lc-mul l1 l2) (op/mk-mul-eval-proof l1 l2 p1 p2 :right)]
+                    :else nil))
                 :else nil))  ;; fall through to WHNF path
 
             ;; HDiv.hDiv _ _ _ _ a b → atom + div-bounds tag
