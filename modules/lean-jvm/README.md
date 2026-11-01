@@ -52,7 +52,8 @@ started no JVM. Portable evidence and source pins are recorded in
 `validation.json`; the earlier 28cd engine jar remains a separate historical
 record from the final 9a3 engine/captured-producer acceptance. A consumer
 of a future published jar will not need Clojure CLI, build tooling or a source
-checkout. No release or deploy target is provided here.
+checkout. Release preparation is separate from runtime acceptance; see the producer
+release commands below.
 
 ## Checks for the root's retained JVM
 
@@ -79,3 +80,52 @@ packaging boundary; they do not establish a public Project API or generic loader
 The tracked [Java-only consumer](consumer/README.md) includes the actual accepted
 Java smoke source, bounded reproduction tooling, and static positive/negative
 archive checks. Producer/test scripts and validation records are not jar resources.
+
+
+## Coordinated optional artifact release
+
+This artifact remains optional and separate from `org.replikativ/ansatz`. Its
+version now uses the root build's `0.2.<git-count>` rule. An explicit version
+coordinates a release assembled from one chosen root commit:
+
+```sh
+clojure -T:build prepare-release :version '"0.2.1234"'
+```
+
+Replace the example with the actual root release version. This producer command
+builds the JAR and ordinary Maven POM, then records their exact SHA-256 digests,
+version and packaged runtime cohort in `target/release.edn`. It publishes nothing.
+The emitted runtime POM contains only the audited runtime dependencies; build and
+deploy tooling remain confined to the build alias. The fixed JAR filename stays
+`target/ansatz-lean-jvm.jar` for existing producer and consumer tooling.
+
+After reviewing those exact files and completing the applicable runtime gates,
+the release owner can explicitly publish the prepared bytes:
+
+```sh
+clojure -T:build deploy-prepared :version '"0.2.1234"'
+```
+
+This requires normal Clojars producer credentials. It verifies the receipt,
+expected version, packaged POM and current bytes before deployment, and does not
+rebuild. Replacing the JAR or POM after preparation invalidates the receipt.
+Neither preparation nor publication constitutes generic Project API acceptance.
+Current metadata continues to report `:public-project-api false` honestly.
+
+The agreed first public API is `ansatz.lean.jvm.Lean` / `LeanProject`, both
+`AutoCloseable`, with `natFunction(String)` returning
+`UnaryOperator<BigInteger>`, `stringFunction(String)` returning
+`UnaryOperator<String>`, and `runMain()` returning captured stdout/stderr.
+Handles must bind a real Project lease/code version and checked native entry;
+Nat inputs are nonnegative and String inputs must be valid UTF-16. One Project
+serializes calls on one persistent engine and invalidates all handles on close
+or branch failure. No raw guest Nodes, callbacks or fork enter this surface.
+These classes are a contract for subsequent work, not included implementations.
+
+Precompiled resource/InputStream artifact loading must work using ordinary
+Maven/Gradle resolution alone, without a source checkout, Clojure CLI, Python,
+runtime javac or native Lean installation. Trusted source compilation is a
+separate service using an explicitly configured pinned toolchain and independent
+platform helper. Helper distribution is unresolved; this release preparation
+adds no helper binaries or platform-support claim. Core/kernel stores, hosted
+frontend state and Mathlib remain separately selected services/cohorts.
