@@ -2,7 +2,7 @@
   "schema": "byte-array-get-default-validation/1",
   "scope": "Original borrowed bounds-safe ByteArray.get! and owned compiler wrapper; no entropy/startup acceptance",
   "leanCommit": "819816b2e0a3bf405af45ae5c7af2491d8f5bee6",
-  "landingBaseCommit": "b0aa60906dbec40a2f87036055d59ecebf1a0299",
+  "landingBaseCommit": "048f2254249ee95f6b5a1f7c7e4e3792968ffcb3",
   "sourceInventory": [
     {
       "path": "experiments/lean-ir/research/java-ir-baseline/src/ansatz/research/ir/Interpreter.java",
