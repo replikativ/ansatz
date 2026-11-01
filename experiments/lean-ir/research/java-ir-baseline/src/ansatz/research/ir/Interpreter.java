@@ -63,6 +63,7 @@ public final class Interpreter implements AutoCloseable {
     private static final int BYTE_MK=200,BYTE_GET=201,BYTE_SIZE=202,BYTE_PUSH=203;
     private static final int BYTE_GET_DEFAULT=557;
     private static final int IO_RANDOM_BYTES=558;
+    private static final int U8_ADD=559,FLOAT_ADD=560,FLOAT32_ADD=561;
     private static final int INT_OF_NAT=210,INT_NEG_SUCC=211,INT_NEG=212,INT_ABS=213,INT_ADD=214,INT_SUB=215,INT_EQ=216,INT_LT=217,INT_LE=218;
     private static final int STR_MEMCMP=230,STR_SUBSTRING_EQ=231,STR_POS_OF=232,STR_OFFSET_OF_POS=233,STR_PUSHN=234;
     private static final int MAX_STRING_OUTPUT_BYTES=16*1024*1024;
@@ -652,6 +653,11 @@ public final class Interpreter implements AutoCloseable {
         register(registry,new ExternSpec("lean_float_decLt",FLOAT_LT,"uint8",new String[]{"float","float"},new boolean[]{false,false}));
         register(registry,new ExternSpec("lean_float_decLe",FLOAT_LE,"uint8",new String[]{"float","float"},new boolean[]{false,false}));
         register(registry,new ExternSpec("lean_float_to_string",FLOAT_STRING,"object",new String[]{"float"},new boolean[]{false}));
+        register(registry,new ExternSpec("lean_uint8_add",U8_ADD,"uint8",new String[]{"uint8","uint8"},new boolean[]{false,false}));
+        // Signed Int64 is a trivial two's-complement wrapper over the exact UInt64 lane.
+        register(registry,new ExternSpec("lean_int64_neg",U64_NEG,"uint64",new String[]{"uint64"},new boolean[]{false}));
+        register(registry,new ExternSpec("lean_float_add",FLOAT_ADD,"float",new String[]{"float","float"},new boolean[]{false,false}));
+        register(registry,new ExternSpec("lean_float32_add",FLOAT32_ADD,"float32",new String[]{"float32","float32"},new boolean[]{false,false}));
         registry.replaceAll((symbol,entries)->Collections.unmodifiableList(entries));
         return Collections.unmodifiableMap(registry);
     }
@@ -7711,9 +7717,13 @@ public final class Interpreter implements AutoCloseable {
             runtimeIntrinsic(f,a,b,c);
         } else scalarIntrinsic(f,a,b);
     }
-    private static boolean floatPrimitive(int op) { return op>=FLOAT_BITS&&op<=FLOAT_STRING||op==FLOAT_LE; }
+    private static boolean floatPrimitive(int op) { return op>=FLOAT_BITS&&op<=FLOAT_STRING||op==FLOAT_LE||op==FLOAT_ADD||op==FLOAT32_ADD; }
     private static boolean nanBits(long bits) { return (bits&0x7ff0000000000000L)==0x7ff0000000000000L&&(bits&0x000fffffffffffffL)!=0; }
     private strictfp void floatIntrinsic(Function f,long a,long b) {
+        if(f.intrinsic==FLOAT32_ADD) {
+            float x=Float.intBitsToFloat((int)a),y=Float.intBitsToFloat((int)b);
+            scalarResult=Integer.toUnsignedLong(Float.floatToRawIntBits(x+y)); return;
+        }
         if(f.intrinsic==FLOAT_BITS) { scalarResult=nanBits(a)?0x7ff8000000000000L:a; return; }
         if(f.intrinsic==FLOAT_U64) {
             BigInteger unsigned=BigInteger.valueOf(a&Long.MAX_VALUE); if(a<0) unsigned=unsigned.setBit(63);
@@ -7721,6 +7731,7 @@ public final class Interpreter implements AutoCloseable {
         }
         double x=Double.longBitsToDouble(a),y=Double.longBitsToDouble(b);
         switch(f.intrinsic) {
+            case FLOAT_ADD: scalarResult=Double.doubleToRawLongBits(x+y); break;
             case FLOAT_SUB: scalarResult=Double.doubleToRawLongBits(x-y); break;
             case FLOAT_MUL: scalarResult=Double.doubleToRawLongBits(x*y); break;
             case FLOAT_DIV: scalarResult=Double.doubleToRawLongBits(x/y); break;
@@ -9426,7 +9437,7 @@ public final class Interpreter implements AutoCloseable {
     /** Explicit membership: later IDs need not lie beside the original scalar group. */
     private static boolean u64ScalarPrimitive(int op) {
         switch(op) {
-            case U16_EQ: case U16_NAT:
+            case U16_EQ: case U16_NAT: case U8_ADD:
             case LAYOUT_FIELDS: case LAYOUT_SCALARS: case LAYOUT_TAG: case LAYOUT_USIZE: case U32_LT: case U64_TO_NAT:
             case STR_HASH: case U64_MIX: case U64_NAT: case U64_SHR: case U64_XOR: case U64_USIZE:
             case U64_LT: case U64_EQ: case U64_OWNED_NAT: case U64_TO_U32:
@@ -9842,14 +9853,35 @@ public final class Interpreter implements AutoCloseable {
         public final int index;
         public DataRef(int index) { this.index=index; }
     }
-    /** Scalar-free constructor recipe. Caller arrays are snapshotted at construction time below. */
+    /** Managed construction recipes contain only caller-side descriptions, never guest Nodes.
+     * All mutable arrays are bounded and snapshotted by constructDataArguments before allocation. */
     public static final class DataCtor {
-        private final int tag;
+        private static final int CONSTRUCTOR=0,SCALAR=1,ARRAY=2,BYTES=3;
+        private final int kind,tag,scalarType;
         private final Object[] fields;
-        public DataCtor(int tag,Object[] fields) { this.tag=tag; this.fields=fields; }
+        private final byte[] bytes;
+        private final long bits;
+        public DataCtor(int tag,Object[] fields) { this(CONSTRUCTOR,tag,fields,null,0,0); }
+        private DataCtor(int kind,int tag,Object[] fields,byte[] bytes,int scalarType,long bits) {
+            this.kind=kind; this.tag=tag; this.fields=fields; this.bytes=bytes;
+            this.scalarType=scalarType; this.bits=bits;
+        }
+        /** Raw bits only: no float arithmetic, rounding or signed integer conversion here. */
+        public static DataCtor boxedScalar(String lane,long bits) {
+            int type;
+            if("uint64".equals(lane)) type=U64;
+            else if("usize".equals(lane)) type=USIZE;
+            else if("float".equals(lane)) type=F64;
+            else if("float32".equals(lane)) type=F32;
+            else throw new IllegalArgumentException("Unsupported managed boxed scalar lane");
+            dataRequire(type!=F32||(bits>>>32)==0,"Managed Float32 requires canonical low 32 raw bits");
+            return new DataCtor(SCALAR,0,null,null,type,bits);
+        }
+        public static DataCtor array(Object[] fields) { return new DataCtor(ARRAY,246,fields,null,0,0); }
+        public static DataCtor bytes(byte[] bytes) { return new DataCtor(BYTES,248,null,bytes,0,0); }
     }
     private static final int MAX_DATA_OCCURRENCES=100_000,MAX_DATA_INTEGER_BITS=4_194_304,
-            MAX_DATA_STRING_UNITS=1_048_576;
+            MAX_DATA_STRING_UNITS=1_048_576,MAX_DATA_BUFFER_BYTES=1_048_576;
     private static void dataRequire(boolean condition,String message) {
         if(!condition) throw new IllegalArgumentException(message);
     }
@@ -9888,8 +9920,9 @@ public final class Interpreter implements AutoCloseable {
      * Every constructor has one incoming parent edge or argument-root occurrence; there is no INC.
      * The returned roots transfer those fresh credits to the caller. Keep them in its pre-start
      * journal until start adopts them; uncertain start failures require the reviewed abandonment path.
-     * Empty constructors are immediate Long tags, not recipes. Scalar/kind variants require a future
-     * explicit profile. Validation and all snapshots precede guest allocation; allocation failures
+     * Empty ordinary constructors are immediate Long tags, not recipes. Special arrays/bytes and
+     * boxed scalar recipes create only the existing reviewed runtime kinds (no Ref/Task/closure).
+     * Aggregate scalar/buffer payload is at most 1 MiB. Validation and snapshots precede allocation; failures
      * leave only unpublished fresh Java heap, never a claim of guest RC unwinding.
      */
     public Object[] constructDataArguments(DataCtor[] constructors,Object[] roots) {
@@ -9901,25 +9934,53 @@ public final class Interpreter implements AutoCloseable {
         dataRequire(constructors!=null&&roots!=null&&constructors.length<=MAX_DATA_OCCURRENCES
                 &&roots.length<=MAX_DATA_OCCURRENCES,"Managed data recipe/root extent exceeds profile");
         DataCtor[] snapshot=constructors.clone(); Object[] rootSnapshot=roots.clone();
-        Object[][] fields=new Object[snapshot.length][]; int[] tags=new int[snapshot.length],owners=new int[snapshot.length];
-        long[] budgets=new long[3];
+        Object[][] fields=new Object[snapshot.length][]; byte[][] bytes=new byte[snapshot.length][];
+        int[] owners=new int[snapshot.length];
+        long[] budgets=new long[4];
         for(int i=0;i<snapshot.length;i++) {
             DataCtor recipe=snapshot[i];
-            dataRequire(recipe!=null&&recipe.tag>=0&&recipe.tag<=243&&recipe.fields!=null
-                    &&recipe.fields.length>0&&recipe.fields.length<=MAX_DATA_OCCURRENCES,
-                    "Managed data requires a bounded nonempty scalar-free constructor");
-            dataRequire(budgets[0]+recipe.fields.length<=MAX_DATA_OCCURRENCES,"Managed data occurrence budget exceeded");
-            tags[i]=recipe.tag; fields[i]=recipe.fields.clone();
-            for(Object value:fields[i]) checkDataValue(value,i,owners,budgets);
+            dataRequire(recipe!=null,"Null managed construction recipe");
+            if(recipe.kind==DataCtor.CONSTRUCTOR||recipe.kind==DataCtor.ARRAY) {
+                dataRequire(recipe.fields!=null&&recipe.fields.length<=MAX_DATA_OCCURRENCES
+                        &&(recipe.kind==DataCtor.ARRAY||(recipe.tag>=0&&recipe.tag<=243&&recipe.fields.length>0)),
+                        "Managed data requires a bounded constructor or Array");
+                dataRequire(budgets[0]+recipe.fields.length<=MAX_DATA_OCCURRENCES,"Managed data occurrence budget exceeded");
+                fields[i]=recipe.fields.clone();
+                for(Object value:fields[i]) checkDataValue(value,i,owners,budgets);
+            } else if(recipe.kind==DataCtor.BYTES) {
+                dataRequire(recipe.bytes!=null&&recipe.bytes.length<=MAX_DATA_BUFFER_BYTES,
+                        "Managed ByteArray exceeds payload budget");
+                dataRequire(budgets[3]+recipe.bytes.length<=MAX_DATA_BUFFER_BYTES,"Managed buffer aggregate budget exceeded");
+                budgets[3]+=recipe.bytes.length; bytes[i]=recipe.bytes.clone();
+            } else if(recipe.kind==DataCtor.SCALAR) {
+                dataRequire(recipe.scalarType==U64||recipe.scalarType==USIZE||recipe.scalarType==F64||recipe.scalarType==F32,
+                        "Unsupported managed boxed scalar lane");
+                dataRequire(recipe.scalarType!=F32||(recipe.bits>>>32)==0,"Managed Float32 raw bits are not canonical");
+                budgets[3]+=scalarWidth(recipe.scalarType);
+                dataRequire(budgets[3]<=MAX_DATA_BUFFER_BYTES,"Managed scalar/buffer aggregate budget exceeded");
+            } else throw new IllegalArgumentException("Unknown managed recipe kind");
         }
         for(Object value:rootSnapshot) checkDataValue(value,snapshot.length,owners,budgets);
-        for(int owner:owners) dataRequire(owner==1,"Managed constructor has no owning occurrence");
+        for(int owner:owners) dataRequire(owner==1,"Managed constructor requires exactly one owning occurrence");
         Object[] output=new Object[rootSnapshot.length]; Node[] shells=new Node[snapshot.length];
         long nextAllocations=Math.addExact(allocations,snapshot.length);
-        for(int i=0;i<shells.length;i++) shells[i]=new Node(tags[i],fields[i].length,0);
-        // Only bounded private field wiring remains; no allocations, RC operations or caller-owned arrays.
+        for(int i=0;i<shells.length;i++) {
+            DataCtor recipe=snapshot[i];
+            if(recipe.kind==DataCtor.CONSTRUCTOR) shells[i]=new Node(recipe.tag,fields[i].length,0);
+            else if(recipe.kind==DataCtor.ARRAY) {
+                Node shell=new Node(246,fields[i].length,0); shell.array=true;
+                shell.metadata=new ArrayState(fields[i].length); shells[i]=shell;
+            } else if(recipe.kind==DataCtor.BYTES) {
+                Node shell=new Node(248,0,bytes[i].length); shell.metadata=new ByteArrayState(bytes[i].length);
+                System.arraycopy(bytes[i],0,shell.scalars,0,bytes[i].length); shells[i]=shell;
+            } else {
+                Node shell=new Node(0,0,scalarWidth(recipe.scalarType));
+                writeScalar(shell,0,recipe.scalarType,recipe.bits); shells[i]=shell;
+            }
+        }
+        // Only bounded private field wiring remains; no allocations, RC operations or caller arrays.
         for(int i=0;i<shells.length;i++)
-            for(int j=0;j<fields[i].length;j++) shells[i].fields[j]=dataValue(fields[i][j],shells);
+            if(fields[i]!=null) for(int j=0;j<fields[i].length;j++) shells[i].fields[j]=dataValue(fields[i][j],shells);
         for(int i=0;i<output.length;i++) output[i]=dataValue(rootSnapshot[i],shells);
         allocations=nextAllocations; return output;
     }
