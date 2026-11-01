@@ -152,12 +152,12 @@
     }
   },
   "currentSource": {
-    "landingBaseCommit": "a2b7ee2d89235aed869ed09cc6c575c12f137462",
+    "landingBaseCommit": "a75ab26cad4d9ba15409c0cc89e6aa8e356ad06c",
     "engineSourceSHA256": "9a3af598cf1168d15ba67b5dac49a302028329d885d18b91df97344baf37430e",
-    "status": "producer-capture-source-only-final-build-pending",
-    "freshJarBuilt": false,
-    "retainedJvmModelsRerun": false,
-    "javaOnlyConsumerRerun": false,
+    "status": "passed-final-captured-producer-and-jar-only-consumer",
+    "freshJarBuilt": true,
+    "retainedJvmModelsRerun": true,
+    "javaOnlyConsumerRerun": true,
     "historicalEvidenceEstablishesCurrentEngine": false,
     "historicalEvidenceEstablishesCurrentProducer": false
   },
@@ -232,11 +232,185 @@
     "boundedBytes": 2097152,
     "digestRecheckedOnCapturedBytes": true,
     "compileSourceRoot": "target/java-source",
-    "rootValidationPending": true,
+    "rootValidationPending": false,
     "sourceOnlyTestCases": [
       "unlisted neighbor ignored",
       "post-capture canonical change leaves compiler input fixed",
       "pre-capture mutation publishes no staged input"
     ]
+  },
+  "acceptedFinal": {
+    "testedProducerCommitBeforeAncestryOnlyRebase": "1a98217f",
+    "engineSourceSHA256": "9a3af598cf1168d15ba67b5dac49a302028329d885d18b91df97344baf37430e",
+    "producer": {
+      "command": "clojure -J-Xmx384m -T:build jar",
+      "cwd": "modules/lean-jvm",
+      "heapMiB": 384,
+      "exit": 0,
+      "sourceInput": "target/java-source/ansatz/research/ir/Interpreter.java",
+      "warnings": "Existing strictfp warning"
+    },
+    "retainedJvmModels": {
+      "sourceAudit": {
+        "tests": 5,
+        "assertions": 23,
+        "failures": 0,
+        "errors": 0
+      },
+      "adapter": {
+        "tests": 3,
+        "assertions": 9,
+        "failures": 0,
+        "errors": 0
+      }
+    },
+    "jarAudit": {
+      "jarBytes": 297699,
+      "jarSHA256": "15033377fb8f3cd2b4a888d34dabc5d3052a34d5b2b0f91fcdfeb7a92a2c1f69",
+      "entryCount": 144,
+      "engineClassCount": 129,
+      "javaRelease": 17,
+      "engineSourceSHA256": "9a3af598cf1168d15ba67b5dac49a302028329d885d18b91df97344baf37430e",
+      "runtimeResources": [
+        "ansatz/lean/jvm/ir.clj"
+      ],
+      "pomDependencies": [
+        [
+          "org.clojure",
+          "clojure",
+          "1.12.0"
+        ]
+      ],
+      "adapterSHA256": "111699a1c26034147cc633ce28bc78fa87f23eab6cd3493b0f084ff7a97ac77d",
+      "metadataSHA256": "4128c65f1b7c4802068c1d0481ca875cb615b9637658738eba2fab0d07846cb0",
+      "pomSHA256": "d83a9f68a2058db9ef7bbfc3148bcb29e36975775cf7996d80f7ce02d2f9bbf6"
+    },
+    "javaOnlyConsumer": {
+      "jarAudit": {
+        "jarBytes": 297699,
+        "jarSHA256": "15033377fb8f3cd2b4a888d34dabc5d3052a34d5b2b0f91fcdfeb7a92a2c1f69",
+        "entryCount": 144,
+        "engineClassCount": 129,
+        "javaRelease": 17,
+        "engineSourceSHA256": "9a3af598cf1168d15ba67b5dac49a302028329d885d18b91df97344baf37430e",
+        "runtimeResources": [
+          "ansatz/lean/jvm/ir.clj"
+        ],
+        "pomDependencies": [
+          [
+            "org.clojure",
+            "clojure",
+            "1.12.0"
+          ]
+        ],
+        "adapterSHA256": "111699a1c26034147cc633ce28bc78fa87f23eab6cd3493b0f084ff7a97ac77d",
+        "metadataSHA256": "4128c65f1b7c4802068c1d0481ca875cb615b9637658738eba2fab0d07846cb0",
+        "pomSHA256": "d83a9f68a2058db9ef7bbfc3148bcb29e36975775cf7996d80f7ce02d2f9bbf6"
+      },
+      "publicProjectAPI": false,
+      "steps": [
+        {
+          "stage": "javac",
+          "exit": 0,
+          "stdoutSHA256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "stderrSHA256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "stage": "java",
+          "exit": 0,
+          "stdoutSHA256": "50c4b64a9c0084b2f387ce5d88be251d842ca27b1a9a90b1c3f129fe8f07ae82",
+          "stderrSHA256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      ],
+      "classpathJarCount": 4,
+      "sourceCheckoutOnConsumerClasspath": false,
+      "resolvedJarNames": [
+        "ansatz-lean-jvm.jar",
+        "clojure-1.12.0.jar",
+        "core.specs.alpha-0.4.74.jar",
+        "spec.alpha-0.5.238.jar"
+      ],
+      "command": "python3 consumer/check.py --sdk-jar target/ansatz-lean-jvm.jar --expected-engine-source-sha256 9a3af598cf1168d15ba67b5dac49a302028329d885d18b91df97344baf37430e --dependency-jar \"$CLOJURE_JAR\" --dependency-jar \"$CORE_SPECS_JAR\" --dependency-jar \"$SPEC_JAR\" --output target/consumer-final-v1",
+      "javacRelease": 17,
+      "javacHeapMiB": 192,
+      "javaHeapMiB": 192,
+      "workingDirectoryEmpty": true,
+      "adapterLoadedFromJar": true,
+      "precompiledEngine": true,
+      "reusedEngineResults": [
+        37,
+        42
+      ],
+      "closed": true,
+      "legacyBackendNamespacesLoaded": false
+    },
+    "staticJarAudit": {
+      "actualJarAudits": 1,
+      "negativeCases": 6,
+      "result": "pass",
+      "javaProcesses": 0,
+      "nativeProcesses": 0
+    },
+    "externalEvidence": {
+      "primaryCheckout": [
+        {
+          "path": "target/java-source-exchange-v1/jvm-packaging-final-models-v1.edn",
+          "bytes": 127,
+          "sha256": "8e311875f0616e5537d4785cc1472a768d67587d0f8a12719fa8003ad5987d19"
+        }
+      ],
+      "landingCheckout": [
+        {
+          "path": "modules/lean-jvm/target/consumer-final-v1/result.json",
+          "bytes": 1465,
+          "sha256": "d8b408b869a8e68be82b0ab4a92100cb7ae239cb10ce380cf6715a1d56eabff3"
+        },
+        {
+          "path": "modules/lean-jvm/target/consumer-final-v1/javac.stdout",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "path": "modules/lean-jvm/target/consumer-final-v1/javac.stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "path": "modules/lean-jvm/target/consumer-final-v1/java.stdout",
+          "bytes": 101,
+          "sha256": "50c4b64a9c0084b2f387ce5d88be251d842ca27b1a9a90b1c3f129fe8f07ae82"
+        },
+        {
+          "path": "modules/lean-jvm/target/consumer-final-v1/java.stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "path": "modules/lean-jvm/target/consumer-final-v1/check.stdout",
+          "bytes": 1465,
+          "sha256": "d8b408b869a8e68be82b0ab4a92100cb7ae239cb10ce380cf6715a1d56eabff3"
+        },
+        {
+          "path": "modules/lean-jvm/target/consumer-final-v1/check.stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "path": "modules/lean-jvm/target/ansatz-lean-jvm.jar",
+          "bytes": 297699,
+          "sha256": "15033377fb8f3cd2b4a888d34dabc5d3052a34d5b2b0f91fcdfeb7a92a2c1f69"
+        },
+        {
+          "path": "modules/lean-jvm/target/java-source/ansatz/research/ir/Interpreter.java",
+          "bytes": 743881,
+          "sha256": "9a3af598cf1168d15ba67b5dac49a302028329d885d18b91df97344baf37430e"
+        }
+      ]
+    },
+    "ancestryOnlyRebase": {
+      "fromBase": "a2b7ee2d89235aed869ed09cc6c575c12f137462",
+      "toBase": "a75ab26cad4d9ba15409c0cc89e6aa8e356ad06c",
+      "engineAndFeatureBytesChanged": false
+    }
   }
 }

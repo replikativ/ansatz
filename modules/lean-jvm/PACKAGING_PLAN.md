@@ -25,21 +25,26 @@ backend. The runtime namespace has no require graph beyond Clojure itself and
 imports only Java reflection types. Its method wrappers dispatch to the canonical
 engine; parsing, RC, IR semantics and initialization behavior remain in Java.
 
-## Acceptance still required
+## Accepted packaging boundary and remaining work
 
-1. Root source-reader audit and negative inventory/dependency tests in the existing
-   JVM. Run adapter preparation models against an existing matching Class.
-2. Reviewed producer build with explicit compiler heap/process bounds. Inspect jar
-   entries/POM, confirm exactly one engine implementation and no prototype/research
-   namespace resources, and ensure no tooling/local-root dependency is published.
-3. Jar-only require using the normal namespace resource path, then linked-basis
-   preparation/execution from an empty working directory. Consumer classpath must
-   contain only resolved jars, not test/research source directories.
-4. Existing engine/header/initialization regressions as appropriate. Interpreter
-   source bytes must remain unchanged by packaging.
-5. Only after review, add a real public Java facade backed by admitted generic
-   artifact/project metadata and explicit branch/handle lifetime. Packaging this
-   adapter does not by itself fulfill loadProject/loadArtifact or typed handles.
+The root accepted source-reader inventory/capture audits (5 tests / 23 assertions)
+and adapter preparation models (3 tests / 9 assertions) in the retained JVM.
+The captured-source producer build passed with a 384 MiB heap. The built jar has
+144 entries, 129 Java 17 interpreter classes, one canonical Clojure adapter
+resource, and only Clojure 1.12.0 as its direct POM dependency. The Java-only
+consumer passed with the SDK plus three normal Clojure jars, from an empty
+working directory, with no research source roots or Clojure CLI on its classpath.
+It reused one precompiled engine for results 37 and 42, then closed it; no old
+backend namespace loaded. The actual archive audit and six rejection cases passed.
+Portable hashes and actual receipts are in `validation.json`.
+
+The final feature was rebased onto the newer byte-get landing as an ancestry-only
+change; its Java engine, producer and adapter bytes were unchanged. Earlier jar
+acceptance is retained separately rather than relabeled as final evidence.
+A consumer using both optional modules together was not run; the old module was
+preserved by the source diff. No public Java facade or generic artifact/project
+loader has been accepted. Those need admitted metadata, typed entry evidence and
+an explicit branch/handle lifetime contract before implementation claims.
 
 Native compilation service extraction, bundled helper/platform distribution,
 resource-backed compiled artifacts, StoreManager, one-branch-per-Project reuse,

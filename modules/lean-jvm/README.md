@@ -42,11 +42,15 @@ clojure -T:build check-package
 clojure -T:build jar
 ```
 
-The root built the initial jar with `clojure -J-Xmx384m -T:build jar` and
-accepted the retained-JVM source checks and Java-only jar consumer. The worker
-performed static archive audits without starting a JVM. Portable evidence and
-source pins are recorded in `validation.json`; distinguish the accepted initial
-engine revision from any later rebased source awaiting a fresh build. A consumer
+The root built the final captured-source jar with
+`clojure -J-Xmx384m -T:build jar`. Source audits passed 5 tests / 23 assertions,
+and adapter checks passed 3 tests / 9 assertions in the retained JVM. The tracked
+Java-only consumer then passed from an empty working directory with only the
+SDK and three normal Clojure dependency jars. Archive audits accepted the actual
+jar and rejected six deliberately invalid variants. The worker's archive checks
+started no JVM. Portable evidence and source pins are recorded in
+`validation.json`; the earlier 28cd engine jar remains a separate historical
+record from the final 9a3 engine/captured-producer acceptance. A consumer
 of a future published jar will not need Clojure CLI, build tooling or a source
 checkout. No release or deploy target is provided here.
 
@@ -67,10 +71,10 @@ root's already loaded Interpreter Class. These models exercise real in-memory
 original-row preparation, source-bound Header mechanics, selected-body materialization
 and explicit execution; they are not native evidence or source authentication.
 
-Before accepting a built package, separately verify its jar inventory and POM,
-then require `ansatz.lean.jvm.ir` and execute these models using `linked-basis` in
-a jar-only consumer classpath with no research roots. The root may build and
-validate that boundary later; it is not established by source checks alone.
+The final acceptance also verified the built jar inventory/POM, required
+`ansatz.lean.jvm.ir` from its jar resource and exercised `linked-basis` with no
+research roots on the consumer classpath. These checks establish the internal
+packaging boundary; they do not establish a public Project API or generic loader.
 
 The tracked [Java-only consumer](consumer/README.md) includes the actual accepted
 Java smoke source, bounded reproduction tooling, and static positive/negative
