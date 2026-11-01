@@ -189,10 +189,19 @@
   (try
     (let [text (proc-text! (str "/proc/" (.pid process) "/status"))]
       (rss-from-status! (.pid process) text (.isAlive process)))
-    (catch java.nio.file.NoSuchFileException error
+    (catch java.io.IOException error
+      ;; proc(5) can disappear during a buffered read as generic IOException
+      ;; (ESRCH), not only NoSuchFileException. Reobserve the actual handle;
+      ;; missing live measurements use the existing bounded evidence resampler.
+      (when (or (instance? java.io.InterruptedIOException error)
+                (.isInterrupted (Thread/currentThread)))
+        (.interrupt (Thread/currentThread))
+        (throw error))
       (if (.isAlive process)
-        (throw (ex-info "Live process status vanished"
-                        {:profile profile :pid (.pid process) :process-alive? true :status-unavailable true} error))
+        (throw (ex-info "Live process status read unavailable"
+                        {:profile profile :pid (.pid process) :process-alive? true
+                         :status-unavailable true :rss-unavailable true
+                         :read-failure-class (.getName (class error))} error))
         0))))
 (defn- pause-rss-sample! []
   (try (Thread/sleep 1)

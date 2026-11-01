@@ -198,3 +198,22 @@
 (defn check! [workspace]
   (binding [*directory* (.toRealPath (.toPath (io/file (str workspace))) (make-array java.nio.file.LinkOption 0))]
     (run-tests 'native-project-compiler-models-v1)))
+
+(deftest disappearing-proc-read-ioexception-rechecks-liveness-without-native-retry
+  (let [dead (reify ProcessHandle (pid [_] 99999999) (isAlive [_] false))
+        live (ProcessHandle/current)]
+    (with-redefs-fn {#'compiler/proc-text! (fn [_] (throw (java.io.IOException. "No such process")))
+                    #'compiler/pause-rss-sample! (fn [] nil)}
+      #(do (is (zero? (#'compiler/sample-handle-rss-kib dead)))
+           (let [error (try (#'compiler/handle-rss-kib live) nil (catch clojure.lang.ExceptionInfo e e))]
+             (is (= 3 (:status-samples (ex-data error))))
+             (is (:rss-unavailable (ex-data error)))
+             (is (:status-unavailable (ex-data error)))
+             (is (= "java.io.IOException" (:read-failure-class (ex-data error))))
+             (is (instance? java.io.IOException (.getCause ^Throwable (.getCause ^Throwable error)))))))
+    (let [calls (atom 0)]
+      (with-redefs-fn {#'compiler/proc-text! (fn [_] (if (= 1 (swap! calls inc))
+                                                    (throw (java.io.IOException. "No such process"))
+                                                    "State:\tR (running)\nVmRSS:\t321 kB\n"))
+                      #'compiler/pause-rss-sample! (fn [] nil)}
+        #(do (is (= 321 (#'compiler/handle-rss-kib live))) (is (= 2 @calls)))))))
