@@ -154,11 +154,12 @@
   "currentSource": {
     "landingBaseCommit": "a2b7ee2d89235aed869ed09cc6c575c12f137462",
     "engineSourceSHA256": "9a3af598cf1168d15ba67b5dac49a302028329d885d18b91df97344baf37430e",
-    "status": "rebased-source-only-final-build-pending",
+    "status": "producer-capture-source-only-final-build-pending",
     "freshJarBuilt": false,
     "retainedJvmModelsRerun": false,
     "javaOnlyConsumerRerun": false,
-    "historicalEvidenceEstablishesCurrentEngine": false
+    "historicalEvidenceEstablishesCurrentEngine": false,
+    "historicalEvidenceEstablishesCurrentProducer": false
   },
   "sourceInventory": [
     {
@@ -168,13 +169,13 @@
     },
     {
       "path": "modules/lean-jvm/ansatz_lean_jvm_build_audit.clj",
-      "bytes": 5234,
-      "sha256": "937248c26aa6f3c12724ee5f738b5a6208aafdf421748aa3e2432e8a3b00bb56"
+      "bytes": 6368,
+      "sha256": "82e1cdf567a3de11bf557c84212b4d1a4bd082062c86a86419569d89cc76efe8"
     },
     {
       "path": "modules/lean-jvm/build.clj",
-      "bytes": 1778,
-      "sha256": "e6a4538a0d23960a8a965c7400c7307af3f4167f2d42e4dae6c3d8044daff735"
+      "bytes": 1926,
+      "sha256": "3cf0ccd7cc660fedba161de2642a06446ff21a06781f1cbc1033fd7f722a4144"
     },
     {
       "path": "modules/lean-jvm/deps.edn",
@@ -193,8 +194,8 @@
     },
     {
       "path": "modules/lean-jvm/test/build_audit_checks.clj",
-      "bytes": 2231,
-      "sha256": "ae320544299da7b9a2295ba9325461e984cd51d7515796a221275adafaa6c747"
+      "bytes": 4411,
+      "sha256": "3ddaa28713f8e9223884aad8f8d8d3a04cf0313461e98ef97e89a5c5659521d0"
     },
     {
       "path": "modules/lean-jvm/test/prepare_checks.clj",
@@ -223,5 +224,19 @@
     "native compiler inclusion",
     "complete Init startup",
     "new native execution evidence"
-  ]
+  ],
+  "producerCapture": {
+    "canonicalJavaSourceTrackedOnce": true,
+    "ownedStagingRoot": "modules/lean-jvm/target/java-source",
+    "stagedRelativeSource": "ansatz/research/ir/Interpreter.java",
+    "boundedBytes": 2097152,
+    "digestRecheckedOnCapturedBytes": true,
+    "compileSourceRoot": "target/java-source",
+    "rootValidationPending": true,
+    "sourceOnlyTestCases": [
+      "unlisted neighbor ignored",
+      "post-capture canonical change leaves compiler input fixed",
+      "pre-capture mutation publishes no staged input"
+    ]
+  }
 }

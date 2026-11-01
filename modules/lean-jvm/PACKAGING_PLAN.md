@@ -9,8 +9,11 @@ boundary is sound before public Java facade work begins.
 - Runtime source: `src/ansatz/lean/jvm/ir.clj`, namespace `ansatz.lean.jvm.ir`.
 - Runtime metadata: `resources/META-INF/ansatz-lean-jvm/runtime.edn`.
 - Authoritative Java input: the existing research `Interpreter.java`, explicitly
-  named and SHA-pinned in `runtime-closure.edn`; all its compiled nested classes
-  belong in the jar. No copy of that source is tracked in this module.
+  named and SHA-pinned in `runtime-closure.edn`. Build-time capture checks the
+  exact bounded byte array again and writes only that file to the owned
+  `target/java-source` staging tree; javac receives only this tree. No canonical
+  source neighbors become inputs, even if they appear after initial audit. All
+  compiled nested classes belong in the jar. No copy of that source is tracked in this module.
 - Producer-only: `build.clj`, `ansatz_lean_jvm_build_audit.clj`, dependency/build
   configuration and strict inventory. These are not staged runtime namespaces.
 - Tests: two source-loaded check files under `test/`, excluded from the jar.

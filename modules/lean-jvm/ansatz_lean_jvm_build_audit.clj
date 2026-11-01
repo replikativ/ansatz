@@ -1,7 +1,7 @@
 (ns ansatz-lean-jvm-build-audit
   "Source-only package boundary audit. Does not load the adapter or Java engine."
   (:require [clojure.edn :as edn] [clojure.java.io :as io] [clojure.string :as str])
-  (:import [java.nio.file Files] [java.security MessageDigest]))
+  (:import [java.nio.file Files StandardOpenOption] [java.security MessageDigest]))
 
 (def engine-source "../../experiments/lean-ir/research/java-ir-baseline/src/ansatz/research/ir/Interpreter.java")
 (def runtime-dependencies '{org.clojure/clojure {:mvn/version "1.12.0"}})
@@ -43,9 +43,28 @@
   (if (.isDirectory (io/file root))
     (set (for [file (file-seq (io/file root)) :when (.isFile file)]
            (str/replace (str (.relativize (.toPath (io/file root)) (.toPath file))) "\\" "/"))) #{}))
-(defn- sha256 [file]
-  (let [bytes (Files/readAllBytes (.toPath (io/file file)))]
-    (apply str (map #(format "%02x" (bit-and 255 %)) (.digest (MessageDigest/getInstance "SHA-256") bytes)))))
+(defn- sha256-bytes [bytes]
+  (apply str (map #(format "%02x" (bit-and 255 %)) (.digest (MessageDigest/getInstance "SHA-256") bytes))))
+(defn- sha256 [file] (sha256-bytes (Files/readAllBytes (.toPath (io/file file)))))
+(defn capture-engine-source!
+  "Producer-only capture of one exact hash-checked byte array. Never scans or
+   copies source neighbors. STAGING-ROOT must have no files; the build cleans only
+   its owned target/java-source tree. No destination is written on pin failure."
+  [source expected-sha staging-root]
+  (let [maximum (* 2 1024 1024)
+        bytes (with-open [input (Files/newInputStream (.toPath (io/file source))
+                                  (make-array java.nio.file.OpenOption 0))]
+                (.readNBytes input (int (inc maximum))))
+        actual-sha (sha256-bytes bytes)
+        relative "ansatz/research/ir/Interpreter.java"
+        destination (io/file staging-root relative)]
+    (need (<= (alength bytes) maximum) "Engine source capture exceeds bound")
+    (need (= expected-sha actual-sha) "Engine source changed before capture")
+    (need (empty? (paths-under staging-root)) "Engine source staging must be empty")
+    (io/make-parents destination)
+    (Files/write (.toPath destination) bytes
+                 (into-array java.nio.file.OpenOption [StandardOpenOption/CREATE_NEW StandardOpenOption/WRITE]))
+    {:path relative :bytes (alength bytes) :sha256 actual-sha}))
 (defn verify!
   "Run from modules/lean-jvm or pass {:module-root path}. No JVM/backend effects."
   [{:keys [module-root] :or {module-root "."}}]
@@ -60,7 +79,6 @@
     (need (= (set (:resources closure)) (paths-under (io/file root "resources"))) "Uninventoried or absent runtime resource")
     (doseq [{:keys [path namespace]} (:sources closure)]
       (check-namespace! namespace (source-ns (io/file root "src" path))))
-    (need (= #{"Interpreter.java"} (paths-under (.getParentFile java))) "Extra Java source would be compiled")
     (need (= (get-in closure [:java :sha256]) (:engine-source-sha256 metadata) (sha256 java)) "Engine source/metadata pin mismatch")
     (need (and (= "ansatz-lean-jvm-runtime/1" (:schema metadata)) (= 17 (:java-release metadata))
                (= "ansatz.research.ir.Interpreter" (:engine-class metadata))

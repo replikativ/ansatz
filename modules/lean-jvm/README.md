@@ -11,9 +11,12 @@ core dependency; neither unused dependency is included by this extraction.
 Build tooling is a producer alias and is absent from the emitted runtime POM.
 
 `runtime-closure.edn` names every source/resource and the one canonical engine
-source. The producer build compiles that source once with `--release 17`; there
-is no second Interpreter.java. It copies the adapter source and runtime metadata
-into the jar. Runtime callers use `linked-basis`, which resolves the compiled
+source. The producer build captures its bounded, hash-checked bytes into the
+owned `target/java-source/ansatz/research/ir/Interpreter.java`, then compiles only
+that staging tree once with `--release 17`. The staging copy is generated build
+material; no second Interpreter.java is tracked. Source neighbors are never
+compiler inputs, and changes before capture fail the digest check. The build
+copies the adapter source and runtime metadata into the jar. Runtime callers use `linked-basis`, which resolves the compiled
 class on the application classpath. It creates no classloader, calls no javac,
 and does not discover a source checkout or class-directory path.
 
@@ -53,7 +56,10 @@ The source-only audit does not require loading an engine or adapter. Load
 `ansatz_lean_jvm_build_audit.clj`, then `test/build_audit_checks.clj`, and invoke
 `ansatz-lean-jvm-build-audit-checks/check!` with this module directory. It checks
 the actual namespace/resource inventory, exact runtime dependency set and engine
-pin, plus negative namespace, resource-path and dependency cases.
+pin, plus negative namespace, resource-path and dependency cases. Capture tests
+verify that an unlisted neighbor is ignored, the staged source stays fixed after
+a canonical-file change, and a pre-capture mutation fails without publishing
+compiler input. These source-only tests create no Java/native processes.
 
 For adapter execution, load `src/ansatz/lean/jvm/ir.clj` and
 `test/prepare_checks.clj`. Invoke `ansatz-lean-jvm-prepare-checks/check!` with the
