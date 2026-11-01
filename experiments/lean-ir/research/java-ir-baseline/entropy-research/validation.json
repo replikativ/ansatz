@@ -1,0 +1,59 @@
+{
+  "schema": "original-random-research-validation/1",
+  "historicalRuntimeSourceSHA256": "ba746bd0a7adff71f73b6f05f2129ce122a4bae5c1b7a966b5bf49991c1aba95",
+  "historicalFocusedModels": {
+    "tests": 14,
+    "assertions": 145,
+    "failures": 0,
+    "errors": 0
+  },
+  "directHeaderModelsReportedByRoot": {
+    "tests": 1,
+    "assertions": 5,
+    "failures": 0,
+    "errors": 0
+  },
+  "currentRuntimeSourceSHA256": "e7055544ecfe254af448e03cafb21cace3503da4abee27bc743c232ec50a9981",
+  "currentRootReported": {
+    "focusedTests": 16,
+    "focusedAssertions": 169,
+    "failures": 0,
+    "errors": 0,
+    "newProducerRows": 62,
+    "newProducerSHA256": "f644f89c61f672569743eb11ad6874cb35028b3e4097554f4b96145b54e32ea0",
+    "deterministicInitializerState": [
+      990732983,
+      235670034
+    ],
+    "idleForkNoReseed": true,
+    "bothEnginesClosed": true,
+    "portableReceiptPending": false,
+    "defaultJdk": true,
+    "unsignedAllFF": true,
+    "expectedProviderError": true,
+    "regressionGroupsReported": {
+      "groups": 8,
+      "tests": 89,
+      "assertions": 7448,
+      "failures": 0,
+      "errors": 0,
+      "correctedAggregateReceiptPending": true
+    }
+  },
+  "workerChecks": {
+    "captureRecreation": "63 rows,98974 bytes,exact manifest and stream hashes",
+    "runtimeExecuted": false,
+    "readerOnlyForms": {
+      "random-gate.clj": 13,
+      "direct-header-models.clj": 3,
+      "run-original-random.clj": 2,
+      "run-original-random-error.clj": 2
+    }
+  },
+  "notEstablished": [
+    "complete Init startup/module ledger",
+    "public SDK Project API",
+    "fresh SDK jar producer/consumer for current source",
+    "POSIX entropy parity"
+  ]
+}
