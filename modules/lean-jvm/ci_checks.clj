@@ -35,6 +35,7 @@
               "test/filesystem_lifecycle_checks.clj"
               "test/filesystem_writing_checks.clj"
               "test/entry_checks.clj" "test/extended_entry_checks.clj" "test/scalar_buffer_checks.clj"
+              "test/type_graph_checks.clj"
               "test/native_transport_checks.clj"
               "test/io_error_checks.clj"
               "test-engine/source-contracts/source_authority_contracts.clj"]]
@@ -67,6 +68,7 @@
               ['ansatz-lean-jvm-producer-checks ["."]]
               ['ansatz-lean-jvm-boundary-checks ["."]]
               ['ansatz-lean-jvm-scalar-buffer-checks []]
+              ['ansatz-lean-jvm-type-graph-checks []]
               ['ansatz-lean-jvm-native-transport-checks []]
               ['ansatz-lean-jvm-io-error-checks []]
               ['source-authority-contracts ["."]]]
