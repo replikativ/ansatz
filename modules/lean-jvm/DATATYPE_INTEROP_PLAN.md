@@ -273,6 +273,56 @@ persisted declaration layouts and instantiated/trivial type representation
 must be independently validated in the native-evidence phase before these
 references authorize any reads, writes or allocation.
 
+The isolated [NativeTypeGraph module](../../tools/lean-producer/src/NativeTypeGraph.lean)
+now defines `discover (roots : Array Expr) (products : Name → Option String) :
+MetaM Discovery`, returning `logical : Json` and separate `layouts : Json`.
+It is not imported by the v2 producer, registered as a helper cohort, or accepted
+by public entry dispatch. Source implementation alone is not a native acceptance
+receipt. Its [probe](../../tools/lean-producer/test/NativeTypeGraphProbe.lean)
+uses explicit dummy product claims only to test lookup custody; those hashes
+are never authenticated product evidence.
+
+Discovery checks actual closed native types, normalizes aliases under default
+Meta transparency, reconstructs canonical closed applications with native DefEq,
+and registers provisional Expr keys before walking constructor fields through a
+bounded work queue. Constructor parameters are instantiated from actual closed
+arguments; every remaining logical domain must be closed and independent of
+previous field binders, including before reduction. Actual constructor result
+type/family/index/field count are checked. The native parameter classifier admits
+type-valued parameters only. Closed universe arguments use actual
+`Level.normalize.toNat`, with input work/depth and output numeral bounds.
+Native expression normalization/checking has separate bounded input scans;
+repeated inference work is charged conservatively and may exhaust before the
+emitted graph's structural maximum.
+
+Native `InductiveVal.all` records the user mutual block; `numNested` separately
+counts compiler-generated nested auxiliaries (`numTypeFormers = all.length +
+numNested` in the pinned source). Requiring `all == [name]` rejects user mutual
+families while admitting AST recursion under List/Array. Native elaboration's
+fixed-parameter checks and the graph's regularity/finite-closure checks remain
+independent safeguards against changing recursive applications. Unknown compiler
+runtime builtins are excluded using the pinned LCNF runtime-type registry in
+addition to explicit special/resource head checks.
+
+Origin module Names come from native `Environment.getModuleIdxFor?` and the
+imported module table, or native `mainModule` for local declarations. The supplied
+lookup must contain a canonical product digest for every encountered nominal
+defining module; absence fails. This does not establish product authenticity or
+permit using a source path/module Name alone as identity.
+
+The separate observation document has schema
+`lean-jvm-native-layout-observations/3`, scope `observed-not-admitted`, an
+`applications` array of discovery-definition IDs and actual closed application
+IR types, and a `families` array of persisted generic declaration layouts:
+typeName/IR type/trivial-structure information plus each original constructor's
+CtorInfo and CtorFieldInfo. Declaration `getCtorLayout` is not recomputed as a
+specialization of each closed generic instance. Closed application observation
+uses actual toLCNFType → toMonoType → toImpureType, including trivial erasure.
+These are observations, not the authenticated physical document or checked
+layout-reference plan described above. Future evidence integration must bind
+digests, rewrite discovery IDs to canonical IDs, establish exact logical/native
+field correspondence and independently verify the representation profile.
+
 ## Frozen storage and custody
 
 Current `Interpreter.Node` is static, but exposes mutable tag/RC and mutable
