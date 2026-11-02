@@ -6,6 +6,7 @@
 (def engine-class "ansatz.lean.jvm.internal.exec.Interpreter")
 (def runtime-resources ["META-INF/ansatz-lean-jvm/runtime.edn"
                         "META-INF/ansatz-lean-jvm/user-error.json"
+                        "META-INF/ansatz-lean-jvm/filesystem-layouts.jsonl"
                         "META-INF/ansatz-lean-jvm/NOTICE"])
 (def runtime-dependencies '{org.clojure/clojure {:mvn/version "1.12.0"}
                              org.clojure/data.json {:mvn/version "2.5.1"}})

@@ -50,6 +50,8 @@ python3 consumer/project_check.py --sdk-jar target/ansatz-lean-jvm.jar \
   "${dependency_args[@]}" --main-class MonadsSmoke --output target/ci-monads-consumer
 python3 consumer/project_check.py --sdk-jar target/ansatz-lean-jvm.jar \
   "${dependency_args[@]}" --main-class PersistentMapSmoke --output target/ci-persistent-map-consumer
+python3 consumer/project_check.py --sdk-jar target/ansatz-lean-jvm.jar \
+  "${dependency_args[@]}" --main-class FelineSmoke --output target/ci-feline-consumer
 
 
 echo "Checking atomic resource limits against the same compiled SDK engine"
@@ -65,6 +67,9 @@ javac -J-Xmx192m --release 17 -cp target/ansatz-lean-jvm.jar -d target/ci-resour
   test-java/ManagedDataChecks.java \
   test-java/SharingTraceChecks.java \
   test-java/StringSearchChecks.java \
+  test-java/FilesystemLayoutChecks.java \
+  test-java/ReadOnlyFileSessionChecks.java \
+  test-java/HostServicesConfigurationChecks.java \
   test-java/CapturedStdioChecks.java \
   test-java/InvocationOptionsChecks.java \
   test-java/ManagedScalarBufferChecks.java \
@@ -72,6 +77,9 @@ javac -J-Xmx192m --release 17 -cp target/ansatz-lean-jvm.jar -d target/ci-resour
 java -Xmx192m -cp target/ci-resource-checks:target/ansatz-lean-jvm.jar ManagedDataChecks
 java -Xmx192m -cp target/ci-resource-checks:target/ansatz-lean-jvm.jar SharingTraceChecks
 java -Xmx192m -cp target/ci-resource-checks:target/ansatz-lean-jvm.jar StringSearchChecks
+java -Xmx128m -cp target/ci-resource-checks:target/ansatz-lean-jvm.jar ansatz.lean.jvm.internal.exec.FilesystemLayoutChecks
+java -Xmx128m -cp target/ci-resource-checks:target/ansatz-lean-jvm.jar ansatz.lean.jvm.internal.fs.ReadOnlyFileSessionChecks target/ci-filesystem-provider-root
+java -Xmx128m -cp target/ci-resource-checks:target/ansatz-lean-jvm.jar HostServicesConfigurationChecks
 java -Xmx192m -cp target/ci-resource-checks:target/ansatz-lean-jvm.jar CapturedStdioChecks
 java -Xmx128m -cp target/ci-resource-checks:target/ansatz-lean-jvm.jar InvocationOptionsChecks
 java -Xmx192m -cp target/ci-resource-checks:target/ansatz-lean-jvm.jar ManagedScalarBufferChecks

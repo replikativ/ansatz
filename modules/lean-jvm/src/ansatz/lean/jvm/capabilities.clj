@@ -29,6 +29,7 @@
    :captured-stdin ["GET_STDIN"]
    :captured-stderr ["GET_STDERR"]
    :managed-sharing-diagnostic ["DBG_TRACE_SHARED"]
+   :filesystem ["FS_METADATA" "FS_OPEN" "FS_READ" "FS_LINE" "FS_WRITE" "FS_PUT" "FS_FLUSH" "FS_TTY"]
    :entropy ["IO_RANDOM_BYTES"]
    ;; Existing Interpreter PANIC terminates with an unsupported-operation
    ;; failure; it never invents Lean's default-return result.
@@ -49,6 +50,13 @@
    :borrowed (mapv #(get % "borrow") (get declaration "xs")) :result (get declaration "type")})
 (defn- spec-abi [spec]
   {:params (vec (field spec "paramTypes")) :borrowed (vec (field spec "borrowed")) :result (field spec "resultType")})
+(def ^:private filesystem-names
+  {"FS_METADATA" "System.FilePath.metadata" "FS_OPEN" "IO.FS.Handle.mk"
+   "FS_READ" "IO.FS.Handle.read" "FS_LINE" "IO.FS.Handle.getLine"
+   "FS_WRITE" "IO.FS.Handle.write" "FS_PUT" "IO.FS.Handle.putStr"
+   "FS_FLUSH" "IO.FS.Handle.flush" "FS_TTY" "IO.FS.Handle.isTty"})
+(defn- typed-name [text]
+  (reduce (fn [parent part] ["str" parent part]) ["anonymous"] (.split ^String text "\\.")))
 (defn check-rows!
   "Refuse every unknown capability before Header publication/engine effects.
    Match actual runtime symbol AND full ABI, then classify semantic intrinsic ID."
@@ -64,18 +72,31 @@
                               _ (need (= 1 (count matches)) "Unknown or ambiguous runtime extern ABI")
                               intrinsic (field (first matches) "intrinsic") family (get index intrinsic)]
                           (need family "Required intrinsic is outside the audited task-free profile")
+                          (when (= :filesystem (:family family))
+                            (need (and (= (typed-name (filesystem-names (:field family))) (get row "name"))
+                                       (= (typed-name "Init.System.IO") (get row "sourceModule"))
+                                       (= "ordinary" (get-in row ["runtime" "role"]))
+                                       (nil? (get-in row ["runtime" "initializer"]))
+                                       (nil? (get-in row ["runtime" "initializationAction"]))
+                                       (nil? (get row "redirect")))
+                                  "Filesystem profile requires original canonical installed Headers"))
                           (when (= :entropy (:family family))
                             (need (= ["str" ["str" ["anonymous"] "IO"] "getRandomBytes"] (get row "name"))
                                   "Entropy profile requires its canonical installed Header Name"))
                           [(get row "name") (assoc family :intrinsic intrinsic :symbol symbol :abi (abi declaration))])))]
-    {:profile :task-free-captured-output-v1 :runtime-class cls :registry-object registry
+    {:profile (if (some #(= :filesystem (:family %)) (vals externs))
+                :task-free-read-only-files-v1 :task-free-captured-output-v1)
+     :filesystem-required (boolean (some #(= :filesystem (:family %)) (vals externs)))
+     :runtime-class cls :registry-object registry
      :entropy-action (static-field cls "ACTION_ENTROPY")
      :native-action (static-field cls "ACTION_NATIVE")
      :string-any-intrinsic (static-field cls "STR_ANY")
      :externs externs :typed-inputs #{:nat :string :erased-world}
      :dynamic-io-profile :bounded-stdio-read-line-write-flush-tty
      :stdin-profile :native-like-finite-byte-input
-     :runtime-unsupported #{:panic-default-return :heap-leaf-sharing-observation :stdio-redirection :host-filesystem}
+     :runtime-unsupported (if (some #(= :filesystem (:family %)) (vals externs))
+                            #{:panic-default-return :heap-leaf-sharing-observation :stdio-redirection :filesystem-writes :arbitrary-host-filesystem}
+                            #{:panic-default-return :heap-leaf-sharing-observation :stdio-redirection :host-filesystem})
      :task-runtime false :host-handlers false :guest-export-aliases false :code-demand false}))
 (defn check-program!
   "Bind the requirements to the actual fully prepared canonical Program. No engine exists."

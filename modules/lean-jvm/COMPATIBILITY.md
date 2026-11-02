@@ -24,9 +24,11 @@ have been ported. There is no aggregate compatibility percentage.
 [SDK guide](README.md); consult release receipts for any published artifact.
 The proof-backed sort/sharing work shipped in **0.2.583** through
 [PR #374](https://github.com/replikativ/ansatz/pull/374).
-“C2 prototype” is the supplied-stdio implementation under integration;
-native differential and packaged public acceptance pass locally. That label
-does not claim a shipped release. “Unreviewed” means no complete semantic-family audit,
+Finite stdio landed through [PR #375](https://github.com/replikativ/ansatz/pull/375);
+runtime-domain/monad/error work through [PR #376](https://github.com/replikativ/ansatz/pull/376),
+and explicit installed imports through [PR #377](https://github.com/replikativ/ansatz/pull/377).
+The opt-in filesystem slice described below is an integration candidate, whose
+local receipts do not establish a published release. “Unreviewed” means no complete semantic-family audit,
 even when some symbols have engine implementations.
 
 [Historical validation](validation.json) preserves its original scope. The
@@ -50,11 +52,11 @@ engine operations or admission rules but are not native execution receipts.
 | Sharing diagnostics | Introduced in 0.2.583; this candidate replaces mandatory static shape admission with actual runtime domain checks. `lean_dbg_trace_if_shared` keeps its owning supported result unchanged and captures native-style stderr for non-scalar, non-exclusive managed objects. | [Engine checks](test-java/SharingTraceChecks.java), [source checks](test/source_acceptance.clj), [sort example](examples/fp-lean-sort/README.md). String/BigInteger leaves lack logical RC and throw if reached. Earlier guest work may occur; a failed Project is terminal. Projections and closures are not themselves a reason to reject a known primitive. Source types never establish heap-leaf ownership, including unsafe implementation replacements. All source/artifact/full-ABI checks remain. C-string NUL truncation and allocation-dependent trace counts remain observable. Pure checked calls still reject captured output. |
 | Invocation stdio | Finite supplied stdin and independent raw stdout/stderr capture; no process-global stdin takeover. Existing simple calls use empty input. Getter admission includes stdin/stderr alongside stdout. | [Invocation options](src-java/ansatz/lean/jvm/InvocationOptions.java), [project lifecycle](src/ansatz/lean/jvm/project.clj), [captured-stream checks](test-java/CapturedStdioChecks.java), [options checks](test-java/InvocationOptionsChecks.java). Unchanged HelloName, EarlyReturn and ForMIO pass native differential checks, including EOF, CRLF and NUL. [StdIOSmoke](consumer/StdIOSmoke.java) passes Java/Clojure calls from an application JAR without the native frontend. Candidate sort-CLI coverage follows the runtime-domain contract above. |
 | Monad composition and guest errors | Ordinary monad implementations execute as IR. The candidate adds a native-backed ReaderT/StateT/ExceptT/ST/EST/StateRefT corpus and partial uncaught `userError` details; other IO.Error variants remain generic. | [Monad corpus](examples/monad-conformance/README.md), [acceptance helpers](test/monad_acceptance.clj), [error models](test/io_error_checks.clj). Java/Clojure `LeanException.details()` returns immutable bounded kind/message fields for the independently witnessed userError layout. This adds neither arbitrary EIO host signatures nor custom datatype codecs. Host limits/cancellation do not promise guest finally execution. |
-| Filesystem | Missing from the public profile after C2 streams: Handle open/read/write/line/flush/TTY, paths and metadata are a separate coherent slice. | Capability admission still refuses required filesystem externs. The Feline target additionally needs Handle operations and `lean_io_metadata`; stream support alone does not make its actual CLI runnable. Cleanup, error translation, cancellation and external-resource fork policy need acceptance together. |
+| Filesystem | Integration candidate: explicit read-only Linux regular-file context, real Handle lifetime/cursor behavior and truthful bounded metadata. Default runtime scopes supply no filesystem permission. | [Filesystem contract](FILESYSTEM.md), unchanged two-file [Feline](examples/fp-lean-feline/README.md), [acceptance helpers](test/filesystem_acceptance.clj), [JVM-only Java/Clojure consumer](consumer/FelineSmoke.java). Eight source/cache/artifact cases compare with official native execution. Directory/special-file opens, symlinks, absolute/parent paths and non-read modes remain unsupported; policy failures are distinct from guest IO errors. Filesystem initializers and forks are refused. |
 | Tasks and forks | Internal partial implementations and engine contracts exist; the public Project profile enables neither task runtime nor public forks. | [Engine contracts](test-engine/README.md), [capabilities](src/ansatz/lean/jvm/capabilities.clj). C2's internal eager-fork test copies the input cursor/epoch and captures while sharing only private immutable input bytes. That is not a public fork API or an OS-resource snapshot policy. |
 | Platform and resources | Deliberate bounded policy: admitted Linux/64-bit cohort, cooperative two-million-instruction/five-second calls, bounded conversion/allocation/output and explicit failure. These are not hard JVM memory or preemption guarantees. | [Project budgets](src/ansatz/lean/jvm/project.clj), [scalar/buffer rules](src/ansatz/lean/jvm/scalar_buffer.clj), [resource checks](test-java/RuntimeResourceChecks.java), [SDK limits](README.md#values-resources-and-lifetime). A stopped failed Project is not replayed; retirement may abandon independently checked pure heap for JVM GC, without claiming guest finalizers or rollback. |
 
-## C2 supplied-stdio contract under acceptance
+## Supplied-stdio contract
 
 - Input is an immutable private snapshot, at most **1 MiB** per invocation.
   Java text input must be valid Unicode and encode within that bound; byte input
@@ -103,5 +105,6 @@ before promoting any family into public admission.
 For each extension, record source/entry/admission/execution stage separately,
 retain unchanged sources and explicit adapters, and compare native references
 with the exact candidate JVM artifact. Preserve expected refusals alongside
-successful cases. After stdio acceptance, filesystem/Feline is the next IO slice;
-custom host values and package preparation remain distinct follow-up work.
+successful cases. The filesystem/Feline candidate adds a separate owned-resource
+profile; custom host values, typed callbacks and broader package preparation
+remain distinct follow-up work.
