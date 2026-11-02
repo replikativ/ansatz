@@ -19,7 +19,7 @@
             [ansatz.tactic.elab-term :as telab]
             [ansatz.tactic.instance :as inst]
             [ansatz.config :as config])
-  (:import [ansatz.kernel ConstantInfo]))
+  (:import [ansatz.kernel ConstantInfo Expr]))
 
 (defn- tactic-error! [msg data]
   (throw (ex-info (str "Tactic error: " msg) (merge {:kind :tactic-error} data))))
@@ -3013,13 +3013,73 @@
                                   (into (vec front) (remove front-set gs)))))
             (recur (conj prev gid) tail (or first-error (:error attempt)))))))))
 
-(defn unfold-in-goal
-  "Unfold (delta-reduce) a definition in the goal type.
-   Replaces the outermost application of `def-name` with its definition value.
-   This makes opaque function bodies visible for further reduction.
+(defn- recursive-encoding?
+  "True when a definition value is a compiled recursion (structural `T.brecOn` or a
+   well-founded fixpoint). Lean's `getUnfoldEqnFor?` (nonRec := false) returns an unfold
+   equation exactly for recursive definitions; this identifies the same class from the
+   compiled encoding."
+  [^Expr value]
+  (loop [pending [value] seen #{}]
+    (if-let [x (peek pending)]
+      (let [pending (pop pending)]
+        (if (contains? seen x)
+          (recur pending seen)
+          (let [seen (conj seen x)]
+            (case (e/tag x)
+              :const (let [n (name/->string (e/const-name x))]
+                       (if (or (.endsWith n ".brecOn") (.startsWith n "WellFounded.fix")
+                               (= n "WellFounded.Nat.fix"))
+                         true
+                         (recur pending seen)))
+              :app (recur (conj pending (e/app-fn x) (e/app-arg x)) seen)
+              :lam (recur (conj pending (e/lam-type x) (e/lam-body x)) seen)
+              :forall (recur (conj pending (e/forall-type x) (e/forall-body x)) seen)
+              :let (recur (conj pending (e/let-type x) (e/let-value x) (e/let-body x)) seen)
+              :mdata (recur (conj pending (e/mdata-expr x)) seen)
+              :proj (recur (conj pending (e/proj-struct x)) seen)
+              (recur pending seen)))))
+      false)))
 
-   Usage: (unfold sorted)
-   Effect: sorted(args...) → body[args...] in the goal"
+(defn- delta-expand
+  "Lean `Meta.deltaExpand e (· == declName)` (Meta/Tactic/Delta.lean): replace every
+   occurrence of `def-name` — under binders, lets and projections too — by its value with
+   the occurrence's universe levels, and head-beta the result. No further reduction:
+   other constants (in particular recursive callees) stay folded."
+  [^Expr expr def-name ^ConstantInfo ci]
+  (let [def-val (.value ci)
+        params (vec (.levelParams ci))
+        walk (fn walk [x]
+               (let [[head args] (e/get-app-fn-args x)]
+                 (if (and (e/const? head) (= (e/const-name head) def-name))
+                   (let [val (if (seq params)
+                               (e/instantiate-level-params
+                                def-val (zipmap params (e/const-levels head)))
+                               def-val)]
+                     (head-beta (apply e/app* val (map walk args))))
+                   (case (e/tag x)
+                     :app (e/app (walk (e/app-fn x)) (walk (e/app-arg x)))
+                     :lam (e/lam (e/lam-name x) (walk (e/lam-type x)) (walk (e/lam-body x))
+                                 (e/lam-info x))
+                     :forall (e/forall' (e/forall-name x) (walk (e/forall-type x))
+                                        (walk (e/forall-body x)) (e/forall-info x))
+                     :let (e/let' (e/let-name x) (walk (e/let-type x)) (walk (e/let-value x))
+                                  (walk (e/let-body x)))
+                     :mdata (e/mdata (e/mdata-data x) (walk (e/mdata-expr x)))
+                     :proj (e/proj (e/proj-type-name x) (e/proj-idx x) (walk (e/proj-struct x)))
+                     x))))]
+    (walk expr)))
+
+(defn unfold-in-goal
+  "Unfold a definition in the goal type, following Lean `Meta.unfoldTarget`
+   (Meta/Tactic/Unfold.lean).
+
+   Non-recursive definitions take Lean's `deltaExpand` path: every occurrence of the
+   constant is replaced by its value and head-beta-reduced; nothing else is unfolded, so
+   calls to other definitions stay folded. Recursive definitions are unfolded with their
+   unfold equation in Lean; structural definitions do not carry one here yet, so they keep
+   the previous delta+whnf unfolding of their occurrences.
+
+   Usage: (unfold sorted)"
   [ps def-name-str]
   (let [goal (proof/current-goal ps)
         _ (when-not goal (tactic-error! "No goals" {}))
@@ -3055,9 +3115,14 @@
                                            (identical? a (e/app-arg expr)))
                                     expr (e/app f a)))
                            expr))))
-        new-goal-type (replace-fn (:type goal))
-        ;; WHNF the unfolded goal to reduce the beta-redex
-        new-goal-type-reduced (#'tc/cached-whnf st new-goal-type)
+        new-goal-type-reduced
+        (if (recursive-encoding? def-val)
+          ;; recursive: delta + whnf (no unfold equation for structural definitions yet)
+          (#'tc/cached-whnf st (replace-fn (:type goal)))
+          (delta-expand (:type goal) def-name ci))
+        _ (when (= new-goal-type-reduced (:type goal))
+            (tactic-error! (str "unfold: failed to unfold " def-name-str " in the goal")
+                           {:declaration def-name-str}))
         [ps' new-id] (proof/fresh-mvar-replacing ps new-goal-type-reduced (:lctx goal) (:id goal))]
     ;; The unfolded goal is DEF-EQ to the original (delta + whnf preserve def-eq), so the
     ;; subgoal's proof directly proves the original. Delegate via :simp-reduce with a nil
