@@ -9,7 +9,7 @@
             [ansatz.lean.jvm.argument :as argument] [ansatz.lean.jvm.construction :as construction]
             [clojure.java.io :as io] [clojure.string :as str])
   (:import [java.math BigInteger] [java.nio.charset StandardCharsets]
-           [java.util WeakHashMap] [ansatz.lean.jvm MainResult IOResult LeanUnit]))
+           [java.util WeakHashMap] [ansatz.lean.jvm MainResult IOResult LeanUnit InvocationOptions]))
 (deftype Services [basis capability])
 (deftype Project [])
 (deftype Handle [owner name signature])
@@ -49,7 +49,17 @@
 (defn- deadline! [engine]
   (.invoke (.getMethod (class engine) "configureAtomicDeadlineAfterNanos" (into-array Class [Long/TYPE]))
            engine (object-array [(long duration-nanos)])))
-(defn- drain! [engine] (vec (invoke-zero engine "drainCapturedOutput")))
+(defn- drain! [engine] (vec (invoke-zero engine "drainCapturedBytes")))
+(defn- begin-invocation! [engine ^InvocationOptions options stdout-prefix stderr-prefix]
+  (.invoke (.getMethod (class engine) "beginInvocation"
+                       (into-array Class [(class (byte-array 0)) Integer/TYPE Integer/TYPE]))
+           engine (object-array [(.stdinBytes options)
+                                 (int (- (.stdoutLimitBytes options) stdout-prefix))
+                                 (int (- (.stderrLimitBytes options) stderr-prefix))])))
+(defn- join-bytes [^bytes prefix ^bytes suffix]
+  (let [out (byte-array (+ (alength prefix) (alength suffix)))]
+    (System/arraycopy prefix 0 out 0 (alength prefix))
+    (System/arraycopy suffix 0 out (alength prefix) (alength suffix)) out))
 (defn- codec-bytes []
   (let [resource (io/resource "META-INF/ansatz-lean-jvm/user-error.json")]
     (need resource "RuntimeBoundary" "SDK codec resource is absent")
@@ -216,7 +226,8 @@
       (do (need (and (= Long (class (aget ^objects fields 0))) (zero? (long (aget ^objects fields 0))))
                 "RuntimeBoundary" "IO Unit entry returned another payload") :ok)
       :io-error)))
-(defn invoke-arguments! [project handle arguments]
+(defn invoke-arguments-with-options! [project handle arguments options]
+  (need (= InvocationOptions (class options)) "InvalidArgument" "Actual InvocationOptions required")
   (let [cell (cell! project)]
     (locking cell
       (live! cell)
@@ -228,13 +239,23 @@
             planned (argument/plan descriptor (get metadata "codecWitnesses") arguments)
             io? (= "io" (get descriptor "effect"))
             planned (cond-> planned io? (update :roots conj (long 0)))
-            slot (:slot @cell)]
+            slot (:slot @cell)
+            ^InvocationOptions options options
+            [prefix-out prefix-err] (:prefix @cell)
+            stdout-prefix (if io? (alength ^bytes prefix-out) 0)
+            stderr-prefix (if io? (alength ^bytes prefix-err) 0)]
+        ;; A tighter policy may refuse pending initialization output without
+        ;; entering a guest lease or poisoning a healthy Project.
+        (need (and (<= stdout-prefix (.stdoutLimitBytes options))
+                   (<= stderr-prefix (.stderrLimitBytes options)))
+              "ResourceLimit" "Initialization output exceeds invocation limits")
         (try
           (let [{:keys [decoded output]}
                 (startup/with-ready-engine! (:run @cell)
                   (fn [{:keys [ctx engine entries headers]}]
                     (let [[header callable entry] (entry! entries headers (.-name ^Handle handle) descriptor)
                           _ (need (some? header) "RuntimeBoundary" "Actual callable Header absent")
+                          _ (begin-invocation! engine options stdout-prefix stderr-prefix)
                           _ (aset ^objects slot 2 header)
                           runtime-arguments (construction/materialize! ctx engine planned)
                           _ (aset ^objects slot 0 runtime-arguments)
@@ -250,17 +271,20 @@
                             (if (= "raw-nullary-scalar" (get entry "resultABI"))
                               (scalar/decode-external-scalar (get descriptor "result") raw)
                               (value/decode ctx (get descriptor "result") (get entry "codecWitnesses") raw)))
-                          output (finish-result! ctx engine raw slot)]
+                          output (finish-result! ctx engine raw slot)
+                          _ (invoke-zero engine "endInvocation")]
                       {:decoded decoded :output output})))]
             (if io?
               (do
                 (need (= :ok (:kind decoded)) "GuestIOError" "Lean IO entry returned an error")
-                (let [[out err] output [prefix-out prefix-err] (:prefix @cell)]
-                  (swap! cell assoc :prefix ["" ""])
-                  (IOResult. (:value decoded) (str prefix-out out) (str prefix-err err))))
-              (do (need (= ["" ""] output) "RuntimeBoundary" "Pure checked entry produced captured output")
+                (let [[out err] output]
+                  (swap! cell assoc :prefix [(byte-array 0) (byte-array 0)])
+                  (IOResult. (:value decoded) (join-bytes prefix-out out) (join-bytes prefix-err err))))
+              (do (need (every? #(zero? (alength ^bytes %)) output) "RuntimeBoundary" "Pure checked entry produced captured output")
                   decoded)))
           (catch Throwable failure (swap! cell assoc :status :failed) (throw failure)))))))
+(defn invoke-arguments! [project handle arguments]
+  (invoke-arguments-with-options! project handle arguments (InvocationOptions/empty)))
 (defn invoke-function! [project handle input]
   (let [descriptor (function-descriptor! project handle)]
     (need (contains? #{(signature/from-legacy "nat-to-nat") (signature/from-legacy "string-to-string")} descriptor)

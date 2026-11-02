@@ -91,3 +91,18 @@ checks cold/cache/edit/reload/artifact paths, both corpora, warnings and errors,
 unsupported capabilities and higher-order entry rejection. It changes only its
 new owned output directory. The published v2 helper bundle is required; no download
 or installation is performed. The mandatory JVM-only CI gate needs no toolchain.
+
+## Finite stdin and byte output consumer
+
+`StdIOSmoke.java` loads the native-prepared [stdio fixture](resources/lean/stdio-source/Main.lean)
+from `resources/lean/stdio.zip`, using the independent manifest hash in
+[stdio.json](resources/lean/stdio.json). It exercises public Java invocation
+options and Clojure `call-with-options`: byte snapshots, fresh input on repeated
+calls, EOF, newline/Unicode/NUL handling, captured stderr, split UTF-8 writes and
+unchanged invalid output bytes. Mutating returned byte arrays does not change
+stored captures. Invalid text options are refused before guest execution.
+
+Run the existing launcher with `--main-class StdIOSmoke` and a fresh output
+directory. The consumer uses the SDK and its ordinary Maven dependencies;
+source preparation and native reference execution are producer-side acceptance
+checks, not part of its runtime path.

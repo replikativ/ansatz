@@ -1,0 +1,20 @@
+{
+  "upstreamCommit": "0abeea545d560a324e2561f7210fbd6ed154fa02",
+  "files": [
+    {
+      "upstream": "hello-name/HelloName.lean",
+      "file": "HelloName.lean",
+      "sha256": "12be60a744bb9b1e46702bde54edbd36d5a7a0240e254b56113783bfbc81abba"
+    },
+    {
+      "upstream": "early-return/EarlyReturn.lean",
+      "file": "EarlyReturn.lean",
+      "sha256": "ba0d5ad74a32597ba554a5348e140db81db1fe7e53a38b2631934df343e90170"
+    },
+    {
+      "upstream": "ForMIO.lean",
+      "file": "ForMIO.lean",
+      "sha256": "70532b4bba9004546010219e76836449795153ed93fdc885c4ab16d8722ff5ff"
+    }
+  ]
+}

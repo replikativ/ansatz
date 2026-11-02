@@ -20,6 +20,12 @@ and CLI refusal to replace an existing output. Run the scalar corpus's
 [official Lean oracle](consumer/resources/lean/scalar-interop-source/Oracle.lean).
 Review the supported carrier, import and IO limits in [the SDK guide](README.md).
 
+For supplied-stdio changes, also run the native differential/source/artifact
+gate in [STDIO.md](STDIO.md). Verify finite input, exact raw captures, malformed
+UTF-8, repeat invocation, limits and expected admission refusals. The JVM-only
+gate must include the prepared stdio application-JAR consumer. Keep the
+[compatibility ledger](COMPATIBILITY.md) aligned with completed evidence.
+
 Record the exact candidate JAR/POM, producer archive identity and observed checks
 as review or CI artifacts. Keep historical validation/source receipts unchanged;
 they do not validate a new candidate. Audit documentation examples, local links,
@@ -40,10 +46,12 @@ unpublished until SDK/producer versions and download links are verified. Show:
 
 - Why a JVM application calls Lean, with a diagram separating core Ansatz, the
   optional SDK, native frontend preparation and JVM-only deployment.
-- The pinned, unchanged three-file FP Lean tutorial, its import graph, source
-  loading and captured output from Java and Clojure/Superficie, with attribution.
-- A separate original example with several arguments, Bool and a product/Option
-  result; artifact preparation and JVM-only deployment with trusted manifest hash.
+- The pinned, unchanged FP Lean insertion-sort module and its explicit IO
+  adapters, source loading and captured output from Java and Clojure/Superficie,
+  with attribution. Distinguish its size/termination proofs from a sorting proof.
+- Artifact preparation and JVM-only deployment with a trusted manifest hash.
+  Show only examples actually executed against the released artifact; the
+  general interop corpus separately exercises several arguments and nested types.
 - Editing/reloading a new Project, explicit old-handle cleanup and the tested
   import/type/IO limits. Keep future frontend hosting, kernel import, public forks
   and specialized JIT work separate from current product claims.

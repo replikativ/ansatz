@@ -30,6 +30,7 @@
               "test/preparation_api_checks.clj"
               "test/entry_checks.clj" "test/extended_entry_checks.clj" "test/scalar_buffer_checks.clj"
               "test/sharing_checks.clj"
+              "test/native_transport_checks.clj"
               "test-engine/source-contracts/source_authority_contracts.clj"]]
   (load-file file))
 (let [basis (ir/linked-basis)
@@ -55,6 +56,7 @@
               ['ansatz-lean-jvm-boundary-checks ["."]]
               ['ansatz-lean-jvm-scalar-buffer-checks []]
               ['ansatz-lean-jvm-sharing-checks []]
+              ['ansatz-lean-jvm-native-transport-checks []]
               ['source-authority-contracts ["."]]]
       results (mapv
                (fn [[namespace arguments]]

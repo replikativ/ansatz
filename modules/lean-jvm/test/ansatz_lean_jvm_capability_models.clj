@@ -17,11 +17,10 @@
     (is (identical? (:class *basis*) (:runtime-class d)))
     (is (false? (:task-runtime d))))
   (is (thrown? Exception (caps/check-rows! *basis* [(assoc-in nat-row ["ir" "extern" "xs" 0 "borrow"] false)]))))
-(deftest task-policy-and-unconfigured-stdio-operations-refused
+(deftest task-policy-and-stdio-redirection-refused
   (doseq [unsupported [(row "lean_io_promise_new" ["erased" "erased" "void"] [false false false] "tobject")
                         (row "lean_task_pure" ["erased" "tobject"] [false false] "object")
                         (row "lean_profileit" ["erased" "object" "object" "tobject" "tobject"] [false true true false false] "tobject")
-                        (row "lean_get_stderr" ["void"] [false] "object")
                         (row "lean_get_set_stdout" ["object" "void"] [false false] "object")]]
     (is (thrown-with-msg? Exception #"audited task-free profile" (caps/check-rows! *basis* [unsupported])))))
 (deftest unknown-extern-is-never-deferred-until-after-startup
@@ -30,10 +29,13 @@
   (let [d (caps/check-rows! *basis* [(let [n ["str" ["str" ["anonymous"] "IO"] "getRandomBytes"]]
                                      (-> (row "lean_io_get_random_bytes" ["usize" "void"] [false false] "object")
                                          (assoc "name" n) (assoc-in ["ir" "extern" "f"] n)))
-                                   (row "lean_get_stdout" ["void"] [false] "object")])]
-    (is (= #{:entropy :captured-stdout} (set (map :family (vals (:externs d))))))
-    (is (= :captured-stdout-write-flush-tty (:dynamic-io-profile d)))
-    (is (contains? (:runtime-unsupported d) :captured-stream-read))))
+                                   (row "lean_get_stdout" ["void"] [false] "object")
+                                   (row "lean_get_stdin" ["void"] [false] "object")
+                                   (row "lean_get_stderr" ["void"] [false] "object")])]
+    (is (= #{:entropy :captured-stdout :captured-stdin :captured-stderr} (set (map :family (vals (:externs d))))))
+    (is (= :bounded-stdio-read-line-write-flush-tty (:dynamic-io-profile d)))
+    (is (= :native-like-finite-byte-input (:stdin-profile d)))
+    (is (contains? (:runtime-unsupported d) :host-filesystem))))
 (deftest panic-is-a-declared-terminal-trap-not-a-fake-result
   (let [d (caps/check-rows! *basis* [(row "lean_panic_fn_borrowed" ["erased" "tobject" "object"] [false true false] "tobject")])]
     (is (= :terminal-trap (:family (first (vals (:externs d))))))

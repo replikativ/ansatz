@@ -23,6 +23,7 @@ final class Bridge {
     static final IFn DESCRIPTOR;
     static final IFn ARITY;
     static final IFn CALL;
+    static final IFn CALL_WITH;
     static final IFn MAIN;
     static final IFn CLOSE;
 
@@ -37,6 +38,7 @@ final class Bridge {
         DESCRIPTOR = Clojure.var(NS, "function-descriptor!");
         ARITY = Clojure.var(NS, "function-arity!");
         CALL = Clojure.var(NS, "invoke-arguments!");
+        CALL_WITH = Clojure.var(NS, "invoke-arguments-with-options!");
         MAIN = Clojure.var(NS, "run-main!");
         CLOSE = Clojure.var(NS, "close!");
     }
