@@ -1,0 +1,52 @@
+[
+  {
+    "assets": [
+      {
+        "browser_download_url": "https://github.com/leanprover/lean4/releases/download/v4.32.1/lean-4.32.1-linux.tar.zst",
+        "digest": "sha256:57d5c062a6b4bae6fba511a1704aa124dff461c37d0fc94585637fbb7d951b50",
+        "name": "lean-4.32.1-linux.tar.zst",
+        "size": 559515529
+      }
+    ],
+    "html_url": "https://github.com/leanprover/lean4/releases/tag/v4.32.1",
+    "published_at": "2026-07-22T19:52:40Z",
+    "tag_name": "v4.32.1"
+  },
+  {
+    "assets": [
+      {
+        "browser_download_url": "https://github.com/leanprover/lean4/releases/download/v4.33.1/lean-4.33.1-linux.tar.zst",
+        "digest": "sha256:890afd185370f85666025b883914ab4f4b339136f8c96167b69cfb62aecaf235",
+        "name": "lean-4.33.1-linux.tar.zst",
+        "size": 570405234
+      }
+    ],
+    "html_url": "https://github.com/leanprover/lean4/releases/tag/v4.33.1",
+    "published_at": "2026-08-21T12:02:41Z",
+    "tag_name": "v4.33.1"
+  },
+  {
+    "assets": [
+      {
+        "browser_download_url": "https://github.com/leanprover/lean4/releases/download/v4.35.0/lean-4.35.0-linux.tar.zst",
+        "digest": "sha256:7289597a44543246c9227b8cae501767e095ce17f6d448b95fc4a8dc97268f6d",
+        "name": "lean-4.35.0-linux.tar.zst",
+        "size": 594481375
+      }
+    ],
+    "html_url": "https://github.com/leanprover/lean4/releases/tag/v4.35.0",
+    "tag_name": "v4.35.0"
+  },
+  {
+    "assets": [
+      {
+        "browser_download_url": "https://github.com/leanprover/lean4-nightly/releases/download/nightly-2026-10-27/lean-4.37.0-nightly-2026-10-27-linux.tar.zst",
+        "digest": "sha256:ba9a26c23f6d605f04b1a61ed63ee1ac643f1b28eeb56e2560aa4007c3c91ca2",
+        "name": "lean-4.37.0-nightly-2026-10-27-linux.tar.zst",
+        "size": 631145572
+      }
+    ],
+    "html_url": "https://github.com/leanprover/lean4-nightly/releases/tag/nightly-2026-10-27",
+    "tag_name": "nightly-2026-10-27"
+  }
+]

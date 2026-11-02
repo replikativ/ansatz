@@ -37,6 +37,15 @@ public final class Reducer {
     // Fuel tracking
     private long fuel;
     private long initialFuel;
+    // Temporary bounded congruence experiment; a distinct abort never masks kernel fuel/interruption.
+    static final KernelAbort CONGRUENCE_PROBE_EXHAUSTED = new KernelAbort("congruence probe exhausted");
+    private int congruenceProbeBudget = -1;
+    void startCongruenceProbe(int budget) { congruenceProbeBudget = budget; }
+    void checkCongruenceProbe() {
+        if (congruenceProbeBudget >= 0 && --congruenceProbeBudget < 0)
+            throw CONGRUENCE_PROBE_EXHAUSTED;
+    }
+
     private static final long DEFAULT_FUEL = 5_000_000L;
 
     // ---- Instrumentation counters ----
@@ -100,11 +109,13 @@ public final class Reducer {
         boolean isDefEq(Expr a, Expr b);
     }
 
-    public Reducer(Env env) {
+    public Reducer(Env env) { this(env, false); }
+
+    Reducer(Env env, boolean compactCaches) {
         this.env = env;
-        this.whnfCoreCache = new ExprMap<>(4096);
-        this.whnfCache = new ExprMap<>(4096);
-        this.unfoldCache = new ExprMap<>(1024);
+        this.whnfCoreCache = new ExprMap<>(compactCaches ? 16 : 4096);
+        this.whnfCache = new ExprMap<>(compactCaches ? 16 : 4096);
+        this.unfoldCache = new ExprMap<>(compactCaches ? 16 : 1024);
         this.lctx = null;
         this.fuel = DEFAULT_FUEL;
         this.initialFuel = DEFAULT_FUEL;
@@ -113,6 +124,21 @@ public final class Reducer {
     /** Set fuel limit. 0 means unlimited (no fuel checking). */
     public void setFuel(long fuel) { this.fuel = fuel; this.initialFuel = fuel; }
     public long getFuelUsed() { return initialFuel > 0 ? initialFuel - fuel : -fuel; }
+    long remainingFuel() { return initialFuel > 0 ? fuel : -1; }
+    void accountProbeFuel(long amount) {
+        if (initialFuel > 0) fuel -= amount;
+    }
+    void checkProbeResources() {
+        if (initialFuel > 0 && fuel < 0)
+            throw new KernelAbort("WHNF reduction fuel exhausted");
+        if (Thread.currentThread().isInterrupted())
+            throw new KernelAbort("Type checking interrupted (timeout)");
+    }
+    void copyReductionModeTo(Reducer target) {
+        target.transparencyMode = transparencyMode;
+        target.deltaAllowSet = deltaAllowSet == null ? null : new java.util.HashSet<>(deltaAllowSet);
+    }
+
     public void setLctx(HashMap<Long, Object[]> lctx) { this.lctx = lctx; }
     public void setCallbacks(InferFn inferFn, IsDefEqFn isDefEqFn) {
         this.inferFn = inferFn;
@@ -848,6 +874,7 @@ public final class Reducer {
         if ((fuel & 0xFFF) == 0 && Thread.interrupted()) {
             throw new KernelAbort("Type checking interrupted (timeout)");
         }
+        checkCongruenceProbe();
     }
 
     /** Public fuel check for TypeChecker's isDefEq recursion. */

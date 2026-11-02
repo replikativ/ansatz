@@ -1,0 +1,66 @@
+{
+  "4.32.1": {
+    "bin/lean": {
+      "official_sha256": "e8baaa71855a616dc351028f3ad2200051b0671f423a1696a100e809302d5550",
+      "installed_sha256": "e8baaa71855a616dc351028f3ad2200051b0671f423a1696a100e809302d5550",
+      "identical": true
+    },
+    "bin/leanc": {
+      "official_sha256": "0f51753a7921fadb2813b24c9e9e3cfccf02bdb606b7a34feebd763c63754fcc",
+      "installed_sha256": "0f51753a7921fadb2813b24c9e9e3cfccf02bdb606b7a34feebd763c63754fcc",
+      "identical": true
+    },
+    "lib/lean/libleancpp.a": {
+      "official_sha256": "c80a44c5cdcddde94f9df9a98b670d6e755956d006cc209ad9649fdb9da91d6a",
+      "installed_sha256": "c80a44c5cdcddde94f9df9a98b670d6e755956d006cc209ad9649fdb9da91d6a",
+      "identical": true
+    },
+    "lib/lean/libLean.a": {
+      "official_sha256": "b16005f9ea532296d6d3ac4c0b29e898fb7883cc3f9d7a5cd5112d70366d4427",
+      "installed_sha256": "b16005f9ea532296d6d3ac4c0b29e898fb7883cc3f9d7a5cd5112d70366d4427",
+      "identical": true
+    },
+    "lib/lean/libleanshared.so": {
+      "official_sha256": "1002885ca01fce5e8e4b0c41e25df7fe5f77d0d2c8d0644333760d4be72c931c",
+      "installed_sha256": "1002885ca01fce5e8e4b0c41e25df7fe5f77d0d2c8d0644333760d4be72c931c",
+      "identical": true
+    },
+    "lib/lean/Init.olean": {
+      "official_sha256": "c4c1e926440671272a11cd69da5420ec4186cd2b5c1f3ddd623ff892f5e95732",
+      "installed_sha256": "c4c1e926440671272a11cd69da5420ec4186cd2b5c1f3ddd623ff892f5e95732",
+      "identical": true
+    }
+  },
+  "4.33.1": {
+    "bin/lean": {
+      "official_sha256": "e8baaa71855a616dc351028f3ad2200051b0671f423a1696a100e809302d5550",
+      "installed_sha256": "e8baaa71855a616dc351028f3ad2200051b0671f423a1696a100e809302d5550",
+      "identical": true
+    },
+    "bin/leanc": {
+      "official_sha256": "cc293b2c81b7bc16d750959c7c82d61f4b95f50c2942d1131d57c078b8245ac1",
+      "installed_sha256": "cc293b2c81b7bc16d750959c7c82d61f4b95f50c2942d1131d57c078b8245ac1",
+      "identical": true
+    },
+    "lib/lean/libleancpp.a": {
+      "official_sha256": "71c73a927e93d1d7884622f44696a3b897867e6da4279448f18b2f0d2d5d6857",
+      "installed_sha256": "71c73a927e93d1d7884622f44696a3b897867e6da4279448f18b2f0d2d5d6857",
+      "identical": true
+    },
+    "lib/lean/libLean.a": {
+      "official_sha256": "341abb242489224c46197e4ba7b6b7660ec0764a53aaf6fc8234368c8436c625",
+      "installed_sha256": "341abb242489224c46197e4ba7b6b7660ec0764a53aaf6fc8234368c8436c625",
+      "identical": true
+    },
+    "lib/lean/libleanshared.so": {
+      "official_sha256": "23d636cac1cadcba37beac30eff9b9b20d66cee726cf5defb4ae39f1284a3e5a",
+      "installed_sha256": "23d636cac1cadcba37beac30eff9b9b20d66cee726cf5defb4ae39f1284a3e5a",
+      "identical": true
+    },
+    "lib/lean/Init.olean": {
+      "official_sha256": "9ed3667be31b6ce04b831418a8bc9e99c44804b8ddaf52f6ebbdebfd26d8409e",
+      "installed_sha256": "9ed3667be31b6ce04b831418a8bc9e99c44804b8ddaf52f6ebbdebfd26d8409e",
+      "identical": true
+    }
+  }
+}
