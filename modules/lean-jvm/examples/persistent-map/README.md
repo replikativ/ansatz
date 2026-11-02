@@ -16,6 +16,12 @@ public source loading, cache reuse and prepared-artifact loading. Repeated JVM
 calls produce the same result. This is candidate validation, not a published
 release claim; use the release checks for the deployed JAR's evidence.
 
+The [packaged Java/Clojure consumer](../../consumer/PersistentMapSmoke.java)
+adds 15 checks from an application JAR and an empty working directory. Its
+[artifact descriptor](../../consumer/resources/lean/persistent-map.json) pins
+the separately prepared manifest and archive; native tools are unnecessary at
+execution time.
+
 ```clojure
 (def options
   {:compiler {:sysroot sysroot :producer-bundle bundle :cache cache}
