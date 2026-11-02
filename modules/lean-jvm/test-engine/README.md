@@ -63,10 +63,14 @@ storage once; cached frontiers use constant-time conservative bounds, so distinc
 overlapping frontiers can exceed a budget even when their exact union would fit.
 The public legacy decoders still materialize their existing carriers.
 
-The record plan proves physical pure storage and sequential raw-byte lane
-coverage. It does not yet prove logical scalar-field correspondence or Bool,
-Char, and other logical range constraints. Future plans compiled from actual v3
-evidence must provide those checks before public nominal admission. The private
+The original fixed record test plan proves physical pure storage and sequential
+raw-byte lane coverage only. `TypedStorageChecks.java` separately exercises the
+private normalized semantic compiler, finite references, stable compatibility
+keys, constructor alternatives, Bool/Char and scalar domains, detached canonical
+construction, raw-field child access, and root-only boxed argument tokens. The
+embedded native004 observations supply internal layout facts; they are not
+admitted evidence. Independent native constructor/projection tests and actual v3
+product/entry admission remain required before public nominal interop. The private
 `payloadCost` bound counts scalar/buffer bytes separately from `stringUnits`,
 which counts logical String UTF-16 units. Every String occurrence counts,
 including repeated shared leaves and repeated uses of the same certified input,
@@ -77,3 +81,19 @@ scalar box has depth one; a fresh record or Array adds one to its deepest field.
 Certified depth includes any erased wrapper in its private plan. Ordinary legacy
 construction without certified inputs keeps its existing depth behavior. These
 are private-foundation checks, not public immutable-value guarantees.
+
+
+The typed core rejects delegating unmodifiable input wrappers, snapshots only
+exact trusted data carriers, and bounds validation work before scanning strings.
+The snapshot scan-work ceiling is 1 MiB of UTF-16 units per schema document and
+2 MiB per construction tape including its metadata. This is separate from the
+1 MiB logical String aggregate limit, which counts every logical occurrence.
+Argument preparation rechecks cached logical and physical proof bounds before
+allocating any shallow scalar box. A private detached-construction allocation
+counter supports refusal tests; ordinary interpreter execution is not instrumented.
+
+Frozen sharing adds one private volatile stamp reference to each Node. The exact
+field-inventory contract records this common-node cost and prevents unrelated
+per-Project or pointer-allocator state from accumulating there. Actual object
+size depends on JVM reference compression and alignment; no fixed byte-size
+claim is made by that reflection check.

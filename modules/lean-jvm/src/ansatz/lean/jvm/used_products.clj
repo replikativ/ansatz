@@ -4,7 +4,6 @@
    A caller-created manifest never grants native or public entry authority."
   (:require [ansatz.lean.jvm.installed :as installed]
             [ansatz.lean.jvm.type-graph :as graph]
-            [clojure.set :as set]
             [clojure.data.json :as json])
   (:import [java.nio.charset StandardCharsets] [java.security MessageDigest]))
 
@@ -81,7 +80,7 @@
   (let [actual (set (map #(get % "module") (get document "modules")))
         locals (set local-modules) declared (set declared-installed)]
     (need (= actual (set required-modules)) :inventory-mismatch)
-    (need (empty? (set/intersection locals declared)) :origin-shadowing)
+    (need (not-any? declared locals) :origin-shadowing)
     (need (not-any? installed/init? (concat local-modules declared-installed)) :init-shadowing)
     (doseq [n actual]
       (need (or (contains? locals n) (contains? declared n) (installed/init? n)) :undeclared-origin)))

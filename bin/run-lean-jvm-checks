@@ -69,6 +69,8 @@ javac -J-Xmx192m --release 17 -cp target/ansatz-lean-jvm.jar -d target/ci-resour
   test-java/ManagedDataChecks.java \
   test-java/DatatypeIdentityChecks.java \
   test-java/FrozenStorageChecks.java \
+  test-java/TypedStorageChecks.java \
+  test-java/PublicDatatypeChecks.java \
   test-java/SharingTraceChecks.java \
   test-java/StringSearchChecks.java \
   test-java/FilesystemLayoutChecks.java \
@@ -79,8 +81,12 @@ javac -J-Xmx192m --release 17 -cp target/ansatz-lean-jvm.jar -d target/ci-resour
   test-java/ManagedScalarBufferChecks.java \
   test-java/ansatz/lean/jvm/internal/exec/ScalarBitsChecks.java
 java -Xmx192m -cp target/ci-resource-checks:target/ansatz-lean-jvm.jar ManagedDataChecks
-java -Xmx128m -cp target/ci-resource-checks:target/ansatz-lean-jvm.jar DatatypeIdentityChecks
+java -Xmx128m -cp target/ci-resource-checks:target/ansatz-lean-jvm.jar ansatz.lean.jvm.DatatypeIdentityChecks
 java -Xmx128m -cp target/ci-resource-checks:target/ansatz-lean-jvm.jar FrozenStorageChecks
+java -Xmx128m -cp target/ci-resource-checks:target/ansatz-lean-jvm.jar TypedStorageChecks target/ci-resource-checks/typed-storage-digests.json
+java -Xmx128m -cp target/ci-resource-checks:target/ansatz-lean-jvm.jar ansatz.lean.jvm.PublicDatatypeChecks
+java -Xmx128m -cp "target/ansatz-lean-jvm.jar:$runtime_path" clojure.main \
+  test/typed_storage_digest_checks.clj target/ci-resource-checks/typed-storage-digests.json
 java -Xmx192m -cp target/ci-resource-checks:target/ansatz-lean-jvm.jar SharingTraceChecks
 java -Xmx192m -cp target/ci-resource-checks:target/ansatz-lean-jvm.jar StringSearchChecks
 java -Xmx128m -cp target/ci-resource-checks:target/ansatz-lean-jvm.jar ansatz.lean.jvm.internal.exec.FilesystemLayoutChecks

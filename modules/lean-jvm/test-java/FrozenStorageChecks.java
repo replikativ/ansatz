@@ -10,7 +10,11 @@ import java.util.concurrent.atomic.AtomicReference;
 /** Private fixed-plan storage proof, not native authority or public admission. */
 public final class FrozenStorageChecks {
     static int checks;
-    static final Class<?> PLAN=nested("FrozenPlan");
+    static final Class<?> PLAN=frozenPlanClass();
+    static Class<?> frozenPlanClass() {
+        try { return Class.forName("ansatz.lean.jvm.internal.exec.FrozenValues$FrozenPlan"); }
+        catch(Exception failure) { throw new AssertionError(failure); }
+    }
     static final Class<?> PLAN_ARRAY=Array.newInstance(PLAN,0).getClass();
     static Class<?> nested(String name) {
         try { return Class.forName(Interpreter.class.getName()+"$"+name); }
