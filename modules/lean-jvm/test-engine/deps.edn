@@ -1,0 +1,2 @@
+{:paths ["support" "kernel-support" "kernel-contracts"]
+ :deps {org.replikativ/ansatz {:local/root "../../.."}}}

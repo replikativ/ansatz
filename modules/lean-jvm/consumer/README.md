@@ -29,23 +29,56 @@ classpath is that application JAR and the five normal dependency JARs. It
 contains no source directory, Python, Clojure CLI, Lean installation or runtime
 javac. The runtime Java heap is 384 MiB. Python and javac are producer/test tools.
 
-`JarSmoke.java` and `check.py` retain the lower-level adapter check from the initial
-packaging acceptance. Its initial receipt remains historical; current archive
-checks inventory all canonical sources, Java facade classes, codec and attribution
-resources and both runtime POM dependencies. Static rejection checks use real
-archive bytes plus deliberately invalid variants:
+[sdk_audit.py](sdk_audit.py) audits the actual SDK archive against the reviewed
+source inventory, compiled-class inventory, runtime resources and Maven dependencies.
+Static rejection checks mutate real archive bytes, including self-inventoried
+helpers, source relabeling, changed classes and dependency drift:
 
 ```sh
 python3 consumer/audit_checks.py --sdk-jar target/ansatz-lean-jvm.jar
 ```
 
-The root ran this application-JAR consumer successfully with the reviewed
-engine, then ran the complete SDK CI launcher: 57 model tests / 245 assertions,
-actual archive plus six rejection cases, public application JAR and 41 resource
-checks all passed. The [observed candidate receipt](receipts/public-consumer-candidate-v1.json)
-retains its actual JAR hash and false pre-acceptance marker. Acceptance changed
-only that metadata marker afterward; final coordinated release hashes belong to
-the release preparation receipt. [Source](receipts/source-api-v1.edn),
-[lifetime](receipts/lifecycle-v1.edn) and external tutorial receipts record
-separate observed gates. Producer checks do not publish artifacts or submit
-external forms.
+`JarSmoke.java` retains the initial lower-level adapter check. Run it with the same
+`project_check.py` launcher and `--main-class JarSmoke` when checking the adapter
+without the public Project facade. Published historical observations remain in
+[validation.json](../validation.json) and [consumer receipts](receipts/).
+Current candidate results belong in CI/review artifacts; see
+[release checks](../RELEASE_CHECKLIST.md).
+
+## General application-value consumers
+
+`GeneralInteropSmoke.java` loads the original two-file
+[common corpus](resources/lean/general-interop-source/Main.lean) from
+`resources/lean/general-interop.zip`. It checks arity, all five core value types,
+nested products/options/lists, Some Unit versus None, exact named IO dispatch,
+argument refusal without losing a healthy Project, Clojure round-trips and close.
+Its independent trusted descriptor is [general-interop.json](resources/lean/general-interop.json).
+
+`ScalarInteropSmoke.java` loads the original
+[scalar corpus](resources/lean/scalar-interop-source/Main.lean) from
+`resources/lean/scalar-interop.zip`. It checks both float widths, wrapping machine
+arithmetic, all machine integer widths, Unicode scalar chars, array/byte snapshots
+and updates, Sum/Except, nested IO results and explicit range/type rejection.
+Its descriptor is [scalar-interop.json](resources/lean/scalar-interop.json).
+[Oracle.lean](resources/lean/scalar-interop-source/Oracle.lean) checks representative
+results using official native Lean; it is producer test material.
+
+Pass `--main-class GeneralInteropSmoke` or `--main-class ScalarInteropSmoke` to
+`project_check.py` with the same five-JAR closure and a separate output directory.
+Each resulting application JAR runs without a source compiler, Lean installation
+or native helper, and asserts that the source compiler namespace never loaded.
+The fixtures are native frontend evidence, not Java-kernel-checked declarations.
+
+For the explicit native source gate, use the built SDK JAR and ordinary runtime
+JARs on the classpath, run from this module, and provide a new output directory:
+
+```sh
+java -Xmx512m -Xss8m -cp "$CLASSPATH" clojure.main test/source_acceptance.clj \
+  "$LEAN_SYSROOT" "$PRODUCER_BUNDLE" "$NEW_OUTPUT_DIRECTORY"
+```
+
+This gate observes actual compiler cache results and issued build receipts. It
+checks cold/cache/edit/reload/artifact paths, both corpora, warnings and errors,
+unsupported capabilities and higher-order entry rejection. It changes only its
+new owned output directory. The published v2 helper bundle is required; no download
+or installation is performed. The mandatory JVM-only CI gate needs no toolchain.

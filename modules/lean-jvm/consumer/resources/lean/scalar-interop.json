@@ -1,0 +1,8 @@
+{
+  "schema": "ansatz-lean-jvm-example/2",
+  "artifact": "lean/scalar-interop.zip",
+  "manifestSHA256": "a0d7543e47caacc14cfbaf04237c22c7219ab9a38a8906a1dfe2c0d599b65dfc",
+  "archiveSHA256": "99a4f293ff2a03067f74d27464320d13f0870092924b4529a49b58532fbba603",
+  "source": "scalar-interop-source",
+  "scope": "Actual source-built 16-entry scalar/buffer/choice corpus with diagnostics-aware producer. Native-frontend evidence; not a Java kernel proof certificate."
+}

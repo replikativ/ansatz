@@ -34,6 +34,15 @@
       (is (= "Cancelled" (.code projected)))
       (is interrupted?))
     (finally (Thread/interrupted))))
+(deftest coded-reflection-failures-project-useful-bounded-messages
+  (let [^LeanException projected (project-failure
+                                  (InvocationTargetException.
+                                    (ex-info "Unsupported Lean runtime extern or ABI" {:code "CapabilityMissing" :private-owner (Object.)})))]
+    (is (= "CapabilityMissing" (.code projected)))
+    (is (= "Unsupported Lean runtime extern or ABI" (.getMessage projected)))
+    (is (nil? (.getCause projected))))
+  (let [^LeanException projected (project-failure (InvocationTargetException. (IllegalArgumentException. "Bad ABI")))]
+    (is (= "Bad ABI" (.getMessage projected)))))
 (deftest lean-close-attempts-all-children-and-preserves-fatal
   (let [lean (Lean/open) first (Object.) second (Object.) third (Object.)
         fatal (AssertionError. "actual host error") visited (atom [])

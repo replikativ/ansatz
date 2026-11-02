@@ -1,0 +1,8 @@
+{
+  "scope": "Layout facts copied from actual native gate; structural model fixture, not an artifact issuer or allocation authority",
+  "leanCommit": "819816b2e0a3bf405af45ae5c7af2491d8f5bee6",
+  "sourceFile": "general-entry-probe-linked.jsonl",
+  "sourceSHA256": "cb136e012604fde1b3754b33cbfd5f251731f9d6ae65e563a420f967291bcf02",
+  "fixtureSHA256": "cca3fbda48c3e01117bf26ad894681ff1ada7f7d2ec161d0ae5218906156cc1e",
+  "familyCount": 4
+}

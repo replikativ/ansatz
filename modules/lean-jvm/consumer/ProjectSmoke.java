@@ -2,6 +2,9 @@ import ansatz.lean.jvm.Lean;
 import ansatz.lean.jvm.LeanException;
 import ansatz.lean.jvm.LeanProject;
 import ansatz.lean.jvm.MainResult;
+import ansatz.lean.jvm.LeanFunction;
+import ansatz.lean.jvm.IOResult;
+import ansatz.lean.jvm.LeanUnit;
 import clojure.java.api.Clojure;
 import java.math.BigInteger;
 import java.util.concurrent.atomic.AtomicReference;
@@ -24,6 +27,21 @@ public final class ProjectSmoke {
             UnaryOperator<BigInteger> answer = project.natFunction("answer");
             UnaryOperator<String> echo = project.stringFunction("echo");
             retained = answer;
+            LeanFunction generic = project.function("answer");
+            require(generic.arity() == 1 && generic.signature().equals("Nat → Nat"), "General handle metadata");
+            require(generic.invoke(42L).equals(BigInteger.valueOf(85)), "General Nat call");
+            require(project.call("echo", "λ😀").equals("Hello, λ😀"), "General String call");
+            try { generic.invoke(); throw new AssertionError("Missing argument accepted"); }
+            catch (LeanException rejected) { require(rejected.code().equals("ArityMismatch"), "General arity rejection"); }
+            try { generic.invoke(false); throw new AssertionError("Wrong argument type accepted"); }
+            catch (LeanException rejected) { require(rejected.code().equals("UnsupportedArgumentType"), "General type rejection"); }
+            require(generic.invoke(1L).equals(BigInteger.valueOf(3)), "General rejections preserve Project");
+            Clojure.var("clojure.core", "require").invoke(Clojure.read("ansatz.lean.jvm"));
+            require(Clojure.var("ansatz.lean.jvm", "call").invoke(project, "answer", 42L)
+                    .equals(BigInteger.valueOf(85)), "Clojure general call");
+            IOResult<?> effect = (IOResult<?>) project.call("main");
+            require(effect.value() == LeanUnit.INSTANCE && effect.stdout().equals("Hello, Lean/JVM\n")
+                    && effect.stderr().isEmpty(), "General IO Unit call");
             for (BigInteger n : new BigInteger[]{BigInteger.ZERO, BigInteger.valueOf(42),
                     BigInteger.valueOf(Long.MAX_VALUE), BigInteger.ONE.shiftLeft(64), BigInteger.ONE.shiftLeft(200)}) {
                 require(answer.apply(n).equals(n.shiftLeft(1).add(BigInteger.ONE)), "Exact Nat result");
@@ -60,6 +78,6 @@ public final class ProjectSmoke {
             try { retained.apply(BigInteger.ZERO); throw new AssertionError("Closed handle accepted"); }
             catch (IllegalStateException expected) { }
         }
-        System.out.println("PASS exact Nat/String, repeated main, argument/type rejection, thread handoff, close; JVM-only application JAR");
+        System.out.println("PASS typed/general Java and Clojure calls, exact Nat/String, repeated main, argument/type rejection, thread handoff, close; JVM-only application JAR");
     }
 }

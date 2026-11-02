@@ -1,0 +1,103 @@
+# Lean/JVM implementation layout
+
+The production SDK owns one Java interpreter. Native source preparation, JVM
+execution, maintained hosting research and historical evidence have separate homes.
+The public Maven artifact split remains core Ansatz plus the optional Lean/JVM SDK.
+
+## From Lean source to host calls
+
+```mermaid
+flowchart LR
+    Sources["Lean files and local imports"] --> Frontend["Pinned official native Lean frontend"]
+    Frontend --> Evidence["Checked export evidence: IR, signatures, layouts, initialization plan"]
+    Evidence --> Project["JVM Project and Java IR interpreter"]
+    Evidence --> Artifact["Portable artifact ZIP and independent manifest hash"]
+    Artifact --> Project
+    Java["Java facade"] --> Project
+    Clojure["Clojure API and Superficie notation"] --> Java
+    Project --> Values["Host values and captured IO"]
+```
+
+Direct source loading runs the frontend and opens a Project from the resulting
+checked receipt. Build-time preparation exports that receipt as an artifact
+without opening a Project. Later artifact loading requires only the SDK and its
+ordinary Maven dependencies. It validates the independently expected manifest
+hash, prepares code and executes supported initialization before returning the
+Project. The native frontend remains necessary when compiling new source.
+
+The frontend supplies Lean compiler IR, rather than generated Clojure source or
+LLVM code. The Java engine executes that IR and the supported runtime operations.
+The JVM JIT can optimize the Java engine; this release does not provide a dedicated
+Lean-to-JVM machine-code compiler or claim parity with compiled native Lean.
+
+Type-directed codecs convert host arguments using checked signatures and native
+constructor/layout witnesses, then convert results back to host values. Guest
+objects and ownership obligations remain private. Lean's explicit RC operations
+and reuse decisions are implemented on JVM objects; host garbage collection
+reclaims the Java storage. Public Project forking is separate follow-up work.
+
+Core Ansatz supplies the kernel, elaboration DSL and stores in its own JAR. Both
+JARs can coexist in one application or REPL, but executing a Lean module does not
+import its declarations or theorems into the DSL's kernel environment. The optional
+SDK's native checked evidence is not a Java-kernel verification receipt.
+
+See [preparation](PREPARATION.md), [value conventions](VALUE_EXAMPLES.md), and the
+[unchanged multi-file tutorial](examples/README.md) for the corresponding calls.
+
+## Production boundaries
+
+- `src-java/ansatz/lean/jvm/`: public Java facade and value carriers.
+- `src-java/ansatz/lean/jvm/internal/exec/`: canonical lambda-RC execution engine
+  and package-private stateless scalar/UTF-8 helpers. The Java engine retains its
+  Java 11 compilation contract; the SDK is built and tested for JDK 17.
+- `src/ansatz/lean/jvm/`: Clojure API, codecs, actual runtime cohort adapters,
+  initialization, artifact admission and explicit native compilation services.
+- `test/`: focused Clojure contracts and active native capture fixtures.
+- `test-java/`: actual Java engine ownership, resource and representation checks.
+- `producer/`: supported bundle descriptors, packaging and release coordination.
+- `../../tools/lean-producer/`: maintained native helper sources, including the
+  supported v1 source. Moving these files does not change their admitted bytes.
+
+The engine keeps Node/Header/Program identity, mutable execution state, pending
+operations, ownership journals, suspension and fork commit points together.
+Splitting those across classes is a separate ownership review, not a directory
+cleanup. In particular, the adapters inspect declared fields; introducing an
+engine superclass would change that contract.
+
+`ScalarBits` and `Utf8Bytes` contain only mechanically extracted stateless
+operations. Stateful intrinsic families can be extracted later with explicit
+custody interfaces. Heap, IR, runtime-family and bridge packages should appear
+when real implementations move into them, rather than as empty placeholders.
+
+## Build and class inventories
+
+`runtime-closure.edn` schema 2 lists disjoint Java engine and facade source sets.
+Their union must equal the complete Java source tree. Every source is hash-pinned;
+the sorted engine descriptors also have a closure digest. All source pins are
+validated and their bytes captured before any Java source is staged or compiled.
+
+The build emits `META-INF/ansatz-lean-jvm/java-classes.json`, binding each compiled
+class to a captured top-level source and exact class-byte hash. Producer/consumer
+checks compare it with the independently reviewed source inventory, reject unknown
+or changed classes, and check runtime metadata against the interpreter and full
+engine closure. No broad `internal/**` class wildcard grants packaging authority.
+
+The JAR contains canonical runtime code; its POM declares ordinary Maven
+dependencies rather than bundling their classes. Research loaders, native helper
+executables and historical captures do not enter it.
+
+## Research boundary
+
+Hosting experiments remain outside the runtime module and its JAR. This change
+ports the SDK and native producer sources without reorganizing the experimental
+tree. Historical captures and source receipts retain their original identities;
+they are evidence of their recorded versions rather than acceptance of this SDK.
+
+## Verification
+
+The SDK gate builds one captured Java closure and tests the JAR, application
+consumers, archive rejection, explicit ownership and resource limits. The broader
+contract gate exercises the canonical engine's fork, graph, host, code-demand and
+frontend foundations. The explicit source gate additionally checks the native
+frontend cold/cache/edit/reload/artifact paths with a supplied supported toolchain
+and bundle. See [release checks](RELEASE_CHECKLIST.md) for the acceptance sequence.

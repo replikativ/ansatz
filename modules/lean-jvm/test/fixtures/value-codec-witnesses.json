@@ -1,0 +1,341 @@
+{
+  "algorithm": "Lean.Compiler.LCNF.getCtorLayout",
+  "scope": "actual-persisted-native-compiler-layout-not-host-allocation-authority",
+  "families": [
+    {
+      "constructors": [
+        {
+          "constructor": [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Prod"
+            ],
+            "mk"
+          ],
+          "ctorInfo": {
+            "cidx": 0,
+            "name": [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "Prod"
+              ],
+              "mk"
+            ],
+            "size": 2,
+            "ssize": 0,
+            "usize": 0
+          },
+          "fields": [
+            {
+              "index": 0,
+              "irType": "tobject",
+              "kind": "object"
+            },
+            {
+              "index": 1,
+              "irType": "tobject",
+              "kind": "object"
+            }
+          ]
+        }
+      ],
+      "irType": "object",
+      "trivialStructure": null,
+      "typeName": [
+        "str",
+        [
+          "anonymous"
+        ],
+        "Prod"
+      ]
+    },
+    {
+      "constructors": [
+        {
+          "constructor": [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Option"
+            ],
+            "none"
+          ],
+          "ctorInfo": {
+            "cidx": 0,
+            "name": [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "Option"
+              ],
+              "none"
+            ],
+            "size": 0,
+            "ssize": 0,
+            "usize": 0
+          },
+          "fields": []
+        },
+        {
+          "constructor": [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Option"
+            ],
+            "some"
+          ],
+          "ctorInfo": {
+            "cidx": 1,
+            "name": [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "Option"
+              ],
+              "some"
+            ],
+            "size": 1,
+            "ssize": 0,
+            "usize": 0
+          },
+          "fields": [
+            {
+              "index": 0,
+              "irType": "tobject",
+              "kind": "object"
+            }
+          ]
+        }
+      ],
+      "irType": "tobject",
+      "trivialStructure": null,
+      "typeName": [
+        "str",
+        [
+          "anonymous"
+        ],
+        "Option"
+      ]
+    },
+    {
+      "constructors": [
+        {
+          "constructor": [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "List"
+            ],
+            "nil"
+          ],
+          "ctorInfo": {
+            "cidx": 0,
+            "name": [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "List"
+              ],
+              "nil"
+            ],
+            "size": 0,
+            "ssize": 0,
+            "usize": 0
+          },
+          "fields": []
+        },
+        {
+          "constructor": [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "List"
+            ],
+            "cons"
+          ],
+          "ctorInfo": {
+            "cidx": 1,
+            "name": [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "List"
+              ],
+              "cons"
+            ],
+            "size": 2,
+            "ssize": 0,
+            "usize": 0
+          },
+          "fields": [
+            {
+              "index": 0,
+              "irType": "tobject",
+              "kind": "object"
+            },
+            {
+              "index": 1,
+              "irType": "tobject",
+              "kind": "object"
+            }
+          ]
+        }
+      ],
+      "irType": "tobject",
+      "trivialStructure": null,
+      "typeName": [
+        "str",
+        [
+          "anonymous"
+        ],
+        "List"
+      ]
+    },
+    {
+      "constructors": [
+        {
+          "constructor": [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "EST"
+              ],
+              "Out"
+            ],
+            "ok"
+          ],
+          "ctorInfo": {
+            "cidx": 0,
+            "name": [
+              "str",
+              [
+                "str",
+                [
+                  "str",
+                  [
+                    "anonymous"
+                  ],
+                  "EST"
+                ],
+                "Out"
+              ],
+              "ok"
+            ],
+            "size": 1,
+            "ssize": 0,
+            "usize": 0
+          },
+          "fields": [
+            {
+              "index": 0,
+              "irType": "tobject",
+              "kind": "object"
+            },
+            {
+              "kind": "void"
+            }
+          ]
+        },
+        {
+          "constructor": [
+            "str",
+            [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "EST"
+              ],
+              "Out"
+            ],
+            "error"
+          ],
+          "ctorInfo": {
+            "cidx": 1,
+            "name": [
+              "str",
+              [
+                "str",
+                [
+                  "str",
+                  [
+                    "anonymous"
+                  ],
+                  "EST"
+                ],
+                "Out"
+              ],
+              "error"
+            ],
+            "size": 1,
+            "ssize": 0,
+            "usize": 0
+          },
+          "fields": [
+            {
+              "index": 0,
+              "irType": "tobject",
+              "kind": "object"
+            },
+            {
+              "kind": "void"
+            }
+          ]
+        }
+      ],
+      "irType": "object",
+      "trivialStructure": null,
+      "typeName": [
+        "str",
+        [
+          "str",
+          [
+            "anonymous"
+          ],
+          "EST"
+        ],
+        "Out"
+      ]
+    }
+  ]
+}

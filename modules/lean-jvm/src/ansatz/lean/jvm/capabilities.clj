@@ -6,8 +6,8 @@
    :int ["INT_OF_NAT" "INT_NEG_SUCC" "INT_NEG" "INT_ABS" "INT_ADD" "INT_SUB" "INT_EQ" "INT_LT" "INT_LE"]
    :word ["USIZE_NAT" "USIZE_REPR" "USIZE_LT" "USIZE_ADD" "USIZE_EQ" "USIZE_SUB" "USIZE_TO_NAT"
           "USIZE_SHR" "USIZE_SHL" "USIZE_AND" "USIZE_LE" "USIZE_MUL" "USIZE_TO_U64"
-          "U8_NAT" "U8_EQ" "U8_AND" "U8_LE" "U8_TO_U32" "U8_TO_U64" "U16_EQ" "U16_NAT"
-          "U32_NAT" "U32_EQ" "U32_LE" "U32_FROM_NAT" "U32_TO_U8" "U32_ADD" "U32_TO_U64" "U32_LT"
+          "U8_ADD" "U8_NAT" "U8_EQ" "U8_AND" "U8_LE" "U8_TO_U32" "U8_TO_U64" "U16_EQ" "U16_NAT"
+          "U32_OWNED_NAT" "U32_NAT" "U32_EQ" "U32_LE" "U32_FROM_NAT" "U32_TO_U8" "U32_ADD" "U32_TO_U64" "U32_LT"
           "U64_MIX" "U64_NAT" "U64_SHR" "U64_XOR" "U64_USIZE" "U64_LT" "U64_EQ" "U64_OWNED_NAT"
           "U64_TO_U32" "U64_TO_U8" "U64_TO_NAT" "BOOL_U64" "U64_ADD" "U64_SUB" "U64_MUL"
           "U64_DIV" "U64_MOD" "U64_AND" "U64_OR" "U64_NOT" "U64_NEG" "U64_LOG2" "U64_SHL" "U64_LE"]
@@ -24,13 +24,13 @@
    :heap-persistence ["VOID_MK" "MARK_PERSISTENT"]
    :build-layout-observation ["PLATFORM_BITS" "BUILD_GITHASH" "BUILD_TARGET" "IO_INITIALIZING"
                               "LAYOUT_FIELDS" "LAYOUT_SCALARS" "LAYOUT_TAG" "LAYOUT_USIZE"]
-   :float ["FLOAT_BITS" "FLOAT_U64" "FLOAT_SUB" "FLOAT_MUL" "FLOAT_DIV" "FLOAT_EQ" "FLOAT_LT" "FLOAT_LE" "FLOAT_STRING"]
+   :float ["FLOAT32_BITS" "FLOAT32_DIV" "FLOAT32_MUL" "U64_FLOAT32" "FLOAT_ADD" "FLOAT32_ADD" "FLOAT_BITS" "FLOAT_U64" "FLOAT_SUB" "FLOAT_MUL" "FLOAT_DIV" "FLOAT_EQ" "FLOAT_LT" "FLOAT_LE" "FLOAT_STRING"]
    :captured-stdout ["GET_STDOUT"]
    :entropy ["IO_RANDOM_BYTES"]
    ;; Existing Interpreter PANIC terminates with an unsupported-operation
    ;; failure; it never invents Lean's default-return result.
    :terminal-trap ["PANIC"]})
-(defn- need [p message] (when-not p (throw (ex-info message {:profile :task-free-captured-output-v1}))))
+(defn- need [p message] (when-not p (throw (ex-info message {:code "CapabilityMissing" :profile :task-free-captured-output-v1}))))
 (defn- field [object name]
   (let [f (.getDeclaredField (class object) name)] (.setAccessible f true) (.get f object)))
 (defn- static-field [^Class cls name]
@@ -53,7 +53,10 @@
   (let [cls (:class basis) registry (static-field cls "EXTERNS") index (family-index cls)
         externs (into {}
                       (for [row rows :let [declaration (get-in row ["ir" "extern"])] :when declaration]
-                        (let [symbol (j/invoke-static (.getMethod ^Class cls "validateExternAbi" (into-array Class [java.util.Map])) [row])
+                        (let [symbol (try (j/invoke-static (.getMethod ^Class cls "validateExternAbi" (into-array Class [java.util.Map])) [row])
+                                          (catch java.lang.reflect.InvocationTargetException failure
+                                            (throw (ex-info "Unsupported Lean runtime extern or ABI"
+                                                            {:code "CapabilityMissing" :name (get row "name")} failure))))
                               matches (filter #(= (abi declaration) (spec-abi %)) (get registry symbol))
                               _ (need (= 1 (count matches)) "Unknown or ambiguous runtime extern ABI")
                               intrinsic (field (first matches) "intrinsic") family (get index intrinsic)]

@@ -1,7 +1,7 @@
 (ns ansatz.lean.jvm.compiler.transport
   "Shared bounded native producer transport. Loaded only by explicit source
    compilation; precompiled artifact loading does not initialize this service."
-  (:require [clojure.java.io :as io] [clojure.data.json :as json]
+  (:require [ansatz.lean.jvm.producer :as producer] [clojure.java.io :as io] [clojure.data.json :as json]
             [clojure.string :as str] [ansatz.lean.jvm.compiler.encoding :as encoding])
   (:import [java.nio.file Path Files LinkOption StandardOpenOption StandardCopyOption FileAlreadyExistsException DirectoryNotEmptyException]
            [java.nio.file.attribute FileTime FileAttribute]
@@ -116,9 +116,10 @@
   (guard-code!)
   (need cache "An explicit compiler cache is required")
   (let [sysroot (path! sysroot) producer (executable! typed-source)
+        producer-record (file-record producer (* 256 1024 1024))
         launcher (find-launcher! resource-launcher)
         _ (need (and (Files/isDirectory (.resolve sysroot "lib/lean") no-links)
-                     (= typed-source-pin (get (file-record producer (* 256 1024 1024)) "sha256")))
+                     (producer/binary-supported? "typedSource" (get producer-record "sha256")))
                 "Pinned typed source producer/sysroot differs")
         _ (executable! (.resolve sysroot "bin/lean"))
         cache-path (.normalize (.toAbsolutePath (.toPath (io/file (str cache)))))
@@ -127,7 +128,7 @@
         _ (Files/createDirectories cache-path no-attributes)
         token (NativeCompiler.)]
     (locking compilers
-      (.put compilers token {:sysroot sysroot :producer producer :producer-sha256 typed-source-pin
+      (.put compilers token {:sysroot sysroot :producer producer :producer-sha256 (get producer-record "sha256")
                             :launcher launcher :cache (path! cache-path)
                             :native-reference? false :lock (Object.) :journal nil})) token))
 (defn cache-root [compiler] (guard-code!) (:cache (issued compiler)))
@@ -256,7 +257,17 @@
                        "RSSScope" "root-and-observed-owned-descendants"}]
           (write-json! (.resolve directory (str label ".receipt.json")) receipt)
           (swap! journal update :processes (fnil conj []) receipt)
-          (need (and (zero? (.exitValue process)) (zero? (Files/size stderr))) "Native compiler returned failure/diagnostics")
+          (when-not (and (zero? (.exitValue process))
+                         (or (zero? (Files/size stderr))
+                             ;; Only the independently pinned diagnostics-aware producer
+                             ;; may write bounded stderr while returning structural data.
+                             (and (= (str (:producer state)) (str (first arguments)))
+                                  (producer/diagnostics-supported? (:producer-sha256 state)))))
+            (let [text (String. ^bytes (bytes! stderr (* 1024 1024)) StandardCharsets/UTF_8)
+                  detail (subs text 0 (min 1536 (count text)))]
+              (throw (ex-info (str "Lean producer failed during " label
+                                  (when (seq detail) (str ": " detail)))
+                              {:code "NativeCompilationFailed" :stage label :exit (.exitValue process)}))))
           receipt))
       (catch Throwable error (abort! journal error)))))
 

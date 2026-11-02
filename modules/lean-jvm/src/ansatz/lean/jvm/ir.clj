@@ -9,11 +9,11 @@
   "Internal adapter/test seam for one already-linked engine Class. Creates no
    classloader and compiles no code. Production normally uses linked-basis."
   [^Class cls]
-  (when-not (= "ansatz.research.ir.Interpreter" (.getName cls))
+  (when-not (= "ansatz.lean.jvm.internal.exec.Interpreter" (.getName cls))
     (throw (ex-info "Expected the canonical Interpreter class" {})))
   (let [loader (.getClassLoader cls)
-        program (Class/forName "ansatz.research.ir.Interpreter$Program" true loader)
-        node (Class/forName "ansatz.research.ir.Interpreter$Node" true loader)]
+        program (Class/forName "ansatz.lean.jvm.internal.exec.Interpreter$Program" true loader)
+        node (Class/forName "ansatz.lean.jvm.internal.exec.Interpreter$Node" true loader)]
     {:loader loader :class cls :node-class node
      :prepare (.getMethod cls "prepare" (into-array Class [java.util.List]))
      :constructor (.getConstructor cls (into-array Class [program]))
@@ -39,7 +39,7 @@
   "Resolve the already-compiled engine on the application classpath. The caller
    never supplies a class directory, compiler, jar path or research source root."
   []
-  (basis-for-class (Class/forName "ansatz.research.ir.Interpreter" true
+  (basis-for-class (Class/forName "ansatz.lean.jvm.internal.exec.Interpreter" true
                                 (clojure.lang.RT/baseLoader))))
 
 (defn invoke-static [^Method method args] (.invoke method nil (object-array args)))
@@ -48,7 +48,7 @@
   "The engine's admitted pinned Lean identity; no native process or caller label."
   [basis]
   (let [cls (.loadClass (.getClassLoader ^Class (:class basis))
-                        "ansatz.research.ir.Interpreter$BuildIdentity")]
+                        "ansatz.lean.jvm.internal.exec.Interpreter$BuildIdentity")]
     (invoke-static (.getMethod cls "supportedLean4331" (make-array Class 0)) [])))
 
 (defn machine
@@ -60,7 +60,7 @@
   (if-let [identity (:build-identity basis)]
     (let [cls ^Class (:class basis)
           identity-class (.loadClass (.getClassLoader cls)
-                                      "ansatz.research.ir.Interpreter$BuildIdentity")]
+                                      "ansatz.lean.jvm.internal.exec.Interpreter$BuildIdentity")]
       (.newInstance (.getConstructor cls (into-array Class [(class (:program basis))
                        Boolean/TYPE Boolean/TYPE identity-class]))
                     (object-array [(:program basis) (boolean (:explicit basis))
@@ -116,8 +116,8 @@
   "Attach the opt-in host-boundary API from this exact already-linked engine."
   [basis]
   (let [loader (:loader basis)
-        host (Class/forName "ansatz.research.ir.Interpreter$HostExtern" true loader)
-        request (Class/forName "ansatz.research.ir.Interpreter$HostRequest" true loader)
+        host (Class/forName "ansatz.lean.jvm.internal.exec.Interpreter$HostExtern" true loader)
+        request (Class/forName "ansatz.lean.jvm.internal.exec.Interpreter$HostRequest" true loader)
         host-array (class (java.lang.reflect.Array/newInstance host 0))
         string-array (class (make-array String 0)) bool-array (class (boolean-array 0))
         cls ^Class (:class basis)]
@@ -159,7 +159,7 @@
   "Create a binding for the trusted adapter's accepted lightweight source token.
    This is an authority boundary, not verification of supplied bytes or hashes."
   [basis accepted-source-token]
-  (let [cls (Class/forName "ansatz.research.ir.Interpreter$SourceBinding" true (:loader basis))]
+  (let [cls (Class/forName "ansatz.lean.jvm.internal.exec.Interpreter$SourceBinding" true (:loader basis))]
     (.newInstance (.getConstructor cls (into-array Class [Object]))
                   (object-array [accepted-source-token]))))
 
@@ -168,7 +168,7 @@
            binding (object-array [original-header-row original-sha256])))
 
 (defn- header-array [basis headers]
-  (let [cls (Class/forName "ansatz.research.ir.Interpreter$Header" true (:loader basis))
+  (let [cls (Class/forName "ansatz.lean.jvm.internal.exec.Interpreter$Header" true (:loader basis))
         array (java.lang.reflect.Array/newInstance cls (count headers))]
     (doseq [[index header] (map-indexed vector headers)]
       (java.lang.reflect.Array/set array index header))

@@ -6,6 +6,8 @@ import java.util.Objects;
 
 /** Requested native checked entries and explicit source compilation policy. */
 public final class ProjectOptions {
+    /** Resource bound on selected host-callable functions; independent of function arity. */
+    public static final int MAX_SELECTED_ENTRIES = 1024;
     public static final class Entry {
         private final String name;
         private final String signature;
@@ -34,10 +36,13 @@ public final class ProjectOptions {
             return this;
         }
         public Builder main(String name) { entries.add(new Entry(name, "io-unit")); return this; }
+        /** Ask a v2 native producer to discover and check the closed signature. */
+        public Builder function(String name) { entries.add(new Entry(name, "auto")); return this; }
         public Builder natFunction(String name) { entries.add(new Entry(name, "nat-to-nat")); return this; }
         public Builder stringFunction(String name) { entries.add(new Entry(name, "string-to-string")); return this; }
         public ProjectOptions build() {
-            if (entries.isEmpty()) throw new IllegalArgumentException("At least one requested checked entry is required");
+            if (entries.isEmpty() || entries.size() > MAX_SELECTED_ENTRIES)
+                throw new IllegalArgumentException("Request one to " + MAX_SELECTED_ENTRIES + " checked entries");
             return new ProjectOptions(compiler, sourceRoot, module, entries);
         }
     }

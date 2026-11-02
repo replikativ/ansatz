@@ -1,7 +1,7 @@
 (ns ansatz.lean.jvm.compiler.local
   "Internal source/compiled-module preparation. No artifact, entry or READY
    Project is issued here. Uses the fixed compiler's monitored native transport."
-  (:require [ansatz.lean.jvm.compiler.transport :as compiler]
+  (:require [ansatz.lean.jvm.producer :as producer] [ansatz.lean.jvm.compiler.transport :as compiler]
             [clojure.string :as str]
             [clojure.data.json :as json])
   (:import [java.nio.file Path Files LinkOption StandardOpenOption]
@@ -139,7 +139,10 @@
         (require! (and (= name (get product "module")) (= (get source ":record") (get product "source"))
                        (= relative (get product "olean")) (map? (get product "oleanRecord"))
                        (map? (get receipt "stdoutRecord")) (map? (get receipt "stderrRecord"))
-                       (= 0 (get-in receipt ["stderrRecord" "bytes"]))
+                       (or (= 0 (get-in receipt ["stderrRecord" "bytes"]))
+                           (and (producer/diagnostics-supported? (get-in inputs ["typedExporter" "sha256"]))
+                                (integer? (get-in receipt ["stderrRecord" "bytes"]))
+                                (<= 0 (get-in receipt ["stderrRecord" "bytes"]) 1048576)))
                        (= (get product "oleanRecord") (get files (str "build/" relative)))
                        (= (get source ":record") (get files (str "project/" (module-relative name))))
                        (= label (get receipt "label")) (= stdout (get receipt "stdout")) (= stderr (get receipt "stderr"))

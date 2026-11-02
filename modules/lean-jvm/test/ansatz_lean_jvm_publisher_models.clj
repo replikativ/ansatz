@@ -9,8 +9,14 @@
           "ir" {"fdecl" {"f" n "xs" [{"borrow" false "ty" "object" "x" {"idx" 1}}]
                           "type" "object" "body" ["ret" {"var" {"id" {"idx" 1}}}]}}})
 (def abi {"name" n "xs" [{"borrow" false "ty" "object" "x" {"idx" 1}}] "type" "object"})
-(def entry {"name" n "levelParams" [] "raw" abi "callable" abi
-            "typeCheck" {"signature" "nat-to-nat" "algorithm" "Lean.Meta.isDefEq" "transparency" "default"}})
+;; Synthetic full observation shape, never native type/admission authority.
+(def nat-type ["const" ["str" ["anonymous"] "Nat"] []])
+(def function-type ["forall" ["anonymous"] "default" nat-type nat-type])
+(def entry {"name" n "compiledModule" module/n "kind" "definition"
+            "levelParams" [] "raw" abi "callable" abi "selection" "original-owned-raw"
+            "actualType" function-type
+            "typeCheck" {"signature" "nat-to-nat" "algorithm" "Lean.Meta.isDefEq"
+                         "transparency" "default" "expectedType" function-type}})
 (defn payload []
   {:profile "native-project-build-evidence/2" :rows {n row} :entries [entry]
    :startup (assoc (module/capture [(module/module-row [] [] "all" false)]) "declarations" [row])})

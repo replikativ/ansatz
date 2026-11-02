@@ -22,6 +22,7 @@
         receipt (str (io/file root "release.edn"))
         xml "<project><groupId>org.replikativ</groupId><artifactId>ansatz-lean-jvm</artifactId><version>0.2.1234</version></project>"
         metadata {:schema "ansatz-lean-jvm-runtime/1" :java-release 17
+                  :engine-closure-sha256 (apply str (repeat 64 "b"))
                   :artifact-version "0.2.1234" :engine-source-sha256 (apply str (repeat 64 "a"))
                   :public-project-api false :native-compiler-included false}]
     (try
