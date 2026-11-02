@@ -16,11 +16,14 @@ javac -J-Xmx256m --release 11 -g -d "$contract_root/engine-classes" \
 javac -J-Xmx256m --release 11 -d "$contract_root/classes" \
   "$engine_tests/kernel-support/java/prototype/TypedLongMemo.java"
 jar cf "$contract_root/engine.jar" -C "$contract_root/engine-classes" .
+jar cf "$contract_root/memo.jar" -C "$contract_root/classes" .
 python3 "$engine_tests/prepare-fixtures.py" "$contract_root/fixtures"
+# Keep Clojure CLI cache in this owned temporary project, never the user config.
+printf '{}\n' > "$contract_root/fixtures/deps.edn"
 (
   cd "$contract_root/fixtures"
-  clojure -J-Xmx384m -J-Xss8m \
-    -Sdeps "{:paths [\"$engine_tests/support\" \"$engine_tests/kernel-support\" \"$engine_tests/kernel-contracts\" \"$engine_tests/source-contracts\" \"$contract_root/classes\"] :deps {org.replikativ/ansatz {:local/root \"$repo_root\"}}}" \
+  clojure -Srepro -J-Xmx384m -J-Xss8m \
+    -Sdeps "{:deps {ansatz/engine-contract-tests {:local/root \"$engine_tests\"} ansatz/engine-memo {:local/root \"$contract_root/memo.jar\"}}}" \
     -M "$engine_tests/check-runner.clj" "$contract_root/engine.jar"
 )
 

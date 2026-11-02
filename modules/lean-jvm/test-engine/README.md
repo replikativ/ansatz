@@ -12,7 +12,7 @@ checked kernel projection. `checks/` contains the engine contracts; `support/`
 contains their fixture builders and reflection helpers. `kernel-support/` contains
 carrier-parametric checking code and a small test carrier, with its contracts in
 `kernel-contracts/`. Source/artifact authority contracts also run in the SDK gate;
-see the repository's contract migration record for their current scope.
+see the [source authority migration](source-contracts/README.md) for their current scope.
 
 `corpus.zip` contains immutable fixture data, provenance, licenses, source oracle
 producers, and their captured observations. It contains no archived interpreter

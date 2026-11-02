@@ -130,4 +130,3 @@
     (validate-eager-domain {:env environment :projected projected
                             :constants (zipmap (keys projected) (repeat nil))}))
   segments)
-

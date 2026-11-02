@@ -106,7 +106,7 @@
         (check (= (float 1.5) (lean/call project "singleConstant"))))
       (check (= 42 (lean/call old "Demo.sumArgs" 20 21 true))))))
 (def report {:schema "ansatz-lean-jvm-source-acceptance/1" :checks @checks :timings-ms @timings
-             :module-cache-observations @observations :sdk-resource-protocol "jar" :runtime-heap-mib 512
+             :module-cache-observations @observations :sdk-resource-protocol "jar" :runtime-heap-mib (quot (.maxMemory (Runtime/getRuntime)) 1048576)
              :scope "Actual public source cold/cache/edit/reload/artifact, common/scalar values, warnings, errors, capability and type refusal"})
 (spit (io/file output "result.json") (json/write-str report :escape-slash false))
 (println "PASS SOURCE_ACCEPTANCE" (dissoc report :module-cache-observations))

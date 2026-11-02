@@ -28,3 +28,4 @@ lean-export/.lake/
 .calva/
 .bundle/
 .internal/
+__pycache__/
