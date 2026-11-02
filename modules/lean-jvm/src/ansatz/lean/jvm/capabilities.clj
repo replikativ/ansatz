@@ -15,7 +15,7 @@
             "STR_SAFE_GET" "STR_SAFE_NEXT" "STR_PREV" "STR_VALID" "STR_EXTRACT" "STR_EQ" "STR_LT"
             "STR_COMPARE" "STR_BYTE" "STR_CONTAINS" "STR_LENGTH" "STR_SET" "STR_HASH" "STR_MEMCMP"
             "STR_SUBSTRING_EQ" "STR_POS_OF" "STR_OFFSET_OF_POS" "STR_PUSHN" "STR_POS_SET"
-            "STR_TO_UTF8" "STR_FROM_UTF8" "STR_VALIDATE_UTF8"]
+            "STR_TO_UTF8" "STR_FROM_UTF8" "STR_VALIDATE_UTF8" "STR_ANY" "STR_IS_PREFIX"]
    :byte-array ["BYTE_MK" "BYTE_GET" "BYTE_SIZE" "BYTE_PUSH" "BYTE_EMPTY" "BYTE_COPY_SLICE" "BYTE_GET_DEFAULT"]
    :array ["ARRAY_MK" "ARRAY_SIZE" "ARRAY_GET" "ARRAY_EMPTY" "ARRAY_PUSH" "ARRAY_POP" "ARRAY_USIZE"
            "ARRAY_FGET" "ARRAY_UGET" "ARRAY_UGET_BORROWED" "ARRAY_FSET" "ARRAY_USET" "ARRAY_SWAP"
@@ -70,6 +70,8 @@
                           [(get row "name") (assoc family :intrinsic intrinsic :symbol symbol :abi (abi declaration))])))]
     {:profile :task-free-captured-output-v1 :runtime-class cls :registry-object registry
      :entropy-action (static-field cls "ACTION_ENTROPY")
+     :native-action (static-field cls "ACTION_NATIVE")
+     :string-any-intrinsic (static-field cls "STR_ANY")
      :externs externs :typed-inputs #{:nat :string :erased-world}
      :dynamic-io-profile :bounded-stdio-read-line-write-flush-tty
      :stdin-profile :native-like-finite-byte-input

@@ -335,15 +335,26 @@
     (.invoke ^java.lang.reflect.Method (:close (:ctx prepared)) engine (object-array 0))
     (reset! cell {:status :closed :lock (:lock @cell)}) nil))
 
-(defn- heap-action-chain! [action entropy-action]
+(defn- heap-action-chain! [action requirements program]
   (let [seen (java.util.IdentityHashMap.)]
     (loop [action action]
       (when action
-        (need (and (< (.size seen) 256) (not (.containsKey seen action))
-                   (= entropy-action (engine-field action "operation"))
-                   (every? #(nil? (engine-field action %)) ["guest" "completion" "request" "task" "scope"]))
-              "Abandonment found an unclassified action or resource protocol")
-        (.put seen action true) (recur (engine-field action "parent"))))))
+        (let [operation (engine-field action "operation")
+              pure-native?
+              (when (= operation (:native-action requirements))
+                (when-let [function (engine-field action "function")]
+                  (let [functions (engine-field program "functions") id (engine-field function "id")]
+                    (and (integer? id) (<= 0 id) (< id (alength ^objects functions))
+                         (identical? function (aget ^objects functions id))
+                         (= (:string-any-intrinsic requirements) (engine-field function "intrinsic"))))))]
+          (need (and (< (.size seen) 256) (not (.containsKey seen action))
+                     (or (= (:entropy-action requirements) operation) pure-native?)
+                     (every? #(nil? (engine-field action %)) ["guest" "completion" "request" "task" "scope"]))
+                "Abandonment found an unclassified action or resource protocol")
+          ;; String.any's pending predicate and release frames own only ordinary
+          ;; guest heap. Recognize its actual Program function; other native
+          ;; actions do not inherit this abandonment permission.
+          (.put seen action true) (recur (engine-field action "parent")))))))
 (defn- heap-abandonable! [prepared engine]
   (let [requirements (:requirements prepared)]
     (need (= :task-free-captured-output-v1 (:profile requirements)) "Abandonment requires the issued positive pure-heap profile")
@@ -372,8 +383,8 @@
       ;; external stream a certificate. Drop these roots for host GC, never DEC.
       ;; Synchronous provider callbacks have returned when advancing is false
       ;; under this exclusive lease. No effect is replayed or retried.
-      (heap-action-chain! (engine-field engine "runtimeAction") (:entropy-action requirements))
-      (heap-action-chain! (engine-field engine "failedRuntimeAction") (:entropy-action requirements)))))
+      (heap-action-chain! (engine-field engine "runtimeAction") requirements (get-in prepared [:ctx :program]))
+      (heap-action-chain! (engine-field engine "failedRuntimeAction") requirements (get-in prepared [:ctx :program])))))
 (defn- abandon!-in-lease [token]
   (let [cell (live-cell! token) {:keys [status prepared engine error-slot ledger module-index]} @cell]
     (need (#{:cancelled :host-failed :io-error :close-started} status) "Only terminal stopped computation can be abandoned")

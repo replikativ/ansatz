@@ -28,6 +28,7 @@
 (doseq [file ["test/build_audit_checks.clj" "test/prepare_checks.clj"
               "test/encoding_checks.clj" "test/release_checks.clj" "test/facade_checks.clj"
               "test/preparation_api_checks.clj"
+              "test/string_action_checks.clj"
               "test/entry_checks.clj" "test/extended_entry_checks.clj" "test/scalar_buffer_checks.clj"
               "test/native_transport_checks.clj"
               "test/io_error_checks.clj"
@@ -40,6 +41,7 @@
               ['ansatz-lean-jvm-release-checks ["."]]
               ['ansatz-lean-jvm-facade-checks []]
               ['ansatz-lean-jvm-preparation-api-checks ["."]]
+              ['ansatz-lean-jvm-string-action-checks []]
               ['ansatz-lean-jvm-module-startup-models []]
               ['ansatz-lean-jvm-publisher-models []]
               ['ansatz-lean-jvm-capability-models [basis]]

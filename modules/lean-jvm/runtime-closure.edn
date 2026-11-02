@@ -25,8 +25,8 @@
              "META-INF/ansatz-lean-jvm/user-error.json"
              "META-INF/ansatz-lean-jvm/NOTICE"]
  :engine-class "ansatz.lean.jvm.internal.exec.Interpreter"
- :engine-closure-sha256 "ae6b358b49316c72f789857311912043fa307d4eae2d358742fdb941fe82db1e"
- :java-engine [{:path "ansatz/lean/jvm/internal/exec/Interpreter.java" :class "ansatz.lean.jvm.internal.exec.Interpreter" :sha256 "3b2c034862d2218a1fa07e7615eb82818c811420f1376dfda87ab12b06f06213"}
+ :engine-closure-sha256 "505fca6f121dd0ac3d78082c50888d9c1009e04b4491e674749be6d824c77d61"
+ :java-engine [{:path "ansatz/lean/jvm/internal/exec/Interpreter.java" :class "ansatz.lean.jvm.internal.exec.Interpreter" :sha256 "8361ee87871af0ed9658871830a7b3babaebabe3750021202dc2eb49290f46cd"}
                {:path "ansatz/lean/jvm/internal/exec/ScalarBits.java" :class "ansatz.lean.jvm.internal.exec.ScalarBits" :sha256 "f7f105354cb7c66c3aa1834254113738ed52d14a47fe92308d1dd4e9db5f6fe9"}
                {:path "ansatz/lean/jvm/internal/exec/Utf8Bytes.java" :class "ansatz.lean.jvm.internal.exec.Utf8Bytes" :sha256 "74eb7745542b95b40ad166517fd79bf60500363792f771a34a2bd4c52a64fb18"}]
  :java-api [{:path "ansatz/lean/jvm/InvocationOptions.java" :class "ansatz.lean.jvm.InvocationOptions" :sha256 "6768bc8fa299c1e0a628156346bea1a1942ac62caac1a90806621f09753cf9b6"}
