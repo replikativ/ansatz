@@ -53,8 +53,8 @@ The v2 archive is published in ansatz-stores and its public download has been
 verified against the [recorded archive hash](candidate-v2.json). The SDK admits a
 producer binary with its exact source/binary pair; mixing independently valid
 hashes is rejected. The v1 bundle remains supported by the current SDK for explicit
-legacy `natFunction`, `stringFunction`, and `main` requests. Older SDK `0.2.578`
-requires the [v1 bundle](https://github.com/replikativ/ansatz-stores/releases/tag/lean-native-producer-4.33.1-v1);
+legacy `natFunction`, `stringFunction`, and `main` requests. SDK releases before `0.2.580`
+require the [v1 bundle](https://github.com/replikativ/ansatz-stores/releases/tag/lean-native-producer-4.33.1-v1);
 it does not admit the newer v2 producer cohort.
 
 ## Published Linux bundle
