@@ -477,7 +477,13 @@
                  nat-result (try-reduce-nat head args #(whnf env % lctx opts))]
              (if nat-result
                (recur (whnf-core env nat-result lctx opts))
-               (let [unfolded (try-unfold-def env head)]
+               ;; `(:can-unfold? opts)` restricts delta like Lean's `withCanUnfoldPred`
+               ;; (Meta/WHNF.lean whnfMatcher); it applies to every nested whnf (discriminants,
+               ;; projected structures), since they share these opts.
+               (let [can-unfold? (:can-unfold? opts)
+                     unfolded (when (or (nil? can-unfold?)
+                                        (and (e/const? head) (can-unfold? (e/const-name head))))
+                                (try-unfold-def env head))]
                  (if unfolded
                    (do (check-fuel!)
                        (recur (whnf-core env (reduce e/app unfolded args) lctx opts)))

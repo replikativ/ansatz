@@ -7,6 +7,7 @@
   (:require [ansatz.bundle :as bundle]
             [ansatz.kernel.expr :as e]
             [ansatz.kernel.env :as env]
+            [ansatz.meta.rec-ext :as rec-ext]
             [ansatz.kernel.name :as name]
             [ansatz.kernel.level :as lvl]
             [ansatz.kernel.quotient :as quotient]
@@ -1307,6 +1308,7 @@
         ;; Add to environment (swap! to avoid stale env race)
         ci (env/mk-def cname [] type-ansatz chosen-body)
         _ (swap! ansatz-env env/check-constant ci)
+        _ (swap! ansatz-env rec-ext/mark-as-recursive cname)
         ;; Register arity for Clojure compilation (FAP/PAP dispatch)
         _ (decl/plan! env (str fn-name) type-ansatz n)
         _ (when (verbose?) (println (str "✓ " fn-name " defined (well-founded recursion, "

@@ -248,32 +248,34 @@
            :cache true})
         (tactic-error! "cannot build congr proof" {:proof-construction true})))))
 
-(defn- mk-implies-congr
+(defn- mk-imp-congr
   "implies_congr hp hq : (p₁ → q₁) = (p₂ → q₂).
-   Lean 4: mkImpCongr for non-dependent arrow types."
-  [st p-result q-result orig-p orig-q]
-  (cond
-    (and (nil? (:proof? p-result)) (nil? (:proof? q-result)))
-    (mk-result (e/arrow (:expr p-result) (:expr q-result)))
+   Lean 4.33.1 Meta/Tactic/Simp/Types.lean mkImpCongr for arrow types."
+  [st src p-result q-result]
+  (let [orig-p (e/forall-type src) orig-q (e/forall-body src)
+        expr (e/forall' (e/forall-name src) (:expr p-result) (:expr q-result) (e/forall-info src))]
+    (cond
+      (and (nil? (:proof? p-result)) (nil? (:proof? q-result)))
+      (mk-result expr)
 
-    :else
+      :else
 
-      ;; implies_congr.{u,v} (a₁ a₂ : Sort u) (b₁ b₂ : Sort v) (ha)(hb) : (a₁→b₁)=(a₂→b₂)
-      ;; u,v are the sorts of the antecedent p and consequent q (Lean's mkImpCongr).
-      ;; ha : Eq.{u+1} (Sort u) p₁ p₂, so refl fallback is Eq.refl.{u+1} (Sort u) p.
-    (let [u (get-sort-level st orig-p)
-          v (get-sort-level st orig-q)
-          hp (or (:proof? p-result)
-                 (e/app* (e/const' eq-refl-name [(lvl/succ u)])
-                         (e/sort' u) orig-p))
-          hq (or (:proof? q-result)
-                 (e/app* (e/const' eq-refl-name [(lvl/succ v)])
-                         (e/sort' v) orig-q))]
-      {:expr (e/arrow (:expr p-result) (:expr q-result))
-       :proof? (e/app* (e/const' implies-congr-name [u v])
-                       orig-p (:expr p-result)
-                       orig-q (:expr q-result) hp hq)
-       :cache true})))
+        ;; implies_congr.{u,v} (a₁ a₂ : Sort u) (b₁ b₂ : Sort v) (ha)(hb) : (a₁→b₁)=(a₂→b₂)
+        ;; u,v are the sorts of the antecedent p and consequent q (Lean's mkImpCongr).
+        ;; ha : Eq.{u+1} (Sort u) p₁ p₂, so refl fallback is Eq.refl.{u+1} (Sort u) p.
+      (let [u (get-sort-level st orig-p)
+            v (get-sort-level st orig-q)
+            hp (or (:proof? p-result)
+                   (e/app* (e/const' eq-refl-name [(lvl/succ u)])
+                           (e/sort' u) orig-p))
+            hq (or (:proof? q-result)
+                   (e/app* (e/const' eq-refl-name [(lvl/succ v)])
+                           (e/sort' v) orig-q))]
+        {:expr expr
+         :proof? (e/app* (e/const' implies-congr-name [u v])
+                         orig-p (:expr p-result)
+                         orig-q (:expr q-result) hp hq)
+         :cache true}))))
 
 ;; ============================================================
 ;; Error helpers
@@ -977,7 +979,7 @@
         ;; Direct lookup avoids disc tree star-arity mismatch for equation theorems.
         dt-candidates (lookup-lemmas st env lemma-index expr config)
         head-fn (e/get-app-fn expr)
-        eqn-candidates (when (e/const? head-fn)
+        eqn-candidates (when (and (not (:unfold-theorem config)) (e/const? head-fn))
                          (when-let [eqns (find-eqn-theorems env (e/const-name head-fn))]
                            (vec (mapcat (fn [eqn-name]
                                           (when-let [ci (env/lookup env eqn-name)]
@@ -1855,59 +1857,125 @@
                           (mk-result (nth sargs fidx))))))))
               :else nil)))))))
 
-(defn- ctor-headed?
-  "After whnf-no-delta, is `e` headed by a constructor / Nat literal? Used as a
-   cheap gate: a matcher only iota-reduces when a discriminant is concrete."
-  [st e]
-  (let [w (red/whnf-no-delta (:env st) e (:lctx st))]
-    (or (e/lit-nat? w)
-        (let [[h _] (e/get-app-fn-args w)]
-          (and (e/const? h)
-               (when-let [ci (env/lookup (:env st) (e/const-name h))]
-                 (.isCtor ^ConstantInfo ci)))))))
+(def ^:private match-unfold-whitelist
+  "Lean Meta/WHNF.lean canUnfoldAtMatcher: default-reducible constants a matcher may unfold
+   at reducible/instances transparency."
+  #{"decEq" "Nat.decEq" "Char.ofNat" "Char.ofNatAux" "String.decEq" "List.hasDecEq" "Fin.ofNat"
+    "UInt8.ofNat" "UInt8.decEq" "UInt16.ofNat" "UInt16.decEq" "UInt32.ofNat" "UInt32.decEq"
+    "UInt64.ofNat" "UInt64.decEq" "HMod.hMod" "Mod.mod"})
+
+(def ^:private instance-name-sets (java.util.WeakHashMap.))
+
+(defn- registered-instance-names
+  "Names in the environment's @[instance] registry (memoized per registry value)."
+  [env]
+  (if-let [idx (env/get-extension env :instances nil)]
+    (locking instance-name-sets
+      (or (.get instance-name-sets idx)
+          (let [names (into #{} (comp (mapcat val) (map :name)) idx)]
+            (.put instance-name-sets idx names)
+            names)))
+    #{}))
+
+(defn- can-unfold-at-matcher?
+  "Lean `canUnfoldAtMatcher` at instances transparency (Meta/WHNF.lean): reducible
+   constants (`:abbrev` hints: abbrevs, matchers, casesOn and the other constructions),
+   instances (Lean's implicitReducible status), and Lean's fixed list. Deviation: the
+   @[match_pattern] attribute is not exported, so those definitions are not included."
+  [env const-name]
+  (let [ci (env/lookup env const-name)]
+    (boolean
+     (and ci
+          (or (= :abbrev (env/get-reducibility-hints ci))
+              (contains? (registered-instance-names env) const-name)
+              (contains? match-unfold-whitelist (name/->string const-name)))))))
+
+(defn- max-fvar-id
+  "Largest free-variable id in the local context and in `expr` (0 if none)."
+  [lctx expr]
+  (loop [pending [expr] seen #{} m (reduce max 0 (filter number? (keys lctx)))]
+    (if-let [x (peek pending)]
+      (let [pending (pop pending)]
+        (if (contains? seen x)
+          (recur pending seen m)
+          (let [seen (conj seen x)]
+            (case (e/tag x)
+              :fvar (recur pending seen (max m (long (e/fvar-id x))))
+              :app (recur (conj pending (e/app-fn x) (e/app-arg x)) seen m)
+              :lam (recur (conj pending (e/lam-type x) (e/lam-body x)) seen m)
+              :forall (recur (conj pending (e/forall-type x) (e/forall-body x)) seen m)
+              :let (recur (conj pending (e/let-type x) (e/let-value x) (e/let-body x)) seen m)
+              :mdata (recur (conj pending (e/mdata-expr x)) seen m)
+              :proj (recur (conj pending (e/proj-struct x)) seen m)
+              (recur pending seen m)))))
+      m)))
+
+(defn- unfold-nested-dite
+  "Lean 4.33.1 Meta/WHNF.lean unfoldNestedDIte: Core.transform replaces
+   dite constants only in the matcher value, before caller arguments are inserted."
+  [env value]
+  (let [cache (java.util.IdentityHashMap.)
+        dite (name/from-string "dite")]
+    (letfn [(visit [x]
+              (or (.get cache x)
+                  (with-inc-rec-depth 1 x
+                    (let [r (if (and (e/const? x) (= dite (e/const-name x)))
+                              (let [^ConstantInfo ci (env/lookup! env dite)]
+                                (e/instantiate-level-params (.value ci)
+                                                            (zipmap (vec (.levelParams ci)) (e/const-levels x))))
+                              (case (e/tag x)
+                                :app (let [[h args] (e/get-app-fn-args x)]
+                                       (apply e/app* (visit h) (map visit args)))
+                                :lam (e/lam (e/lam-name x) (visit (e/lam-type x))
+                                            (visit (e/lam-body x)) (e/lam-info x))
+                                :forall (e/forall' (e/forall-name x) (visit (e/forall-type x))
+                                                   (visit (e/forall-body x)) (e/forall-info x))
+                                :let (e/let' (e/let-name x) (visit (e/let-type x))
+                                             (visit (e/let-value x)) (visit (e/let-body x)))
+                                :mdata (e/mdata (e/mdata-data x) (visit (e/mdata-expr x)))
+                                :proj (e/proj (e/proj-type-name x) (e/proj-idx x) (visit (e/proj-struct x)))
+                                x))
+                          r (if (= r x) x r)]
+                      (.put cache x r)
+                      r))))]
+      (visit value))))
 
 (defn- try-reduce-matcher
-  "reduceRecMatcher? (Lean 4): reduce a matcher auxiliary `T.match_N … discr …
-   (fun _:Unit => bᵢ) …` when a discriminant is a constructor, to the SELECTED
-   branch bₖ — without over-reducing bₖ. A naive full whnf would keep unfolding a
-   non-constructor-headed branch (e.g. `List.filter` → `brecOn.go`/`below` monster).
-   Technique: replace each Unit-thunk alternative's body with a fresh opaque marker
-   fvar, full-whnf the matcher (the markers block any over-reduction past the iota
-   step), and if the head reduces to exactly one marker, return that alternative's
-   real body (β-applied to `Unit.unit`, as the matcher would). Definitional ⇒ nil
-   proof. Restricted to Unit-thunk alts (the form Lean emits for matches whose cases
-   bind no discriminant fields, e.g. a `Bool`/`Nat`-comparison match) so replacing a
-   body with a closed marker never drops a captured field."
+  "Lean `Meta.reduceMatcher?` (Meta/WHNF.lean): reduce a matcher application whose
+   discriminants select an alternative. The matcher is applied to its parameter, motive and
+   discriminant prefix (sizes from MatcherInfo) and to fresh locals in place of the
+   alternatives. Its instantiated value first passes through unfoldNestedDIte, then
+   whnfMatcher limits delta steps to canUnfoldAtMatcher, so ordinary definitions inside
+   discriminants stay folded. If the head is the local of alternative i, the result is that
+   alternative applied to the local's arguments (the constructor fields, or `Unit.unit` for
+   a thunk) and to any arguments beyond the alternatives. Definitional, so no proof."
   [st expr]
   (let [env (:env st)
         [head args] (e/get-app-fn-args expr)]
-    (when (and (e/const? head)
-               (>= (count args) 2)
-               (re-find #"\.match_\d+$" (name/->string (e/const-name head))))
-      (let [n (count args)
-            ;; trailing contiguous lambda args = the alternatives
-            alt-start (loop [i n] (if (and (> i 0) (e/lam? (nth args (dec i)))) (recur (dec i)) i))
-            alts (subvec (vec args) alt-start)
-            unit? (fn [a] (let [t (e/lam-type a)]
-                            (and (e/const? t) (= "Unit" (name/->string (e/const-name t))))))]
-        (when (and (seq alts) (every? unit? alts)
-                   ;; cheap gate: some discriminant (a non-alt arg) is concrete
-                   (some #(ctor-headed? st %) (subvec (vec args) 0 alt-start)))
-          (let [unit-unit (e/const' (name/from-string "Unit.unit") [])
-                marker-id (fn [i] (+ 920000 i))
-                new-alts (mapv (fn [a i]
-                                 (e/lam (e/lam-name a) (e/lam-type a)
-                                        (e/fvar (marker-id i)) (e/lam-info a)))
-                               alts (range))
-                marker->body (into {} (map-indexed
-                                       (fn [i a] [(marker-id i)
-                                                  (e/instantiate1 (e/lam-body a) unit-unit)])
-                                       alts))
-                probe (apply e/app* head (into (subvec (vec args) 0 alt-start) new-alts))
-                reduced (red/whnf env probe (:lctx st))]
-            (when (and reduced (e/fvar? reduced)
-                       (contains? marker->body (e/fvar-id reduced)))
-              (mk-result (get marker->body (e/fvar-id reduced))))))))))
+    (when (e/const? head)
+      (when-let [info (matcher-info/get-matcher-info-core? env (name/->string (e/const-name head)))]
+        (let [args (vec args)
+              prefix (+ (:num-params info) 1 (:num-discrs info))
+              nalts (matcher-info/num-alts info)]
+          (when (and (pos? nalts) (>= (count args) (+ prefix nalts)))
+            (let [base (inc (max-fvar-id (:lctx st) expr))
+                  ^ConstantInfo ci (env/lookup! env (e/const-name head))
+                  value (e/instantiate-level-params (.value ci)
+                                                    (zipmap (vec (.levelParams ci)) (e/const-levels head)))
+                  value (unfold-nested-dite env value)
+                  probe (apply e/app* value (into (subvec args 0 prefix)
+                                                  (map #(e/fvar (+ base %)) (range nalts))))
+                  reduced (red/whnf env probe (:lctx st)
+                                    {:can-unfold? #(can-unfold-at-matcher? env %)})
+                  [rhead rargs] (when reduced (e/get-app-fn-args reduced))]
+              (when (and rhead (e/fvar? rhead)
+                         (<= base (e/fvar-id rhead) (+ base nalts -1)))
+                (let [i (- (e/fvar-id rhead) base)
+                      alt (nth args (+ prefix i))
+                      result (reduce (fn [f a] (if (e/lam? f) (e/instantiate1 (e/lam-body f) a) (e/app f a)))
+                                     alt
+                                     (concat rargs (subvec args (+ prefix nalts))))]
+                  (mk-result result))))))))))
 
 (defn- try-simproc
   "Try built-in simplification procedures, then user-registered simprocs.
@@ -2474,6 +2542,8 @@
                       (range n))]
     kinds))
 
+(declare unfold-dsimp)
+
 (defn- simp-proj
   "Lean Meta/Tactic/Simp/Main.lean simpProj, v4.33.1: transport a projection
    equality with Eq.ndrec; dependent fields permit only dsimp."
@@ -2486,7 +2556,10 @@
         projected (e/proj (e/proj-type-name expr) (e/proj-idx expr) fv)
         field-type (tc/infer-type st' projected)]
     (if (not= field-type (e/abstract1 field-type fid))
-      (mk-result (dsimp-expr env (:lctx st) expr (:max-depth config)))
+      (mk-result (if (:unfold-theorem config)
+                   (e/proj (e/proj-type-name expr) (e/proj-idx expr)
+                           (unfold-dsimp st env lemma-index struct config))
+                   (dsimp-expr env (:lctx st) expr (:max-depth config))))
       (let [v (get-sort-level st' field-type)
             motive (e/lam "s" struct-type
                           (e/abstract1 (e/app* (e/const' eq-name [v])
@@ -2603,8 +2676,9 @@
                                   ;; Separate traversal: structural reductions only,
                                   ;; propagates transitively through all sub-expressions
                                   ;; including lambda bodies. No rewrite lemmas.
-                                   (let [reduced (dsimp-expr env (:lctx st) orig-a
-                                                             (:max-depth config))]
+                                   (let [reduced (if (:unfold-theorem config)
+                                                   (unfold-dsimp st env lemma-index orig-a config)
+                                                   (dsimp-expr env (:lctx st) orig-a (:max-depth config)))]
                                      (if (= reduced orig-a)
                                        (mk-result orig-a)
                                        (mk-result reduced))))]
@@ -2635,7 +2709,9 @@
                  lam-nm (e/lam-name expr)
                  lam-bi (e/lam-info expr)
                    ;; dsimp the binder type (Lean: lambdaTelescopeDSimp dsimps `d`)
-                 alpha (let [reduced (dsimp-expr env (:lctx st) lam-type (:max-depth config))]
+                 alpha (let [reduced (if (:unfold-theorem config)
+                                       (unfold-dsimp st env lemma-index lam-type config)
+                                       (dsimp-expr env (:lctx st) lam-type (:max-depth config)))]
                          (if (= reduced lam-type) lam-type reduced))
                    ;; OPEN the binder with a fresh fvar; simp the opened body in proper lctx
                  xid (swap! (:next-id st) inc)
@@ -2708,15 +2784,27 @@
                   (mk-result (e/arrow p q)
                              (e/app* (e/const' (name/from-string "implies_congr_ctx") [])
                                      orig-p p orig-q q hp hq))))
-              (if (and (is-prop-type? st orig-p) (is-prop-type? st orig-q))
-                (mk-implies-congr st p-result q-result orig-p orig-q)
-                (mk-result (e/forall' (e/forall-name expr) (:expr p-result)
-                                      (:expr q-result) (e/forall-info expr))))))
+              ;; Lean 4.33.1 Simp/Main.lean simpArrow uses mkImpCongr for
+              ;; function types as well as implications, at arbitrary universes.
+              (mk-imp-congr st expr p-result q-result)))
             ;; Lean Simp/Main.lean simpForall: open the binder before
             ;; inferring/simplifying its body, then reabstract with forall_congr.
           (if-not (is-prop-type? st expr)
-            (mk-result (dsimp-expr env (:lctx st) expr (:max-depth config)))
-            (let [domain (dsimp-expr env (:lctx st) orig-p (:max-depth config))
+            ;; Lean simpForall: a dependent non-Prop Pi admits only dsimp.
+            (if (:unfold-theorem config)
+              (let [domain (unfold-dsimp st env lemma-index orig-p config)
+                    xid (swap! (:next-id st) inc)
+                    xf (e/fvar xid)
+                    st' (update st :lctx assoc xid {:tag :local :id xid
+                                                    :name (str (e/forall-name expr)) :type domain})
+                    body (e/instantiate1 orig-q xf)
+                    body' (unfold-dsimp st' env lemma-index body (assoc config :cache (atom {})))]
+                (mk-result (e/forall' (e/forall-name expr) domain (e/abstract1 body' xid)
+                                      (e/forall-info expr))))
+              (mk-result (dsimp-expr env (:lctx st) expr (:max-depth config))))
+            (let [domain (if (:unfold-theorem config)
+                           (unfold-dsimp st env lemma-index orig-p config)
+                           (dsimp-expr env (:lctx st) orig-p (:max-depth config)))
                   xid (swap! (:next-id st) inc)
                   xf (e/fvar xid)
                   st' (update st :lctx assoc xid {:tag :local :id xid
@@ -2735,8 +2823,17 @@
                 (if (= result expr) (mk-result expr) (mk-result result)))))))
 
         ;; Let — zeta reduce
-      :let (let [expanded (e/instantiate1 (e/let-body expr) (e/let-value expr))]
-             (simp-expr* st env lemma-index expanded config))
+      :let (if (:unfold-theorem config)
+             (let [f (e/lam (e/let-name expr) (e/let-type expr) (e/let-body expr) :default)
+                   v (e/let-value expr)
+                   rf (simp-expr* st env lemma-index f config)
+                   rv (simp-expr* st env lemma-index v config)
+                   r (mk-congr st rf rv f v)
+                   f' (:expr rf)]
+               (assoc r :expr (e/let' (e/let-name expr) (e/lam-type f')
+                                      (:expr rv) (e/lam-body f'))))
+             (let [expanded (e/instantiate1 (e/let-body expr) (e/let-value expr))]
+               (simp-expr* st env lemma-index expanded config)))
 
       :proj (simp-proj st env lemma-index expr config)
 
@@ -2760,7 +2857,7 @@
              (.equals (LeanExprKey. expr) (LeanExprKey. (:expr result))))
       (assoc result :expr expr) result)))
 
-(defn- simp-expr*
+(defn- simp-expr-default*
   "Core simplification loop (Lean 4's simpLoop).
    config: {:max-depth :single-pass? :max-steps :cache :to-unfold :discharge-depth}"
   [st env lemma-index expr config]
@@ -2860,6 +2957,36 @@
               (if (instance? ExprMap cache) (.put ^ExprMap cache expr result)
                   (swap! cache assoc expr result)))
             result))))))
+
+(defn- simp-expr*
+  [st env lemma-index expr config]
+  (if-not (:unfold-theorem config)
+    (simp-expr-default* st env lemma-index expr config)
+    ;; Lean 4.33.1 Meta/Tactic/Unfold.lean unfold.pre: a successful rewrite is
+    ;; .done, followed only by reduceMatcher?. The neutral context does no other rewrites.
+    (or (cached-result (:cache config) expr)
+        (with-inc-rec-depth 1 expr
+          (let [result (if-let [r (try-rewrite-step st env lemma-index expr config)]
+                         (if-let [m (try-reduce-matcher st (:expr r))]
+                           (assoc r :expr (:expr m)) r)
+                         (simp-subterms st env lemma-index expr config))]
+            (swap! (:cache config) assoc expr result)
+            result)))))
+
+(defn- unfold-dsimp [st env lemma-index expr config]
+  ;; Simp's fixed arguments allow only definitional theorem rewrites.
+  (let [r (simp-expr* st env lemma-index expr config)]
+    (if (:proof? r) expr (:expr r))))
+
+(declare make-simp-lemmas)
+
+(defn unfold-expr
+  "Lean 4.33.1 Meta/Tactic/Unfold.lean unfold with an existing unfold theorem."
+  [st env expr theorem]
+  (let [lemmas (make-simp-lemmas env [theorem])
+        index (build-lemma-index st env lemmas)]
+    (simp-expr* st env index expr {:unfold-theorem theorem :cache (atom {})
+                                   :max-depth 20 :to-unfold #{} :discharge-depth 0})))
 
 ;; Public wrapper
 (defn simp-expr

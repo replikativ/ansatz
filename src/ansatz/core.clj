@@ -16,6 +16,7 @@
             [clojure.string]
             [ansatz.kernel.expr :as e]
             [ansatz.kernel.env :as env]
+            [ansatz.meta.rec-ext :as rec-ext]
             [ansatz.eqns :as eqns]
             [ansatz.kernel.name :as name]
             [ansatz.kernel.level :as lvl]
@@ -2103,6 +2104,8 @@
         _ (if lean-matchers?
             (reset! ansatz-env (env/check-constant definition-env ci))
             (swap! ansatz-env env/check-constant ci))
+        _ (when (or structural-matcher? recursive? explicit-ih?)
+            (swap! ansatz-env rec-ext/mark-as-recursive cname))
         ;; Register arity for Clojure compilation (FAP/PAP dispatch)
         _ (decl/plan! env (str fn-name) type-ansatz (count pairs))
         equation-errors (atom [])
