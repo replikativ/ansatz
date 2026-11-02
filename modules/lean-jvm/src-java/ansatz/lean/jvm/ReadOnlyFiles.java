@@ -55,6 +55,12 @@ public final class ReadOnlyFiles {
                 maxTotalBytes, maxOperations, maxPathBytes);
     }
 
+    /** Neutral configuration with exactly the same read-only authority and limits. */
+    public FileAccess fileAccess() {
+        return FileAccess.readOnly(root).workingDirectory(workingDirectory)
+                .limits(maxHandles, maxReadBytes, maxTotalBytes, maxOperations, maxPathBytes);
+    }
+
     public Path root() { return root; }
     public Path workingDirectory() { return workingDirectory; }
     public int maxHandles() { return maxHandles; }

@@ -1,5 +1,6 @@
 import ansatz.lean.jvm.HostServices;
 import ansatz.lean.jvm.ReadOnlyFiles;
+import ansatz.lean.jvm.FileAccess;
 import java.nio.file.Path;
 
 /** JDK-only configuration checks; does not load Lean, its bridge, or any provider. */
@@ -39,6 +40,14 @@ public final class HostServicesConfigurationChecks {
         check(upper.maxOperations() == Long.MAX_VALUE);
         try { HostServices.builder().files(null); throw new AssertionError("null accepted"); }
         catch (NullPointerException expected) { checks++; }
+        check(empty.fileAccess() == null && !first.fileAccess().writable());
+        FileAccess writable = FileAccess.readWrite(original.root()).writeLimits(7, 20);
+        check(writable.writable() && writable.maxWriteBytes() == 7 && writable.maxTotalWriteBytes() == 20);
+        HostServices writes = builder.fileAccess(writable).build();
+        check(writes.files() == null && writes.fileAccess() == writable && !first.fileAccess().writable());
+        invalid(() -> writable.writeLimits(0, 1));
+        invalid(() -> writable.writeLimits(1, -1));
+        check(!FileAccess.readOnly(original.root()).writeLimits(1, 1).writable());
         System.out.println("HOST_SERVICES_CONFIGURATION_CHECKS " + checks);
     }
 }

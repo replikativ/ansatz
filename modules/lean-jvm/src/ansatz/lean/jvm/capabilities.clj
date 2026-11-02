@@ -29,7 +29,7 @@
    :captured-stdin ["GET_STDIN"]
    :captured-stderr ["GET_STDERR"]
    :managed-sharing-diagnostic ["DBG_TRACE_SHARED"]
-   :filesystem ["FS_METADATA" "FS_OPEN" "FS_READ" "FS_LINE" "FS_WRITE" "FS_PUT" "FS_FLUSH" "FS_TTY"]
+   :filesystem ["FS_METADATA" "FS_OPEN" "FS_READ" "FS_LINE" "FS_WRITE" "FS_PUT" "FS_FLUSH" "FS_TTY" "FS_REWIND" "FS_TRUNCATE"]
    :entropy ["IO_RANDOM_BYTES"]
    ;; Existing Interpreter PANIC terminates with an unsupported-operation
    ;; failure; it never invents Lean's default-return result.
@@ -54,7 +54,8 @@
   {"FS_METADATA" "System.FilePath.metadata" "FS_OPEN" "IO.FS.Handle.mk"
    "FS_READ" "IO.FS.Handle.read" "FS_LINE" "IO.FS.Handle.getLine"
    "FS_WRITE" "IO.FS.Handle.write" "FS_PUT" "IO.FS.Handle.putStr"
-   "FS_FLUSH" "IO.FS.Handle.flush" "FS_TTY" "IO.FS.Handle.isTty"})
+   "FS_FLUSH" "IO.FS.Handle.flush" "FS_TTY" "IO.FS.Handle.isTty"
+   "FS_REWIND" "IO.FS.Handle.rewind" "FS_TRUNCATE" "IO.FS.Handle.truncate"})
 (defn- typed-name [text]
   (reduce (fn [parent part] ["str" parent part]) ["anonymous"] (.split ^String text "\\.")))
 (defn check-rows!
@@ -85,7 +86,7 @@
                                   "Entropy profile requires its canonical installed Header Name"))
                           [(get row "name") (assoc family :intrinsic intrinsic :symbol symbol :abi (abi declaration))])))]
     {:profile (if (some #(= :filesystem (:family %)) (vals externs))
-                :task-free-read-only-files-v1 :task-free-captured-output-v1)
+                :task-free-regular-files-v2 :task-free-captured-output-v1)
      :filesystem-required (boolean (some #(= :filesystem (:family %)) (vals externs)))
      :runtime-class cls :registry-object registry
      :entropy-action (static-field cls "ACTION_ENTROPY")
@@ -95,7 +96,7 @@
      :dynamic-io-profile :bounded-stdio-read-line-write-flush-tty
      :stdin-profile :native-like-finite-byte-input
      :runtime-unsupported (if (some #(= :filesystem (:family %)) (vals externs))
-                            #{:panic-default-return :heap-leaf-sharing-observation :stdio-redirection :filesystem-writes :arbitrary-host-filesystem}
+                            #{:panic-default-return :heap-leaf-sharing-observation :stdio-redirection :filesystem-directories :filesystem-initialization :arbitrary-host-filesystem}
                             #{:panic-default-return :heap-leaf-sharing-observation :stdio-redirection :host-filesystem})
      :task-runtime false :host-handlers false :guest-export-aliases false :code-demand false}))
 (defn check-program!

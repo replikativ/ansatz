@@ -100,7 +100,7 @@ final class Bridge {
                         // Failure projection must not retain another reflective cause.
                     }
                 } else if (!cancelled && cursor.getClass().getName().equals(
-                        "ansatz.lean.jvm.internal.fs.ReadOnlyFileSession$Terminal")) {
+                        "ansatz.lean.jvm.internal.fs.FileSession$Terminal")) {
                     try {
                         String actual = String.valueOf(cursor.getClass().getMethod("code").invoke(cursor));
                         code = switch (actual) {

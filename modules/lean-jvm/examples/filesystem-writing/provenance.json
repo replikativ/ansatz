@@ -1,0 +1,11 @@
+{
+  "origin": "Ansatz-authored ordinary Lean writing application and native differential probe",
+  "thirdParty": false,
+  "leanVersion": "4.33.1",
+  "upstreamRuntimeCommit": "819816b2e0a3bf405af45ae5c7af2491d8f5bee6",
+  "files": {
+    "Main.lean": "746ac76e9d452a8b8ac96bf9eec7a43d00e5f5f21a30bacbf56e65d9f17c4aee",
+    "NativeOracle.lean": "91c08a39bebade151fbfbd95f7652ec2e761a64a214a6a5ddb1e8c67772243e0",
+    "WriterLib.lean": "32a2682f0a136315b423caf25f7fec2b92c0ebc07ae67731bcd4e030507df3f9"
+  }
+}

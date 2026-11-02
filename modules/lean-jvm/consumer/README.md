@@ -158,3 +158,22 @@ Run the launcher with `--main-class FelineSmoke` and a fresh output directory.
 The [filesystem contract](../FILESYSTEM.md) distinguishes supported regular-file
 semantics from explicit policy refusals. Native references and source/cache
 preparation remain separate [producer-side gates](../test/filesystem_acceptance.clj).
+
+`WriterSmoke.java` is the authored writable counterpart to unchanged Feline. Run
+`project_check.py --main-class WriterSmoke` with the usual SDK/dependency options
+and a fresh output directory. It takes no application arguments and loads the
+validated `lean/writer.zip` artifact with the manifest pinned in `writer.json`.
+It opts in with `FileAccess.readWrite`, calls the application through both public
+Java and Clojure APIs, and checks final text/UTF-8/NUL/binary/log bytes. A read-only
+Project refuses the first write mode before output creation. Fixture files are
+removed only after all Project/runtime scopes close; the empty working directory
+is restored.
+
+The artifact was produced by the ordinary source/cache/artifact campaign and
+compared with the same authored application's independent native execution,
+including all five final files, source hashes, stdout, stderr and exit status.
+It is not a third-party application. The native-free
+[writing checks](../test/filesystem_writing_checks.clj) additionally cover write
+quota side effects, resource retirement, healthy peers and interruption after a
+real physical write. Initializer IO remains refused by the existing engine
+models; these checks do not claim a new initializer-write execution campaign.

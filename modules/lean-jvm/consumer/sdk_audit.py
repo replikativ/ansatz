@@ -21,7 +21,7 @@ SOURCES = {"ansatz/lean/jvm/" + name + ".clj" for name in
 SOURCES.add("ansatz/lean/jvm.clj")
 CLASS_INVENTORY = "META-INF/ansatz-lean-jvm/java-classes.json"
 SDK_RESOURCES = {CLASS_INVENTORY, METADATA, "META-INF/ansatz-lean-jvm/user-error.json", "META-INF/ansatz-lean-jvm/filesystem-layouts.jsonl", "META-INF/ansatz-lean-jvm/NOTICE"}
-API_CLASSES = {"InvocationOptions", "LeanPreparation", "PreparedArtifact", "Bridge", "Lean", "LeanException", "LeanProject", "LeanFunction", "LeanUnit", "LeanChoice", "IOResult", "MainResult", "NativeCompilerOptions", "ProjectOptions", "HostServices", "ReadOnlyFiles"}
+API_CLASSES = {"InvocationOptions", "LeanPreparation", "PreparedArtifact", "Bridge", "Lean", "LeanException", "LeanProject", "LeanFunction", "LeanUnit", "LeanChoice", "IOResult", "MainResult", "NativeCompilerOptions", "ProjectOptions", "HostServices", "ReadOnlyFiles", "FileAccess"}
 DEPENDENCIES = {"clojure-1.12.0.jar", "spec.alpha-0.5.238.jar", "core.specs.alpha-0.4.74.jar", "data.json-2.5.1.jar"}
 
 

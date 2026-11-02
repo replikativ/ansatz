@@ -221,18 +221,21 @@
   (.invoke (.getMethod ^Class (:class basis) "completeInitializer" (make-array Class 0))
            engine (object-array 0)))
 
-(defn read-only-file-session
+(defn file-session
   "Create one project-owned session from an actual immutable facade configuration."
   [basis configuration]
-  (let [loader ^ClassLoader (:loader basis)
-        session (.loadClass loader "ansatz.lean.jvm.internal.fs.ReadOnlyFileSession")
-        limits (.loadClass loader "ansatz.lean.jvm.internal.fs.ReadOnlyFileSession$Limits")
+  (let [configuration (if (= "ansatz.lean.jvm.ReadOnlyFiles" (.getName (class configuration)))
+                        (.invoke (.getMethod (class configuration) "fileAccess" (make-array Class 0)) configuration (object-array 0))
+                        configuration)
+        loader ^ClassLoader (:loader basis)
+        session (.loadClass loader "ansatz.lean.jvm.internal.fs.FileSession")
+        limits (.loadClass loader "ansatz.lean.jvm.internal.fs.FileSession$Limits")
         values (mapv #(.invoke (.getMethod (class configuration) % (make-array Class 0))
                                configuration (object-array 0))
-                     ["maxHandles" "maxReadBytes" "maxTotalBytes" "maxOperations" "maxPathBytes"])
+                     ["maxHandles" "maxReadBytes" "maxTotalBytes" "maxOperations" "maxPathBytes" "maxWriteBytes" "maxTotalWriteBytes"])
         policy (.newInstance (.getConstructor limits (into-array Class
-                              [Integer/TYPE Integer/TYPE Long/TYPE Long/TYPE Integer/TYPE])) (object-array values))
+                              [Integer/TYPE Integer/TYPE Long/TYPE Long/TYPE Integer/TYPE Integer/TYPE Long/TYPE])) (object-array values))
         root (.invoke (.getMethod (class configuration) "root" (make-array Class 0)) configuration (object-array 0))
         cwd (.invoke (.getMethod (class configuration) "workingDirectory" (make-array Class 0)) configuration (object-array 0))]
-    (.newInstance (.getConstructor session (into-array Class [java.nio.file.Path java.nio.file.Path limits]))
-                  (object-array [root cwd policy]))))
+    (.newInstance (.getConstructor session (into-array Class [java.nio.file.Path java.nio.file.Path limits Boolean/TYPE]))
+                  (object-array [root cwd policy (.invoke (.getMethod (class configuration) "writable" (make-array Class 0)) configuration (object-array 0))]))))

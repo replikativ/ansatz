@@ -99,7 +99,7 @@ executables and historical captures do not enter it.
 
 `Lean.open(HostServices)` captures immutable host configuration. Source and
 artifact opens derive their required service profile from authenticated original
-externs, then issue one fresh `ReadOnlyFileSession` per Project. Exact ABI,
+externs, then issue one fresh `FileSession` per Project. Exact ABI,
 structural Name, source module and ordinary-role checks remain part of admission.
 The artifact never stores a host root or executable service object.
 

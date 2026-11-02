@@ -1,0 +1,29 @@
+{
+  "origin": "Ansatz-authored ordinary Lean append cursor oracle",
+  "thirdParty": false,
+  "leanVersion": "4.33.1",
+  "upstreamRuntimeCommit": "819816b2e0a3bf405af45ae5c7af2491d8f5bee6",
+  "source": {
+    "path": "AppendOracle.lean",
+    "sha256": "6849f2a1f9ecd31962f29a893fa9b98be297b757d45c4287ae042617386f70fc"
+  },
+  "native": {
+    "exit": 0,
+    "stdout": "",
+    "stderr": "",
+    "seedHex": "73656564",
+    "files": {
+      "append-initial": "",
+      "append-rewind": "",
+      "append-rewind-flush": "",
+      "append-write-flush-truncate": "7365656458",
+      "append-rewind-write": "736565645859",
+      "append-write-truncate": "736565640058"
+    }
+  },
+  "excludedUnsynchronizedCase": {
+    "file": "append-write-truncate",
+    "jvmWriteThroughExpectedHex": "7365656458",
+    "reason": "Native truncate before flushing buffered append output; documented write-through difference."
+  }
+}
