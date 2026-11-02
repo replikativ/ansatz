@@ -1,0 +1,18 @@
+{
+  "repository": "https://github.com/leanprover/fp-lean",
+  "revision": "0abeea545d560a324e2561f7210fbd6ed154fa02",
+  "files": [
+    {
+      "path": "examples/feline/2/Main.lean",
+      "sha256": "ea4d0e049dc32593d90c0413531f9b815554359d27ad8869d919e791f81a5d1e"
+    },
+    {
+      "path": "examples/feline/2/FelineLib.lean",
+      "sha256": "cbce9a0420c395f1f1aadebf06bd3ba35a1b5cf8000d36a664d69ef0b278a8b0"
+    },
+    {
+      "path": "examples/feline/2/lakefile.toml",
+      "sha256": "7b64aef17ff396c8b0f9e5cc471f31f7d722abbefef4b29eb8629228f3070fdb"
+    }
+  ]
+}

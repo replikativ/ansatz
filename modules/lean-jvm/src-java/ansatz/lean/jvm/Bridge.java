@@ -99,6 +99,22 @@ final class Bridge {
                     } catch (ReflectiveOperationException ignored) {
                         // Failure projection must not retain another reflective cause.
                     }
+                } else if (!cancelled && cursor.getClass().getName().equals(
+                        "ansatz.lean.jvm.internal.fs.ReadOnlyFileSession$Terminal")) {
+                    try {
+                        String actual = String.valueOf(cursor.getClass().getMethod("code").invoke(cursor));
+                        code = switch (actual) {
+                            case "RESOURCE_LIMIT" -> "ResourceLimit";
+                            case "CANCELLED" -> "Cancelled";
+                            case "PROVIDER_FAILURE" -> "ProviderFailure";
+                            case "POLICY" -> "FilesystemPolicy";
+                            default -> "RuntimeBoundary";
+                        };
+                        selected = cursor;
+                        if ("Cancelled".equals(code)) cancelled = true;
+                    } catch (ReflectiveOperationException ignored) {
+                        // Preserve the ordinary bounded failure projection.
+                    }
                 } else if (!cancelled && (cursor instanceof ProviderException
                         || cursor instanceof NoSuchAlgorithmException || cursor instanceof NoSuchProviderException)) {
                     selected = cursor;

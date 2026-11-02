@@ -142,3 +142,19 @@ output directory. Its empty working directory and application JAR contain no
 source checkout or native toolchain dependency. Compiler transport stays
 unloaded. Product provenance travels in the authenticated artifact; artifact
 loading does not inspect the consumer's sysroot.
+
+
+## Two-file filesystem tutorial
+
+`FelineSmoke.java` loads the unchanged tutorial's native-prepared
+[feline artifact](resources/lean/feline.zip), pinned by the independent
+[feline descriptor](resources/lean/feline.json). It explicitly supplies
+`HostServices` with a trusted read-only root, then exercises Java/Clojure calls,
+finite stdin, file ordering and raw binary output. Independent Projects cover
+missing permissions, output/read limits and directory-policy refusal, with a
+healthy peer retained across failures. No native compiler namespace is loaded.
+
+Run the launcher with `--main-class FelineSmoke` and a fresh output directory.
+The [filesystem contract](../FILESYSTEM.md) distinguishes supported regular-file
+semantics from explicit policy refusals. Native references and source/cache
+preparation remain separate [producer-side gates](../test/filesystem_acceptance.clj).

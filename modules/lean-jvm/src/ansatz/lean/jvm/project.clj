@@ -9,8 +9,8 @@
             [ansatz.lean.jvm.argument :as argument] [ansatz.lean.jvm.construction :as construction]
             [clojure.java.io :as io] [clojure.string :as str])
   (:import [java.math BigInteger] [java.nio.charset StandardCharsets]
-           [java.util WeakHashMap] [ansatz.lean.jvm MainResult IOResult LeanUnit InvocationOptions]))
-(deftype Services [basis capability])
+           [java.util WeakHashMap] [ansatz.lean.jvm MainResult IOResult LeanUnit InvocationOptions HostServices ReadOnlyFiles]))
+(deftype Services [basis capability files])
 (deftype Project [])
 (deftype Handle [owner name signature])
 (defonce ^:private projects (WeakHashMap.))
@@ -72,8 +72,10 @@
                       ["DRBG" "" (int 1048576)])))
 (defn runtime-service!
   "One shared JDK DRBG service per Java Lean scope, initialized lazily."
-  []
-  (let [basis (ir/linked-basis)] (Services. basis (entropy basis))))
+  ([] (let [basis (ir/linked-basis)] (Services. basis (entropy basis) nil)))
+  ([configuration]
+   (need (= HostServices (class configuration)) "RuntimeBoundary" "Actual HostServices configuration required")
+   (let [basis (ir/linked-basis)] (Services. basis (entropy basis) (.files ^HostServices configuration)))))
 (defn- startup-from-failure [failure]
   (loop [failure failure left 8]
     (when (and failure (pos? left))
@@ -101,12 +103,20 @@
               ;; certified host-reference abandonment subsequently succeeds.
               failure)))]
     (when slot (dotimes [i (alength ^objects slot)] (aset ^objects slot i nil)))
+    (when (and (nil? run) (:files @cell)) (.close ^java.lang.AutoCloseable (:files @cell)))
     (reset! cell {:status :closed})
     (when failure (throw failure))))
+(defn- project-files [services prepared]
+  (when (startup/filesystem-required? prepared)
+    (let [files (.-files ^Services services)]
+      (need (= ReadOnlyFiles (class files)) "CapabilityMissing" "Project requires explicit read-only filesystem services")
+      (ir/read-only-file-session (.-basis ^Services services) files))))
 (defn- open-prepared! [services prepared]
   (let [cell (atom {:status :opening :slot (object-array 3)}) token (Project.)]
     (try
-      (let [run (startup/open! prepared (.-capability ^Services services))]
+      (let [files (project-files services prepared)
+            _ (swap! cell assoc :files files)
+            run (startup/open! prepared (.-capability ^Services services) files)]
         (swap! cell assoc :run run)
         (deadline! (:engine (startup/owner-packet run)))
         (let [deadline (+ (System/nanoTime) duration-nanos)]

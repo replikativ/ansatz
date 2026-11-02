@@ -220,3 +220,19 @@
 (defn complete-initializer! [basis engine]
   (.invoke (.getMethod ^Class (:class basis) "completeInitializer" (make-array Class 0))
            engine (object-array 0)))
+
+(defn read-only-file-session
+  "Create one project-owned session from an actual immutable facade configuration."
+  [basis configuration]
+  (let [loader ^ClassLoader (:loader basis)
+        session (.loadClass loader "ansatz.lean.jvm.internal.fs.ReadOnlyFileSession")
+        limits (.loadClass loader "ansatz.lean.jvm.internal.fs.ReadOnlyFileSession$Limits")
+        values (mapv #(.invoke (.getMethod (class configuration) % (make-array Class 0))
+                               configuration (object-array 0))
+                     ["maxHandles" "maxReadBytes" "maxTotalBytes" "maxOperations" "maxPathBytes"])
+        policy (.newInstance (.getConstructor limits (into-array Class
+                              [Integer/TYPE Integer/TYPE Long/TYPE Long/TYPE Integer/TYPE])) (object-array values))
+        root (.invoke (.getMethod (class configuration) "root" (make-array Class 0)) configuration (object-array 0))
+        cwd (.invoke (.getMethod (class configuration) "workingDirectory" (make-array Class 0)) configuration (object-array 0))]
+    (.newInstance (.getConstructor session (into-array Class [java.nio.file.Path java.nio.file.Path limits]))
+                  (object-array [root cwd policy]))))

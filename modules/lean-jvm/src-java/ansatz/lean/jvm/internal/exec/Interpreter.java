@@ -20,6 +20,7 @@ import java.util.*;
 import java.util.concurrent.atomic.AtomicLong;
 import java.security.SecureRandom;
 import java.security.ProviderException;
+import ansatz.lean.jvm.internal.fs.ReadOnlyFileSession;
 
 public final class Interpreter implements AutoCloseable {
     private static final int OBJ=0, U8=1, U32=2, USIZE=3, U64=4, F64=5, U16=6, F32=7;
@@ -36,6 +37,8 @@ public final class Interpreter implements AutoCloseable {
     private static final int STR_TO_UTF8=553,STR_FROM_UTF8=554,STR_VALIDATE_UTF8=555,BYTE_COPY_SLICE=556;
     private static final int DBG_TRACE_SHARED=567;
     private static final int STR_ANY=574,STR_IS_PREFIX=575;
+    private static final int FS_METADATA=576,FS_OPEN=577,FS_READ=578,FS_LINE=579,
+            FS_WRITE=580,FS_PUT=581,FS_FLUSH=582,FS_TTY=583;
     private static final int STR_POS_SET=260;
     private static final int VOID_MK=516,LEVEL_INSTANTIATE=517,EXPR_FIND_EXT=519;
     private static final int ARRAY_CHECKED_SET=518,SHARECOMMON_QUICK=520,EXPR_REPLACE=521,EXPR_ABSTRACT_RANGE=522,EXPR_ABSTRACT=523;
@@ -314,6 +317,14 @@ public final class Interpreter implements AutoCloseable {
         register(registry,new ExternSpec("lean_string_push",STR_PUSH,"object",new String[]{"object","uint32"},new boolean[]{false,false}));
         register(registry,new ExternSpec("lean_string_mk",STR_LIST,"object",new String[]{"tobject"},new boolean[]{false}));
         register(registry,new ExternSpec("lean_string_any",STR_ANY,"uint8",new String[]{"object","object"},new boolean[]{false,false}));
+        register(registry,new ExternSpec("lean_io_metadata",FS_METADATA,"object",new String[]{"object","void"},new boolean[]{true,false}));
+        register(registry,new ExternSpec("lean_io_prim_handle_mk",FS_OPEN,"object",new String[]{"object","uint8","void"},new boolean[]{true,false,false}));
+        register(registry,new ExternSpec("lean_io_prim_handle_read",FS_READ,"object",new String[]{"tobject","usize","void"},new boolean[]{true,false,false}));
+        register(registry,new ExternSpec("lean_io_prim_handle_get_line",FS_LINE,"object",new String[]{"tobject","void"},new boolean[]{true,false}));
+        register(registry,new ExternSpec("lean_io_prim_handle_write",FS_WRITE,"object",new String[]{"tobject","object","void"},new boolean[]{true,true,false}));
+        register(registry,new ExternSpec("lean_io_prim_handle_put_str",FS_PUT,"object",new String[]{"tobject","object","void"},new boolean[]{true,true,false}));
+        register(registry,new ExternSpec("lean_io_prim_handle_flush",FS_FLUSH,"object",new String[]{"tobject","void"},new boolean[]{true,false}));
+        register(registry,new ExternSpec("lean_io_prim_handle_is_tty",FS_TTY,"uint8",new String[]{"tobject","void"},new boolean[]{true,false}));
         register(registry,new ExternSpec("lean_string_isprefixof",STR_IS_PREFIX,"uint8",new String[]{"object","object"},new boolean[]{false,false}));
         register(registry,new ExternSpec("lean_string_utf8_get_fast",STR_GET,"uint32",new String[]{"object","tobject","erased"},new boolean[]{true,true,false}));
         register(registry,new ExternSpec("lean_string_utf8_next_fast",STR_NEXT,"tagged",new String[]{"object","tobject","erased"},new boolean[]{true,true,false}));
@@ -717,6 +728,17 @@ public final class Interpreter implements AutoCloseable {
         // Metadata owns no guest values. Each mutable kind must explicitly copy.
         NodeMetadata copyForFork(Object childOwner);
     }
+    private static final class FileHandleMetadata implements NodeMetadata {
+        final Object owner;
+        final ReadOnlyFileSession.Handle handle;
+        FileHandleMetadata(Object owner,ReadOnlyFileSession.Handle handle) { this.owner=owner; this.handle=handle; }
+        public NodeMetadata copyForFork(Object childOwner) {
+            throw new IllegalStateException("Filesystem handles cannot be forked");
+        }
+    }
+    private ReadOnlyFileSession fileSession;
+    private FilesystemLayouts fileLayouts;
+    private Header[] fileHeaders;
     /** Nonretaining shared namespace: never reuse an observed identity word. */
     private static final class PointerAllocator {
         final AtomicLong next;
@@ -4439,14 +4461,14 @@ public final class Interpreter implements AutoCloseable {
         require(entropy.source==userError.source,"Entropy/error codec source binding differs");
         Function ef=program.functions[program.functionId(entropy)],uf=program.functions[program.functionId(userError)];
         require(ef.header==entropy&&ef.intrinsic==IO_RANDOM_BYTES&&program.guestExports[ef.id]==null
-                &&entropy.kind.equals("extern")&&ordinaryEntropyRole(entropy)
+                &&entropy.kind.equals("extern")&&ordinaryRuntimeRole(entropy)
                 &&"lean_io_get_random_bytes".equals(externSymbol(entropy.declaration))
                 &&Arrays.equals(entropy.paramTypes,new String[]{"usize","void"})
                 &&Arrays.equals(entropy.borrowed,new boolean[]{false,false})&&entropy.resultType.equals("object")
                 &&entropy.exactName.equals(List.of("str",List.of("str",List.of("anonymous"),"IO"),"getRandomBytes")),
                 "Original canonical entropy Header differs");
         require(uf.header==userError&&uf.intrinsic==0&&uf.hostExtern==null&&program.guestExports[uf.id]==null
-                &&userError.kind.equals("fdecl")&&ordinaryEntropyRole(userError)
+                &&userError.kind.equals("fdecl")&&ordinaryRuntimeRole(userError)
                 &&digest(codecWitnessBytes).equals("53b224c8fa037b144260872e3b14878aff86dbb61b598e1ea49f991dabc1fb6b")
                 &&userError.exactName.equals(List.of("str",List.of("str",List.of("anonymous"),"IO"),"userError"))
                 &&Arrays.equals(userError.paramTypes,new String[]{"object"})
@@ -4464,7 +4486,7 @@ public final class Interpreter implements AutoCloseable {
         require(!Thread.currentThread().isInterrupted(),"Entropy installation interrupted");
         entropyHeader=entropy; entropyErrorHeader=userError; entropyCapability=capability;
     }
-    private static boolean ordinaryEntropyRole(Header header) {
+    private static boolean ordinaryRuntimeRole(Header header) {
         Object value=header.evidence.get("runtime");
         if(!(value instanceof Map)) return false;
         Map<String,Object> runtime=map(value);
@@ -4726,6 +4748,7 @@ public final class Interpreter implements AutoCloseable {
         require(quietCurrent==null&&releasePending==0,"Quiet release scratch is already occupied");
         quietCurrent=root; quietFieldCursor=0; markReleaseClaim(value); root.rc=0; root.dead=true; releases+=count;
         while(quietCurrent!=null) {
+            retireFileHandle(quietCurrent);
             if(isPromise(quietCurrent)) {
                 RuntimeAction action=newAction(ACTION_RELEASE,null,next,-1,ASSIGN,null);
                 Object[] replacement=new Object[32];
@@ -4757,6 +4780,7 @@ public final class Interpreter implements AutoCloseable {
         return false;
     }
     private void stepRelease(RuntimeAction action) {
+        if(action.stage==0) retireFileHandle(action.current);
         if(action.parent!=null&&action.parent.share!=null&&action.parent.share.discarding) {
             Node current=action.current;
             require(!current.ref&&!current.readyTask&&current.closure==null&&!isPromise(current)&&!isByteArray(current)
@@ -6045,6 +6069,7 @@ public final class Interpreter implements AutoCloseable {
     }
     public Fork eagerFork() { return eagerFork(new Object[0]); }
     public Fork eagerFork(Object[] externalRoots) {
+        require(fileSession==null,"Filesystem sessions cannot be forked");
         if(entropyCapability!=null) require(phase==IDLE&&!pendingOwnedResult&&pendingEntropy==null
                 &&!initializerFailed&&pendingInitializerGlobal==null&&!untrackedFailure
                 &&runtimeAction==null&&releaseTransaction==null&&hostCompletion==null&&hostRequest==null
@@ -6980,6 +7005,8 @@ public final class Interpreter implements AutoCloseable {
     private void checkRuntimeOwner(Node value) {
         checkPointerOwner(value);
         NodeMetadata kind=kindMetadata(value);
+        if(kind instanceof FileHandleMetadata) require(((FileHandleMetadata)kind).owner==runtimeIdentity,
+                "File handle belongs to another interpreter");
         if(kind instanceof TaskMetadata) require(((TaskMetadata)kind).owner==runtimeIdentity,
                 "Task/Promise belongs to another interpreter");
     }
@@ -7039,6 +7066,7 @@ public final class Interpreter implements AutoCloseable {
         quietCurrent=root; quietFieldCursor=0;
         while(quietCurrent!=null) {
             quietCurrent.dead=true;
+            retireFileHandle(quietCurrent);
             require(!isPromise(quietCurrent),"Quiet release proof reached Promise finalizer");
             require(!runtimeTask(quietCurrent)||quietCurrent.fields[0]!=null,
                     "Quiet release proof reached pending Task finalizer");
@@ -7052,6 +7080,7 @@ public final class Interpreter implements AutoCloseable {
         try {
             while(true) {
                 current.dead=true;
+                retireFileHandle(current);
                 releaseFields(current);
                 if(releasePending==0) return;
                 current=takeReleased();
@@ -7102,6 +7131,7 @@ public final class Interpreter implements AutoCloseable {
         while(phase==RUNNING&&budget-->0) {
             instructions++;
             ReleaseTransaction transaction=releaseTransaction;
+            retireFileHandle(transaction.current);
             if(transaction.fieldCursor<transaction.fieldLimit) {
                 releaseField(transaction.current,transaction.fieldCursor);
                 transaction.fieldCursor++;
@@ -7113,9 +7143,10 @@ public final class Interpreter implements AutoCloseable {
         }
     }
     private Node constructorNode(Object value) {
-        Node node=node(value); require(!node.ref&&!node.array&&!node.readyTask&&!isPromise(node)&&!isByteArray(node),"Reference/array/task/byte-array is not a constructor"); return node;
+        Node node=node(value); require(!(kindMetadata(node) instanceof FileHandleMetadata)&&!node.ref&&!node.array&&!node.readyTask&&!isPromise(node)&&!isByteArray(node),"Opaque object is not a constructor"); return node;
     }
     private void unique(Node n) {
+        require(!(kindMetadata(n) instanceof FileHandleMetadata),"File handle is not a mutable constructor");
         require(!n.ref&&!n.array&&!n.readyTask&&!isPromise(n)&&!isByteArray(n),"Reference/array/task/byte-array is not a constructor");
         if(!exclusive(n)) throw error("Expected exclusive object");
     }
@@ -8020,6 +8051,124 @@ public final class Interpreter implements AutoCloseable {
         Node envelope=new Node(1,1,0); allocations++; envelope.fields[0]=error; return envelope;
     }
     private Node ioValue(Object value) { Node envelope=new Node(0,1,0); allocations++; envelope.fields[0]=value; return envelope; }
+    /** Private runtime capability. Public artifact/source admission is separate. */
+    public void installReadOnlyFiles(ReadOnlyFileSession session,byte[] layoutWitness) {
+        require(session!=null&&fileSession==null&&explicit&&taskRuntime==null&&!everStarted
+                &&!closed&&!disposed&&!advancing&&phase==IDLE&&!pendingOwnedResult,
+                "Filesystem installation requires a fresh task-free explicit engine");
+        FilesystemLayouts layouts=FilesystemLayouts.authenticate(layoutWitness);
+        require(!session.stats().closed()&&session.stats().liveHandles()==0,
+                "Filesystem installation requires a fresh empty session");
+        Header[] headers=new Header[FS_TTY-FS_METADATA+1];
+        Object module=List.of("str",List.of("str",List.of("str",List.of("anonymous"),"Init"),"System"),"IO");
+        for(Function function:program.functions) if(filePrimitive(function.intrinsic)) {
+            int op=function.intrinsic;
+            String label=op==FS_METADATA?"System.FilePath.metadata":"IO.FS.Handle."+
+                    (op==FS_OPEN?"mk":op==FS_READ?"read":op==FS_LINE?"getLine":op==FS_WRITE?"write":
+                     op==FS_PUT?"putStr":op==FS_FLUSH?"flush":"isTty");
+            Object exact=List.of("anonymous");
+            for(String part:label.split("\\.")) exact=List.of("str",exact,part);
+            require(function.header!=null&&exact.equals(function.header.exactName)
+                    &&ordinaryRuntimeRole(function.header)&&module.equals(function.header.evidence.get("sourceModule"))
+                    &&headers[op-FS_METADATA]==null,"Filesystem requires unique original canonical Headers");
+            headers[op-FS_METADATA]=function.header;
+        }
+        session.claimOwner(runtimeIdentity);
+        fileLayouts=layouts; fileHeaders=headers; fileSession=session;
+    }
+    private Node fileNode(int tag,int fields,int bytes) {
+        atomicPoll(); Node value=new Node(tag,fields,bytes); allocations++; return value;
+    }
+    private void retireFileHandle(Node value) {
+        if(fileSession!=null&&kindMetadata(value) instanceof FileHandleMetadata) {
+            FileHandleMetadata state=(FileHandleMetadata)kindMetadata(value);
+            require(state.owner==runtimeIdentity,"Foreign filesystem retirement");
+            state.handle.close();
+        }
+    }
+    private ReadOnlyFileSession.Handle fileHandle(Object value) {
+        Node n=node(value);
+        require(n.tag==254&&n.fields.length==0&&n.scalars.length==0
+                &&kindMetadata(n) instanceof FileHandleMetadata,"Expected filesystem Handle");
+        return ((FileHandleMetadata)kindMetadata(n)).handle;
+    }
+    /** Close all real resources at a stopped boundary; this does not unwind the
+     * guest heap or authorize the public heap-only abandonment certificate. */
+    public void retireReadOnlyFiles() {
+        require(!advancing,"Cannot retire resources while an engine is advancing");
+        if(fileSession!=null) fileSession.close();
+    }
+    public ReadOnlyFileSession.Stats readOnlyFileStats() {
+        require(fileSession!=null,"No filesystem session"); return fileSession.stats();
+    }
+    private static boolean filePrimitive(int op) { return op>=FS_METADATA&&op<=FS_TTY; }
+    private void fileOperation(Function function,Object a,Object b,Object c) {
+        require(fileSession!=null&&fileLayouts!=null&&taskRuntime==null&&!initializing
+                &&function.id>=0&&function.id<program.functions.length&&program.functions[function.id]==function,
+                "Filesystem requires an installed invocation-only capability");
+        int op=function.intrinsic;
+        require(function.header!=null&&fileHeaders[op-FS_METADATA]==function.header,
+                "Filesystem callable differs from its installed source Header");
+        require(ERASED.equals(op==FS_OPEN||op==FS_READ||op==FS_WRITE||op==FS_PUT?c:b),
+                "Filesystem world placeholder differs");
+        atomicPoll();
+        try {
+            if(op==FS_METADATA) {
+                utf8Extent(a); resource(text(a).length()<=65536,"Filesystem path outside bounded codec domain");
+                ReadOnlyFileSession.Metadata m=fileSession.metadata(text(a));
+                int kind=m.kind()==ReadOnlyFileSession.FileKind.DIRECTORY?0:
+                        m.kind()==ReadOnlyFileSession.FileKind.REGULAR?1:3;
+                result=fileLayouts.ioSuccess(this::fileNode,fileLayouts.metadata(this::fileNode,
+                        m.accessed().seconds(),m.accessed().nanoseconds(),m.modified().seconds(),m.modified().nanoseconds(),
+                        m.size(),m.links(),kind)); return;
+            }
+            if(op==FS_OPEN) {
+                utf8Extent(a); resource(text(a).length()<=65536,"Filesystem path outside bounded codec domain");
+                require(Long.valueOf(0).equals(b),"Only read mode is supported");
+                ReadOnlyFileSession.Handle handle=fileSession.open(text(a));
+                // The session ledger owns the resource even if Node/envelope
+                // allocation or post-read polling fails before publication.
+                Node n=fileNode(254,0,0); n.metadata=new FileHandleMetadata(runtimeIdentity,handle);
+                result=fileLayouts.ioSuccess(this::fileNode,n); return;
+            }
+            ReadOnlyFileSession.Handle handle=fileHandle(a);
+            if(op==FS_TTY) { scalarResult=fileSession.isTty(handle)?1:0; return; }
+            if(op==FS_READ) {
+                require(b instanceof Long||b instanceof BigInteger,"Expected unsigned read count");
+                byte[] bytes=fileSession.read(handle,((Number)b).longValue());
+                Node data=newByteArray(bytes.length,bytes.length);
+                System.arraycopy(bytes,0,data.scalars,0,bytes.length);
+                result=fileLayouts.ioSuccess(this::fileNode,data); return;
+            }
+            if(op==FS_LINE) {
+                byte[] bytes=fileSession.getLine(handle);
+                String line=capturedText(bytes,0,bytes.length);
+                resource(utf8Extent(line)<=MAX_STRING_OUTPUT_BYTES,"Filesystem line outside bounded runtime profile");
+                result=fileLayouts.ioSuccess(this::fileNode,line); return;
+            }
+            if(op==FS_FLUSH) fileSession.flush(handle);
+            else if(op==FS_WRITE) {
+                Node bytes=byteArray(b); int length=((ByteArrayState)kindMetadata(bytes)).size;
+                fileSession.write(handle,Arrays.copyOf(bytes.scalars,length));
+            } else if(op==FS_PUT) { utf8Extent(b); fileSession.putStr(handle,text(b)); }
+            else throw error("Unknown filesystem operation");
+            result=fileLayouts.ioSuccess(this::fileNode,ERASED);
+        } catch(ReadOnlyFileSession.FSFailure failure) {
+            int errno=failure.errno();
+            String kind=errno==2?"noFileOrDirectory":errno==13?"permissionDenied":errno==17?"alreadyExists":
+                    errno==20||errno==21?"inappropriateType":errno==9||errno==22?"invalidArgument":null;
+            require(kind!=null,"Unclassified filesystem errno");
+            boolean metadata=op==FS_METADATA;
+            boolean nul=errno==22&&failure.path()!=null&&failure.path().indexOf('\0')>=0;
+            String details=errno==2?"No such file or directory":errno==13?"Permission denied":errno==17?"File exists":
+                    errno==20?"Not a directory":errno==21?"Is a directory":errno==9?"Bad file descriptor":"Invalid argument";
+            if(metadata) details=details.toLowerCase(Locale.ROOT);
+            if(nul) details="string contains NUL bytes";
+            result=fileLayouts.ioFailure(this::fileNode,kind,
+                    op==FS_METADATA||op==FS_OPEN?failure.path():null,
+                    metadata&&!nul?Integer.toUnsignedLong(-errno):errno,details);
+        }
+    }
     private void capturedOperation(Function f,Object token,Object argument,Object world) {
         int op=f.intrinsic-CAPTURE_FLUSH;
         require(token instanceof Long&&(Long)token>=0,"Captured stream token required");
@@ -9092,6 +9241,7 @@ public final class Interpreter implements AutoCloseable {
         finishAction(action,Long.valueOf(action.pending));
     }
     private void runtimeIntrinsic(Function f,Object a,Object b,Object c) {
+        if(filePrimitive(f.intrinsic)) { fileOperation(f,a,b,c); return; }
         if(f.intrinsic==STR_IS_PREFIX) { scalarResult=stringIsPrefix(a,b)?1:0; return; }
         if(f.intrinsic>=CAPTURE_FLUSH&&f.intrinsic<=CAPTURE_TTY) { capturedOperation(f,a,b,c); return; }
         if(f.intrinsic==STR_TO_UTF8) { stringToUtf8(a); return; }
@@ -10823,18 +10973,35 @@ public final class Interpreter implements AutoCloseable {
             closed=false;
             throw new IllegalStateException("Active or failed explicit execution requires ownership cleanup before close");
         }
-        boolean sourceOwnedResult=pendingOwnedResult&&!releaseRoot&&entry.resultType==OBJ;
-        releaseRoot=false;
-        if(sourceOwnedResult) releaseQuiet(result,1);
-        pendingOwnedResult=false;
-        if(stdioContext!=null) {
-            for(int i=0;i<3;i++) { Node old=stdioContext.current[i]; stdioContext.current[i]=null; if(old!=null) releaseQuiet(old,1); }
+        Throwable primary=null;
+        try {
+            boolean sourceOwnedResult=pendingOwnedResult&&!releaseRoot&&entry.resultType==OBJ;
+            releaseRoot=false;
+            if(sourceOwnedResult) releaseQuiet(result,1);
+            pendingOwnedResult=false;
+            if(stdioContext!=null) {
+                for(int i=0;i<3;i++) { Node old=stdioContext.current[i]; stdioContext.current[i]=null; if(old!=null) releaseQuiet(old,1); }
+            }
+            for(int i=0;i<3;i++) { Node old=stdioDefault(i); clearStdioDefault(i); if(old!=null) releaseQuiet(old,1); }
+            utf8Key=null; utf8Bytes=null;
+            for(int i=0;i<constants.length;i++) if(constantReady[i]&&program.functions[i].resultType==OBJ) releaseQuiet(constants[i],1);
+            Arrays.fill(constants,null); Arrays.fill(objects,null); result=null; taskRecords.clear();
+            entropyCapability=null; entropyHeader=null; entropyErrorHeader=null;
+            invocationInput=new byte[0]; invocationCursor=0; invocationActive=false;
+        } catch(RuntimeException|Error failure) {
+            primary=failure; throw failure;
+        } finally {
+            if(fileSession!=null) {
+                try { fileSession.close(); }
+                catch(RuntimeException|Error failure) {
+                    boolean fatal=failure instanceof Error&&!(primary instanceof Error);
+                    boolean vm=(failure instanceof VirtualMachineError||failure instanceof ThreadDeath)
+                            &&!(primary instanceof VirtualMachineError)&&!(primary instanceof ThreadDeath);
+                    if(primary==null||fatal||vm) throw failure;
+                    // Preserve the original failure without attaching resource
+                    // journals as suppressed causes; all ledger entries were tried.
+                }
+            }
         }
-        for(int i=0;i<3;i++) { Node old=stdioDefault(i); clearStdioDefault(i); if(old!=null) releaseQuiet(old,1); }
-        utf8Key=null; utf8Bytes=null;
-        for(int i=0;i<constants.length;i++) if(constantReady[i]&&program.functions[i].resultType==OBJ) releaseQuiet(constants[i],1);
-        Arrays.fill(constants,null); Arrays.fill(objects,null); result=null; taskRecords.clear();
-        entropyCapability=null; entropyHeader=null; entropyErrorHeader=null;
-        invocationInput=new byte[0]; invocationCursor=0; invocationActive=false;
     }
 }

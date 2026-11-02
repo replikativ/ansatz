@@ -10,12 +10,20 @@ World backend.
 This guide describes the general interop and preparation APIs in the current
 source tree. These APIs are available starting with SDK `0.2.580`. Earlier
 releases expose only Nat-to-Nat, String-to-String and IO Unit convenience APIs.
+The opt-in [read-only filesystem context](FILESYSTEM.md) is a later integration
+candidate; this paragraph does not claim it exists in SDK 0.2.580.
 
 This is an experimental bounded profile. General named calls replace the original
 three-signature restriction; `natFunction`, `stringFunction`, and `runMain` remain
 conveniences. See [release checks](RELEASE_CHECKLIST.md) for acceptance and
 publication order. [Historical receipts](validation.json) retain their exact scope;
 they do not claim unrestricted Lean/Lake, hosted frontend or kernel integration.
+
+The unchanged two-file [Feline tutorial](examples/fp-lean-feline/README.md) is the
+candidate filesystem example. `Lean.open(HostServices)` supplies a read-only
+root for either source or artifact loading; default `Lean.open()` grants no
+filesystem service. [The service contract](FILESYSTEM.md) covers limits,
+ownership, retirement and explicit unsupported domains.
 
 ## Ordinary Java dependency and artifact loading
 

@@ -46,3 +46,9 @@ For an existing Clojure process, load `check-runner.clj` with
 absolute compiled engine directory or JAR. Include `support`, `kernel-support`,
 `kernel-contracts`, core Ansatz, and the compiled `TypedLongMemo` utility on that
 process's classpath. Run from a freshly materialized corpus directory.
+
+
+The canonical engine contract runner requires JDK 17, matching the optional SDK.
+It compiles the exact interpreter/helper/provider sources with `--release 17`.
+The kernel memo fixture remains compiled with `--release 11`; this does not add
+an optional SDK dependency to core Ansatz startup or its kernel artifact.

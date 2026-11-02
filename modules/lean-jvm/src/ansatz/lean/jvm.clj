@@ -3,13 +3,18 @@
    used alongside this optional module; kernel declaration import is separate."
   (:require [clojure.java.io :as io])
   (:import [ansatz.lean.jvm Lean LeanProject LeanFunction LeanPreparation PreparedArtifact
-            NativeCompilerOptions ProjectOptions LeanUnit IOResult LeanChoice InvocationOptions]
+            NativeCompilerOptions ProjectOptions LeanUnit IOResult LeanChoice InvocationOptions HostServices]
            [java.nio.file Path] [java.util Optional]))
 
 (defn- path [value]
   (if (instance? Path value) value (.toPath (io/file value))))
 
-(defn open [] (Lean/open))
+(defn open
+  ([] (Lean/open))
+  ([services]
+   (when-not (instance? HostServices services)
+     (throw (ex-info "Actual HostServices configuration required" {:code "UnsupportedProjectConfig"})))
+   (Lean/open ^HostServices services)))
 
 (defn project-options
   "Explicit compiler configuration and requested entry names. A vector of names

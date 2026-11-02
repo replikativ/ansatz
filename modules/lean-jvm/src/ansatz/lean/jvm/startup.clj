@@ -183,9 +183,19 @@
 (defn- issued! [registry token klass]
   (need (= klass (class token)) "Foreign startup capability")
   (or (locking registry (.get ^WeakHashMap registry token)) (throw (ex-info "Unknown startup capability" {}))))
-(defn open! [prepared capability]
+(defn filesystem-required? [prepared]
+  (boolean (get-in (issued! prepared-registry prepared Prepared) [:requirements :filesystem-required])))
+(defn- filesystem-codec []
+  (with-open [input (io/input-stream (io/resource "META-INF/ansatz-lean-jvm/filesystem-layouts.jsonl"))]
+    (let [bytes (.readNBytes input 131073)]
+      (need (<= (alength bytes) 131072) "Filesystem layout witness exceeds bound") bytes)))
+(defn open!
+  ([prepared capability] (open! prepared capability nil))
+  ([prepared capability files]
   (let [p (issued! prepared-registry prepared Prepared) ctx (:ctx p)
-        cell (atom {:status :opening :prepared p :lock (ReentrantLock.) :module-index 0 :action-index 0
+        _ (need (= (boolean (get-in p [:requirements :filesystem-required])) (some? files))
+                "Filesystem profile requires its explicit project session")
+        cell (atom {:status :opening :prepared p :files files :lock (ReentrantLock.) :module-index 0 :action-index 0
                     :ledger [] :active nil :error-slot (object-array 1) :error-state nil}) token (Startup.)]
     (put-issued! startup-registry token cell)
     (try
@@ -195,8 +205,12 @@
         (.invoke (.getMethod ^Class (:class ctx) "installEntropy"
                              (into-array Class [(class capability) (class entropy) (class codec) (class (:codec p))]))
                  engine (object-array [capability entropy codec (:codec p)]))
+        (when files
+          (.invoke (.getMethod ^Class (:class ctx) "installReadOnlyFiles"
+                              (into-array Class [(class files) (class (byte-array 0))]))
+                   engine (object-array [files (filesystem-codec)])))
         (swap! cell assoc :status :running) token)
-      (catch Throwable failure (swap! cell assoc :status :host-failed) (throw (ex-info "Startup open failed; preserve packet" {:startup token} failure))))))
+      (catch Throwable failure (swap! cell assoc :status :host-failed) (throw (ex-info "Startup open failed; preserve packet" {:startup token} failure)))))))
 (defn- with-lease! [token operation callback]
   (let [cell (issued! startup-registry token Startup) lock (:lock @cell)]
     (need (instance? ReentrantLock lock) "Startup lease is unavailable")
@@ -355,9 +369,8 @@
           ;; guest heap. Recognize its actual Program function; other native
           ;; actions do not inherit this abandonment permission.
           (.put seen action true) (recur (engine-field action "parent")))))))
-(defn- heap-abandonable! [prepared engine]
+(defn- stopped-heap! [prepared engine]
   (let [requirements (:requirements prepared)]
-    (need (= :task-free-captured-output-v1 (:profile requirements)) "Abandonment requires the issued positive pure-heap profile")
     (caps/check-program! (:ctx prepared) (:headers prepared) requirements)
     (when engine
       (need (and (not (engine-field engine "advancing"))
@@ -385,12 +398,37 @@
       ;; under this exclusive lease. No effect is replayed or retried.
       (heap-action-chain! (engine-field engine "runtimeAction") requirements (get-in prepared [:ctx :program]))
       (heap-action-chain! (engine-field engine "failedRuntimeAction") requirements (get-in prepared [:ctx :program])))))
+(defn- heap-abandonable! [prepared engine]
+  (need (= :task-free-captured-output-v1 (get-in prepared [:requirements :profile]))
+        "Abandonment requires the issued positive pure-heap profile")
+  (when engine (need (nil? (engine-field engine "fileSession")) "Pure heap profile has an external session"))
+  (stopped-heap! prepared engine))
+(defn- filesystem-abandonable! [prepared engine files]
+  (need (= :task-free-read-only-files-v1 (get-in prepared [:requirements :profile]))
+        "Filesystem retirement requires its issued bounded profile")
+  (stopped-heap! prepared engine)
+  (need (and files (= (class files) (.loadClass ^ClassLoader (get-in prepared [:ctx :loader])
+                                      "ansatz.lean.jvm.internal.fs.ReadOnlyFileSession")))
+        "Filesystem retirement requires its actual project session")
+  (if (and engine (engine-field engine "fileSession"))
+    (do (need (and (identical? files (engine-field engine "fileSession"))
+                   (identical? (engine-field engine "runtimeIdentity") (engine-field files "claimedOwner")))
+              "Filesystem session belongs to another engine")
+        (.invoke (.getMethod (class engine) "retireReadOnlyFiles" (make-array Class 0)) engine (object-array 0)))
+    (do (need (or (nil? engine) (not (engine-field engine "everStarted")))
+              "Uninstalled filesystem session cannot retire a started engine")
+        (.close ^java.lang.AutoCloseable files)))
+  (let [stats (.invoke (.getMethod (class files) "stats" (make-array Class 0)) files (object-array 0))]
+    (need (and (.closed stats) (zero? (.liveHandles stats))) "Filesystem sweep did not retire every resource")))
 (defn- abandon!-in-lease [token]
-  (let [cell (live-cell! token) {:keys [status prepared engine error-slot ledger module-index]} @cell]
+  (let [cell (live-cell! token) {:keys [status prepared engine error-slot ledger module-index files]} @cell]
     (need (#{:cancelled :host-failed :io-error :close-started} status) "Only terminal stopped computation can be abandoned")
-    (heap-abandonable! prepared engine)
+    (if (= :task-free-read-only-files-v1 (get-in prepared [:requirements :profile]))
+      (filesystem-abandonable! prepared engine files)
+      (heap-abandonable! prepared engine))
     (let [terminal {:status :abandoned :lock (:lock @cell)
-                    :abandonment {:profile :task-free-captured-output-v1 :prior-status status
+                    :abandonment {:profile (get-in prepared [:requirements :profile]) :prior-status status
+                                  :filesystem-resources-retired (boolean files)
                                   :modules-entered (count ledger) :module-index module-index
                                   :guest-rc-unwound false :native-resource-finalization false
                                   :abandonment-invoked-engine-close false

@@ -11,12 +11,16 @@ import java.util.Set;
 /** Lightweight owner of explicitly loaded, compiled JVM projects. */
 public final class Lean implements AutoCloseable {
     private final Set<LeanProject> projects = new LinkedHashSet<>();
+    private final HostServices hostServices;
     private boolean closed;
     private Object services;
 
-    private Lean() { }
+    private Lean() { hostServices = null; }
+    private Lean(HostServices services) { hostServices = Objects.requireNonNull(services, "services"); }
 
     public static Lean open() { return new Lean(); }
+    /** Capture immutable explicit runtime services; acquisition remains lazy. */
+    public static Lean open(HostServices services) { return new Lean(services); }
 
     /**
      * Load an artifact whose manifest digest comes from the application's trusted
@@ -70,7 +74,7 @@ public final class Lean implements AutoCloseable {
     }
 
     private Object services() {
-        if (services == null) services = Bridge.RUNTIME.invoke();
+        if (services == null) services = hostServices == null ? Bridge.RUNTIME.invoke() : Bridge.RUNTIME.invoke(hostServices);
         return services;
     }
 

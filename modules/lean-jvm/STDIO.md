@@ -97,7 +97,8 @@ with actual runtime domain checks, allowing projected arrays to reach the sharin
 diagnostic. Unsupported String/BigInteger leaves still throw if reached; earlier
 guest work may have occurred, and failure retires that Project branch. The
 [sort example](examples/fp-lean-sort/README.md) describes its array adapters and
-CLI. Feline requires a following filesystem/resource-lifetime slice.
+CLI. The unchanged two-file [Feline](examples/fp-lean-feline/README.md) is covered
+by the separate opt-in [read-only filesystem candidate](FILESYSTEM.md).
 
 [CapturedStdioChecks](test-java/CapturedStdioChecks.java) exercises actual engine
 ownership, bytes, directions, epochs, cancellation, limits and independent fork
@@ -105,7 +106,8 @@ cursors. [InvocationOptionsChecks](test-java/InvocationOptionsChecks.java) cover
 value snapshots and conversion. The explicit
 [stdio acceptance gate](test/stdio_acceptance.clj) compares unchanged programs
 and byte/line behavior with official native Lean, and checks artifact admission.
-The local acceptance run passes 60 checks across 15 native cases. The
+The expanded acceptance run passes 28 native cases and 119 checks, including
+the separately resumed runtime-boundary checks. The
 [application-JAR consumer](consumer/StdIOSmoke.java) separately exercises the
 public Java and Clojure APIs with the prepared artifact and no native frontend.
 It includes terminal failures after creating stdin or stderr roots: closing those

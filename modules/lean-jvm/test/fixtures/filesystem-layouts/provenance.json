@@ -1,0 +1,32 @@
+{
+  "schema": "lean-filesystem-layout-witness-provenance/1",
+  "purpose": "Independent fixture constructor/projection IR; not original runtime factory Headers",
+  "leanCommit": "819816b2e0a3bf405af45ae5c7af2491d8f5bee6",
+  "leanVersion": "4.33.1",
+  "target": "x86_64-unknown-linux-gnu",
+  "wordBits": 64,
+  "source": {
+    "path": "Main.lean",
+    "bytes": 4005,
+    "sha256": "1c02849532827e4534a13ccd6689ace81860e72584ac8143cbe6e32e0aca9aac"
+  },
+  "capture": {
+    "bytes": 66365,
+    "sha256": "f3b8877da4c477e04ea47adff3ce2cecae51cdf901a28cee54ca4f272f2195f9",
+    "resource": "META-INF/ansatz-lean-jvm/filesystem-layouts.jsonl"
+  },
+  "producer": {
+    "binary": "bin/typedSource",
+    "source": "sources/TypedSourceExport.lean",
+    "binarySHA256": "c28866c7fcf13b141336547d4da1372ad1f90dfe46c04e5f72e5081466ce2d36",
+    "sourceSHA256": "ac6ec4462614d39beed124c81f304b3c4875ce5fc6b15fd7b31bd0bbd56ca190"
+  },
+  "compilerProducts": [
+    {
+      "path": "Main.olean",
+      "bytes": 78120,
+      "sha256": "241067f197cba2a4af09c98700fecccabb0f62f766ec99f686a3354f547e9b02"
+    }
+  ],
+  "producerExit": 0
+}

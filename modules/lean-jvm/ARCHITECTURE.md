@@ -56,8 +56,9 @@ See [preparation](PREPARATION.md), [value conventions](VALUE_EXAMPLES.md), and t
 
 - `src-java/ansatz/lean/jvm/`: public Java facade and value carriers.
 - `src-java/ansatz/lean/jvm/internal/exec/`: canonical lambda-RC execution engine
-  and package-private stateless scalar/UTF-8 helpers. The Java engine retains its
-  Java 11 compilation contract; the SDK is built and tested for JDK 17.
+  and internal scalar/UTF-8/layout helpers. The engine and SDK use Java 17.
+  Core kernel compilation remains a separate Java 11 contract.
+- `src-java/ansatz/lean/jvm/internal/fs/`: bounded project-owned filesystem sessions.
 - `src/ansatz/lean/jvm/`: Clojure API, codecs, actual runtime cohort adapters,
   initialization, artifact admission and explicit native compilation services.
 - `test/`: focused Clojure contracts and active native capture fixtures.
@@ -93,6 +94,23 @@ engine closure. No broad `internal/**` class wildcard grants packaging authority
 The JAR contains canonical runtime code; its POM declares ordinary Maven
 dependencies rather than bundling their classes. Research loaders, native helper
 executables and historical captures do not enter it.
+
+## Explicit filesystem services
+
+`Lean.open(HostServices)` captures immutable host configuration. Source and
+artifact opens derive their required service profile from authenticated original
+externs, then issue one fresh `ReadOnlyFileSession` per Project. Exact ABI,
+structural Name, source module and ordinary-role checks remain part of admission.
+The artifact never stores a host root or executable service object.
+
+The Java engine executes the original Handle/Stream code with real channels.
+Handle Nodes carry per-engine kind metadata and ordinary guest RC; last-owner
+release closes the channel. Each session independently owns a bounded resource
+ledger. Failed branches use a distinct stopped-engine certificate to sweep that
+ledger before dropping heap state. The existing pure-heap certificate still
+rejects filesystem sessions. Filesystem operations are synchronous, initialization
+and forks are refused, and session byte/operation budgets span repeated calls.
+See [FILESYSTEM.md](FILESYSTEM.md) for the bounded Linux provider contract.
 
 ## Research boundary
 
