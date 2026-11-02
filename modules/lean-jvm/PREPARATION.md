@@ -103,7 +103,19 @@ The CLI never replaces an existing destination. It prepares a sibling temporary 
 
 Preparation collects native checked-entry, module, and ordinary-startup evidence. Export revalidates the actual issued receipt and captured files before returning digests. It does not claim Java kernel checking, execution readiness, runtime intrinsic coverage, successful initialization, or a successful `main` call. Those checks happen when a later `loadArtifact` opens a JVM project and when an admitted function is invoked.
 
-Selection is bounded by `ProjectOptions.MAX_SELECTED_ENTRIES` and the existing source, byte, dependency, code, and resource limits. Raising the entry count does not bypass those independent budgets. The source profile remains the documented pinned Init-plus-local-module DAG, rather than unrestricted Std/Lean/Mathlib/Lake imports. Unsupported types, binders, signatures, or execution capabilities still fail explicitly.
+Selection is bounded by `ProjectOptions.MAX_SELECTED_ENTRIES` and the existing source, byte, dependency, code, and resource limits. Raising the entry count does not bypass those independent budgets. The default source profile remains the pinned Init-plus-local-module DAG. Explicit `installedImport(name)` calls, Clojure `:installed-imports`, or repeated CLI `--installed-import MODULE` flags permit up to 128 exact installed modules from the configured sysroot; the caller must list the entire non-Init installed closure. No package fetching or arbitrary search path is added. Unsupported types, binders, signatures, initialization, or execution capabilities still fail explicitly.
+
+Installed imports use authenticated artifact profile `legacy-local-installed-v1`.
+The five compiler-consumed product paths (`.olean`, `.olean.server`,
+`.olean.private`, `.ir.sig`, `.ir`) are recorded by presence, size and SHA-256,
+with 64 MiB per-product and 256 MiB aggregate limits. Preparation rechecks the
+snapshot during compilation, cache reuse and evidence collection, and rejects
+observed effective modules outside the local/Init/declared graph. Product hashes
+identify the actual trusted installation; they do not attest that arbitrary
+installed bytes were built from the reported source revision. Existing Init
+stat inventories and the trusted immutable sysroot assumption remain explicit.
+Artifacts retain the product provenance and selected canonical IR; loading them
+requires no installed modules or native toolchain. Legacy artifacts remain valid.
 
 Focused models are in [preparation_api_checks.clj](test/preparation_api_checks.clj). They exercise stream/compiler lifetimes, errors, CLI publication, and ZIP failure cleanup with explicitly mocked native authority seams. Root-owned integration acceptance separately prepares actual source through the built Java/Clojure APIs and loads/calls the resulting artifact; models alone do not establish native acceptance.
 

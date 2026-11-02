@@ -2,7 +2,7 @@
   "Internal source/compiled-module preparation. No artifact, entry or READY
    Project is issued here. Uses the fixed compiler's monitored native transport."
   (:require [ansatz.lean.jvm.producer :as producer] [ansatz.lean.jvm.compiler.transport :as compiler]
-            [clojure.string :as str]
+            [clojure.string :as str] [ansatz.lean.jvm.installed :as installed]
             [clojure.data.json :as json])
   (:import [java.nio.file Path Files LinkOption StandardOpenOption]
            [java.nio.file.attribute FileAttribute]
@@ -69,6 +69,37 @@
     (Files/createDirectories (.getParent target) attrs)
     (Files/write target bytes (into-array java.nio.file.OpenOption [StandardOpenOption/CREATE_NEW StandardOpenOption/WRITE]))
     {:name name :relative relative :record {"bytes" (alength bytes) "sha256" (#'compiler/digest bytes)}}))
+(defn- check-installed-shadow! [root names]
+  (doseq [name names]
+    (require! (Files/notExists (source-path! root (module-relative name)) no-links)
+              "ModulePathConflict" {:module name :stage :installed-source-shadow})))
+(defn- installed-snapshot! [state names]
+  (when (seq names)
+    (let [total (atom 0)
+          snapshot
+          {"profile" installed/profile
+           "modules"
+           (mapv (fn [name]
+                   {"module" name
+                    "products"
+                    (mapv (fn [relative]
+                            (let [path (source-path! (:sysroot state) (str "lib/lean/" relative))]
+                              (if (Files/exists path no-links)
+                                (let [record (#'compiler/file-record path installed/max-product-bytes)]
+                                  (swap! total + (get record "bytes"))
+                                  (require! (<= @total installed/max-total-bytes) "BuildResourceLimit" {:stage :installed-products})
+                                  (assoc record "path" relative "present" true))
+                                (do (require! (Files/notExists path no-links) "ArtifactConflict" {:path relative})
+                                    {"path" relative "present" false}))))
+                          (installed/product-paths name))}) names)}]
+      (installed/validate! snapshot))))
+(defn verify-installed!
+  "Recheck the exact declared product set, including absent optional sidecars."
+  [state snapshot]
+  (when snapshot
+    (installed/validate! snapshot)
+    (require! (= snapshot (installed-snapshot! state (mapv #(get % "module") (get snapshot "modules"))))
+              "ArtifactConflict" {:stage :installed-product-mutation})))
 (def ^:private init-name ["str" ["anonymous"] "Init"])
 (defn- ordinary [name meta?] {"module" name "importAll" false "isExported" true "isMeta" meta?})
 (defn- admit-header! [raw source captured-path]
@@ -171,17 +202,19 @@
   "Trusted helper configuration supplies independently reviewed source/binary pins.
    Captures only reachable modules and plans dependencies first. Returns preparation
    metadata, never runtime admission. No native reference/main is executed."
-  [compiler {:keys [project source-root roots helper helper-source helper-sha256 helper-source-sha256
+  [compiler {:keys [project source-root roots installed-imports helper helper-source helper-sha256 helper-source-sha256
                      typed-exporter typed-exporter-source typed-exporter-sha256 typed-exporter-source-sha256 compile?] :as configuration} journal]
   (#'compiler/guard-code!)
   (require! (= implementation-record (#'compiler/source-record! implementation-source))
             "NativeCompileFailed" {:stage :implementation-mutation})
   (require! (and (map? configuration)
-                 (every? #{:project :source-root :roots :helper :helper-source :helper-sha256 :helper-source-sha256
+                 (every? #{:project :source-root :roots :installed-imports :helper :helper-source :helper-sha256 :helper-source-sha256
                             :typed-exporter :typed-exporter-source :typed-exporter-sha256 :typed-exporter-source-sha256 :compile?}
                          (keys configuration))
                  (or (nil? compile?) (boolean? compile?))) "UnsupportedProjectConfig" {})
   (vector! roots 128 "UnsupportedProjectConfig")
+  (installed/declared! (or installed-imports []))
+  (doseq [name installed-imports] (module-components name))
   (doseq [root roots] (module-components root) (require! (not (init? root)) "ModulePathConflict" {:module root}))
   (require! (and (instance? clojure.lang.IAtom journal) (= {} @journal)) "UnsupportedProjectConfig" {})
   (let [started (or *build-start-nanos* (System/nanoTime)) state (#'compiler/issued compiler)]
@@ -196,6 +229,9 @@
                         "UnsupportedProjectConfig" {})
             root (source-path! project source-root)
             _ (require! (Files/isDirectory root no-links) "UnsupportedProjectConfig" {:source-root source-root})
+            installed-set (set installed-imports)
+            _ (check-installed-shadow! root installed-imports)
+            installed-products (installed-snapshot! state installed-imports)
             helper (#'compiler/executable! helper)
             helper-source (#'compiler/path! helper-source)
             helper-record (#'compiler/file-record helper (* 256 1024 1024))
@@ -234,7 +270,8 @@
                                         [helper "--header" (.resolve copied relative)] env)
                               raw (#'compiler/read-json! (.resolve stage (get receipt "stdout")) 1048576)
                               imports (admit-header! raw source (.resolve copied relative))
-                              deps (vec (distinct (keep #(let [n (get % "module")] (when-not (init? n) n)) imports)))
+                              deps (vec (distinct (keep #(let [n (get % "module")]
+                                                          (when-not (or (init? n) (installed-set n)) n)) imports)))
                               _ (doseq [dep deps] (require! (Files/isRegularFile (source-path! root (module-relative dep)) no-links)
                                                                          "ExternalImport" {:module name :import dep}))]
                           (recur (into pending deps)
@@ -244,12 +281,15 @@
                 inputs {"implementation" implementation-record "transportImplementation" @#'compiler/implementation-record "profile" profile "roots" roots "modules" (mapv #(dissoc (modules %) :header) order)
                         "toolchain" toolchain "helper" helper-record "helperSource" source-record
                         "typedExporter" exporter-record "typedExporterSource" exporter-source-record "maxBuildSeconds" 600}
+                inputs (cond-> inputs installed-products
+                         (assoc "profile" installed/preparation-profile "installedImports" installed-products))
                 inputs (json/read-str (String. ^bytes (#'compiler/canonical inputs) StandardCharsets/UTF_8))
                 key (#'compiler/digest (#'compiler/canonical inputs))
                 target (.resolve ^Path (:cache state) (str "local-modules-" key))
                 hit (when (and compile? (Files/exists target no-links)) (cache-hit! target key inputs))
                 frozen-files (atom (inventory! stage))
                 verify-sources! (fn []
+                                  (verify-installed! state installed-products)
                                   (doseq [[name m] modules]
                                     (doseq [source-root [root copied]]
                                       (require! (= (:record m) (#'compiler/file-record (source-path! source-root (:relative m)) 1048576))
@@ -312,7 +352,7 @@
             (#'compiler/check-build-deadline! state)
             (swap! journal assoc :status (if compile? :modules-compiled :planned) :cache-key key :cache-hit (boolean hit)
                    :published-directory (when compile? (str target)) :current-header-directory (str header-directory))
-            {:status (if compile? :modules-compiled :planned) :profile profile :cache-key key :directory (str (if compile? target stage)) :cache-hit (boolean hit) :order order :modules modules :inputs inputs
+            {:status (if compile? :modules-compiled :planned) :profile (get inputs "profile") :cache-key key :directory (str (if compile? target stage)) :cache-hit (boolean hit) :order order :modules modules :inputs inputs
              :compiled (if compile? (get winner "compiled") compiled) :header-directory (str header-directory) :runtime-ready false}))
           (catch Throwable error (#'compiler/abort! journal error)))))))
 

@@ -2,7 +2,7 @@
   "Bounded portable native-project artifacts. Reading requires an independent
    expected manifest digest and performs no native/toolchain discovery."
   (:require [ansatz.lean.jvm.producer :as producer-pins] [clojure.data.json :as json] [clojure.java.io :as io] [clojure.string :as str]
-            [ansatz.lean.jvm.entry :as checked-entry])
+            [ansatz.lean.jvm.entry :as checked-entry] [ansatz.lean.jvm.installed :as installed])
   (:import [java.io InputStream OutputStream FilterInputStream FilterOutputStream ByteArrayOutputStream]
            [java.nio.file Path Files LinkOption]
            [java.nio.charset StandardCharsets CodingErrorAction]
@@ -162,7 +162,7 @@
               (need (or (contains? out n) (< (count out) 4096)) "BuildResourceLimit" {}) (assoc out n row)))
           {} (mapcat #(vector! (get % "declarations") 2048) documents)))
 (defn- validate! [manifest files]
-  (need (and (= schema (get manifest "schema")) (= "legacy-local-init-v2" (get manifest "profile"))
+  (need (and (= schema (get manifest "schema")) (#{"legacy-local-init-v2" installed/artifact-profile} (get manifest "profile"))
              (= {"frontend" "official-native" "javaKernelChecked" false "hostedInitImported" false "startupExecutionReceipt" false}
                 (get manifest "trust"))) "ArtifactConflict" {:stage :artifact-profile})
   (let [producer (get manifest "producer")
@@ -177,6 +177,12 @@
                      (producer-pins/supported? "typedSource" (get-in producer ["typedSourceExporterSource" "sha256"]) (get-in producer ["typedSourceExporter" "sha256"]))
                      (false? (get-in manifest ["code" "dynamicClosureProven"]))) "ArtifactConflict" {:stage :supported-producer})
         original-inputs (json! (path-ref! files (get-in manifest ["inputs" "originalBuildInputs"])) (* 4 1048576))
+        installed-products (get original-inputs "installedImports")
+        _ (if (= installed/artifact-profile (get manifest "profile"))
+            (do (need (= installed/preparation-profile (get original-inputs "profile"))
+                      "ArtifactConflict" {:stage :installed-profile})
+                (installed/validate! installed-products))
+            (need (not (contains? original-inputs "installedImports")) "ArtifactConflict" {:stage :installed-profile}))
         _ (need (and (= (get original-inputs "helper") (get producer "startupHelper"))
                      (= (get original-inputs "helperSource") (get producer "startupHelperSource"))
                      (= (get original-inputs "typedExporter") (get producer "typedSourceExporter"))
@@ -188,6 +194,9 @@
         modules (vector! (get manifest "modules") 128)
         module-names (set (map #(name! (get % "name")) modules))
         _ (need (= (count modules) (count module-names)) "ArtifactConflict" {:stage :module-identity})
+        _ (when installed-products
+            (need (not-any? module-names (map #(get % "module") (get installed-products "modules")))
+                  "ModulePathConflict" {:stage :installed-source-shadow}))
         _ (need (= (count modules) (count (get original-inputs "modules"))) "ArtifactConflict" {:stage :source-dag})
         _ (doseq [[module source] (map vector modules (get original-inputs "modules"))]
             (need (and (= (get module "name") (get source ":name"))
@@ -216,6 +225,10 @@
                             {:document d :request request})) (vector! (get manifest "entryEvidence") checked-entry/max-selected-entries))
         entries (vec (mapcat #(get-in % [:document "entries"]) documents))
         imported (merge-imported! (into [startup] (map :document documents)))]
+    (when installed-products
+      (installed/validate-graph! installed-products module-names
+        (into [(get startup "moduleOrder")] (map #(get-in % [:document "importedModuleOrder"]) documents))
+        (vals imported)))
     (need (and (<= 1 (count entries) checked-entry/max-selected-entries) (= (count entries) (count (set (map #(get % "name") entries))))) "EntryRejected" {})
     (doseq [entry entries]
       (need (module-names (get entry "compiledModule")) "EntryRejected" {:stage :entry-module})
@@ -317,7 +330,7 @@
                           {"rootModule" (get-in document [:request "module"])
                            "request" (descriptor (str "evidence/" label ".request.json"))
                            "raw" (descriptor (str "evidence/" (get-in document [:receipt "stdout"])))})) (:entry-documents payload))]
-    {"schema" schema "profile" "legacy-local-init-v2"
+    {"schema" schema "profile" (if (get inputs "installedImports") installed/artifact-profile "legacy-local-init-v2")
      "producer" {"leanCommit" lean-commit "leanVersion" "4.33.1" "target" "x86_64-unknown-linux-gnu" "wordBits" 64
                  "entryHelper" (:entry-helper payload) "entryHelperSource" (:entry-helper-source payload)
                  "startupHelper" (get inputs "helper") "startupHelperSource" (get inputs "helperSource")

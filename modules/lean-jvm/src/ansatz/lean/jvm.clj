@@ -14,11 +14,17 @@
 (defn project-options
   "Explicit compiler configuration and requested entry names. A vector of names
    uses native signature discovery; a map can request legacy checked profiles."
-  [{:keys [compiler root-module source-root entries]
+  [{:keys [compiler root-module source-root entries installed-imports]
     :or {root-module "Main" source-root "."}}]
   (let [native (NativeCompilerOptions. (path (:sysroot compiler))
                                       (path (:producer-bundle compiler)) (path (:cache compiler)))
         builder (-> (ProjectOptions/builder native) (.rootModule root-module) (.sourceRoot source-root))]
+    (when (some? installed-imports)
+      (when-not (and (vector? installed-imports) (<= (count installed-imports) ProjectOptions/MAX_INSTALLED_IMPORTS)
+                     (every? string? installed-imports) (= (count installed-imports) (count (set installed-imports))))
+        (throw (ex-info "Installed imports must be a bounded vector of distinct exact module names"
+                        {:code "UnsupportedProjectConfig"})))
+      (doseq [module installed-imports] (.installedImport builder module)))
     (when-not (<= 1 (bounded-count (inc ProjectOptions/MAX_SELECTED_ENTRIES) entries) ProjectOptions/MAX_SELECTED_ENTRIES)
       (throw (ex-info "Request one to 1024 checked entries" {:code "EntryRejected"})))
     (doseq [[name signature] (if (map? entries) entries (map #(vector % :auto) entries))]

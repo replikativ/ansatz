@@ -11,6 +11,7 @@
            {:path "ansatz/lean/jvm/compiler/transport.clj" :namespace ansatz.lean.jvm.compiler.transport}
            {:path "ansatz/lean/jvm/entry.clj" :namespace ansatz.lean.jvm.entry}
            {:path "ansatz/lean/jvm/ir.clj" :namespace ansatz.lean.jvm.ir}
+           {:path "ansatz/lean/jvm/installed.clj" :namespace ansatz.lean.jvm.installed}
            {:path "ansatz/lean/jvm/original.clj" :namespace ansatz.lean.jvm.original}
            {:path "ansatz/lean/jvm/preparation.clj" :namespace ansatz.lean.jvm.preparation}
            {:path "ansatz/lean/jvm/project.clj" :namespace ansatz.lean.jvm.project}
@@ -42,6 +43,6 @@
             {:path "ansatz/lean/jvm/LeanProject.java" :class "ansatz.lean.jvm.LeanProject" :sha256 "8a5e8a36f1f96225f85b95ddc1b9ff74a7142fbc3f336b7a0083f6d01400cab8"}
             {:path "ansatz/lean/jvm/MainResult.java" :class "ansatz.lean.jvm.MainResult" :sha256 "e82cc335d2b483291d2f1d7bf80420411d62a37d32f50819ea82b92fdc1510c6"}
             {:path "ansatz/lean/jvm/NativeCompilerOptions.java" :class "ansatz.lean.jvm.NativeCompilerOptions" :sha256 "51b8c9d38dfde1568b09aa85083be4a2347768bdf5ad4ad2e5d0852067c5d54f"}
-            {:path "ansatz/lean/jvm/ProjectOptions.java" :class "ansatz.lean.jvm.ProjectOptions" :sha256 "c39d3d228d3fd413d4e849307fe762d463474bb9d9cfe159d89b559b7fb4d592"}]
+            {:path "ansatz/lean/jvm/ProjectOptions.java" :class "ansatz.lean.jvm.ProjectOptions" :sha256 "a19579d5195038ffd4f6172aa8f339a346b77ab4382e0ae9f7935ca2a81888f0"}]
  :runtime-dependencies {org.clojure/clojure {:mvn/version "1.12.0"}
                         org.clojure/data.json {:mvn/version "2.5.1"}}}

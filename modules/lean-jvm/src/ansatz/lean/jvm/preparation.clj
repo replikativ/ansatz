@@ -45,7 +45,9 @@
       (with-cleanup
         (fn []
           (let [receipt (evidence/build! compiler
-                          (assoc project-options :project source-root :source-root (.sourceRoot ^ProjectOptions options) :roots [root])
+                          (cond-> (assoc project-options :project source-root :source-root (.sourceRoot ^ProjectOptions options) :roots [root])
+                            (seq (.installedImports ^ProjectOptions options))
+                            (assoc :installed-imports (mapv typed-name (.installedImports ^ProjectOptions options))))
                           evidence-options entries (atom {}))
                 exported (artifact/export! receipt output)]
             ;; Receipt identity and source custody stay private and live through
@@ -56,7 +58,7 @@
 (def ^:private usage
   (str "Prepare a Lean JVM artifact without opening a JVM Project.\n"
        "--source DIR --sysroot DIR --producer-bundle DIR --cache DIR --output FILE\n"
-       "[--source-root RELATIVE-DIR] [--root-module NAME]\n"
+       "[--source-root RELATIVE-DIR] [--root-module NAME] [--installed-import MODULE] (repeat)\n"
        "--entry NAME (repeat for native signature discovery), or\n"
        "--nat-function NAME | --string-function NAME | --main NAME\n"
        "Output must not exist. Native frontend execution is trusted; no implicit install.\n"))
@@ -66,13 +68,13 @@
 (def ^:private entry-flags
   {"--entry" :auto "--nat-function" :nat-to-nat "--string-function" :string-to-string "--main" :io-unit})
 (defn- parse-cli [arguments]
-  (let [maximum (+ 32 (* 2 ProjectOptions/MAX_SELECTED_ENTRIES))]
+  (let [maximum (+ 32 (* 2 (+ ProjectOptions/MAX_SELECTED_ENTRIES ProjectOptions/MAX_INSTALLED_IMPORTS)))]
     (need (<= (bounded-count (inc maximum) arguments) maximum) "InvalidArguments" "Too many command-line arguments")
     (let [arguments (vec arguments)]
       (need (every? #(and (= String (class %)) (<= 1 (count %) 16384)) arguments)
             "InvalidArguments" "Expected bounded nonempty command-line strings")
       (if (= ["--help"] arguments) {:help true}
-        (loop [remaining arguments parsed {:entries []}]
+        (loop [remaining arguments parsed {:entries [] :installed-imports []}]
           (if (empty? remaining)
             (do (need (every? #(contains? parsed %) [:source :sysroot :producer-bundle :cache :output])
                       "InvalidArguments" "Missing required preparation option; use --help")
@@ -80,6 +82,10 @@
             (let [[flag value & tail] remaining]
               (need (and value (not (str/starts-with? value "--"))) "InvalidArguments" "Every preparation option requires a value")
               (cond
+                (= "--installed-import" flag)
+                (do (need (< (count (:installed-imports parsed)) ProjectOptions/MAX_INSTALLED_IMPORTS)
+                          "InvalidArguments" "Too many installed imports")
+                    (recur tail (update parsed :installed-imports conj value)))
                 (contains? single-flags flag)
                 (let [key (get single-flags flag)]
                   (need (not (contains? parsed key)) "InvalidArguments" "Duplicate preparation option")
@@ -94,6 +100,7 @@
   (let [compiler (NativeCompilerOptions. (path (:sysroot parsed)) (path (:producer-bundle parsed)) (path (:cache parsed)))
         builder (-> (ProjectOptions/builder compiler)
                     (.rootModule (get parsed :root-module "Main")) (.sourceRoot (get parsed :source-root ".")))]
+    (doseq [module (:installed-imports parsed)] (.installedImport builder module))
     (doseq [[name profile] (:entries parsed)]
       (case profile
         :auto (.function builder name)
