@@ -1855,14 +1855,68 @@
                           (mk-result (nth sargs fidx))))))))
               :else nil)))))))
 
+(def ^:private match-unfold-whitelist
+  "Lean Meta/WHNF.lean canUnfoldAtMatcher: default-reducible constants a matcher may unfold
+   at reducible/instances transparency."
+  #{"decEq" "Nat.decEq" "Char.ofNat" "Char.ofNatAux" "String.decEq" "List.hasDecEq" "Fin.ofNat"
+    "UInt8.ofNat" "UInt8.decEq" "UInt16.ofNat" "UInt16.decEq" "UInt32.ofNat" "UInt32.decEq"
+    "UInt64.ofNat" "UInt64.decEq" "HMod.hMod" "Mod.mod"})
+
+(def ^:private instance-name-sets (java.util.WeakHashMap.))
+
+(defn- registered-instance-names
+  "Names in the environment's @[instance] registry (memoized per registry value)."
+  [env]
+  (if-let [idx (env/get-extension env :instances nil)]
+    (locking instance-name-sets
+      (or (.get instance-name-sets idx)
+          (let [names (into #{} (comp (mapcat val) (map :name)) idx)]
+            (.put instance-name-sets idx names)
+            names)))
+    #{}))
+
+(defn- can-unfold-at-matcher?
+  "Lean `canUnfoldAtMatcher` at instances transparency (Meta/WHNF.lean): reducible
+   constants (`:abbrev` hints: abbrevs, matchers, casesOn and the other constructions),
+   instances (Lean's implicitReducible status), and Lean's fixed list. Deviation: the
+   @[match_pattern] attribute is not exported, so those definitions are not included."
+  [env const-name]
+  (let [ci (env/lookup env const-name)]
+    (boolean
+     (and ci
+          (or (= :abbrev (env/get-reducibility-hints ci))
+              (contains? (registered-instance-names env) const-name)
+              (contains? match-unfold-whitelist (name/->string const-name)))))))
+
+(defn- max-fvar-id
+  "Largest free-variable id in the local context and in `expr` (0 if none)."
+  [lctx expr]
+  (loop [pending [expr] seen #{} m (reduce max 0 (filter number? (keys lctx)))]
+    (if-let [x (peek pending)]
+      (let [pending (pop pending)]
+        (if (contains? seen x)
+          (recur pending seen m)
+          (let [seen (conj seen x)]
+            (case (e/tag x)
+              :fvar (recur pending seen (max m (long (e/fvar-id x))))
+              :app (recur (conj pending (e/app-fn x) (e/app-arg x)) seen m)
+              :lam (recur (conj pending (e/lam-type x) (e/lam-body x)) seen m)
+              :forall (recur (conj pending (e/forall-type x) (e/forall-body x)) seen m)
+              :let (recur (conj pending (e/let-type x) (e/let-value x) (e/let-body x)) seen m)
+              :mdata (recur (conj pending (e/mdata-expr x)) seen m)
+              :proj (recur (conj pending (e/proj-struct x)) seen m)
+              (recur pending seen m)))))
+      m)))
+
 (defn- try-reduce-matcher
   "Lean `Meta.reduceMatcher?` (Meta/WHNF.lean): reduce a matcher application whose
-   discriminants select an alternative. The matcher is applied to its parameter, motive
-   and discriminant prefix (sizes from MatcherInfo) and to fresh marker fvars in place of
-   the alternatives, then whnf'd. If the head is the marker of alternative i, the result is
-   that alternative applied to the marker's arguments (the constructor fields, or `Unit.unit`
-   for a thunk) and to any arguments beyond the alternatives, head-beta-reduced. The markers
-   keep the selected branch from being reduced further. Definitional, so no proof."
+   discriminants select an alternative. The matcher is applied to its parameter, motive and
+   discriminant prefix (sizes from MatcherInfo) and to fresh locals in place of the
+   alternatives, then reduced like Lean's `whnfMatcher`: whnf whose delta steps are limited to
+   `canUnfoldAtMatcher` (plus the matcher itself), so ordinary definitions inside
+   discriminants stay folded. If the head is the local of alternative i, the result is that
+   alternative applied to the local's arguments (the constructor fields, or `Unit.unit` for
+   a thunk) and to any arguments beyond the alternatives. Definitional, so no proof."
   [st expr]
   (let [env (:env st)
         [head args] (e/get-app-fn-args expr)]
@@ -1870,12 +1924,15 @@
       (when-let [info (matcher-info/get-matcher-info-core? env (name/->string (e/const-name head)))]
         (let [args (vec args)
               prefix (+ (:num-params info) 1 (:num-discrs info))
-              nalts (matcher-info/num-alts info)
-              base 920000]
+              nalts (matcher-info/num-alts info)]
           (when (and (pos? nalts) (>= (count args) (+ prefix nalts)))
-            (let [probe (apply e/app* head (into (subvec args 0 prefix)
+            (let [base (inc (max-fvar-id (:lctx st) expr))
+                  matcher (e/const-name head)
+                  probe (apply e/app* head (into (subvec args 0 prefix)
                                                  (map #(e/fvar (+ base %)) (range nalts))))
-                  reduced (red/whnf env probe (:lctx st))
+                  reduced (red/whnf env probe (:lctx st)
+                                    {:can-unfold? (fn [n] (or (= n matcher)
+                                                              (can-unfold-at-matcher? env n)))})
                   [rhead rargs] (when reduced (e/get-app-fn-args reduced))]
               (when (and rhead (e/fvar? rhead)
                          (<= base (e/fvar-id rhead) (+ base nalts -1)))
