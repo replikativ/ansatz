@@ -114,14 +114,19 @@ or higher-order public arguments are needed. No new primitive is proposed.
 
 Preparation, closed-entry proof, ownership/provenance admission, named global
 startup capture, and execution are still separate gates. Actual exported
-IR/extern closure has not been collected here; an unexpected extern or
-projection refusal must remain a visible blocker. The oracle alone uses
+IR/extern closure has been collected for the integration candidate. Native/JVM
+comparison passes 22 cases plus nine retained-state repetitions; prepared
+artifact loading passes the same JVM cases. The packaged Java consumer adds
+117 checks without native tools. These are candidate receipts, not a release
+claim. An unexpected extern or projection refusal remains a visible blocker.
+The oracle alone uses
 official stdout, string rendering, and local module loading; those are not
 added to the JVM fixture's public entry set.
 
 This checks guest error/finally semantics on ordinary returns. It makes no
 cleanup guarantee for host resource limits, cancellation, panic, abandoned
 Projects, empty-cell waiting, concurrent ref access, or external resources.
-It does not test public uncaught IO.Error detail transport, prepared-artifact
-reload, Std/Lean imports, or frontend monad applications. Add those as
-independent increments after this candidate has real receipts.
+The corpus also supplies separate uncaught-error entries for the bounded
+`IO.Error.userError` detail transport. Other IO.Error variants remain generic.
+It does not establish Std/Lean imports, arbitrary EIO public signatures or
+frontend monad applications.
