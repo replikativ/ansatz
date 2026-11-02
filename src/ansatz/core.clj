@@ -949,6 +949,29 @@
       (throw (ex-info "Tactic error: case body did not close its goals" {:kind :tactic-error})))
     (assoc ps :goals (filterv #(and (not= gid %) (not (proof/mvar-assigned? ps %))) gs))))
 
+(clojure.core/defn- eval-case'
+  "Lean Elab/Tactic/BuiltinTactic.lean evalCase': keep residual goals, restoring
+   the selected tag when exactly one remains (Lean v4.33.1)."
+  [ps tag names body]
+  (let [ps (proof/prune-solved-goals ps)
+        gid (get-case-goal ps tag)
+        tail (filterv #(not= gid %) (:goals ps))
+        tag (proof/mvar-user-name ps gid)
+        fields (mapv key (filter (comp :inaccessible val)
+                                 (sort-by key (proof/mvar-lctx ps gid))))
+        ps (-> (rename-branch-locals ps gid (take-last (count names) fields) names)
+               (assoc :goals [gid]))
+        ps (proof/prune-solved-goals (reduce run-tactic ps body))
+        ps (if (= 1 (count (:goals ps)))
+             (proof/set-mvar-user-name ps (first (:goals ps)) tag) ps)]
+    (proof/prune-solved-goals (update ps :goals into tail))))
+
+(clojure.core/defn- eval-trace-state
+  "Lean Elab/Tactic/BuiltinTactic.lean evalTraceState (v4.33.1)."
+  [ps]
+  (println (proof/format-goals (proof/prune-solved-goals ps)))
+  ps)
+
 (clojure.core/defn- eval-alts
   "Lean Elab/Tactic/Induction.lean evalAlts.applyAltStx: introN consumes names
    from the first constructor field, followed by IHs, independently of case/next."
@@ -1326,6 +1349,11 @@
                 ;; (all_goals (tactic args)) — apply inner tactic to every open goal
                 (basic/all-goals ps (fn [ps'] (reduce run-tactic ps' args))))
    'any_goals (fn [ps args] (basic/any-goals ps #(reduce run-tactic % args)))
+   'trace_state (fn [ps _args] (eval-trace-state ps))
+   'case'     (fn [ps args]
+                (let [[pattern & body] args
+                      [tag & names] (if (sequential? pattern) pattern [pattern])]
+                  (eval-case' ps (if (nil? tag) "nil" tag) names body)))
    'case      (fn [ps args]
                 (let [[pattern & body] args
                       [tag & names] (if (sequential? pattern) pattern [pattern])]

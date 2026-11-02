@@ -16,3 +16,26 @@
     (testing "an ordinary verified function over the bundled tier elaborates, certifies, and runs"
       (eval '(ansatz.core/defn ^{:- Nat} bundled-dbl [^{:- Nat} x] (Nat.add x x)))
       (is (= 42 (long ((resolve 'bundled-dbl) 21)))))))
+
+(deftest bundled-public-reasoning-lemmas
+  ;; Lean Init/Data/{Bool,Option/{Basic,Lemmas},List/Lemmas,Nat/Basic}.lean;
+  ;; paired closed uses in test/lean/bundled_public_lemmas.lean.
+  (binding [a/*verbose* false]
+    (a/load-init!)
+    (doseq [[nm params target term]
+            [['bundled_false_ne_true '[] '(Not (= false true)) 'Bool.false_ne_true]
+             ['bundled_bool_cases '[b :- Bool] '(Or (= b true) (= b false)) '(Bool.eq_false_or_eq_true b)]
+             ['bundled_eq_false '[b :- Bool] '(Iff (= b false) (Not (= b true))) 'Bool.eq_false_iff]
+             ['bundled_ne_false '[b :- Bool] '(Iff (Not (= b false)) (= b true)) 'Bool.ne_false_iff]
+             ['bundled_some_ne_none '[x :- Nat] '(Not (= (Option.some x) (Option.none Nat))) '(Option.some_ne_none x)]
+             ['bundled_cons_ne_nil '[x :- Nat, xs :- (List Nat)]
+              '(Not (= (List.cons x xs) (List.nil Nat))) '(List.cons_ne_nil x xs)]
+             ['bundled_zero_ne_add_one '[n :- Nat] '(Not (= 0 (+ n 1))) '(Nat.zero_ne_add_one n)]
+             ['bundled_map_map '[f :- (=> Nat Nat), g :- (=> Nat Nat), xs :- (List Nat)]
+              '(= (List.map g (List.map f xs)) (List.map (fn [x :- Nat] (g (f x))) xs)) 'List.map_map]
+             ['bundled_map_some '[f :- (=> Nat Nat), x :- Nat]
+              '(= (Option.map f (Option.some x)) (Option.some (f x))) '(Option.map_some x f)]
+             ['bundled_map_none '[f :- (=> Nat Nat)]
+              '(= (Option.map f (Option.none Nat)) (Option.none Nat)) '(Option.map_none f)]]]
+      (a/prove-theorem nm params target [(list 'exact term)])
+      (is true (str nm)))))

@@ -2876,3 +2876,15 @@ Int.pow_mul
 Int.pow_ne_zero
 Nat.add_pos_left
 Nat.mul_ne_zero
+
+# Public Bool, Option and List reasoning lemmas from Lean Init.
+Bool.false_ne_true
+Bool.eq_false_or_eq_true
+Bool.eq_false_iff
+Bool.ne_false_iff
+Option.some_ne_none
+List.cons_ne_nil
+Nat.zero_ne_add_one
+List.map_map
+Option.map_some
+Option.map_none
