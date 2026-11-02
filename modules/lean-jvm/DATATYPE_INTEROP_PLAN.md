@@ -455,3 +455,27 @@ update, and survived runtime close. It supports feasibility of persistent JVM
 storage. The current public decoder still copies; that fixture does not prove
 general typed certificates, native nominal discovery, public API safety,
 concurrent publication, or production performance. It is not a release receipt.
+
+### Used-origin product model (private foundation)
+
+`ansatz.lean.jvm.used-products` validates the pathless
+`lean-jvm-used-module-products/1` manifest. Each of at most 256 defining modules
+has its primary `.olean` SHA-256 plus the exact ordered present/absent records for
+`.olean`, `.olean.server`, `.olean.private`, `.ir.sig`, and `.ir`. The primary
+record is mandatory and must match the nominal product identity. Existing
+installed-product byte ceilings apply; canonical manifest encoding is bounded at
+4 MiB and independent of module enumeration order.
+
+The complete native advisory origin inventory must equal the captured module
+set. Origins require a local compiled module, an explicitly authorized installed
+module, or implicit Init; inventory discovery does not authorize new imports.
+Local/installed overlap and attempts to shadow Init are rejected. Every logical
+definition must match its defining module's primary product, and unused product
+records are rejected when binding the graph. An empty manifest supports a graph
+containing only builtin types.
+
+These pure checks establish internal correspondence, not byte custody. Source
+loading must still capture and recheck actual products before and after native
+evidence collection, bind the module-cache compilation baseline, and retain the
+issued provenance for artifact reopening. A caller-created manifest or advisory
+inventory cannot issue a public datatype descriptor or admit a v3 entry.

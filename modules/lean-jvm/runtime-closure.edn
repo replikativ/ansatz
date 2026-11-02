@@ -22,6 +22,7 @@
            {:path "ansatz/lean/jvm/scalar_buffer.clj" :namespace ansatz.lean.jvm.scalar-buffer}
            {:path "ansatz/lean/jvm/startup.clj" :namespace ansatz.lean.jvm.startup}
            {:path "ansatz/lean/jvm/type_graph.clj" :namespace ansatz.lean.jvm.type-graph}
+           {:path "ansatz/lean/jvm/used_products.clj" :namespace ansatz.lean.jvm.used-products}
            {:path "ansatz/lean/jvm/value.clj" :namespace ansatz.lean.jvm.value}]
  :resources ["META-INF/ansatz-lean-jvm/runtime.edn"
              "META-INF/ansatz-lean-jvm/user-error.json"
