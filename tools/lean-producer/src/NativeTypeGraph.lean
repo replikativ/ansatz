@@ -3,7 +3,7 @@ import Lean.Meta.ExprDefEq
 import Lean.Compiler.LCNF.ToImpureType
 import Lean.Compiler.IR.ToIRType
 import Lean.Elab.Deriving.Inhabited
-import Lean.Elab.Deriving.FromToJson
+import NativeEntryTransport
 
 /-!
 Isolated automatic logical datatype discovery. Not imported by the published v2
@@ -15,8 +15,6 @@ open Lean
 
 namespace NativeTypeGraph
 
-deriving instance ToJson for IR.IRType
-
 /-- Module Name -> exact compiled defining-product SHA-256. Missing origins fail.
     This lookup supplies provenance claims; it does not authenticate itself. -/
 abbrev ModuleProducts := Name → Option String
@@ -24,16 +22,26 @@ abbrev ModuleProducts := Name → Option String
 structure Discovery where
   logical : Json
   layouts : Json
+  /-- Canonical native Exprs aligned with the deduplicated logical root catalog.
+      Internal producer data; neither serialized host values nor authority. -/
+  canonicalRoots : Array Expr
+
+private structure ClosedField where
+  type : Expr
+  actualType : Expr
+  descriptor : Json
+  deriving Inhabited
 
 private structure Pending where
   type : Expr
   info : InductiveVal
-  origin : Json
+  moduleName : Name
   universes : Array Nat
   arguments : Array Json
   argumentRefs : Array Nat
   fieldsRefs : Array Nat := #[]
   definition? : Option Json := none
+  closedFields : Array (Array ClosedField) := #[]
   deriving Inhabited
 
 private structure State where
@@ -67,10 +75,7 @@ private def closed! (e : Expr) : MetaM Unit := do
 private def unique [BEq α] (xs : Array α) : Array α :=
   xs.foldl (fun out x => if out.contains x then out else out.push x) #[]
 
-private partial def nameJson : Name → Json
-  | .anonymous => Json.arr #[toJson "anonymous"]
-  | .str p s => Json.arr #[toJson "str", nameJson p, toJson s]
-  | .num p n => Json.arr #[toJson "num", nameJson p, toJson (toString n)]
+private def nameJson := NativeEntryTransport.nameJson
 
 private def checkedName (name : Name) (nonanonymous : Bool := true) : DiscoverM Json := do
   if nonanonymous && name.isAnonymous then fail "anonymous declaration/module Name"
@@ -144,7 +149,7 @@ private def boundedExpr! (root : Expr) : DiscoverM Unit := do
     | .mdata _ b | .proj _ _ b => todo := todo.push (b, depth + 1)
     | _ => pure ()
 
-private def origin (products : ModuleProducts) (name : Name) : DiscoverM Json := do
+private def originModule (name : Name) : DiscoverM Name := do
   let env ← getEnv
   let moduleName ← match env.getModuleIdxFor? name with
     | some index =>
@@ -152,10 +157,14 @@ private def origin (products : ModuleProducts) (name : Name) : DiscoverM Json :=
       | some moduleName => pure moduleName
       | none => fail "missing native defining-module index"
     | none => pure env.mainModule
+  discard <| checkedName moduleName
+  return moduleName
+
+private def origin (products : ModuleProducts) (moduleName : Name) : DiscoverM Json := do
   let some sha := products moduleName | fail "missing defining-module product digest"
   unless sha.length == 64 && sha.toList.all (fun c =>
       ('0' ≤ c && c ≤ '9') || ('a' ≤ c && c ≤ 'f')) do fail "noncanonical product SHA-256"
-  return Json.mkObj [("module", ← checkedName moduleName), ("productSha256", toJson sha)]
+  return Json.mkObj [("module", nameJson moduleName), ("productSha256", toJson sha)]
 
 private def leaf (kind : String) : Json := Json.mkObj [("kind", toJson kind)]
 private def refJson (id : Nat) : Json := Json.mkObj [("kind", toJson "nominal"), ("id", toJson id)]
@@ -164,6 +173,7 @@ private structure TypeResult where
   type : Expr
   descriptor : Json
   refs : Array Nat := #[]
+  deriving Inhabited
 
 private def primitiveTypes : Array (Name × Json) :=
   #[( ``Nat, leaf "nat"), (``Int, leaf "int"), (``Bool, leaf "bool"),
@@ -208,7 +218,7 @@ private def parameterTypes! (info : InductiveVal) (levels : List Level)
   let result ← Meta.whnf telescope
   unless result.isSort do throwError "TypeGraph: incomplete inductive application"
 
-private partial def infer (products : ModuleProducts) (type : Expr) (depth : Nat) : DiscoverM TypeResult := do
+private partial def infer (type : Expr) (depth : Nat) : DiscoverM TypeResult := do
   unless depth < 32 do fail "inline type depth"
   tick
   liftM <| closed! type
@@ -233,7 +243,7 @@ private partial def infer (products : ModuleProducts) (type : Expr) (depth : Nat
     let mut canonicalArgs := #[]
     let mut refs := #[]
     for i in [:args.size] do
-      let child ← infer products args[i]! (depth + 1)
+      let child ← infer args[i]! (depth + 1)
       entries := entries ++ [(labels[i]!, child.descriptor)]
       canonicalArgs := canonicalArgs.push child.type
       refs := refs ++ child.refs
@@ -257,7 +267,7 @@ private partial def infer (products : ModuleProducts) (type : Expr) (depth : Nat
   let mut canonicalArgs := #[]
   let mut argumentRefs := #[]
   for arg in args do
-    let child ← infer products arg (depth + 1)
+    let child ← infer arg (depth + 1)
     arguments := arguments.push child.descriptor
     canonicalArgs := canonicalArgs.push child.type
     argumentRefs := argumentRefs ++ child.refs
@@ -269,14 +279,14 @@ private partial def infer (products : ModuleProducts) (type : Expr) (depth : Nat
   let s ← get
   unless s.nodes.size < 256 && s.constructors + info.ctors.length ≤ 1024 do
     fail "nominal definition/constructor budget"
-  let provenance ← origin products name
+  let moduleName ← originModule name
   let s ← get
   let id := s.nodes.size
   -- Register before walking constructors; recursive fields become references.
   let pending : Pending := {
     type := canonical
     info := info
-    origin := provenance
+    moduleName := moduleName
     universes := universes
     arguments := arguments
     argumentRefs := unique argumentRefs }
@@ -341,14 +351,7 @@ private def regular! (nodes : Array Pending) : DiscoverM Unit := do
       if child != id && nodes[child]!.info.name == p.info.name && !allowed.contains child then
         fail "changed-parameter recursive application"
 
-private def fieldLayoutJson : Compiler.LCNF.CtorFieldInfo → Json
-  | .erased => Json.mkObj [("kind", toJson "erased")]
-  | .void => Json.mkObj [("kind", toJson "void")]
-  | .object index type => Json.mkObj [("kind", toJson "object"), ("index", toJson index),
-      ("irType", toJson (IR.toIRType type))]
-  | .usize index => Json.mkObj [("kind", toJson "usize"), ("index", toJson index)]
-  | .scalar bytes offset type => Json.mkObj [("kind", toJson "scalar"),
-      ("bytes", toJson bytes), ("offset", toJson offset), ("irType", toJson (IR.toIRType type))]
+private def fieldLayoutJson := NativeEntryTransport.fieldLayoutJson
 
 private def familyLayout (name : Name) : MetaM Json := do
   let some (.inductInfo info) := (← getEnv).find? name
@@ -371,64 +374,141 @@ private def familyLayout (name : Name) : MetaM Json := do
   return Json.mkObj [("typeName", nameJson name), ("irType", toJson (IR.toIRType impure)),
     ("trivialStructure", toJson trivial), ("constructors", Json.arr constructors)]
 
-private def discoverM (roots : Array Expr) (products : ModuleProducts) : DiscoverM Discovery := do
+private def classifyM (roots : Array Expr) : DiscoverM (Array TypeResult) := do
   unless roots.size > 0 && roots.size ≤ 1024 do fail "root count"
-  let mut rootTypes := #[]
+  let mut rootTypes : Array TypeResult := #[]
   for root in roots do
     liftM <| closed! root
     boundedExpr! root
     liftM <| Meta.check root .default
-    let r ← infer products root 0
-    rootTypes := unique (rootTypes.push r.descriptor)
+    let r ← infer root 0
+    unless rootTypes.any (fun previous => previous.descriptor == r.descriptor) do
+      rootTypes := rootTypes.push r
   let mut cursor := 0
   while cursor < (← get).nodes.size do
     let p := (← get).nodes[cursor]!
     let mut constructors := #[]
     let mut fieldsRefs := #[]
+    let mut closedFields := #[]
     for index in [:p.info.ctors.length] do
       let name := p.info.ctors[index]!
       let fields ← liftM <| constructorFields p name index
       let ctorName ← checkedName name
       let mut values := #[]
+      let mut closedValues := #[]
       for (binder, domain) in fields do
         let fieldName ← checkedName binder false
-        let value ← infer products domain 0
+        let value ← infer domain 0
         values := values.push <| Json.mkObj [("name", fieldName), ("type", value.descriptor)]
+        let closedValue : ClosedField := {
+          type := value.type
+          actualType := domain
+          descriptor := value.descriptor }
+        closedValues := closedValues.push closedValue
         fieldsRefs := fieldsRefs ++ value.refs
       constructors := constructors.push <| Json.mkObj [("name", ctorName), ("fields", Json.arr values)]
-    let definition := Json.mkObj [("id", toJson cursor), ("origin", p.origin),
+      closedFields := closedFields.push closedValues
+    -- Internal shape only: no origin object is manufactured before a real
+    -- product lookup. This incomplete object is never returned as a graph.
+    let definition := Json.mkObj [("id", toJson cursor),
       ("name", ← checkedName p.info.name), ("universes", toJson p.universes),
       ("arguments", Json.arr p.arguments), ("constructors", Json.arr constructors)]
     modify fun s => { s with nodes := s.nodes.set! cursor { p with
-      fieldsRefs := unique fieldsRefs, definition? := some definition } }
+      fieldsRefs := unique fieldsRefs, definition? := some definition, closedFields } }
     cursor := cursor + 1
+  regular! (← get).nodes
+  return rootTypes
+
+private def encodedType (type : Expr) : DiscoverM Json :=
+  match NativeEntryTransport.encodeType type with
+  | .ok value => pure value
+  | .error reason => fail s!"native type AST: {reason}"
+
+private def closedIR (type : Expr) : MetaM Json := do
+  let lcnf ← Compiler.LCNF.toLCNFType type
+  let mono ← Compiler.LCNF.toMonoType lcnf
+  let impure ← Compiler.LCNF.toImpureType mono
+  return toJson (IR.toIRType impure)
+
+private def inventoryM (roots : Array Expr) : DiscoverM Json := do
+  let rootTypes ← classifyM roots
   let s ← get
-  regular! s.nodes
+  let modules := unique (s.nodes.map (·.moduleName))
+  let types ← rootTypes.mapM (fun r => encodedType r.type)
+  let document := Json.mkObj [("schema", toJson "lean-jvm-type-origin-inventory/1"),
+    ("scope", toJson "advisory-no-type-authority"),
+    ("requiredModules", Json.arr (modules.map nameJson)),
+    ("rootTypes", Json.arr types), ("nominalDefinitions", toJson s.nodes.size)]
+  unless document.compress.utf8ByteSize ≤ 1048576 do fail "encoded origin inventory byte budget"
+  return document
+
+private def discoverM (roots : Array Expr) (products : ModuleProducts) : DiscoverM Discovery := do
+  let rootTypes ← classifyM roots
+  let s ← get
+  let mut definitions := #[]
+  for p in s.nodes do
+    let provenance ← origin products p.moduleName
+    definitions := definitions.push (p.definition?.get!.setObjVal! "origin" provenance)
   let logical := Json.mkObj [("schema", toJson "lean-jvm-type-graph/3"),
-    ("roots", Json.arr rootTypes),
-    ("definitions", Json.arr (s.nodes.map (fun p => p.definition?.get!)))]
+    ("roots", Json.arr (rootTypes.map (·.descriptor))), ("definitions", Json.arr definitions)]
   unless logical.compress.utf8ByteSize ≤ 1048576 do fail "encoded logical graph byte budget"
   let mut applications := #[]
+  let mut closedFields := #[]
   let mut names := s.builtinFamilies
   for id in [:s.nodes.size] do
     let p := s.nodes[id]!
     names := unique (names.push p.info.name)
-    let lcnf ← liftM <| Compiler.LCNF.toLCNFType p.type
-    let mono ← liftM <| Compiler.LCNF.toMonoType lcnf
-    let impure ← liftM <| Compiler.LCNF.toImpureType mono
     applications := applications.push <| Json.mkObj [("definition", toJson id),
-      ("irType", toJson (IR.toIRType impure))]
+      ("nativeType", ← encodedType p.type), ("irType", ← liftM <| closedIR p.type)]
+    let mut constructors := #[]
+    for index in [:p.info.ctors.length] do
+      let ctorName := p.info.ctors[index]!
+      let layout ← liftM <| Compiler.LCNF.getCtorLayout ctorName
+      let fields := p.closedFields[index]!
+      unless layout.ctorInfo.name == ctorName && layout.ctorInfo.cidx == index &&
+          layout.fieldInfo.size == fields.size do fail "closed field/declaration layout correspondence"
+      let mut observations := #[]
+      for fieldIndex in [:fields.size] do
+        let f := fields[fieldIndex]!
+        unless ← liftM <| Meta.withTransparency .default (Meta.isDefEq f.actualType f.type) do
+          fail "closed field native DefEq mismatch"
+        observations := observations.push <| Json.mkObj [
+          ("field", toJson fieldIndex), ("logicalType", f.descriptor),
+          ("typeCheck", Json.mkObj [("algorithm", toJson "Lean.Meta.isDefEq"),
+            ("transparency", toJson "default"),
+            ("actualType", ← encodedType f.actualType), ("expectedType", ← encodedType f.type)]),
+          ("closedIRType", ← liftM <| closedIR f.type),
+          ("genericFieldIndex", toJson fieldIndex),
+          ("genericFieldInfo", fieldLayoutJson layout.fieldInfo[fieldIndex]!)]
+      constructors := constructors.push <| Json.mkObj [("constructor", nameJson ctorName),
+        ("constructorIndex", toJson index), ("fields", Json.arr observations)]
+    closedFields := closedFields.push <| Json.mkObj [("definition", toJson id),
+      ("constructors", Json.arr constructors)]
   let families ← liftM <| names.mapM familyLayout
-  let layouts := Json.mkObj [("schema", toJson "lean-jvm-native-layout-observations/3"),
+  let mut nativeRoots := #[]
+  for index in [:rootTypes.size] do
+    let r := rootTypes[index]!
+    nativeRoots := nativeRoots.push <| Json.mkObj [("root", toJson index),
+      ("nativeType", ← encodedType r.type), ("irType", ← liftM <| closedIR r.type)]
+  let layouts := Json.mkObj [("schema", toJson "lean-jvm-native-layout-observations/4"),
     ("scope", toJson "observed-not-admitted"),
-    ("applications", Json.arr applications), ("families", Json.arr families)]
+    ("rootTypes", Json.arr nativeRoots), ("applications", Json.arr applications),
+    ("closedFields", Json.arr closedFields), ("families", Json.arr families)]
   unless layouts.compress.utf8ByteSize ≤ 1048576 do fail "encoded layout observation byte budget"
-  return { logical, layouts }
+  return { logical, layouts, canonicalRoots := rootTypes.map (·.type) }
+
+/-- Classify the complete supported type/constructor closure and report all
+    required native defining modules without product claims or an admitted
+    graph. This uses exactly the full discovery classifier and rejects the same
+    unsupported logical forms. It is advisory, not a one-at-a-time failure probe. -/
+def inventoryOrigins (roots : Array Expr) : MetaM Json := do
+  let (result, _) ← (inventoryM roots).run {}
+  return result
 
 /-- Discover a finite closed proof-free logical graph in the actual native Meta
-    Environment and separately observe persisted compiler layouts. Does not
-    execute entries, authenticate product claims, hash canonical graphs, issue a
-    public cohort, or authorize storage. Exceptions return no partial graph. -/
+    Environment and separately observe persisted compiler layouts and closed
+    field lowering. Product claims still require independent source custody;
+    no public cohort or allocation authority is issued. -/
 def discover (roots : Array Expr) (products : ModuleProducts) : MetaM Discovery := do
   let (result, _) ← (discoverM roots products).run {}
   return result
