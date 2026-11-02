@@ -3,7 +3,7 @@
    public descriptor issuance, entry admission, or legacy behavior changes."
   (:require [ansatz.lean.jvm.type-graph :as graph]
             [clojure.data.json :as json])
-  (:import [java.math BigInteger] [clojure.lang BigInt]))
+  (:import [java.math BigInteger]))
 
 (def ^:private lanes #{"object" "tobject" "tagged" "uint8" "uint16" "uint32" "uint64" "usize" "float" "float32"})
 (def ^:private scalar-width {"uint8" 1 "uint16" 2 "uint32" 4 "uint64" 8 "usize" 8 "float" 8 "float32" 4})
@@ -23,8 +23,8 @@
   (let [type (class value)]
     (cond
       (#{Byte Short Integer Long} type) (need (not (neg? (long value))) :metadata-integer)
-      (or (= BigInteger type) (= BigInt type))
-      (let [n (if (= BigInt type) (.toBigInteger ^BigInt value) value)]
+      (or (= BigInteger type) (= clojure.lang.BigInt type))
+      (let [n (if (= clojure.lang.BigInt type) (.toBigInteger ^clojure.lang.BigInt value) value)]
         (need (= BigInteger (class n)) :metadata-integer)
         (need (and (not (neg? (.signum ^BigInteger n))) (<= (.bitLength ^BigInteger n) 64)) :metadata-integer))
       :else (fail :metadata-integer))))
