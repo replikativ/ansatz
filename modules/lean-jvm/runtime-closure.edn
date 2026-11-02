@@ -34,7 +34,10 @@
               {:path "ansatz/lean/jvm/internal/exec/Interpreter.java" :class "ansatz.lean.jvm.internal.exec.Interpreter" :sha256 "6b25867f64adb75ff18f0b722db1167019c48557361d97b1e4ad7ed73aadc263"}
                {:path "ansatz/lean/jvm/internal/exec/ScalarBits.java" :class "ansatz.lean.jvm.internal.exec.ScalarBits" :sha256 "f7f105354cb7c66c3aa1834254113738ed52d14a47fe92308d1dd4e9db5f6fe9"}
                {:path "ansatz/lean/jvm/internal/exec/Utf8Bytes.java" :class "ansatz.lean.jvm.internal.exec.Utf8Bytes" :sha256 "74eb7745542b95b40ad166517fd79bf60500363792f771a34a2bd4c52a64fb18"}]
- :java-api [{:path "ansatz/lean/jvm/FileAccess.java" :class "ansatz.lean.jvm.FileAccess" :sha256 "8677eb2d31f854f32991e06460e045681bd4310f9141d2383bafdccd684677d6"}
+ :java-api [
+              {:path "ansatz/lean/jvm/LeanName.java" :class "ansatz.lean.jvm.LeanName" :sha256 "71cb4ea3e027d3504f39fa3cb538d17876f61fce7798afd558d288e3ba573af3"}
+              {:path "ansatz/lean/jvm/LeanTypeId.java" :class "ansatz.lean.jvm.LeanTypeId" :sha256 "f90153d5253c18ff2f59ebe73fe54f1dfd9299189e3cdb061993348a44f0587f"}
+              {:path "ansatz/lean/jvm/FileAccess.java" :class "ansatz.lean.jvm.FileAccess" :sha256 "8677eb2d31f854f32991e06460e045681bd4310f9141d2383bafdccd684677d6"}
               {:path "ansatz/lean/jvm/ReadOnlyFiles.java" :class "ansatz.lean.jvm.ReadOnlyFiles" :sha256 "0c6ab7b314a9c8e81957c3dcd20eec8c33df1bb59caaf635b23195a5f44ed8b7"}
               {:path "ansatz/lean/jvm/HostServices.java" :class "ansatz.lean.jvm.HostServices" :sha256 "836c810c497f4433c43eea04071fb608de1de480189af3782a8d30dd458cde5b"}
               {:path "ansatz/lean/jvm/InvocationOptions.java" :class "ansatz.lean.jvm.InvocationOptions" :sha256 "6768bc8fa299c1e0a628156346bea1a1942ac62caac1a90806621f09753cf9b6"}

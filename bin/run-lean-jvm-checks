@@ -67,6 +67,7 @@ java -Xmx384m -cp target/ci-resource-checks:target/ansatz-lean-jvm.jar RuntimeRe
 echo "Checking managed argument ownership and scalar/buffer semantics"
 javac -J-Xmx192m --release 17 -cp target/ansatz-lean-jvm.jar -d target/ci-resource-checks \
   test-java/ManagedDataChecks.java \
+  test-java/DatatypeIdentityChecks.java \
   test-java/FrozenStorageChecks.java \
   test-java/SharingTraceChecks.java \
   test-java/StringSearchChecks.java \
@@ -78,6 +79,7 @@ javac -J-Xmx192m --release 17 -cp target/ansatz-lean-jvm.jar -d target/ci-resour
   test-java/ManagedScalarBufferChecks.java \
   test-java/ansatz/lean/jvm/internal/exec/ScalarBitsChecks.java
 java -Xmx192m -cp target/ci-resource-checks:target/ansatz-lean-jvm.jar ManagedDataChecks
+java -Xmx128m -cp target/ci-resource-checks:target/ansatz-lean-jvm.jar DatatypeIdentityChecks
 java -Xmx128m -cp target/ci-resource-checks:target/ansatz-lean-jvm.jar FrozenStorageChecks
 java -Xmx192m -cp target/ci-resource-checks:target/ansatz-lean-jvm.jar SharingTraceChecks
 java -Xmx192m -cp target/ci-resource-checks:target/ansatz-lean-jvm.jar StringSearchChecks
