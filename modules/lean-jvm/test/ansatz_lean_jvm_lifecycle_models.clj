@@ -63,6 +63,60 @@
                  (let [receipt (startup/abandon! token)]
                    (is (true? (:prior-coordinator-close-attempted? receipt)))
                    (is (false? (:abandonment-invoked-engine-close receipt))))))))
+(defn- captured-defaults [channels]
+  (let [ctx (j/prepare-host-program *basis* [] []) engine (j/machine ctx)
+        method (.getDeclaredMethod (class engine) "defaultStream" (into-array Class [Integer/TYPE]))]
+    (.setAccessible method true)
+    {:ctx ctx :engine engine
+     :roots (mapv #(.invoke method engine (object-array [(int %)])) channels)
+     :prepared {:ctx ctx :headers {} :requirements (caps/check-rows! *basis* [])}}))
+(deftest certified-captured-stdio-failure-drops-private-roots-without-rc
+  ;; Real canonical engine roots; only the coordinator registry is a model.
+  ;; Public Project failure/close acceptance separately checks quarantine.
+  (doseq [channels [[0] [2] [0 2]]]
+    (let [{:keys [engine roots prepared]} (captured-defaults channels)
+          field (ns-resolve 'ansatz.lean.jvm.startup 'engine-field)
+          slot (object-array [(Object.)])]
+      (model-run {:status :host-failed :prepared prepared :engine engine :error-slot slot}
+                 (fn [token cell]
+                   (with-redefs [j/release! (fn [& _] (throw (ex-info "Must not DEC" {})))
+                                 j/close! (fn [& _] (throw (ex-info "Must not close" {})))]
+                     (let [receipt (startup/abandon! token)]
+                       (is (= :host-failed (:prior-status receipt)))
+                       (is (false? (:guest-rc-unwound receipt)))
+                       (is (false? (:native-resource-finalization receipt)))
+                       (is (false? (:abandonment-invoked-engine-close receipt)))))
+                   (is (= :abandoned (:status @cell)))
+                   (is (= #{:status :lock :abandonment} (set (keys @cell))))
+                   (is (nil? (aget slot 0)))
+                   (is (false? (field engine "closed")))
+                   (doseq [root roots] (is (= 1 (field root "rc")))))))))
+(deftest captured-default-roots-do-not-certify-other-stdio-or-external-protocols
+  (let [{:keys [engine prepared]} (captured-defaults [0 2])
+        field-var (ns-resolve 'ansatz.lean.jvm.startup 'engine-field)
+        field @field-var]
+    (doseq [blocked ["stdioContext" "taskRuntime" "hostRequest" "failedHostRequest"
+                     "hostCompletion" "hostGuestRecord" "codeRequest" "failedCodeRequest"
+                     "currentTask" "profilingPolicy" "hostGuestPolicy" "exprInstantiationPolicy"
+                     "exprTransformPolicy" "shareCommonLayout" "levelInstantiationPolicy" "pointerHashPolicy"]]
+      (let [owner (Object.) slot (object-array [owner])]
+        (model-run {:status :host-failed :prepared prepared :engine engine :error-slot slot}
+                   (fn [token cell]
+                     ;; Fault injection changes only the observed forbidden
+                     ;; protocol field; issued Program/capability checks run.
+                     (with-redefs-fn {field-var (fn [object name]
+                                                 (if (and (identical? object engine) (= blocked name))
+                                                   owner (field object name)))}
+                       #(is (thrown? Exception (startup/abandon! token))))
+                     (is (= :host-failed (:status @cell)))
+                     (is (identical? engine (:engine @cell)))
+                     (is (identical? owner (aget slot 0)))))))
+    (model-run {:status :host-failed :engine engine
+                :prepared (assoc-in prepared [:requirements :dynamic-io-profile]
+                                    :captured-stdout-write-flush-tty)}
+               (fn [token cell]
+                 (is (thrown-with-msg? Exception #"issued bounded stdio profile" (startup/abandon! token)))
+                 (is (= :host-failed (:status @cell)))))))
 (deftest prepared-world-retains-code-not-raw-producer-observations
   (let [marker (Object.) publish (ns-resolve 'ansatz.lean.jvm.startup 'publish-prepared!)
         registry @(ns-resolve 'ansatz.lean.jvm.startup 'prepared-registry)

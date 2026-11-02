@@ -106,6 +106,10 @@ and byte/line behavior with official native Lean, and checks artifact admission.
 The local acceptance run passes 60 checks across 15 native cases. The
 [application-JAR consumer](consumer/StdIOSmoke.java) separately exercises the
 public Java and Clojure APIs with the prepared artifact and no native frontend.
+It includes terminal failures after creating stdin or stderr roots: closing those
+Projects drops the certified heap-only branch without RC unwinding or native
+resource finalization. Custom streams and external protocol state still refuse
+that abandonment path.
 Run it from the module with the built SDK plus ordinary dependencies:
 
 ```sh

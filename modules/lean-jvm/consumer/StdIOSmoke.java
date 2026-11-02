@@ -15,6 +15,18 @@ public final class StdIOSmoke {
     private static Object field(IPersistentMap result, String key) { return result.valAt(Keyword.intern(key)); }
     private static IOResult<?> io(Object value) { return (IOResult<?>) value; }
     private static void bytes(byte[] actual, byte[] expected) { check(Arrays.equals(actual, expected)); }
+    private static void failedStreamBranch(Lean runtime, boolean stderr) throws Exception {
+        try (LeanProject failed = runtime.loadArtifact(StdIOSmoke.class.getClassLoader(), "lean/stdio.zip", MANIFEST)) {
+            try {
+                if (stderr) failed.callWith("errorMessage", InvocationOptions.empty().withOutputLimits(0, 5));
+                else failed.call("readBytes", 16L * 1024 * 1024 + 1);
+                throw new AssertionError("Expected stream resource refusal");
+            } catch (LeanException expected) {
+                check(expected.code().equals("ResourceLimit"));
+            }
+        }
+        checks++; // close must retire the failed pure-heap branch without quarantine
+    }
     public static void main(String[] args) throws Exception {
         LeanFunction retained;
         try (Lean runtime = Lean.open();
@@ -75,6 +87,8 @@ public final class StdIOSmoke {
             IPersistentMap ordinary = (IPersistentMap) Clojure.var("ansatz.lean.jvm", "call").invoke(project, "message");
             check(ordinary.count() == 3 && field(ordinary, "stdout").equals("hello\n"));
             check(Clojure.var("clojure.core", "find-ns").invoke(Clojure.read("ansatz.lean.jvm.compiler.transport")) == null);
+            failedStreamBranch(runtime, false);
+            failedStreamBranch(runtime, true);
         }
         try { retained.invokeWith(InvocationOptions.empty(), 1L); throw new AssertionError("closed handle"); }
         catch (IllegalStateException expected) { check(expected.getMessage().contains("closed")); }
