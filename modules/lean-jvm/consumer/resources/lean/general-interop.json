@@ -1,0 +1,8 @@
+{
+  "schema": "ansatz-lean-jvm-example/2",
+  "artifact": "lean/general-interop.zip",
+  "manifestSHA256": "be9bd183156ae082eb532a0bc8cb4eff19949813476e17985a6d48420c98f1aa",
+  "archiveSHA256": "86bc5c643a3318b808f2e9a175de8fa3bd84826eec7aa74fbb0a6f012f950bc5",
+  "source": "general-interop-source",
+  "scope": "Actual source-built Init+two-local-modules, 16 discovered application entries; not a kernel-checked store."
+}

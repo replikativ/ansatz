@@ -1,5 +1,10 @@
 # Explicit native producer bundle
 
+The maintained native helper sources live in
+[tools/lean-producer](../../../tools/lean-producer/README.md). This directory owns
+bundle descriptors and release/packaging records; it is not a second helper
+source tree. Descriptor source paths refer to the extracted bundle's layout.
+
 Precompiled artifact execution needs only the optional SDK and its ordinary
 Maven dependencies. Trusted source compilation additionally needs an explicit
 official Lean installation, writable compiler cache, Linux `prlimit`, and an
@@ -21,6 +26,34 @@ checkout, Python or Clojure CLI is a runtime dependency of precompiled artifact
 loading. The source service invokes these three native helpers itself; Java
 callers do not run a separate exporter command. The retired fixed tutorial
 exporter is not required by the canonical source service.
+
+## General-call v2 candidate
+
+General signature discovery (`ProjectOptions.Builder.function`) requires the v2
+entry helper. Its [candidate descriptor](producer-bundle-v2.example.json) also
+pins a diagnostics-aware typed source helper: warnings and informational frontend
+messages remain on stderr, while stdout is structural JSON. Compiler errors still
+fail. Diagnostics bytes remain bounded, hashed and included in cache/artifact
+provenance; they are not ignored or parsed as declarations.
+
+The current candidate admits up to 1,024 explicitly selected host functions,
+subject to the separate request-byte and IR/artifact budgets. Previous helper
+cohorts retain their 16-entry preparation limit; previously prepared artifacts
+remain loadable. Function arity has a separate bound of 64 arguments.
+
+The maintained sources are
+[NativeGeneralEntryEvidence.lean](../../../tools/lean-producer/src/NativeGeneralEntryEvidence.lean),
+[NativeStartupEvidence.lean](../../../tools/lean-producer/src/NativeStartupEvidence.lean)
+and [TypedSourceExport.lean](../../../tools/lean-producer/src/TypedSourceExport.lean).
+The [frozen v1 entry source](../../../tools/lean-producer/legacy/NativeEntryEvidence.lean)
+remains compatibility evidence. Moving these files does not change admitted
+source/binary pairs; rebuilding or editing a helper requires cohort admission.
+
+The v2 archive is prepared locally for the [release checks](../RELEASE_CHECKLIST.md)
+and is **not published yet**. Do not use the v1 download below for general signature
+discovery. The v1 bundle and explicit legacy `natFunction`, `stringFunction`, and
+`main` requests remain supported. A producer binary is admitted with its exact
+source/binary pair; mixing independently valid hashes is rejected.
 
 ## Published Linux bundle
 

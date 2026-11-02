@@ -70,7 +70,8 @@
         (need (= version (:artifact-version metadata)) "JAR metadata release version differs")
         (need (and (= "ansatz-lean-jvm-runtime/1" (:schema metadata))
                    (= 17 (:java-release metadata))
-                   (re-matches #"[0-9a-f]{64}" (or (:engine-source-sha256 metadata) "")))
+                   (re-matches #"[0-9a-f]{64}" (or (:engine-source-sha256 metadata) ""))
+                   (re-matches #"[0-9a-f]{64}" (or (:engine-closure-sha256 metadata) "")))
               "Missing supported runtime cohort metadata")
         {:schema "ansatz-lean-jvm-release/1" :coordinate coordinate :version version
          :jar jar :pom pom :runtime metadata

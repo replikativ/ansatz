@@ -149,7 +149,8 @@
                  (= (.size after) (alength bytes))) "Capture changed while reading") bytes)))
 (defn- compact-entry [entry]
   (let [digest #(sha (.getBytes (json/write-str %) "UTF-8"))]
-    (assoc (select-keys entry ["name" "kind" "compiledModule" "levelParams" "selection" "raw" "callable"])
+    (assoc (select-keys entry ["name" "kind" "compiledModule" "levelParams" "selection" "raw" "callable"
+                               "semanticArity" "runtimeArity" "argumentPlan" "resultABI" "codecWitnesses" "nativeRepresentation"])
            "typeCheck" (select-keys (get entry "typeCheck") ["signature" "algorithm" "transparency"])
            "nativeEvidence" {"normalizedObservationSHA256" (digest entry)
                              "actualTypeSHA256" (digest (get entry "actualType"))

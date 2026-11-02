@@ -1,28 +1,46 @@
-{:schema "ansatz-lean-jvm-source-closure/1"
- :sources [{:path "ansatz/lean/jvm/artifact.clj" :namespace ansatz.lean.jvm.artifact}
+{:schema "ansatz-lean-jvm-source-closure/2"
+ :sources [{:path "ansatz/lean/jvm.clj" :namespace ansatz.lean.jvm}
+           {:path "ansatz/lean/jvm/argument.clj" :namespace ansatz.lean.jvm.argument}
+           {:path "ansatz/lean/jvm/artifact.clj" :namespace ansatz.lean.jvm.artifact}
            {:path "ansatz/lean/jvm/capabilities.clj" :namespace ansatz.lean.jvm.capabilities}
+           {:path "ansatz/lean/jvm/codec.clj" :namespace ansatz.lean.jvm.codec}
            {:path "ansatz/lean/jvm/compiler/bundle.clj" :namespace ansatz.lean.jvm.compiler.bundle}
            {:path "ansatz/lean/jvm/compiler/encoding.clj" :namespace ansatz.lean.jvm.compiler.encoding}
            {:path "ansatz/lean/jvm/compiler/evidence.clj" :namespace ansatz.lean.jvm.compiler.evidence}
            {:path "ansatz/lean/jvm/compiler/local.clj" :namespace ansatz.lean.jvm.compiler.local}
            {:path "ansatz/lean/jvm/compiler/transport.clj" :namespace ansatz.lean.jvm.compiler.transport}
+           {:path "ansatz/lean/jvm/entry.clj" :namespace ansatz.lean.jvm.entry}
            {:path "ansatz/lean/jvm/ir.clj" :namespace ansatz.lean.jvm.ir}
            {:path "ansatz/lean/jvm/original.clj" :namespace ansatz.lean.jvm.original}
+           {:path "ansatz/lean/jvm/preparation.clj" :namespace ansatz.lean.jvm.preparation}
            {:path "ansatz/lean/jvm/project.clj" :namespace ansatz.lean.jvm.project}
            {:path "ansatz/lean/jvm/publisher.clj" :namespace ansatz.lean.jvm.publisher}
-           {:path "ansatz/lean/jvm/startup.clj" :namespace ansatz.lean.jvm.startup}]
+           {:path "ansatz/lean/jvm/signature.clj" :namespace ansatz.lean.jvm.signature}
+           {:path "ansatz/lean/jvm/construction.clj" :namespace ansatz.lean.jvm.construction}
+           {:path "ansatz/lean/jvm/producer.clj" :namespace ansatz.lean.jvm.producer}
+           {:path "ansatz/lean/jvm/scalar_buffer.clj" :namespace ansatz.lean.jvm.scalar-buffer}
+           {:path "ansatz/lean/jvm/startup.clj" :namespace ansatz.lean.jvm.startup}
+           {:path "ansatz/lean/jvm/value.clj" :namespace ansatz.lean.jvm.value}]
  :resources ["META-INF/ansatz-lean-jvm/runtime.edn"
              "META-INF/ansatz-lean-jvm/user-error.json"
              "META-INF/ansatz-lean-jvm/NOTICE"]
- :java {:path "../../experiments/lean-ir/research/java-ir-baseline/src/ansatz/research/ir/Interpreter.java"
-        :class "ansatz.research.ir.Interpreter"
-        :sha256 "70f6a6fc937be9604e887bdd85ff12bd9d9ce4218387f8cf4a122f26018ead29"}
- :java-api [{:path "ansatz/lean/jvm/Bridge.java" :class "ansatz.lean.jvm.Bridge" :sha256 "0acbd07111a8b1a1a82ae454a2265ed9952624f24154a23ea03cd01b0e49d1b0"}
+ :engine-class "ansatz.lean.jvm.internal.exec.Interpreter"
+ :engine-closure-sha256 "d1715b00bfdc2b652690c93de411f35b73d88e8ab61c4458bdf8f93c31f07d8d"
+ :java-engine [{:path "ansatz/lean/jvm/internal/exec/Interpreter.java" :class "ansatz.lean.jvm.internal.exec.Interpreter" :sha256 "f4357926d99aec8c768bd0ccd6c658c5cad9383cd4a69e9aeb6622dc4367adf2"}
+               {:path "ansatz/lean/jvm/internal/exec/ScalarBits.java" :class "ansatz.lean.jvm.internal.exec.ScalarBits" :sha256 "f7f105354cb7c66c3aa1834254113738ed52d14a47fe92308d1dd4e9db5f6fe9"}
+               {:path "ansatz/lean/jvm/internal/exec/Utf8Bytes.java" :class "ansatz.lean.jvm.internal.exec.Utf8Bytes" :sha256 "74eb7745542b95b40ad166517fd79bf60500363792f771a34a2bd4c52a64fb18"}]
+ :java-api [{:path "ansatz/lean/jvm/PreparedArtifact.java" :class "ansatz.lean.jvm.PreparedArtifact" :sha256 "b8de90b114b1cb7ee42cc4f538a157b388af7a35ed75fed4f96f5cd8a3052f06"}
+            {:path "ansatz/lean/jvm/LeanPreparation.java" :class "ansatz.lean.jvm.LeanPreparation" :sha256 "bdf8b3ad9535a6b1ef5796ccce4cbfa1997237c97b2d0789311c2ab5d40f569e"}
+            {:path "ansatz/lean/jvm/LeanChoice.java" :class "ansatz.lean.jvm.LeanChoice" :sha256 "ce51cc7e5a8b82309945d3c20e44e84ad12fd3d40408b4651f563ce6ed1a0b14"}
+            {:path "ansatz/lean/jvm/IOResult.java" :class "ansatz.lean.jvm.IOResult" :sha256 "183799c7ec50c25fde8a28c838715241f23e0f776904d6ff895e46e455ea7dc5"}
+            {:path "ansatz/lean/jvm/LeanUnit.java" :class "ansatz.lean.jvm.LeanUnit" :sha256 "f1d0c8703511f24c98af395caf9786bd9667ae0dace912003c5cf8377d0f550d"}
+            {:path "ansatz/lean/jvm/Bridge.java" :class "ansatz.lean.jvm.Bridge" :sha256 "b6a981125fe408f298d7d54b8fa1960da822cba26186ff4988deaf9ffa391db5"}
+            {:path "ansatz/lean/jvm/LeanFunction.java" :class "ansatz.lean.jvm.LeanFunction" :sha256 "2c38a12d0b2da42e3a1948df9a49d255f13c7afa678f2be424a724ad1ab3035e"}
             {:path "ansatz/lean/jvm/Lean.java" :class "ansatz.lean.jvm.Lean" :sha256 "5dfd42d509fd029ab5a4e222cae512ebaea79b32cb03a6246c4e0f3d8bd3c57f"}
             {:path "ansatz/lean/jvm/LeanException.java" :class "ansatz.lean.jvm.LeanException" :sha256 "04f42ebdbd5c761b8ab2d04ed1f3a5f21f3df8f4a7f6aab21079799e79e24117"}
-            {:path "ansatz/lean/jvm/LeanProject.java" :class "ansatz.lean.jvm.LeanProject" :sha256 "db2649b6d771453ecc5c5eb20ac41c818494c5e50ecc099d73459b0e31624701"}
+            {:path "ansatz/lean/jvm/LeanProject.java" :class "ansatz.lean.jvm.LeanProject" :sha256 "52d634843f224b6e898305709ad298d4ba747b7c4a95a238a0fea08b7218c94a"}
             {:path "ansatz/lean/jvm/MainResult.java" :class "ansatz.lean.jvm.MainResult" :sha256 "e82cc335d2b483291d2f1d7bf80420411d62a37d32f50819ea82b92fdc1510c6"}
             {:path "ansatz/lean/jvm/NativeCompilerOptions.java" :class "ansatz.lean.jvm.NativeCompilerOptions" :sha256 "51b8c9d38dfde1568b09aa85083be4a2347768bdf5ad4ad2e5d0852067c5d54f"}
-            {:path "ansatz/lean/jvm/ProjectOptions.java" :class "ansatz.lean.jvm.ProjectOptions" :sha256 "1cb4f36a6c920fae1feb9432830f167431c5e29e8f096aaf39e4c4033f05b81e"}]
+            {:path "ansatz/lean/jvm/ProjectOptions.java" :class "ansatz.lean.jvm.ProjectOptions" :sha256 "c39d3d228d3fd413d4e849307fe762d463474bb9d9cfe159d89b559b7fb4d592"}]
  :runtime-dependencies {org.clojure/clojure {:mvn/version "1.12.0"}
                         org.clojure/data.json {:mvn/version "2.5.1"}}}

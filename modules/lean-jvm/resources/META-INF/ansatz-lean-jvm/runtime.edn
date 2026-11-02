@@ -1,8 +1,9 @@
 {:schema "ansatz-lean-jvm-runtime/1"
  :status :experimental-bounded-profile
  :adapter-namespace ansatz.lean.jvm.ir
- :engine-class "ansatz.research.ir.Interpreter"
- :engine-source-sha256 "70f6a6fc937be9604e887bdd85ff12bd9d9ce4218387f8cf4a122f26018ead29"
+ :engine-class "ansatz.lean.jvm.internal.exec.Interpreter"
+ :engine-source-sha256 "f4357926d99aec8c768bd0ccd6c658c5cad9383cd4a69e9aeb6622dc4367adf2"
+ :engine-closure-sha256 "d1715b00bfdc2b652690c93de411f35b73d88e8ab61c4458bdf8f93c31f07d8d"
  :upstream-lean-commit "819816b2e0a3bf405af45ae5c7af2491d8f5bee6"
  :java-release 17
  :precompiled-engine true
