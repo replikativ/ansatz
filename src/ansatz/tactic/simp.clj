@@ -1922,16 +1922,16 @@
                     (let [r (if (and (e/const? x) (= dite (e/const-name x)))
                               (let [^ConstantInfo ci (env/lookup! env dite)]
                                 (e/instantiate-level-params (.value ci)
-                                  (zipmap (vec (.levelParams ci)) (e/const-levels x))))
+                                                            (zipmap (vec (.levelParams ci)) (e/const-levels x))))
                               (case (e/tag x)
                                 :app (let [[h args] (e/get-app-fn-args x)]
                                        (apply e/app* (visit h) (map visit args)))
                                 :lam (e/lam (e/lam-name x) (visit (e/lam-type x))
                                             (visit (e/lam-body x)) (e/lam-info x))
                                 :forall (e/forall' (e/forall-name x) (visit (e/forall-type x))
-                                                  (visit (e/forall-body x)) (e/forall-info x))
+                                                   (visit (e/forall-body x)) (e/forall-info x))
                                 :let (e/let' (e/let-name x) (visit (e/let-type x))
-                                              (visit (e/let-value x)) (visit (e/let-body x)))
+                                             (visit (e/let-value x)) (visit (e/let-body x)))
                                 :mdata (e/mdata (e/mdata-data x) (visit (e/mdata-expr x)))
                                 :proj (e/proj (e/proj-type-name x) (e/proj-idx x) (visit (e/proj-struct x)))
                                 x))
@@ -1961,10 +1961,10 @@
             (let [base (inc (max-fvar-id (:lctx st) expr))
                   ^ConstantInfo ci (env/lookup! env (e/const-name head))
                   value (e/instantiate-level-params (.value ci)
-                            (zipmap (vec (.levelParams ci)) (e/const-levels head)))
+                                                    (zipmap (vec (.levelParams ci)) (e/const-levels head)))
                   value (unfold-nested-dite env value)
                   probe (apply e/app* value (into (subvec args 0 prefix)
-                                                 (map #(e/fvar (+ base %)) (range nalts))))
+                                                  (map #(e/fvar (+ base %)) (range nalts))))
                   reduced (red/whnf env probe (:lctx st)
                                     {:can-unfold? #(can-unfold-at-matcher? env %)})
                   [rhead rargs] (when reduced (e/get-app-fn-args reduced))]
@@ -2796,7 +2796,7 @@
                     xid (swap! (:next-id st) inc)
                     xf (e/fvar xid)
                     st' (update st :lctx assoc xid {:tag :local :id xid
-                                                   :name (str (e/forall-name expr)) :type domain})
+                                                    :name (str (e/forall-name expr)) :type domain})
                     body (e/instantiate1 orig-q xf)
                     body' (unfold-dsimp st' env lemma-index body (assoc config :cache (atom {})))]
                 (mk-result (e/forall' (e/forall-name expr) domain (e/abstract1 body' xid)
@@ -2831,7 +2831,7 @@
                    r (mk-congr st rf rv f v)
                    f' (:expr rf)]
                (assoc r :expr (e/let' (e/let-name expr) (e/lam-type f')
-                                            (:expr rv) (e/lam-body f'))))
+                                      (:expr rv) (e/lam-body f'))))
              (let [expanded (e/instantiate1 (e/let-body expr) (e/let-value expr))]
                (simp-expr* st env lemma-index expanded config)))
 
@@ -2986,7 +2986,7 @@
   (let [lemmas (make-simp-lemmas env [theorem])
         index (build-lemma-index st env lemmas)]
     (simp-expr* st env index expr {:unfold-theorem theorem :cache (atom {})
-                                  :max-depth 20 :to-unfold #{} :discharge-depth 0})))
+                                   :max-depth 20 :to-unfold #{} :discharge-depth 0})))
 
 ;; Public wrapper
 (defn simp-expr

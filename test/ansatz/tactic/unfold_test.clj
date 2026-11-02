@@ -37,21 +37,21 @@
   (eval '(a/defn unfold-wrap [s :- UnfoldSt] Bool (unfold-hcov (:hs s) (:es s))))
   (testing "after unfolding the wrapper the callee is still syntactically present: rw finds it"
     (is (true? (proves? '(a/theorem unfold-wrap-of-hcov
-                           [f :- (=> UnfoldSt UnfoldSt), s :- UnfoldSt,
-                            h :- (= Bool (unfold-hcov (:hs (f s)) (:es (f s))) true)]
-                           (= Bool (unfold-wrap (f s)) true)
-                           (unfold unfold-wrap) (rw [h]))))))
+                                    [f :- (=> UnfoldSt UnfoldSt), s :- UnfoldSt,
+                                     h :- (= Bool (unfold-hcov (:hs (f s)) (:es (f s))) true)]
+                                    (= Bool (unfold-wrap (f s)) true)
+                                    (unfold unfold-wrap) (rw [h]))))))
   (testing "exact with the folded callee's type closes the unfolded goal"
     (is (true? (proves? '(a/theorem unfold-wrap-exact [xs :- (List Nat), ys :- (List Nat),
                                                        h :- (= Bool (unfold-hcov xs ys) true)]
-                           (= Bool (unfold-wrap (UnfoldSt.mk xs ys)) true)
-                           (unfold unfold-wrap) (exact h)))))))
+                                    (= Bool (unfold-wrap (UnfoldSt.mk xs ys)) true)
+                                    (unfold unfold-wrap) (exact h)))))))
 
 (deftest unfold-reaches-occurrences-under-binders
   (eval '(a/defn unfold-twice [n :- Nat] Nat (+ n n)))
   (is (true? (proves? '(a/theorem unfold-twice-forall []
-                         (forall [n :- Nat] (= Nat (unfold-twice n) (+ n n)))
-                         (unfold unfold-twice) (intro n) (rfl))))))
+                                  (forall [n :- Nat] (= Nat (unfold-twice n) (+ n n)))
+                                  (unfold unfold-twice) (intro n) (rfl))))))
 
 (deftest unfold-without-occurrence-fails
   (eval '(a/defn unfold-twice2 [n :- Nat] Nat (+ n n)))
@@ -65,12 +65,12 @@
   (is (rec-ext/is-recursive-definition (a/env) (name/from-string "unfold-rec")))
   (let [true-expr (c "Bool.true")
         eq #(e/app* (e/const' (name/from-string "Eq") [(lvl/succ lvl/zero)])
-                     (c "Bool") % true-expr)
+                    (c "Bool") % true-expr)
         nil-expr (e/app (e/const' (name/from-string "List.nil") [lvl/zero]) (c "Nat"))]
     (is (= (eq true-expr)
            (:type (unfolded (a/env) (eq (e/app (c "unfold-rec") nil-expr)) "unfold-rec")))))
   (is (true? (proves? '(a/theorem unfold-rec-nil [] (= Bool (unfold-rec (List.nil Nat)) true)
-                         (unfold unfold-rec) (rfl))))))
+                                  (unfold unfold-rec) (rfl))))))
 
 (deftest dsimp-reduces-matcher-with-field-alternatives
   ;; Lean dsimp reduces a matcher on a constructor discriminant (Meta.reduceMatcher?) for
@@ -84,10 +84,10 @@
            (match (unfold-amount x) [none (UnfoldOut.stuck 0)]
                   [(some n) (match s [(mk w l) (unfold-spendH s n)])])))
   (is (true? (proves? '(a/theorem unfold-spendN-nv [s :- UnfoldStore, x :- Nat]
-                         (Not (= UnfoldOut (unfold-spendN s x) UnfoldOut.val))
-                         (cases s) (unfold unfold-spendN) (cases qa (unfold-amount x))
-                         (all_goals (dsimp only))
-                         (intro h) (cases h) (intro h) (cases h))))))
+                                  (Not (= UnfoldOut (unfold-spendN s x) UnfoldOut.val))
+                                  (cases s) (unfold unfold-spendN) (cases qa (unfold-amount x))
+                                  (all_goals (dsimp only))
+                                  (intro h) (cases h) (intro h) (cases h))))))
 
 (defn- nat-eq [x y]
   (e/app* (e/const' (name/from-string "Eq") [(lvl/succ lvl/zero)]) (c "Nat") x y))
@@ -137,7 +137,7 @@
           val (reduce (fn [b _] (e/lam "x" nat b :default)) v (range 140))
           en (env/check-constant en (env/mk-def many [] ty val))]
       (is (= (nat-eq v v) (:type (unfolded en (nat-eq (reduce e/app (e/const' many [])
-                                                   (repeat 140 (e/lit-nat 0))) v) "deltaMany")))))))
+                                                              (repeat 140 (e/lit-nat 0))) v) "deltaMany")))))))
 
 (deftest delta-instantiates-universes-and-guards-depth
   (let [u (name/from-string "u") f (name/from-string "deltaUniverse")
@@ -147,8 +147,8 @@
            (:type (unfolded en (e/const' f [(lvl/succ lvl/zero)]) "deltaUniverse"))))
     (binding [basic/*delta-max-rec-depth* 8]
       (is (thrown-with-msg? clojure.lang.ExceptionInfo #"maximum recursion depth"
-            (unfolded en (reduce (fn [b _] (e/forall' "x" (c "Nat") b :default))
-                                 (e/const' f [lvl/zero]) (range 20)) "deltaUniverse"))))))
+                            (unfolded en (reduce (fn [b _] (e/forall' "x" (c "Nat") b :default))
+                                                 (e/const' f [lvl/zero]) (range 20)) "deltaUniverse"))))))
 
 (deftest existing-unfold-equation-transports-proof
   ;; An axiom equation makes the rewrite non-definitional: dropping the equality
@@ -193,7 +193,7 @@
   (let [en (a/env)
         expand (fn [n arg]
                  (#'basic/delta-expand (e/app (c n) arg) (name/from-string n)
-                                      (env/lookup! en (name/from-string n))))
+                                       (env/lookup! en (name/from-string n))))
         field (e/fvar 41)
         st (tc/attach-lctx (tc/mk-tc-state en) {41 {:name "field" :type (c "Nat")}})
         expr (expand "matcher-field" (e/app* (c "Option.some") (c "Nat") field))]
@@ -207,7 +207,6 @@
           st (tc/attach-lctx (tc/mk-tc-state en) lctx)]
       (is (= (e/lit-nat 13)
              (:expr (#'simp/try-reduce-matcher st (expand "matcher-bool" (c "Bool.false")))))))))
-
 
 (deftest unfold-equations-on-type-valued-arrows
   (let [type0 (e/sort' (lvl/succ lvl/zero))
@@ -250,28 +249,28 @@
         motive-type (e/arrow bool (e/sort' (lvl/succ lvl/zero)))
         ty (e/arrow motive-type (e/arrow bool (e/arrow unitnat (e/arrow unitnat nat))))
         body (e/app* (e/const' (name/from-string "Bool.rec") [(lvl/succ lvl/zero)])
-                      (e/lam "b" bool nat :default)
-                      (e/app (e/bvar 1) (c "Unit.unit"))
-                      (e/app (e/bvar 0) (c "Unit.unit")) (e/bvar 2))
+                     (e/lam "b" bool nat :default)
+                     (e/app (e/bvar 1) (c "Unit.unit"))
+                     (e/app (e/bvar 0) (c "Unit.unit")) (e/bvar 2))
         value (e/lam "motive" motive-type
-                      (e/lam "b" bool (e/lam "f" unitnat (e/lam "t" unitnat body :default) :default)
-                             :default) :default)
+                     (e/lam "b" bool (e/lam "f" unitnat (e/lam "t" unitnat body :default) :default)
+                            :default) :default)
         decide (e/app* (c "Decidable.isTrue") (c "True") (c "True.intro"))
         dite (fn [type level yes no]
                (e/app* (e/const' (name/from-string "dite") [level]) type (c "True") decide
-                        (e/lam "h" (c "True") yes :default)
-                        (e/lam "h" (e/app (c "Not") (c "True")) no :default)))
+                       (e/lam "h" (c "True") yes :default)
+                       (e/lam "h" (e/app (c "Not") (c "True")) no :default)))
         level (e/sort-level (tc/infer-type (tc/mk-tc-state (a/env)) ty))
         value (dite ty level value value)
         n (name/from-string "nestedDiteMatcher")
         en (-> (a/env)
                (env/check-constant (env/mk-def n [] ty value))
                (matcher-info/add-matcher-info "nestedDiteMatcher"
-                 {:num-params 0 :num-discrs 1 :alts [{:unit-thunk true} {:unit-thunk true}]}))
+                                              {:num-params 0 :num-discrs 1 :alts [{:unit-thunk true} {:unit-thunk true}]}))
         expr (fn [discr]
                (e/app* (e/const' n []) (e/lam "b" bool nat :default) discr
-                        (e/lam "u" unit (e/lit-nat 13) :default)
-                        (e/lam "u" unit (e/lit-nat 21) :default)))
+                       (e/lam "u" unit (e/lit-nat 13) :default)
+                       (e/lam "u" unit (e/lit-nat 21) :default)))
         st (tc/mk-tc-state en)
         app (expr (c "Bool.false"))]
     (is (= nat (tc/infer-type st app)))
@@ -280,16 +279,16 @@
     (is (nil? (with-redefs-fn {#'simp/unfold-nested-dite (fn [_ value] value)}
                 #(#'simp/try-reduce-matcher st app))))
     (is (nil? (#'simp/try-reduce-matcher st
-                (expr (dite bool (lvl/succ lvl/zero) (c "Bool.false") (c "Bool.true"))))))))
+                                         (expr (dite bool (lvl/succ lvl/zero) (c "Bool.false") (c "Bool.true"))))))))
 
 (deftest bundled-literal-matcher-reduces-nested-dite
   (let [nat (c "Nat") unit (c "Unit") en (a/env)
         matcher (e/const' (name/from-string "Lean.Grind.CommRing.Power.denote.match_1")
                           [(lvl/succ lvl/zero)])
         expr (e/app* matcher (e/lam "k" nat nat :default) (e/lit-nat 2)
-                      (e/lam "u" unit (e/lit-nat 13) :default)
-                      (e/lam "u" unit (e/lit-nat 21) :default)
-                      (e/lam "k" nat (e/bvar 0) :default))
+                     (e/lam "u" unit (e/lit-nat 13) :default)
+                     (e/lam "u" unit (e/lit-nat 21) :default)
+                     (e/lam "k" nat (e/bvar 0) :default))
         st (tc/mk-tc-state en)]
     (is (tc/is-def-eq st nat (tc/infer-type st expr)))
     (is (= (e/lit-nat 2) (:expr (#'simp/try-reduce-matcher st expr))))

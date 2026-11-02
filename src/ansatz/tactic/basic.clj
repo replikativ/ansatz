@@ -3020,14 +3020,14 @@
   [value args]
   (let [args (vec args) sz (count args)]
     (if (zero? sz) value
-      (loop [f value i 0]
-        (case (e/tag f)
-          :lam (if (< (inc i) sz)
-                 (recur (e/lam-body f) (inc i))
-                 (e/instantiate (e/lam-body f) args))
-          :let (recur (e/instantiate1 (e/let-body f) (e/let-value f)) i)
-          :mdata (recur (e/mdata-expr f) i)
-          (reduce e/app (e/instantiate f (subvec args 0 i)) (subvec args i)))))))
+        (loop [f value i 0]
+          (case (e/tag f)
+            :lam (if (< (inc i) sz)
+                   (recur (e/lam-body f) (inc i))
+                   (e/instantiate (e/lam-body f) args))
+            :let (recur (e/instantiate1 (e/let-body f) (e/let-value f)) i)
+            :mdata (recur (e/mdata-expr f) i)
+            (reduce e/app (e/instantiate f (subvec args 0 i)) (subvec args i)))))))
 
 (def ^:dynamic *delta-max-rec-depth* 512)
 
@@ -3053,9 +3053,9 @@
                             :app (apply e/app* (w head) (map w args))
                             :lam (e/lam (e/lam-name x) (w (e/lam-type x)) (w (e/lam-body x)) (e/lam-info x))
                             :forall (e/forall' (e/forall-name x) (w (e/forall-type x))
-                                              (w (e/forall-body x)) (e/forall-info x))
+                                               (w (e/forall-body x)) (e/forall-info x))
                             :let (e/let' (e/let-name x) (w (e/let-type x))
-                                        (w (e/let-value x)) (w (e/let-body x)))
+                                         (w (e/let-value x)) (w (e/let-body x)))
                             :mdata (e/mdata (e/mdata-data x) (w (e/mdata-expr x)))
                             :proj (e/proj (e/proj-type-name x) (e/proj-idx x) (w (e/proj-struct x)))
                             x))]
@@ -3123,9 +3123,9 @@
         [ps' new-id] (proof/fresh-mvar-replacing ps new-goal-type-reduced (:lctx goal) (:id goal))]
     ;; Equation rewrites transport the child proof with Eq.mpr; delta steps are defeq.
     (-> (proof/assign-mvar ps' (:id goal) {:kind :simp-reduce :eq-proof (:proof? unfold-result) :child new-id
-                                            :goal-type (:type goal) :simplified new-goal-type-reduced
-                                            :mpr-level (when (:proof? unfold-result)
-                                                         (e/sort-level (#'tc/cached-whnf st (tc/infer-type st (:type goal)))))})
+                                           :goal-type (:type goal) :simplified new-goal-type-reduced
+                                           :mpr-level (when (:proof? unfold-result)
+                                                        (e/sort-level (#'tc/cached-whnf st (tc/infer-type st (:type goal)))))})
         (proof/record-tactic :unfold [def-name-str] (:id goal)))))
 
 (defn exact?
