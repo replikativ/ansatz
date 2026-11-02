@@ -1225,14 +1225,14 @@
         _ (swap! ctx assoc :next-id supply :meta-mctx (atom (:meta-mctx ps)))
         branches (meta-cases/cases ctx (:id goal) hyp-fvar-id)
         ps (assoc ps :env (:env @ctx) :meta-mctx (meta-cases/mctx ctx)
-                     :next-id (inc @supply))
+                  :next-id (inc @supply))
         [ps branches]
         (reduce
          (fn [[ps out] {:keys [mvar-id ctor-name fields] :as branch}]
            (let [lctx (proof/mvar-lctx ps mvar-id)
                  field-ids (vec (keep #(when (and (e/fvar? %) (contains? lctx (e/fvar-id %))
-                                               (not (contains? (:lctx goal) (e/fvar-id %))))
-                                        (e/fvar-id %)) fields))
+                                                  (not (contains? (:lctx goal) (e/fvar-id %))))
+                                         (e/fvar-id %)) fields))
                  ;; Only constructor fields are rename_i candidates. Freshen
                  ;; collisions without changing the names of reverted dependents.
                  lctx (reduce (fn [lc fid]
@@ -1249,7 +1249,7 @@
                                   (or (:user-name goal) (name/anonymous))
                                   (name/mk-str (name/anonymous) (name/name-component ctor-name)))))]
              [ps (conj out (assoc branch :goal-id mvar-id
-                                        :field-fvars (mapv #(when (e/fvar? %) (e/fvar-id %)) fields)))]))
+                                  :field-fvars (mapv #(when (e/fvar? %) (e/fvar-id %)) fields)))]))
          [ps []] branches)
         open-ids (mapv :goal-id branches)
         ps (-> ps

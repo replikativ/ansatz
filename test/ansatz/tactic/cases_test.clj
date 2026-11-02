@@ -14,7 +14,7 @@
   (fn [f]
     (binding [a/*verbose* false] (a/load-init!))
     (a/register-tactic! 'observe-cases
-      (fn [ps _] (swap! observed conj ps) ps))
+                        (fn [ps _] (swap! observed conj ps) ps))
     (f)))
 
 (defn proves [params target tactics]
@@ -69,8 +69,8 @@
   (is (= [0 1] (mapv (comp count :lctx) (proof/goals (first @observed)))))
   (is (proves '[h :- CasesChain] 'CasesChain
               '[(cases h :with
-                  (base (exact CasesChain.base))
-                  ((step hx) (exact hx)))])))
+                       (base (exact CasesChain.base))
+                       ((step hx) (exact hx)))])))
 
 (deftest term-index-keeps-the-original-variable-name
   (binding [a/*verbose* false]
@@ -86,12 +86,12 @@
 (deftest cases-field-names-and-dependent-hypotheses
   (is (proves '[n :- Nat, P :- (=> Nat Prop), h :- (P n)] '(P n)
               '[(cases n :with
-                  (zero (exact h))
-                  ((succ k) (exact h)))]))
+                       (zero (exact h))
+                       ((succ k) (exact h)))]))
   (is (proves '[n :- Nat, P :- (=> Nat Prop), h :- (forall [k :- Nat] (=> (= n k) (P k)))] '(P n)
               '[(cases eqn n :with
-                  (zero (exact (h 0 eqn)))
-                  ((succ k) (exact (h (Nat.succ k) eqn))))]))
+                       (zero (exact (h 0 eqn)))
+                       ((succ k) (exact (h (Nat.succ k) eqn))))]))
   (is (proves '[n :- Nat] '(= n n)
               '[(cases n) (case zero (rfl))
                 (case (succ k) (exact (Eq.refl Nat (Nat.succ k))))])))
@@ -106,9 +106,9 @@
   (is (proves '[v :- (CasesVec Nat (Nat.succ Nat.zero))]
               '(Exists Nat (fn [x :- Nat] (= x x)))
               '[(cases v :with
-                  ((cons x k xs)
-                   (have tail (CasesVec Nat Nat.zero)) (exact xs)
-                   (exact (Exists.intro Nat (fn [x :- Nat] (= x x)) x (Eq.refl Nat x)))))]))
+                       ((cons x k xs)
+                        (have tail (CasesVec Nat Nat.zero)) (exact xs)
+                        (exact (Exists.intro Nat (fn [x :- Nat] (= x x)) x (Eq.refl Nat x)))))]))
   (is (proves '[v :- (CasesVec Nat (Nat.succ Nat.zero))]
               '(Exists Nat (fn [x :- Nat] (= x x)))
               '[(rcases v (or [] [x k xs]))
@@ -142,7 +142,7 @@
                   '[(observe-cases) (cases h) (observe-cases) (exact (Eq.refl Nat x))]))
       (let [[before after] @observed
             major (first (for [[fid d] (:lctx (proof/current-goal before))
-                              :when (= "h" (:name d))] fid))]
+                               :when (= "h" (:name d))] fid))]
         (is (nil? (env/lookup (:env before) auxiliary)))
         (is (some? (env/lookup (:env after) auxiliary)))
         (is (= 1 (count (:goals after))))
@@ -174,8 +174,8 @@
 (deftest cases-alternatives-name-explicit-fields
   (is (proves '[n :- Nat, m :- Nat, h :- (Nat.le n m)] '(Nat.le n m)
               '[(cases h :with
-                  (refl (exact (Nat.le_refl n)))
-                  ((step hp) (observe-cases) (exact (Nat.le.step hp))))]))
+                       (refl (exact (Nat.le_refl n)))
+                       ((step hp) (observe-cases) (exact (Nat.le.step hp))))]))
   (let [lctx (:lctx (proof/current-goal (first @observed)))
         implicit-fields (filter #(= :implicit (:info %)) (vals lctx))]
     (is (= 1 (count implicit-fields)))
@@ -183,10 +183,10 @@
     (is (false? (:inaccessible (first (filter #(= "hp" (:name %)) (vals lctx)))))))
   (is (proves '[n :- Nat, m :- Nat, h :- (Nat.le n m)] '(Nat.le n m)
               '[(cases h :with
-                  (refl (exact (Nat.le_refl n)))
-                  ((@step k hp) (observe-cases)
-                   (have bound (Nat.le n k)) (exact hp)
-                   (exact (Nat.le.step bound))))]))
+                       (refl (exact (Nat.le_refl n)))
+                       ((@step k hp) (observe-cases)
+                                     (have bound (Nat.le n k)) (exact hp)
+                                     (exact (Nat.le.step bound))))]))
   (let [lctx (:lctx (proof/current-goal (first @observed)))]
     (is (false? (:inaccessible (first (filter #(= "k" (:name %)) (vals lctx))))))))
 
@@ -215,7 +215,7 @@
               '[(observe-cases) (cases h) (observe-cases) (exact (Eq.refl Nat n))]))
   (let [[before after] @observed
         major (first (for [[fid d] (:lctx (proof/current-goal before))
-                          :when (= "h" (:name d))] fid))]
+                           :when (= "h" (:name d))] fid))]
     (is (not (contains? (:lctx (proof/current-goal after)) major))))
   (is (proves '[x :- Nat, h :- (= x x), hh :- (= h h)] '(= h h)
               '[(cases h) (exact hh)])))

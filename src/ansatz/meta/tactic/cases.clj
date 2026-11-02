@@ -331,7 +331,7 @@
                 ;; equation as a leading forall, then clear the old HEq.
                 (let [prf (u/app (u/const' "eq_of_heq" [(u/get-level ctx ta)]) [ta a b h])
                       wrapped (fresh-mvar! ctx (e/forall' (:name (u/decl ctx h))
-                                                         (u/mk-eq ctx a b) (goal-type ctx child) :default))]
+                                                          (u/mk-eq ctx a b) (goal-type ctx child) :default))]
                   (assign! ctx child (e/app (e/mvar wrapped) prf))
                   (recur n (clear! ctx wrapped hid) s (inc steps))))
               (let [[type a b] args
