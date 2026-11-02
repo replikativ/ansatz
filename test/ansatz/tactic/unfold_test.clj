@@ -49,3 +49,20 @@
            (match xs [nil true] [(cons h t) (unfold-rec t)])))
   (is (true? (proves? '(a/theorem unfold-rec-nil [] (= Bool (unfold-rec (List.nil Nat)) true)
                          (unfold unfold-rec) (rfl))))))
+
+(deftest dsimp-reduces-matcher-with-field-alternatives
+  ;; Lean dsimp reduces a matcher on a constructor discriminant (Meta.reduceMatcher?) for
+  ;; alternatives that bind fields, not only Unit thunks. unfold + cases + dsimp only.
+  (eval '(a/inductive UnfoldOut [] (val) (stuck [n Nat])))
+  (eval '(a/structure UnfoldStore [] (w Nat) (l (List Nat))))
+  (eval '(a/defn unfold-amount [x :- Nat] (Option Nat)
+           (match x [zero (Option.none Nat)] [(succ k) (Option.some Nat k)])))
+  (eval '(a/defn unfold-spendH [s :- UnfoldStore, n :- Nat] UnfoldOut (UnfoldOut.stuck n)))
+  (eval '(a/defn unfold-spendN [s :- UnfoldStore, x :- Nat] UnfoldOut
+           (match (unfold-amount x) [none (UnfoldOut.stuck 0)]
+                  [(some n) (match s [(mk w l) (unfold-spendH s n)])])))
+  (is (true? (proves? '(a/theorem unfold-spendN-nv [s :- UnfoldStore, x :- Nat]
+                         (Not (= UnfoldOut (unfold-spendN s x) UnfoldOut.val))
+                         (cases s) (unfold unfold-spendN) (cases qa (unfold-amount x))
+                         (all_goals (dsimp only))
+                         (intro h) (cases h) (intro h) (cases h))))))

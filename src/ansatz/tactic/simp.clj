@@ -1855,59 +1855,36 @@
                           (mk-result (nth sargs fidx))))))))
               :else nil)))))))
 
-(defn- ctor-headed?
-  "After whnf-no-delta, is `e` headed by a constructor / Nat literal? Used as a
-   cheap gate: a matcher only iota-reduces when a discriminant is concrete."
-  [st e]
-  (let [w (red/whnf-no-delta (:env st) e (:lctx st))]
-    (or (e/lit-nat? w)
-        (let [[h _] (e/get-app-fn-args w)]
-          (and (e/const? h)
-               (when-let [ci (env/lookup (:env st) (e/const-name h))]
-                 (.isCtor ^ConstantInfo ci)))))))
-
 (defn- try-reduce-matcher
-  "reduceRecMatcher? (Lean 4): reduce a matcher auxiliary `T.match_N … discr …
-   (fun _:Unit => bᵢ) …` when a discriminant is a constructor, to the SELECTED
-   branch bₖ — without over-reducing bₖ. A naive full whnf would keep unfolding a
-   non-constructor-headed branch (e.g. `List.filter` → `brecOn.go`/`below` monster).
-   Technique: replace each Unit-thunk alternative's body with a fresh opaque marker
-   fvar, full-whnf the matcher (the markers block any over-reduction past the iota
-   step), and if the head reduces to exactly one marker, return that alternative's
-   real body (β-applied to `Unit.unit`, as the matcher would). Definitional ⇒ nil
-   proof. Restricted to Unit-thunk alts (the form Lean emits for matches whose cases
-   bind no discriminant fields, e.g. a `Bool`/`Nat`-comparison match) so replacing a
-   body with a closed marker never drops a captured field."
+  "Lean `Meta.reduceMatcher?` (Meta/WHNF.lean): reduce a matcher application whose
+   discriminants select an alternative. The matcher is applied to its parameter, motive
+   and discriminant prefix (sizes from MatcherInfo) and to fresh marker fvars in place of
+   the alternatives, then whnf'd. If the head is the marker of alternative i, the result is
+   that alternative applied to the marker's arguments (the constructor fields, or `Unit.unit`
+   for a thunk) and to any arguments beyond the alternatives, head-beta-reduced. The markers
+   keep the selected branch from being reduced further. Definitional, so no proof."
   [st expr]
   (let [env (:env st)
         [head args] (e/get-app-fn-args expr)]
-    (when (and (e/const? head)
-               (>= (count args) 2)
-               (re-find #"\.match_\d+$" (name/->string (e/const-name head))))
-      (let [n (count args)
-            ;; trailing contiguous lambda args = the alternatives
-            alt-start (loop [i n] (if (and (> i 0) (e/lam? (nth args (dec i)))) (recur (dec i)) i))
-            alts (subvec (vec args) alt-start)
-            unit? (fn [a] (let [t (e/lam-type a)]
-                            (and (e/const? t) (= "Unit" (name/->string (e/const-name t))))))]
-        (when (and (seq alts) (every? unit? alts)
-                   ;; cheap gate: some discriminant (a non-alt arg) is concrete
-                   (some #(ctor-headed? st %) (subvec (vec args) 0 alt-start)))
-          (let [unit-unit (e/const' (name/from-string "Unit.unit") [])
-                marker-id (fn [i] (+ 920000 i))
-                new-alts (mapv (fn [a i]
-                                 (e/lam (e/lam-name a) (e/lam-type a)
-                                        (e/fvar (marker-id i)) (e/lam-info a)))
-                               alts (range))
-                marker->body (into {} (map-indexed
-                                       (fn [i a] [(marker-id i)
-                                                  (e/instantiate1 (e/lam-body a) unit-unit)])
-                                       alts))
-                probe (apply e/app* head (into (subvec (vec args) 0 alt-start) new-alts))
-                reduced (red/whnf env probe (:lctx st))]
-            (when (and reduced (e/fvar? reduced)
-                       (contains? marker->body (e/fvar-id reduced)))
-              (mk-result (get marker->body (e/fvar-id reduced))))))))))
+    (when (e/const? head)
+      (when-let [info (matcher-info/get-matcher-info-core? env (name/->string (e/const-name head)))]
+        (let [args (vec args)
+              prefix (+ (:num-params info) 1 (:num-discrs info))
+              nalts (matcher-info/num-alts info)
+              base 920000]
+          (when (and (pos? nalts) (>= (count args) (+ prefix nalts)))
+            (let [probe (apply e/app* head (into (subvec args 0 prefix)
+                                                 (map #(e/fvar (+ base %)) (range nalts))))
+                  reduced (red/whnf env probe (:lctx st))
+                  [rhead rargs] (when reduced (e/get-app-fn-args reduced))]
+              (when (and rhead (e/fvar? rhead)
+                         (<= base (e/fvar-id rhead) (+ base nalts -1)))
+                (let [i (- (e/fvar-id rhead) base)
+                      alt (nth args (+ prefix i))
+                      result (reduce (fn [f a] (if (e/lam? f) (e/instantiate1 (e/lam-body f) a) (e/app f a)))
+                                     alt
+                                     (concat rargs (subvec args (+ prefix nalts))))]
+                  (mk-result result))))))))))
 
 (defn- try-simproc
   "Try built-in simplification procedures, then user-registered simprocs.

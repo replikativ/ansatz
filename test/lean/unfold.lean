@@ -32,3 +32,31 @@ theorem unfoldTwice_forall : ∀ n : Nat, unfoldTwice n = n + n := by
 example (n : Nat) : n = n := by
   fail_if_success unfold unfoldTwice
   rfl
+
+-- dsimp reduces a matcher whose selected alternative binds a constructor field
+inductive UnfoldOut where
+  | val
+  | stuck (n : Nat)
+
+structure UnfoldStore where
+  w : Nat
+  l : List Nat
+
+def unfoldAmount : Nat → Option Nat
+  | 0 => none
+  | k + 1 => some k
+
+def unfoldSpendH (_ : UnfoldStore) (n : Nat) : UnfoldOut := .stuck n
+
+def unfoldSpendN (s : UnfoldStore) (x : Nat) : UnfoldOut :=
+  match unfoldAmount x with
+  | none => .stuck 0
+  | some n => match s with | ⟨_, _⟩ => unfoldSpendH s n
+
+theorem unfoldSpendN_nv (s : UnfoldStore) (x : Nat) : unfoldSpendN s x ≠ .val := by
+  cases s
+  unfold unfoldSpendN
+  cases qa : unfoldAmount x
+  all_goals dsimp only
+  · intro h; cases h
+  · intro h; cases h
