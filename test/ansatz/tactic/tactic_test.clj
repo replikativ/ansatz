@@ -487,7 +487,7 @@
                      (:lctx (proof/current-goal ps)))
           ps (basic/apply-tac ps (e/fvar h-id))
           ids (vec (:goals ps))
-          [alpha-id q-id x-id hq-id] ids]
+          [x-id hq-id alpha-id q-id] ids]
       (is (= 4 (count ids)))
       (is (= type0 (proof/mvar-type ps alpha-id)))
       (is (= prop (proof/mvar-type ps q-id)))
@@ -496,12 +496,12 @@
       (is (= (e/mvar q-id) (proof/mvar-type ps hq-id))))))
 
 (deftest test-apply-tags-generated-goals
-  (testing "multiple unnamed apply goals receive stable parent-derived tags"
+  (testing "apply goals retain binder names under the parent tag"
     (let [env (minimal-env)
           main-tag (name/from-string "main")
           ;; forall (p : Prop), (p -> p -> p) -> p
-          p-to-p-to-p (e/forall' "_" (e/bvar 0)
-                                 (e/forall' "_" (e/bvar 1) (e/bvar 2) :default)
+          p-to-p-to-p (e/forall' (name/from-string "ha") (e/bvar 0)
+                                 (e/forall' (name/from-string "hb") (e/bvar 1) (e/bvar 2) :default)
                                  :default)
           goal-type (e/forall' "p" prop
                                (e/forall' "h" p-to-p-to-p (e/bvar 1) :default)
@@ -519,7 +519,7 @@
           goals (vec (proof/goals ps))
           tags (mapv #(some-> (:user-name %) name/->string) goals)]
       (is (= 2 (count goals)))
-      (is (= ["main.apply_1" "main.apply_2"] tags)))))
+      (is (= ["main.ha" "main.hb"] tags)))))
 
 ;; ============================================================
 ;; Test 11: trace recording

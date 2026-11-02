@@ -218,7 +218,9 @@
         steps (atom 0)
         close-guard (when (seq guard-names)
                       (cons 'first
-                            (map #(list 'and_then '(exfalso) (list 'apply %) '(rfl))
+                            ;; Like MatchEqs.proveCondEqThm's contradiction branch,
+                            ;; a guard must close completely before we keep its state.
+                            (map #(list 'and_then '(exfalso) (list 'apply %) '(all_goals (rfl)))
                                  guard-names)))]
     (letfn [(try-step [ps f]
               (try (f ps) (catch clojure.lang.ExceptionInfo _ ps)))
