@@ -88,10 +88,12 @@ executables and historical captures do not enter it.
 
 ## Research boundary
 
-Hosting experiments remain outside the runtime module and its JAR. This change
-ports the SDK and native producer sources without reorganizing the experimental
-tree. Historical captures and source receipts retain their original identities;
-they are evidence of their recorded versions rather than acceptance of this SDK.
+The former hosting experiments and unpublished World facade are preserved at
+Git tag `lean-jvm-research-2026-11-01` (commit `4ace73f0`) and removed from the active
+tree. Maintained runtime and kernel contracts live in [test-engine](test-engine/README.md),
+with authentic fixture data and an explicit [coverage migration](test-engine/coverage.json).
+Historical captures retain their original identities. They establish observations
+of their recorded implementations rather than acceptance of the current SDK.
 
 ## Verification
 

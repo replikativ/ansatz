@@ -1,8 +1,0 @@
-{"case":"none","extended":false,"found":null,"visits":["let","const","lambda","sort","shared-app","app","free","bound","metadata","projection","bound"]}
-{"case":"root","extended":false,"found":"let","visits":["let"]}
-{"case":"free","extended":false,"found":"free","visits":["let","const","lambda","sort","shared-app","app","free"]}
-{"case":"bound","extended":false,"found":"bound","visits":["let","const","lambda","sort","shared-app","app","free","bound"]}
-{"case":"none","extended":true,"found":null,"visits":["let","const","lambda","sort","shared-app","free","bound","app","bound","metadata","projection","bound"]}
-{"case":"root","extended":true,"found":"let","visits":["let"]}
-{"case":"free","extended":true,"found":"free","visits":["let","const","lambda","sort","shared-app","free"]}
-{"case":"bound-prune","extended":true,"found":"bound","visits":["let","const","lambda","sort","shared-app","metadata","projection","bound"]}

@@ -1,1 +1,0 @@
-{:status :pass, :mode :official-lean-run, :native-stdout "990732983,235670034\n29584,1345\n", :jvm-stdout "990732983,235670034\n29584,1345\n", :bytes 31, :kernel-rechecked-in-java false}

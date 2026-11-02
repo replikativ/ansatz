@@ -1,5 +1,0 @@
-none-identity: true
-some-self: true
-some-stop: true
-changed-content: true
-shared-cache-result: true

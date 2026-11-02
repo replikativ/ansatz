@@ -1,1 +1,0 @@
-{:even {:params [0], :body [:let 1 [:prim :zero? [[:var 0]]] [:case [:var 1] [[1 [:return [:var 0]]] [0 [:let 2 [:prim :dec [[:var 0]]] [:tail [:direct :odd] [[:var 2]]]]]]]]}, :odd {:params [0], :body [:let 1 [:prim :zero? [[:var 0]]] [:case [:var 1] [[1 [:return [:var 0]]] [0 [:let 2 [:prim :dec [[:var 0]]] [:tail [:direct :even] [[:var 2]]]]]]]]}}
