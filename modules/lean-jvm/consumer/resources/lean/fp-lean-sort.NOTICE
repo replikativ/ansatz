@@ -1,0 +1,12 @@
+The fp-lean-sort artifact contains compiler-derived material from the unchanged
+InstrumentedInsertionSort.lean tutorial module by David Thrane Christiansen and
+the Functional Programming in Lean contributors, pinned at:
+https://github.com/leanprover/fp-lean/blob/0abeea545d560a324e2561f7210fbd6ed154fa02/examples/Examples/ProgramsProofs/InstrumentedInsertionSort.lean
+
+Source SHA-256: 7102c8947e7fc0bfc8aaf3df1077a9d0937b9b3ce02f8a8a13525613e5ed7b10
+
+The pinned README identifies the original Microsoft Corporation 2023 book as
+Creative Commons Attribution 4.0 International, with subsequent modifications
+copyright 2023–2025 Lean FRO, LLC. License: https://creativecommons.org/licenses/by/4.0/
+The separate Tutorial adapter is original Ansatz code. No upstream endorsement
+is implied. Lean runtime/Init attribution remains as recorded in the SDK NOTICE.

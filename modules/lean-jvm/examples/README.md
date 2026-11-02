@@ -1,5 +1,9 @@
 # Multi-file tutorial on the JVM
 
+For a larger example with polymorphic internal code, proofs, array ownership and
+captured diagnostics, see [proof-backed insertion sort](fp-lean-sort/README.md).
+It retains the upstream implementation and adds an explicit typed host adapter.
+
 The first compatibility example is the unchanged three-file `first-lake/expected`
 project from [Functional Programming in Lean](https://github.com/leanprover/fp-lean/tree/0abeea545d560a324e2561f7210fbd6ed154fa02/examples/first-lake/expected).
 `Main.lean` imports `Greeting.lean`, which imports `Greeting/Basic.lean`. The Java

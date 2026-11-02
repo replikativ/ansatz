@@ -105,9 +105,42 @@
         (check (= 18446744073709551615N (lean/call project "highWord")))
         (check (= (float 1.5) (lean/call project "singleConstant"))))
       (check (= 42 (lean/call old "Demo.sumArgs" 20 21 true))))))
+(copy-program "examples/fp-lean-sort" "tutorial-sort")
+(copy-program "consumer/resources/lean/sharing-boundary-source" "sharing-boundaries")
+(def sort-options {:compiler compiler :root-module "Tutorial"
+                   :entries ["Tutorial.sortNats" "Tutorial.sortStrings" "Tutorial.sortAndOriginal"]})
+(defn check-sort [project]
+  (doseq [n (range 25) :let [xs (vec (reverse (range n)))]]
+    (check (= (vec (range n)) (:value (lean/call project "Tutorial.sortNats" xs))))
+    (check (= [(vec (range n)) xs] (:value (lean/call project "Tutorial.sortAndOriginal" xs)))))
+  (check (= ["a" "β" "\ue000" "😀"]
+            (:value (lean/call project "Tutorial.sortStrings" ["😀" "\ue000" "β" "a"]))))
+  (check (= "shared RC array to swap\n"
+            (:stderr (lean/call project "Tutorial.sortAndOriginal" [3 2 1])))))
+(with-open [runtime (lean/open)
+            project (timed :tutorial-sort #(lean/load-project runtime (source-dir "tutorial-sort") sort-options))]
+  (check-sort project)
+  (let [description (with-open [out (io/output-stream (io/file output "tutorial-sort.zip"))]
+                      (lean/prepare-project (source-dir "tutorial-sort") sort-options out))]
+    (with-open [input (io/input-stream (io/file output "tutorial-sort.zip"))
+                loaded (lean/load-artifact runtime input (:manifest-sha256 description))]
+      (check-sort loaded)))
+  (doseq [entry ["debugString" "debugNat"]
+          :let [config {:compiler compiler :root-module "Boundary" :entries [entry]}]]
+    (refused "CapabilityMissing" #(lean/load-project runtime (source-dir "sharing-boundaries") config))
+    ;; Preparing code does not assert execution readiness. Artifact admission
+    ;; must enforce the same managed-domain proof as direct source loading.
+    (let [archive (io/file output (str entry ".zip"))
+          description (with-open [out (io/output-stream archive)]
+                        (lean/prepare-project (source-dir "sharing-boundaries") config out))]
+      (with-open [input (io/input-stream archive)]
+        (refused "CapabilityMissing" #(lean/load-artifact runtime input (:manifest-sha256 description))))))
+  (with-open [pure (lean/load-project runtime (source-dir "sharing-boundaries")
+                    {:compiler compiler :root-module "Boundary" :entries ["debugArrayPure"]})]
+    (refused "RuntimeBoundary" #(lean/call pure "debugArrayPure" [3 2 1]))))
 (def report {:schema "ansatz-lean-jvm-source-acceptance/1" :checks @checks :timings-ms @timings
              :module-cache-observations @observations :sdk-resource-protocol "jar" :runtime-heap-mib (quot (.maxMemory (Runtime/getRuntime)) 1048576)
-             :scope "Actual public source cold/cache/edit/reload/artifact, common/scalar values, warnings, errors, capability and type refusal"})
+             :scope "Actual public source cold/cache/edit/reload/artifact, common/scalar values, unchanged tutorial sort, sharing-domain source/artifact refusal, warnings, errors, capability and type refusal"})
 (spit (io/file output "result.json") (json/write-str report :escape-slash false))
 (println "PASS SOURCE_ACCEPTANCE" (dissoc report :module-cache-observations))
 (shutdown-agents)
