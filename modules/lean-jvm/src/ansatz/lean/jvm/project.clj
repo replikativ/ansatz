@@ -9,7 +9,7 @@
             [ansatz.lean.jvm.argument :as argument] [ansatz.lean.jvm.construction :as construction]
             [clojure.java.io :as io] [clojure.string :as str])
   (:import [java.math BigInteger] [java.nio.charset StandardCharsets]
-           [java.util WeakHashMap] [ansatz.lean.jvm MainResult IOResult LeanUnit InvocationOptions HostServices ReadOnlyFiles]))
+           [java.util WeakHashMap] [ansatz.lean.jvm MainResult IOResult LeanUnit InvocationOptions HostServices FileAccess]))
 (deftype Services [basis capability files])
 (deftype Project [])
 (deftype Handle [owner name signature])
@@ -75,7 +75,7 @@
   ([] (let [basis (ir/linked-basis)] (Services. basis (entropy basis) nil)))
   ([configuration]
    (need (= HostServices (class configuration)) "RuntimeBoundary" "Actual HostServices configuration required")
-   (let [basis (ir/linked-basis)] (Services. basis (entropy basis) (.files ^HostServices configuration)))))
+   (let [basis (ir/linked-basis)] (Services. basis (entropy basis) (.fileAccess ^HostServices configuration)))))
 (defn- startup-from-failure [failure]
   (loop [failure failure left 8]
     (when (and failure (pos? left))
@@ -109,8 +109,8 @@
 (defn- project-files [services prepared]
   (when (startup/filesystem-required? prepared)
     (let [files (.-files ^Services services)]
-      (need (= ReadOnlyFiles (class files)) "CapabilityMissing" "Project requires explicit read-only filesystem services")
-      (ir/read-only-file-session (.-basis ^Services services) files))))
+      (need (= FileAccess (class files)) "CapabilityMissing" "Project requires explicit filesystem services")
+      (ir/file-session (.-basis ^Services services) files))))
 (defn- open-prepared! [services prepared]
   (let [cell (atom {:status :opening :slot (object-array 3)}) token (Project.)]
     (try

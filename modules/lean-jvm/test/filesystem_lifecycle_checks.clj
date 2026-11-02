@@ -22,7 +22,7 @@
     (try
       (loop [left 10000]
         (when (zero? left) (throw (AssertionError. "No open Feline handle within scheduler bound")))
-        (let [stats (invoke-zero engine "readOnlyFileStats")]
+        (let [stats (invoke-zero engine "fileStats")]
           (if (= 1 (.liveHandles stats))
             (swap! observations assoc :before stats :session (#'startup/engine-field engine "fileSession"))
             (do

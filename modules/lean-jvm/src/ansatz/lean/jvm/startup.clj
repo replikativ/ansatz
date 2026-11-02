@@ -206,7 +206,7 @@
                              (into-array Class [(class capability) (class entropy) (class codec) (class (:codec p))]))
                  engine (object-array [capability entropy codec (:codec p)]))
         (when files
-          (.invoke (.getMethod ^Class (:class ctx) "installReadOnlyFiles"
+          (.invoke (.getMethod ^Class (:class ctx) "installFiles"
                               (into-array Class [(class files) (class (byte-array 0))]))
                    engine (object-array [files (filesystem-codec)])))
         (swap! cell assoc :status :running) token)
@@ -404,17 +404,17 @@
   (when engine (need (nil? (engine-field engine "fileSession")) "Pure heap profile has an external session"))
   (stopped-heap! prepared engine))
 (defn- filesystem-abandonable! [prepared engine files]
-  (need (= :task-free-read-only-files-v1 (get-in prepared [:requirements :profile]))
+  (need (= :task-free-regular-files-v2 (get-in prepared [:requirements :profile]))
         "Filesystem retirement requires its issued bounded profile")
   (stopped-heap! prepared engine)
   (need (and files (= (class files) (.loadClass ^ClassLoader (get-in prepared [:ctx :loader])
-                                      "ansatz.lean.jvm.internal.fs.ReadOnlyFileSession")))
+                                      "ansatz.lean.jvm.internal.fs.FileSession")))
         "Filesystem retirement requires its actual project session")
   (if (and engine (engine-field engine "fileSession"))
     (do (need (and (identical? files (engine-field engine "fileSession"))
                    (identical? (engine-field engine "runtimeIdentity") (engine-field files "claimedOwner")))
               "Filesystem session belongs to another engine")
-        (.invoke (.getMethod (class engine) "retireReadOnlyFiles" (make-array Class 0)) engine (object-array 0)))
+        (.invoke (.getMethod (class engine) "retireFiles" (make-array Class 0)) engine (object-array 0)))
     (do (need (or (nil? engine) (not (engine-field engine "everStarted")))
               "Uninstalled filesystem session cannot retire a started engine")
         (.close ^java.lang.AutoCloseable files)))
@@ -423,7 +423,7 @@
 (defn- abandon!-in-lease [token]
   (let [cell (live-cell! token) {:keys [status prepared engine error-slot ledger module-index files]} @cell]
     (need (#{:cancelled :host-failed :io-error :close-started} status) "Only terminal stopped computation can be abandoned")
-    (if (= :task-free-read-only-files-v1 (get-in prepared [:requirements :profile]))
+    (if (= :task-free-regular-files-v2 (get-in prepared [:requirements :profile]))
       (filesystem-abandonable! prepared engine files)
       (heap-abandonable! prepared engine))
     (let [terminal {:status :abandoned :lock (:lock @cell)

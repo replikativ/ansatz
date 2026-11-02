@@ -15,6 +15,8 @@
    ["IO.FS.Handle.write" "lean_io_prim_handle_write" "object" ["tobject" "object" "void"] [true true false]]
    ["IO.FS.Handle.putStr" "lean_io_prim_handle_put_str" "object" ["tobject" "object" "void"] [true true false]]
    ["IO.FS.Handle.flush" "lean_io_prim_handle_flush" "object" ["tobject" "void"] [true false]]
+   ["IO.FS.Handle.rewind" "lean_io_prim_handle_rewind" "object" ["tobject" "void"] [true false]]
+   ["IO.FS.Handle.truncate" "lean_io_prim_handle_truncate" "object" ["tobject" "void"] [true false]]
    ["IO.FS.Handle.isTty" "lean_io_prim_handle_is_tty" "uint8" ["tobject" "void"] [true false]]])
 (defn row [[label symbol result types borrowed]]
   {"kind" "decl" "name" (name-of label) "sourceModule" (name-of "Init.System.IO")
@@ -31,7 +33,7 @@
     (is (false? (:filesystem-required (caps/check-rows! basis []))))
     (doseq [spec specifications]
       (let [profile (caps/check-rows! basis [(row spec)])]
-        (is (= :task-free-read-only-files-v1 (:profile profile)))
+        (is (= :task-free-regular-files-v2 (:profile profile)))
         (is (true? (:filesystem-required profile)))
         (is (= :filesystem (:family (first (vals (:externs profile))))))))))
 (deftest symbols-and-display-names-do-not-mint-canonical-runtime-authority
@@ -64,7 +66,7 @@
   (with-open [input (io/input-stream (io/resource "META-INF/ansatz-lean-jvm/filesystem-layouts.jsonl"))]
     (.readNBytes input 131073)))
 (defn- install-files! [engine files]
-  (.invoke (.getMethod (class engine) "installReadOnlyFiles"
+  (.invoke (.getMethod (class engine) "installFiles"
                        (into-array Class [(class files) (class (byte-array 0))]))
            engine (object-array [files (witness-bytes)])))
 (defn- header-context [rows]
@@ -82,7 +84,7 @@
         (doseq [bad [(-> original (assoc "name" quoted) (assoc-in ["ir" "extern" "f"] quoted))
                      (assoc original "sourceModule" (name-of "Application"))]]
           (let [ctx (header-context [bad])]
-            (with-open [files (ir/read-only-file-session ctx (ReadOnlyFiles/root root))
+            (with-open [files (ir/file-session ctx (ReadOnlyFiles/root root))
                         engine (ir/machine ctx)]
               (let [before (method-zero files "stats") rejected (failure #(install-files! engine files))]
                 (is (instance? IllegalArgumentException rejected))
@@ -97,7 +99,7 @@
   (with-root
     (fn [root]
       (let [ctx (header-context (mapv row specifications))]
-        (with-open [files (ir/read-only-file-session ctx (ReadOnlyFiles/root root))
+        (with-open [files (ir/file-session ctx (ReadOnlyFiles/root root))
                     engine (ir/machine ctx)]
           (install-files! engine files)
           (is (zero? (.operations (method-zero files "stats"))))
@@ -110,7 +112,7 @@
   (with-root
     (fn [root]
       (let [base (header-context [])]
-        (with-open [files (ir/read-only-file-session base (ReadOnlyFiles/root root))
+        (with-open [files (ir/file-session base (ReadOnlyFiles/root root))
                     engine (ir/machine base)]
           (install-files! engine files)
           ;; Raw extension deliberately has no Header; no immutable field mutation.

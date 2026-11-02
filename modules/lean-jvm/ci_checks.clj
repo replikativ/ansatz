@@ -33,6 +33,7 @@
               "test/filesystem_profile_checks.clj"
               "test/filesystem_layout_checks.clj"
               "test/filesystem_lifecycle_checks.clj"
+              "test/filesystem_writing_checks.clj"
               "test/entry_checks.clj" "test/extended_entry_checks.clj" "test/scalar_buffer_checks.clj"
               "test/native_transport_checks.clj"
               "test/io_error_checks.clj"
@@ -50,6 +51,7 @@
               ['ansatz-lean-jvm-filesystem-profile-checks []]
               ['ansatz-lean-jvm-filesystem-layout-checks []]
               ['ansatz-lean-jvm-filesystem-lifecycle-checks ["."]]
+              ['ansatz-lean-jvm-filesystem-writing-checks ["."]]
               ['ansatz-lean-jvm-module-startup-models []]
               ['ansatz-lean-jvm-publisher-models []]
               ['ansatz-lean-jvm-capability-models [basis]]
