@@ -127,3 +127,18 @@ v2 evidence; it does not verify the legacy source codec path.
 Run the existing launcher with `--main-class MonadsSmoke` and a fresh output
 directory. This is a JVM-only application-JAR check; independent native oracle
 comparison remains a producer-side check in `test/monad_acceptance.clj`.
+
+## Explicit installed-library imports
+
+`PersistentMapSmoke.java` loads the native-prepared
+[persistent-map artifact](resources/lean/persistent-map.zip), using the independent
+manifest in [persistent-map.json](resources/lean/persistent-map.json).
+The [unchanged upstream regression](../examples/persistent-map/README.md) exercises
+Lean.Data.PersistentHashMap insertion, update, deletion, collisions and 200-key
+map equivalence. Repeated Java handles and a Clojure call must produce `OK\n`.
+
+Run the existing launcher with `--main-class PersistentMapSmoke` and a fresh
+output directory. Its empty working directory and application JAR contain no
+source checkout or native toolchain dependency. Compiler transport stays
+unloaded. Product provenance travels in the authenticated artifact; artifact
+loading does not inspect the consumer's sysroot.

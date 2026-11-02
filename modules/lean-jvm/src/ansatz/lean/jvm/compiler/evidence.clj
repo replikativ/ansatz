@@ -5,7 +5,7 @@
             [ansatz.lean.jvm.compiler.local :as local]
             [clojure.data.json :as json]
             [ansatz.lean.jvm.entry :as checked-entry]
-            [ansatz.lean.jvm.signature :as signature])
+            [ansatz.lean.jvm.signature :as signature] [ansatz.lean.jvm.installed :as installed])
   (:import [java.nio.file Path Files LinkOption]
            [java.nio.file.attribute FileAttribute]
            [java.nio.charset StandardCharsets]
@@ -165,6 +165,8 @@
             _ (need (= manifest-record (#'compiler/file-record manifest (* 4 1048576)))
                     "ArtifactConflict" {:stage :cache-manifest-mutation})
             files (get validated-cache "files")
+            installed-products (get-in build [:inputs "installedImports"])
+            _ (local/verify-installed! state installed-products)
             _ (need (= files (#'local/inventory! directory)) "ArtifactConflict" {:stage :cache-baseline-mutation})
             stage (Files/createTempDirectory ^Path (:cache state) ".project-evidence-" (make-array FileAttribute 0))
             env (#'compiler/environment state (str (.resolve directory "build") ":" (.resolve ^Path (:sysroot state) "lib/lean")))
@@ -192,6 +194,7 @@
                               _ (need (<= request-bytes 65536) "BuildResourceLimit" {})
                               _ (charge-bytes! byte-budget request-bytes)
                               _ (#'compiler/write-json! path request)
+                              _ (local/verify-installed! state installed-products)
                               receipt (#'compiler/run-process! state journal stage (str "entries-" index) [helper "--entries" path] env)
                               _ (charge-produced! byte-budget stage receipt)
                               document (read-produced! stage receipt (* 16 1048576))
@@ -211,6 +214,7 @@
                 _ (charge-bytes! byte-budget startup-request-bytes)
                 _ (#'compiler/write-json! startup-path startup-request)
                 startup-helper (#'compiler/executable! (:helper project-configuration))
+                _ (local/verify-installed! state installed-products)
                 startup-receipt (#'compiler/run-process! state journal stage "startup" [startup-helper "--startup" startup-path] env)
                 _ (charge-produced! byte-budget stage startup-receipt)
                 startup (read-produced! stage startup-receipt (* 16 1048576))
@@ -225,12 +229,17 @@
                         "UnsupportedStartup" {:stage :actual-profile})
                 imported (row-index (vec (concat (mapcat #(get-in % [:document "declarations"]) documents)
                                                  (get startup "declarations"))))
+                _ (when installed-products
+                    (installed/validate-graph! installed-products (keys (:modules build))
+                      (into [(get startup "moduleOrder")] (map #(get-in % [:document "importedModuleOrder"]) documents))
+                      (vals imported)))
                 reconciled (merge-source imported source-index)
                 selected-entries (vec (mapcat #(get-in % [:admitted :entries]) documents))
                 selected (static-closure! reconciled (concat (mapcat #(map (fn [role] (get-in % [role "name"])) ["raw" "callable"]) selected-entries)
                                                              (get startup "closureRoots")))
                 after (.resolve stage "identity-after") _ (Files/createDirectory after (make-array FileAttribute 0))
                 _ (need (= toolchain (#'compiler/toolchain! state journal after)) "NativeCompileFailed" {:stage :toolchain-mutation})
+                _ (local/verify-installed! state installed-products)
                 _ (need (and (= manifest-record (#'compiler/file-record manifest (* 4 1048576)))
                              (= files (#'local/inventory! directory))
                              (= helper-record (#'compiler/file-record helper (* 256 1048576)))

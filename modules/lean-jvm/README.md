@@ -91,8 +91,18 @@ string segments; numeric-looking segments are not parsed as numeric Names. The
 string convenience form cannot express a literal dot inside one Name segment.
 `rootModule` defaults to `Main`; `sourceRoot` is an explicit relative directory.
 
-Installed Std, Lean and Mathlib imports are not resolved by this profile: a
-non-Init import must belong to the captured local DAG. External package fetching,
+By default a non-Init import must belong to the captured local DAG. An explicit
+finite installed module closure can be permitted with repeated
+`ProjectOptions.Builder.installedImport("Lean.Data.PersistentHashMap")`, or
+`:installed-imports ["Lean.Data.PersistentHashMap"]` in Clojure. This resolves
+only exact module names in the configured trusted sysroot, snapshots their
+compiled products (including optional-file absence), and binds those identities
+to cache and artifact provenance. Every transitive non-Init installed dependency
+must also be listed. It grants no additional runtime capabilities or initialization
+support; unsupported builtin/anonymous initialization still fails. See the
+[unchanged persistent-map workload](examples/persistent-map/README.md).
+
+External package fetching,
 arbitrary Lake scripts and plugins are unsupported. The admitted file header
 profile is legacy private/ordinary. Unsupported paths fail explicitly; this is
 not unrestricted Lake project support. Compilation can execute native

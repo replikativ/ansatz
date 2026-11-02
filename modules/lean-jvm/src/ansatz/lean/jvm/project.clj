@@ -143,8 +143,10 @@
           (let [roots [(typed-name (.rootModule options))]
                 entries (mapv (fn [entry] {:root (first roots) :name (typed-name (.name entry))
                                           :signature (.signature entry)}) (.entries options))]
-            (build compiler (assoc project-options :project source-root
-                             :source-root (.sourceRoot options) :roots roots)
+            (build compiler (cond-> (assoc project-options :project source-root
+                                    :source-root (.sourceRoot options) :roots roots)
+                             (seq (.installedImports options))
+                             (assoc :installed-imports (mapv typed-name (.installedImports options))))
                    evidence-options entries (atom {})))
           (finally (compiler-close compiler)))
         basis (.-basis ^Services services)]

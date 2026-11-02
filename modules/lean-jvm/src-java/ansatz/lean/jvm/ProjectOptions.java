@@ -8,6 +8,7 @@ import java.util.Objects;
 public final class ProjectOptions {
     /** Resource bound on selected host-callable functions; independent of function arity. */
     public static final int MAX_SELECTED_ENTRIES = 1024;
+    public static final int MAX_INSTALLED_IMPORTS = 128;
     public static final class Entry {
         private final String name;
         private final String signature;
@@ -23,6 +24,7 @@ public final class ProjectOptions {
         private final NativeCompilerOptions compiler;
         private String module = "Main";
         private final List<Entry> entries = new ArrayList<>();
+        private final List<String> installedImports = new ArrayList<>();
         private String sourceRoot = ".";
         private Builder(NativeCompilerOptions compiler) {
             this.compiler = Objects.requireNonNull(compiler, "compiler");
@@ -35,6 +37,14 @@ public final class ProjectOptions {
             this.module = Objects.requireNonNull(module, "module");
             return this;
         }
+        /** Permit one exact installed module; list its entire non-Init import closure. */
+        public Builder installedImport(String module) {
+            Objects.requireNonNull(module, "module");
+            if (installedImports.size() >= MAX_INSTALLED_IMPORTS || installedImports.contains(module))
+                throw new IllegalArgumentException("Installed imports must be distinct and bounded");
+            installedImports.add(module);
+            return this;
+        }
         public Builder main(String name) { entries.add(new Entry(name, "io-unit")); return this; }
         /** Ask a v2 native producer to discover and check the closed signature. */
         public Builder function(String name) { entries.add(new Entry(name, "auto")); return this; }
@@ -43,7 +53,7 @@ public final class ProjectOptions {
         public ProjectOptions build() {
             if (entries.isEmpty() || entries.size() > MAX_SELECTED_ENTRIES)
                 throw new IllegalArgumentException("Request one to " + MAX_SELECTED_ENTRIES + " checked entries");
-            return new ProjectOptions(compiler, sourceRoot, module, entries);
+            return new ProjectOptions(compiler, sourceRoot, module, entries, installedImports);
         }
     }
 
@@ -51,12 +61,15 @@ public final class ProjectOptions {
     private final String sourceRoot;
     private final String module;
     private final List<Entry> entries;
+    private final List<String> installedImports;
 
-    private ProjectOptions(NativeCompilerOptions compiler, String sourceRoot, String module, List<Entry> entries) {
+    private ProjectOptions(NativeCompilerOptions compiler, String sourceRoot, String module, List<Entry> entries,
+                           List<String> installedImports) {
         this.compiler = compiler;
         this.sourceRoot = sourceRoot;
         this.module = module;
         this.entries = List.copyOf(entries);
+        this.installedImports = List.copyOf(installedImports);
     }
 
     public static Builder builder(NativeCompilerOptions compiler) { return new Builder(compiler); }
@@ -64,4 +77,5 @@ public final class ProjectOptions {
     public String sourceRoot() { return sourceRoot; }
     public String rootModule() { return module; }
     public List<Entry> entries() { return entries; }
+    public List<String> installedImports() { return installedImports; }
 }
