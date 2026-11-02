@@ -31,3 +31,13 @@
     (-> env
         (env/update-extension :eqns {} assoc n equations)
         (env/update-extension :eqns-errors {} assoc n errors))))
+
+(defn get-unfold-eqn-for?
+  "Lean 4.33.1 Meta/Eqns.lean getUnfoldEqnFor?: existing theorem lookup.
+   Generation of missing unfold equations (mkUnfoldEq) is not yet supported."
+  [environment n]
+  ;; eq_unfold is the local well-founded compiler's existing equation spelling.
+  (some (fn [suffix]
+          (let [eqn (name/from-string (str (name/->string (decl-name n)) suffix))]
+            (when (env/lookup environment eqn) eqn)))
+        [".eq_def" ".eq_unfold"]))

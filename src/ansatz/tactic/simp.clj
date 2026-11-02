@@ -977,7 +977,7 @@
         ;; Direct lookup avoids disc tree star-arity mismatch for equation theorems.
         dt-candidates (lookup-lemmas st env lemma-index expr config)
         head-fn (e/get-app-fn expr)
-        eqn-candidates (when (e/const? head-fn)
+        eqn-candidates (when (and (not (:unfold-theorem config)) (e/const? head-fn))
                          (when-let [eqns (find-eqn-theorems env (e/const-name head-fn))]
                            (vec (mapcat (fn [eqn-name]
                                           (when-let [ci (env/lookup env eqn-name)]
@@ -2508,6 +2508,8 @@
                       (range n))]
     kinds))
 
+(declare unfold-dsimp)
+
 (defn- simp-proj
   "Lean Meta/Tactic/Simp/Main.lean simpProj, v4.33.1: transport a projection
    equality with Eq.ndrec; dependent fields permit only dsimp."
@@ -2520,7 +2522,10 @@
         projected (e/proj (e/proj-type-name expr) (e/proj-idx expr) fv)
         field-type (tc/infer-type st' projected)]
     (if (not= field-type (e/abstract1 field-type fid))
-      (mk-result (dsimp-expr env (:lctx st) expr (:max-depth config)))
+      (mk-result (if (:unfold-theorem config)
+                   (e/proj (e/proj-type-name expr) (e/proj-idx expr)
+                           (unfold-dsimp st env lemma-index struct config))
+                   (dsimp-expr env (:lctx st) expr (:max-depth config))))
       (let [v (get-sort-level st' field-type)
             motive (e/lam "s" struct-type
                           (e/abstract1 (e/app* (e/const' eq-name [v])
@@ -2637,8 +2642,9 @@
                                   ;; Separate traversal: structural reductions only,
                                   ;; propagates transitively through all sub-expressions
                                   ;; including lambda bodies. No rewrite lemmas.
-                                   (let [reduced (dsimp-expr env (:lctx st) orig-a
-                                                             (:max-depth config))]
+                                   (let [reduced (if (:unfold-theorem config)
+                                                   (unfold-dsimp st env lemma-index orig-a config)
+                                                   (dsimp-expr env (:lctx st) orig-a (:max-depth config)))]
                                      (if (= reduced orig-a)
                                        (mk-result orig-a)
                                        (mk-result reduced))))]
@@ -2669,7 +2675,9 @@
                  lam-nm (e/lam-name expr)
                  lam-bi (e/lam-info expr)
                    ;; dsimp the binder type (Lean: lambdaTelescopeDSimp dsimps `d`)
-                 alpha (let [reduced (dsimp-expr env (:lctx st) lam-type (:max-depth config))]
+                 alpha (let [reduced (if (:unfold-theorem config)
+                                       (unfold-dsimp st env lemma-index lam-type config)
+                                       (dsimp-expr env (:lctx st) lam-type (:max-depth config)))]
                          (if (= reduced lam-type) lam-type reduced))
                    ;; OPEN the binder with a fresh fvar; simp the opened body in proper lctx
                  xid (swap! (:next-id st) inc)
@@ -2704,7 +2712,9 @@
         ;; Forall/arrow — Lean 4's simpForall/simpArrow
         ;; Per-binder contextual: add h:P as a simp lemma when simplifying Q
       :forall
-      (let [is-arrow (not (e/has-loose-bvars? (e/forall-body expr) 0))
+      (let [is-arrow (and (not (e/has-loose-bvars? (e/forall-body expr) 0))
+                          (not (and (:unfold-theorem config)
+                                    (not (is-prop-type? st (e/forall-type expr))))))
             orig-p (e/forall-type expr)
             orig-q (e/forall-body expr)]
         (if is-arrow
@@ -2748,9 +2758,11 @@
                                       (:expr q-result) (e/forall-info expr))))))
             ;; Lean Simp/Main.lean simpForall: open the binder before
             ;; inferring/simplifying its body, then reabstract with forall_congr.
-          (if-not (is-prop-type? st expr)
+          (if-not (or (:unfold-theorem config) (is-prop-type? st expr))
             (mk-result (dsimp-expr env (:lctx st) expr (:max-depth config)))
-            (let [domain (dsimp-expr env (:lctx st) orig-p (:max-depth config))
+            (let [domain (if (:unfold-theorem config)
+                           (unfold-dsimp st env lemma-index orig-p config)
+                           (dsimp-expr env (:lctx st) orig-p (:max-depth config)))
                   xid (swap! (:next-id st) inc)
                   xf (e/fvar xid)
                   st' (update st :lctx assoc xid {:tag :local :id xid
@@ -2769,8 +2781,17 @@
                 (if (= result expr) (mk-result expr) (mk-result result)))))))
 
         ;; Let — zeta reduce
-      :let (let [expanded (e/instantiate1 (e/let-body expr) (e/let-value expr))]
-             (simp-expr* st env lemma-index expanded config))
+      :let (if (:unfold-theorem config)
+             (let [f (e/lam (e/let-name expr) (e/let-type expr) (e/let-body expr) :default)
+                   v (e/let-value expr)
+                   rf (simp-expr* st env lemma-index f config)
+                   rv (simp-expr* st env lemma-index v config)
+                   r (mk-congr st rf rv f v)
+                   f' (:expr rf)]
+               (assoc r :expr (e/let' (e/let-name expr) (e/lam-type f')
+                                            (:expr rv) (e/lam-body f'))))
+             (let [expanded (e/instantiate1 (e/let-body expr) (e/let-value expr))]
+               (simp-expr* st env lemma-index expanded config)))
 
       :proj (simp-proj st env lemma-index expr config)
 
@@ -2794,7 +2815,7 @@
              (.equals (LeanExprKey. expr) (LeanExprKey. (:expr result))))
       (assoc result :expr expr) result)))
 
-(defn- simp-expr*
+(defn- simp-expr-default*
   "Core simplification loop (Lean 4's simpLoop).
    config: {:max-depth :single-pass? :max-steps :cache :to-unfold :discharge-depth}"
   [st env lemma-index expr config]
@@ -2894,6 +2915,36 @@
               (if (instance? ExprMap cache) (.put ^ExprMap cache expr result)
                   (swap! cache assoc expr result)))
             result))))))
+
+(defn- simp-expr*
+  [st env lemma-index expr config]
+  (if-not (:unfold-theorem config)
+    (simp-expr-default* st env lemma-index expr config)
+    ;; Lean 4.33.1 Meta/Tactic/Unfold.lean unfold.pre: a successful rewrite is
+    ;; .done, followed only by reduceMatcher?. The neutral context does no other rewrites.
+    (or (cached-result (:cache config) expr)
+        (with-inc-rec-depth 1 expr
+          (let [result (if-let [r (try-rewrite-step st env lemma-index expr config)]
+                         (if-let [m (try-reduce-matcher st (:expr r))]
+                           (assoc r :expr (:expr m)) r)
+                         (simp-subterms st env lemma-index expr config))]
+            (swap! (:cache config) assoc expr result)
+            result)))))
+
+(defn- unfold-dsimp [st env lemma-index expr config]
+  ;; Simp's fixed arguments allow only definitional theorem rewrites.
+  (let [r (simp-expr* st env lemma-index expr config)]
+    (if (:proof? r) expr (:expr r))))
+
+(declare make-simp-lemmas)
+
+(defn unfold-expr
+  "Lean 4.33.1 Meta/Tactic/Unfold.lean unfold with an existing unfold theorem."
+  [st env expr theorem]
+  (let [lemmas (make-simp-lemmas env [theorem])
+        index (build-lemma-index st env lemmas)]
+    (simp-expr* st env index expr {:unfold-theorem theorem :cache (atom {})
+                                  :max-depth 20 :to-unfold #{} :discharge-depth 0})))
 
 ;; Public wrapper
 (defn simp-expr
