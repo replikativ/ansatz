@@ -195,3 +195,38 @@ example : ∀ _ : Nat, equationConstant = 1 := by
   unfold equationConstant
   guard_target =ₛ ∀ _ : Nat, 1 = 1
   intro n; rfl
+
+def unfoldType : Type := Nat
+run_meta do
+  let type ← Lean.Meta.mkEq (Lean.mkConst ``unfoldType) (Lean.mkConst ``Bool)
+  Lean.addDecl (.axiomDecl { name := `unfoldType.eq_def, levelParams := [], type, isUnsafe := false })
+example : (Nat → unfoldType) = (Nat → Bool) := by
+  unfold unfoldType
+  guard_target =ₛ (Nat → Bool) = (Nat → Bool)
+  rfl
+
+noncomputable def nestedDite.match_1 : (Bool → Type) → Bool → (Unit → Nat) → (Unit → Nat) → Nat :=
+  @dite _ True (Decidable.isTrue True.intro) (fun _ => fun _ b f t => @Bool.rec (fun _ => Nat) (f ()) (t ()) b)
+            (fun _ => fun _ b f t => @Bool.rec (fun _ => Nat) (f ()) (t ()) b)
+open Lean Meta in
+run_meta do
+  Match.addMatcherInfo ``nestedDite.match_1 {
+    numParams := 0, numDiscrs := 1, uElimPos? := none,
+    altInfos := #[{ numFields := 0, numOverlaps := 0, hasUnitThunk := true },
+                 { numFields := 0, numOverlaps := 0, hasUnitThunk := true }],
+    discrInfos := #[{}], overlaps := {} }
+  let alt (v : Nat) := mkLambda `u .default (mkConst ``Unit) (mkNatLit v)
+  let expr := mkAppN (mkConst ``nestedDite.match_1) #[mkLambda `b .default (mkConst ``Bool) (mkConst ``Nat), mkConst ``Bool.false, alt 13, alt 21]
+  discard <| inferType expr
+  let .reduced r ← withReducible <| reduceMatcher? expr | throwError "matcher stuck"
+  unless r == mkNatLit 13 do throwError "unexpected result {r}"
+
+-- Non-propositional dependent Pi types admit only definitional rewrites.
+def unfoldFamily (_ : Nat) : Type := Nat
+run_meta do
+  let type := Lean.mkForall `n .default (Lean.mkConst ``Nat)
+    (← Lean.Meta.mkEq (Lean.mkApp (Lean.mkConst ``unfoldFamily) (Lean.mkBVar 0)) (Lean.mkConst ``Bool))
+  Lean.addDecl (.axiomDecl { name := `unfoldFamily.eq_def, levelParams := [], type, isUnsafe := false })
+example : (∀ n, unfoldFamily n) = (Nat → Nat) := by
+  fail_if_success unfold unfoldFamily
+  rfl

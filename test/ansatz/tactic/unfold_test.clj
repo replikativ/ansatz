@@ -6,6 +6,7 @@
             [ansatz.core :as a]
             [ansatz.kernel.env :as env]
             [ansatz.meta.rec-ext :as rec-ext]
+            [ansatz.meta.match.matcher-info :as matcher-info]
             [ansatz.kernel.expr :as e]
             [ansatz.kernel.name :as name]
             [ansatz.kernel.level :as lvl]
@@ -206,3 +207,90 @@
           st (tc/attach-lctx (tc/mk-tc-state en) lctx)]
       (is (= (e/lit-nat 13)
              (:expr (#'simp/try-reduce-matcher st (expand "matcher-bool" (c "Bool.false")))))))))
+
+
+(deftest unfold-equations-on-type-valued-arrows
+  (let [type0 (e/sort' (lvl/succ lvl/zero))
+        eq (fn [x y] (e/app* (e/const' (name/from-string "Eq") [(lvl/succ (lvl/succ lvl/zero))])
+                             type0 x y))
+        type-name (name/from-string "unfoldType")
+        eq-name (name/from-string "unfoldType.eq_def")
+        en (-> (a/env)
+               (env/check-constant (env/mk-def type-name [] type0 (c "Nat")))
+               (env/check-constant (env/mk-axiom eq-name [] (eq (c "unfoldType") (c "Bool")))))
+        arrow (e/arrow (c "Nat") (c "unfoldType"))
+        expected (e/arrow (c "Nat") (c "Bool"))
+        st (tc/mk-tc-state en)
+        r (simp/unfold-expr st en arrow eq-name)
+        target (eq arrow expected)
+        ps (basic/unfold-in-goal (first (proof/start-proof en target)) "unfoldType")
+        solved (basic/rfl ps)
+        term (meta/zonk-expr (:meta-mctx solved) (e/mvar (:root-mvar solved)))]
+    (is (= expected (:expr r)))
+    (is (env/verifies? en (eq arrow expected) (:proof? r)))
+    (is (= (eq expected expected) (:type (proof/current-goal ps))))
+    (is (env/verifies? en target term))
+    ;; A dependent type-valued Pi stays on dsimp; a non-rfl equation is inapplicable.
+    (let [family (name/from-string "unfoldFamily")
+          family-type (e/arrow (c "Nat") type0)
+          value (e/lam "n" (c "Nat") (c "Nat") :default)
+          lhs (e/app (e/const' family []) (e/bvar 0))
+          equation (e/forall' "n" (c "Nat") (eq lhs (c "Bool")) :default)
+          en (-> en
+                 (env/check-constant (env/mk-def family [] family-type value))
+                 (env/check-constant (env/mk-axiom (name/from-string "unfoldFamily.eq_def") [] equation)))
+          pi (e/forall' "n" (c "Nat") lhs :default)
+          r (simp/unfold-expr (tc/mk-tc-state en) en pi (name/from-string "unfoldFamily.eq_def"))]
+      (is (= pi (:expr r)))
+      (is (nil? (:proof? r))))))
+
+(deftest matcher-unfolds-nested-dite-only-in-its-value
+  (let [nat (c "Nat") bool (c "Bool") unit (c "Unit")
+        unitnat (e/arrow unit nat)
+        motive-type (e/arrow bool (e/sort' (lvl/succ lvl/zero)))
+        ty (e/arrow motive-type (e/arrow bool (e/arrow unitnat (e/arrow unitnat nat))))
+        body (e/app* (e/const' (name/from-string "Bool.rec") [(lvl/succ lvl/zero)])
+                      (e/lam "b" bool nat :default)
+                      (e/app (e/bvar 1) (c "Unit.unit"))
+                      (e/app (e/bvar 0) (c "Unit.unit")) (e/bvar 2))
+        value (e/lam "motive" motive-type
+                      (e/lam "b" bool (e/lam "f" unitnat (e/lam "t" unitnat body :default) :default)
+                             :default) :default)
+        decide (e/app* (c "Decidable.isTrue") (c "True") (c "True.intro"))
+        dite (fn [type level yes no]
+               (e/app* (e/const' (name/from-string "dite") [level]) type (c "True") decide
+                        (e/lam "h" (c "True") yes :default)
+                        (e/lam "h" (e/app (c "Not") (c "True")) no :default)))
+        level (e/sort-level (tc/infer-type (tc/mk-tc-state (a/env)) ty))
+        value (dite ty level value value)
+        n (name/from-string "nestedDiteMatcher")
+        en (-> (a/env)
+               (env/check-constant (env/mk-def n [] ty value))
+               (matcher-info/add-matcher-info "nestedDiteMatcher"
+                 {:num-params 0 :num-discrs 1 :alts [{:unit-thunk true} {:unit-thunk true}]}))
+        expr (fn [discr]
+               (e/app* (e/const' n []) (e/lam "b" bool nat :default) discr
+                        (e/lam "u" unit (e/lit-nat 13) :default)
+                        (e/lam "u" unit (e/lit-nat 21) :default)))
+        st (tc/mk-tc-state en)
+        app (expr (c "Bool.false"))]
+    (is (= nat (tc/infer-type st app)))
+    (is (= (e/lit-nat 13) (:expr (#'simp/try-reduce-matcher st app))))
+    (is (= (e/lit-nat 13) (#'simp/dsimp-expr en {} app 20)))
+    (is (nil? (with-redefs-fn {#'simp/unfold-nested-dite (fn [_ value] value)}
+                #(#'simp/try-reduce-matcher st app))))
+    (is (nil? (#'simp/try-reduce-matcher st
+                (expr (dite bool (lvl/succ lvl/zero) (c "Bool.false") (c "Bool.true"))))))))
+
+(deftest bundled-literal-matcher-reduces-nested-dite
+  (let [nat (c "Nat") unit (c "Unit") en (a/env)
+        matcher (e/const' (name/from-string "Lean.Grind.CommRing.Power.denote.match_1")
+                          [(lvl/succ lvl/zero)])
+        expr (e/app* matcher (e/lam "k" nat nat :default) (e/lit-nat 2)
+                      (e/lam "u" unit (e/lit-nat 13) :default)
+                      (e/lam "u" unit (e/lit-nat 21) :default)
+                      (e/lam "k" nat (e/bvar 0) :default))
+        st (tc/mk-tc-state en)]
+    (is (tc/is-def-eq st nat (tc/infer-type st expr)))
+    (is (= (e/lit-nat 2) (:expr (#'simp/try-reduce-matcher st expr))))
+    (is (= (e/lit-nat 2) (#'simp/dsimp-expr en {} expr 20)))))

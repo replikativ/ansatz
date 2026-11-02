@@ -248,32 +248,34 @@
            :cache true})
         (tactic-error! "cannot build congr proof" {:proof-construction true})))))
 
-(defn- mk-implies-congr
+(defn- mk-imp-congr
   "implies_congr hp hq : (p₁ → q₁) = (p₂ → q₂).
-   Lean 4: mkImpCongr for non-dependent arrow types."
-  [st p-result q-result orig-p orig-q]
-  (cond
-    (and (nil? (:proof? p-result)) (nil? (:proof? q-result)))
-    (mk-result (e/arrow (:expr p-result) (:expr q-result)))
+   Lean 4.33.1 Meta/Tactic/Simp/Types.lean mkImpCongr for arrow types."
+  [st src p-result q-result]
+  (let [orig-p (e/forall-type src) orig-q (e/forall-body src)
+        expr (e/forall' (e/forall-name src) (:expr p-result) (:expr q-result) (e/forall-info src))]
+    (cond
+      (and (nil? (:proof? p-result)) (nil? (:proof? q-result)))
+      (mk-result expr)
 
-    :else
+      :else
 
-      ;; implies_congr.{u,v} (a₁ a₂ : Sort u) (b₁ b₂ : Sort v) (ha)(hb) : (a₁→b₁)=(a₂→b₂)
-      ;; u,v are the sorts of the antecedent p and consequent q (Lean's mkImpCongr).
-      ;; ha : Eq.{u+1} (Sort u) p₁ p₂, so refl fallback is Eq.refl.{u+1} (Sort u) p.
-    (let [u (get-sort-level st orig-p)
-          v (get-sort-level st orig-q)
-          hp (or (:proof? p-result)
-                 (e/app* (e/const' eq-refl-name [(lvl/succ u)])
-                         (e/sort' u) orig-p))
-          hq (or (:proof? q-result)
-                 (e/app* (e/const' eq-refl-name [(lvl/succ v)])
-                         (e/sort' v) orig-q))]
-      {:expr (e/arrow (:expr p-result) (:expr q-result))
-       :proof? (e/app* (e/const' implies-congr-name [u v])
-                       orig-p (:expr p-result)
-                       orig-q (:expr q-result) hp hq)
-       :cache true})))
+        ;; implies_congr.{u,v} (a₁ a₂ : Sort u) (b₁ b₂ : Sort v) (ha)(hb) : (a₁→b₁)=(a₂→b₂)
+        ;; u,v are the sorts of the antecedent p and consequent q (Lean's mkImpCongr).
+        ;; ha : Eq.{u+1} (Sort u) p₁ p₂, so refl fallback is Eq.refl.{u+1} (Sort u) p.
+      (let [u (get-sort-level st orig-p)
+            v (get-sort-level st orig-q)
+            hp (or (:proof? p-result)
+                   (e/app* (e/const' eq-refl-name [(lvl/succ u)])
+                           (e/sort' u) orig-p))
+            hq (or (:proof? q-result)
+                   (e/app* (e/const' eq-refl-name [(lvl/succ v)])
+                           (e/sort' v) orig-q))]
+        {:expr expr
+         :proof? (e/app* (e/const' implies-congr-name [u v])
+                         orig-p (:expr p-result)
+                         orig-q (:expr q-result) hp hq)
+         :cache true}))))
 
 ;; ============================================================
 ;; Error helpers
@@ -1908,12 +1910,42 @@
               (recur pending seen m)))))
       m)))
 
+(defn- unfold-nested-dite
+  "Lean 4.33.1 Meta/WHNF.lean unfoldNestedDIte: Core.transform replaces
+   dite constants only in the matcher value, before caller arguments are inserted."
+  [env value]
+  (let [cache (java.util.IdentityHashMap.)
+        dite (name/from-string "dite")]
+    (letfn [(visit [x]
+              (or (.get cache x)
+                  (with-inc-rec-depth 1 x
+                    (let [r (if (and (e/const? x) (= dite (e/const-name x)))
+                              (let [^ConstantInfo ci (env/lookup! env dite)]
+                                (e/instantiate-level-params (.value ci)
+                                  (zipmap (vec (.levelParams ci)) (e/const-levels x))))
+                              (case (e/tag x)
+                                :app (let [[h args] (e/get-app-fn-args x)]
+                                       (apply e/app* (visit h) (map visit args)))
+                                :lam (e/lam (e/lam-name x) (visit (e/lam-type x))
+                                            (visit (e/lam-body x)) (e/lam-info x))
+                                :forall (e/forall' (e/forall-name x) (visit (e/forall-type x))
+                                                  (visit (e/forall-body x)) (e/forall-info x))
+                                :let (e/let' (e/let-name x) (visit (e/let-type x))
+                                              (visit (e/let-value x)) (visit (e/let-body x)))
+                                :mdata (e/mdata (e/mdata-data x) (visit (e/mdata-expr x)))
+                                :proj (e/proj (e/proj-type-name x) (e/proj-idx x) (visit (e/proj-struct x)))
+                                x))
+                          r (if (= r x) x r)]
+                      (.put cache x r)
+                      r))))]
+      (visit value))))
+
 (defn- try-reduce-matcher
   "Lean `Meta.reduceMatcher?` (Meta/WHNF.lean): reduce a matcher application whose
    discriminants select an alternative. The matcher is applied to its parameter, motive and
    discriminant prefix (sizes from MatcherInfo) and to fresh locals in place of the
-   alternatives, then reduced like Lean's `whnfMatcher`: whnf whose delta steps are limited to
-   `canUnfoldAtMatcher` (plus the matcher itself), so ordinary definitions inside
+   alternatives. Its instantiated value first passes through unfoldNestedDIte, then
+   whnfMatcher limits delta steps to canUnfoldAtMatcher, so ordinary definitions inside
    discriminants stay folded. If the head is the local of alternative i, the result is that
    alternative applied to the local's arguments (the constructor fields, or `Unit.unit` for
    a thunk) and to any arguments beyond the alternatives. Definitional, so no proof."
@@ -1927,12 +1959,14 @@
               nalts (matcher-info/num-alts info)]
           (when (and (pos? nalts) (>= (count args) (+ prefix nalts)))
             (let [base (inc (max-fvar-id (:lctx st) expr))
-                  matcher (e/const-name head)
-                  probe (apply e/app* head (into (subvec args 0 prefix)
+                  ^ConstantInfo ci (env/lookup! env (e/const-name head))
+                  value (e/instantiate-level-params (.value ci)
+                            (zipmap (vec (.levelParams ci)) (e/const-levels head)))
+                  value (unfold-nested-dite env value)
+                  probe (apply e/app* value (into (subvec args 0 prefix)
                                                  (map #(e/fvar (+ base %)) (range nalts))))
                   reduced (red/whnf env probe (:lctx st)
-                                    {:can-unfold? (fn [n] (or (= n matcher)
-                                                              (can-unfold-at-matcher? env n)))})
+                                    {:can-unfold? #(can-unfold-at-matcher? env %)})
                   [rhead rargs] (when reduced (e/get-app-fn-args reduced))]
               (when (and rhead (e/fvar? rhead)
                          (<= base (e/fvar-id rhead) (+ base nalts -1)))
@@ -2712,9 +2746,7 @@
         ;; Forall/arrow — Lean 4's simpForall/simpArrow
         ;; Per-binder contextual: add h:P as a simp lemma when simplifying Q
       :forall
-      (let [is-arrow (and (not (e/has-loose-bvars? (e/forall-body expr) 0))
-                          (not (and (:unfold-theorem config)
-                                    (not (is-prop-type? st (e/forall-type expr))))))
+      (let [is-arrow (not (e/has-loose-bvars? (e/forall-body expr) 0))
             orig-p (e/forall-type expr)
             orig-q (e/forall-body expr)]
         (if is-arrow
@@ -2752,14 +2784,24 @@
                   (mk-result (e/arrow p q)
                              (e/app* (e/const' (name/from-string "implies_congr_ctx") [])
                                      orig-p p orig-q q hp hq))))
-              (if (and (is-prop-type? st orig-p) (is-prop-type? st orig-q))
-                (mk-implies-congr st p-result q-result orig-p orig-q)
-                (mk-result (e/forall' (e/forall-name expr) (:expr p-result)
-                                      (:expr q-result) (e/forall-info expr))))))
+              ;; Lean 4.33.1 Simp/Main.lean simpArrow uses mkImpCongr for
+              ;; function types as well as implications, at arbitrary universes.
+              (mk-imp-congr st expr p-result q-result)))
             ;; Lean Simp/Main.lean simpForall: open the binder before
             ;; inferring/simplifying its body, then reabstract with forall_congr.
-          (if-not (or (:unfold-theorem config) (is-prop-type? st expr))
-            (mk-result (dsimp-expr env (:lctx st) expr (:max-depth config)))
+          (if-not (is-prop-type? st expr)
+            ;; Lean simpForall: a dependent non-Prop Pi admits only dsimp.
+            (if (:unfold-theorem config)
+              (let [domain (unfold-dsimp st env lemma-index orig-p config)
+                    xid (swap! (:next-id st) inc)
+                    xf (e/fvar xid)
+                    st' (update st :lctx assoc xid {:tag :local :id xid
+                                                   :name (str (e/forall-name expr)) :type domain})
+                    body (e/instantiate1 orig-q xf)
+                    body' (unfold-dsimp st' env lemma-index body (assoc config :cache (atom {})))]
+                (mk-result (e/forall' (e/forall-name expr) domain (e/abstract1 body' xid)
+                                      (e/forall-info expr))))
+              (mk-result (dsimp-expr env (:lctx st) expr (:max-depth config))))
             (let [domain (if (:unfold-theorem config)
                            (unfold-dsimp st env lemma-index orig-p config)
                            (dsimp-expr env (:lctx st) orig-p (:max-depth config)))
