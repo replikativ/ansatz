@@ -928,7 +928,7 @@
   (when (> (count names) (count fields))
     (throw (ex-info "Tactic error: too many case variable names" {:kind :tactic-error})))
   (let [lctx (reduce (fn [ctx [fid nm]]
-                       (if (= '_ nm) ctx
+                       (if (or (nil? fid) (= '_ nm)) ctx
                            (-> ctx (assoc-in [fid :name] (str nm))
                                (assoc-in [fid :inaccessible] false))))
                      (proof/mvar-lctx ps gid) (map vector fields names))]
@@ -982,11 +982,20 @@
                            [tag & names] (if (sequential? pattern) pattern [pattern])
                            tag (if (nil? tag) "nil" tag)
                            gid (get-case-goal ps tag)
-                           fields (mapv key (filter (fn [[fid d]]
-                                                      (and (:inaccessible d)
-                                                           (not (contains? original-fids fid))))
-                                                    (sort-by (fn [[fid d]] [(boolean (:is-ih d)) fid])
-                                                             (proof/mvar-lctx ps gid))))
+                           branch (some #(when (= gid (:goal-id %)) %)
+                                        (::basic/case-branches (meta ps)))
+                           fields (if branch
+                                    ;; CasesSubgoal.fields includes fields eliminated
+                                    ;; by index unification. Consume their names too,
+                                    ;; retaining the older local's existing name.
+                                    (mapv #(when (and % (not (contains? original-fids %))
+                                                     (get-in (proof/mvar-lctx ps gid) [% :inaccessible])) %)
+                                          (:field-fvars branch))
+                                    (mapv key (filter (fn [[fid d]]
+                                                        (and (:inaccessible d)
+                                                             (not (contains? original-fids fid))))
+                                                      (sort-by (fn [[fid d]] [(boolean (:is-ih d)) fid])
+                                                               (proof/mvar-lctx ps gid)))))
                            ps (rename-branch-locals ps gid (take (count names) fields) names)]
                        (eval-case ps tag [] body)))
                    ps alts)]

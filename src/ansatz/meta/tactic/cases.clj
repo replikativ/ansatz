@@ -2,7 +2,7 @@
   "Lean/Meta/Tactic/Cases.lean: CasesSubgoal, generalizeIndices, inductionCasesOn,
    unifyEqs?; supporting Subst.lean/substCore and UnifyEq.lean/unifyEq?
    (55f80e10a3). Uses the definitional casesOn constructions, independently of
-   the public tactic's proof-recipe implementation. Context carries MetaM's
+   any surface syntax. Context carries MetaM's
    local context, fresh-name supply, environment and metavariable context."
   (:require [ansatz.kernel.expr :as e]
             [ansatz.kernel.env :as env]
@@ -12,7 +12,8 @@
             [ansatz.meta :as meta]
             [ansatz.meta.fvar-subst :as subst]
             [ansatz.meta.constructions.util :as u]
-            [ansatz.meta.constructions.no-confusion :as no-confusion]))
+            [ansatz.meta.constructions.no-confusion :as no-confusion]
+            [ansatz.meta.constructions.cases-on :as cases-on]))
 
 (defn tactic-error! [message data]
   (throw (ex-info (str "Tactic error: " message) (assoc data :kind :tactic-error))))
@@ -68,14 +69,25 @@
                [(conj ds id) (conj ids id)] [ds ids]))
            [[] (set ids)] (sort-by key lctx))))
 
-(defn clear! [ctx id fid]
+(defn- can-clear? [ctx id fid]
   (with-goal! ctx id)
-  (let [t (goal-type ctx id) lctx (:lctx @ctx)]
-    (when (or (depends-on? t fid)
-              (some (fn [[i d]] (and (not= i fid) (depends-on? (:type d) fid))) lctx))
-      (tactic-error! "clear: declaration has dependents" {:fvar-id fid}))
-    (set-lctx! ctx (dissoc lctx fid))
+  (not (or (depends-on? (goal-type ctx id) fid)
+           (some (fn [[i d]]
+                   (and (not= i fid)
+                        (or (depends-on? (:type d) fid)
+                            (and (:value d) (depends-on? (:value d) fid)))))
+                 (:lctx @ctx)))))
+
+(defn clear! [ctx id fid]
+  (when-not (can-clear? ctx id fid)
+    (tactic-error! "clear: declaration has dependents" {:fvar-id fid}))
+  (let [t (goal-type ctx id)]
+    (set-lctx! ctx (dissoc (:lctx @ctx) fid))
     (let [child (fresh-mvar! ctx t)] (assign! ctx id (e/mvar child)) child)))
+
+(defn- try-clear [ctx id fid]
+  ;; Lean Injection.lean injectionCore uses MVarId.tryClear after injection.
+  (if (can-clear? ctx id fid) (clear! ctx id fid) id))
 
 (defn subst-core
   "Subst.substCore: revert dependent locals, transport the target, reintroduce
@@ -139,6 +151,27 @@
       (tactic-error! "cases: inductive type expected" {:type type}))
     [(e/const-levels f) (subvec args 0 (.numParams ci))]))
 
+(defn- head-beta [expr]
+  ;; Lean Expr.headBeta, used by Meta/Tactic/Intro.lean introNImp.
+  (loop [expr expr]
+    (let [[f args] (e/get-app-fn-args expr)]
+      (if (and (e/lam? f) (seq args))
+        (recur (u/app (e/instantiate1 (e/lam-body f) (first args)) (rest args)))
+        expr))))
+
+(defn- intro-n [ctx type n]
+  ;; Lean Induction.lean finalize uses introN/introNP, which head-beta
+  ;; reduces the final target without delta/iota unfolding it.
+  (loop [type type xs []]
+    (if (= n (count xs)) [xs (head-beta type)]
+        (let [type (head-beta type)
+              type (if (e/forall? type) type (u/whnf ctx type))]
+          (when-not (e/forall? type)
+            (tactic-error! "cases: minor premise has too few binders" {:type type :expected n}))
+          (let [x (u/local-decl ctx (e/forall-name type) (head-beta (e/forall-type type))
+                                (e/forall-info type))]
+            (recur (e/instantiate1 (e/forall-body type) x) (conj xs x)))))))
+
 (defn induction-cases-on [ctx id major]
   (with-goal! ctx id)
   (let [lctx (:lctx @ctx) x (e/fvar major)
@@ -148,6 +181,11 @@
         params (subvec args 0 np) indices (subvec args np)
         us (e/const-levels f)
         cn (name/mk-str (.name ind) "casesOn")
+        ;; Lean installs casesOn with the inductive. Bundled Init profiles
+        ;; may omit this auxiliary; realize the checked construction on demand.
+        _ (when-not (env/lookup (:env @ctx) cn)
+            (swap! ctx update :env cases-on/mk-cases-on (.name ind))
+            (set-lctx! ctx lctx))
         ci (env/lookup! (:env @ctx) cn)
         reverting (set (conj (mapv e/fvar-id indices) major))
         deps (vec (remove reverting (dependent-locals lctx reverting)))
@@ -165,7 +203,7 @@
                         t (u/whnf ctx value-type)
                         minor-type (e/forall-type t)]
                     (set-lctx! ctx base)
-                    (let [[vs body] (u/forall-telescope ctx minor-type (+ (.numFields ct) (count deps)))
+                    (let [[vs body] (intro-n ctx minor-type (+ (.numFields ct) (count deps)))
                           fields (subvec vs 0 (.numFields ct))
                           extra (subvec vs (.numFields ct))
                           ctor-app (u/app (e/const' ctor-name us) (concat params fields))
@@ -278,14 +316,13 @@
               (let [[ta a tb b] args]
                 (when-not (tc/is-def-eq @ctx ta tb)
                   (tactic-error! "cases: heterogeneous equality types are not definitionally equal" {:type eq-type}))
+                ;; Lean UnifyEq.lean heqToEq': assert the homogeneous
+                ;; equation as a leading forall, then clear the old HEq.
                 (let [prf (u/app (u/const' "eq_of_heq" [(u/get-level ctx ta)]) [ta a b h])
-                      eq (u/local-decl ctx (:name (u/decl ctx h)) (u/mk-eq ctx a b))
-                      next (fresh-mvar! ctx (goal-type ctx child))]
-                  (assign! ctx child (e/app (mk-lambda-fvars ctx [eq] (e/mvar next)) prf))
-                  ;; Turn the asserted equality back into a leading forall for the loop.
-                  (let [wrapped (fresh-mvar! ctx (u/mk-forall-fvars ctx [eq] (goal-type ctx next)))]
-                    (assign! ctx next (e/app (e/mvar wrapped) eq))
-                    (recur n wrapped s (inc steps)))))
+                      wrapped (fresh-mvar! ctx (e/forall' (:name (u/decl ctx h))
+                                                         (u/mk-eq ctx a b) (goal-type ctx child) :default))]
+                  (assign! ctx child (e/app (e/mvar wrapped) prf))
+                  (recur n (clear! ctx wrapped hid) s (inc steps))))
               (let [[type a b] args
                     a (zonk ctx a) b (zonk ctx b)
                     variable (cond
@@ -311,7 +348,7 @@
                             nnew (count (remove #(lvl/level-zero? (u/get-level ctx (u/infer-type ctx %)))
                                                 (subvec (:args (constructor-app? ctx a)) (.numParams ca))))]
                         (assign! ctx child (e/app val (e/mvar next)))
-                        (recur (+ (dec n) nnew) next s (inc steps)))))
+                        (recur (+ (dec n) nnew) (try-clear ctx next hid) s (inc steps)))))
 
                   :else (tactic-error! "cases: dependent elimination failed to solve equation" {:type eq-type})))))))))
 
