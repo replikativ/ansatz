@@ -127,20 +127,26 @@
       (check-sort loaded)))
   (doseq [entry ["debugString" "debugNat"]
           :let [config {:compiler compiler :root-module "Boundary" :entries [entry]}]]
-    (refused "CapabilityMissing" #(lean/load-project runtime (source-dir "sharing-boundaries") config))
-    ;; Preparing code does not assert execution readiness. Artifact admission
-    ;; must enforce the same managed-domain proof as direct source loading.
+    (with-open [loaded (lean/load-project runtime (source-dir "sharing-boundaries") config)]
+      (when (= entry "debugNat")
+        (check (= 42 (:value (lean/call loaded entry 42)))))
+      (refused "RuntimeBoundary" #(lean/call loaded entry
+                                    (if (= entry "debugString") "leaf" (.shiftLeft java.math.BigInteger/ONE 80)))))
+    ;; Source and artifact calls enforce the same actual-value domain. Entry
+    ;; admission does not promise all runtime paths/values are supported.
     (let [archive (io/file output (str entry ".zip"))
           description (with-open [out (io/output-stream archive)]
                         (lean/prepare-project (source-dir "sharing-boundaries") config out))]
-      (with-open [input (io/input-stream archive)]
-        (refused "CapabilityMissing" #(lean/load-artifact runtime input (:manifest-sha256 description))))))
+      (with-open [input (io/input-stream archive)
+                  loaded (lean/load-artifact runtime input (:manifest-sha256 description))]
+        (refused "RuntimeBoundary" #(lean/call loaded entry
+                                      (if (= entry "debugString") "leaf" (.shiftLeft java.math.BigInteger/ONE 80)))))))
   (with-open [pure (lean/load-project runtime (source-dir "sharing-boundaries")
                     {:compiler compiler :root-module "Boundary" :entries ["debugArrayPure"]})]
     (refused "RuntimeBoundary" #(lean/call pure "debugArrayPure" [3 2 1]))))
 (def report {:schema "ansatz-lean-jvm-source-acceptance/1" :checks @checks :timings-ms @timings
              :module-cache-observations @observations :sdk-resource-protocol "jar" :runtime-heap-mib (quot (.maxMemory (Runtime/getRuntime)) 1048576)
-             :scope "Actual public source cold/cache/edit/reload/artifact, common/scalar values, unchanged tutorial sort, sharing-domain source/artifact refusal, warnings, errors, capability and type refusal"})
+             :scope "Actual public source cold/cache/edit/reload/artifact, common/scalar values, unchanged tutorial sort, runtime sharing-domain source/artifact refusal, warnings, errors, capability and type refusal"})
 (spit (io/file output "result.json") (json/write-str report :escape-slash false))
 (println "PASS SOURCE_ACCEPTANCE" (dissoc report :module-cache-observations))
 (shutdown-agents)

@@ -8052,8 +8052,8 @@ public final class Interpreter implements AutoCloseable {
     }
     /** Pinned object.cpp: return the owning argument unchanged; the message is
      * borrowed and printed as a C string. Untracked immutable heap leaves have
-     * no logical exclusivity observation in this runtime. Public admission
-     * additionally proves this managed/immediate domain from the actual IR. */
+     * no logical exclusivity observation in this runtime. Admitted programs
+     * fail here if execution reaches a value outside that supported domain. */
     private void validateTraceShared(Object erased,Object message,Object value) {
         require(ERASED.equals(erased),"Sharing trace requires erased type parameter");
         utf8Extent(message);

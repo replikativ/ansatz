@@ -13,9 +13,10 @@ Execution does not import these proofs into the core Ansatz kernel.
 
 The adapter fixes the element type to Nat or String and returns IO so the sharing
 diagnostic has an explicit captured stderr channel. `sortAndOriginal` returns both
-the sorted array and the original. The upstream stdin-consuming CLI is a separate
-compatibility target; this example does not claim that every function in the module
-can be selected or run.
+the sorted array and the original. The candidate also targets the unchanged
+stdin-consuming `main` with explicit `List String` arguments `--unique` or
+`--shared` and supplied input. This does not make every function in the module
+an eligible public entry.
 
 After resolving the candidate SDK and ordinary runtime JARs, run the Java source
 launcher with an explicit supported Lean 4.33.1 installation and producer bundle:
@@ -46,9 +47,10 @@ From a Clojure REPL with `ansatz.lean.jvm` required as `lean`:
 
 Diagnostic emission depends on actual guest ownership. Its line count is not a
 portable measure of allocations or native/JVM performance. This runtime supports
-the diagnostic on managed objects/immediate scalars whose provenance is established
-before admission; sharing observations of untracked String/BigInteger heap leaves
-remain unsupported. Array String observes the managed array, not its String elements.
+the diagnostic on actual managed objects/immediate scalars at execution time;
+sharing observations of untracked String/BigInteger heap leaves throw if reached.
+Earlier guest computation may have happened before such a failure. Array String
+observes the managed array, not its String elements.
 
 For prepared artifacts, use the ordinary `prepare-project` / `load-artifact` API and
 retain the independently trusted manifest hash. The execution host then needs the

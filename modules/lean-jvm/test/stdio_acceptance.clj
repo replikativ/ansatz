@@ -1,7 +1,7 @@
 ;; Explicit native differential/source/artifact gate; safe to load in a retained
 ;; REPL under a separate namespace. No downloads or runtime namespace reloading.
 (require '[ansatz.lean.jvm :as lean] '[clojure.java.io :as io]
-         '[clojure.data.json :as json])
+         '[clojure.data.json :as json] '[clojure.string :as str])
 (import '[java.nio.charset StandardCharsets]
         '[java.util Arrays] '[java.util.concurrent TimeUnit]
         '[ansatz.lean.jvm InvocationOptions LeanException])
@@ -63,6 +63,30 @@
                        {:compiler compiler :root-module "ForMIO" :entries ["main"]})]
     (compare-program! project "filter-lines" (str upstream "/ForMIO.lean") (utf8 "123\nabc\n456\nλ\n") [[]] false)
     (compare-program! project "filter-args" (str upstream "/ForMIO.lean") (utf8 "ignored\n") [["extra"]] false))
+  (let [source "examples/fp-lean-sort"
+        module "Examples.ProgramsProofs.InstrumentedInsertionSort"
+        file (str source "/Examples/ProgramsProofs/InstrumentedInsertionSort.lean")
+        options {:compiler compiler :root-module module :entries ["main"]}]
+    (with-open [project (lean/load-project runtime source options)]
+      (doseq [[i text] (map-indexed vector ["" "c\na\nb\n" "a\na\nb\n"
+                                            "😀\nβ\na\n" "a\nb\nc\n" "A\u0000B\na\n"])
+              mode ["--unique" "--shared"]]
+        (let [reference (native! (str "sort-" i mode) file (utf8 text) [mode])
+              result (lean/call-with-options project "main" {:stdin text} [mode])]
+          (check (= (:exit reference) (:value result)))
+          (check (bytes= (:stdout reference) (:stdout-bytes result)))
+          ;; RC diagnostics reflect actual backend ownership, so compare their
+          ;; valid content rather than assume identical native/JVM line counts.
+          (doseq [diagnostics [(String. ^bytes (:stderr reference) StandardCharsets/UTF_8) (:stderr result)]]
+            (check (or (empty? diagnostics)
+                       (every? #{"shared RC array to swap"} (str/split-lines diagnostics)))))))
+      (compare-program! project "sort-invalid" file (utf8 "ignored\n") [[]] false))
+    (let [description (with-open [out (io/output-stream (io/file output "sort-cli.zip"))]
+                        (lean/prepare-project source options out))]
+      (spit (io/file output "sort-cli.json") (json/write-str description))
+      (with-open [in (io/input-stream (io/file output "sort-cli.zip"))
+                  project (lean/load-artifact runtime in (:manifest-sha256 description))]
+        (check (= "a\nb\nc\n" (:stdout (lean/call-with-options project "main" {:stdin "c\na\nb\n"} ["--unique"])))))))
   (let [source "consumer/resources/lean/stdio-source"
         options {:compiler compiler :root-module "Main"
                  :entries ["readBytes" "readLine" "echoBytes" "splitUtf8" "invalidUtf8"
@@ -105,19 +129,39 @@
       (try (lean/call-with-options limited "message" {:stdout-limit-bytes 5})
            (throw (AssertionError. "Expected output limit"))
            (catch LeanException e (check (= "ResourceLimit" (.code e)))))))
-  ;; A native source result type alone cannot certify payload provenance through
-  ;; unsafe implementation replacements. Keep both source/artifact paths strict.
+  (with-open [project (lean/load-project runtime "consumer/resources/lean/sharing-boundary-source"
+                       {:compiler compiler :root-module "Boundary" :entries ["debugBranch"]})]
+    (check (= 3 (:value (lean/call project "debugBranch" false 7))))
+    (try (lean/call project "debugBranch" true 7)
+         (throw (AssertionError. "Expected reached-only leaf refusal"))
+         (catch LeanException e (check (.contains (.getMessage e) "heap-leaf ownership is unavailable")))))
+  ;; Source result types cannot certify payloads through unsafe replacements.
+  ;; The runtime guard refuses the actual unsupported leaf in both transports.
+  (let [before (count @@(ns-resolve 'ansatz.lean.jvm.project 'quarantine))]
+    (try (lean/load-project runtime "consumer/resources/lean/sharing-boundary-source"
+                           {:compiler compiler :root-module "InitFailure" :entries ["main"]})
+         (throw (AssertionError. "Expected initializer leaf refusal"))
+         (catch LeanException e
+           (check (= "RuntimeBoundary" (.code e)))
+           (check (.contains (.getMessage e) "heap-leaf ownership is unavailable"))))
+    (check (= before (count @@(ns-resolve 'ansatz.lean.jvm.project 'quarantine)))))
   (let [options {:compiler compiler :root-module "UnsafeResult" :entries ["checked" "traceChecked"]}
         source "consumer/resources/lean/sharing-boundary-source"]
-    (try (lean/load-project runtime source options)
-         (throw (AssertionError. "Expected projection refusal"))
-         (catch LeanException e (check (= "CapabilityMissing" (.code e)))))
+    (with-open [project (lean/load-project runtime source options)]
+      (try (lean/call project "traceChecked")
+           (throw (AssertionError. "Expected runtime leaf refusal"))
+           (catch LeanException e
+             (check (= "RuntimeBoundary" (.code e)))
+             (check (.contains (.getMessage e) "heap-leaf ownership is unavailable")))))
     (let [description (with-open [out (io/output-stream (io/file output "unsafe-result.zip"))]
                         (lean/prepare-project source options out))]
-      (with-open [in (io/input-stream (io/file output "unsafe-result.zip"))]
-        (try (lean/load-artifact runtime in (:manifest-sha256 description))
-             (throw (AssertionError. "Expected artifact projection refusal"))
-             (catch LeanException e (check (= "CapabilityMissing" (.code e)))))))))
+      (with-open [in (io/input-stream (io/file output "unsafe-result.zip"))
+                  project (lean/load-artifact runtime in (:manifest-sha256 description))]
+        (try (lean/call project "traceChecked")
+             (throw (AssertionError. "Expected artifact runtime leaf refusal"))
+             (catch LeanException e
+               (check (= "RuntimeBoundary" (.code e)))
+               (check (.contains (.getMessage e) "heap-leaf ownership is unavailable"))))))))
 (def report {:status "pass" :checks @checks :native-cases @observations})
 (spit (io/file output "result.json") (json/write-str report))
 (println "PASS STDIO_ACCEPTANCE" {:checks @checks :native-cases (count @observations)})

@@ -124,7 +124,15 @@ final class Bridge {
             if (message == null) message = selected.getClass().getName();
             // Actual category survives wrappers; original causes/ex-data may retain
             // guest owners, and are deliberately absent from the Java exception.
-            return new LeanException(code, bounded(selected.getClass().getName(), 256), bounded(message, 2048));
+            Object details = null;
+            if ("GuestIOError".equals(code) && selected instanceof IExceptionInfo) {
+                try {
+                    details = ((IExceptionInfo) selected).getData().valAt(Keyword.intern("guest-io-error"));
+                } catch (RuntimeException ignored) {
+                    // Optional projection must not replace the selected failure.
+                }
+            }
+            return new LeanException(code, bounded(selected.getClass().getName(), 256), bounded(message, 2048), details);
         }
         private Failure() { }
     }

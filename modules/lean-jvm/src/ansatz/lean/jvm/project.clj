@@ -266,7 +266,10 @@
                             (if (string? (get-in entry ["typeCheck" "signature"]))
                               ;; Legacy IO Unit has the independently pinned SDK codec
                               ;; witness; v2 must use its actual compiler layout evidence.
-                              {:kind (io-result! ctx raw) :value LeanUnit/INSTANCE}
+                              (let [kind (io-result! ctx raw)]
+                                {:kind kind :value LeanUnit/INSTANCE
+                                 :details (when (= :io-error kind)
+                                            (value/decode-io-error ctx (aget ^objects (.get ^java.lang.reflect.Field (:fields ctx) raw) 0)))})
                               (value/decode-io ctx entry raw))
                             (if (= "raw-nullary-scalar" (get entry "resultABI"))
                               (scalar/decode-external-scalar (get descriptor "result") raw)
@@ -276,7 +279,9 @@
                       {:decoded decoded :output output})))]
             (if io?
               (do
-                (need (= :ok (:kind decoded)) "GuestIOError" "Lean IO entry returned an error")
+                (when-not (= :ok (:kind decoded))
+                  (throw (ex-info "Lean IO entry returned an error"
+                                  {:code "GuestIOError" :guest-io-error (:details decoded)})))
                 (let [[out err] output]
                   (swap! cell assoc :prefix [(byte-array 0) (byte-array 0)])
                   (IOResult. (:value decoded) (join-bytes prefix-out out) (join-bytes prefix-err err))))

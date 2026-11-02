@@ -106,3 +106,24 @@ Run the existing launcher with `--main-class StdIOSmoke` and a fresh output
 directory. The consumer uses the SDK and its ordinary Maven dependencies;
 source preparation and native reference execution are producer-side acceptance
 checks, not part of its runtime path.
+
+## Monad runners and bounded IO errors
+
+`MonadsSmoke.java` loads the native-prepared [monad artifact](resources/lean/monad-conformance.zip)
+with the pinned manifest in [monad-conformance.json](resources/lean/monad-conformance.json).
+Its [closed Lean adapters](../examples/monad-conformance/Main.lean) exercise
+ReaderT/State/Except ordering, ST references, all four body/cleanup outcomes for
+EST and ExceptT finally, BaseIO/EIO runners, StateRefT, and IO catch/finally.
+Retained handles reuse one initialized global counter across calls. A Clojure
+function call checks the same public value conversion without a compiler namespace.
+
+Fresh projects exercise actual uncaught `IO.userError` messages, including Unicode,
+NUL, empty text, the 2048-unit boundary and surrogate-safe truncation. The consumer
+checks immutable value-only exception details, generic treatment of another
+IO.Error variant, terminal failed branches, successful close, and isolation from
+the healthy retained project. The IO Unit error entry uses this artifact's AUTO
+v2 evidence; it does not verify the legacy source codec path.
+
+Run the existing launcher with `--main-class MonadsSmoke` and a fresh output
+directory. This is a JVM-only application-JAR check; independent native oracle
+comparison remains a producer-side check in `test/monad_acceptance.clj`.

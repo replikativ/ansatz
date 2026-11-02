@@ -92,10 +92,12 @@ ownership changes.
 ## Compatibility examples and verification
 
 The [unchanged input examples](examples/fp-lean-io/README.md) cover HelloName,
-EarlyReturn and ForMIO. The instrumented insertion-sort CLI has a separate
-sharing-provenance limitation after projecting an IO result; adding stdin does
-not remove it. Its [explicit array adapters](examples/fp-lean-sort/README.md)
-remain available. Feline requires a following filesystem/resource-lifetime slice.
+EarlyReturn and ForMIO. The candidate replaces static sharing-provenance admission
+with actual runtime domain checks, allowing projected arrays to reach the sharing
+diagnostic. Unsupported String/BigInteger leaves still throw if reached; earlier
+guest work may have occurred, and failure retires that Project branch. The
+[sort example](examples/fp-lean-sort/README.md) describes its array adapters and
+CLI. Feline requires a following filesystem/resource-lifetime slice.
 
 [CapturedStdioChecks](test-java/CapturedStdioChecks.java) exercises actual engine
 ownership, bytes, directions, epochs, cancellation, limits and independent fork
