@@ -61,17 +61,17 @@ public final class FilesystemLayouts {
     }
     private static Node node(Allocator allocator, int tag, int fields, int scalars) {
         Node value = Objects.requireNonNull(allocator.allocate(tag, fields, scalars), "Allocator result");
-        need(value.tag == tag && value.rc == 1 && value.fields.length == fields && value.scalars.length == scalars,
+        need(value.freshLayout(tag, fields, scalars),
                 "Filesystem allocator returned another layout");
         return value;
     }
     private static void bits(Node value, int offset, int width, long raw) {
-        for (int i = 0; i < width; i++) value.scalars[offset + i] = (byte) (raw >>> (8 * i));
+        value.initializeBits(offset, width, raw);
     }
     private static Node time(Allocator allocator, long seconds, int nanos) {
         // systemTime: ctor_0.0.4, object slot 0; sset[1,0] UInt32.
         Node value = node(allocator, 0, 1, 4);
-        value.fields[0] = Long.valueOf(seconds);
+        value.initializeField(0, Long.valueOf(seconds));
         bits(value, 0, 4, nanos);
         return value;
     }
@@ -89,7 +89,7 @@ public final class FilesystemLayouts {
         Node modified = time(allocator, modifiedSeconds, modifiedNanos);
         // metadata: ctor_0.0.17, sset[2,0] size, [2,16] type, [2,8] links.
         Node value = node(allocator, 0, 2, 17);
-        value.fields[0] = accessed; value.fields[1] = modified;
+        value.initializeField(0, accessed); value.initializeField(1, modified);
         bits(value, 0, 8, sizeBits); bits(value, 8, 8, linksBits); bits(value, 16, 1, fileType);
         return value;
     }
@@ -137,17 +137,17 @@ public final class FilesystemLayouts {
     private static Object buildError(Allocator allocator, int tag, String path, long code, String message) {
         if (tag == 17) return Long.valueOf(17); // witnessed immediate ctor_17.
         if (tag == 18) {
-            Node value = node(allocator, 18, 1, 0); value.fields[0] = message; return value;
+            Node value = node(allocator, 18, 1, 0); value.initializeField(0, message); return value;
         }
         boolean filename = tag == 0 || tag >= 10;
         Object name = path;
         if (filename && tag != 10 && tag != 11) {
             if (path == null) name = Long.valueOf(0); // Option.none
-            else { Node some = node(allocator, 1, 1, 0); some.fields[0] = path; name = some; }
+            else { Node some = node(allocator, 1, 1, 0); some.initializeField(0, path); name = some; }
         }
         Node value = node(allocator, tag, filename ? 2 : 1, 4);
-        if (filename) { value.fields[0] = name; value.fields[1] = message; }
-        else value.fields[0] = message;
+        if (filename) { value.initializeField(0, name); value.initializeField(1, message); }
+        else value.initializeField(0, message);
         // Every code fixture uses sset[objectFieldCount,0] UInt32.
         bits(value, 0, 4, code);
         return value;
@@ -168,7 +168,7 @@ public final class FilesystemLayouts {
         Objects.requireNonNull(allocator, "allocator");
         int tag = checkedError(kind, path, code, message);
         Object payload = buildError(allocator, tag, path, code, message);
-        Node envelope = node(allocator, 1, 1, 0); envelope.fields[0] = payload; return envelope;
+        Node envelope = node(allocator, 1, 1, 0); envelope.initializeField(0, payload); return envelope;
     }
 
     /** Transfer the caller's one owned guest result into the witnessed EST.Out.ok.
@@ -184,6 +184,6 @@ public final class FilesystemLayouts {
         // codec or diagnostic/path cap. The engine separately bounds UTF-8
         // output allocation before publishing a filesystem line result.
         if (value instanceof String) text((String) value, MAX_INTERNAL_STRING_UNITS);
-        Node envelope = node(allocator, 0, 1, 0); envelope.fields[0] = value; return envelope;
+        Node envelope = node(allocator, 0, 1, 0); envelope.initializeField(0, value); return envelope;
     }
 }

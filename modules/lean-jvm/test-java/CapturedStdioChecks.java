@@ -9,6 +9,16 @@ import java.util.Map;
 /** Actual engine getter/closure/AP calls using synthetic IR. These checks are
  * not native-source or public-admission evidence. */
 public final class CapturedStdioChecks {
+    private static Object nodeMember(Interpreter.Node value,String name) {
+        try { java.lang.reflect.Field field=Interpreter.Node.class.getDeclaredField(name);
+            field.setAccessible(true); return field.get(value);
+        } catch(ReflectiveOperationException failure) { throw new AssertionError(failure); }
+    }
+    private static Object[] nodeFields(Interpreter.Node value) { return (Object[])nodeMember(value,"fields"); }
+    private static byte[] nodeScalars(Interpreter.Node value) { return (byte[])nodeMember(value,"scalars"); }
+    private static int nodeTag(Interpreter.Node value) { return (Integer)nodeMember(value,"tag"); }
+    private static int nodeRC(Interpreter.Node value) { return (Integer)nodeMember(value,"rc"); }
+
     private static int checks;
     private static void check(boolean value) { checks++; if(!value) throw new AssertionError("check "+checks); }
     private static List<Object> name(String n) { return List.of("str",List.of("anonymous"),n); }
@@ -34,30 +44,30 @@ public final class CapturedStdioChecks {
     }
     private static Node bytes(Interpreter e,byte[] data) throws Exception {
         Node n=(Node)privateCall(e,"newByteArray",new Class<?>[]{int.class,int.class},data.length,data.length);
-        System.arraycopy(data,0,n.scalars,0,data.length); return n;
+        System.arraycopy(data,0,nodeScalars(n),0,data.length); return n;
     }
     private static Object usize(Interpreter e,long n) throws Exception {
         return privateCall(e,"boxScalar",new Class<?>[]{long.class,int.class},n,3);
     }
     private static Node stream(Interpreter e,String n) { return (Node)e.invoke(PROGRAM.functionId(n),new Object[]{0L}); }
     private static Object op(Interpreter e,Node stream,int slot,Object argument) {
-        Node method=(Node)stream.fields[slot]; e.inc(method,1);
+        Node method=(Node)nodeFields(stream)[slot]; e.inc(method,1);
         return e.invoke(PROGRAM.functionId(argument==null?"apply0":"apply1"),
                 argument==null?new Object[]{method}:new Object[]{method,argument});
     }
     private static String line(Interpreter e,Node stream) {
-        Node result=(Node)op(e,stream,3,null); check(result.tag==0);
-        String text=(String)result.fields[0]; e.dec(result,1); return text;
+        Node result=(Node)op(e,stream,3,null); check(nodeTag(result)==0);
+        String text=(String)nodeFields(result)[0]; e.dec(result,1); return text;
     }
     private static byte[] read(Interpreter e,Node stream,long count) throws Exception {
-        Node result=(Node)op(e,stream,1,usize(e,count)); check(result.tag==0);
-        Node data=(Node)result.fields[0]; byte[] out=Arrays.copyOf(data.scalars,data.byteArraySize()); e.dec(result,1); return out;
+        Node result=(Node)op(e,stream,1,usize(e,count)); check(nodeTag(result)==0);
+        Node data=(Node)nodeFields(result)[0]; byte[] out=Arrays.copyOf(nodeScalars(data),data.byteArraySize()); e.dec(result,1); return out;
     }
     private static void ok(Interpreter e,Object value) {
-        Node result=(Node)value; check(result.tag==0&&result.fields[0].equals(0L)); e.dec(result,1);
+        Node result=(Node)value; check(nodeTag(result)==0&&nodeFields(result)[0].equals(0L)); e.dec(result,1);
     }
     private static void error(Interpreter e,Object value) {
-        Node result=(Node)value; check(result.tag==1&&((Node)result.fields[0]).tag==18); e.dec(result,1);
+        Node result=(Node)value; check(nodeTag(result)==1&&nodeTag(((Node)nodeFields(result)[0]))==18); e.dec(result,1);
     }
     private interface Attempt { void run() throws Exception; }
     private static void refuse(Attempt a) throws Exception {
@@ -79,7 +89,7 @@ public final class CapturedStdioChecks {
             ok(e,op(e,err,2,bytes(e,new byte[]{(byte)0xc0,(byte)0x80,'!',(byte)0xff,(byte)0x80})));
             check(e.capturedStdout().equals("hello\u0000β")); check(e.capturedStderr().equals("�!�"));
             ok(e,op(e,out,0,null)); error(e,op(e,out,3,null)); error(e,op(e,in,4,"no"));
-            Node wrongBytes=bytes(e,new byte[]{1}); error(e,op(e,in,2,wrongBytes)); check(wrongBytes.rc==0);
+            Node wrongBytes=bytes(e,new byte[]{1}); error(e,op(e,in,2,wrongBytes)); check(nodeRC(wrongBytes)==0);
             byte[][] captured=e.drainCapturedBytes(); check(captured[0].length==8&&captured[1].length==5);
             captured[0][0]=0; check(e.capturedStdout().isEmpty());
             e.endInvocation(); error(e,op(e,in,3,null));
@@ -97,7 +107,7 @@ public final class CapturedStdioChecks {
         // A pre-invocation GET_STDIN root must not be overwritten by the legacy installer.
         Interpreter configured=new Interpreter(PROGRAM,true);
         Node existing=stream(configured,"stdin"); configured.dec(existing,1);
-        check(existing.rc==1);
+        check(nodeRC(existing)==1);
         long retained=configured.retains,released=configured.releases;
         try {
             configured.installStdioDefaults(null,null);
@@ -105,9 +115,9 @@ public final class CapturedStdioChecks {
         } catch(IllegalArgumentException expected) {
             check(expected.getMessage().contains("Default stdin is already configured"));
         }
-        check(existing.rc==1&&configured.retains==retained&&configured.releases==released);
+        check(nodeRC(existing)==1&&configured.retains==retained&&configured.releases==released);
         Node same=stream(configured,"stdin"); check(same==existing); configured.dec(same,1);
-        configured.close(); check(existing.rc==0);
+        configured.close(); check(nodeRC(existing)==0);
         Interpreter invalid=new Interpreter(PROGRAM,true);
         refuse(()->invalid.beginInvocation(new byte[1024*1024+1],1,1));
         refuse(()->invalid.beginInvocation(new byte[0],16*1024*1024+1,1));

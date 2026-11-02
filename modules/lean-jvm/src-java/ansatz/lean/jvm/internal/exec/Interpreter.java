@@ -883,6 +883,7 @@ public final class Interpreter implements AutoCloseable {
         if(value instanceof Long&&((Long)value)>=0) return (((Long)value)<<1)|1;
         require(value instanceof Node,"Pointer identity supports only Nodes and canonical nonnegative Long immediates");
         Node node=node(value);
+        require(node.frozen==null,"Pointer identity rejects frozen data");
         require(node.rc>=0,"Invalid pointer object reference count");
         if(node.metadata instanceof PointerMetadata) return ((PointerMetadata)node.metadata).word;
         long word=POINTER_WORDS.allocate();
@@ -917,11 +918,34 @@ public final class Interpreter implements AutoCloseable {
         ByteArrayState(int size) { this.size=size; }
         public ByteArrayState copyForFork(Object childOwner) { return new ByteArrayState(size); }
     }
+    private static void setArraySize(Node node,int size) {
+        require(node.frozen==null&&exclusive(node),"Array extent requires mutable exclusive storage");
+        ((ArrayState)kindMetadata(node)).size=size;
+    }
+    private static void setByteArraySize(Node node,int size) {
+        require(node.frozen==null&&exclusive(node),"ByteArray extent requires mutable exclusive storage");
+        ((ByteArrayState)kindMetadata(node)).size=size;
+    }
     private static boolean isByteArray(Node value) { return kindMetadata(value) instanceof ByteArrayState; }
     public static final class Node {
-        public int tag, rc=1;
-        public final Object[] fields;
-        public final byte[] scalars;
+        private int tag, rc=1;
+        private final Object[] fields;
+        private final byte[] scalars;
+        private volatile FrozenStamp frozen;
+        // Trusted package-only construction seam. Never returns payload arrays.
+        boolean freshLayout(int expectedTag,int objects,int bytes) {
+            return frozen==null&&!dead&&rc==1&&tag==expectedTag&&fields.length==objects&&scalars.length==bytes
+                    &&metadata==null&&closure==null&&!array&&!ref&&!readyTask;
+        }
+        void initializeField(int index,Object value) {
+            require(freshLayout(tag,fields.length,scalars.length),"Fresh plain constructor required");
+            require(fields[index]==null&&value!=null,"Fresh empty field required"); fields[index]=value;
+        }
+        void initializeBits(int offset,int width,long value) {
+            require(freshLayout(tag,fields.length,scalars.length),"Fresh plain constructor required");
+            require(offset>=0&&width>=1&&width<=8&&offset<=scalars.length-width,"Scalar initialization extent");
+            for(int i=0;i<width;i++) scalars[offset+i]=(byte)(value>>>(8*i));
+        }
         private Function closure;
         // Kind metadata: Generation for closures, ArrayState for arrays, otherwise
         // null. Lazy sharing/pointer wrappers preserve it without owning guest values.
@@ -5836,7 +5860,7 @@ public final class Interpreter implements AutoCloseable {
                 if(op==ARRAY_POP) {
                     action.stage=2;
                     if(arrayState(out).size!=0) {
-                        int index=--arrayState(out).size; old=out.fields[index]; out.fields[index]=null; stores++;
+                        int index=arrayState(out).size-1; setArraySize(out,index); old=out.fields[index]; out.fields[index]=null; stores++;
                     }
                 } else { action.cursor=arrayIndex(out,externalArgument(action.function,args,2)); old=out.fields[action.cursor]; }
             }
@@ -6163,6 +6187,7 @@ public final class Interpreter implements AutoCloseable {
             if(source instanceof Node) {
                 Node old=(Node)source;
                 checkRuntimeOwner(old);
+                if(old.frozen!=null) return old; // certified transitive pure storage only
                 Object[] fields=(Object[])copies.get(old.fields);
                 boolean fresh=fields==null;
                 if(fresh) fields=new Object[old.fields.length];
@@ -7486,11 +7511,11 @@ public final class Interpreter implements AutoCloseable {
             }
             case ARRAY_PUSH: {
                 validateHostObject(b); Node out=exclusiveArray(n,true);
-                out.fields[arrayState(out).size++]=b; stores++; result=out; return;
+                int size=arrayState(out).size; out.fields[size]=b; setArraySize(out,size+1); stores++; result=out; return;
             }
             case ARRAY_POP: {
                 Node out=exclusiveArray(n,false);
-                if(arrayState(out).size!=0) { int i=--arrayState(out).size; Object old=out.fields[i]; out.fields[i]=null; stores++; releaseQuiet(old,1); }
+                if(arrayState(out).size!=0) { int i=arrayState(out).size-1; setArraySize(out,i); Object old=out.fields[i]; out.fields[i]=null; stores++; releaseQuiet(old,1); }
                 result=out; return;
             }
             case ARRAY_FSET: case ARRAY_USET: case ARRAY_CHECKED_SET: {
@@ -7843,7 +7868,7 @@ public final class Interpreter implements AutoCloseable {
             System.arraycopy(input.scalars,0,out.scalars,0,state.size); releaseQuiet(input,1);
         }
         ByteArrayState target=(ByteArrayState)kindMetadata(out);
-        out.scalars[target.size++]=(byte)value; stores++; result=out;
+        out.scalars[target.size]=(byte)value; setByteArraySize(out,target.size+1); stores++; result=out;
     }
     private int utf8Extent(Object value) {
         String text=text(value); long size=0;
@@ -7909,7 +7934,7 @@ public final class Interpreter implements AutoCloseable {
             releaseQuiet(dest,1);
         }
         System.arraycopy(src.scalars,from,out.scalars,to,count);
-        ((ByteArrayState)kindMetadata(out)).size=next; stores++; result=out;
+        setByteArraySize(out,next); stores++; result=out;
     }
     private String text(Object value) { require(value instanceof String,"Expected immutable String"); return (String)value; }
     private byte[] utf8(Object value) {
@@ -9812,6 +9837,255 @@ public final class Interpreter implements AutoCloseable {
         if(closed||disposed||advancing||untrackedFailure||(phase!=IDLE&&phase!=HOST_CALL&&phase!=CODE_CALL)||(!explicit&&sp!=0))
             throw new IllegalStateException(operation+" requires an open idle, host-call or code-call boundary");
     }
+    /* PRIVATE storage foundation. Plans below are fixed internal test plans,
+     * not native layout evidence and not an entry/public datatype admission API.
+     * The capability is intentionally unreachable through the public SDK.
+     * RECORD proves physical pure storage and sequential raw-byte lane coverage,
+     * not logical scalar field correspondence or Bool/Char/range constraints.
+     * Actual v3 evidence-derived plans must add those before public admission. */
+    private static final class FrozenPlan {
+        static final int NAT=0,STRING=1,ENUM=2,RECORD=3,ARRAY=4,BYTES=5,ERASED=6;
+        final int kind,tag,scalarBytes;
+        final FrozenPlan[] children;
+        final int[] scalarWidths;
+        FrozenPlan(int kind,int tag,int scalarBytes,FrozenPlan[] children,int[] scalarWidths) {
+            dataRequire(kind>=NAT&&kind<=ERASED&&children!=null&&scalarWidths!=null,"Invalid private frozen plan");
+            dataRequire(children.length<=64&&scalarWidths.length<=1024&&scalarBytes>=0&&scalarBytes<=1024,"Private plan extent");
+            for(FrozenPlan child:children) dataRequire(child!=null,"Absent private child plan");
+            int bytes=0;
+            for(int width:scalarWidths) {
+                dataRequire(width==1||width==2||width==4||width==8,"Private scalar width");
+                dataRequire(bytes<=scalarBytes-width,"Private scalar layout extent");bytes+=width;
+            }
+            dataRequire(bytes==scalarBytes,"Private scalar layout must cover all bytes");
+            dataRequire(kind!=RECORD||(tag>=0&&tag<=243),"Private allocated tag domain");
+            dataRequire(kind!=ENUM||(tag>0&&tag<=65536),"Private enum domain");
+            dataRequire((kind==RECORD)||(scalarBytes==0),"Private scalar layout requires record");
+            dataRequire(kind==RECORD||children.length==((kind==ARRAY||kind==ERASED)?1:0),"Private plan child arity");
+            this.kind=kind;this.tag=tag;this.scalarBytes=scalarBytes;
+            this.children=children.clone();this.scalarWidths=scalarWidths.clone();
+        }
+    }
+    /** Metadata proof DAG only. In particular a child proof never points at its
+     * payload, its parent proof/root, a Program, interpreter, or callback. */
+    private static final class FrozenFootprint {
+        final int slots,bytes,integerBits,stringUnits;
+        FrozenFootprint(int slots,int bytes,int integerBits,int stringUnits) {
+            this.slots=slots;this.bytes=bytes;this.integerBits=integerBits;this.stringUnits=stringUnits;
+        }
+    }
+    private static final class FrozenCert {
+        final FrozenPlan plan;
+        final FrozenFootprint footprint;
+        final FrozenCert[] children;
+        // payloadCost bounds scalar/buffer bytes; stringUnits counts logical
+        // UTF-16 occurrences, including repeated shared leaves. Neither is a
+        // measurement of retained heap. Cached frontiers need no payload walk.
+        final long occurrences,capacityCost,payloadCost,integerCost,stringUnits;
+        final int depth,live,capacity;
+        FrozenCert(FrozenPlan plan,FrozenCert[] children,int live,int capacity,FrozenFootprint footprint) {
+            this.footprint=footprint;this.plan=plan;this.children=children;this.live=live;this.capacity=capacity;
+            long count=1,slots=footprint==null?0:footprint.slots,bytes=footprint==null?0:footprint.bytes,bits=footprint==null?0:footprint.integerBits,strings=footprint==null?0:footprint.stringUnits;int height=1;
+            for(FrozenCert child:children) {
+                count=Math.min(MAX_DATA_OCCURRENCES+1L,count+child.occurrences);
+                slots=Math.min(MAX_DATA_OCCURRENCES+1L,slots+child.capacityCost);
+                bytes=Math.min(MAX_DATA_BUFFER_BYTES+1L,bytes+child.payloadCost);
+                bits=Math.min(MAX_DATA_INTEGER_BITS+1L,bits+child.integerCost);
+                strings=Math.min(MAX_DATA_STRING_UNITS+1L,strings+child.stringUnits);
+                height=Math.max(height,1+child.depth);
+            }
+            dataRequire(count<=MAX_DATA_OCCURRENCES&&height<=1024,"Frozen logical occurrence/depth bound");
+            dataRequire(strings<=MAX_DATA_STRING_UNITS,"Frozen logical String aggregate budget exceeded");
+            occurrences=count;depth=height;capacityCost=slots;payloadCost=bytes;integerCost=bits;stringUnits=strings;
+        }
+        FrozenCert(FrozenCert root,long capacityCost,long payloadCost,long integerCost) {
+            plan=root.plan;footprint=root.footprint;children=root.children;occurrences=root.occurrences;
+            depth=root.depth;live=root.live;capacity=root.capacity;stringUnits=root.stringUnits;
+            this.capacityCost=capacityCost;this.payloadCost=payloadCost;this.integerCost=integerCost;
+        }
+    }
+    /** A monotone physical immutability marker plus the initial typed proofs.
+     * A marker alone never authenticates a different interpretation/plan. */
+    private static final class FrozenStamp {
+        final FrozenFootprint footprint;
+        private final IdentityHashMap<FrozenPlan,FrozenCert> proofs;
+        FrozenStamp(IdentityHashMap<FrozenPlan,FrozenCert> proofs,FrozenFootprint footprint) {
+            this.footprint=footprint;this.proofs=new IdentityHashMap<>(proofs);
+        }
+        FrozenCert find(FrozenPlan plan) { return proofs.get(plan); }
+    }
+
+    private static final class FrozenInput {
+        final Object value;
+        final FrozenCert cert;
+        // Written AFTER every physical commit; acquiring this is required even
+        // though final fields were assigned before Node writes became visible.
+        private volatile boolean published;
+        FrozenInput(Object value,FrozenCert cert) { this.value=value;this.cert=cert; }
+        Object acquire() {
+            dataRequire(published,"Unpublished frozen capability"); return value;
+        }
+    }
+    private static final class FreezeFrame {
+        final Object value;
+        final FrozenPlan plan;
+        FrozenCert[] children;
+        int next,live,capacity;
+        boolean entered,owning;
+        FreezeFrame(Object value,FrozenPlan plan) { this.value=value;this.plan=plan; }
+    }
+    private static void freezePoll() {
+        dataRequire(!Thread.currentThread().isInterrupted(),"Frozen preflight interrupted");
+    }
+    /** Requires an owned root under an idle confined engine lease. Strong
+     * preflight allocates every proof/stamp before the nonallocating commit. */
+    private FrozenInput freezeData(Object value,FrozenPlan plan) {
+        generationBoundary("Private frozen export");
+        dataRequire(explicit&&phase==IDLE&&taskRuntime==null&&sp==0&&jsp==0&&continuationDepth==0
+                &&runtimeAction==null&&releaseTransaction==null&&!releaseRoot&&quietCurrent==null
+                &&hostRequest==null&&hostCompletion==null&&hostGuestRecord==null&&codeRequest==null
+                &&!pendingOwnedResult&&pendingInitializerGlobal==null&&!initializerFailed&&pendingEntropy==null,
+                "Frozen export requires explicit idle task-free boundary");
+        dataRequire(plan!=null,"Absent frozen plan");
+        freezePoll();
+        if(value instanceof Node) {
+            FrozenStamp stamp=((Node)value).frozen;
+            FrozenCert cert=stamp==null?null:stamp.find(plan);
+            if(cert!=null) { FrozenInput cached=new FrozenInput(value,cert);cached.published=true;return cached; }
+        }
+        IdentityHashMap<Object,FrozenFootprint> footprints=new IdentityHashMap<>();
+        IdentityHashMap<FrozenFootprint,Boolean> accounted=new IdentityHashMap<>();
+        IdentityHashMap<FrozenCert,Boolean> proofSeen=new IdentityHashMap<>();
+        IdentityHashMap<Object,IdentityHashMap<FrozenPlan,FrozenCert>> memo=new IdentityHashMap<>();
+        IdentityHashMap<Node,Boolean> physical=new IdentityHashMap<>(),active=new IdentityHashMap<>();
+        ArrayList<Node> commit=new ArrayList<>();
+        ArrayDeque<FreezeFrame> stack=new ArrayDeque<>();stack.push(new FreezeFrame(value,plan));
+        FrozenCert answer=null;long work=0,payload=0,integerBits=0,stringValidation=0;int pairs=0;
+        while(!stack.isEmpty()) {
+            freezePoll();FreezeFrame frame=stack.peek();Object current=frame.value;FrozenPlan p=frame.plan;
+            dataRequire(current!=null,"Absent frozen field");
+            if(!frame.entered) {
+                IdentityHashMap<FrozenPlan,FrozenCert> byPlan=memo.get(current);
+                FrozenCert known=byPlan==null?null:byPlan.get(p);
+                boolean cachedFrontier=false;
+                if(known==null&&current instanceof Node) {
+                    FrozenStamp stamp=((Node)current).frozen; // acquire
+                    if(stamp!=null) { known=stamp.find(p);cachedFrontier=known!=null; }
+                }
+                if(known!=null) {
+                    // Charge cached frontiers in O(1), conservatively counting
+                    // overlap between distinct certificates. No descendant sets
+                    // or cached payload/proof DAG traversal is required.
+                    if(cachedFrontier&&proofSeen.put(known,Boolean.TRUE)==null) {
+                        work+=known.capacityCost;payload+=known.payloadCost;integerBits+=known.integerCost;
+                        dataRequire(work<=MAX_DATA_OCCURRENCES&&payload<=MAX_DATA_BUFFER_BYTES&&integerBits<=MAX_DATA_INTEGER_BITS,"Frozen cached frontier budget");
+                    }
+                    stack.pop();if(stack.isEmpty()) answer=known;
+                    else { FreezeFrame parent=stack.peek();parent.children[parent.next-1]=known; }
+                    continue;
+                }
+                dataRequire(++pairs<=MAX_DATA_OCCURRENCES&&stack.size()<=1024,"Frozen typed-pair/depth bound");
+                frame.entered=true;
+                if(p.kind==FrozenPlan.ERASED) {
+                    frame.children=new FrozenCert[1];
+                } else if(p.kind==FrozenPlan.NAT) {
+                    dataRequire(current.getClass()==Long.class||current.getClass()==BigInteger.class,"Exact frozen Nat leaf required");
+                    if(current.getClass()==Long.class) dataRequire((Long)current>=0,"Negative frozen Nat");
+                    else dataRequire(((BigInteger)current).signum()>=0&&((BigInteger)current).bitLength()<=4096,"Frozen Nat range");
+                    FrozenFootprint footprint=footprints.get(current);
+                    if(footprint==null) {
+                        footprint=new FrozenFootprint(0,0,current.getClass()==Long.class?64:((BigInteger)current).bitLength(),0);
+                        footprints.put(current,footprint);
+                    }
+                    if(accounted.put(footprint,Boolean.TRUE)==null) integerBits+=footprint.integerBits;
+                    frame.children=new FrozenCert[0];
+                } else if(p.kind==FrozenPlan.STRING) {
+                    dataRequire(current.getClass()==String.class,"Exact frozen String leaf required");
+                    String text=(String)current;dataRequire(text.length()<=65536,"Frozen String leaf bound");
+                    FrozenFootprint footprint=footprints.get(current);
+                    boolean validateText=footprint==null;
+                    if(validateText) {
+                        stringValidation+=text.length();
+                        dataRequire(stringValidation<=MAX_DATA_STRING_UNITS,"Frozen String validation budget exceeded");
+                        footprint=new FrozenFootprint(0,0,0,text.length());footprints.put(current,footprint);
+                    }
+                    for(int i=0;validateText&&i<text.length();i++) {
+                        if((i&1023)==0) freezePoll();char c=text.charAt(i);
+                        if(Character.isHighSurrogate(c)) dataRequire(++i<text.length()&&Character.isLowSurrogate(text.charAt(i)),"Frozen String surrogate");
+                        else dataRequire(!Character.isLowSurrogate(c),"Frozen String surrogate");
+                    }
+                    frame.children=new FrozenCert[0];
+                } else if(p.kind==FrozenPlan.ENUM) {
+                    dataRequire(current.getClass()==Long.class&&(Long)current>=0&&(Long)current<p.tag,"Frozen enum range");
+                    frame.children=new FrozenCert[0];
+                } else {
+                    dataRequire(current.getClass()==Node.class,"Exact frozen Node required");Node node=(Node)current;
+                    dataRequire(!active.containsKey(node),"Frozen runtime owning cycle");
+                    active.put(node,Boolean.TRUE);frame.owning=true;
+                    dataRequire(!node.dead&&node.rc>=0&&!node.ref&&!node.readyTask&&node.closure==null,"Frozen data rejects runtime lifecycle");
+                    dataRequire(!(node.metadata instanceof PointerMetadata),"Frozen data rejects pointer metadata");
+                    NodeMetadata kind=kindMetadata(node);
+                    dataRequire(node.metadata==null||node.metadata==kind||node.metadata instanceof SharingMetadata,"Frozen unknown metadata wrapper");
+                    if(p.kind==FrozenPlan.ARRAY) {
+                        dataRequire(node.array&&node.tag==246&&node.scalars.length==0&&kind instanceof ArrayState,"Frozen Array layout");
+                        frame.live=((ArrayState)kind).size;frame.capacity=node.fields.length;
+                        dataRequire(frame.live>=0&&frame.live<=frame.capacity&&frame.capacity<=MAX_ARRAY_CAPACITY,"Frozen Array extent");
+                    } else if(p.kind==FrozenPlan.BYTES) {
+                        dataRequire(!node.array&&node.tag==248&&node.fields.length==0&&kind instanceof ByteArrayState,"Frozen ByteArray layout");
+                        frame.live=((ByteArrayState)kind).size;frame.capacity=node.scalars.length;
+                        dataRequire(frame.live>=0&&frame.live<=frame.capacity&&frame.capacity<=MAX_DATA_BUFFER_BYTES,"Frozen ByteArray extent");
+                    } else {
+                        dataRequire(p.kind==FrozenPlan.RECORD&&!node.array&&kind==null&&node.tag==p.tag
+                                &&node.fields.length==p.children.length&&node.scalars.length==p.scalarBytes,"Frozen record layout");
+                        frame.live=node.fields.length;frame.capacity=frame.live;
+                    }
+                    if(!physical.containsKey(node)) {
+                        physical.put(node,Boolean.TRUE);dataRequire(physical.size()<=MAX_DATA_OCCURRENCES,"Frozen physical node bound");
+                        FrozenFootprint footprint=node.frozen==null?new FrozenFootprint(node.fields.length,node.scalars.length,0,0):node.frozen.footprint;
+                        footprints.put(node,footprint);
+                        if(accounted.put(footprint,Boolean.TRUE)==null) { work+=footprint.slots;payload+=footprint.bytes; }
+                        dataRequire(work<=MAX_DATA_OCCURRENCES,"Frozen physical slot budget");
+                        for(int i=0;i<node.fields.length;i++) {
+                            if((i&1023)==0) freezePoll();
+                            if(i<frame.live) dataRequire(node.fields[i]!=null,"Absent frozen owning field");
+                            else dataRequire(node.fields[i]==null,"Frozen Array spare field must be null");
+                        }
+                        if(node.frozen==null) commit.add(node);
+                    }
+                    frame.children=new FrozenCert[p.kind==FrozenPlan.BYTES?0:frame.live];
+                }
+                dataRequire(payload<=MAX_DATA_BUFFER_BYTES&&integerBits<=MAX_DATA_INTEGER_BITS,"Frozen payload validation budget");
+            }
+            if(frame.next<frame.children.length) {
+                int index=frame.next++;Object child;FrozenPlan childPlan;
+                if(p.kind==FrozenPlan.ERASED) { child=current;childPlan=p.children[0]; }
+                else { child=((Node)current).fields[index];childPlan=p.kind==FrozenPlan.ARRAY?p.children[0]:p.children[index]; }
+                stack.push(new FreezeFrame(child,childPlan));continue;
+            }
+            FrozenCert cert=new FrozenCert(p,frame.children,frame.live,frame.capacity,p.kind==FrozenPlan.ERASED?null:footprints.get(current));
+            IdentityHashMap<FrozenPlan,FrozenCert> byPlan=memo.get(current);
+            if(byPlan==null) { byPlan=new IdentityHashMap<>();memo.put(current,byPlan); }
+            byPlan.put(p,cert);
+            if(frame.owning) active.remove((Node)current);
+            stack.pop();if(stack.isEmpty()) answer=cert;
+            else { FreezeFrame parent=stack.peek();parent.children[parent.next-1]=cert; }
+        }
+        // Root statistics reflect exact current physical visits plus bounded,
+        // conservative cached-frontier charges. Descendant proofs retain their
+        // compositional saturated bounds; overlapping frontiers may be refused.
+        answer=new FrozenCert(answer,work,payload,integerBits);
+        IdentityHashMap<FrozenPlan,FrozenCert> rootProofs=memo.get(value);
+        if(rootProofs!=null) rootProofs.put(plan,answer);
+        FrozenStamp[] stamps=new FrozenStamp[commit.size()];
+        for(int i=0;i<stamps.length;i++) { freezePoll();stamps[i]=new FrozenStamp(memo.get(commit.get(i)),footprints.get(commit.get(i))); }
+        FrozenInput output=new FrozenInput(value,answer);freezePoll();
+        // No allocation, validation, callbacks, cancellation, or guest execution.
+        // Existing engine confinement excludes an observer during this loop.
+        for(int i=0;i<stamps.length;i++) { Node node=commit.get(i);node.rc=0;node.frozen=stamps[i]; }
+        output.published=true; // release: all payload/RC writes precede acquire()
+        return output;
+    }
+
     /** A recipe reference, never an existing guest value or owner credit. */
     public static final class DataRef {
         public final int index;
@@ -9849,9 +10123,22 @@ public final class Interpreter implements AutoCloseable {
     private static void dataRequire(boolean condition,String message) {
         if(!condition) throw new IllegalArgumentException(message);
     }
-    private static void checkDataValue(Object value,int before,int[] owners,long[] budgets) {
+    private static void checkDataValue(Object value,int before,int[] owners,long[] budgets,IdentityHashMap<FrozenCert,Boolean> certified) {
         dataRequire(++budgets[0]<=MAX_DATA_OCCURRENCES,"Managed data occurrence budget exceeded");
-        if(value!=null&&value.getClass()==DataRef.class) {
+        if(value!=null&&value.getClass()==FrozenInput.class) {
+            FrozenInput input=(FrozenInput)value; input.acquire();
+            budgets[0]+=input.cert.occurrences-1;
+            dataRequire(budgets[0]<=MAX_DATA_OCCURRENCES,"Managed frozen occurrence budget exceeded");
+            // String aggregate limits follow logical occurrences, as ordinary
+            // recipes do: even the same shared capability is charged each time.
+            budgets[2]+=input.cert.stringUnits;
+            dataRequire(budgets[2]<=MAX_DATA_STRING_UNITS,"Managed data String aggregate budget exceeded");
+            if(certified.put(input.cert,Boolean.TRUE)==null) {
+                budgets[3]+=input.cert.payloadCost;budgets[4]+=input.cert.capacityCost;budgets[1]+=input.cert.integerCost;
+                dataRequire(budgets[3]<=MAX_DATA_BUFFER_BYTES&&budgets[4]<=MAX_DATA_OCCURRENCES,
+                        "Managed frozen frontier budget exceeded");
+            }
+        } else if(value!=null&&value.getClass()==DataRef.class) {
             int index=((DataRef)value).index;
             dataRequire(index>=0&&index<before,"Managed data references must select an earlier constructor");
             dataRequire(++owners[index]==1,"Managed constructor requires exactly one owning occurrence");
@@ -9877,8 +10164,13 @@ public final class Interpreter implements AutoCloseable {
         } else throw new IllegalArgumentException("Managed data accepts only exact immutable leaves or DataRef");
         dataRequire(budgets[1]<=MAX_DATA_INTEGER_BITS,"Managed data integer aggregate budget exceeded");
     }
+    private static int dataDepth(Object value,int[] depths) {
+        if(value instanceof DataRef) return depths[((DataRef)value).index];
+        if(value instanceof FrozenInput) return ((FrozenInput)value).cert.depth;
+        return 1; // an exact immutable leaf
+    }
     private static Object dataValue(Object value,Node[] shells) {
-        return value instanceof DataRef?shells[((DataRef)value).index]:value;
+        return value instanceof DataRef?shells[((DataRef)value).index]:value instanceof FrozenInput?((FrozenInput)value).acquire():value;
     }
     /** Construct fresh managed argument trees, without importing a graph or changing code/globals.
      * Every constructor has one incoming parent edge or argument-root occurrence; there is no INC.
@@ -9900,7 +10192,8 @@ public final class Interpreter implements AutoCloseable {
         DataCtor[] snapshot=constructors.clone(); Object[] rootSnapshot=roots.clone();
         Object[][] fields=new Object[snapshot.length][]; byte[][] bytes=new byte[snapshot.length][];
         int[] owners=new int[snapshot.length];
-        long[] budgets=new long[4];
+        long[] budgets=new long[5];
+        IdentityHashMap<FrozenCert,Boolean> certified=new IdentityHashMap<>();
         for(int i=0;i<snapshot.length;i++) {
             DataCtor recipe=snapshot[i];
             dataRequire(recipe!=null,"Null managed construction recipe");
@@ -9909,8 +10202,10 @@ public final class Interpreter implements AutoCloseable {
                         &&(recipe.kind==DataCtor.ARRAY||(recipe.tag>=0&&recipe.tag<=243&&recipe.fields.length>0)),
                         "Managed data requires a bounded constructor or Array");
                 dataRequire(budgets[0]+recipe.fields.length<=MAX_DATA_OCCURRENCES,"Managed data occurrence budget exceeded");
+                budgets[4]+=recipe.fields.length;
+                dataRequire(budgets[4]<=MAX_DATA_OCCURRENCES,"Managed physical slot budget exceeded");
                 fields[i]=recipe.fields.clone();
-                for(Object value:fields[i]) checkDataValue(value,i,owners,budgets);
+                for(Object value:fields[i]) checkDataValue(value,i,owners,budgets,certified);
             } else if(recipe.kind==DataCtor.BYTES) {
                 dataRequire(recipe.bytes!=null&&recipe.bytes.length<=MAX_DATA_BUFFER_BYTES,
                         "Managed ByteArray exceeds payload budget");
@@ -9924,8 +10219,23 @@ public final class Interpreter implements AutoCloseable {
                 dataRequire(budgets[3]<=MAX_DATA_BUFFER_BYTES,"Managed scalar/buffer aggregate budget exceeded");
             } else throw new IllegalArgumentException("Unknown managed recipe kind");
         }
-        for(Object value:rootSnapshot) checkDataValue(value,snapshot.length,owners,budgets);
+        for(Object value:rootSnapshot) checkDataValue(value,snapshot.length,owners,budgets,certified);
         for(int owner:owners) dataRequire(owner==1,"Managed constructor requires exactly one owning occurrence");
+        if(!certified.isEmpty()) {
+            // Earlier-only DataRefs make this a bounded bottom-up pass. Shared
+            // logical leaves/bytes/scalar boxes have depth 1; a fresh record or
+            // Array adds 1 to its deepest field. Certified depth includes any
+            // erased wrappers already proved by its private plan.
+            int[] depths=new int[snapshot.length];
+            for(int i=0;i<depths.length;i++) {
+                int depth=1;
+                if(fields[i]!=null) for(Object value:fields[i])
+                    depth=Math.max(depth,Math.min(1025,1+dataDepth(value,depths)));
+                depths[i]=depth;
+            }
+            for(Object value:rootSnapshot)
+                dataRequire(dataDepth(value,depths)<=1024,"Managed frozen combined depth budget exceeded");
+        }
         Object[] output=new Object[rootSnapshot.length]; Node[] shells=new Node[snapshot.length];
         long nextAllocations=Math.addExact(allocations,snapshot.length);
         for(int i=0;i<shells.length;i++) {

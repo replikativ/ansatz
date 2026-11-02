@@ -28,10 +28,10 @@
              "META-INF/ansatz-lean-jvm/filesystem-layouts.jsonl"
              "META-INF/ansatz-lean-jvm/NOTICE"]
  :engine-class "ansatz.lean.jvm.internal.exec.Interpreter"
- :engine-closure-sha256 "898d4bdc356939ff9f685c2ff6b40a4db8852daa006ced925595cfef6297de09"
+ :engine-closure-sha256 "0360f5cbd63faa9ba9f0dc50f113e23a95744dd95cd89ba44813a0a1c75f95a6"
  :java-engine [{:path "ansatz/lean/jvm/internal/fs/FileSession.java" :class "ansatz.lean.jvm.internal.fs.FileSession" :sha256 "af5d13b527fb420f53dccc550fe877982fe7b1ef8e3d98c2e53f798ede1aeaa9"}
-              {:path "ansatz/lean/jvm/internal/exec/FilesystemLayouts.java" :class "ansatz.lean.jvm.internal.exec.FilesystemLayouts" :sha256 "3e2c940b26011dfa2c466bc349373d6531b3aea16fe01d6cfa546794363ff8c1"}
-              {:path "ansatz/lean/jvm/internal/exec/Interpreter.java" :class "ansatz.lean.jvm.internal.exec.Interpreter" :sha256 "144c1b0e6b6d680994ebbd523b3823cdc4c7721e2e92c0b339cbe15970017bab"}
+              {:path "ansatz/lean/jvm/internal/exec/FilesystemLayouts.java" :class "ansatz.lean.jvm.internal.exec.FilesystemLayouts" :sha256 "f4f2889a57ebf535aa76cdf2728fcb542017d4ababc2fc41c99513f72a70dbe9"}
+              {:path "ansatz/lean/jvm/internal/exec/Interpreter.java" :class "ansatz.lean.jvm.internal.exec.Interpreter" :sha256 "6b25867f64adb75ff18f0b722db1167019c48557361d97b1e4ad7ed73aadc263"}
                {:path "ansatz/lean/jvm/internal/exec/ScalarBits.java" :class "ansatz.lean.jvm.internal.exec.ScalarBits" :sha256 "f7f105354cb7c66c3aa1834254113738ed52d14a47fe92308d1dd4e9db5f6fe9"}
                {:path "ansatz/lean/jvm/internal/exec/Utf8Bytes.java" :class "ansatz.lean.jvm.internal.exec.Utf8Bytes" :sha256 "74eb7745542b95b40ad166517fd79bf60500363792f771a34a2bd4c52a64fb18"}]
  :java-api [{:path "ansatz/lean/jvm/FileAccess.java" :class "ansatz.lean.jvm.FileAccess" :sha256 "8677eb2d31f854f32991e06460e045681bd4310f9141d2383bafdccd684677d6"}

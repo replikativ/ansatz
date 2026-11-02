@@ -8,6 +8,16 @@ import java.util.Map;
 
 /** Synthetic IR exercises actual runtime ports, not source admission evidence. */
 public final class StringSearchChecks {
+    private static Object nodeMember(Interpreter.Node value,String name) {
+        try { java.lang.reflect.Field field=Interpreter.Node.class.getDeclaredField(name);
+            field.setAccessible(true); return field.get(value);
+        } catch(ReflectiveOperationException failure) { throw new AssertionError(failure); }
+    }
+    private static Object[] nodeFields(Interpreter.Node value) { return (Object[])nodeMember(value,"fields"); }
+    private static byte[] nodeScalars(Interpreter.Node value) { return (byte[])nodeMember(value,"scalars"); }
+    private static int nodeTag(Interpreter.Node value) { return (Integer)nodeMember(value,"tag"); }
+    private static int nodeRC(Interpreter.Node value) { return (Integer)nodeMember(value,"rc"); }
+
     private static int checks;
     private static void check(boolean ok) { checks++; if(!ok) throw new AssertionError("check "+checks); }
     private static Object name(String value) { return List.of("str",List.of("anonymous"),value); }
@@ -88,8 +98,8 @@ public final class StringSearchChecks {
         String input=malformed?"\ud800":"valid";
         Node outer=(Node)e.invoke(p.functionId("makeAny"),new Object[]{input});
         if(shared) e.inc(outer,1);
-        Object[] outerFields=outer.fields.clone(),predicateFields=predicate.fields.clone();
-        int outerRC=outer.rc,predicateRC=predicate.rc,markerRC=marker.rc;
+        Object[] outerFields=nodeFields(outer).clone(),predicateFields=nodeFields(predicate).clone();
+        int outerRC=nodeRC(outer),predicateRC=nodeRC(predicate),markerRC=nodeRC(marker);
         long retains=e.retains,releases=e.releases,deletes=e.shellDeletes;
         try {
             e.invoke(p.functionId("applyOuter"),new Object[]{outer,malformed?predicate:marker});
@@ -97,10 +107,10 @@ public final class StringSearchChecks {
         } catch(RuntimeException expected) {
             check(expected.getMessage().contains(malformed?"Invalid Unicode String":"Expected closure"));
         }
-        check(outer.rc==outerRC&&predicate.rc==predicateRC&&marker.rc==markerRC);
+        check(nodeRC(outer)==outerRC&&nodeRC(predicate)==predicateRC&&nodeRC(marker)==markerRC);
         check(!dead(outer)&&!dead(predicate)&&!dead(marker));
-        check(java.util.Arrays.equals(outerFields,outer.fields)&&java.util.Arrays.equals(predicateFields,predicate.fields));
-        check(outer.fields[0]==input&&predicate.fields[0]==marker);
+        check(java.util.Arrays.equals(outerFields,nodeFields(outer))&&java.util.Arrays.equals(predicateFields,nodeFields(predicate)));
+        check(nodeFields(outer)[0]==input&&nodeFields(predicate)[0]==marker);
         check(e.retains==retains&&e.releases==releases&&e.shellDeletes==deletes);
         // The failed engine remains terminal; these assertions inspect the
         // original owned packet and do not invent a post-failure DEC path.
@@ -130,9 +140,9 @@ public final class StringSearchChecks {
                     {"λ😀x","λ😀\u0000tail",0L},{"abcd","abc",0L},{"abc","abc",1L},{"x","abc",0L}})
                 check(e.invoke(p.functionId("prefix"),new Object[]{sample[0],sample[1]}).equals(sample[2]));
             Node first=(Node)e.invoke(p.functionId("makeFirst"),new Object[0]);
-            int firstRC=first.rc; // a zero-capture PAP may retain an engine cache owner
+            int firstRC=nodeRC(first); // a zero-capture PAP may retain an engine cache owner
             check(e.invoke(p.functionId("any"),new Object[]{"A\u0000😀",first}).equals(1L));
-            check(first.rc==(firstRC==0?0:firstRC-1)); e.close();
+            check(nodeRC(first)==(firstRC==0?0:firstRC-1)); e.close();
             Interpreter invalid=new Interpreter(p,explicit);
             Node bad=(Node)invalid.invoke(p.functionId("makeBad"),new Object[0]);
             try { invalid.invoke(p.functionId("any"),new Object[]{"x",bad}); throw new AssertionError("bad Bool accepted"); }

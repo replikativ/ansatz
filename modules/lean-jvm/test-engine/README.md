@@ -52,3 +52,28 @@ The canonical engine contract runner requires JDK 17, matching the optional SDK.
 It compiles the exact interpreter/helper/provider sources with `--release 17`.
 The kernel memo fixture remains compiled with `--release 11`; this does not add
 an optional SDK dependency to core Ansatz startup or its kernel artifact.
+
+
+`test-java/FrozenStorageChecks.java` exercises the private storage foundation with
+fixed internal plans: bounded typed freeze, persistent pure-data storage,
+publication, certified input reuse, copy-on-write updates, forks, and release.
+It is included in `bin/run-lean-jvm-checks`; it does not issue native layout
+or public nominal admission authority. First freeze accounts actual physical
+storage once; cached frontiers use constant-time conservative bounds, so distinct
+overlapping frontiers can exceed a budget even when their exact union would fit.
+The public legacy decoders still materialize their existing carriers.
+
+The record plan proves physical pure storage and sequential raw-byte lane
+coverage. It does not yet prove logical scalar-field correspondence or Bool,
+Char, and other logical range constraints. Future plans compiled from actual v3
+evidence must provide those checks before public nominal admission. The private
+`payloadCost` bound counts scalar/buffer bytes separately from `stringUnits`,
+which counts logical String UTF-16 units. Every String occurrence counts,
+including repeated shared leaves and repeated uses of the same certified input,
+as in ordinary legacy recipes. Neither bound measures retained heap. Shared-input
+construction composes certified child depth with fresh records and Arrays before
+guest allocation, with a maximum root depth of 1,024. A leaf, byte buffer, or
+scalar box has depth one; a fresh record or Array adds one to its deepest field.
+Certified depth includes any erased wrapper in its private plan. Ordinary legacy
+construction without certified inputs keeps its existing depth behavior. These
+are private-foundation checks, not public immutable-value guarantees.

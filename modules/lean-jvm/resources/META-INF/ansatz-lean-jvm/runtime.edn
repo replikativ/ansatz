@@ -2,8 +2,8 @@
  :status :experimental-bounded-profile
  :adapter-namespace ansatz.lean.jvm.ir
  :engine-class "ansatz.lean.jvm.internal.exec.Interpreter"
- :engine-source-sha256 "144c1b0e6b6d680994ebbd523b3823cdc4c7721e2e92c0b339cbe15970017bab"
- :engine-closure-sha256 "898d4bdc356939ff9f685c2ff6b40a4db8852daa006ced925595cfef6297de09"
+ :engine-source-sha256 "6b25867f64adb75ff18f0b722db1167019c48557361d97b1e4ad7ed73aadc263"
+ :engine-closure-sha256 "0360f5cbd63faa9ba9f0dc50f113e23a95744dd95cd89ba44813a0a1c75f95a6"
  :upstream-lean-commit "819816b2e0a3bf405af45ae5c7af2491d8f5bee6"
  :java-release 17
  :precompiled-engine true

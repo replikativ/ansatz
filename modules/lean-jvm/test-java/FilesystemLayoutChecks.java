@@ -6,6 +6,16 @@ import java.util.List;
 
 /** Fixed native-fixture facts; not a producer or replacement projection receipt. */
 public final class FilesystemLayoutChecks {
+    private static Object nodeMember(Interpreter.Node value,String name) {
+        try { java.lang.reflect.Field field=Interpreter.Node.class.getDeclaredField(name);
+            field.setAccessible(true); return field.get(value);
+        } catch(ReflectiveOperationException failure) { throw new AssertionError(failure); }
+    }
+    private static Object[] nodeFields(Interpreter.Node value) { return (Object[])nodeMember(value,"fields"); }
+    private static byte[] nodeScalars(Interpreter.Node value) { return (byte[])nodeMember(value,"scalars"); }
+    private static int nodeTag(Interpreter.Node value) { return (Integer)nodeMember(value,"tag"); }
+    private static int nodeRC(Interpreter.Node value) { return (Integer)nodeMember(value,"rc"); }
+
     private static int checks;
     private static void check(boolean condition) {
         checks++; if (!condition) throw new AssertionError("Filesystem layout check " + checks);
@@ -17,10 +27,10 @@ public final class FilesystemLayoutChecks {
         }
     }
     private static long raw(Node value, int offset, int bytes) {
-        long n = 0; for (int i = 0; i < bytes; i++) n |= (value.scalars[offset+i] & 255L) << (8*i); return n;
+        long n = 0; for (int i = 0; i < bytes; i++) n |= (nodeScalars(value)[offset+i] & 255L) << (8*i); return n;
     }
     private static void shape(Node n, int tag, int fields, int bytes) {
-        check(n.tag == tag && n.rc == 1 && n.fields.length == fields && n.scalars.length == bytes);
+        check(nodeTag(n) == tag && nodeRC(n) == 1 && nodeFields(n).length == fields && nodeScalars(n).length == bytes);
     }
     private static void refused(Runnable task) {
         try { task.run(); throw new AssertionError("Invalid layout input accepted"); }
@@ -50,12 +60,12 @@ public final class FilesystemLayoutChecks {
         for (int kind = 0; kind < 4; kind++) {
             Node value = codec.metadata(metadata, Long.MIN_VALUE, 0, Long.MAX_VALUE, 999999999,
                                        Long.MIN_VALUE, -1L, kind);
-            shape(value,0,2,17); shape((Node)value.fields[0],0,1,4); shape((Node)value.fields[1],0,1,4);
-            check(value.fields[0] != value.fields[1]);
-            check(((Node)value.fields[0]).fields[0].equals(Long.MIN_VALUE));
-            check(((Node)value.fields[1]).fields[0].equals(Long.MAX_VALUE));
-            check(raw((Node)value.fields[0],0,4) == 0);
-            check(raw((Node)value.fields[1],0,4) == 999999999);
+            shape(value,0,2,17); shape((Node)nodeFields(value)[0],0,1,4); shape((Node)nodeFields(value)[1],0,1,4);
+            check(nodeFields(value)[0] != nodeFields(value)[1]);
+            check(nodeFields(((Node)nodeFields(value)[0]))[0].equals(Long.MIN_VALUE));
+            check(nodeFields(((Node)nodeFields(value)[1]))[0].equals(Long.MAX_VALUE));
+            check(raw((Node)nodeFields(value)[0],0,4) == 0);
+            check(raw((Node)nodeFields(value)[1],0,4) == 999999999);
             check(raw(value,0,8) == Long.MIN_VALUE && raw(value,8,8) == -1L);
             check(raw(value,16,1) == kind);
         }
@@ -71,31 +81,31 @@ public final class FilesystemLayoutChecks {
                     else {
                         Node value = (Node)payload;
                         shape(value,tag,filename(tag)?2:1,tag==18?0:4);
-                        check(value.fields[filename(tag)?1:0].equals(message));
+                        check(nodeFields(value)[filename(tag)?1:0].equals(message));
                         if (tag != 18) check(raw(value,0,4) == code);
                         if (filename(tag)) {
-                            Object name=value.fields[0];
+                            Object name=nodeFields(value)[0];
                             if (optional(tag)) {
                                 if(path==null) check(name.equals(0L));
-                                else { shape((Node)name,1,1,0); check(((Node)name).fields[0].equals(path)); }
+                                else { shape((Node)name,1,1,0); check(nodeFields(((Node)name))[0].equals(path)); }
                             } else check(name.equals(path));
                         }
                         check(allocations.nodes.size() == (optional(tag)&&path!=null?2:1));
                     }
                     Allocations envelope = new Allocations();
                     Node failure = codec.ioFailure(envelope,KINDS[tag],path,code,message);
-                    shape(failure,1,1,0); check(failure.fields[0] != null);
+                    shape(failure,1,1,0); check(nodeFields(failure)[0] != null);
                     check(envelope.nodes.size() == allocations.nodes.size()+1);
                 }
             }
         }
         Allocations envelopes = new Allocations();
         Node owned = new Node(0,0,0);
-        Node ok = codec.ioSuccess(envelopes,owned); shape(ok,0,1,0); check(ok.fields[0] == owned && owned.rc==1);
-        check(codec.ioSuccess(envelopes,0L).fields[0].equals(0L));
-        check(codec.ioSuccess(envelopes,"λ😀\u0000").fields[0].equals("λ😀\u0000"));
+        Node ok = codec.ioSuccess(envelopes,owned); shape(ok,0,1,0); check(nodeFields(ok)[0] == owned && nodeRC(owned)==1);
+        check(nodeFields(codec.ioSuccess(envelopes,0L))[0].equals(0L));
+        check(nodeFields(codec.ioSuccess(envelopes,"λ😀\u0000"))[0].equals("λ😀\u0000"));
         String longLine = "x".repeat(65537);
-        check(codec.ioSuccess(envelopes,longLine).fields[0] == longLine);
+        check(nodeFields(codec.ioSuccess(envelopes,longLine))[0] == longLine);
         // The independently declared diagnostic/path bound remains unchanged.
         Allocations rejected = new Allocations();
         refused(() -> codec.metadata(rejected,0,-1,0,0,0,0,0));

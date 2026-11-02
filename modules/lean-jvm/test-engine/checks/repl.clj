@@ -34,8 +34,8 @@
      :depth (.getMethod cls "continuationDepth" (make-array Class 0))
      :instructions (.getMethod cls "instructionCount" (make-array Class 0))
      :active (.getMethod cls "activeFunction" (make-array Class 0))
-     :tag (.getField node "tag") :rc (.getField node "rc")
-     :fields (.getField node "fields") :scalars (.getField node "scalars")}))
+     :tag (doto (.getDeclaredField node "tag") (.setAccessible true)) :rc (doto (.getDeclaredField node "rc") (.setAccessible true))
+     :fields (doto (.getDeclaredField node "fields") (.setAccessible true)) :scalars (doto (.getDeclaredField node "scalars") (.setAccessible true))}))
 
 (defn invoke-static [^Method method args] (.invoke method nil (object-array args)))
 (defn open-program [basis path]
