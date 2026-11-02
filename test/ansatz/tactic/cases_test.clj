@@ -4,7 +4,8 @@
             [ansatz.tactic.proof :as proof]
             [ansatz.tactic.basic :as basic]
             [ansatz.meta :as meta]
-            [ansatz.kernel.expr :as e]))
+            [ansatz.kernel.expr :as e]
+            [ansatz.kernel.name :as name]))
 
 (def observed (atom []))
 (use-fixtures :once
@@ -142,3 +143,16 @@
   (is (= ["LE.le" "LE.le"]
          (mapv #(str (e/const-name (e/get-app-fn (:type %))))
                (proof/goals (first @observed))))))
+
+(deftest cases-preserves-parent-tag-scopes
+  ;; Lean Meta/Tactic/Util.lean appendTag preserves the parent's macro scopes.
+  (is (proves '[b :- Bool] '(= b b) '[(observe-cases) (rfl)]))
+  (let [ps (first @observed)
+        goal (proof/current-goal ps)
+        fid (first (keys (:lctx goal)))
+        base (name/mk-str (name/anonymous) "parent")
+        scoped (fn [n] (name/mk-num (name/mk-str (name/mk-str (name/mk-str n "_@") "X") "_hyg") 42))
+        ps (proof/set-mvar-user-name ps (:id goal) (scoped base))
+        result (basic/cases ps fid)]
+    (is (= [(scoped (name/mk-str base "false")) (scoped (name/mk-str base "true"))]
+           (mapv #(proof/mvar-user-name result %) (:goals result))))))

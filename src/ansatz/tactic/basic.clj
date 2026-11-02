@@ -1245,8 +1245,9 @@
                  ps (-> ps
                         (update :meta-mctx meta/set-expr-mvar-lctx mvar-id lctx)
                         (proof/set-mvar-user-name
-                         mvar-id (name/mk-str (or (:user-name goal) (name/anonymous))
-                                             (last (clojure.string/split (str ctor-name) #"\.")))))]
+                         mvar-id (apply-meta/append-tag
+                                  (or (:user-name goal) (name/anonymous))
+                                  (name/mk-str (name/anonymous) (name/name-component ctor-name)))))]
              [ps (conj out (assoc branch :goal-id mvar-id
                                         :field-fvars (mapv #(when (e/fvar? %) (e/fvar-id %)) fields)))]))
          [ps []] branches)
