@@ -366,3 +366,12 @@
             third-rule :- (forall [z :- Nat] (= (h z) z)), hp :- (p (k n))]
           '(p (f n))
           '[(rw [first-rule second-rule third-rule]) (exact hp)]))
+
+(deftest apply-guard-search-skips-unprovable-premises
+  (proves 'apply_guard_search
+          '[n :- Nat,
+            bad :- (forall [x :- Nat] (=> (= n x) (=> (= (Nat.succ n) 0) False))),
+            good :- (forall [x :- Nat] (=> (= n x) False))]
+          'False
+          '[(first (and_then (apply bad) (all_goals (rfl)))
+                   (and_then (apply good) (all_goals (rfl))))]))

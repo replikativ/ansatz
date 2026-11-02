@@ -17,6 +17,7 @@
             [ansatz.kernel.tc :as tc]
             [ansatz.meta :as meta]
             [ansatz.meta.kabstract :as ka]
+            [ansatz.meta.tactic.apply :as apply-meta]
             [ansatz.tactic.proof :as proof]
             [ansatz.tactic.elab-term :as telab]
             [ansatz.tactic.instance :as inst]
@@ -153,25 +154,6 @@
                            (expr-depends-on-fvar? value fvar-id))))
             [id decl]))
         lctx))
-
-(defn- generated-goal-depends-on-others?
-  [ps generated-ids id]
-  (let [others (disj (set generated-ids) id)
-        type (proof/mvar-type ps id)]
-    (boolean (or (some others (collect-fvar-ids type))
-                 (some others (meta/collect-expr-mvars type))))))
-
-(defn- reorder-generated-goals-nondependent-first
-  "Lean's ApplyNewGoals.nonDependentFirst ordering: generated goals whose types
-   do not mention another generated goal come before generated goals that do."
-  [ps generated-ids]
-  (let [[nondeps deps] (reduce (fn [[nondeps deps] id]
-                                 (if (generated-goal-depends-on-others? ps generated-ids id)
-                                   [nondeps (conj deps id)]
-                                   [(conj nondeps id) deps]))
-                               [[] []]
-                               generated-ids)]
-    (into nondeps deps)))
 
 (defn- head-beta
   "Iterated head beta-reduction, matching Lean's `Expr.headBeta` shape without
@@ -703,20 +685,15 @@
 ;; ============================================================
 ;; apply (following Lean 4's MVarId.apply algorithm)
 ;; ============================================================
-;; Key differences from Lean 4:
-;; - We use fvars as "metavariables" + pattern matching instead of real mvars
-;; - Pattern matching replaces isDefEq for unification
-;; - Instance synthesis delegated to post-processing
+;; Telescope matching retains the structural/normalization fallbacks below.
+;; Goal ordering and tags follow Lean in ansatz.meta.tactic.apply.
 
 (defn apply-tac
   "Apply a term to the current goal, generating subgoals for its arguments.
-   Following Lean 4's Meta/Tactic/Apply.lean:
-   1. Peel forall binders until the partial conclusion matches the target,
-      creating fvars as metavariable placeholders
-   2. Match result type against goal via first-order pattern matching
-   3. Assign matched fvars, create subgoals for unmatched ones
-   4. Substitute solved values into remaining subgoal types"
-  [ps term]
+   Goal policy follows Lean Meta/Tactic/Apply.lean; :new-goals in cfg selects
+   :non-dependent-first (default), :non-dependent-only, or :all."
+  ([ps term] (apply-tac ps term {}))
+  ([ps term cfg]
   (let [goal (proof/current-goal ps)
         _ (when-not goal (tactic-error! "No goals" {}))
         st (mk-tc ps (:lctx goal))
@@ -730,11 +707,12 @@
            ty (expose-forall ps (:lctx goal) term-type)
            arg-mvars []
            arg-binfos []
-           mvar-id-set #{}
-           implicit-mvars #{}]
+           mvar-id-set #{}]
       (if (and (e/forall? ty)
                (not (apply-target-compatible? ps goal ty arg-mvars mvar-id-set)))
-        (let [param-type (e/forall-type ty)
+        (let [param-name (e/forall-name ty)
+              param-name (if (string? param-name) (name/from-string param-name) param-name)
+              param-type (e/forall-type ty)
               binfo (e/forall-info ty)
               ;; Substitute already-resolved holes into the param type
               inst-type (instantiate-solved-mvars ps param-type)
@@ -758,29 +736,28 @@
           (if synthesized
             ;; Value inferred/synthesized — create a pre-assigned mvar
             (let [mvar-kind (if (= binfo :inst-implicit) :synthetic :natural)
-                  [ps' mvar-id] (proof/fresh-mvar ps inst-type (:lctx goal) {:kind mvar-kind})
+                  [ps' mvar-id] (proof/fresh-mvar ps inst-type (:lctx goal)
+                                                   {:kind mvar-kind :user-name param-name})
                   ps' (proof/assign-mvar ps' mvar-id {:kind :exact :term synthesized})
                   new-ty (e/instantiate1 (e/forall-body ty) synthesized)]
               (recur ps' (expose-forall ps' (:lctx goal) new-ty)
                      (conj arg-mvars mvar-id)
                      (conj arg-binfos binfo)
-                     mvar-id-set
-                     implicit-mvars))
+                     mvar-id-set))
             ;; Not synthesized — create mvar (for implicit, inst-implicit, AND explicit params).
             ;; Following Lean 4, explicit mvars become subgoals when they remain unsolved.
-            ;; Track implicit mvars separately — they won't become visible subgoals.
+            ;; Every unassigned telescope hole can become a visible subgoal.
             (let [mvar-kind (if (= binfo :inst-implicit) :synthetic :natural)
-                  [ps' mvar-id] (proof/fresh-mvar ps inst-type (:lctx goal) {:kind mvar-kind})
+                  [ps' mvar-id] (proof/fresh-mvar ps inst-type (:lctx goal)
+                                                   {:kind mvar-kind :user-name param-name})
                   ;; Lean's forallMetaTelescope: the hole is a REAL Expr.mvar in
                   ;; the goal type, so any later isDefEq (exact/assumption/apply)
                   ;; can assign it through the one shared metacontext.
-                  new-ty (e/instantiate1 (e/forall-body ty) (e/mvar mvar-id))
-                  is-implicit (#{:implicit :strict-implicit :inst-implicit} binfo)]
+                  new-ty (e/instantiate1 (e/forall-body ty) (e/mvar mvar-id))]
               (recur ps' (expose-forall ps' (:lctx goal) new-ty)
                      (conj arg-mvars mvar-id)
                      (conj arg-binfos binfo)
-                     (conj mvar-id-set mvar-id)
-                     (if is-implicit (conj implicit-mvars mvar-id) implicit-mvars)))))
+                     (conj mvar-id-set mvar-id)))))
         ;; Phase 2: Match result type against goal.
         ;; Following Lean 4's apply (Apply.lean): use isDefEq as the PRIMARY
         ;; matching mechanism. isDefEq handles WHNF reduction, delta unfolding,
@@ -920,25 +897,17 @@
                   ;; postponed synthesis when later instance synthesis made
                   ;; progress, and it checks already-assigned instance mvars too.
                   ps (synthesize-apply-instances ps arg-mvars arg-binfos)
-                  ;; Move unsolved EXPLICIT arg-mvars to front of goals (Lean 4: new goals first).
-                  ;; Implicit mvars stay in mctx as shared mvars but aren't visible subgoals.
-                  ;; They get resolved when explicit subgoals are solved (via assign-mvar propagation).
-                  unsolved-args (filterv #(and (not (proof/mvar-assigned? ps %))
-                                               (not (contains? implicit-mvars %)))
-                                         arg-mvars)
-                  unsolved-args (reorder-generated-goals-nondependent-first ps unsolved-args)
-                  other-mvar-ids (->> (meta/expr-mvars-no-delayed (:meta-mctx ps)
-                                                                  (meta/zonk-expr (:meta-mctx ps) head-term))
+                  ps (apply-meta/append-parent-tag ps (:user-name goal) arg-mvars arg-binfos)
+                  unsolved-args (filterv #(not (proof/mvar-assigned? ps %)) arg-mvars)
+                  unsolved-args (apply-meta/reorder-goals ps unsolved-args
+                                                        (get cfg :new-goals :non-dependent-first))
+                  other-mvar-ids (->> (meta/expr-mvars-no-delayed (:meta-mctx ps) head-term)
                                       (remove (set unsolved-args))
-                                      (filterv #(and (proof/mvar-open? ps %)
-                                                     (not (contains? implicit-mvars %)))))
+                                      (filterv #(proof/mvar-open? ps %)))
                   front (into (vec unsolved-args) other-mvar-ids)
                   front-set (set front)
                   generated-set (set (filterv #(not (proof/mvar-assigned? ps %)) arg-mvars))
-                  ps (zonk-mvar-decl-types ps front)
-                  ps (proof/tag-untagged-goals ps (:user-name goal)
-                                               (name/from-string "apply")
-                                               unsolved-args)]
+                  ps (zonk-mvar-decl-types ps front)]
               (-> ps
                   (update :goals (fn [gs]
                                    (into front
@@ -946,7 +915,7 @@
                   ;; holes solved by isDefEq live only in the metacontext;
                   ;; fresh-mvar listed them as goals, so prune (Lean's
                   ;; pruneSolvedGoals after apply).
-                  (proof/prune-solved-goals)))))))))
+                  (proof/prune-solved-goals))))))))))
 
 ;; ============================================================
 ;; rfl
