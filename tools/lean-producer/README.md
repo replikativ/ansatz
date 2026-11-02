@@ -55,3 +55,11 @@ Changes require a separately reviewed cohort, bounded native acceptance and the
 actual public source cold/cache/artifact acceptance gate before new pins are
 admitted. Keep supported earlier cohorts and historical receipts intact. Source
 relocation alone requires no recompilation, pin change or receipt rewrite.
+
+## Code lookup catalogue
+
+`build-code-catalogue.py` builds the compact typed-Name lookup index used by the
+engine code-demand path. It authenticates the source CAS index against its
+independent expected hash; SQLite is an acceleration aid, not the source of
+authority. It copies no declaration bodies and uses only the Python standard
+library. Run `python3 build-code-catalogue.py --help` for inputs and limits.

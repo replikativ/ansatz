@@ -1,0 +1,131 @@
+{
+  "schema": "lean-jvm-kernel-contract-port/1",
+  "archive_commit": "4ace73f0",
+  "test_groups": [
+    {
+      "namespace": "kernel-contracts.compact-kernel-projection-test",
+      "path": "kernel-contracts/kernel_contracts/compact_kernel_projection_test.clj",
+      "source_at_archive": "test/prototype/compact_kernel_projection_test.clj",
+      "source_sha256": "99f72f7eec4bb951ba864ed8a881161384c60b86d69fe27d147a4b2275966420",
+      "tests": [
+        "native-all-eight-variants-match-original-projection",
+        "memo-handles-nil-resizing-full-width-ids-and-kind-separation",
+        "shared-dags-and-cross-call-sharing-are-identical",
+        "fallback-keys-preserve-original-equality-and-type-distinction",
+        "malformed-layouts-cycles-and-failures-preserve-validation",
+        "deep-projection-and-large-ref-ids",
+        "scoped-constant-boundary-retires-only-scratch-and-preserves-core-sharing",
+        "scoped-failed-constant-keeps-completed-children-and-clears-active-scratch",
+        "scoped-complete-native-variants-match-bulk-and-original",
+        "scoped-foreign-world-is-rejected-before-reading-or-retiring-scratch",
+        "scoped-retirement-does-not-allocate-or-mask-the-original-failure",
+        "scoped-constant-reentry-is-rejected-before-inner-finally",
+        "explicit-default-world-reader-keeps-baseline-and-compact-semantics-shared"
+      ]
+    },
+    {
+      "namespace": "kernel-contracts.guarded-kernel-view-test",
+      "path": "kernel-contracts/kernel_contracts/guarded_kernel_view_test.clj",
+      "source_at_archive": "test/prototype/guarded_kernel_view_test.clj",
+      "source_sha256": "011a2a662fb976e1d280f4b0053e49842ed6699ca3e48ce9b5d56fc2b51a9020",
+      "tests": [
+        "every-hit-rechecks-lease-and-close-drops-ledger-without-closing-borrowed-store",
+        "exact-typed-return-and-domain-membership-are-mandatory",
+        "memo-and-historical-ledger-refuse-ci-and-universe-array-mutations",
+        "authentication-cannot-publish-a-mutated-value-or-use-an-admission-flag",
+        "thread-confinement-outer-local-guards-and-shared-external-identity",
+        "explicit-count-and-total-evidence-budgets-stop-before-publication",
+        "captured-store-root-mismatch-stops-before-env-or-any-hydration",
+        "raw-evidence-limits-are-enforced-before-resolving-a-ci",
+        "typed-domain-display-collisions-are-rejected-before-source-reads",
+        "actual-captured-branch-services-remain-fixed-after-head-change"
+      ]
+    },
+    {
+      "namespace": "kernel-contracts.imported-kernel-test",
+      "path": "kernel-contracts/kernel_contracts/imported_kernel_test.clj",
+      "source_at_archive": "test/prototype/imported_kernel_test.clj",
+      "source_sha256": "0ce406c9aa52a91150d7082423dea90e83fa45b5ea5872c4482c962d2f7dddff",
+      "tests": [
+        "native-all-eight-constant-variants-are-strictly-replayed",
+        "policy-and-malformed-dependencies-cannot-publish-a-partial-environment",
+        "imported-inductive-rules-and-members-are-checked",
+        "quotient-kind-and-signature-must-both-match",
+        "association-checks-exact-guest-coverage-and-retains-an-anchor",
+        "exact-compiler-marker-policy-does-not-enable-other-unsafe-axioms",
+        "unsafe-mutual-bodies-are-checked-together-while-safe-cycles-fail",
+        "certificate-cannot-be-reused-after-a-fork-changes-a-constant",
+        "quotient-bootstrap-requires-the-equality-family-and-complete-primitive-set",
+        "imported-association-optionally-anchors-exact-constant-map-witness",
+        "complete-ordinary-imports-require-each-native-recursor",
+        "imported-mutual-headers-require-the-same-ordered-universe-list",
+        "compact-checking-plan-preserves-historical-edges-degrees-and-order",
+        "compact-checking-plan-does-not-retain-build-only-group-containers",
+        "compact-checking-plan-preserves-missing-dependency-error-data",
+        "all-eight-imported-variants-use-the-same-carrier-semantic-core",
+        "bounded-imported-inventory-does-not-touch-types-or-values",
+        "recursor-rule-list-shares-the-carrier-lifetime-and-total-visit-budget",
+        "value-only-snapshot-validation-is-safe-inside-uncached-lazy-lookup",
+        "carrier-import-retains-full-hints-mutual-all-and-every-safety-code"
+      ]
+    },
+    {
+      "namespace": "kernel-contracts.kernel-bridge-test",
+      "path": "kernel-contracts/kernel_contracts/kernel_bridge_test.clj",
+      "source_at_archive": "test/prototype/kernel_bridge_test.clj",
+      "source_sha256": "8df497f48518522403a6db75e6653c2e584fc49db3654b98cd320effec8b88e7",
+      "tests": [
+        "actual-guest-layout-projects-and-checks-a-nat-definition",
+        "strict-admission-rejects-ill-typed-and-missing-constants",
+        "guest-metadata-is-preserved-only-in-original-objects",
+        "world-local-memos-preserve-dag-sharing-without-aliasing-forks",
+        "deep-projection-uses-an-explicit-stack",
+        "unsupported-values-cycles-and-layouts-fail-explicitly",
+        "raw-level-normalization-is-only-a-checker-projection",
+        "binders-literals-and-projections-use-pinned-field-and-scalar-order",
+        "unsupported-admission-metadata-fails-before-kernel-publication",
+        "safe-axiom-admission-checks-types-and-preserves-forks",
+        "exact-compiler-markers-are-strictly-checked-with-unsafe-metadata-preserved",
+        "nearby-unsafe-axioms-cannot-use-the-compiler-marker-capability",
+        "explicit-carrier-ops-preserve-semantics-and-check-memo-hits"
+      ]
+    },
+    {
+      "namespace": "kernel-contracts.kernel-theorem-carrier-test",
+      "path": "kernel-contracts/kernel_contracts/kernel_theorem_carrier_test.clj",
+      "source_at_archive": "test/prototype/kernel_theorem_carrier_test.clj",
+      "source_sha256": "776249ee1b374211d42887914fe973f4ede25ffb560ad4441f8444893d1f8374",
+      "tests": [
+        "dependent-theorem-checks-on-both-carriers-with-complete-metadata",
+        "authentic-pinned-native-theorem-uses-carrier-parametric-admission",
+        "invalid-proof-type-and-unresolved-terms-never-add-a-name",
+        "malformed-layout-and-name-list-reject-before-admission",
+        "checking-fuel-and-carrier-budget-are-enforced-including-memo-hits"
+      ]
+    }
+  ],
+  "test_count": 61,
+  "validation": {
+    "jdk_heap": "384MiB",
+    "tests": 61,
+    "assertions": 22732,
+    "failures": 0,
+    "errors": 0,
+    "core": "published org.replikativ/ansatz 0.2.578 Java classes plus current repository Clojure source"
+  },
+  "adaptations": [
+    "Kernel algorithms retain constructor/type/layout/strict-checking behavior.",
+    "Fixture carrier supports immutable constructor data, scalar storage and anchor retain/release only; it cannot execute IR.",
+    "Only contextual String decoding is extracted; runtime string operations are absent.",
+    "Native ModuleData JSONL loader pins Lean commit directly rather than requiring runtime-prim.",
+    "Store-backed projection reuse is disabled for this explicit test carrier. Its former Store-specific reuse contracts are not claimed.",
+    "Native theorem helper copies only fixture/base-env/guest-list; no Declaration interpreter is loaded."
+  ],
+  "fixtures": [
+    "fixtures/imported-kernel-native.jsonl",
+    "fixtures/raw-inductive-native.jsonl"
+  ],
+  "additional_java_sources": [
+    "kernel-support/java/prototype/TypedLongMemo.java"
+  ]
+}

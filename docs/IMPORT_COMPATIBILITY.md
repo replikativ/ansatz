@@ -31,9 +31,11 @@ This stabilization does not upgrade that toolchain or regenerate Mathlib/CSLib.
 
 Remaining issue #79 work is to inventory and refresh the desired library stores
 against the chosen interpreter cohort, and to establish whether the historical
-kernel trace patch still needs rebasing. Loading unchanged Lean sources and
-bidirectional DSL/Lean composition remain acceptance gates in
-`experiments/lean-ir/research/LEAN_HOSTING_CAMPAIGN.md`.
+kernel trace patch still needs rebasing. Current source loading and runtime
+acceptance are documented in the [Lean/JVM release checks](../modules/lean-jvm/RELEASE_CHECKLIST.md).
+Bidirectional kernel declaration/theorem composition between the DSL and Lean
+modules remains follow-up work. Historical frontend and resident-World contracts
+are distinguished from retained coverage in the [contract migration](../modules/lean-jvm/test-engine/coverage.json).
 
 # Differential codec boundary
 

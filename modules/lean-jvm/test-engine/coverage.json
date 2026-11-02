@@ -1,0 +1,811 @@
+{
+  "schema": "engine-contract-migration/1",
+  "sourceCommit": "4ace73f0",
+  "engine_groups": [
+    {
+      "namespace": "java-ir-baseline-checks",
+      "execution": "(java-ir-baseline-checks/check! basis)",
+      "expected_tests": 9
+    },
+    {
+      "namespace": "java-ir-baseline-checks",
+      "execution": "(java-ir-baseline-checks/check! (assoc basis :explicit true))",
+      "expected_tests": 9
+    },
+    {
+      "namespace": "java-ir-continuation-checks",
+      "execution": "(java-ir-continuation-checks/check! basis)",
+      "expected_tests": 8
+    },
+    {
+      "namespace": "lean-compatibility-corpus-checks",
+      "execution": "(lean-compatibility-corpus-checks/check! basis)",
+      "expected_tests": 6
+    },
+    {
+      "namespace": "java-ir-extern-checks",
+      "execution": "(java-ir-extern-checks/check! basis)",
+      "expected_tests": 5
+    },
+    {
+      "namespace": "java-ir-extern-checks",
+      "execution": "(java-ir-extern-checks/check! (assoc basis :explicit true))",
+      "expected_tests": 5
+    },
+    {
+      "namespace": "java-ir-scalar-checks",
+      "execution": "(java-ir-scalar-checks/check! basis)",
+      "expected_tests": 6
+    },
+    {
+      "namespace": "java-ir-scalar-checks",
+      "execution": "(java-ir-scalar-checks/check! (assoc basis :explicit true))",
+      "expected_tests": 6
+    },
+    {
+      "namespace": "java-ir-main-checks",
+      "execution": "(java-ir-main-checks/check! basis)",
+      "expected_tests": 9
+    },
+    {
+      "namespace": "java-ir-main-checks",
+      "execution": "(java-ir-main-checks/check! (assoc basis :explicit true))",
+      "expected_tests": 9
+    },
+    {
+      "namespace": "java-ir-fork-checks",
+      "execution": "(java-ir-fork-checks/check! basis)",
+      "expected_tests": 13
+    },
+    {
+      "namespace": "java-ir-host-checks",
+      "execution": "(java-ir-host-checks/check! basis)",
+      "expected_tests": 18
+    },
+    {
+      "namespace": "java-ir-generation-checks",
+      "execution": "(java-ir-generation-checks/check! basis)",
+      "expected_tests": 17
+    },
+    {
+      "namespace": "java-ir-header-checks",
+      "execution": "(java-ir-header-checks/check! basis)",
+      "expected_tests": 10
+    },
+    {
+      "namespace": "java-ir-code-checks",
+      "execution": "(java-ir-code-checks/check! basis)",
+      "expected_tests": 10
+    },
+    {
+      "namespace": "java-ir-guest-export-checks",
+      "execution": "(java-ir-guest-export-checks/check! basis)",
+      "expected_tests": 18
+    },
+    {
+      "namespace": "java-ir-guest-export-checks",
+      "execution": "(java-ir-guest-export-checks/check! (assoc basis :explicit true))",
+      "expected_tests": 18
+    },
+    {
+      "namespace": "java-ir-graph-checks",
+      "execution": "(java-ir-graph-checks/check! basis)",
+      "expected_tests": 9
+    },
+    {
+      "namespace": "java-ir-module-data-graph-checks",
+      "execution": "(clojure.test/run-tests 'java-ir-module-data-graph-checks)",
+      "expected_tests": 4
+    },
+    {
+      "namespace": "java-ir-ref-checks",
+      "execution": "(java-ir-ref-checks/check! basis)",
+      "expected_tests": 10
+    },
+    {
+      "namespace": "java-ir-ref-checks",
+      "execution": "(java-ir-ref-checks/check! (assoc basis :explicit true))",
+      "expected_tests": 10
+    },
+    {
+      "namespace": "java-ir-array-checks",
+      "execution": "(java-ir-array-checks/check! basis)",
+      "expected_tests": 8
+    },
+    {
+      "namespace": "java-ir-array-checks",
+      "execution": "(java-ir-array-checks/check! (assoc basis :explicit true))",
+      "expected_tests": 8
+    },
+    {
+      "namespace": "java-ir-release-order-checks",
+      "execution": "(java-ir-release-order-checks/check! basis)",
+      "expected_tests": 6
+    },
+    {
+      "namespace": "java-ir-release-order-checks",
+      "execution": "(java-ir-release-order-checks/check! (assoc basis :explicit true))",
+      "expected_tests": 6
+    },
+    {
+      "namespace": "java-ir-byte-array-checks",
+      "execution": "(java-ir-byte-array-checks/check! basis)",
+      "expected_tests": 13
+    },
+    {
+      "namespace": "java-ir-byte-array-checks",
+      "execution": "(java-ir-byte-array-checks/check! (assoc basis :explicit true))",
+      "expected_tests": 13
+    },
+    {
+      "namespace": "java-ir-byte-array-empty-checks",
+      "execution": "(java-ir-byte-array-empty-checks/check! basis)",
+      "expected_tests": 7
+    },
+    {
+      "namespace": "java-ir-utf8-buffer-checks",
+      "execution": "(java-ir-utf8-buffer-checks/check! basis)",
+      "expected_tests": 20
+    },
+    {
+      "namespace": "java-ir-string-checks",
+      "execution": "(java-ir-string-checks/check! basis)",
+      "expected_tests": 6
+    },
+    {
+      "namespace": "java-ir-string-checks",
+      "execution": "(java-ir-string-checks/check! (assoc basis :explicit true))",
+      "expected_tests": 6
+    },
+    {
+      "namespace": "java-ir-string-completion-checks",
+      "execution": "(java-ir-string-completion-checks/check! basis)",
+      "expected_tests": 9
+    },
+    {
+      "namespace": "java-ir-string-completion-checks",
+      "execution": "(java-ir-string-completion-checks/check! (assoc basis :explicit true))",
+      "expected_tests": 9
+    },
+    {
+      "namespace": "java-ir-string-pos-checks",
+      "execution": "(java-ir-string-pos-checks/check! basis)",
+      "expected_tests": 10
+    },
+    {
+      "namespace": "java-ir-string-pos-checks",
+      "execution": "(java-ir-string-pos-checks/check! (assoc basis :explicit true))",
+      "expected_tests": 10
+    },
+    {
+      "namespace": "java-ir-runtime-basics-checks",
+      "execution": "(java-ir-runtime-basics-checks/check! basis)",
+      "expected_tests": 8
+    },
+    {
+      "namespace": "java-ir-runtime-basics-checks",
+      "execution": "(java-ir-runtime-basics-checks/check! (assoc basis :explicit true))",
+      "expected_tests": 8
+    },
+    {
+      "namespace": "java-ir-task-map-checks",
+      "execution": "(java-ir-task-map-checks/check! basis)",
+      "expected_tests": 19
+    },
+    {
+      "namespace": "java-ir-task-map-checks",
+      "execution": "(java-ir-task-map-checks/check! (assoc basis :explicit true))",
+      "expected_tests": 19
+    },
+    {
+      "namespace": "java-ir-initialization-checks",
+      "execution": "(java-ir-initialization-checks/check! basis)",
+      "expected_tests": 6
+    },
+    {
+      "namespace": "java-ir-initialization-checks",
+      "execution": "(java-ir-initialization-checks/check! (assoc basis :explicit true))",
+      "expected_tests": 6
+    },
+    {
+      "namespace": "java-ir-integral-checks",
+      "execution": "(java-ir-integral-checks/check! basis)",
+      "expected_tests": 6
+    },
+    {
+      "namespace": "java-ir-integral-checks",
+      "execution": "(java-ir-integral-checks/check! (assoc basis :explicit true))",
+      "expected_tests": 6
+    },
+    {
+      "namespace": "java-ir-u64-checks",
+      "execution": "(java-ir-u64-checks/check! basis)",
+      "expected_tests": 10
+    },
+    {
+      "namespace": "java-ir-u64-checks",
+      "execution": "(java-ir-u64-checks/check! (assoc basis :explicit true))",
+      "expected_tests": 10
+    },
+    {
+      "namespace": "java-ir-u64-narrow-checks",
+      "execution": "(java-ir-u64-narrow-checks/check! basis)",
+      "expected_tests": 3
+    },
+    {
+      "namespace": "java-ir-u64-narrow-checks",
+      "execution": "(java-ir-u64-narrow-checks/check! (assoc basis :explicit true))",
+      "expected_tests": 3
+    },
+    {
+      "namespace": "java-ir-u64-scalars-checks",
+      "execution": "(java-ir-u64-scalars-checks/check! basis)",
+      "expected_tests": 6
+    },
+    {
+      "namespace": "java-ir-u64-scalars-checks",
+      "execution": "(java-ir-u64-scalars-checks/check! (assoc basis :explicit true))",
+      "expected_tests": 6
+    },
+    {
+      "namespace": "java-ir-u64-widen-checks",
+      "execution": "(java-ir-u64-widen-checks/check! basis)",
+      "expected_tests": 5
+    },
+    {
+      "namespace": "java-ir-u64-widen-checks",
+      "execution": "(java-ir-u64-widen-checks/check! (assoc basis :explicit true))",
+      "expected_tests": 5
+    },
+    {
+      "namespace": "java-ir-expression-data-checks",
+      "execution": "(java-ir-expression-data-checks/check! basis)",
+      "expected_tests": 9
+    },
+    {
+      "namespace": "java-ir-expression-data-checks",
+      "execution": "(java-ir-expression-data-checks/check! (assoc basis :explicit true))",
+      "expected_tests": 9
+    },
+    {
+      "namespace": "java-ir-cached-data-checks",
+      "execution": "(java-ir-cached-data-checks/check! basis)",
+      "expected_tests": 7
+    },
+    {
+      "namespace": "java-ir-cached-data-checks",
+      "execution": "(java-ir-cached-data-checks/check! (assoc basis :explicit true))",
+      "expected_tests": 7
+    },
+    {
+      "namespace": "java-ir-expr-equality-checks",
+      "execution": "(java-ir-expr-equality-checks/check! basis)",
+      "expected_tests": 15
+    },
+    {
+      "namespace": "java-ir-expr-equality-checks",
+      "execution": "(java-ir-expr-equality-checks/check! (assoc basis :explicit true))",
+      "expected_tests": 15
+    },
+    {
+      "namespace": "java-ir-level-equality-checks",
+      "execution": "(java-ir-level-equality-checks/check! basis)",
+      "expected_tests": 9
+    },
+    {
+      "namespace": "java-ir-level-equality-checks",
+      "execution": "(java-ir-level-equality-checks/check! (assoc basis :explicit true))",
+      "expected_tests": 9
+    },
+    {
+      "namespace": "java-ir-f64-checks",
+      "execution": "(java-ir-f64-checks/check! basis)",
+      "expected_tests": 11
+    },
+    {
+      "namespace": "java-ir-float-le-checks",
+      "execution": "(java-ir-float-le-checks/check! basis)",
+      "expected_tests": 5
+    },
+    {
+      "namespace": "java-ir-float-le-checks",
+      "execution": "(java-ir-float-le-checks/check! (assoc basis :explicit true))",
+      "expected_tests": 5
+    },
+    {
+      "namespace": "java-ir-f64-checks",
+      "execution": "(java-ir-f64-checks/check! (assoc basis :explicit true))",
+      "expected_tests": 11
+    },
+    {
+      "namespace": "java-ir-pointer-checks",
+      "execution": "(java-ir-pointer-checks/check! basis)",
+      "expected_tests": 16
+    },
+    {
+      "namespace": "java-ir-pointer-checks",
+      "execution": "(java-ir-pointer-checks/check! (assoc basis :explicit true))",
+      "expected_tests": 16
+    },
+    {
+      "namespace": "java-ir-pointer-hash-checks",
+      "execution": "(java-ir-pointer-hash-checks/check! basis)",
+      "expected_tests": 5
+    },
+    {
+      "namespace": "java-ir-pointer-hash-checks",
+      "execution": "(java-ir-pointer-hash-checks/check! (assoc basis :explicit true))",
+      "expected_tests": 5
+    },
+    {
+      "namespace": "java-ir-pointer-hash-control-checks",
+      "execution": "(java-ir-pointer-hash-control-checks/check! basis)",
+      "expected_tests": 6
+    },
+    {
+      "namespace": "java-ir-pointer-hash-control-checks",
+      "execution": "(java-ir-pointer-hash-control-checks/check! (assoc basis :explicit true))",
+      "expected_tests": 6
+    },
+    {
+      "namespace": "java-ir-pointer-hash-followup-checks",
+      "execution": "(java-ir-pointer-hash-followup-checks/check! basis)",
+      "expected_tests": 4
+    },
+    {
+      "namespace": "java-ir-pointer-hash-followup-checks",
+      "execution": "(java-ir-pointer-hash-followup-checks/check! (assoc basis :explicit true))",
+      "expected_tests": 4
+    },
+    {
+      "namespace": "java-ir-logical-sharing-checks",
+      "execution": "(java-ir-logical-sharing-checks/check! basis)",
+      "expected_tests": 21
+    },
+    {
+      "namespace": "java-ir-logical-sharing-checks",
+      "execution": "(java-ir-logical-sharing-checks/check! (assoc basis :explicit true))",
+      "expected_tests": 21
+    },
+    {
+      "namespace": "java-ir-release-transaction-checks",
+      "execution": "(java-ir-release-transaction-checks/check! (assoc basis :explicit true))",
+      "expected_tests": 12
+    },
+    {
+      "namespace": "java-ir-sync-task-checks",
+      "execution": "(java-ir-sync-task-checks/check! (assoc basis :explicit true))",
+      "expected_tests": 43
+    },
+    {
+      "namespace": "java-ir-stdio-checks",
+      "execution": "(java-ir-stdio-checks/check! basis)",
+      "expected_tests": 13
+    },
+    {
+      "namespace": "java-ir-persistent-checks",
+      "execution": "(java-ir-persistent-checks/check! basis)",
+      "expected_tests": 11
+    },
+    {
+      "namespace": "java-ir-persistent-checks",
+      "execution": "(java-ir-persistent-checks/check! (assoc basis :explicit true))",
+      "expected_tests": 11
+    },
+    {
+      "namespace": "java-ir-profile-checks",
+      "execution": "(java-ir-profile-checks/check! (assoc basis :explicit true))",
+      "expected_tests": 11
+    },
+    {
+      "namespace": "java-ir-expr-find-checks",
+      "execution": "(java-ir-expr-find-checks/check! (assoc basis :explicit true))",
+      "expected_tests": 21
+    },
+    {
+      "namespace": "java-ir-expr-find-ext-checks",
+      "execution": "(java-ir-expr-find-ext-checks/check! (assoc basis :explicit true))",
+      "expected_tests": 10
+    },
+    {
+      "namespace": "java-ir-share-common-checks",
+      "execution": "(java-ir-share-common-checks/check! (assoc basis :explicit true))",
+      "expected_tests": 15
+    },
+    {
+      "namespace": "java-ir-level-mvars-checks",
+      "execution": "(java-ir-level-mvars-checks/check! (assoc basis :explicit true))",
+      "expected_tests": 20
+    },
+    {
+      "namespace": "java-ir-expr-transform-policy-checks",
+      "execution": "(java-ir-expr-transform-policy-checks/check! (assoc basis :explicit true))",
+      "expected_tests": 5
+    },
+    {
+      "namespace": "java-ir-expr-replace-checks",
+      "execution": "(java-ir-expr-replace-checks/check! (assoc basis :explicit true))",
+      "expected_tests": 18
+    },
+    {
+      "namespace": "java-ir-expr-abstract-checks",
+      "execution": "(java-ir-expr-abstract-checks/check! (assoc basis :explicit true))",
+      "expected_tests": 19
+    },
+    {
+      "namespace": "java-ir-expr-instantiate-checks",
+      "execution": "(java-ir-expr-instantiate-checks/check! (assoc basis :explicit true))",
+      "expected_tests": 14
+    },
+    {
+      "namespace": "java-ir-expr-instantiate-control-checks",
+      "execution": "(java-ir-expr-instantiate-control-checks/check! (assoc basis :explicit true))",
+      "expected_tests": 5
+    },
+    {
+      "namespace": "java-ir-expr-full-checks",
+      "execution": "(java-ir-expr-full-checks/check! (assoc basis :explicit true))",
+      "expected_tests": 10
+    },
+    {
+      "namespace": "java-ir-expr-full-control-checks",
+      "execution": "(java-ir-expr-full-control-checks/check! (assoc basis :explicit true))",
+      "expected_tests": 5
+    },
+    {
+      "namespace": "java-ir-expr-full-adversarial-checks",
+      "execution": "(java-ir-expr-full-adversarial-checks/check! (assoc basis :explicit true))",
+      "expected_tests": 6
+    },
+    {
+      "namespace": "java-ir-expr-full-native-checks",
+      "execution": "(java-ir-expr-full-native-checks/check! (assoc basis :explicit true))",
+      "expected_tests": 6
+    },
+    {
+      "namespace": "java-ir-expr-full-native-control-checks",
+      "execution": "(java-ir-expr-full-native-control-checks/check! (assoc basis :explicit true))",
+      "expected_tests": 7
+    },
+    {
+      "namespace": "java-ir-expr-loose-checks",
+      "execution": "(java-ir-expr-loose-checks/check! basis)",
+      "expected_tests": 11
+    },
+    {
+      "namespace": "java-ir-expr-loose-checks",
+      "execution": "(java-ir-expr-loose-checks/check! (assoc basis :explicit true))",
+      "expected_tests": 11
+    },
+    {
+      "namespace": "java-ir-expr-loose-control-checks",
+      "execution": "(java-ir-expr-loose-control-checks/check! basis)",
+      "expected_tests": 5
+    },
+    {
+      "namespace": "java-ir-expr-loose-control-checks",
+      "execution": "(java-ir-expr-loose-control-checks/check! (assoc basis :explicit true))",
+      "expected_tests": 5
+    },
+    {
+      "namespace": "java-ir-expr-loose-entry-checks",
+      "execution": "(java-ir-expr-loose-entry-checks/check! (assoc basis :explicit true))",
+      "expected_tests": 2
+    },
+    {
+      "namespace": "java-ir-expr-quick-order-checks",
+      "execution": "(java-ir-expr-quick-order-checks/check! basis)",
+      "expected_tests": 7
+    },
+    {
+      "namespace": "java-ir-expr-quick-order-checks",
+      "execution": "(java-ir-expr-quick-order-checks/check! (assoc basis :explicit true))",
+      "expected_tests": 7
+    },
+    {
+      "namespace": "java-ir-expr-quick-order-control-checks",
+      "execution": "(java-ir-expr-quick-order-control-checks/check! basis)",
+      "expected_tests": 5
+    },
+    {
+      "namespace": "java-ir-expr-quick-order-control-checks",
+      "execution": "(java-ir-expr-quick-order-control-checks/check! (assoc basis :explicit true))",
+      "expected_tests": 5
+    },
+    {
+      "namespace": "java-ir-array-set-checks",
+      "execution": "(java-ir-array-set-checks/check! basis)",
+      "expected_tests": 7
+    },
+    {
+      "namespace": "java-ir-array-set-checks",
+      "execution": "(java-ir-array-set-checks/check! (assoc basis :explicit true))",
+      "expected_tests": 7
+    },
+    {
+      "namespace": "java-ir-kernel-projection-checks",
+      "execution": "(java-ir-kernel-projection-checks/check! basis)",
+      "expected_tests": 11
+    },
+    {
+      "namespace": "java-ir-host-guest-checks",
+      "execution": "(java-ir-host-guest-checks/check! basis)",
+      "expected_tests": 12
+    },
+    {
+      "namespace": "java-ir-kernel-projection-host-guest-checks",
+      "execution": "(java-ir-kernel-projection-host-guest-checks/check! basis)",
+      "expected_tests": 4
+    },
+    {
+      "namespace": "java-ir-int-checks",
+      "execution": "(java-ir-int-checks/check! basis)",
+      "expected_tests": 8
+    },
+    {
+      "namespace": "java-ir-int-checks",
+      "execution": "(java-ir-int-checks/check! (assoc basis :explicit true))",
+      "expected_tests": 8
+    },
+    {
+      "namespace": "java-ir-name-equality-checks",
+      "execution": "(java-ir-name-equality-checks/check! basis)",
+      "expected_tests": 11
+    },
+    {
+      "namespace": "java-ir-name-equality-checks",
+      "execution": "(java-ir-name-equality-checks/check! (assoc basis :explicit true))",
+      "expected_tests": 11
+    },
+    {
+      "namespace": "java-ir-build-identity-checks",
+      "execution": "(java-ir-build-identity-checks/check! basis)",
+      "expected_tests": 8
+    },
+    {
+      "namespace": "java-ir-build-identity-checks",
+      "execution": "(java-ir-build-identity-checks/check! (assoc basis :explicit true))",
+      "expected_tests": 8
+    },
+    {
+      "namespace": "java-ir-selected-owner-checks",
+      "execution": "(java-ir-selected-owner-checks/check! basis)",
+      "expected_tests": 7
+    },
+    {
+      "namespace": "java-ir-selected-owner-checks",
+      "execution": "(java-ir-selected-owner-checks/check! (assoc basis :explicit true))",
+      "expected_tests": 7
+    },
+    {
+      "namespace": "java-ir-import-sharing-checks",
+      "execution": "(java-ir-import-sharing-checks/check! basis)",
+      "expected_tests": 7
+    },
+    {
+      "namespace": "java-ir-import-sharing-checks",
+      "execution": "(java-ir-import-sharing-checks/check! (assoc basis :explicit true))",
+      "expected_tests": 7
+    },
+    {
+      "namespace": "java-ir-void-checks",
+      "execution": "(java-ir-void-checks/check! basis)",
+      "expected_tests": 10
+    },
+    {
+      "namespace": "java-ir-void-checks",
+      "execution": "(java-ir-void-checks/check! (assoc basis :explicit true))",
+      "expected_tests": 10
+    },
+    {
+      "namespace": "java-ir-catalogue-checks",
+      "execution": "(java-ir-catalogue-checks/check!)",
+      "expected_tests": 6
+    },
+    {
+      "namespace": "java-ir-source-setup-checks",
+      "execution": "(java-ir-source-setup-checks/check!)",
+      "expected_tests": 10
+    },
+    {
+      "namespace": "java-ir-layout-scalar-checks",
+      "execution": "(java-ir-layout-scalar-checks/check! basis)",
+      "expected_tests": 8
+    },
+    {
+      "namespace": "java-ir-layout-scalar-checks",
+      "execution": "(java-ir-layout-scalar-checks/check! (assoc basis :explicit true))",
+      "expected_tests": 8
+    },
+    {
+      "namespace": "java-ir-u16-checks",
+      "execution": "(java-ir-u16-checks/check! basis)",
+      "expected_tests": 10
+    },
+    {
+      "namespace": "java-ir-u16-checks",
+      "execution": "(java-ir-u16-checks/check! (assoc basis :explicit true))",
+      "expected_tests": 10
+    },
+    {
+      "namespace": "java-ir-name-pool-checks",
+      "execution": "(java-ir-name-pool-checks/check! basis)",
+      "expected_tests": 9
+    },
+    {
+      "namespace": "java-ir-f32-checks",
+      "execution": "(java-ir-f32-checks/check! basis)",
+      "expected_tests": 6
+    },
+    {
+      "namespace": "java-ir-f32-checks",
+      "execution": "(java-ir-f32-checks/check! (assoc basis :explicit true))",
+      "expected_tests": 6
+    }
+  ],
+  "retired_report_protocols": [
+    "java-ir-expr-delayed-checks",
+    "java-ir-expr-delayed-control-checks",
+    "java-ir-expr-direct-checks",
+    "java-ir-expr-machinery-checks",
+    "java-ir-mvars-session-checks"
+  ],
+  "retirementReason": "Removed private start/report protocols. Native Expr lift/substitution/full-pass, generic dispatch, code-demand, ownership and fork contracts remain. Full pass assertions now enter original native function instead of private start wrapper.",
+  "kernel_contract_groups": [
+    {
+      "namespace": "kernel-contracts.kernel-bridge-test",
+      "expected_tests": 13
+    },
+    {
+      "namespace": "kernel-contracts.kernel-theorem-carrier-test",
+      "expected_tests": 5
+    },
+    {
+      "namespace": "kernel-contracts.compact-kernel-projection-test",
+      "expected_tests": 13
+    },
+    {
+      "namespace": "kernel-contracts.imported-kernel-test",
+      "expected_tests": 20
+    },
+    {
+      "namespace": "kernel-contracts.guarded-kernel-view-test",
+      "expected_tests": 10
+    }
+  ],
+  "archived_implementation_contracts": [
+    {
+      "namespace": "prototype.closed-call-completion-test",
+      "old_test_executions": 4,
+      "disposition": "Legacy World/provider implementation archived. Stable identity, owner, readiness, publication and checking requirements are exercised by maintained engine/kernel tests and the SDK source/artifact authority gate; historical implementation test count is not reproduced."
+    },
+    {
+      "namespace": "prototype.resident-executor-test",
+      "old_test_executions": 7,
+      "disposition": "Legacy World/provider implementation archived. Stable identity, owner, readiness, publication and checking requirements are exercised by maintained engine/kernel tests and the SDK source/artifact authority gate; historical implementation test count is not reproduced."
+    },
+    {
+      "namespace": "java-ir-pure-region-checks",
+      "old_test_executions": 9,
+      "disposition": "Legacy World/provider implementation archived. Stable identity, owner, readiness, publication and checking requirements are exercised by maintained engine/kernel tests and the SDK source/artifact authority gate; historical implementation test count is not reproduced."
+    },
+    {
+      "namespace": "java-ir-pure-provider-checks",
+      "old_test_executions": 4,
+      "disposition": "Legacy World/provider implementation archived. Stable identity, owner, readiness, publication and checking requirements are exercised by maintained engine/kernel tests and the SDK source/artifact authority gate; historical implementation test count is not reproduced."
+    },
+    {
+      "namespace": "research.checked-delta-checks",
+      "old_test_executions": 12,
+      "disposition": "Legacy World/provider implementation archived. Stable identity, owner, readiness, publication and checking requirements are exercised by maintained engine/kernel tests and the SDK source/artifact authority gate; historical implementation test count is not reproduced."
+    },
+    {
+      "namespace": "prototype.delta-import-test",
+      "old_test_executions": 9,
+      "disposition": "Legacy World/provider implementation archived. Stable identity, owner, readiness, publication and checking requirements are exercised by maintained engine/kernel tests and the SDK source/artifact authority gate; historical implementation test count is not reproduced."
+    },
+    {
+      "namespace": "prototype.module-import-test",
+      "old_test_executions": 11,
+      "disposition": "Legacy World/provider implementation archived. Stable identity, owner, readiness, publication and checking requirements are exercised by maintained engine/kernel tests and the SDK source/artifact authority gate; historical implementation test count is not reproduced."
+    },
+    {
+      "namespace": "prototype.source-import-test",
+      "old_test_executions": 11,
+      "disposition": "Legacy World/provider implementation archived. Stable identity, owner, readiness, publication and checking requirements are exercised by maintained engine/kernel tests and the SDK source/artifact authority gate; historical implementation test count is not reproduced."
+    },
+    {
+      "namespace": "prototype.kernel-artifact-test",
+      "old_test_executions": 7,
+      "disposition": "Legacy World/provider implementation archived. Stable identity, owner, readiness, publication and checking requirements are exercised by maintained engine/kernel tests and the SDK source/artifact authority gate; historical implementation test count is not reproduced."
+    },
+    {
+      "namespace": "prototype.artifact-association-test",
+      "old_test_executions": 9,
+      "disposition": "Legacy World/provider implementation archived. Stable identity, owner, readiness, publication and checking requirements are exercised by maintained engine/kernel tests and the SDK source/artifact authority gate; historical implementation test count is not reproduced."
+    },
+    {
+      "namespace": "prototype.artifact-host-test",
+      "old_test_executions": 4,
+      "disposition": "Legacy World/provider implementation archived. Stable identity, owner, readiness, publication and checking requirements are exercised by maintained engine/kernel tests and the SDK source/artifact authority gate; historical implementation test count is not reproduced."
+    },
+    {
+      "namespace": "prototype.kernel-host-test",
+      "old_test_executions": 15,
+      "disposition": "Legacy World/provider implementation archived. Stable identity, owner, readiness, publication and checking requirements are exercised by maintained engine/kernel tests and the SDK source/artifact authority gate; historical implementation test count is not reproduced."
+    },
+    {
+      "namespace": "prototype.source-import-authorization-test",
+      "old_test_executions": 7,
+      "disposition": "Legacy World/provider implementation archived. Stable identity, owner, readiness, publication and checking requirements are exercised by maintained engine/kernel tests and the SDK source/artifact authority gate; historical implementation test count is not reproduced."
+    },
+    {
+      "namespace": "prototype.resident-artifact-test",
+      "old_test_executions": 10,
+      "disposition": "Legacy World/provider implementation archived. Stable identity, owner, readiness, publication and checking requirements are exercised by maintained engine/kernel tests and the SDK source/artifact authority gate; historical implementation test count is not reproduced."
+    },
+    {
+      "namespace": "prototype.resident-frontend-test",
+      "old_test_executions": 17,
+      "disposition": "Legacy World/provider implementation archived. Stable identity, owner, readiness, publication and checking requirements are exercised by maintained engine/kernel tests and the SDK source/artifact authority gate; historical implementation test count is not reproduced."
+    },
+    {
+      "namespace": "prototype.resident-preparation-test",
+      "old_test_executions": 8,
+      "disposition": "Legacy World/provider implementation archived. Stable identity, owner, readiness, publication and checking requirements are exercised by maintained engine/kernel tests and the SDK source/artifact authority gate; historical implementation test count is not reproduced."
+    },
+    {
+      "namespace": "prototype.resident-binding-dependencies-test",
+      "old_test_executions": 4,
+      "disposition": "Legacy World/provider implementation archived. Stable identity, owner, readiness, publication and checking requirements are exercised by maintained engine/kernel tests and the SDK source/artifact authority gate; historical implementation test count is not reproduced."
+    },
+    {
+      "namespace": "prototype.full-init-admission-test",
+      "old_test_executions": 6,
+      "disposition": "Legacy World/provider implementation archived. Stable identity, owner, readiness, publication and checking requirements are exercised by maintained engine/kernel tests and the SDK source/artifact authority gate; historical implementation test count is not reproduced."
+    },
+    {
+      "namespace": "prototype.coherent-consumer-profile-test",
+      "old_test_executions": 10,
+      "disposition": "Legacy World/provider implementation archived. Stable identity, owner, readiness, publication and checking requirements are exercised by maintained engine/kernel tests and the SDK source/artifact authority gate; historical implementation test count is not reproduced."
+    },
+    {
+      "namespace": "prototype.coherent-stage-guards-test",
+      "old_test_executions": 9,
+      "disposition": "Legacy World/provider implementation archived. Stable identity, owner, readiness, publication and checking requirements are exercised by maintained engine/kernel tests and the SDK source/artifact authority gate; historical implementation test count is not reproduced."
+    },
+    {
+      "namespace": "prototype.coherent-source-preparation-test",
+      "old_test_executions": 5,
+      "disposition": "Legacy World/provider implementation archived. Stable identity, owner, readiness, publication and checking requirements are exercised by maintained engine/kernel tests and the SDK source/artifact authority gate; historical implementation test count is not reproduced."
+    },
+    {
+      "namespace": "prototype.coherent-helper-value-test",
+      "old_test_executions": 3,
+      "disposition": "Legacy World/provider implementation archived. Stable identity, owner, readiness, publication and checking requirements are exercised by maintained engine/kernel tests and the SDK source/artifact authority gate; historical implementation test count is not reproduced."
+    },
+    {
+      "namespace": "prototype.resident-admitted-init-prefix-test",
+      "old_test_executions": 4,
+      "disposition": "Legacy World/provider implementation archived. Stable identity, owner, readiness, publication and checking requirements are exercised by maintained engine/kernel tests and the SDK source/artifact authority gate; historical implementation test count is not reproduced."
+    },
+    {
+      "namespace": "prototype.resident-init-prefix-test",
+      "old_test_executions": 6,
+      "disposition": "Legacy World/provider implementation archived. Stable identity, owner, readiness, publication and checking requirements are exercised by maintained engine/kernel tests and the SDK source/artifact authority gate; historical implementation test count is not reproduced."
+    },
+    {
+      "namespace": "prototype.coherent-jvm-slice-test",
+      "old_test_executions": 13,
+      "disposition": "Legacy World/provider implementation archived. Stable identity, owner, readiness, publication and checking requirements are exercised by maintained engine/kernel tests and the SDK source/artifact authority gate; historical implementation test count is not reproduced."
+    }
+  ],
+  "current_engine_groups": 133,
+  "current_engine_test_executions": 1279,
+  "validation": {
+    "assertions": 57536,
+    "failures": 0,
+    "errors": 0,
+    "heap_mib": 384
+  }
+}
