@@ -145,9 +145,12 @@ may canonicalize NaNs according to their own semantics. USize/ISize use the admi
 IO calls return `IOResult<T>` with `value()`, `stdout()`, and `stderr()`; Clojure
 returns `{:value ... :stdout ... :stderr ...}`. Calling a named IO entry does not
 require it to be `main`. `runMain` requires exactly one admitted `IO Unit` entry;
-use named calls if several exist. A data codec does not implement arbitrary IO:
-the current task-free runtime has captured output and a limited audited intrinsic
-set. Unclassified required externs are refused before startup. Declared terminal
+use named calls if several exist. The [supplied-stdio guide](STDIO.md) describes
+`LeanFunction.invokeWith(InvocationOptions, Object...)`, `LeanProject.callWith`
+and Clojure `call-with-options`: finite per-call stdin and exact byte captures,
+with text convenience views. Existing calls use empty input. A data codec does
+not implement arbitrary IO: the current task-free runtime has a limited audited
+intrinsic set. Unclassified required externs are refused before startup. Declared terminal
 traps and unsupported dynamic captured-stream operations can fail when reached
 at runtime.
 

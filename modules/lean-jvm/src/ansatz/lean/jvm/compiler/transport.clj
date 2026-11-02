@@ -224,9 +224,17 @@
 (defn- check-build-deadline! [state]
   (when-let [start (:build-start-nanos state)]
     (need (< (- (System/nanoTime) start) (:max-build-nanos state)) "Native aggregate build deadline exceeded")))
+(defn- check-native-memory! [running?]
+  (let [available (available-kib) minimum (* 2 1024 1024)]
+    (when (< available minimum)
+      (throw (ex-info (str (if running? "Native MemAvailable" "MemAvailable")
+                           " below 2 GiB floor (" available " KiB available)"
+                           (when-not running? "; no native process started"))
+                      {:profile profile :code "ResourceLimit"
+                       :resource :host-memory :available-kib available :minimum-kib minimum})))))
 (defn- run-process! [state journal ^Path directory label arguments env]
   (check-build-deadline! state)
-  (need (>= (available-kib) (* 2 1024 1024)) "MemAvailable below 2 GiB floor; no native process started")
+  (check-native-memory! false)
   (let [stdout (.resolve directory (str label ".jsonl")) stderr (.resolve directory (str label ".stderr"))
         argv (into [(str (:launcher state)) "--cpu=90:90" "--core=0:0" "--fsize=33554432:33554432" "--"] (mapv str arguments))
         builder (doto (ProcessBuilder. ^java.util.List (ArrayList. argv))
@@ -244,7 +252,7 @@
             (check-build-deadline! state)
             (swap! peak max (rss-kib process handles))
             (need (<= @peak (* 900 1024)) "Native RSS exceeds 900 MiB")
-            (need (>= (available-kib) (* 2 1024 1024)) "Native MemAvailable below 2 GiB")
+            (check-native-memory! true)
             (need (<= (- (System/nanoTime) start) 120000000000) "Native wall deadline exceeded")
             (need (and (<= (Files/size stdout) max-bytes) (<= (Files/size stderr) (* 1024 1024))) "Native output extent exceeded")
             (recur)))

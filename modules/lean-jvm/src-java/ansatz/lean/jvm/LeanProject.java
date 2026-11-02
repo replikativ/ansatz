@@ -32,12 +32,25 @@ public final class LeanProject implements AutoCloseable {
         return function(name).invoke(arguments);
     }
 
+    public synchronized Object callWith(String name, InvocationOptions options, Object... arguments) {
+        return function(name).invokeWith(options, arguments);
+    }
+
     synchronized Object invokeFunction(Object handle, int arity, Object[] arguments) {
         ensureOpen();
         if (arguments == null || arguments.length != arity) {
             throw new LeanException("ArityMismatch", "arguments", "Expected " + arity + " explicit arguments");
         }
         try { return Bridge.CALL.invoke(token, handle, arguments.clone()); }
+        catch (Throwable failure) { throw Bridge.failure(failure); }
+    }
+
+    synchronized Object invokeFunctionWith(Object handle, int arity, InvocationOptions options, Object[] arguments) {
+        ensureOpen();
+        Objects.requireNonNull(options, "options");
+        if (arguments == null || arguments.length != arity)
+            throw new LeanException("ArityMismatch", "arguments", "Expected " + arity + " explicit arguments");
+        try { return Bridge.CALL_WITH.invoke(token, handle, arguments.clone(), options); }
         catch (Throwable failure) { throw Bridge.failure(failure); }
     }
 

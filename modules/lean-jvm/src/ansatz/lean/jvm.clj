@@ -3,7 +3,7 @@
    used alongside this optional module; kernel declaration import is separate."
   (:require [clojure.java.io :as io])
   (:import [ansatz.lean.jvm Lean LeanProject LeanFunction LeanPreparation PreparedArtifact
-            NativeCompilerOptions ProjectOptions LeanUnit IOResult LeanChoice]
+            NativeCompilerOptions ProjectOptions LeanUnit IOResult LeanChoice InvocationOptions]
            [java.nio.file Path] [java.util Optional]))
 
 (defn- path [value]
@@ -109,12 +109,39 @@
                 value))]
       (mapv #(visit %1 %2 0) (get descriptor "arguments") arguments))))
 
-(defn function
+(defn invocation-options
+  "Immutable per-call finite stdin and byte output limits. Text and bytes are
+   mutually exclusive. Invalid options are rejected before guest execution."
+  [options]
+  (if (= InvocationOptions (class options)) options
+    (do
+      (when-not (and (map? options)
+                     (every? #{:stdin :stdin-bytes :stdout-limit-bytes :stderr-limit-bytes} (keys options))
+                     (not (and (contains? options :stdin) (contains? options :stdin-bytes))))
+        (throw (ex-info "Invalid invocation option keys or overlapping stdin forms" {:code "InvalidArgument"})))
+      (let [^InvocationOptions native
+            (cond
+              (contains? options :stdin)
+              (do (when-not (string? (:stdin options))
+                    (throw (ex-info "stdin expects text" {:code "InvalidArgument"})))
+                  (InvocationOptions/stdinText (:stdin options)))
+              (contains? options :stdin-bytes)
+              (do (when-not (= (class (byte-array 0)) (class (:stdin-bytes options)))
+                    (throw (ex-info "stdin-bytes expects a byte array" {:code "InvalidArgument"})))
+                  (InvocationOptions/stdinBytes (:stdin-bytes options)))
+              :else (InvocationOptions/empty))
+            out (get options :stdout-limit-bytes InvocationOptions/MAX_OUTPUT_BYTES)
+            err (get options :stderr-limit-bytes InvocationOptions/MAX_OUTPUT_BYTES)]
+        (when-not (every? #(and (integer? %) (<= 0 % InvocationOptions/MAX_OUTPUT_BYTES)) [out err])
+          (throw (ex-info "Invalid output byte limit" {:code "InvalidArgument"})))
+        (.withOutputLimits native (int out) (int err))))))
+
+(defn- function*
   "Resolve an admitted checked function as an IFn bound to this Project. Exact
    integers, Boolean and strings retain ordinary Clojure carriers. Unit is nil;
    decoded products/lists are vectors, Option is nil or {:some value}. IO returns
    {:value value :stdout text :stderr text}. Unsupported codecs throw explicitly."
-  [^LeanProject project name]
+  [^LeanProject project name options]
   (let [^LeanFunction handle (.function project name)
         arity (.arity handle) descriptor (.descriptor handle)]
     (with-meta
@@ -122,16 +149,27 @@
         (when-not (= arity (bounded-count (inc arity) arguments))
           (throw (ex-info (str "Expected " arity " explicit arguments") {:code "ArityMismatch"})))
         (let [arguments (host-arguments descriptor arguments)
-              result (.invoke handle (object-array arguments))]
+              result (if options (.invokeWith handle ^InvocationOptions options (object-array arguments))
+                         (.invoke handle (object-array arguments)))]
           (if (= "io" (get descriptor "effect"))
             (let [^IOResult result result]
-              {:value (clojure-value (get descriptor "result") (.value result))
-               :stdout (.stdout result) :stderr (.stderr result)})
+              (cond-> {:value (clojure-value (get descriptor "result") (.value result))
+                       :stdout (.stdout result) :stderr (.stderr result)}
+                options (assoc :stdout-bytes (.stdoutBytes result) :stderr-bytes (.stderrBytes result))))
             (clojure-value (get descriptor "result") result))))
       {:lean/name name :lean/signature descriptor :lean/type (.signature handle) :lean/arity arity})))
 
+(defn function
+  "Retain a callable. With invocation options, each call starts fresh finite
+   stdin; IO results additionally include defensive stdout/stderr byte arrays."
+  ([project name] (function* project name nil))
+  ([project name options] (function* project name (invocation-options options))))
+
 (defn call [project name & arguments]
   (apply (function project name) arguments))
+
+(defn call-with-options [project name options & arguments]
+  (apply (function project name options) arguments))
 
 (defn run-main [^LeanProject project] (.runMain project))
 (defn close! [^java.lang.AutoCloseable value] (.close value))

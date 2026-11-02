@@ -10,6 +10,7 @@
  */
 package ansatz.lean.jvm.internal.exec;
 
+import java.io.ByteArrayOutputStream;
 import java.math.BigInteger;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -90,6 +91,7 @@ public final class Interpreter implements AutoCloseable {
     private static final int PROMISE_NEW=300,PROMISE_RESOLVE=301,PROMISE_RESULT=302,TASK_BIND=303,
                              IO_TASK_MAP=304,IO_TASK_BIND=305,TASK_STATE=306,TASK_WAIT=307,
                              TASK_CANCEL=308,TASK_CANCELED=309,OPTION_BLOCK=310,TASK_SPAWN=311,IO_AS_TASK=312;
+    private static final int CAPTURE_FLUSH=568,CAPTURE_READ=569,CAPTURE_WRITE=570,CAPTURE_LINE=571,CAPTURE_PUT=572,CAPTURE_TTY=573;
     private static final int STREAM_FLUSH=100,STREAM_READ=101,STREAM_WRITE=102,STREAM_LINE=103,STREAM_PUT=104,STREAM_TTY=105;
     private static final BigInteger SMALL_MAX=BigInteger.valueOf(Long.MAX_VALUE);
     private static final Object ERASED=Long.valueOf(0);
@@ -4552,6 +4554,12 @@ public final class Interpreter implements AutoCloseable {
     private StdioContext stdioContext;
     private final StringBuilder output=new StringBuilder();
     private int outputBytes,stderrOutputBytes;
+    private ByteArrayOutputStream outputRaw=new ByteArrayOutputStream();
+    private ByteArrayOutputStream stderrRaw=new ByteArrayOutputStream();
+    private byte[] invocationInput=new byte[0]; // immutable private snapshot; forks share only these bytes
+    private int invocationCursor,stdoutLimit=MAX_STRING_OUTPUT_BYTES,stderrLimit=MAX_STRING_OUTPUT_BYTES;
+    private long invocationEpoch;
+    private boolean invocationActive;
     private long atomicDeadlineNanos;
     /** Relative cooperative deadline; at most ten minutes, never a preemption guarantee. */
     public void configureAtomicDeadlineAfterNanos(long durationNanos) {
@@ -6065,6 +6073,10 @@ public final class Interpreter implements AutoCloseable {
         }
         child.output.append(output); child.stderrOutput.append(stderrOutput);
         child.outputBytes=outputBytes; child.stderrOutputBytes=stderrOutputBytes;
+        child.outputRaw.writeBytes(outputRaw.toByteArray()); child.stderrRaw.writeBytes(stderrRaw.toByteArray());
+        child.invocationInput=invocationInput; child.invocationCursor=invocationCursor;
+        child.invocationEpoch=invocationEpoch; child.invocationActive=invocationActive;
+        child.stdoutLimit=stdoutLimit; child.stderrLimit=stderrLimit;
         child.atomicDeadlineNanos=atomicDeadlineNanos; child.atomicDeadlineEnabled=atomicDeadlineEnabled;
         String key=utf8Key==null?null:utf8Key.get();
         child.utf8Key=key==null?null:new WeakReference<>(key);
@@ -7883,44 +7895,160 @@ public final class Interpreter implements AutoCloseable {
     }
     private Node array(Object value) { Node n=node(value); require(n.array&&!n.ref&&n.closure==null,"Expected Array"); return n; }
     private Node ioUnit() { Node n=new Node(0,1,0); n.fields[0]=ERASED; allocations++; return n; }
-    private Node capturedStream(boolean stderr) {
+    /** Per-call finite input, independent of process stdin. Existing original
+     * ofBuffer installations are a separate profile and cannot overlap. Captures
+     * must be drained first: initialization prefixes belong to the facade. */
+    public void beginInvocation(byte[] input,int outLimit,int errLimit) {
+        requireAtomicIdle("Invocation input configuration");
+        require(!invocationActive&&stdioContext==null,"Invocation stdio profile cannot overlap configured stdio");
+        require(input!=null&&input.length<=1024*1024,"Invocation stdin exceeds 1 MiB");
+        require(outLimit>=0&&outLimit<=MAX_STRING_OUTPUT_BYTES&&errLimit>=0&&errLimit<=MAX_STRING_OUTPUT_BYTES,
+                "Invocation capture limit outside bounded profile");
+        require(outputBytes==0&&stderrOutputBytes==0,"Drain captured output before beginning an invocation");
+        require(invocationEpoch<Long.MAX_VALUE/4-2,"Invocation stream epoch exhausted");
+        atomicPoll(); byte[] snapshot=input.clone(); // all validation/allocation before root retirement
+        retireCapturedDefaults();
+        invocationEpoch++; invocationInput=snapshot; invocationCursor=0;
+        stdoutLimit=outLimit; stderrLimit=errLimit; invocationActive=true;
+    }
+    public void endInvocation() {
+        requireAtomicIdle("Invocation input retirement");
+        require(invocationActive&&stdioContext==null,"No invocation input context is active");
+        retireCapturedDefaults(); invocationEpoch++; invocationInput=new byte[0]; invocationCursor=0;
+        invocationActive=false; stdoutLimit=MAX_STRING_OUTPUT_BYTES; stderrLimit=MAX_STRING_OUTPUT_BYTES;
+    }
+    private void retireCapturedDefaults() {
+        // These synthetic roots have only private method closures/Long captures;
+        // arbitrary guest finalizers are never dispatched by this quiet path.
+        Node in=stdinDefaultRoot,out=stdoutRoot,err=stderrRoot;
+        stdinDefaultRoot=null; stdoutRoot=null; stderrRoot=null;
+        if(in!=null) releaseQuiet(in,1); if(out!=null) releaseQuiet(out,1); if(err!=null) releaseQuiet(err,1);
+    }
+    private Node capturedStream(int channel) {
         Node stream=new Node(0,6,0); allocations++;
         for(int i=0;i<6;i++) {
             int arity=i==1||i==2||i==4?2:1;
-            int[] parameters=new int[arity],paramTypes=new int[arity];
-            for(int p=0;p<arity;p++) parameters[p]=p+1;
-            Function f=new Function((stderr?"<captured-stderr.":"<captured-stream.")+i+">",-1,parameters,paramTypes,
-                                    OBJ,stderr&&i==4?STDERR_PUT:STREAM_FLUSH+i,null,runtimeIdentity);
-            stream.fields[i]=closure(f,new Object[0]);
+            int[] parameters=new int[arity+1],paramTypes=new int[arity+1];
+            for(int p=0;p<parameters.length;p++) parameters[p]=p+1;
+            String label=(channel==2?"<captured-stderr.":"<captured-stream.")+i+">";
+            Function f=new Function(label,-1,parameters,paramTypes,OBJ,CAPTURE_FLUSH+i,null,runtimeIdentity);
+            stream.fields[i]=closure(f,new Object[]{Long.valueOf(invocationEpoch*4+channel)});
         }
         return stream;
     }
     private Node defaultStream(int channel) {
-        if(channel==0) { require(stdinDefaultRoot!=null,"Configured stdin default is unavailable"); return stdinDefaultRoot; }
-        if(channel==1) { if(stdoutRoot==null) stdoutRoot=capturedStream(false); return stdoutRoot; }
-        if(stderrRoot==null) stderrRoot=capturedStream(true); return stderrRoot;
+        if(channel==0) { if(stdinDefaultRoot==null) stdinDefaultRoot=capturedStream(0); return stdinDefaultRoot; }
+        if(channel==1) { if(stdoutRoot==null) stdoutRoot=capturedStream(1); return stdoutRoot; }
+        if(stderrRoot==null) stderrRoot=capturedStream(2); return stderrRoot;
     }
+    private Node directStream(int channel) { Node stream=defaultStream(channel); inc(stream,1); return stream; }
     private Node stdout() {
         if(stdioContext!=null) return standardStream(1,false,null);
-        Node stream=defaultStream(1); inc(stream,1); return stream;
+        return directStream(1);
     }
-    public String capturedStdout() { return output.toString(); }
-    public String capturedStderr() { return stderrOutput.toString(); }
-    /** Copies and relinquishes both captures; caller owns the returned immutable Strings. */
-    public String[] drainCapturedOutput() {
+    /** Pinned object.cpp lean_mk_string_lossy_recover: replace a bad lead and
+     * its following continuation run by ONE replacement character. Java's
+     * decoder does not use this recovery rule for all malformed sequences. */
+    private String capturedText(byte[] bytes,int start,int end) {
+        StringBuilder text=new StringBuilder(end-start);
+        for(int at=start;at<end;) {
+            if((at&1023)==0) atomicPoll();
+            int lead=Byte.toUnsignedInt(bytes[at]),width=0,min=0,cp=0;
+            if(lead<128) { text.append((char)lead); at++; continue; }
+            if((lead&0xe0)==0xc0) { width=2; min=0x80; cp=lead&31; }
+            else if((lead&0xf0)==0xe0) { width=3; min=0x800; cp=lead&15; }
+            else if((lead&0xf8)==0xf0) { width=4; min=0x10000; cp=lead&7; }
+            boolean valid=width!=0&&width<=end-at;
+            if(valid) for(int j=1;j<width;j++) {
+                int next=Byte.toUnsignedInt(bytes[at+j]);
+                if((next&0xc0)!=0x80) { valid=false; break; }
+                cp=(cp<<6)|(next&63);
+            }
+            valid=valid&&cp>=min&&cp<=0x10ffff&&(cp<0xd800||cp>0xdfff);
+            if(valid) { text.appendCodePoint(cp); at+=width; }
+            else {
+                text.append('\ufffd'); at++;
+                while(at<end&&(bytes[at]&0xc0)==0x80) { if((at&1023)==0) atomicPoll(); at++; }
+            }
+        }
+        return text.toString();
+    }
+    public String capturedStdout() { byte[] bytes=outputRaw.toByteArray(); return capturedText(bytes,0,bytes.length); }
+    public String capturedStderr() { byte[] bytes=stderrRaw.toByteArray(); return capturedText(bytes,0,bytes.length); }
+    /** Copies and relinquishes both captures; callers own the returned arrays. */
+    public byte[][] drainCapturedBytes() {
         requireAtomicIdle("Captured output drain");
-        String[] captured={output.toString(),stderrOutput.toString()};
+        byte[][] captured={outputRaw.toByteArray(),stderrRaw.toByteArray()};
+        resetCapturedOutput(); return captured;
+    }
+    private void resetCapturedOutput() {
+        if(outputRaw.size()>65536) outputRaw=new ByteArrayOutputStream(); else outputRaw.reset();
+        if(stderrRaw.size()>65536) stderrRaw=new ByteArrayOutputStream(); else stderrRaw.reset();
         output.setLength(0); stderrOutput.setLength(0); outputBytes=0; stderrOutputBytes=0;
         if(output.capacity()>65536) output.trimToSize();
         if(stderrOutput.capacity()>65536) stderrOutput.trimToSize();
-        return captured;
+    }
+    public String[] drainCapturedOutput() {
+        requireAtomicIdle("Captured output drain");
+        String[] captured={capturedStdout(),capturedStderr()}; resetCapturedOutput(); return captured;
+    }
+    private void captureBudget(int size,boolean stderr) {
+        int previous=stderr?stderrOutputBytes:outputBytes,limit=stderr?stderrLimit:stdoutLimit;
+        resource(size>=0&&size<=limit-previous,"Captured output outside bounded runtime profile");
+    }
+    private void appendRaw(byte[] bytes,int start,int size,boolean stderr) {
+        captureBudget(size,stderr); atomicPoll();
+        (stderr?stderrRaw:outputRaw).write(bytes,start,size);
+        if(stderr) stderrOutputBytes+=size; else outputBytes+=size;
     }
     private void appendCaptured(Object value,boolean stderr) {
-        String text=text(value); int bytes=utf8Extent(text);
-        int previous=stderr?stderrOutputBytes:outputBytes;
-        resource(bytes<=MAX_STRING_OUTPUT_BYTES-previous,"Captured output outside bounded runtime profile");
+        String text=text(value); int size=utf8Extent(text); captureBudget(size,stderr);
+        byte[] bytes=text.getBytes(StandardCharsets.UTF_8); appendRaw(bytes,0,size,stderr);
         (stderr?stderrOutput:output).append(text);
-        if(stderr) stderrOutputBytes=previous+bytes; else outputBytes=previous+bytes;
+    }
+    private Node streamError(String message) {
+        Node error=new Node(18,1,0); allocations++; error.fields[0]=message;
+        Node envelope=new Node(1,1,0); allocations++; envelope.fields[0]=error; return envelope;
+    }
+    private Node ioValue(Object value) { Node envelope=new Node(0,1,0); allocations++; envelope.fields[0]=value; return envelope; }
+    private void capturedOperation(Function f,Object token,Object argument,Object world) {
+        int op=f.intrinsic-CAPTURE_FLUSH;
+        require(token instanceof Long&&(Long)token>=0,"Captured stream token required");
+        long stamp=(Long)token; int channel=(int)(stamp&3); require(channel<3,"Captured stream channel required");
+        boolean ownsArgument=op==1||op==2;
+        if(op==1) unboxScalar(argument,USIZE);
+        if(op==2) byteArray(argument);
+        require(ERASED.equals(op==1||op==2||op==4?world:argument),"Stream world placeholder required");
+        atomicPoll();
+        if(stamp/4!=invocationEpoch) {
+            // isTty is BaseIO and cannot return an IO.Error packet.
+            require(op!=5,"Stale captured stream isTty method");
+            result=streamError("captured stream belongs to an earlier invocation");
+        } else if((channel==0&&(op==0||op==2||op==4))||(channel!=0&&(op==1||op==3))) {
+            result=streamError("operation unavailable for this captured stream direction");
+        } else if(op==0) result=ioUnit();
+        else if(op==5) result=ERASED;
+        else if(op==1) {
+            long count=unboxScalar(argument,USIZE);
+            resource(Long.compareUnsigned(count,MAX_BYTE_CAPACITY)<=0,"Stream read outside bounded byte profile");
+            int size=Math.min((int)count,invocationInput.length-invocationCursor);
+            Node bytes=newByteArray(size,size);
+            System.arraycopy(invocationInput,invocationCursor,bytes.scalars,0,size);
+            Node envelope=ioValue(bytes); atomicPoll(); invocationCursor+=size; result=envelope;
+        } else if(op==3) {
+            int end=invocationCursor;
+            while(end<invocationInput.length) { if((end&1023)==0) atomicPoll(); if(invocationInput[end++]==10) break; }
+            String line=capturedText(invocationInput,invocationCursor,end);
+            Node envelope=ioValue(line); atomicPoll(); invocationCursor=end; result=envelope;
+        } else if(op==2) {
+            Node bytes=byteArray(argument); int size=((ByteArrayState)kindMetadata(bytes)).size;
+            captureBudget(size,channel==2); Node envelope=ioUnit();
+            appendRaw(bytes.scalars,0,size,channel==2); result=envelope;
+        } else if(op==4) {
+            int size=utf8Extent(argument); captureBudget(size,channel==2); Node envelope=ioUnit();
+            appendCaptured(argument,channel==2); result=envelope;
+        } else throw error("Unknown captured stream method");
+        if(ownsArgument) releaseQuiet(argument,1);
     }
     /** Pinned object.cpp: return the owning argument unchanged; the message is
      * borrowed and printed as a C string. Untracked immutable heap leaves have
@@ -7944,10 +8072,10 @@ public final class Interpreter implements AutoCloseable {
                 if(Character.isHighSurrogate(ch)) { i++; bytes+=4; }
                 else bytes+=ch<0x80?1:ch<0x800?2:3;
             }
-            resource(bytes<=MAX_STRING_OUTPUT_BYTES-stderrOutputBytes,
+            resource(bytes<=stderrLimit-stderrOutputBytes,
                     "Captured output outside bounded runtime profile");
-            stderrOutput.append("shared RC ").append(text,0,end).append('\n');
-            stderrOutputBytes+=(int)bytes;
+            String line="shared RC "+text.substring(0,end)+"\n";
+            appendCaptured(line,true);
         }
         result=value;
     }
@@ -8005,8 +8133,9 @@ public final class Interpreter implements AutoCloseable {
      * Caller authenticates source/CAS and keeps its borrowed input owner alive. */
     public void installStdioDefaults(Header ofBuffer,Object input) {
         if(closed||disposed||advancing||phase!=IDLE||pendingOwnedResult||sp!=0||continuationDepth!=0
-                ||runtimeAction!=null||hostCompletion!=null||untrackedFailure||stdioContext!=null)
+                ||runtimeAction!=null||hostCompletion!=null||untrackedFailure||stdioContext!=null||invocationActive)
             throw new IllegalStateException("Stdio defaults require an open idle unconfigured engine");
+        require(stdinDefaultRoot==null,"Default stdin is already configured; original ofBuffer installation cannot replace it");
         require(ofBuffer!=null&&ofBuffer.kind.equals("fdecl")
                 &&Interpreter.name(ofBuffer.exactName).equals("IO.FS.Stream.ofBuffer")
                 &&ofBuffer.originalSha256.equals("c98d47dcb02a469b6615689c519e3f000251ce95be5363c67a5354e8fc43108e"),
@@ -8881,6 +9010,7 @@ public final class Interpreter implements AutoCloseable {
                 &&(state==TASK_MAP_LAYOUT.body||state==TASK_MAP_LAYOUT.body.next),"Invalid private Task.map runtime frame");
     }
     private void runtimeIntrinsic(Function f,Object a,Object b,Object c) {
+        if(f.intrinsic>=CAPTURE_FLUSH&&f.intrinsic<=CAPTURE_TTY) { capturedOperation(f,a,b,c); return; }
         if(f.intrinsic==STR_TO_UTF8) { stringToUtf8(a); return; }
         if(f.intrinsic==STR_FROM_UTF8) { stringFromUtf8(a,b); return; }
         if(f.intrinsic==STR_VALIDATE_UTF8) {
@@ -8950,7 +9080,7 @@ public final class Interpreter implements AutoCloseable {
             case GET_STDOUT: if(stdioContext!=null) require(ERASED.equals(a),"Stdio world placeholder required"); result=stdout(); break;
             case GET_STDIN: case GET_STDERR:
                 require(ERASED.equals(a),"Stdio world placeholder required");
-                result=standardStream(f.intrinsic==GET_STDIN?0:2,false,null); break;
+                result=stdioContext==null?directStream(f.intrinsic==GET_STDIN?0:2):standardStream(f.intrinsic==GET_STDIN?0:2,false,null); break;
             case SET_STDIN: case SET_STDOUT: case SET_STDERR:
                 require(ERASED.equals(b),"Stdio world placeholder required");
                 result=standardStream(f.intrinsic==SET_STDIN?0:f.intrinsic==SET_STDOUT?1:2,true,a); break;
@@ -10620,5 +10750,6 @@ public final class Interpreter implements AutoCloseable {
         for(int i=0;i<constants.length;i++) if(constantReady[i]&&program.functions[i].resultType==OBJ) releaseQuiet(constants[i],1);
         Arrays.fill(constants,null); Arrays.fill(objects,null); result=null; taskRecords.clear();
         entropyCapability=null; entropyHeader=null; entropyErrorHeader=null;
+        invocationInput=new byte[0]; invocationCursor=0; invocationActive=false;
     }
 }

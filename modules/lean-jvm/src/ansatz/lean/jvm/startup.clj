@@ -355,13 +355,23 @@
                  (identical? (get-in prepared [:ctx :program]) (engine-field engine "program"))
                  (every? #(nil? (engine-field engine %))
                          ["taskRuntime" "hostRequest" "failedHostRequest" "hostCompletion" "hostGuestRecord"
-                          "codeRequest" "failedCodeRequest" "currentTask" "stdioContext" "stdinDefaultRoot" "stderrRoot"
+                          "codeRequest" "failedCodeRequest" "currentTask" "stdioContext"
                           "profilingPolicy" "hostGuestPolicy" "exprInstantiationPolicy" "exprTransformPolicy"
                           "shareCommonLayout" "levelInstantiationPolicy" "pointerHashPolicy"])
                  (empty? (engine-field engine "taskRecords"))
                  (not (engine-field engine "graphInstalled")) (not (engine-field engine "moduleGraphInstalled"))
                  (empty? (engine-field engine "preparedGlobalSources")))
             "Abandonment requires stopped task-free execution without requests, imports or external protocol state")
+      (when (some #(engine-field engine %) ["stdinDefaultRoot" "stderrRoot"])
+        (need (= :bounded-stdio-read-line-write-flush-tty (:dynamic-io-profile requirements))
+              "Captured stdin/stderr abandonment requires the issued bounded stdio profile"))
+      ;; In this issued engine cohort, defaultStream constructs only private
+      ;; captured-method closures with Long epoch/channel captures. stdin's
+      ;; other assignment requires a nonnil stdioContext, refused above; stderr
+      ;; has no other assignment. The same pure-heap reasoning already permits
+      ;; stdoutRoot. check-program! retains the exact runtime/ABI authority and
+      ;; excludes arbitrary externs/setters; no structural resemblance grants an
+      ;; external stream a certificate. Drop these roots for host GC, never DEC.
       ;; Synchronous provider callbacks have returned when advancing is false
       ;; under this exclusive lease. No effect is replayed or retried.
       (heap-action-chain! (engine-field engine "runtimeAction") (:entropy-action requirements))

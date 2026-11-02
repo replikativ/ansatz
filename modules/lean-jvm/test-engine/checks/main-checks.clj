@@ -258,11 +258,19 @@
           method (aget ^objects (fields ctx stream) 3)]
       (j/retain! ctx engine method)
       (j/release! ctx engine stream)
-      (is (re-find #"Captured-output stream operation not implemented"
-                   (c/failure #(j/call ctx engine "apply-zero" [method]))))
-      (if (= "failed" (j/phase ctx engine))
-        (is (re-find #"requires ownership cleanup" (c/failure #(j/close! ctx engine))))
-        (j/close! ctx engine)))))
+      (let [result (j/call ctx engine "apply-zero" [method])
+            value (j/java-value ctx result)]
+        (is (= {:tag 1
+                :fields [{:tag 18
+                          :fields ["operation unavailable for this captured stream direction"]
+                          :scalar-bytes []}]
+                :scalar-bytes []} value))
+        (is (= "idle" (j/phase ctx engine)))
+        (j/release! ctx engine result)
+        (is (zero? (c/rc ctx result)))
+        (is (= 1 (c/rc ctx method)))) ; stream root remains engine-owned
+      (j/close! ctx engine)
+      (is (zero? (c/rc ctx method))))))
 
 (defn check! [basis]
   (binding [*basis* basis] (run-tests 'java-ir-main-checks)))

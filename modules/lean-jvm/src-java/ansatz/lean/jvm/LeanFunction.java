@@ -31,4 +31,9 @@ public final class LeanFunction {
     public Object invoke(Object... arguments) {
         return owner.invokeFunction(handle, arity, arguments);
     }
+
+    /** Supply finite stdin and tighter output limits for this invocation. */
+    public Object invokeWith(InvocationOptions options, Object... arguments) {
+        return owner.invokeFunctionWith(handle, arity, java.util.Objects.requireNonNull(options, "options"), arguments);
+    }
 }

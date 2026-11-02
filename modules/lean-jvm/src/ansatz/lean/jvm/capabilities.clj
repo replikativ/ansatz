@@ -26,6 +26,8 @@
                               "LAYOUT_FIELDS" "LAYOUT_SCALARS" "LAYOUT_TAG" "LAYOUT_USIZE"]
    :float ["FLOAT32_BITS" "FLOAT32_DIV" "FLOAT32_MUL" "U64_FLOAT32" "FLOAT_ADD" "FLOAT32_ADD" "FLOAT_BITS" "FLOAT_U64" "FLOAT_SUB" "FLOAT_MUL" "FLOAT_DIV" "FLOAT_EQ" "FLOAT_LT" "FLOAT_LE" "FLOAT_STRING"]
    :captured-stdout ["GET_STDOUT"]
+   :captured-stdin ["GET_STDIN"]
+   :captured-stderr ["GET_STDERR"]
    :managed-sharing-diagnostic ["DBG_TRACE_SHARED"]
    :entropy ["IO_RANDOM_BYTES"]
    ;; Existing Interpreter PANIC terminates with an unsupported-operation
@@ -69,9 +71,9 @@
     {:profile :task-free-captured-output-v1 :runtime-class cls :registry-object registry
      :entropy-action (static-field cls "ACTION_ENTROPY")
      :externs externs :typed-inputs #{:nat :string :erased-world}
-     :dynamic-io-profile :captured-stdout-write-flush-tty
-     :runtime-unsupported #{:captured-stream-read :captured-stream-write :captured-stream-line :panic-default-return
-                            :heap-leaf-sharing-observation}
+     :dynamic-io-profile :bounded-stdio-read-line-write-flush-tty
+     :stdin-profile :native-like-finite-byte-input
+     :runtime-unsupported #{:panic-default-return :heap-leaf-sharing-observation :stdio-redirection :host-filesystem}
      :task-runtime false :host-handlers false :guest-export-aliases false :code-demand false}))
 (defn check-program!
   "Bind the requirements to the actual fully prepared canonical Program. No engine exists."

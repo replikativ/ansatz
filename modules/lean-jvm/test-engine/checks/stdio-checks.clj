@@ -99,19 +99,18 @@
       (is (every? false? (map #(get % "borrow") (get-in r ["row" "ir" "extern" "xs"]))))
       (is (= "object" (get-in r ["row" "ir" "extern" "type"]))))))
 
-(deftest unconfigured-profile-preserves-legacy-stdout-and-new-channels-refuse
-  (let [ctx (context :control) e (j/machine ctx) out (j/call ctx e "IO.getStdout" [0])]
+(deftest unconfigured-profile-has-owned-captured-stdio-defaults
+  (let [ctx (context :control) e (j/machine ctx)
+        out (j/call ctx e "IO.getStdout" [0])
+        in (j/call ctx e "IO.getStdin" [0])
+        err (j/call ctx e "IO.getStderr" [0])]
     (try
-      (is (= 2 (c/rc ctx out)))
-      (let [before (counters e)]
-        (is (g/bad? #(j/call ctx e "IO.getStdin" [0])))
-        (is (g/bad? #(j/call ctx e "IO.getStderr" [0])))
-        (is (= before (counters e)))
-        (is (nil? (host/private-value e "stdioContext")))
-        (is (nil? (host/private-value e "stdinDefaultRoot")))
-        (is (nil? (host/private-value e "stderrRoot"))))
-      (finally (release! ctx e out) (close! ctx e)))
-    (is (order/dead? out))))
+      (is (= 2 (c/rc ctx out) (c/rc ctx in) (c/rc ctx err)))
+      (is (nil? (host/private-value e "stdioContext")))
+      (is (identical? in (host/private-value e "stdinDefaultRoot")))
+      (is (identical? err (host/private-value e "stderrRoot")))
+      (finally (doseq [stream [out in err]] (release! ctx e stream)) (close! ctx e)))
+    (doseq [stream [out in err]] (is (order/dead? stream)))))
 
 (deftest callback-bearing-default-graph-rejects-before-any-install-owner-acquisition
   (let [ctx (context :active) e (j/machine ctx) [a b c :as ss] (streams! ctx e)
