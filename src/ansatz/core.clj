@@ -974,23 +974,36 @@
   ps)
 
 (clojure.core/defn- eval-alts
-  "Lean Elab/Tactic/Induction.lean evalAlts.applyAltStx: introN consumes names
-   from the first constructor field, followed by IHs, independently of case/next."
+  "Lean Elab/Tactic/Induction.lean evalAlts.applyAltStx: cases names explicit
+   fields in order; @ includes implicit fields. Induction retains its IH order."
   [ps alts tail original-fids]
   (let [ps (reduce (fn [ps alt]
                      (let [[pattern & body] alt
                            [tag & names] (if (sequential? pattern) pattern [pattern])
+                           ;; Clojure reads @step as (clojure.core/deref step).
+                           ;; This is Lean's alternative explicit modifier.
+                           explicit? (and (sequential? tag) (= 2 (count tag))
+                                          (contains? #{'clojure.core/deref 'deref} (first tag)))
+                           tag (if explicit? (second tag) tag)
                            tag (if (nil? tag) "nil" tag)
                            gid (get-case-goal ps tag)
                            branch (some #(when (= gid (:goal-id %)) %)
                                         (::basic/case-branches (meta ps)))
                            fields (if branch
-                                    ;; CasesSubgoal.fields includes fields eliminated
-                                    ;; by index unification. Consume their names too,
-                                    ;; retaining the older local's existing name.
-                                    (mapv #(when (and % (not (contains? original-fids %))
-                                                     (get-in (proof/mvar-lctx ps gid) [% :inaccessible])) %)
-                                          (:field-fvars branch))
+                                    ;; Lean evalAlts.applyAltStx names explicit fields
+                                    ;; unless @ is supplied. Eliminated explicit fields
+                                    ;; still consume a name, preserving older locals.
+                                    (let [ctor (env/lookup! (:env ps) (:ctor-name branch))
+                                          infos (loop [ty (.type ctor) i 0 out []]
+                                                  (if (e/forall? ty)
+                                                    (recur (e/forall-body ty) (inc i)
+                                                           (if (>= i (.numParams ctor))
+                                                             (conj out (e/forall-info ty)) out)) out))]
+                                      (mapv (fn [[_ fid]]
+                                              (when (and fid (not (contains? original-fids fid))
+                                                         (get-in (proof/mvar-lctx ps gid) [fid :inaccessible])) fid))
+                                            (filter (fn [[info _]] (or explicit? (= :default info)))
+                                                    (map vector infos (:field-fvars branch)))))
                                     (mapv key (filter (fn [[fid d]]
                                                         (and (:inaccessible d)
                                                              (not (contains? original-fids fid))))

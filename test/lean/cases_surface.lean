@@ -85,3 +85,46 @@ example (v : CasesVec Nat (Nat.succ Nat.zero)) : ∃ x : Nat, x = x := by
   rcases v with ⟨⟩ | ⟨x, k, xs⟩
   have tail : CasesVec Nat Nat.zero := xs
   exact ⟨x, Eq.refl x⟩
+
+example (n m : Nat) (h : Nat.le n m) : Nat.le n m := by
+  cases h with
+  | refl => exact Nat.le_refl n
+  | step hp => exact Nat.le.step hp
+
+example (n m : Nat) (h : Nat.le n m) : Nat.le n m := by
+  cases h with
+  | refl => exact Nat.le_refl n
+  | @step k hp =>
+    have bound : Nat.le n k := hp
+    exact Nat.le.step bound
+
+example (x : Nat) (h : x = x) : x = x := by
+  cases h
+  exact Eq.refl x
+
+example (x : Nat) (h : x = x) : True := by
+  cases h
+  exact True.intro
+
+example (x : Nat) (h : x = x) : h = h := by
+  cases h
+  exact Eq.refl (Eq.refl x)
+
+example (x : Nat) (h : Nat.add x Nat.zero = x) : x = x := by
+  cases h
+  exact Eq.refl x
+
+example (x y : Nat) (h : HEq x y) : x = y := by
+  cases h
+  exact Eq.refl x
+
+inductive CasesFixed (n : Nat) : Nat → Prop where
+  | refl : CasesFixed n n
+
+example (n : Nat) (h : CasesFixed n n) : n = n := by
+  cases h
+  exact Eq.refl n
+
+example (x : Nat) (h : x = x) (hh : h = h) : h = h := by
+  cases h
+  exact hh

@@ -5,7 +5,9 @@
             [ansatz.tactic.basic :as basic]
             [ansatz.meta :as meta]
             [ansatz.kernel.expr :as e]
-            [ansatz.kernel.name :as name]))
+            [ansatz.kernel.name :as name]
+            [ansatz.kernel.env :as env]
+            [ansatz.test-env :as test-env]))
 
 (def observed (atom []))
 (use-fixtures :once
@@ -131,9 +133,21 @@
     (is (> (:next-id result) (apply max (mapcat (comp keys :lctx) branches))))))
 
 (deftest cases-realizes-omitted-cases-on-auxiliaries
-  ;; HEq.casesOn is omitted from the small bundled Init profile.
-  (is (proves '[x :- Nat, h :- (HEq Nat x Nat x)] '(= x x)
-              '[(cases h) (exact (Eq.refl Nat x))])))
+  (let [saved (a/env)
+        auxiliary (name/from-string "HEq.casesOn")]
+    (try
+      (reset! a/ansatz-env @test-env/checked-bundled-init-env)
+      (is (nil? (env/lookup (a/env) auxiliary)))
+      (is (proves '[x :- Nat, y :- Nat, h :- (HEq Nat x Nat y)] '(= x y)
+                  '[(observe-cases) (cases h) (observe-cases) (exact (Eq.refl Nat x))]))
+      (let [[before after] @observed
+            major (first (for [[fid d] (:lctx (proof/current-goal before))
+                              :when (= "h" (:name d))] fid))]
+        (is (nil? (env/lookup (:env before) auxiliary)))
+        (is (some? (env/lookup (:env after) auxiliary)))
+        (is (= 1 (count (:goals after))))
+        (is (not (contains? (:lctx (proof/current-goal after)) major))))
+      (finally (reset! a/ansatz-env saved)))))
 
 (deftest cases-preserves-the-branch-target-definition
   (is (proves '[b :- Bool, n :- Nat] '(<= (if b n n) n)
@@ -156,3 +170,52 @@
         result (basic/cases ps fid)]
     (is (= [(scoped (name/mk-str base "false")) (scoped (name/mk-str base "true"))]
            (mapv #(proof/mvar-user-name result %) (:goals result))))))
+
+(deftest cases-alternatives-name-explicit-fields
+  (is (proves '[n :- Nat, m :- Nat, h :- (Nat.le n m)] '(Nat.le n m)
+              '[(cases h :with
+                  (refl (exact (Nat.le_refl n)))
+                  ((step hp) (observe-cases) (exact (Nat.le.step hp))))]))
+  (let [lctx (:lctx (proof/current-goal (first @observed)))
+        implicit-fields (filter #(= :implicit (:info %)) (vals lctx))]
+    (is (= 1 (count implicit-fields)))
+    (is (every? :inaccessible implicit-fields))
+    (is (false? (:inaccessible (first (filter #(= "hp" (:name %)) (vals lctx)))))))
+  (is (proves '[n :- Nat, m :- Nat, h :- (Nat.le n m)] '(Nat.le n m)
+              '[(cases h :with
+                  (refl (exact (Nat.le_refl n)))
+                  ((@step k hp) (observe-cases)
+                   (have bound (Nat.le n k)) (exact hp)
+                   (exact (Nat.le.step bound))))]))
+  (let [lctx (:lctx (proof/current-goal (first @observed)))]
+    (is (false? (:inaccessible (first (filter #(= "k" (:name %)) (vals lctx))))))))
+
+(deftest cases-generalizes-reflexive-indices
+  (doseq [[target finish] [['(= x x) '(exact (Eq.refl Nat x))]
+                           ['True '(exact True.intro)]
+                           ['(= h h) '(exact (Eq.refl (Eq Nat x x) (Eq.refl Nat x)))]]]
+    (is (proves '[x :- Nat, h :- (= x x)] target
+                ['(observe-cases) '(cases h) '(observe-cases) finish]))
+    (let [[before after] @observed
+          lctx (:lctx (proof/current-goal before))
+          fid (first (for [[fid d] lctx :when (= "x" (:name d))] fid))
+          major (first (for [[fid d] lctx :when (= "h" (:name d))] fid))
+          branch (proof/current-goal after)]
+      (is (= 1 (count (:goals after))))
+      (is (= "x" (get-in branch [:lctx fid :name])))
+      (is (not (contains? (:lctx branch) major)))))
+  (is (proves '[x :- Nat, h :- (= (Nat.add x Nat.zero) x)] '(= x x)
+              '[(cases h) (exact (Eq.refl Nat x))])))
+
+(deftest cases-generalizes-indices-occurring-in-parameters
+  (binding [a/*verbose* false]
+    (a/inductive CasesFixed [n Nat] :in Prop :indices [m Nat]
+                 (refl :where [n])))
+  (is (proves '[n :- Nat, h :- (CasesFixed n n)] '(= n n)
+              '[(observe-cases) (cases h) (observe-cases) (exact (Eq.refl Nat n))]))
+  (let [[before after] @observed
+        major (first (for [[fid d] (:lctx (proof/current-goal before))
+                          :when (= "h" (:name d))] fid))]
+    (is (not (contains? (:lctx (proof/current-goal after)) major))))
+  (is (proves '[x :- Nat, h :- (= x x), hh :- (= h h)] '(= h h)
+              '[(cases h) (exact hh)])))

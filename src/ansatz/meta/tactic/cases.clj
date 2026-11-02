@@ -137,11 +137,19 @@
           (assign! ctx id (u/app value ds))
           [(subst/append incoming s) child])))))
 
-(defn- has-indep-indices [ctx major indices]
+(defn- has-valid-indices [params indices]
+  ;; Lean Induction.lean getMajorTypeIndices rejects indices occurring in
+  ;; previous arguments, including fixed parameters (e.g. Eq Nat x x).
   (and (every? e/fvar? indices) (= (count indices) (count (set indices)))
+       (not-any? (fn [index]
+                   (some #(depends-on? % (e/fvar-id index)) params)) indices)))
+
+(defn- has-indep-indices [ctx major params indices]
+  (and (has-valid-indices params indices)
        (every? (fn [[fid d]]
                  (or (= fid major) (some #(= fid (e/fvar-id %)) indices)
-                     (not-any? #(depends-on? (:type d) (e/fvar-id %)) indices)))
+                     (not-any? #(or (depends-on? (:type d) (e/fvar-id %))
+                                    (and (:value d) (depends-on? (:value d) (e/fvar-id %)))) indices)))
                (:lctx @ctx))))
 
 (defn get-inductive-universe-and-params [ctx type]
@@ -179,6 +187,9 @@
         ind (env/lookup! (:env @ctx) (e/const-name f))
         np (.numParams ind) ni (.numIndices ind)
         params (subvec args 0 np) indices (subvec args np)
+        _ (when-not (has-valid-indices params indices)
+            (tactic-error! "cases: indices must be independent variables not occurring in parameters"
+                           {:indices indices :params params}))
         us (e/const-levels f)
         cn (name/mk-str (.name ind) "casesOn")
         ;; Lean installs casesOn with the inductive. Bundled Init profiles
@@ -358,7 +369,7 @@
         ind (when (e/const? f) (env/lookup (:env @ctx) (e/const-name f)))]
     (when-not (and ind (.isInduct ind)) (tactic-error! "cases: inductive type expected" {:major major}))
     (let [indices (subvec args (.numParams ind))]
-      (if (has-indep-indices ctx major indices)
+      (if (has-indep-indices ctx major (subvec args 0 (.numParams ind)) indices)
         (induction-cases-on ctx id major)
         (let [g (generalize-indices ctx id major)
               subgoals (induction-cases-on ctx (:mvar-id g) (:fvar-id g))]
