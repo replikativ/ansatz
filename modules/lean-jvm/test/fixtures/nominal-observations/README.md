@@ -11,3 +11,8 @@ hashes are real captured `.olean` hashes. This is test input for the private
 normalizer, not a registered producer cohort, source-build issuer, callable ABI
 proof or public datatype admission. Missing closed builtin and runtime witnesses
 must continue to fail explicitly.
+
+Release gate: before squashing the feature PR, regenerate this capture with the
+final producer/test sources or retain its exact source inputs explicitly.
+Development-branch history alone is insufficient provenance after a squash.
+Do not update the JSON or hashes merely to make a changed producer appear equal.

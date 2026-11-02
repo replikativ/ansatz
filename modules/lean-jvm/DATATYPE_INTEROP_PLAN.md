@@ -479,3 +479,29 @@ loading must still capture and recheck actual products before and after native
 evidence collection, bind the module-cache compilation baseline, and retain the
 issued provenance for artifact reopening. A caller-created manifest or advisory
 inventory cannot issue a public datatype descriptor or admit a v3 entry.
+
+### Private observation normalization and product custody
+
+`representation/normalize-observation!` checks the original-ID root, closed-field,
+DefEq-claim and generic layout links before emitting a canonical typed-storage
+program. It validates data depth/work, UTF-16 and integer bounds before JSON
+encoding. Explicit root subsets select complete closures, never partial fields
+or constructors. The current captured zero-field record, singleton and Ordering
+cases normalize and compile in the Java core. The full AST/mixed-record capture
+still refuses missing closed builtin and special-runtime witnesses. IO additionally
+requires its selected-entry/envelope/world bindings. These are explicit pending
+producer requirements, not fallbacks inferred from an object's apparent shape.
+
+`compiler.products/capture!` derives local product paths from a verified cache
+manifest under an actual configured compiler, checks compiler-configuration
+identity, and captures the exact native package-root resolution and product-role
+set. Its sealed token proves verified current bytes only. Rechecking detects
+changed primary/sidecar bytes, optional-file appearance, package shadowing and
+compiler closure. The receipt retains the parsed immutable manifest baseline;
+caller-supplied descriptive paths or maps cannot replace it.
+
+Every such capture currently reports `:requires-v3-rebuild true`: existing v2
+cache records do not prove which implicit Init bytes were present at compilation.
+The v3 source issuer must bind that baseline during a new compilation profile and
+hold before/helper/after rechecks before it can grant nominal entry authority.
+No public dispatch or artifact format is enabled by these foundation functions.
