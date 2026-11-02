@@ -33,6 +33,7 @@ public final class Interpreter implements AutoCloseable {
     private static final int FLOAT_LE=543,BYTE_EMPTY=544;
     private static final int GET_STDIN=545,GET_STDERR=546,SET_STDIN=547,SET_STDOUT=548,SET_STDERR=549,STDERR_PUT=550;
     private static final int STR_TO_UTF8=553,STR_FROM_UTF8=554,STR_VALIDATE_UTF8=555,BYTE_COPY_SLICE=556;
+    private static final int DBG_TRACE_SHARED=567;
     private static final int STR_POS_SET=260;
     private static final int VOID_MK=516,LEVEL_INSTANTIATE=517,EXPR_FIND_EXT=519;
     private static final int ARRAY_CHECKED_SET=518,SHARECOMMON_QUICK=520,EXPR_REPLACE=521,EXPR_ABSTRACT_RANGE=522,EXPR_ABSTRACT=523;
@@ -317,6 +318,8 @@ public final class Interpreter implements AutoCloseable {
         register(registry,new ExternSpec("lean_array_get_size",ARRAY_SIZE,"tagged",new String[]{"erased","object"},new boolean[]{false,true}));
         register(registry,new ExternSpec("lean_array_fget_borrowed",ARRAY_GET,"tobject",new String[]{"erased","object","tobject","erased"},new boolean[]{false,true,true,false}));
         register(registry,new ExternSpec("lean_get_stdout",GET_STDOUT,"object",new String[]{"void"},new boolean[]{false}));
+        register(registry,new ExternSpec("lean_dbg_trace_if_shared",DBG_TRACE_SHARED,"tobject",
+                new String[]{"erased","object","tobject"},new boolean[]{false,true,false}));
         register(registry,new ExternSpec("lean_get_stdin",GET_STDIN,"object",new String[]{"void"},new boolean[]{false}));
         register(registry,new ExternSpec("lean_get_stderr",GET_STDERR,"object",new String[]{"void"},new boolean[]{false}));
         register(registry,new ExternSpec("lean_get_set_stdin",SET_STDIN,"object",new String[]{"object","void"},new boolean[]{false,false}));
@@ -7196,6 +7199,7 @@ public final class Interpreter implements AutoCloseable {
         return value;
     }
     private void intrinsicSlots(Function f,int[] slots) {
+        if(f.intrinsic==DBG_TRACE_SHARED) { traceShared(obj(slots[0]),obj(slots[1]),obj(slots[2])); return; }
         if(f.intrinsic==BYTE_COPY_SLICE) {
             byteCopySlice(obj(slots[0]),obj(slots[1]),obj(slots[2]),obj(slots[3]),obj(slots[4]),numbers[bp+slots[5]]); return;
         }
@@ -7245,6 +7249,7 @@ public final class Interpreter implements AutoCloseable {
         } else scalarIntrinsic(f,a,b);
     }
     private void intrinsicExternal(Function f,Object[] args) {
+        if(f.intrinsic==DBG_TRACE_SHARED) { traceShared(args[0],args[1],args[2]); return; }
         require(f.intrinsic!=IO_RANDOM_BYTES,"Entropy requires its explicit owned action");
         if(f.intrinsic==BYTE_COPY_SLICE) {
             byteCopySlice(args[0],args[1],args[2],args[3],args[4],inputScalar(args[5],U8)); return;
@@ -7916,6 +7921,35 @@ public final class Interpreter implements AutoCloseable {
         resource(bytes<=MAX_STRING_OUTPUT_BYTES-previous,"Captured output outside bounded runtime profile");
         (stderr?stderrOutput:output).append(text);
         if(stderr) stderrOutputBytes=previous+bytes; else outputBytes=previous+bytes;
+    }
+    /** Pinned object.cpp: return the owning argument unchanged; the message is
+     * borrowed and printed as a C string. Untracked immutable heap leaves have
+     * no logical exclusivity observation in this runtime. Public admission
+     * additionally proves this managed/immediate domain from the actual IR. */
+    private void validateTraceShared(Object erased,Object message,Object value) {
+        require(ERASED.equals(erased),"Sharing trace requires erased type parameter");
+        utf8Extent(message);
+        if(value instanceof Node) node(value);
+        else require(value instanceof Long&&(Long)value>=0,
+                "Sharing trace requires a managed object or immediate scalar; heap-leaf ownership is unavailable");
+    }
+    private void traceShared(Object erased,Object message,Object value) {
+        validateTraceShared(erased,message,value);
+        if(value instanceof Node&&!exclusive((Node)value)) {
+            String text=(String)message;
+            int end=text.indexOf('\0'); if(end<0) end=text.length();
+            long bytes=11; // "shared RC " plus newline, before any output mutation.
+            for(int i=0;i<end;i++) {
+                char ch=text.charAt(i);
+                if(Character.isHighSurrogate(ch)) { i++; bytes+=4; }
+                else bytes+=ch<0x80?1:ch<0x800?2:3;
+            }
+            resource(bytes<=MAX_STRING_OUTPUT_BYTES-stderrOutputBytes,
+                    "Captured output outside bounded runtime profile");
+            stderrOutput.append("shared RC ").append(text,0,end).append('\n');
+            stderrOutputBytes+=(int)bytes;
+        }
+        result=value;
     }
     private Node streamNode(Object value) {
         Node stream=constructorNode(value);
@@ -10192,6 +10226,7 @@ public final class Interpreter implements AutoCloseable {
     private void validateEntryArguments(Function function,Object[] args) { validateEntryArguments(function,args,false); }
     private void validateEntryArguments(Function function,Object[] args,boolean saved) {
         if(args==null||args.length!=function.params.length) throw error("Arity mismatch: "+function.label);
+        if(function.intrinsic==DBG_TRACE_SHARED) validateTraceShared(args[0],args[1],args[2]);
         if(buildIdentityPrimitive(function.intrinsic)) requireBuildUnit(args[0]);
         if(layoutPrimitive(function.intrinsic)) requireLayoutUnit(args[0]);
         if(function.intrinsic==BOOL_U64) requireBoolScalar(args[0]);

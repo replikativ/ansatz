@@ -151,6 +151,15 @@ set. Unclassified required externs are refused before startup. Declared terminal
 traps and unsupported dynamic captured-stream operations can fail when reached
 at runtime.
 
+The [proof-backed insertion-sort example](examples/fp-lean-sort/README.md) runs
+the complete unchanged upstream module through explicit monomorphic IO adapters.
+Its `dbgTraceIfShared` operation is admitted only when a bounded analysis of the
+actual selected IR and checked host entries establishes managed-object/immediate
+provenance. Java String and BigInteger heap-leaf sharing observations remain
+unsupported. The analysis checks direct callers, return and join paths, and rejects
+unsupported closure escapes and unknown origins before startup. Diagnostic output
+is captured on stderr; pure checked entries still reject captured output.
+
 Polymorphic, implicit/dependent, proof-bearing or higher-order entry arguments,
 arbitrary records/enums/recursive ADTs, constrained Fin/Vector/Subtype/Rat
 adapters, callbacks, task resources, and public forks remain unsupported. The

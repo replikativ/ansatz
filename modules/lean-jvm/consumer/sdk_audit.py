@@ -16,7 +16,7 @@ POM = "META-INF/maven/org.replikativ/ansatz-lean-jvm/pom.xml"
 ADAPTER = "ansatz/lean/jvm/ir.clj"
 METADATA = "META-INF/ansatz-lean-jvm/runtime.edn"
 SOURCES = {"ansatz/lean/jvm/" + name + ".clj" for name in
-           ["ir", "preparation", "argument", "construction", "producer", "scalar_buffer", "artifact", "original", "capabilities", "startup", "publisher", "project", "signature", "codec", "entry", "value",
+           ["ir", "preparation", "argument", "construction", "producer", "scalar_buffer", "artifact", "original", "capabilities", "startup", "publisher", "project", "signature", "sharing", "codec", "entry", "value",
             "compiler/encoding", "compiler/transport", "compiler/local", "compiler/evidence", "compiler/bundle"]}
 SOURCES.add("ansatz/lean/jvm.clj")
 CLASS_INVENTORY = "META-INF/ansatz-lean-jvm/java-classes.json"

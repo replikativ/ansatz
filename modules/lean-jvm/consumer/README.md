@@ -12,7 +12,8 @@ handle invalidation after idempotent close. It also verifies that the source
 compiler and legacy prototype namespaces never loaded. Its original source is
 `Main` importing local `MathCore` and `Text.Core`, with `answer n = twice n + 1`,
 `echo s = "Hello, " ++ s` and a main greeting. Init output follows the pinned Lean
-Apache-2.0 cohort. No FP Lean tutorial content is packaged here.
+Apache-2.0 cohort. The additional FP Lean sort fixture has separate attribution
+in [fp-lean-sort.NOTICE](resources/lean/fp-lean-sort.NOTICE).
 
 Resolve the SDK plus Clojure 1.12.0, spec.alpha 0.5.238, core.specs.alpha 0.4.74 and
 data.json 2.5.1 through ordinary Maven dependency resolution. Then, from the module
@@ -68,6 +69,14 @@ Pass `--main-class GeneralInteropSmoke` or `--main-class ScalarInteropSmoke` to
 Each resulting application JAR runs without a source compiler, Lean installation
 or native helper, and asserts that the source compiler namespace never loaded.
 The fixtures are native frontend evidence, not Java-kernel-checked declarations.
+
+`SortSmoke.java` uses the [unchanged proof-backed tutorial](../examples/fp-lean-sort/README.md)
+through three explicit IO adapters. Its independently fixed manifest hash and
+[descriptor](resources/lean/fp-lean-sort.json) identify the prepared artifact. It
+checks repeated calls, original-array/host-data preservation, supplementary
+Unicode ordering, captured sharing diagnostics, Clojure calls and handle cleanup.
+Pass `--main-class SortSmoke` to the same application-JAR launcher. This consumer
+also runs from an empty directory without source/native tools on the classpath.
 
 For the explicit native source gate, use the built SDK JAR and ordinary runtime
 JARs on the classpath, run from this module, and provide a new output directory:

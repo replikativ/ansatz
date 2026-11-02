@@ -15,6 +15,7 @@
            {:path "ansatz/lean/jvm/preparation.clj" :namespace ansatz.lean.jvm.preparation}
            {:path "ansatz/lean/jvm/project.clj" :namespace ansatz.lean.jvm.project}
            {:path "ansatz/lean/jvm/publisher.clj" :namespace ansatz.lean.jvm.publisher}
+           {:path "ansatz/lean/jvm/sharing.clj" :namespace ansatz.lean.jvm.sharing}
            {:path "ansatz/lean/jvm/signature.clj" :namespace ansatz.lean.jvm.signature}
            {:path "ansatz/lean/jvm/construction.clj" :namespace ansatz.lean.jvm.construction}
            {:path "ansatz/lean/jvm/producer.clj" :namespace ansatz.lean.jvm.producer}
@@ -25,8 +26,8 @@
              "META-INF/ansatz-lean-jvm/user-error.json"
              "META-INF/ansatz-lean-jvm/NOTICE"]
  :engine-class "ansatz.lean.jvm.internal.exec.Interpreter"
- :engine-closure-sha256 "d1715b00bfdc2b652690c93de411f35b73d88e8ab61c4458bdf8f93c31f07d8d"
- :java-engine [{:path "ansatz/lean/jvm/internal/exec/Interpreter.java" :class "ansatz.lean.jvm.internal.exec.Interpreter" :sha256 "f4357926d99aec8c768bd0ccd6c658c5cad9383cd4a69e9aeb6622dc4367adf2"}
+ :engine-closure-sha256 "d76fcd0d7459e00d1870ae9cfa92400a2d010c8a7a68dab7c0b90876e0f4c696"
+ :java-engine [{:path "ansatz/lean/jvm/internal/exec/Interpreter.java" :class "ansatz.lean.jvm.internal.exec.Interpreter" :sha256 "08b21eac9507d9789562f210e63a0e45a899c1b9a394f6437eb3bcc40ef23bd4"}
                {:path "ansatz/lean/jvm/internal/exec/ScalarBits.java" :class "ansatz.lean.jvm.internal.exec.ScalarBits" :sha256 "f7f105354cb7c66c3aa1834254113738ed52d14a47fe92308d1dd4e9db5f6fe9"}
                {:path "ansatz/lean/jvm/internal/exec/Utf8Bytes.java" :class "ansatz.lean.jvm.internal.exec.Utf8Bytes" :sha256 "74eb7745542b95b40ad166517fd79bf60500363792f771a34a2bd4c52a64fb18"}]
  :java-api [{:path "ansatz/lean/jvm/PreparedArtifact.java" :class "ansatz.lean.jvm.PreparedArtifact" :sha256 "b8de90b114b1cb7ee42cc4f538a157b388af7a35ed75fed4f96f5cd8a3052f06"}

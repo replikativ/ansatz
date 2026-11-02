@@ -3,6 +3,7 @@
   (:require [clojure.data.json :as json] [clojure.java.io :as io]
             [ansatz.lean.jvm.ir :as j]
             [ansatz.lean.jvm.capabilities :as caps]
+            [ansatz.lean.jvm.sharing :as sharing]
             [ansatz.lean.jvm.original :as original])
   (:import [java.lang ClassValue]
            [java.nio.file Files LinkOption StandardOpenOption OpenOption]
@@ -158,6 +159,7 @@
 (defn- publish-prepared! [basis plan rows description codec entries]
   ;; Private implementation shared only by reviewed authenticated publishers.
   (let [requirements (caps/check-rows! basis rows)
+        _ (sharing/check! rows entries requirements)
         base (j/prepare-host-program basis [] []) source (j/source-binding base description)
         headers (into {} (map (fn [row] [(get row "name") (j/declaration-header source row (sha (.getBytes (json/write-str row) "UTF-8")))]) rows))
         registered (j/register-headers base (mapv #(headers (get % "name")) rows))
