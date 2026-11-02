@@ -36,13 +36,13 @@ objects and ownership obligations remain private. Lean's explicit RC operations
 and reuse decisions are implemented on JVM objects; host garbage collection
 reclaims the Java storage. Public Project forking is separate follow-up work.
 
-Ownership-sensitive sharing diagnostics have an additional admission check in
-`sharing.clj`. It analyzes the actual authenticated IR closure and checked host
-entry plans before an engine exists, establishing managed/immediate provenance
-through all relevant direct calls, joins and returns. Unknown leaf/projection or
-dynamic-call provenance and constrained closure escapes are refused. This is a
-bounded supported domain: immutable Java String/BigInteger carriers do not have
-logical heap-leaf RC and are not assigned invented sharing counts.
+Ownership-sensitive sharing diagnostics check actual values in the canonical
+engine. Managed objects and nonnegative immediate scalars are supported;
+immutable Java String/BigInteger leaves have no logical RC and throw if reached.
+This explicit runtime-domain contract replaces mandatory static provenance
+analysis. Earlier guest effects may occur before a domain failure; the failed
+branch is terminal. Full source/artifact/ABI authority remains independent of
+this check, and no invented heap-leaf sharing counts are reported.
 
 Core Ansatz supplies the kernel, elaboration DSL and stores in its own JAR. Both
 JARs can coexist in one application or REPL, but executing a Lean module does not

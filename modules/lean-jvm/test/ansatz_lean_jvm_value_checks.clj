@@ -131,7 +131,8 @@
          (code-of #(value/decode-io model-ctx (io-entry (leaf "unit")) (node 0 [(long 0) (long 0)]))))))
 (deftest io-errors-have-no-exported-guest-alias-and-legacy-has-no-layout-default
   (let [error (node 18 ["model error"]) envelope (node 1 [error])]
-    (is (= {:kind :io-error} (value/decode-io model-ctx (io-entry (leaf "nat")) envelope)))
+    (is (= {:kind :io-error :details {"kind" "userError" "message" "model error"}}
+           (value/decode-io model-ctx (io-entry (leaf "nat")) envelope)))
     (is (= 1 (.-rc error)))
     (is (= 1 (.-rc envelope))))
   (is (= "RuntimeBoundary"

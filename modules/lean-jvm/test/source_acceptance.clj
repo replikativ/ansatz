@@ -127,20 +127,49 @@
       (check-sort loaded)))
   (doseq [entry ["debugString" "debugNat"]
           :let [config {:compiler compiler :root-module "Boundary" :entries [entry]}]]
-    (refused "CapabilityMissing" #(lean/load-project runtime (source-dir "sharing-boundaries") config))
-    ;; Preparing code does not assert execution readiness. Artifact admission
-    ;; must enforce the same managed-domain proof as direct source loading.
+    (with-open [loaded (lean/load-project runtime (source-dir "sharing-boundaries") config)]
+      (when (= entry "debugNat")
+        (check (= 42 (:value (lean/call loaded entry 42)))))
+      (refused "RuntimeBoundary" #(lean/call loaded entry
+                                    (if (= entry "debugString") "leaf" (.shiftLeft java.math.BigInteger/ONE 80)))))
+    ;; Source and artifact calls enforce the same actual-value domain. Entry
+    ;; admission does not promise all runtime paths/values are supported.
     (let [archive (io/file output (str entry ".zip"))
           description (with-open [out (io/output-stream archive)]
                         (lean/prepare-project (source-dir "sharing-boundaries") config out))]
-      (with-open [input (io/input-stream archive)]
-        (refused "CapabilityMissing" #(lean/load-artifact runtime input (:manifest-sha256 description))))))
+      (with-open [input (io/input-stream archive)
+                  loaded (lean/load-artifact runtime input (:manifest-sha256 description))]
+        (refused "RuntimeBoundary" #(lean/call loaded entry
+                                      (if (= entry "debugString") "leaf" (.shiftLeft java.math.BigInteger/ONE 80)))))))
   (with-open [pure (lean/load-project runtime (source-dir "sharing-boundaries")
                     {:compiler compiler :root-module "Boundary" :entries ["debugArrayPure"]})]
     (refused "RuntimeBoundary" #(lean/call pure "debugArrayPure" [3 2 1]))))
+;; Source/artifact callbacks also exercise failed-action pure-heap retirement.
+(let [options {:compiler compiler :entries ["anyContains" "hasPrefix" "anyFailure"]}
+      samples [["" 65 false] ["λ😀\u0000z" 0 true] ["λ😀\u0000z" 128512 true] ["λ😀" 65 false]]
+      check! (fn [project]
+               (doseq [[text target expected] samples]
+                 (check (= expected (:value (lean/call project "anyContains" text target)))))
+               (doseq [[prefix text expected] [["" "😀" true] ["λ😀" "λ😀\u0000" true]
+                                               ["λ\u0000" "λ😀" false]]]
+                 (check (= expected (lean/call project "hasPrefix" prefix text))))
+               (check (= false (:value (lean/call project "anyFailure" ""))))
+               (try (lean/call project "anyFailure" "x")
+                    (throw (AssertionError. "Expected callback boundary failure"))
+                    (catch ansatz.lean.jvm.LeanException e
+                      (check (= "RuntimeBoundary" (.code e)))
+                      (check (.contains (.getMessage e) "heap-leaf ownership is unavailable")))))]
+  (with-open [runtime (lean/open)
+              project (lean/load-project runtime "examples/string-search" options)] (check! project))
+  (let [description (with-open [out (clojure.java.io/output-stream (io/file output "string-search.zip"))]
+                      (lean/prepare-project "examples/string-search" options out))]
+    (with-open [runtime (lean/open)
+                in (clojure.java.io/input-stream (io/file output "string-search.zip"))
+                project (lean/load-artifact runtime in (:manifest-sha256 description))]
+      (check! project))))
 (def report {:schema "ansatz-lean-jvm-source-acceptance/1" :checks @checks :timings-ms @timings
              :module-cache-observations @observations :sdk-resource-protocol "jar" :runtime-heap-mib (quot (.maxMemory (Runtime/getRuntime)) 1048576)
-             :scope "Actual public source cold/cache/edit/reload/artifact, common/scalar values, unchanged tutorial sort, sharing-domain source/artifact refusal, warnings, errors, capability and type refusal"})
+             :scope "Actual public source cold/cache/edit/reload/artifact, common/scalar values, unchanged tutorial sort, runtime sharing-domain source/artifact refusal, warnings, errors, capability and type refusal"})
 (spit (io/file output "result.json") (json/write-str report :escape-slash false))
 (println "PASS SOURCE_ACCEPTANCE" (dissoc report :module-cache-observations))
 (shutdown-agents)

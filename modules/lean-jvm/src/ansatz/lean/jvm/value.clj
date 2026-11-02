@@ -1,12 +1,13 @@
 (ns ansatz.lean.jvm.value
   "Borrowed, type-directed result decoding. No guest allocation or RC operation.
    The caller keeps the actual owned result root until decoding completes."
-  (:require [ansatz.lean.jvm.codec :as codec]
+  (:require [clojure.data.json :as json] [clojure.java.io :as io]
+            [ansatz.lean.jvm.codec :as codec]
             [ansatz.lean.jvm.scalar-buffer :as scalar]
             [ansatz.lean.jvm.entry :as entry]
             [ansatz.lean.jvm.signature :as signature]
             [ansatz.lean.jvm.startup :as startup])
-  (:import [ansatz.lean.jvm LeanChoice] [java.lang.reflect Field] [java.util ArrayList IdentityHashMap List Optional]))
+  (:import [ansatz.lean.jvm LeanChoice] [java.lang.reflect Field] [java.util ArrayList IdentityHashMap List Optional Map]))
 
 (def ^:private maximum-occurrences 100000)
 (def ^:private maximum-depth 128)
@@ -164,6 +165,50 @@
   (signature/validate! {"arguments" [] "result" type "effect" "pure"})
   ((:visit (decoder ctx codec-witnesses)) type raw-value 0))
 
+(def ^:private user-error-layout
+  (delay
+    ;; Same independent SDK witness checked against the actual same-source
+    ;; Header and prepared body by installEntropy before startup can be ready.
+    ;; Read its canonical constructor facts; EST.Out alone says nothing about
+    ;; the error child's layout. This witness authenticates userError only.
+    (let [resource (io/resource "META-INF/ansatz-lean-jvm/user-error.json")]
+      (need (some? resource) "SDK userError witness is absent")
+      (let [bytes (with-open [input (io/input-stream resource)] (.readNBytes input 16385))]
+        (need (and (<= (alength bytes) 16384)
+                   (= "53b224c8fa037b144260872e3b14878aff86dbb61b598e1ea49f991dabc1fb6b"
+                      (#'startup/sha bytes))) "SDK userError witness differs")
+        (let [body (get-in (json/read-str (String. bytes "UTF-8")) ["ir" "fdecl" "body"])
+              ctor (get (nth body 3) "ctor") info (get ctor "i")]
+          (need (and (= (name-of ["IO" "Error" "userError"]) (get info "name"))
+                     (= 1 (get info "size") (count (get ctor "ys")))
+                     (= 0 (get info "ssize") (get info "usize"))) "SDK userError layout differs")
+          {:tag (get info "cidx") :size (get info "size") :positions [0]})))))
+
+(defn decode-io-error
+  "Borrow an IO.Error after startup's actual codec installation. Project only
+   the independently witnessed userError; all other variants stay opaque and
+   retain the generic GuestIOError behavior. Never acquire descendant credits."
+  [ctx raw]
+  (let [layout @user-error-layout]
+    (when (and (= (:node-class ctx) (class raw))
+               (= (:tag layout) (.get ^Field (:tag ctx) raw)))
+      (let [{:keys [visit charge enter leave]} (decoder ctx nil)]
+        (charge 0)
+        (let [fields (node-fields! ctx raw layout)]
+          (enter raw)
+          (try
+            ;; Bound the public copy before validating Unicode. This deliberately
+            ;; avoids imposing the ordinary result String extent on diagnostics.
+            (let [text (aget ^objects fields 0)
+                  _ (need (= String (class text)) "IO.userError message is not a String")
+                  ^String text text size (.length text)
+                  end (if (and (> size 2048) (Character/isHighSurrogate (.charAt text 2047))) 2047 (min size 2048))
+                  message (visit {"kind" "string"} (.substring text 0 end) 1)]
+              (if (< end size)
+                (Map/of "kind" "userError" "message" message "messageTruncated" true)
+                (Map/of "kind" "userError" "message" message)))
+            (finally (leave raw))))))))
+
 (defn decode-io
   "Decode a v2 IO result using genuine EST.Out layouts. Legacy IO Unit remains
    the caller's existing separately authenticated codec path, not a default here."
@@ -181,5 +226,5 @@
       (enter raw-envelope)
       (try (if (= tag (:tag ok))
              {:kind :ok :value (visit (get descriptor "result") (aget ^objects fields (first (:positions layout))) 1)}
-             {:kind :io-error})
+             {:kind :io-error :details (decode-io-error ctx (aget ^objects fields (first (:positions layout))))})
            (finally (leave raw-envelope))))))

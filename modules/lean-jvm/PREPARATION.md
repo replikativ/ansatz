@@ -2,6 +2,14 @@
 
 This preparation interface compiles trusted local Lean sources and exports a portable artifact without creating a JVM `LeanProject` or invoking that project's runtime initializers or `main`. The native Lean frontend can execute compile-time metaprograms and IO; preparation is not a source sandbox.
 
+Native evidence helpers also import compiled modules and can run their native
+initializers. The current helper protocol uses stdout for structural evidence
+and checks stderr. Initializers that write to these channels can therefore
+cause `NativeCompilationFailed` before any JVM Project exists. This is distinct
+from a JVM initializer failure; source preparation does not promise support for
+arbitrary initialization effects. Isolating guest output from evidence requires
+a new producer protocol rather than relaxing evidence validation.
+
 Preparation and execution are separate operations. The preparation process needs the explicitly supplied pinned Lean installation, supported native producer bundle, and writable cache. An application loading the resulting artifact needs the optional SDK and its Maven dependencies; it does not need those native tools, source files, or a compiler. See [producer configuration](producer/README.md) and the [supported source profile](README.md).
 
 ## Java

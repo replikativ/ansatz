@@ -35,6 +35,7 @@ public final class Interpreter implements AutoCloseable {
     private static final int GET_STDIN=545,GET_STDERR=546,SET_STDIN=547,SET_STDOUT=548,SET_STDERR=549,STDERR_PUT=550;
     private static final int STR_TO_UTF8=553,STR_FROM_UTF8=554,STR_VALIDATE_UTF8=555,BYTE_COPY_SLICE=556;
     private static final int DBG_TRACE_SHARED=567;
+    private static final int STR_ANY=574,STR_IS_PREFIX=575;
     private static final int STR_POS_SET=260;
     private static final int VOID_MK=516,LEVEL_INSTANTIATE=517,EXPR_FIND_EXT=519;
     private static final int ARRAY_CHECKED_SET=518,SHARECOMMON_QUICK=520,EXPR_REPLACE=521,EXPR_ABSTRACT_RANGE=522,EXPR_ABSTRACT=523;
@@ -312,6 +313,8 @@ public final class Interpreter implements AutoCloseable {
         register(registry,new ExternSpec("lean_uint16_to_nat",U16_NAT,"tagged",new String[]{"uint16"},new boolean[]{false}));
         register(registry,new ExternSpec("lean_string_push",STR_PUSH,"object",new String[]{"object","uint32"},new boolean[]{false,false}));
         register(registry,new ExternSpec("lean_string_mk",STR_LIST,"object",new String[]{"tobject"},new boolean[]{false}));
+        register(registry,new ExternSpec("lean_string_any",STR_ANY,"uint8",new String[]{"object","object"},new boolean[]{false,false}));
+        register(registry,new ExternSpec("lean_string_isprefixof",STR_IS_PREFIX,"uint8",new String[]{"object","object"},new boolean[]{false,false}));
         register(registry,new ExternSpec("lean_string_utf8_get_fast",STR_GET,"uint32",new String[]{"object","tobject","erased"},new boolean[]{true,true,false}));
         register(registry,new ExternSpec("lean_string_utf8_next_fast",STR_NEXT,"tagged",new String[]{"object","tobject","erased"},new boolean[]{true,true,false}));
         register(registry,new ExternSpec("lean_string_append",STR_APPEND,"object",new String[]{"object","object"},new boolean[]{false,true}));
@@ -389,6 +392,8 @@ public final class Interpreter implements AutoCloseable {
         register(registry,new ExternSpec("lean_string_contains",STR_CONTAINS,"uint8",
                 new String[]{"object","uint32"},new boolean[]{false,false}));
         register(registry,new ExternSpec("lean_string_length",STR_LENGTH,"tobject",
+                new String[]{"object"},new boolean[]{true}));
+        register(registry,new ExternSpec("lean_string_length",STR_LENGTH,"tagged",
                 new String[]{"object"},new boolean[]{true}));
         register(registry,new ExternSpec("lean_string_utf8_set",STR_SET,"object",
                 new String[]{"object","tobject","uint32"},new boolean[]{false,true,false}));
@@ -4838,7 +4843,7 @@ public final class Interpreter implements AutoCloseable {
     }
     private boolean actionPrimitive(Function function) {
         int op=function.intrinsic;
-        if(op==IO_RANDOM_BYTES) return true;
+        if(op==IO_RANDOM_BYTES||op==STR_ANY) return true;
         return taskRuntime!=null&&(pureExprTransform(op)||abstractPrimitive(op)||op==EXPR_REPLACE||op==SHARECOMMON_QUICK||op==LEVEL_INSTANTIATE||op==EXPR_INSTANTIATE_MVARS||op==VOID_MK||op==PROFILE_IT||findPrimitive(op)||taskPrimitive(op)||op==TASK_MAP||op==REF_SET||op==ARRAY_POP||op==ARRAY_FSET||op==ARRAY_USET||op==ARRAY_CHECKED_SET||op==ARRAY_REPLICATE);
     }
     private Object[] savedArguments(Function function,int[] slots) {
@@ -4917,6 +4922,7 @@ public final class Interpreter implements AutoCloseable {
         releaseQuiet(value,1); result=ERASED;
     }
     private void validateNative(Function function,Object[] args) {
+        if(function.intrinsic==STR_ANY) { validateStringAny(args); return; }
         if(function.intrinsic==IO_RANDOM_BYTES) { validateEntropy(function,args); return; }
         if(pureExprTransform(function.intrinsic)) { validatePureExprTransform(function,args); return; }
         if(function.intrinsic==EXPR_REPLACE) { validateExprReplace(function,args); return; }
@@ -5782,6 +5788,7 @@ public final class Interpreter implements AutoCloseable {
         finishAction(action,answer);
     }
     private void stepNative(RuntimeAction action) {
+        if(action.function.intrinsic==STR_ANY) { stepStringAny(action); return; }
         Object[] args=action.arguments; int op=action.function.intrinsic;
         if(action.stage==0) {
             action.stage=1;
@@ -7211,6 +7218,7 @@ public final class Interpreter implements AutoCloseable {
         return value;
     }
     private void intrinsicSlots(Function f,int[] slots) {
+        if(f.intrinsic==STR_ANY) { stringAnyRecursive(new Object[]{obj(slots[0]),obj(slots[1])}); return; }
         if(f.intrinsic==DBG_TRACE_SHARED) { traceShared(obj(slots[0]),obj(slots[1]),obj(slots[2])); return; }
         if(f.intrinsic==BYTE_COPY_SLICE) {
             byteCopySlice(obj(slots[0]),obj(slots[1]),obj(slots[2]),obj(slots[3]),obj(slots[4]),numbers[bp+slots[5]]); return;
@@ -7261,6 +7269,7 @@ public final class Interpreter implements AutoCloseable {
         } else scalarIntrinsic(f,a,b);
     }
     private void intrinsicExternal(Function f,Object[] args) {
+        if(f.intrinsic==STR_ANY) { stringAnyRecursive(args); return; }
         if(f.intrinsic==DBG_TRACE_SHARED) { traceShared(args[0],args[1],args[2]); return; }
         require(f.intrinsic!=IO_RANDOM_BYTES,"Entropy requires its explicit owned action");
         if(f.intrinsic==BYTE_COPY_SLICE) {
@@ -8052,8 +8061,8 @@ public final class Interpreter implements AutoCloseable {
     }
     /** Pinned object.cpp: return the owning argument unchanged; the message is
      * borrowed and printed as a C string. Untracked immutable heap leaves have
-     * no logical exclusivity observation in this runtime. Public admission
-     * additionally proves this managed/immediate domain from the actual IR. */
+     * no logical exclusivity observation in this runtime. Admitted programs
+     * fail here if execution reaches a value outside that supported domain. */
     private void validateTraceShared(Object erased,Object message,Object value) {
         require(ERASED.equals(erased),"Sharing trace requires erased type parameter");
         utf8Extent(message);
@@ -9009,7 +9018,81 @@ public final class Interpreter implements AutoCloseable {
         require(activePrepared==TASK_MAP_LAYOUT&&active!=null&&active.intrinsic==TASK_MAP
                 &&(state==TASK_MAP_LAYOUT.body||state==TASK_MAP_LAYOUT.body.next),"Invalid private Task.map runtime frame");
     }
+    /** Pinned Init/Data/String/{Search,TakeDrop,Pattern/Pred}.lean exports,
+     * not C-string routines: NUL is an ordinary scalar and matching is forward.
+     * Immutable String carriers have no guest RC; the predicate owns one credit
+     * across the search and AP consumes an additional credit at each encounter. */
+    private void validateStringAny(Object[] args) {
+        require(args!=null&&args.length==2,"String.any requires string and predicate");
+        atomicPoll(); utf8Extent(args[0]); atomicPoll();
+        Node predicate=node(args[1]); acceptsClosure(predicate);
+        require(predicate.closure!=null,"String.any requires a predicate closure");
+        Function target=predicate.closure; rootEntry(target); requireExecutableAbi(target);
+        require(predicate.rc>=0&&predicate.tag==245&&!predicate.array&&!predicate.ref&&!predicate.readyTask
+                &&predicate.scalars.length==0&&predicate.fields.length<target.params.length,
+                "String.any requires a live partial predicate closure");
+        for(int lane:target.paramTypes) require(lane==OBJ,"String.any predicate requires boxed parameters");
+        for(Object capture:predicate.fields) validateHostObject(capture);
+        IdentityHashMap<Node,Integer> credits=new IdentityHashMap<>(); credits.put(predicate,1);
+        for(Object capture:predicate.fields) if(capture instanceof Node)
+            credits.put((Node)capture,credits.getOrDefault((Node)capture,0)+1);
+        for(Map.Entry<Node,Integer> credit:credits.entrySet())
+            require(credit.getKey().rc==0||credit.getKey().rc>=credit.getValue(),"Insufficient String.any owner credits");
+    }
+    private long stringPredicateResult(Object answer) {
+        require(answer instanceof Long&&((Long)answer==0||(Long)answer==1),
+                "String.any predicate did not return canonical boxed Bool");
+        return (Long)answer;
+    }
+    private boolean stringIsPrefix(Object prefix,Object value) {
+        atomicPoll(); utf8Extent(prefix); utf8Extent(value); atomicPoll();
+        String p=text(prefix),s=text(value);
+        if(p.length()>s.length()) return false;
+        for(int i=0;i<p.length();i++) {
+            if((i&1023)==0) atomicPoll();
+            if(p.charAt(i)!=s.charAt(i)) return false;
+        }
+        return true;
+    }
+    private void stringAnyRecursive(Object[] args) {
+        validateStringAny(args); String text=text(args[0]); Node predicate=(Node)args[1];
+        long answer=0;
+        for(int cursor=0;cursor<text.length();) {
+            atomicPoll(); tick(); int cp=text.codePointAt(cursor); cursor+=Character.charCount(cp);
+            inc(predicate,1);
+            answer=stringPredicateResult(apply(predicate,new Object[]{Long.valueOf(cp)}));
+            if(answer!=0) break;
+        }
+        releaseQuiet(predicate,1); scalarResult=answer;
+    }
+    private void stepStringAny(RuntimeAction action) {
+        String text=text(action.arguments[0]);
+        if(action.stage==1) {
+            action.pending=(int)stringPredicateResult(objects[action.slot]);
+            objects[action.slot]=null; action.work=null; action.stage=0;
+        }
+        if(action.stage==0) {
+            atomicPoll();
+            if(action.pending==0&&action.cursor<text.length()) {
+                tick(); int cp=text.codePointAt(action.cursor); action.cursor+=Character.charCount(cp);
+                action.work=new Object[]{Long.valueOf(cp)};
+                inc(action.arguments[1],1); action.stage=1;
+                // Generic AP owns this retained callback occurrence and packet.
+                applyExplicit(action.arguments[1],action.work,ACTION_BODY,action.slot); return;
+            }
+            action.stage=2; action.retiring=action.arguments[1]; action.releaseClaimed=false;
+        }
+        if(action.stage==2) {
+            action.stage=3;
+            // Release can suspend in a captured finalizer; never replay DEC.
+            if(beginRelease(action.retiring,1,ACTION_BODY)) return;
+        }
+        require(action.stage==3,"Invalid String.any continuation");
+        action.arguments=null; action.work=null; action.retiring=null;
+        finishAction(action,Long.valueOf(action.pending));
+    }
     private void runtimeIntrinsic(Function f,Object a,Object b,Object c) {
+        if(f.intrinsic==STR_IS_PREFIX) { scalarResult=stringIsPrefix(a,b)?1:0; return; }
         if(f.intrinsic>=CAPTURE_FLUSH&&f.intrinsic<=CAPTURE_TTY) { capturedOperation(f,a,b,c); return; }
         if(f.intrinsic==STR_TO_UTF8) { stringToUtf8(a); return; }
         if(f.intrinsic==STR_FROM_UTF8) { stringFromUtf8(a,b); return; }
@@ -9473,6 +9556,8 @@ public final class Interpreter implements AutoCloseable {
             validateCheckedArraySet(combined.length==f.params.length?combined:Arrays.copyOf(combined,f.params.length));
         if(combined.length>=f.params.length&&called.intrinsic==STR_TO_UTF8) utf8Extent(combined[0]);
         if(combined.length>=f.params.length&&called.intrinsic==STR_FROM_UTF8) validateFromUtf8(combined[0],combined[1]);
+        if(combined.length>=f.params.length&&called.intrinsic==STR_ANY)
+            validateStringAny(combined.length==f.params.length?combined:Arrays.copyOf(combined,f.params.length));
         // A shared closure keeps ownership of its captured arguments.
         if(!exclusive(closure)) for(Object a:closure.fields) inc(a,1);
         if(exclusive(closure)) { closure.dead=true; Arrays.fill(closure.fields,null); shellDeletes++; }
@@ -10473,7 +10558,7 @@ public final class Interpreter implements AutoCloseable {
         System.arraycopy(args,0,combined,closure.fields.length,args.length);
         if(called.intrinsic==IO_RANDOM_BYTES&&combined.length>=f.params.length)
             require(combined.length==f.params.length,"Entropy overapplication is outside the capability profile");
-        if(combined.length>=f.params.length&&(taskRuntime!=null||called.intrinsic==IO_RANDOM_BYTES||called.intrinsic==VOID_MK||called.intrinsic==MARK_PERSISTENT||called.intrinsic==ARRAY_CHECKED_SET)) {
+        if(combined.length>=f.params.length&&(taskRuntime!=null||called.intrinsic==STR_ANY||called.intrinsic==IO_RANDOM_BYTES||called.intrinsic==VOID_MK||called.intrinsic==MARK_PERSISTENT||called.intrinsic==ARRAY_CHECKED_SET)) {
             Object[] actual=combined.length==f.params.length?combined:Arrays.copyOf(combined,f.params.length);
             if(called.intrinsic==MARK_PERSISTENT) validatePersistentArguments(actual[0],actual[1],actual[2]);
             else if(called.intrinsic==ARRAY_CHECKED_SET) validateCheckedArraySet(actual);

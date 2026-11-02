@@ -156,12 +156,21 @@ at runtime.
 
 The [proof-backed insertion-sort example](examples/fp-lean-sort/README.md) runs
 the complete unchanged upstream module through explicit monomorphic IO adapters.
-Its `dbgTraceIfShared` operation is admitted only when a bounded analysis of the
-actual selected IR and checked host entries establishes managed-object/immediate
-provenance. Java String and BigInteger heap-leaf sharing observations remain
-unsupported. The analysis checks direct callers, return and join paths, and rejects
-unsupported closure escapes and unknown origins before startup. Diagnostic output
-is captured on stderr; pure checked entries still reject captured output.
+Its `dbgTraceIfShared` operation checks actual managed objects/immediate scalars
+when executed. Java String and BigInteger heap-leaf sharing observations remain
+unsupported and throw if reached. Admission does not promise every input or path
+can execute: earlier guest work can occur before such a failure, and the failed
+Project must be closed rather than reused. This replaces the earlier conservative
+pre-startup provenance analysis; source, artifact and full-ABI checks remain.
+Diagnostic output is captured on stderr; pure checked entries still reject it.
+
+Uncaught Lean IO errors throw `LeanException` with code `GuestIOError`. Its
+immutable `details()` map currently exposes authenticated `userError` messages as
+`{"kind": "userError", "message": "..."}`. Messages are limited to 2,048 UTF-16
+units without splitting a surrogate pair; `messageTruncated: true` marks clipping.
+Other error variants keep empty details. This is a partial error projection, not
+a general custom-datatype codec. Host cancellation and resource limits remain
+terminal host failures rather than catchable Lean exceptions.
 
 Polymorphic, implicit/dependent, proof-bearing or higher-order entry arguments,
 arbitrary records/enums/recursive ADTs, constrained Fin/Vector/Subtype/Rat

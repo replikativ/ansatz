@@ -34,6 +34,14 @@ public final class SharingTraceChecks {
               "i",Map.of("cidx",0,"size",1,"usize",0,"ssize",0,"name",name("Fixture")),"ys",List.of(arg(1)))),
               List.of("ret",arg(2))))));
     }
+    private static Map<String,Object> appliedRow() {
+        return Map.of("kind","decl","name",name("applied"),"ir",Map.of("fdecl",
+          Map.of("f",name("applied"),"type","tobject","xs",List.of(param(1,"object",true),param(2,"tobject",false)),
+            "body",List.of("vdecl",Map.of("idx",3),"object",
+              Map.of("pap",Map.of("c",name("trace"),"ys",List.of("erased",arg(1)))),
+              List.of("vdecl",Map.of("idx",4),"tobject",
+                Map.of("ap",Map.of("x",Map.of("idx",3),"ys",List.of(arg(2)))),List.of("ret",arg(4)))))));
+    }
     private interface Attempt { void run(); }
     private static void refuse(Attempt attempt) {
         try { attempt.run(); throw new AssertionError("missing refusal"); }
@@ -46,7 +54,7 @@ public final class SharingTraceChecks {
         return (Node)e.invoke(2,new Object[]{2L});
     }
     public static void main(String[] args) throws Exception {
-        Interpreter.Program p=Interpreter.prepare(List.of(traceRow(),wrapper(),freshRow()));
+        Interpreter.Program p=Interpreter.prepare(List.of(traceRow(),wrapper(),freshRow(),appliedRow()));
         int trace=p.functionId("trace"),wrapped=p.functionId("wrapped");
         for(boolean explicit:new boolean[]{false,true}) {
             Interpreter e=new Interpreter(p,explicit);
@@ -87,6 +95,28 @@ public final class SharingTraceChecks {
         refuse(()->e.invoke(trace,new Object[]{0L,"x",shared}));
         check(e.capturedStderr().isEmpty()&&shared.rc==2);
         e.close();
+        // Each failure has its own stopped, resource-free fixture engine. Check
+        // both drivers and direct/FAP/PAP+AP paths: no unsupported leaf becomes
+        // an invented RC observation, diagnostic, or owning result.
+        for(boolean explicit:new boolean[]{false,true}) {
+            for(String entry:new String[]{"trace","wrapped","applied"}) {
+                for(Object leaf:new Object[]{"untracked",BigInteger.ONE.shiftLeft(80)}) {
+                    Interpreter failed=new Interpreter(p,explicit);
+                    long beforeRetains=failed.retains,beforeReleases=failed.releases;
+                    Object[] arguments=entry.equals("trace")?new Object[]{0L,"leaf",leaf}:new Object[]{"leaf",leaf};
+                    try {
+                        failed.invoke(p.functionId(entry),arguments);
+                        throw new AssertionError("missing leaf refusal");
+                    } catch(RuntimeException expected) {
+                        check(expected.getMessage().contains("heap-leaf ownership is unavailable"));
+                    }
+                    check(failed.capturedStderr().isEmpty());
+                    // PAP/AP owns a closure, so only the direct call has no
+                    // surrounding interpreter retain/release work to perform.
+                    if(entry.equals("trace")) check(failed.retains==beforeRetains&&failed.releases==beforeReleases);
+                }
+            }
+        }
         System.out.println("SHARING_TRACE_CHECKS "+checks);
     }
 }
