@@ -374,7 +374,12 @@ durable store root (see above).
 
 The jar includes a coordinated Lean 4.33.1 Init bundle with List, Option, and Nat
 APIs and recursive equation lemmas. No Lean installation or Mathlib store is
-needed to use it:
+needed to use it.
+
+This medium tier is the dependency closure of `scripts/bundle-init-roots.txt`,
+not the complete public Init API. It includes basic Bool inequalities and
+Option/List constructor and map lemmas. For full Init coverage, import a full
+Init export with `a/load-export!` instead.
 
 ```clojure
 (require '[ansatz.core :as a])
@@ -583,6 +588,8 @@ right-nested, as Lean's `→`. `->` is always Clojure's threading macro, never a
 | `(cases h)` | Case analysis, substituting constructors in dependent hypotheses as well as the goal |
 | `(induction xs :with [nil (rfl)] [(cons h t ih) (simp [ih])])` | Constructor alternatives with user-named fields and induction hypotheses; `cases` accepts the same `:with` syntax |
 | `(case (cons h t ih) (tactic) …)` / `(case nil (tactic) …)` | Select a constructor tag, optionally rename its locals, and close the branch |
+| `(case' tag (tactic) …)` | Focus a tagged branch and keep residual goals; a single residual keeps the selected tag |
+| `(trace_state)` | Print all unsolved goals and their locals without changing the proof state |
 | `(next [h t ih] (tactic) …)` / `(next (tactic) …)` | Close the next branch, optionally naming its locals |
 | `(rename_i h1 h2)` | Name the most recent inaccessible or shadowed locals; `_` skips a local |
 | `(cases h e)` | Lean's `cases h : e`: generalize an inductive discriminant and split in constructor order, retaining `h : e = constructor …` |
