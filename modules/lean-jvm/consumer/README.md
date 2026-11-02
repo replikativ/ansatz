@@ -80,5 +80,5 @@ java -Xmx512m -Xss8m -cp "$CLASSPATH" clojure.main test/source_acceptance.clj \
 This gate observes actual compiler cache results and issued build receipts. It
 checks cold/cache/edit/reload/artifact paths, both corpora, warnings and errors,
 unsupported capabilities and higher-order entry rejection. It changes only its
-new owned output directory. The v2 candidate helper bundle is required; no download
+new owned output directory. The published v2 helper bundle is required; no download
 or installation is performed. The mandatory JVM-only CI gate needs no toolchain.

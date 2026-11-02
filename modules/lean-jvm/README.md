@@ -7,9 +7,9 @@ data.json 2.5.1; their normal Maven dependencies resolve transitively. It does n
 require the Ansatz core/kernel artifact, Mathlib, Pattern or the older resident
 World backend.
 
-This guide describes the **unmerged next-release candidate**. Published `0.2.578`
-still exposes only Nat-to-Nat, String-to-String and IO Unit convenience APIs.
-The general API below requires the candidate build and is not published yet.
+This guide describes the general interop and preparation APIs in the current
+source tree. These APIs require an SDK release newer than `0.2.578`; that older
+release exposes only Nat-to-Nat, String-to-String and IO Unit convenience APIs.
 
 This is an experimental bounded profile. General named calls replace the original
 three-signature restriction; `natFunction`, `stringFunction`, and `runMain` remain
@@ -19,10 +19,9 @@ they do not claim unrestricted Lean/Lake, hosted frontend or kernel integration.
 
 ## Ordinary Java dependency and artifact loading
 
-Add the Clojars repository and this optional artifact, using the actual coordinated
-published Ansatz release version for `ansatz.version` after this candidate lands.
-For now, use the locally built candidate JAR to try the new API; `0.2.578` does not
-contain it:
+Add the Clojars repository and this optional artifact. Set `ansatz.version` to
+the coordinated published release you intend to use, newer than `0.2.578` for
+the general interop and preparation APIs:
 
 ```xml
 <repositories>

@@ -54,7 +54,7 @@ bytes separately; neither receipt broadens the supported source profile.
 
 ## Clojure and Superficie
 
-For the candidate general-call API, add the optional SDK to your Clojure
+For the general-call API, add the optional SDK to your Clojure
 classpath. Core Ansatz may be included in the same REPL. Set `LEAN_TUTORIAL`
 to the pinned tutorial directory above and set the same three compiler variables
 used in the Java command. This selection uses the legacy checked `IO Unit`

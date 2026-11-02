@@ -1,9 +1,8 @@
 # Lean/JVM release checks
 
-The general interop and preparation APIs are an unpublished release candidate.
-Agree the supported scope and documentation with the user before merging or
-publishing. Main automatically publishes coordinated core and optional SDK
-artifacts; merging is a release step.
+Review the supported scope and documentation before merging or publishing a
+release. Main automatically publishes coordinated core and optional SDK artifacts;
+merging is a release step.
 
 ## Acceptance
 
@@ -13,7 +12,7 @@ consumers, managed ownership, numeric behavior and resource limits. The consumer
 must use the SDK plus its ordinary dependency JARs without source directories or
 native tools on their runtime classpath.
 
-With the pinned native toolchain and candidate producer bundle supplied explicitly,
+With the pinned native toolchain and supported producer bundle supplied explicitly,
 run both native gates documented in [consumer checks](consumer/README.md) and
 [preparation](PREPARATION.md). Cover cold/cache/edit/reload/artifact loading,
 frontend diagnostics, unsupported types/capabilities, both public preparation APIs
