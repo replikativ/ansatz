@@ -216,7 +216,7 @@
                (step [k CaseShape] :where [(CaseShape.node k)]))
   (proves 'indexed_cases_used_major
           '[n :- CaseShape, h :- (LocalEvidence (CaseShape.node n)), hh :- (= h h)]
-          '(= n n) '[(cases h) (change (= k k)) (rfl)]))
+          '(= n n) '[(cases h) (exact (Eq.refl CaseShape n))]))
 
 (deftest split-ifs-retains-false-branches-for-later-contradiction
   (proves 'split_ifs_false_branch '[b :- Bool, hb :- (= b true)]

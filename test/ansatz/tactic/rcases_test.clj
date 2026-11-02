@@ -124,7 +124,7 @@
                                 '[(obtain [a b] := h) (rfl)]))))
 
 (deftest cases-rejects-stuck-function-as-constructor
-  (is (thrown-with-msg? clojure.lang.ExceptionInfo #"cannot solve equality"
+  (is (thrown-with-msg? clojure.lang.ExceptionInfo #"dependent elimination failed to solve equation"
                         (proves '[n :- Nat, c :- Nat,
                                   h :- (= (Option Nat) (probe-case-f n)
                                           (Option.some Nat c))]

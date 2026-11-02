@@ -18,6 +18,7 @@
             [ansatz.meta :as meta]
             [ansatz.meta.kabstract :as ka]
             [ansatz.meta.tactic.apply :as apply-meta]
+            [ansatz.meta.tactic.cases :as meta-cases]
             [ansatz.tactic.proof :as proof]
             [ansatz.tactic.elab-term :as telab]
             [ansatz.tactic.instance :as inst]
@@ -28,7 +29,7 @@
   (throw (ex-info (str "Tactic error: " msg) (merge {:kind :tactic-error} data))))
 
 ;; Forward declarations for mutually-dependent tactics/helpers
-(declare by-cases-dec generalize generalize-indices unify-cases-eqs unify-eq revert match-expr try-clear move-goals-to-front collect-fvar-ids induction-fvars-to-generalize)
+(declare by-cases-dec generalize unify-eq revert match-expr try-clear move-goals-to-front collect-fvar-ids induction-fvars-to-generalize)
 
 (defn- local-name [nm]
   ;; Lean Meta/Tactic/Intro.lean introNImp stores a Name. Our lctx uses strings.
@@ -1200,404 +1201,62 @@
 ;; ============================================================
 
 (defn cases
-  "Perform case analysis on a hypothesis (fvar) of inductive type.
-   Creates one subgoal per constructor."
+  "Case analysis through Lean's Meta CasesSubgoal interface."
   [ps hyp-fvar-id]
+  ;; Lean Meta/Tactic/Cases.lean cases/inductionCasesOn; the surface boundary
+  ;; follows Elab/Tactic/Induction.lean evalCases' focused goal replacement
+  ;; (Lean v4.33.1, 55f80e10a3).
   (let [goal (proof/current-goal ps)
         _ (when-not goal (tactic-error! "No goals" {}))
-        ;; Lean refuses to build a motive over a goal with open holes — a
-        ;; shared mvar would otherwise be silently pinned across branches.
+        _ (when-not (get (:lctx goal) hyp-fvar-id)
+            (tactic-error! "cases: hypothesis not in context" {:id hyp-fvar-id}))
         _ (when (seq (meta/collect-expr-mvars (:type goal)))
             (tactic-error! "cases: goal type contains unassigned metavariables"
                            {:type (:type goal)}))
-        st (mk-tc ps (:lctx goal))
-        hyp-decl (red/lctx-lookup (:lctx goal) hyp-fvar-id)
-        _ (when-not hyp-decl
-            (tactic-error! "cases: hypothesis not in context" {:id hyp-fvar-id}))
-        hyp-type (whnf-in-goal ps (:lctx goal) (:type hyp-decl))
-        [type-head type-args] (e/get-app-fn-args hyp-type)
-        _ (when-not (e/const? type-head)
-            (tactic-error! "cases: hypothesis type head is not a constant"
-                           {:type hyp-type}))
-        ind-name (e/const-name type-head)
-        ^ConstantInfo ind-ci (env/lookup! (:env ps) ind-name)
-        _ (when-not (.isInduct ind-ci)
-            (tactic-error! "cases: hypothesis type is not an inductive"
-                           {:type hyp-type}))
-        ind-levels (e/const-levels type-head)
-        num-params (.numParams ind-ci)
-        params (subvec (vec type-args) 0 (min num-params (count type-args)))
-        indices (subvec (vec type-args) (min num-params (count type-args)))
-        ;; Compute the motive output sort level
-        goal-sort (infer-in-goal ps (:lctx goal) (:type goal))
-        goal-sort-whnf (whnf-in-goal ps (:lctx goal) goal-sort)
-        motive-level (if (e/sort? goal-sort-whnf)
-                       (e/sort-level goal-sort-whnf)
-                       lvl/zero)
-        ;; Look up the recursor — prefer casesOn if it's a recursor, else fall back to rec
-        cases-on-name (name/mk-str ind-name "casesOn")
-        cases-on-ci (env/lookup (:env ps) cases-on-name)
-        [rec-name ^ConstantInfo rec-ci]
-        (if (and cases-on-ci (.isRecursor ^ConstantInfo cases-on-ci))
-          [cases-on-name cases-on-ci]
-          (let [rn (name/mk-str ind-name "rec")
-                rc (env/lookup! (:env ps) rn)]
-            [rn rc]))
-        _ (when-not (.isRecursor rec-ci)
-            (tactic-error! "cases: recursor not found" {:name rec-name}))
-        ;; Build motive for the recursor.
-        ;; Three paths:
-        ;; A) Simple indices (all fvars): abstract-many from goal directly.
-        ;; B-old) Complex indices (single ctor application): casesOn-based motive (legacy).
-        ;; C) Complex indices with noConfusion available: generalizeIndices pipeline.
-        ;;    This is the Lean 4 approach: generalize → cases (Path A) → unifyCasesEqs.
-        st (mk-tc ps (:lctx goal))
-        has-complex-indices (some #(not (e/fvar? %)) indices)
-        ;; Check if noConfusion is available for every complex index type (needed for Path C)
-        complex-index-info
-        (when has-complex-indices
-          (mapv (fn [idx-expr]
-                  (let [idx-type (try (tc/infer-type st idx-expr) (catch Exception _ nil))
-                        [idx-type-head _] (when idx-type (e/get-app-fn-args idx-type))]
-                    {:expr idx-expr
-                     :type idx-type
-                     :type-head idx-type-head
-                     :no-confusion?
-                     (when (and idx-type-head (e/const? idx-type-head))
-                       (some? (env/lookup (:env ps)
-                                          (name/mk-str (e/const-name idx-type-head) "noConfusion"))))}))
-                indices))
-        has-no-confusion
-        (and (seq complex-index-info)
-             (every? :no-confusion? complex-index-info))
-        ;; Build the motive (and possibly update ps with fresh fvar allocations)
-        [ps motive motive-body use-whnf-branch-goals nextra]
-        (if (and has-complex-indices (seq indices) has-no-confusion)
-          ;; Path C: Full Lean 4 pipeline — generalizeIndices → cases → unifyCasesEqs
-          ;; Step 1: generalize indices (transforms goal, adds equality hypotheses)
-          (let [gen-result (generalize-indices ps hyp-fvar-id)
-                ps (:ps gen-result)
-                num-eqs (count (:orig-indices gen-result))
-                _ (let [g (proof/current-goal ps)]
-                    (when-not (and g (e/forall? (or (:type g) (e/sort' lvl/zero))))
-                      (throw (ex-info "Path C: generalized goal is not forall"
-                                      {:has-goal (some? g)
-                                       :goal-type (when g (e/->string (:type g)))}))))
-                ;; Step 2: Intro the generalized binders
-                ;; Intro index fvars
-                ps (reduce (fn [ps _] (intro ps)) ps (range (count (:index-fvar-ids gen-result))))
-                ;; Intro the major premise
-                ps (intro ps)
-                ;; Now the current goal has simple fvar indices — run cases (Path A) recursively
-                new-goal (proof/current-goal ps)
-                ;; Find the new hypothesis (last introduced)
-                new-hyp-fvar-id (last (sort (keys (:lctx new-goal))))
-                ;; Track goals before cases to identify new branch goals
-                goals-before (set (:goals ps))
-                ;; Run cases on the new hypothesis (Path A - simple indices)
-                ps (cases ps new-hyp-fvar-id)
-                ;; Step 3: For each open goal from THIS cases, solve the equalities
-                ;; Only process goals that were created by the inner cases (not outer goals)
-                branch-goals (filterv #(not (goals-before %)) (:goals ps))
-                ps (reduce (fn [ps goal-id]
-                             (if (proof/mvar-assigned? ps goal-id)
-                               ps ;; Already closed (e.g., by subst propagation)
-                               (let [ps (update ps :goals
-                                                (fn [gs] (into [goal-id] (remove #{goal-id}) gs)))]
-                                 (unify-cases-eqs ps num-eqs))))
-                           ps branch-goals)]
-            ;; Return a sentinel — the work is already done, skip the rest of cases
-            [ps :pipeline-done :pipeline-done :pipeline-done 0])
-
-          (if (and has-complex-indices (seq indices) (not has-no-confusion))
-            (tactic-error! "cases: complex indexed families require noConfusion support for index equalities"
-                           {:hyp hyp-type
-                            :indices indices
-                            :index-info complex-index-info})
-          ;; Path A: Following Lean 4 MVarId.induction (lines 203-240):
-          ;; Revert indices + major + dependents, re-intro indices + major,
-          ;; build motive from the enlarged goal, then re-intro dependents in branches.
-            (let [;; Step 1: Find dependents of the major premise (Lean 4 line 221)
-                  idx-fvar-ids (vec (keep (fn [idx] (when (e/fvar? idx) (e/fvar-id idx))) indices))
-                  revert-fids (conj idx-fvar-ids hyp-fvar-id)
-                ;; Revert indices + major + dependents (preserveOrder=true)
-                ;; We revert in reverse order (highest-ID first), then the explicitly listed ones
-                  all-fids-to-revert
-                  (vec (concat (reverse (induction-fvars-to-generalize (:lctx goal) revert-fids))
-                               [hyp-fvar-id] (reverse idx-fvar-ids)))
-                  nextra (- (count all-fids-to-revert) (count idx-fvar-ids) 1)
-                ;; Perform reverts
-                  ps (reduce (fn [ps fid]
-                               (if (red/lctx-lookup (:lctx (proof/current-goal ps)) fid)
-                                 (revert ps fid)
-                                 ps))
-                             ps all-fids-to-revert)
-                ;; Step 2: Re-intro indices + major (Lean 4 lines 223-224)
-                  ps (reduce (fn [ps _] (intro ps)) ps (range (count idx-fvar-ids)))
-                  ps (intro ps)  ;; re-intro major
-                ;; Get the current goal (with enlarged type including dependent foralls)
-                  goal-after (proof/current-goal ps)
-                ;; Find the re-introduced fvar IDs
-                  new-hyp-fvar-id (last (sort (keys (:lctx goal-after))))
-                  new-hyp-type (whnf-in-goal ps (:lctx goal-after)
-                                             (:type (red/lctx-lookup (:lctx goal-after) new-hyp-fvar-id)))
-                ;; Re-extract indices from the re-introduced major's type
-                  [_ new-type-args] (e/get-app-fn-args new-hyp-type)
-                  new-indices (subvec (vec new-type-args) (min num-params (count new-type-args)))
-                  new-idx-fvar-ids (vec (keep (fn [idx] (when (e/fvar? idx) (e/fvar-id idx))) new-indices))
-                ;; Step 3: Build motive from the enlarged goal (Lean 4 lines 193-198)
-                  motive-fv-ids (conj new-idx-fvar-ids new-hyp-fvar-id)
-                  motive-body (e/abstract-many (:type goal-after) motive-fv-ids)
-                  new-idx-types (mapv (fn [idx-expr]
-                                        (if (e/fvar? idx-expr)
-                                          (or (:type (red/lctx-lookup (:lctx goal-after) (e/fvar-id idx-expr)))
-                                              (e/sort' lvl/zero))
-                                          (e/sort' lvl/zero)))
-                                      new-indices)
-                  ;; abstract index fvars SIMULTANEOUSLY (sequential abstract1 collapses them — see induction)
-                  new-major-type-abs (if (seq new-idx-fvar-ids)
-                                       (e/abstract-many new-hyp-type new-idx-fvar-ids)
-                                       new-hyp-type)
-                  motive-binder-types (conj new-idx-types new-major-type-abs)
-                  motive (reduce (fn [body ty] (e/lam "x" ty body :default))
-                                 motive-body
-                                 (reverse motive-binder-types))
-                ;; Update goal/hyp refs for the rest of the cases function
-                  goal goal-after
-                  hyp-fvar-id new-hyp-fvar-id
-                  hyp-type new-hyp-type
-                  indices new-indices]
-              [ps motive motive-body false nextra])))]
-    (if (= motive :pipeline-done)
-      ;; Path C completed — return ps directly
-      ps
-      ;; Path A/B: continue with subgoal creation
-      ;; After revert+re-intro in Path A, re-read goal from ps (it may have changed)
-      (let [goal (proof/current-goal ps)
-            ;; Re-find hyp-fvar-id: pick highest-ID fvar of the inductive type
-            hyp-fvar-id (or (reduce (fn [best [fid d]]
-                                      (if (and (= :local (:tag d))
-                                               (let [[h _] (e/get-app-fn-args
-                                                            (whnf-in-goal ps (:lctx goal)
-                                                                          (or (:type d) (e/sort' lvl/zero))))]
-                                                 (and (e/const? h) (= (e/const-name h) ind-name)))
-                                               (or (nil? best) (> (long fid) (long best))))
-                                        fid best))
-                                    nil (:lctx goal))
-                            hyp-fvar-id)
-            hyp-type (whnf-in-goal ps (:lctx goal) (:type (red/lctx-lookup (:lctx goal) hyp-fvar-id)))
-            [_ type-args-new] (e/get-app-fn-args hyp-type)
-            params (subvec (vec type-args-new) 0 (min num-params (count type-args-new)))
-            indices (subvec (vec type-args-new) (min num-params (count type-args-new)))
-            ctors (.ctors ind-ci)]
-        (loop [ps ps
-               i 0
-               ctor-goals []]
-          (if (< i (alength ctors))
-            (let [ctor-name (aget ctors i)
-                  ^ConstantInfo ctor-ci (env/lookup! (:env ps) ctor-name)
-                  ctor-type (.type ctor-ci)
-              ;; Instantiate level params
-                  subst (into {} (map vector (vec (.levelParams ctor-ci)) ind-levels))
-                  ctor-type (e/instantiate-level-params ctor-type subst)
-              ;; Skip params (already known)
-                  ctor-type (loop [t ctor-type n num-params ps-args params]
-                              (if (and (pos? n) (e/forall? t))
-                                (recur (e/instantiate1 (e/forall-body t) (first ps-args))
-                                       (dec n) (rest ps-args))
-                                t))
-              ;; Lean 4: remove major premise (and index fvars) from branch lctx
-                  base-lctx (let [remove-ids (into #{hyp-fvar-id}
-                                                   (keep (fn [idx] (when (e/fvar? idx) (e/fvar-id idx))))
-                                                   indices)]
-                              (reduce dissoc (:lctx goal) remove-ids))
-              ;; Peel fields, creating fvars for each
-                  [ps' field-fvars new-lctx ctor-type]
-                  (loop [ps ps field-fvars [] lctx base-lctx t ctor-type]
-                    (if (e/forall? t)
-                      (let [[ps' fid] (proof/alloc-id ps)
-                            fv (e/fvar fid)
-                            ft (e/forall-type t)
-                            fname-raw (e/forall-name t)
-                            fname0 (cond
-                                     (nil? fname-raw) (str "h" fid)
-                                     (string? fname-raw) fname-raw
-                                     :else (name/->string fname-raw))
-                            ;; Lean freshens constructor-field names on COLLISION (so `cases c` after
-                            ;; `induction l` doesn't shadow l's `head`/`tail` — which would confuse
-                            ;; simp_all/by-name lookups). Only freshen when the name is already taken,
-                            ;; so the common no-collision case keeps the readable ctor-field names.
-                            existing (into #{} (keep :name) (vals lctx))
-                            fname (if (contains? existing fname0) (str fname0 "_" fid) fname0)
-                            lctx' (add-local lctx fid fname ft)]
-                        (recur ps' (conj field-fvars fid)
-                               lctx' (e/instantiate1 (e/forall-body t) fv)))
-                      [ps field-fvars lctx t]))
-              ;; For the recursor (not casesOn), add IH fvars for recursive fields.
-              ;; The rec minor expects: ∀ fields, ∀ ih_fields, motive(ctor ...).
-              ;; IH fvars are included in the minor lambdas during extraction
-              ;; but are NOT shown to the user (they don't affect the branch goal).
-                  [ps' all-field-fvars new-lctx]
-                  (let [rec-tc (mk-tc ps new-lctx)
-                        rec-field-ids (filterv
-                                       (fn [fid]
-                                         (let [ft (:type (red/lctx-lookup new-lctx fid))
-                                               ft-whnf (whnf-in-goal ps new-lctx ft)
-                                               [fh fargs] (e/get-app-fn-args ft-whnf)]
-                                           ;; A field is RECURSIVE only if its type is the SAME
-                                           ;; inductive applied to the SAME parameters — not merely
-                                           ;; headed by `ind-name`. Otherwise `head : List A` is
-                                           ;; misclassified as recursive when eliminating
-                                           ;; `List (List A)` (both are `List`-headed), and the IH
-                                           ;; `motive head` applies `motive : List(List A)→…` to a
-                                           ;; `List A`, producing an ill-typed (kernel-rejected)
-                                           ;; minor. Lean's recursor minors only carry IHs for
-                                           ;; genuine recursive occurrences (matching params).
-                                           (and (e/const? fh) (= (e/const-name fh) ind-name)
-                                                (>= (count fargs) num-params)
-                                                (every? identity
-                                                        (map (fn [fp p]
-                                                               (try (tc/is-def-eq rec-tc fp p)
-                                                                    (catch Exception _ false)))
-                                                             (subvec (vec fargs) 0 num-params)
-                                                             params)))))
-                                       field-fvars)]
-                    (if (empty? rec-field-ids)
-                      [ps' field-fvars new-lctx]
-                      (loop [ps-acc ps' ih-fvars [] lctx-acc new-lctx rfs (seq rec-field-ids)]
-                        (if-not rfs
-                          [ps-acc (into (vec field-fvars) ih-fvars) lctx-acc]
-                          (let [rec-fid (first rfs)
-                                [ps-acc' ih-fid] (proof/alloc-id ps-acc)
-                                rec-decl (red/lctx-lookup lctx-acc rec-fid)
-                                rec-type-whnf (whnf-in-goal ps lctx-acc (:type rec-decl))
-                                [_ rec-args] (e/get-app-fn-args rec-type-whnf)
-                                rec-indices (subvec (vec rec-args) (min num-params (count rec-args)))
-                            ;; IH type: motive(indices..., field-fvar)
-                                ih-type (reduce e/app motive (concat rec-indices [(e/fvar rec-fid)]))
-                                lctx' (add-local lctx-acc ih-fid
-                                                 (str "ih_" (or (:name rec-decl) rec-fid)) ih-type)]
-                            (recur ps-acc' (conj ih-fvars ih-fid) lctx' (next rfs)))))))
-              ;; Build ctor applied to params and field fvars
-                  ctor-term (reduce e/app
-                                    (e/const' ctor-name ind-levels)
-                                    (concat params (map e/fvar field-fvars)))
-              ;; Substitute the eliminated hypothesis in the branch lctx.
-              ;; Lean 4: cases removes the hyp and substitutes everywhere.
-              ;; For `cases l` where `hl : ValidRB l`, this gives `hl : ValidRB(ctor-app)`.
-                  new-lctx (reduce-kv
-                            (fn [lctx fid decl]
-                              (if (= fid hyp-fvar-id)
-                                lctx ;; Remove eliminated hypothesis
-                                (assoc lctx fid
-                                       (if (e/has-fvar-flag (:type decl))
-                                         (update decl :type
-                                                 (fn [t] (e/instantiate1 (e/abstract1 t hyp-fvar-id) ctor-term)))
-                                         decl))))
-                            {} new-lctx)
-              ;; For indexed families, extract return indices from ctor return type
-              ;; ctor-type here is the constructor's return type after field peeling
-                  ctor-ret-indices (when (seq indices)
-                                     (let [[_ ret-args] (e/get-app-fn-args ctor-type)]
-                                       (when (>= (count ret-args) num-params)
-                                         (subvec (vec ret-args) num-params))))
-              ;; Check if this branch is impossible (index heads don't match).
-              ;; Lean 4: unifyCasesEqs + noConfusion eliminates these.
-              ;; We do a simpler head-check: if ANY index head differs, skip.
-                  impossible? (and (seq ctor-ret-indices) (seq indices)
-                                   (some (fn [[ci mi]]
-                                           (let [[ch _] (e/get-app-fn-args ci)
-                                                 [mh _] (e/get-app-fn-args mi)]
-                                             (and (e/const? ch) (e/const? mh)
-                                                  (not= (e/const-name ch) (e/const-name mh)))))
-                                     ;; Use original indices for impossible check
-                                     ;; (heads must match the concrete major premise)
-                                         (map vector ctor-ret-indices indices)))
-              ;; Compute branch goal type by instantiating the motive body.
-              ;; bvar(0)=h, bvar(1..k)=indices. instantiate maps bvar(i)→vals[n-1-i],
-              ;; so vals = [idx_first, ..., idx_last, ctor-term].
-                  branch-goal-type-raw (if (seq ctor-ret-indices)
-                                         (e/instantiate motive-body
-                                                        (conj (vec ctor-ret-indices) ctor-term))
-                                         (e/instantiate1 motive-body ctor-term))
-              ;; For casesOn-based motives: WHNF to reduce the inner casesOn
-                  branch-goal-type (if use-whnf-branch-goals
-                                     (whnf-in-goal ps new-lctx branch-goal-type-raw)
-                                     branch-goal-type-raw)
-                  [ps' branch-id] (if impossible?
-                                    (tactic-error! "cases: encountered impossible indexed branch without equality elimination support"
-                                                   {:ctor ctor-name
-                                                    :goal-type branch-goal-type
-                                                    :indices indices
-                                                    :ctor-ret-indices ctor-ret-indices})
-                                    ;; Possible branch: create open goal
-                                    (proof/fresh-mvar ps' branch-goal-type new-lctx))]
-          ;; Re-intro reverted dependents in each open branch (Lean 4 line 111)
-          ;; The re-intro'd fvar IDs must be added to field-fvars so the cases
-          ;; extraction abstracts them in the minor lambda.
-              (let [ps' (proof/set-mvar-user-name ps' branch-id
-                                                  (name/mk-str (or (:user-name goal) (name/anonymous))
-                                                               (last (clojure.string/split (name/->string ctor-name) #"\."))))
-                    ps' (update ps' :meta-mctx meta/set-expr-mvar-lctx branch-id
-                                (reduce #(assoc-in %1 [%2 :inaccessible] true) new-lctx field-fvars))
-                    [ps' branch-id extra-fids]
-                    (if (and (not impossible?) (pos? nextra))
-                      (let [ps-front (update ps' :goals
-                                             (fn [gs] (into [branch-id] (remove #{branch-id}) gs)))
-                        ;; Collect the re-intro'd fvar IDs
-                            [ps-introed intro-fids]
-                            (loop [ps ps-front n nextra fids []]
-                              (if (zero? n)
-                                [ps fids]
-                                (let [g0 (proof/current-goal ps)
-                                      ps (intro ps (e/forall-name (:type g0)))
-                                      g (proof/current-goal ps)
-                                  ;; The most recently introduced fvar
-                                      newest (last (sort (keys (:lctx g))))]
-                                  (recur ps (dec n) (conj fids newest)))))
-                            new-id (first (:goals ps-introed))]
-                        [ps-introed new-id intro-fids])
-                      [ps' branch-id []])]
-                (recur ps' (inc i)
-                       (conj ctor-goals {:ctor-name ctor-name
-                                         :field-fvars (into (vec all-field-fvars) extra-fids)
-                                         :goal-id branch-id}))))
-        ;; Assign the original goal
-        ;; Recursor levels: motive level + inductive levels
-            (let [;; Build recursor levels. A recursor's level params are the inductive's
-                  ;; universes plus — for inductives that eliminate into an arbitrary Sort —
-                  ;; the motive universe at the FRONT. Prop-eliminating recursors (e.g.
-                  ;; List.Perm.rec) have a FIXED Sort 0 motive, so NO motive universe: their
-                  ;; level-param count equals the inductive's. Prepend motive-level only when
-                  ;; the recursor actually has that extra param (count > ind-levels).
-                  rec-lparams (vec (.levelParams rec-ci))
-                  rec-levels (cond
-                               (empty? rec-lparams) []
-                               (> (count rec-lparams) (count ind-levels)) (into [motive-level] ind-levels)
-                               :else (vec ind-levels))]
-              (let [branch-ids (mapv :goal-id ctor-goals)
-                    ps' (-> (proof/assign-mvar ps (:id goal)
-                                               {:kind :cases
-                                                :hyp-fvar-id hyp-fvar-id
-                                                :ind-name ind-name
-                                                :rec-name rec-name
-                                                :motive motive
-                                                :params params
-                                                :indices indices
-                                                :levels rec-levels
-                                                :ctor-goals ctor-goals
-                                            ;; dep-fids empty: the revert extraction handles dep application
-                                                :dep-fids []})
-                            (proof/record-tactic :cases [hyp-fvar-id] (:id goal)))]
-            ;; Move open branch goals to front (skip impossible branches)
-                (let [open-ids (filterv #(not (proof/mvar-assigned? ps' %)) branch-ids)]
-                  ;; Preserve constructor fields for recursive patterns (Lean CasesSubgoal.fields).
-                  (with-meta
-                    (update ps' :goals (fn [gs]
-                                         (let [branch-set (set open-ids)
-                                               others (filterv #(not (branch-set %)) gs)]
-                                           (into (vec open-ids) others))))
-                    (assoc (meta ps') ::case-branches ctor-goals)))))))))))
+        ;; The Meta supply increments before allocating; proof/alloc-id returns
+        ;; its supply before incrementing. Include sibling and elaborator locals.
+        decls (vals (:decls (:meta-mctx ps)))
+        ids (concat (keys (:decls (:meta-mctx ps)))
+                    (keys (:level-depth (:meta-mctx ps)))
+                    (mapcat (comp keys :lctx) decls)
+                    (mapcat #(collect-fvar-ids (:type %)) decls))
+        supply (atom (reduce max (:next-id ps) ids))
+        ctx (meta-cases/context (:env ps) (:lctx goal))
+        _ (swap! ctx assoc :next-id supply :meta-mctx (atom (:meta-mctx ps)))
+        branches (meta-cases/cases ctx (:id goal) hyp-fvar-id)
+        ps (assoc ps :env (:env @ctx) :meta-mctx (meta-cases/mctx ctx)
+                  :next-id (inc @supply))
+        [ps branches]
+        (reduce
+         (fn [[ps out] {:keys [mvar-id ctor-name fields] :as branch}]
+           (let [lctx (proof/mvar-lctx ps mvar-id)
+                 field-ids (vec (keep #(when (and (e/fvar? %) (contains? lctx (e/fvar-id %))
+                                                  (not (contains? (:lctx goal) (e/fvar-id %))))
+                                         (e/fvar-id %)) fields))
+                 ;; Only constructor fields are rename_i candidates. Freshen
+                 ;; collisions without changing the names of reverted dependents.
+                 lctx (reduce (fn [lc fid]
+                                (let [nm (str (get-in lc [fid :name]))
+                                      collision? (some (fn [[id d]]
+                                                         (and (not= id fid) (= nm (str (:name d))))) lc)]
+                                  (-> lc
+                                      (assoc-in [fid :name] (if collision? (str nm "_" fid) nm))
+                                      (assoc-in [fid :inaccessible] true)))) lctx field-ids)
+                 ps (-> ps
+                        (update :meta-mctx meta/set-expr-mvar-lctx mvar-id lctx)
+                        (proof/set-mvar-user-name
+                         mvar-id (apply-meta/append-tag
+                                  (or (:user-name goal) (name/anonymous))
+                                  (name/mk-str (name/anonymous) (name/name-component ctor-name)))))]
+             [ps (conj out (assoc branch :goal-id mvar-id
+                                  :field-fvars (mapv #(when (e/fvar? %) (e/fvar-id %)) fields)))]))
+         [ps []] branches)
+        open-ids (mapv :goal-id branches)
+        ps (-> ps
+               (assoc :goals (into open-ids (rest (:goals ps))))
+               proof/prune-solved-goals
+               (proof/record-tactic :cases [hyp-fvar-id] (:id goal)))]
+    (vary-meta ps assoc ::case-branches branches)))
 
 ;; ============================================================
 ;; induction (structural induction on a hypothesis)
@@ -1765,7 +1424,7 @@
                                    :field-fvars all-fvars  ;; includes IH fvars for extraction
                                    :goal-id branch-id})))
         ;; Assign the original goal
-        (let [;; Build recursor levels (see `cases`): prepend the motive universe only when the
+        (let [;; Build recursor levels: prepend the motive universe only when the
               ;; recursor declares more level params than the inductive has universes. Prop-
               ;; eliminating recursors (List.Perm.rec) fix the motive at Sort 0 — no extra param.
               rec-lparams (vec (.levelParams rec-ci))
@@ -2312,171 +1971,6 @@
                          (into (vec front) (remove front-set gs))))
         (proof/record-tactic :specialize [form] (:id goal)))))
 
-;; ============================================================
-;; generalizeIndices (for indexed family cases pipeline)
-;; ============================================================
-;; Following Lean 4 Cases.lean: transforms complex-index cases to
-;; simple-index cases + equality hypotheses.
-;; Given h : I params j1..jk, builds:
-;;   ∀ (j1'..jk') (h' : I params j1'..jk'), j1 = j1' → ... → jk = jk' → Goal
-;; Assigns original goal: newGoal j1..jk h rfl..rfl
-
-(defn- generalize-indices
-  "Transform goal to add equality hypotheses for indexed family indices.
-   Returns {:ps ps' :goal-id new-goal-id :num-eqs k
-            :index-fvar-ids [fresh-idx-fvar-ids] :hyp-fvar-id fresh-h-fvar-id
-            :orig-indices [original-index-exprs] :orig-hyp-fvar-id hyp-fvar-id
-            :eq-fvar-ids [eq-hypothesis-fvar-ids]}."
-  [ps hyp-fvar-id]
-  (let [goal (proof/current-goal ps)
-        _ (when-not goal (tactic-error! "No goals" {}))
-        st (mk-tc ps (:lctx goal))
-        hyp-decl (red/lctx-lookup (:lctx goal) hyp-fvar-id)
-        hyp-type (whnf-in-goal ps (:lctx goal) (:type hyp-decl))
-        [type-head type-args] (e/get-app-fn-args hyp-type)
-        ind-name (e/const-name type-head)
-        ^ConstantInfo ind-ci (env/lookup! (:env ps) ind-name)
-        ind-levels (e/const-levels type-head)
-        num-params (.numParams ind-ci)
-        params (subvec (vec type-args) 0 (min num-params (count type-args)))
-        orig-indices (subvec (vec type-args) (min num-params (count type-args)))
-        num-indices (count orig-indices)
-        _ (when (zero? num-indices)
-            (tactic-error! "generalize-indices: type has no indices" {:type hyp-type}))
-
-        ;; Infer index types from the inductive type's forall telescope. The inductive's declared
-        ;; type is UNIVERSE-POLYMORPHIC (e.g. `List.Mem.{u} : {α : Type u} → α → List.{u} α → Prop`);
-        ;; instantiate its level params with the CONCRETE levels from the actual hypothesis
-        ;; (`ind-levels`), or the extracted index types (`List.{u} α`) carry an abstract `u` and the
-        ;; fresh index var / equality / new-goal terms fail to type-check (Sort 1 vs Sort (u+1)).
-        ind-type-ci (e/instantiate-level-params
-                     (.type ind-ci)
-                     (into {} (map vector (vec (.levelParams ind-ci)) ind-levels)))
-        index-types
-        (loop [t ind-type-ci i 0 ps-rem params idx-types []]
-          (if (and (< i num-params) (e/forall? t))
-            (recur (e/instantiate1 (e/forall-body t) (nth ps-rem i)) (inc i) ps-rem idx-types)
-            ;; Now at the index binders
-            (loop [t t idx-types idx-types]
-              (if (e/forall? t)
-                (let [it (e/forall-type t)]
-                  (recur (e/instantiate1 (e/forall-body t) (e/sort' lvl/zero)) ;; placeholder
-                         (conj idx-types it)))
-                idx-types))))
-
-        ;; Compute Eq level from index type sorts
-        eq-levels
-        (mapv (fn [idx-type]
-                (let [idx-sort (try (tc/infer-type st idx-type) (catch Exception _ nil))]
-                  (if (and idx-sort (e/sort? (whnf-in-goal ps (:lctx goal) idx-sort)))
-                    (e/sort-level (whnf-in-goal ps (:lctx goal) idx-sort))
-                    (lvl/succ lvl/zero))))
-              index-types)
-
-        ;; Allocate fresh fvars for indices, major, and equalities
-        ;; 1. Fresh index fvars j1'..jk'
-        [ps index-fvar-ids index-types-inst]
-        (loop [ps ps i 0 fids [] types []]
-          (if (>= i num-indices)
-            [ps fids types]
-            (let [[ps' fid] (proof/alloc-id ps)
-                  ;; Index type may depend on previous indices — instantiate with fresh fvars
-                  it (nth index-types i)
-                  it (reduce (fn [t [j fid2]]
-                               (e/instantiate1 (e/abstract1 t (+ j 999999)) (e/fvar fid2)))
-                             it (map vector (range i) fids))]
-              (recur ps' (inc i) (conj fids fid) (conj types it)))))
-
-        ;; 2. Fresh major fvar h' : I params j1'..jk'
-        [ps h-fid] (proof/alloc-id ps)
-        h-type (reduce e/app (e/const' ind-name ind-levels)
-                       (concat params (mapv e/fvar index-fvar-ids)))
-
-        ;; 3. Equality fvars: ji = ji' for each index
-        [ps eq-fvar-ids eq-types]
-        (loop [ps ps i 0 eqfids [] eqtypes []]
-          (if (>= i num-indices)
-            [ps eqfids eqtypes]
-            (let [[ps' eqfid] (proof/alloc-id ps)
-                  idx-type (nth index-types-inst i)
-                  eq-level (nth eq-levels i)
-                  ;; Equality direction: original = fresh
-                  ;; After cases + injection, field eqs are orig=fresh.
-                  ;; Subst eliminates orig (lhs), replacing with fresh.
-                  ;; This makes the motive non-constant when the goal references
-                  ;; the original var, allowing Eq.ndrec to properly transport.
-                  eq-type (e/app* (e/const' (name/from-string "Eq") [eq-level])
-                                  idx-type
-                                  (nth orig-indices i)
-                                  (e/fvar (nth index-fvar-ids i)))]
-              (recur ps' (inc i) (conj eqfids eqfid) (conj eqtypes eq-type)))))
-
-        ;; Build new goal type:
-        ;; ∀ (j1':I1) ... (jk':Ik) (h':IndType j1'..jk'), eq1 → ... → eqk → Goal
-        ;; Build from inside out, abstracting the fresh fvars
-        all-fvar-ids (into (vec index-fvar-ids) [h-fid])
-        new-goal-type
-        (let [;; Start with Goal, abstract eq fvars as foralls
-              body (reduce (fn [body i]
-                             (let [eqt (nth eq-types (- num-indices i 1))
-                                   eqfid (nth eq-fvar-ids (- num-indices i 1))]
-                               (e/forall' "heq" eqt (e/abstract1 body eqfid) :default)))
-                           (:type goal) (range num-indices))
-              ;; Abstract h'
-              body (e/forall' "h" h-type (e/abstract1 body h-fid) :default)
-              ;; Abstract index fvars (from innermost to outermost)
-              body (loop [i (dec num-indices) body body]
-                     (if (< i 0) body
-                         (let [fid (nth index-fvar-ids i)
-                               it (nth index-types-inst i)]
-                           (recur (dec i) (e/forall' "idx" it (e/abstract1 body fid) :default)))))]
-          body)
-
-        ;; Lean Cases.lean generalizeIndices' creates the auxiliary goal in
-        ;; the original lctx. Retain a used major (e.g. in recursor IH types);
-        ;; clearing it would leave dangling fvars in those declarations.
-        new-lctx (if (or (expr-depends-on-fvar? (:type goal) hyp-fvar-id)
-                         (lctx-dependency-on-fvar (:lctx goal) hyp-fvar-id))
-                   (assoc-in (:lctx goal) [hyp-fvar-id :name] (str (:name hyp-decl) "✝"))
-                   (dissoc (:lctx goal) hyp-fvar-id))
-
-        [ps new-goal-id] (proof/fresh-mvar-replacing ps new-goal-type new-lctx (:id goal))
-
-        ;; Build assignment term: newGoal j1..jk h rfl..rfl
-        eq-refl-name (name/from-string "Eq.refl")
-        rfl-proofs (mapv (fn [i]
-                           (e/app* (e/const' eq-refl-name [(nth eq-levels i)])
-                                   (nth index-types-inst i)
-                                   (nth orig-indices i)))
-                         (range num-indices))]
-
-    (let [ps (-> (proof/assign-mvar ps (:id goal)
-                                    {:kind :generalize-indices
-                                     :child new-goal-id
-                                     :orig-indices orig-indices
-                                     :orig-hyp-fvar-id hyp-fvar-id
-                                     :index-fvar-ids index-fvar-ids
-                                     :hyp-fvar-id h-fid
-                                     :eq-fvar-ids eq-fvar-ids
-                                     :eq-levels eq-levels
-                                     :index-types index-types-inst
-                                     :rfl-proofs rfl-proofs})
-                 (proof/record-tactic :generalize-indices [hyp-fvar-id] (:id goal)))]
-      {:ps ps
-       :goal-id new-goal-id
-       :num-eqs num-indices
-       :index-fvar-ids index-fvar-ids
-       :hyp-fvar-id h-fid
-       :orig-indices orig-indices
-       :orig-hyp-fvar-id hyp-fvar-id
-       :eq-fvar-ids eq-fvar-ids})))
-
-;; ============================================================
-;; unifyCasesEqs (solve equality hypotheses after cases)
-;; ============================================================
-;; After generalizeIndices + cases, each branch has equalities like:
-;; node c l k r = leaf (impossible) or node c l k r = node c' l' k' r' (decompose)
-
 (defn- assert-hyp
   "Lean `have h : T := proof` at the proof-state level: discharge the have-subgoal with `proof-term`,
    leaving the body goal (with `hyp-name : hyp-type` in scope) the current goal."
@@ -2654,27 +2148,6 @@
 
       :else
       (tactic-error! "unify-eq: not an equality" {:type eq-type}))))
-
-(defn- unify-cases-eqs
-  "Solve all equality hypotheses in a cases branch.
-   Repeatedly intros and solves equalities.
-   Returns updated ps (goals may be closed for impossible branches)."
-  [ps num-eqs]
-  (loop [ps ps remaining num-eqs]
-    (if (<= remaining 0)
-      ps
-      ;; Intro the next equality hypothesis
-      (let [ps (intro ps)
-            goal (proof/current-goal ps)]
-        (if-not goal
-          ps  ;; All goals closed
-          (let [;; Find the most recently introduced fvar (last in lctx)
-                eq-fvar-id (last (sort (keys (:lctx goal))))
-                result (unify-eq ps eq-fvar-id)]
-            (case (:status result)
-              :solved (:ps result)  ;; Impossible branch closed
-              :continue (recur (:ps result)
-                               (+ (dec remaining) (:num-new-eqs result))))))))))
 
 ;; ============================================================
 ;; Tactic combinators — Lean 4: try, <|>, repeat, all_goals
@@ -3294,15 +2767,21 @@
 
 (declare rcases-pattern)
 
-(defn- rcases-fields [ps fields patterns]
-  ;; Lean RCases.lean processConstructor: surplus tuple patterns nest in the
-  ;; final explicit field; missing patterns are anonymous, not clear operations.
-  (if-let [nm (first fields)]
-    (let [nested? (and (= 1 (count fields)) (> (count patterns) 1))
-          pat (if nested? (vec patterns) (first patterns))
-          ps (rcases-pattern ps (rcases-local-id ps nm) (or pat '_))]
+(defn- rcases-fields [ps fields patterns original-fids]
+  ;; Lean RCases.lean processConstructor/rcasesCore: the names of fields
+  ;; eliminated by the CasesSubgoal substitution do not rename older locals.
+  (if (seq fields)
+    (let [nm (first fields)
+          nested? (and (= 1 (count fields)) (> (count patterns) 1))
+          pat (or (if nested? (vec patterns) (first patterns)) '_)
+          fid (when nm (rcases-local-id ps nm))
+          plain-name? (and (symbol? pat) (not= 'rfl pat))
+          ps (cond
+               (and plain-name? (or (nil? fid) (contains? original-fids fid))) ps
+               fid (rcases-pattern ps fid pat)
+               :else (tactic-error! "rcases: field is not a free variable" {:pattern pat}))]
       (rcases-map-goals ps #(rcases-fields % (rest fields)
-                                           (if nested? [] (rest patterns)))))
+                                           (if nested? [] (rest patterns)) original-fids)))
     (if (seq patterns)
       (tactic-error! "rcases: constructor pattern has more fields than the constructor"
                      {:patterns patterns})
@@ -3341,32 +2820,41 @@
     (= pat '_) ps
     (symbol? pat) (rename-rcases-local ps fid pat)
     (or (vector? pat) (and (seq? pat) (= 'or (first pat))))
-    (let [alts (if (vector? pat) [pat] (vec (rest pat)))
+    (let [original-lctx (:lctx (proof/current-goal ps))
+          original-fids (set (keys original-lctx))
+          alts (if (vector? pat) [pat] (vec (rest pat)))
           ps (cases (vary-meta ps dissoc ::case-branches) fid)
           branches (::case-branches (meta ps))]
       (when-not branches
         (tactic-error! "rcases: indexed case pattern metadata unavailable" {:pattern pat}))
-      (loop [ps ps branches branches idx 0 out []]
+      (loop [ps ps branches branches out []]
         (if-let [{:keys [goal-id ctor-name field-fvars]} (first branches)]
           (let [ps (assoc ps :goals [goal-id])
                 ^ConstantInfo ci (env/lookup! (:env ps) ctor-name)
+                ;; Lean RCases.lean align matches constructor names, including
+                ;; alternatives removed by index unification.
+                ctor-names (vec (.ctors (env/lookup! (:env ps) (.inductName ci))))
+                ctor-index (.indexOf ctor-names ctor-name)
                 ;; Skip implicit fields as Lean's processConstructor does.
                 infos (loop [ty (.type ci) i 0 out []]
                         (if (e/forall? ty)
                           (recur (e/forall-body ty) (inc i)
                                  (if (>= i (.numParams ci))
                                    (conj out (e/forall-info ty)) out)) out))
-                fields (keep-indexed (fn [i fid]
-                                       (when (= :default (nth infos i)) fid))
-                                     (take (.numFields ci) field-fvars))
-                names (mapv #(str "_rcases_" %) fields)
-                ps (reduce (fn [ps [fid nm]] (rename-rcases-local ps fid nm))
+                fields (mapv second (filter (fn [[i _]] (= :default (nth infos i)))
+                                            (map-indexed vector field-fvars)))
+                names (mapv #(when % (if (contains? original-fids %)
+                                       (:name (get original-lctx %)) (str "_rcases_" %))) fields)
+                ps (reduce (fn [ps [fid nm]]
+                             (if (or (nil? fid) (contains? original-fids fid)) ps
+                                 (rename-rcases-local ps fid nm)))
                            ps (map vector fields names))
-                p (if (and (= 1 (count branches)) (< (inc idx) (count alts)))
-                    (cons 'or (drop idx alts)) (nth alts idx '_))
+                p (if (and (= ctor-index (dec (count ctor-names)))
+                           (< (inc ctor-index) (count alts)))
+                    (cons 'or (drop ctor-index alts)) (nth alts ctor-index '_))
                 pats (if (vector? p) p [p])
-                ps (rcases-fields ps names pats)]
-            (recur ps (rest branches) (inc idx) (into out (:goals ps))))
+                ps (rcases-fields ps names pats original-fids)]
+            (recur ps (rest branches) (into out (:goals ps))))
           (assoc ps :goals out))))
     :else (tactic-error! "rcases: invalid pattern" {:pattern pat})))
 
