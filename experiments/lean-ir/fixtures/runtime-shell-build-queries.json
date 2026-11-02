@@ -1,8 +1,0 @@
-{
-  "lean_internal_get_default_max_heartbeat": 0,
-  "lean_internal_get_default_max_memory": 0,
-  "lean_internal_get_default_verbose": 1,
-  "lean_internal_has_llvm_backend": 0,
-  "lean_internal_get_believer_trust_level": 1024,
-  "lean_internal_is_multi_thread": 1
-}
