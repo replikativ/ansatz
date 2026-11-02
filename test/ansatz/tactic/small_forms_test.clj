@@ -18,7 +18,7 @@
 
 (deftest trace-state-prints-goals-without-changing-state
   (let [[ps _] (proof/start-proof (a/env)
-                                 (elab/elaborate (a/env) '(forall [n :- Nat] (And True True))))
+                                  (elab/elaborate (a/env) '(forall [n :- Nat] (And True True))))
         ps (-> ps (a/run-tactic '(intro n)) (a/run-tactic '(constructor)))
         result (atom nil)
         output (with-out-str (reset! result (a/run-tactic ps '(trace_state))))]
@@ -52,7 +52,7 @@
 
 (deftest case-prime-keeps-multiple-residual-tags-and-siblings
   (let [[ps _] (proof/start-proof (a/env)
-                                 (elab/elaborate (a/env) '(forall [b :- Bool] (And True True))))
+                                  (elab/elaborate (a/env) '(forall [b :- Bool] (And True True))))
         ps (-> ps (a/run-tactic '(intro b)) (a/run-tactic '(cases b)))
         sibling (first (:goals ps))
         sibling-view (first (proof/goals ps))
@@ -64,8 +64,8 @@
     (is (= 2 (count (distinct (take 2 tags)))))
     (is (every? #(.startsWith ^String % "true.") (take 2 tags)))
     (is (proof/solved? (-> selected
-                            (a/run-tactic '(all_goals (constructor)))
-                            (a/run-tactic '(all_goals (exact True.intro)))))))
+                           (a/run-tactic '(all_goals (constructor)))
+                           (a/run-tactic '(all_goals (exact True.intro)))))))
   (proves 'case_prime_splits '[b :- Bool] '(And True True)
           '[(cases b) (case' true (constructor))
             (all_goals (first (exact True.intro) (constructor)))
