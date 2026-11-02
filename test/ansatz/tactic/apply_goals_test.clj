@@ -97,3 +97,32 @@
         [ps head] (proof/fresh-mvar ps (expr 'True) {})
         ps (basic/apply-tac ps (e/mvar head))]
     (is (= [head] (:goals ps)))))
+
+(defn- scoped-tag [base]
+  (name/mk-num (name/mk-str (name/mk-str (name/mk-str base "_@") "X") "_hyg") 42))
+
+(deftest apply-preserves-structured-binder-tags
+  ;; Lean counterparts: test/lean/apply_tags.lean.
+  (let [main (name/mk-str (name/anonymous) "main")
+        h (name/mk-str (name/anonymous) "h")]
+    (doseq [[parent binder expected]
+            (concat
+             (for [component ["001" "9223372036854775808" "literal.dot"]
+                   binder [component (name/mk-str (name/anonymous) component)]]
+               [main binder (name/mk-str main component)])
+             [[main (scoped-tag h) (name/mk-str main "h")]
+              [(scoped-tag main) h (scoped-tag (name/mk-str main "h"))]
+              [(scoped-tag main) (scoped-tag h) (scoped-tag (name/mk-str main "h"))]])]
+      (let [type (e/forall' binder (expr 'True)
+                            (e/forall' "hb" (expr 'True) (expr 'True) :default) :default)
+            [ps head] (with-local-head type)
+            ps (proof/set-mvar-user-name ps (:id (proof/current-goal ps)) parent)
+            ps (basic/apply-tac ps head)
+            [first-goal second-goal] (:goals ps)]
+        (is (= expected (proof/mvar-user-name ps first-goal)))
+        (is (= (if (= parent main) (name/mk-str main "hb")
+                   (scoped-tag (name/mk-str main "hb")))
+               (proof/mvar-user-name ps second-goal)))
+        (is (some? (extract/verify
+                    (-> ps (basic/exact (expr 'True.intro))
+                        (basic/exact (expr 'True.intro))))))))))

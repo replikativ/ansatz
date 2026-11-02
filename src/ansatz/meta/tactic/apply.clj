@@ -37,6 +37,11 @@
      (throw (ex-info "Tactic error: unknown ApplyNewGoals mode"
                      {:kind :tactic-error :new-goals mode})))))
 
+(defn append-tag
+  "Lean Meta/Tactic/Util.lean appendTag: preserve parent scopes, erase suffix scopes."
+  [tag suffix]
+  (name/modify-base tag #(name/append % (name/erase-macro-scopes suffix))))
+
 (defn append-parent-tag
   "Lean appendParentTag: one telescope hole inherits the parent tag;
    otherwise append binder tags for open, non-instance holes."
@@ -53,7 +58,5 @@
                 ps
                 (let [tag (proof/mvar-user-name ps id)]
                   (proof/set-mvar-user-name
-                   ps id (if (name/anonymous? tag) parent-tag
-                             (name/from-string (str (name/->string parent-tag) "."
-                                                    (name/->string tag))))))))
+                   ps id (append-tag parent-tag (or tag (name/anonymous)))))))
             ps (map vector new-mvars binder-infos))))

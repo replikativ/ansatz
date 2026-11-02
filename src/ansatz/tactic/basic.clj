@@ -711,7 +711,7 @@
       (if (and (e/forall? ty)
                (not (apply-target-compatible? ps goal ty arg-mvars mvar-id-set)))
         (let [param-name (e/forall-name ty)
-              param-name (if (string? param-name) (name/from-string param-name) param-name)
+              param-name (if (string? param-name) (name/mk-str (name/anonymous) param-name) param-name)
               param-type (e/forall-type ty)
               binfo (e/forall-info ty)
               ;; Substitute already-resolved holes into the param type
