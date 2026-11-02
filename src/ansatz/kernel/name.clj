@@ -120,7 +120,7 @@
   (if (empty? scopes)
     name
     (reduce mk-num (mk-str (append-core (append-core (mk-str name "_@") imported) ctx)
-                          "_hyg") scopes)))
+                           "_hyg") scopes)))
 
 (defn modify-base
   "Lean Init/Meta/Defs.lean Name.modifyBase: preserve scopes around f's result."

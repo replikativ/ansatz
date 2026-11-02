@@ -694,70 +694,70 @@
    :non-dependent-first (default), :non-dependent-only, or :all."
   ([ps term] (apply-tac ps term {}))
   ([ps term cfg]
-  (let [goal (proof/current-goal ps)
-        _ (when-not goal (tactic-error! "No goals" {}))
-        st (mk-tc ps (:lctx goal))
-        term-type (meta/infer-type (:meta-mctx ps) st term)]
+   (let [goal (proof/current-goal ps)
+         _ (when-not goal (tactic-error! "No goals" {}))
+         st (mk-tc ps (:lctx goal))
+         term-type (meta/infer-type (:meta-mctx ps) st term)]
     ;; Peel forall binders, creating fresh fvars for each argument. As in
     ;; Lean's MVarId.apply, stop early when the partial result type already
     ;; matches the target.
     ;; For inst-implicit params, try to synthesize immediately — this resolves
     ;; projections like LE.0(Preorder.toLE) before they reach matching.
-    (loop [ps ps
-           ty (expose-forall ps (:lctx goal) term-type)
-           arg-mvars []
-           arg-binfos []
-           mvar-id-set #{}]
-      (if (and (e/forall? ty)
-               (not (apply-target-compatible? ps goal ty arg-mvars mvar-id-set)))
-        (let [param-name (e/forall-name ty)
-              param-name (if (string? param-name) (name/mk-str (name/anonymous) param-name) param-name)
-              param-type (e/forall-type ty)
-              binfo (e/forall-info ty)
+     (loop [ps ps
+            ty (expose-forall ps (:lctx goal) term-type)
+            arg-mvars []
+            arg-binfos []
+            mvar-id-set #{}]
+       (if (and (e/forall? ty)
+                (not (apply-target-compatible? ps goal ty arg-mvars mvar-id-set)))
+         (let [param-name (e/forall-name ty)
+               param-name (if (string? param-name) (name/mk-str (name/anonymous) param-name) param-name)
+               param-type (e/forall-type ty)
+               binfo (e/forall-info ty)
               ;; Substitute already-resolved holes into the param type
-              inst-type (instantiate-solved-mvars ps param-type)
+               inst-type (instantiate-solved-mvars ps param-type)
               ;; Lean's apply creates metavariables for ordinary implicit
               ;; parameters and lets result-type unification solve them. Do not
               ;; guess type parameters from goal arguments here: for equality
               ;; goals, the first goal argument is the equality domain, not
               ;; necessarily the theorem's first implicit type parameter.
-              inferred-val
-              (cond
+               inferred-val
+               (cond
                 ;; Inst-implicit: synthesize
-                (= binfo :inst-implicit)
-                (try
-                  (try-synthesize-instance-in-context ps (:lctx goal) inst-type)
-                  (catch Exception _ nil))
+                 (= binfo :inst-implicit)
+                 (try
+                   (try-synthesize-instance-in-context ps (:lctx goal) inst-type)
+                   (catch Exception _ nil))
 
                 ;; Ordinary implicit value/type params remain apply mvars.
-                (#{:implicit :strict-implicit} binfo)
-                nil)  ;; leave as mvar
-              synthesized inferred-val]
-          (if synthesized
+                 (#{:implicit :strict-implicit} binfo)
+                 nil)  ;; leave as mvar
+               synthesized inferred-val]
+           (if synthesized
             ;; Value inferred/synthesized — create a pre-assigned mvar
-            (let [mvar-kind (if (= binfo :inst-implicit) :synthetic :natural)
-                  [ps' mvar-id] (proof/fresh-mvar ps inst-type (:lctx goal)
+             (let [mvar-kind (if (= binfo :inst-implicit) :synthetic :natural)
+                   [ps' mvar-id] (proof/fresh-mvar ps inst-type (:lctx goal)
                                                    {:kind mvar-kind :user-name param-name})
-                  ps' (proof/assign-mvar ps' mvar-id {:kind :exact :term synthesized})
-                  new-ty (e/instantiate1 (e/forall-body ty) synthesized)]
-              (recur ps' (expose-forall ps' (:lctx goal) new-ty)
-                     (conj arg-mvars mvar-id)
-                     (conj arg-binfos binfo)
-                     mvar-id-set))
+                   ps' (proof/assign-mvar ps' mvar-id {:kind :exact :term synthesized})
+                   new-ty (e/instantiate1 (e/forall-body ty) synthesized)]
+               (recur ps' (expose-forall ps' (:lctx goal) new-ty)
+                      (conj arg-mvars mvar-id)
+                      (conj arg-binfos binfo)
+                      mvar-id-set))
             ;; Not synthesized — create mvar (for implicit, inst-implicit, AND explicit params).
             ;; Following Lean 4, explicit mvars become subgoals when they remain unsolved.
             ;; Every unassigned telescope hole can become a visible subgoal.
-            (let [mvar-kind (if (= binfo :inst-implicit) :synthetic :natural)
-                  [ps' mvar-id] (proof/fresh-mvar ps inst-type (:lctx goal)
+             (let [mvar-kind (if (= binfo :inst-implicit) :synthetic :natural)
+                   [ps' mvar-id] (proof/fresh-mvar ps inst-type (:lctx goal)
                                                    {:kind mvar-kind :user-name param-name})
                   ;; Lean's forallMetaTelescope: the hole is a REAL Expr.mvar in
                   ;; the goal type, so any later isDefEq (exact/assumption/apply)
                   ;; can assign it through the one shared metacontext.
-                  new-ty (e/instantiate1 (e/forall-body ty) (e/mvar mvar-id))]
-              (recur ps' (expose-forall ps' (:lctx goal) new-ty)
-                     (conj arg-mvars mvar-id)
-                     (conj arg-binfos binfo)
-                     (conj mvar-id-set mvar-id)))))
+                   new-ty (e/instantiate1 (e/forall-body ty) (e/mvar mvar-id))]
+               (recur ps' (expose-forall ps' (:lctx goal) new-ty)
+                      (conj arg-mvars mvar-id)
+                      (conj arg-binfos binfo)
+                      (conj mvar-id-set mvar-id)))))
         ;; Phase 2: Match result type against goal.
         ;; Following Lean 4's apply (Apply.lean): use isDefEq as the PRIMARY
         ;; matching mechanism. isDefEq handles WHNF reduction, delta unfolding,
@@ -765,157 +765,157 @@
         ;;
         ;; Strategy A: structural matching (fast path for simple cases)
         ;; Strategy B: Java TC isDefEq (handles def-eq like sorted vs List.rec)
-        (let [resolved-ty (instantiate-solved-mvars ps ty)
-              goal-whnf (whnf-in-goal ps (:lctx goal) (:type goal))
-              resolved-whnf (meta-whnf-in-goal ps (:lctx goal) resolved-ty)
+         (let [resolved-ty (instantiate-solved-mvars ps ty)
+               goal-whnf (whnf-in-goal ps (:lctx goal) (:type goal))
+               resolved-whnf (meta-whnf-in-goal ps (:lctx goal) resolved-ty)
               ;; LAZY: `normalize-for-match` deeply WHNF-normalizes every subnode, which DIVERGES on a
               ;; goal carrying a stuck recursor over a symbolic arg (e.g. `Map.join`'s `group_by` foldl
               ;; over an abstract list — the filter→join pushdown C). Lean never pre-normalizes the goal
               ;; for `apply`; it matches via lazy `isDefEq`. So defer these: they are
               ;; only forced by the normalize-based fallbacks, which run AFTER the isDefEq strategy.
-              goal-norm (delay (normalize-for-match ps (:lctx goal) (:type goal)))
-              resolved-norm (delay (normalize-for-match ps (:lctx goal) resolved-ty))
-              skip-deep-normalize?
-              (same-spine-constructor-clash? (:env ps) resolved-ty (:type goal))
+               goal-norm (delay (normalize-for-match ps (:lctx goal) (:type goal)))
+               resolved-norm (delay (normalize-for-match ps (:lctx goal) resolved-ty))
+               skip-deep-normalize?
+               (same-spine-constructor-clash? (:env ps) resolved-ty (:type goal))
               ;; Lean's PRIMARY apply mechanism (Apply.lean:207): ONE
               ;; isDefEq(conclusion, goal) assigning expr- AND level-mvars in
               ;; the proof state's shared metacontext. It whnf's lazily ON
               ;; MISMATCH, so it solves cases the structural cascade can't
               ;; (univ-poly lemmas whose level isn't pinned; subterms needing
               ;; one whnf step) WITHOUT the divergent deep normalize.
-              real-mctx (atom (:meta-mctx ps))
-              try-real-mctx-isdefeq
-              (fn []
-                (try
-                  (let [mctx0 (declare-level-mvars @real-mctx
-                                                   [resolved-ty (:type goal)])]
-                    (when-let [mctx (meta/is-def-eq mctx0 st resolved-ty (:type goal))]
-                      (reset! real-mctx mctx)
-                      {}))
-                  (catch Exception _ nil)))
+               real-mctx (atom (:meta-mctx ps))
+               try-real-mctx-isdefeq
+               (fn []
+                 (try
+                   (let [mctx0 (declare-level-mvars @real-mctx
+                                                    [resolved-ty (:type goal)])]
+                     (when-let [mctx (meta/is-def-eq mctx0 st resolved-ty (:type goal))]
+                       (reset! real-mctx mctx)
+                       {}))
+                   (catch Exception _ nil)))
               ;; Strategy A: structural matching (cheap — no normalization)
-              subst (or (match-expr resolved-ty (:type goal) mvar-id-set)
-                        (match-expr resolved-ty goal-whnf mvar-id-set)
-                        (match-expr resolved-whnf (:type goal) mvar-id-set)
-                        (match-expr resolved-whnf goal-whnf mvar-id-set)
+               subst (or (match-expr resolved-ty (:type goal) mvar-id-set)
+                         (match-expr resolved-ty goal-whnf mvar-id-set)
+                         (match-expr resolved-whnf (:type goal) mvar-id-set)
+                         (match-expr resolved-whnf goal-whnf mvar-id-set)
                         ;; Lean's PRIMARY apply mechanism (Apply.lean:207): ONE
                         ;; isDefEq(conclusion, goal) in the shared metacontext,
                         ;; assigning generated holes, sibling-shared holes, and
                         ;; level mvars together. It whnf's lazily on mismatch,
                         ;; so it never triggers the divergent deep normalize.
-                        (try-real-mctx-isdefeq)
-                        (when-not skip-deep-normalize?
-                          (or (match-expr @resolved-norm @goal-norm mvar-id-set)
-                              (match-expr @resolved-norm goal-whnf mvar-id-set)
-                              (match-expr resolved-whnf @goal-norm mvar-id-set)))
+                         (try-real-mctx-isdefeq)
+                         (when-not skip-deep-normalize?
+                           (or (match-expr @resolved-norm @goal-norm mvar-id-set)
+                               (match-expr @resolved-norm goal-whnf mvar-id-set)
+                               (match-expr resolved-whnf @goal-norm mvar-id-set)))
                         ;; Strategy B: Java TC isDefEq (Lean 4's primary mechanism).
                         ;; isDefEq on resolved-ty (with assigned mvars substituted)
                         ;; handles cases where heads differ structurally but are def-eq
                         ;; (e.g., sorted(insertSorted ...) vs List.rec ...).
                         ;; The Java TC cannot infer through real Expr.mvar nodes
                         ;; (inferType throws on tag 12) — skip when holes remain.
-                        (when-not (or (meta/has-expr-mvar? resolved-ty)
-                                      (meta/has-expr-mvar? (:type goal)))
-                          (try
-                            (let [jtc (ansatz.kernel.TypeChecker. (:env ps))
-                                  _ (.setFuel jtc config/*default-fuel*)
+                         (when-not (or (meta/has-expr-mvar? resolved-ty)
+                                       (meta/has-expr-mvar? (:type goal)))
+                           (try
+                             (let [jtc (ansatz.kernel.TypeChecker. (:env ps))
+                                   _ (.setFuel jtc config/*default-fuel*)
                                 ;; Register goal's lctx with TC
-                                  _ (doseq [[id decl] (:lctx goal)]
-                                      (when (= :local (:tag decl))
-                                        (.addLocal jtc (long id) (str (:name decl)) (:type decl))))
+                                   _ (doseq [[id decl] (:lctx goal)]
+                                       (when (= :local (:tag decl))
+                                         (.addLocal jtc (long id) (str (:name decl)) (:type decl))))
                                 ;; Register unresolved mvars as locals so TC can handle them
-                                  _ (doseq [mid arg-mvars]
-                                      (when (proof/mvar-open? ps mid)
-                                        (.addLocal jtc (long mid) "?mvar" (proof/mvar-type ps mid))))]
+                                   _ (doseq [mid arg-mvars]
+                                       (when (proof/mvar-open? ps mid)
+                                         (.addLocal jtc (long mid) "?mvar" (proof/mvar-type ps mid))))]
                             ;; Following Lean 4: isDefEq is the primary matching mechanism.
                             ;; First, try to resolve remaining mvars by WHNF-matching
                             ;; the resolved type against the goal type. This handles cases
                             ;; like Nat.le vs LE.le where heads differ but are def-eq.
-                              (let [;; Collect unresolved mvar fvar-ids
-                                    unresolved (set (filter (fn [mid]
-                                                              (proof/mvar-open? ps mid))
-                                                            arg-mvars))
+                               (let [;; Collect unresolved mvar fvar-ids
+                                     unresolved (set (filter (fn [mid]
+                                                               (proof/mvar-open? ps mid))
+                                                             arg-mvars))
                                   ;; Try structural extraction on recursively-normalized forms first
-                                    deep-subst (atom {})
-                                    _ (letfn [(extract [r g]
-                                                (cond
-                                                  (and (e/fvar? r) (contains? unresolved (e/fvar-id r)))
-                                                  (swap! deep-subst assoc (e/fvar-id r) g)
-                                                  (and (e/app? r) (e/app? g))
-                                                  (do (extract (e/app-fn r) (e/app-fn g))
-                                                      (extract (e/app-arg r) (e/app-arg g)))
-                                                  :else nil))]
-                                        (try (extract @resolved-norm @goal-norm) (catch Exception _ nil))
-                                        (try (extract resolved-whnf goal-whnf) (catch Exception _ nil)))
+                                     deep-subst (atom {})
+                                     _ (letfn [(extract [r g]
+                                                 (cond
+                                                   (and (e/fvar? r) (contains? unresolved (e/fvar-id r)))
+                                                   (swap! deep-subst assoc (e/fvar-id r) g)
+                                                   (and (e/app? r) (e/app? g))
+                                                   (do (extract (e/app-fn r) (e/app-fn g))
+                                                       (extract (e/app-arg r) (e/app-arg g)))
+                                                   :else nil))]
+                                         (try (extract @resolved-norm @goal-norm) (catch Exception _ nil))
+                                         (try (extract resolved-whnf goal-whnf) (catch Exception _ nil)))
                                   ;; Substitute extracted bindings into resolved-ty
-                                    resolved-ty' (reduce (fn [t [mid val]]
-                                                           (e/instantiate1 (e/abstract1 t mid) val))
-                                                         resolved-ty @deep-subst)
-                                    resolved-ty'' (normalize-for-match ps (:lctx goal) resolved-ty')
+                                     resolved-ty' (reduce (fn [t [mid val]]
+                                                            (e/instantiate1 (e/abstract1 t mid) val))
+                                                          resolved-ty @deep-subst)
+                                     resolved-ty'' (normalize-for-match ps (:lctx goal) resolved-ty')
                                   ;; Now try isDefEq with all mvars resolved
-                                    deq (or (.isDefEq jtc resolved-ty'' @goal-norm)
-                                            (.isDefEq jtc resolved-ty' (:type goal))
+                                     deq (or (.isDefEq jtc resolved-ty'' @goal-norm)
+                                             (.isDefEq jtc resolved-ty' (:type goal))
                                           ;; Also try with original (in case extraction was wrong)
-                                            (.isDefEq jtc resolved-ty (:type goal)))]
-                                (when deq @deep-subst)))
-                            (catch Exception _ nil)))
+                                             (.isDefEq jtc resolved-ty (:type goal)))]
+                                 (when deq @deep-subst)))
+                             (catch Exception _ nil)))
                         ;; Direct equality
-                        (when (or (= resolved-ty (:type goal))
-                                  (= resolved-ty goal-whnf)
-                                  (and (not skip-deep-normalize?)
-                                       (= @resolved-norm @goal-norm))) {}))]
-          (when-not subst
-            (tactic-error! (str "apply: result type does not match goal\n"
-                                "  result: " (e/->string resolved-ty) "\n"
-                                "  goal:   " (e/->string (:type goal)))
-                           {:expected (:type goal) :actual resolved-ty :term term}))
+                         (when (or (= resolved-ty (:type goal))
+                                   (= resolved-ty goal-whnf)
+                                   (and (not skip-deep-normalize?)
+                                        (= @resolved-norm @goal-norm))) {}))]
+           (when-not subst
+             (tactic-error! (str "apply: result type does not match goal\n"
+                                 "  result: " (e/->string resolved-ty) "\n"
+                                 "  goal:   " (e/->string (:type goal)))
+                            {:expected (:type goal) :actual resolved-ty :term term}))
 
           ;; Assign solved mvars from the substitution
-          (let [ps (assoc ps :meta-mctx @real-mctx)
-                real-term-mvars (meta/expr-mvars-no-delayed (:meta-mctx ps) term)
-                ps (zonk-mvar-decl-types ps real-term-mvars)
-                ps (reduce (fn [ps mvar-id]
-                             (if-let [val (get subst mvar-id)]
-                               (proof/assign-mvar ps mvar-id
-                                                  {:kind :exact :term val})
-                               ps))
-                           ps arg-mvars)
+           (let [ps (assoc ps :meta-mctx @real-mctx)
+                 real-term-mvars (meta/expr-mvars-no-delayed (:meta-mctx ps) term)
+                 ps (zonk-mvar-decl-types ps real-term-mvars)
+                 ps (reduce (fn [ps mvar-id]
+                              (if-let [val (get subst mvar-id)]
+                                (proof/assign-mvar ps mvar-id
+                                                   {:kind :exact :term val})
+                                ps))
+                            ps arg-mvars)
                 ;; Solved values (subst + isDefEq assignments) live in the ONE
                 ;; metacontext: remaining goal types pick them up through
                 ;; zonk-on-access and the decl-type zonk below; sibling-shared
                 ;; holes (the `trans` middle term etc.) are assigned there
                 ;; directly, matching Lean's single-MetavarContext apply.
-                ]
-            (let [;; The kernel check must see a concrete head: zonk assigned
+                 ]
+             (let [;; The kernel check must see a concrete head: zonk assigned
                   ;; expr- and level-mvars (e.g. `List.Perm.{?lm}`) into it.
-                  head-term (meta/zonk-expr (:meta-mctx ps) term)
-                  ps (-> (proof/assign-mvar ps (:id goal)
-                                            {:kind :apply :head head-term :arg-mvars arg-mvars})
-                         (proof/record-tactic :apply [head-term] (:id goal)))
+                   head-term (meta/zonk-expr (:meta-mctx ps) term)
+                   ps (-> (proof/assign-mvar ps (:id goal)
+                                             {:kind :apply :head head-term :arg-mvars arg-mvars})
+                          (proof/record-tactic :apply [head-term] (:id goal)))
                   ;; Lean 4's apply postprocesses exactly the inst-implicit
                   ;; telescope metavariables with synthAppInstances. It retries
                   ;; postponed synthesis when later instance synthesis made
                   ;; progress, and it checks already-assigned instance mvars too.
-                  ps (synthesize-apply-instances ps arg-mvars arg-binfos)
-                  ps (apply-meta/append-parent-tag ps (:user-name goal) arg-mvars arg-binfos)
-                  unsolved-args (filterv #(not (proof/mvar-assigned? ps %)) arg-mvars)
-                  unsolved-args (apply-meta/reorder-goals ps unsolved-args
-                                                        (get cfg :new-goals :non-dependent-first))
-                  other-mvar-ids (->> (meta/expr-mvars-no-delayed (:meta-mctx ps) head-term)
-                                      (remove (set unsolved-args))
-                                      (filterv #(proof/mvar-open? ps %)))
-                  front (into (vec unsolved-args) other-mvar-ids)
-                  front-set (set front)
-                  generated-set (set (filterv #(not (proof/mvar-assigned? ps %)) arg-mvars))
-                  ps (zonk-mvar-decl-types ps front)]
-              (-> ps
-                  (update :goals (fn [gs]
-                                   (into front
-                                         (remove #(or (front-set %) (generated-set %)) gs))))
+                   ps (synthesize-apply-instances ps arg-mvars arg-binfos)
+                   ps (apply-meta/append-parent-tag ps (:user-name goal) arg-mvars arg-binfos)
+                   unsolved-args (filterv #(not (proof/mvar-assigned? ps %)) arg-mvars)
+                   unsolved-args (apply-meta/reorder-goals ps unsolved-args
+                                                           (get cfg :new-goals :non-dependent-first))
+                   other-mvar-ids (->> (meta/expr-mvars-no-delayed (:meta-mctx ps) head-term)
+                                       (remove (set unsolved-args))
+                                       (filterv #(proof/mvar-open? ps %)))
+                   front (into (vec unsolved-args) other-mvar-ids)
+                   front-set (set front)
+                   generated-set (set (filterv #(not (proof/mvar-assigned? ps %)) arg-mvars))
+                   ps (zonk-mvar-decl-types ps front)]
+               (-> ps
+                   (update :goals (fn [gs]
+                                    (into front
+                                          (remove #(or (front-set %) (generated-set %)) gs))))
                   ;; holes solved by isDefEq live only in the metacontext;
                   ;; fresh-mvar listed them as goals, so prune (Lean's
                   ;; pruneSolvedGoals after apply).
-                  (proof/prune-solved-goals))))))))))
+                   (proof/prune-solved-goals))))))))))
 
 ;; ============================================================
 ;; rfl

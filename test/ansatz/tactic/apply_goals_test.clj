@@ -14,7 +14,7 @@
 (defn- expr [form] (elab/elaborate @test-env/checked-bundled-init-env form))
 (defn- with-local-head [type]
   (let [[ps _] (proof/start-proof @test-env/checked-bundled-init-env
-                                 (e/forall' "f" type (expr 'True) :default))
+                                  (e/forall' "f" type (expr 'True) :default))
         ps (basic/intro ps "f")
         id (ffirst (:lctx (proof/current-goal ps)))]
     [ps (e/fvar id)]))
@@ -24,8 +24,8 @@
 
 (deftest dependent-witnesses-follow-proofs-in-stable-telescope-order
   (let [env (ind/define-inductive @test-env/checked-bundled-init-env "Pack" []
-                                  '[[mk [ty Type x ty hx (= ty x x) ht True]]]
-                                  :in 'Prop)
+              '[[mk [ty Type x ty hx (= ty x x) ht True]]]
+              :in 'Prop)
         [ps _] (proof/start-proof env (e/const' (name/from-string "Pack") []))
         head (e/const' (name/from-string "Pack.mk") [])
         start (:next-id ps)
@@ -33,18 +33,18 @@
         expected {ty [ty (e/sort' (lvl/succ lvl/zero)) "ty"]
                   x [x (e/mvar ty) "x"]
                   hx [hx (e/app* (e/const' (name/from-string "Eq") [(lvl/succ lvl/zero)])
-                                (e/mvar ty) (e/mvar x) (e/mvar x)) "hx"]
+                                 (e/mvar ty) (e/mvar x) (e/mvar x)) "hx"]
                   ht [ht (expr 'True) "ht"]}]
     (doseq [[mode ids] [[:non-dependent-first [hx ht ty x]]
-                       [:non-dependent-only [hx ht]]
-                       [:all [ty x hx ht]]]]
+                        [:non-dependent-only [hx ht]]
+                        [:all [ty x hx ht]]]]
       (is (= (mapv expected ids)
              (vector-of-goals (basic/apply-tac ps head {:new-goals mode})))))
     (let [ps (-> ps
                  (basic/apply-tac head)
                  (basic/exact (e/app* (e/const' (name/from-string "Eq.refl")
                                                 [(lvl/succ lvl/zero)])
-                                     (expr 'Nat) (e/lit-nat 0)))
+                                      (expr 'Nat) (e/lit-nat 0)))
                  (basic/exact (expr 'True.intro)))]
       (is (proof/solved? ps))
       (is (some? (extract/verify ps))))))
@@ -57,10 +57,10 @@
 
 (deftest implicit-witness-visible-until-proof-determines-it
   (let [type (e/forall' "n" (expr 'Nat)
-                         (e/forall' "h" (e/app* (e/const' (name/from-string "Eq")
-                                                                        [(lvl/succ lvl/zero)])
+                        (e/forall' "h" (e/app* (e/const' (name/from-string "Eq")
+                                                         [(lvl/succ lvl/zero)])
                                                (expr 'Nat) (e/bvar 0) (e/lit-nat 0))
-                                    (expr 'True) :default) :implicit)
+                                   (expr 'True) :default) :implicit)
         [ps head] (with-local-head type)
         n (:next-id ps) h (inc n)
         ps (basic/apply-tac ps head)]
@@ -69,14 +69,14 @@
             [n (expr 'Nat) "n"]]
            (vector-of-goals ps)))
     (let [ps (basic/exact ps (e/app* (e/const' (name/from-string "Eq.refl") [(lvl/succ lvl/zero)])
-                                        (expr 'Nat) (e/lit-nat 0)))]
+                                     (expr 'Nat) (e/lit-nat 0)))]
       (is (proof/solved? ps))
       (is (some? (extract/verify ps))))))
 
 (deftest assigned-instances-do-not-become-goals
   (let [type (e/forall' "inst" (expr '(Inhabited Nat))
-                         (e/forall' "h" (expr 'True) (expr 'True) :default)
-                         :inst-implicit)
+                        (e/forall' "h" (expr 'True) (expr 'True) :default)
+                        :inst-implicit)
         [ps head] (with-local-head type)
         inst (:next-id ps) h (inc inst)
         ps (basic/apply-tac ps head)]

@@ -25,14 +25,14 @@
                            "X") "_hyg") 42)]
     (doseq [n [parent imported-parent]]
       (is (= n (name/macro-scopes-view-review (name/extract-macro-scopes n))))
-    (is (= {:name base :ctx (name/mk-str (name/anonymous) "X")
-            :imported (name/mk-num (name/mk-str (name/anonymous) "Imported") 7)
-            :scopes '(42)}
-           (name/extract-macro-scopes imported-parent)))
-    (is (= base (name/erase-macro-scopes parent)))
-    (is (= (scoped (name/mk-str base "h")) (name/append parent suffix)))
-    (is (= (scoped (name/mk-str base "h")) (name/append base (scoped suffix))))
-    (is (= (name/mk-str (name/anonymous) "main.h")
-           (name/erase-macro-scopes (scoped (name/mk-str (name/anonymous) "main.h"))))))
+      (is (= {:name base :ctx (name/mk-str (name/anonymous) "X")
+              :imported (name/mk-num (name/mk-str (name/anonymous) "Imported") 7)
+              :scopes '(42)}
+             (name/extract-macro-scopes imported-parent)))
+      (is (= base (name/erase-macro-scopes parent)))
+      (is (= (scoped (name/mk-str base "h")) (name/append parent suffix)))
+      (is (= (scoped (name/mk-str base "h")) (name/append base (scoped suffix))))
+      (is (= (name/mk-str (name/anonymous) "main.h")
+             (name/erase-macro-scopes (scoped (name/mk-str (name/anonymous) "main.h"))))))
     (is (thrown-with-msg? clojure.lang.ExceptionInfo #"both arguments have macro scopes"
                           (name/append parent (scoped suffix))))))
