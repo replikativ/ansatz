@@ -8,6 +8,7 @@
             [ansatz.kernel.expr :as e]
             [ansatz.kernel.env :as env]
             [ansatz.meta.rec-ext :as rec-ext]
+            [ansatz.eqns :as eqns]
             [ansatz.kernel.name :as name]
             [ansatz.kernel.level :as lvl]
             [ansatz.kernel.quotient :as quotient]
@@ -1317,14 +1318,17 @@
                                                        "kernel-enforced WellFounded.Nat.fix")
                                            "fuel + termination gate") ")")))
 
+        ;; Meta/Eqns.lean registerEqnThms: record equations at their admission site.
+        equation-names (atom [])
+        equation-errors (atom [])
         ;; Generate equation theorem: fn(args) = body[fn → fn]
         ;; For the fuel-based Nat.rec approach, this is true by computation:
         ;; Nat.rec motive base step (succ k) args = step k (Nat.rec ... k) args
         ;; which is = body[ih → fn] (the original body with recursive calls intact).
         ;; The proof is just Eq.refl (fn args).
         ;; For the wf-fix encoding, whnf of fn(args) is STUCK on the Acc proof, so the equations
-        ;; come from WellFounded.Nat.fix_eq instead: per-leaf `<fn>.eq_N` theorems (the names simp's
-        ;; find-eqn-theorems discovers), each proven by the bare fix_eq instance + kernel defeq.
+        ;; come from WellFounded.Nat.fix_eq instead: per-leaf `<fn>.eq_N` theorems,
+        ;; each proven by the bare fix_eq instance + kernel defeq.
         _ (if (= encoding :wf-fix)
             (try
               (let [env' @ansatz-env
@@ -1366,10 +1370,12 @@
                              (if (< k 0) acc
                                  (recur (dec k) (e/lam "x" (e/abstract-many (second (nth fields k)) (subvec ids 0 k)) acc :default))))
                         eq-name (name/from-string (str fn-name ".eq_" (inc i)))]
-                    (swap! ansatz-env env/check-constant (env/mk-thm eq-name [] eq-type pf))))
+                    (swap! ansatz-env env/check-constant (env/mk-thm eq-name [] eq-type pf))
+                    (swap! equation-names conj eq-name)))
                 (when (verbose?)
                   (println (str "  ✓ " fn-name ".eq_1.." (count leaves) " equations (fix_eq)"))))
               (catch Exception e
+                (swap! equation-errors conj e)
                 (when (verbose?)
                   (println (str "  ⚠ wf-fix equation generation failed: " (.getMessage e))))))
             (try
@@ -1414,11 +1420,15 @@
                     eq-name (name/from-string (str fn-name ".eq_unfold"))
                     eq-ci (env/mk-thm eq-name [] eq-full-type proof-full)]
                 (swap! ansatz-env env/check-constant eq-ci)
+                (swap! equation-names conj eq-name)
                 (when (verbose?)
                   (println (str "  ✓ " fn-name ".eq_unfold equation theorem"))))
               (catch Exception e
+                (swap! equation-errors conj e)
                 (when (verbose?)
                   (println (str "  ⚠ equation theorem generation failed: " (.getMessage e)))))))
+
+        _ (swap! ansatz-env eqns/register-eqn-thms cname @equation-names @equation-errors)
 
         ;; Unified direct-recursion emitter (storedef): `body-ansatz` above already IS the
         ;; direct-recursion term (self-calls as the axiom const), so emit it with `recur`

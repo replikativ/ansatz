@@ -2708,14 +2708,13 @@
               (catch Exception ex
                 (report-equation-error! equation-errors (str fn-name ".eq_1") ex))))
         ;; Lean Meta/Eqns.lean registerEqnThms/getEqnsFor?: record the names at
-        ;; installation, including matcher equations, never reconstruct them by suffix.
-        ;; Preserve the parent's equation order before its auxiliary equations; retain
+        ;; installation with each matcher owning its own equations.
+        ;; Preserve equation order within each owner; retain
         ;; failures so consumers cannot mistake a partial inventory for a complete one.
         _ (swap! ansatz-env
                  (fn [env]
                    (let [own (fn [owner] (mapv second (filter #(= owner (first %)) @equation-names)))
-                         all (into (own cname) (mapcat own @equation-auxiliaries))
-                         env (eqns/register-eqn-thms env cname all @equation-errors)]
+                         env (eqns/register-eqn-thms env cname (own cname) @equation-errors)]
                      (reduce (fn [env aux]
                                (eqns/register-eqn-thms env aux (own aux) @equation-errors))
                              env @equation-auxiliaries))))
