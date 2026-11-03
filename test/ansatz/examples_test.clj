@@ -702,6 +702,9 @@
                              '[(induction h)
                                ;; Nil case: insertSorted x [] = [x] → Sorted.single
                                (apply (Sorted.single x))
+                               ;; Name constructor fields before splitting on them.
+                               (case' [single a])
+                               (case' [cons_cons a b tl hab hsorted ih_hsorted])
                                ;; Case-split on x ≤ a, unfold insertSorted
                                (all_goals (try (by_cases (<= x a))))
                                (all_goals (try (simp_all ex-insertSorted)))
@@ -997,7 +1000,8 @@
                              ;; vleaf: balance1 leaf v r = node black leaf v r
                              (simp ex-bal1full)
                              (apply ValidRB.vnode) (apply ValidRB.vleaf) (assumption)
-                             ;; vnode: cases on color (structural, hl reverted in motive)
+                             ;; vnode: name the generated fields before splitting.
+                             (rename_i c l k r_l hl hr_l)
                              (cases c)
                              ;; red: cases on inner left subtree
                              (cases l)
@@ -1007,6 +1011,7 @@
                              (apply ValidRB.vnode) (apply ValidRB.vleaf) (assumption)
                              (assumption)
                              ;; red-node: cases on inner color
+                             (rename_i color left key right)
                              (cases color)
                              ;; LL rotation (red-red): decompose inner ValidRB
                              (cases hl)

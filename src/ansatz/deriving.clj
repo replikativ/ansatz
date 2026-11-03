@@ -22,6 +22,7 @@
    Extension:
      (deriving/register-handler! 'MyClass my-handler-fn)"
   (:require [ansatz.kernel.expr :as e]
+            [ansatz.kernel.reduce :as red]
             [ansatz.kernel.env :as env]
             [ansatz.kernel.name :as name]
             [ansatz.kernel.level :as lvl]
@@ -88,12 +89,7 @@
 (defn- find-fvar-by-name
   "Find the most recently allocated fvar with the given name in goal's lctx."
   [goal fvar-name]
-  (reduce (fn [best [id d]]
-            (if (and (= fvar-name (:name d))
-                     (or (nil? best) (> (long id) (long best))))
-              id best))
-          nil
-          (:lctx goal)))
+  (:id (red/find-from-user-name? (:lctx goal) fvar-name)))
 
 (defn- close-diagonal-goal
   "Close a goal of form Decidable (Eq T ctor ctor) with isTrue + rfl."

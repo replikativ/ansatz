@@ -15,17 +15,39 @@
 ;; Local context (for fvars during type checking)
 ;; ============================================================
 
-(defn empty-lctx [] {})
+;; Lean 4.33.1 Lean/LocalContext.lean: decls are traversed by declaration
+;; index. Ansatz allocates monotonically increasing fvar ids for declarations.
+(defn ordered-lctx [lctx]
+  (if (and (sorted? lctx)
+           (identical? (.comparator ^clojure.lang.Sorted lctx)
+                       (.comparator ^clojure.lang.Sorted (sorted-map))))
+    lctx
+    (into (sorted-map) lctx)))
+
+(defn lctx-decls [lctx]
+  (seq (ordered-lctx lctx)))
+
+(defn find-from-user-name?
+  "Lean LocalContext.findFromUserName?: newest accessible declaration wins.
+   :inaccessible represents the macro scope of mkFreshUserName."
+  [lctx user-name]
+  (some (fn [[id decl]]
+          (when (and (not (:inaccessible decl))
+                     (= (str user-name) (:name decl)))
+            (assoc decl :id id)))
+        (rseq (ordered-lctx lctx))))
+
+(defn empty-lctx [] (sorted-map))
 
 (defn lctx-add-local
   "Add a local declaration (assumption) to the local context."
   [lctx id name type]
-  (assoc lctx id {:tag :local :id id :name name :type type}))
+  (assoc (ordered-lctx lctx) id {:tag :local :id id :name name :type type}))
 
 (defn lctx-add-let
   "Add a let-binding to the local context."
   [lctx id name type value]
-  (assoc lctx id {:tag :let-decl :id id :name name :type type :value value}))
+  (assoc (ordered-lctx lctx) id {:tag :let-decl :id id :name name :type type :value value}))
 
 (defn lctx-lookup [lctx id]
   (get lctx id))

@@ -1025,7 +1025,9 @@
                               (assoc-in (:lctx goal) [hyp-id :name]
                                         (str (:name (get (:lctx goal) hyp-id)) "✝"))
                               (dissoc (:lctx goal) hyp-id))
-                            (add-local new-id (:name (get (:lctx goal) hyp-id)) new-goal-type))
+                            (add-local new-id (:name (get (:lctx goal) hyp-id)) new-goal-type)
+                            (assoc-in [new-id :inaccessible]
+                                      (get-in goal [:lctx hyp-id :inaccessible])))
                         (:lctx goal))
            [ps'' child-id] (proof/fresh-mvar-replacing ps'
                                                        (if hyp-id (:type goal) new-goal-type) child-lctx (:id goal))
@@ -1224,8 +1226,7 @@
                  ;; collisions without changing the names of reverted dependents.
                  lctx (reduce (fn [lc fid]
                                 (let [nm (str (get-in lc [fid :name]))
-                                      collision? (some (fn [[id d]]
-                                                         (and (not= id fid) (= nm (str (:name d))))) lc)]
+                                      collision? (red/find-from-user-name? (dissoc lc fid) nm)]
                                   (-> lc
                                       (assoc-in [fid :name] (if collision? (str nm "_" fid) nm))
                                       (assoc-in [fid :inaccessible] true)))) lctx field-ids)
@@ -1846,7 +1847,16 @@
          full-term (reduce e/app rec-term (map e/fvar dependent-fids))
          ps (-> (proof/assign-mvar ps (:id goal) {:kind :subst :full-term full-term :child child})
                 (proof/record-tactic :subst [hyp-fvar-id] (:id goal)))]
-     (reduce (fn [ps _] (intro ps)) ps dependent-fids))))
+     ;; Lean substCore reintroduces the original user names, including scopes.
+     (reduce (fn [ps fid]
+               (let [ps (intro ps)
+                     g (proof/current-goal ps)
+                     new-id (last (keys (:lctx g)))]
+                 (if (get-in lctx [fid :inaccessible])
+                   (update ps :meta-mctx meta/set-expr-mvar-lctx (:id g)
+                           (assoc-in (:lctx g) [new-id :inaccessible] true))
+                   ps)))
+             ps dependent-fids))))
 
 (defn subst-vars
   "Lean 4 `subst_vars`: repeatedly substitute every hypothesis that is a *variable*
@@ -2728,14 +2738,15 @@
         (proof/record-tactic :generalize [e-expr] (:id goal)))))
 
 (defn- rcases-local-id [ps nm]
-  (or (last (sort (for [[fid d] (:lctx (proof/current-goal ps))
-                        :when (= (str nm) (:name d))] fid)))
+  (or (:id (red/find-from-user-name? (:lctx (proof/current-goal ps)) nm))
       (tactic-error! "rcases: local variable not found" {:name nm})))
 
 (defn- rename-rcases-local [ps fid nm]
   (let [g (proof/current-goal ps)]
     (update ps :meta-mctx meta/set-expr-mvar-lctx (:id g)
-            (assoc-in (:lctx g) [fid :name] (str nm)))))
+            (-> (:lctx g)
+                (assoc-in [fid :name] (str nm))
+                (assoc-in [fid :inaccessible] false)))))
 
 (defn- rcases-map-goals [ps f]
   ;; Process just these goals, in order, retaining all descendants of each.
@@ -2761,7 +2772,11 @@
           plain-name? (and (symbol? pat) (not= 'rfl pat))
           ps (cond
                (and plain-name? (or (nil? fid) (contains? original-fids fid))) ps
-               fid (rcases-pattern ps fid pat)
+               fid (if (= pat '_)
+                     (let [g (proof/current-goal ps)]
+                       (update ps :meta-mctx meta/set-expr-mvar-lctx (:id g)
+                               (assoc-in (:lctx g) [fid :inaccessible] true)))
+                     (rcases-pattern ps fid pat))
                :else (tactic-error! "rcases: field is not a free variable" {:pattern pat}))]
       (rcases-map-goals ps #(rcases-fields % (rest fields)
                                            (if nested? [] (rest patterns)) original-fids)))
@@ -3082,11 +3097,26 @@
 
 (declare split-matcher)
 
+(defn- hide-split-equation
+  "Lean Split.withEqs and SplitIf.splitIfAt?: fresh names carry macro scopes.
+   Bool.rec is our surface encoding; its generated equation follows withEqs."
+  [lctx after hname]
+  (let [old-ids (set (keys lctx))]
+    (reduce (fn [ps gid]
+              (let [lctx (proof/mvar-lctx ps gid)
+                    fid (:id (red/find-from-user-name?
+                              (reduce dissoc lctx old-ids) hname))]
+                (if fid
+                  (update ps :meta-mctx meta/set-expr-mvar-lctx gid
+                          (assoc-in lctx [fid :inaccessible] true))
+                  ps)))
+            after (:goals after))))
+
 (defn split-tac
   "Lean 4 `split` (Tactic/Split.lean:328-346): find a splittable discriminant in
    the goal (ite/dite/cond/Bool.rec/matcher) and case-split on it.
-     - cond/Bool.rec  → substituting cases-eq on the Bool (hc : c = true / c = false)
-     - ite/dite       → by-cases-dec on the Decidable (h : c / h : ¬c)
+     - cond/Bool.rec  → substituting cases-eq on the Bool (heq✝ : c = true / c = false)
+     - ite/dite       → by-cases-dec on the Decidable (h✝ : c / h✝ : ¬c)
      - matcher        → matcher splitter (one subgoal per alternative, +discr eqs)
    On a matcher whose splitter application fails, retry skipping it (badCases)."
   [ps]
@@ -3103,7 +3133,7 @@
           (case (:kind tgt)
             ;; Lean SplitIf.lean splitIfTarget?/simpIfTarget reduces the conditional
             ;; in each branch. Our Bool.rec encoding uses substituting cases-eq.
-            :bool (cases-eq ps (:discr tgt) "hc")
+            :bool (hide-split-equation (:lctx goal) (cases-eq ps (:discr tgt) "heq") "heq")
             :dec  (let [siblings (vec (rest (:goals ps)))
                         ps (by-cases-dec (assoc ps :goals [(first (:goals ps))])
                                          (:cond tgt) (:inst tgt))
@@ -3117,7 +3147,8 @@
                                            ps ['if_pos 'if_neg 'dif_pos 'dif_neg (e/fvar hid)]
                                            {:only? true :simp-only-builtins? false
                                             :may-close-goal? false :decide? false}))))]
-                    (update ps :goals into (remove #(proof/mvar-assigned? ps %) siblings)))
+                    (update (hide-split-equation (:lctx goal) ps "h")
+                            :goals into (remove #(proof/mvar-assigned? ps %) siblings)))
             :matcher (let [res (try {:ok (split-matcher ps tgt)}
                                     (catch clojure.lang.ExceptionInfo ex
                                       (if (:split-retry (ex-data ex))
@@ -3147,12 +3178,12 @@
         ps (case (:kind tgt)
              ;; Bool is the surface encoding of if. Keep the original context,
              ;; transporting only the selected declaration along the branch Eq.
-             :bool (all-goals (by-cases ps (:discr tgt))
+             :bool (all-goals (hide-split-equation (:lctx g) (by-cases ps (:discr tgt) "heq") "heq")
                               (fn [ps]
                                 (let [g (proof/current-goal ps)
                                       hid (last (sort (keys (:lctx g))))]
                                   (rewrite ps (e/fvar hid) false fid))))
-             :dec (all-goals (by-cases-dec ps (:cond tgt) (:inst tgt))
+             :dec (all-goals (hide-split-equation (:lctx g) (by-cases-dec ps (:cond tgt) (:inst tgt)) "h")
                              (fn [ps]
                                (let [g (proof/current-goal ps)
                                      hid (last (sort (keys (:lctx g))))]

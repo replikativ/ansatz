@@ -809,10 +809,7 @@
    for identifiers; postpone term and universe holes until result-type matching."
   [ps lctx arg]
   (let [hyp-fid (when (symbol? arg)
-                  (reduce (fn [best [id d]]
-                            (if (and (= :local (:tag d)) (= (str arg) (:name d))
-                                     (or (nil? best) (> (long id) (long best))))
-                              id best)) nil lctx))]
+                  (latest-local-id-by-name lctx arg))]
     (if hyp-fid
       [ps (e/fvar hyp-fid)]
       (let [form (if (and (symbol? arg)
@@ -834,10 +831,7 @@
    goal's context with its implicit arguments inserted."
   [ps lctx arg]
   (let [hyp-fid (when (symbol? arg)
-                  (reduce (fn [best [id d]]
-                            (if (and (= :local (:tag d)) (= (str arg) (:name d))
-                                     (or (nil? best) (> (long id) (long best))))
-                              id best)) nil lctx))]
+                  (latest-local-id-by-name lctx arg))]
     (if hyp-fid
       (e/fvar hyp-fid)
       (let [expr (elab/elaborate-in-context (:env ps) lctx arg)]
@@ -862,11 +856,7 @@
   (let [fresh-start (:next-id ps)
         g (proof/current-goal ps)
         hyp-fid (when (symbol? spec)
-                  (reduce (fn [best [id d]]
-                            (if (and (= (str spec) (:name d))
-                                     (or (nil? best) (> (long id) (long best))))
-                              id best))
-                          nil (:lctx g)))
+                  (latest-local-id-by-name (:lctx g) spec))
         [ps term] (if hyp-fid [ps (e/fvar hyp-fid)]
                       (elab-apply-arg ps (:lctx g) spec))]
     (basic/rewrite-lemma ps term reverse? hyp-id fresh-start)))
@@ -895,12 +885,12 @@
                               (try [(f ps) true]
                                    (catch clojure.lang.ExceptionInfo ex
                                      (if (= :tactic-error (:kind (ex-data ex))) [ps false] (throw ex)))))
-                    names (mapv (comp :name val) (reverse (sort-by key (:lctx (proof/current-goal ps)))))
+                    ids (mapv key (reverse (red/lctx-decls (:lctx (proof/current-goal ps)))))
                     [ps worked?] (attempt ps #(do-rewrite-one % reverse? spec nil))
-                    [ps worked?] (reduce (fn [[ps worked?] nm]
-                                           (let [[ps ok?] (attempt ps #(at-local % nm))]
+                    [ps worked?] (reduce (fn [[ps worked?] fid]
+                                           (let [[ps ok?] (attempt ps #(do-rewrite-one % reverse? spec fid))]
                                              [ps (or worked? ok?)]))
-                                         [ps worked?] names)]
+                                         [ps worked?] ids)]
                 (when-not worked?
                   (throw (ex-info "Tactic error: rewrite: no matching occurrence" {:kind :tactic-error})))
                 ps)
@@ -915,13 +905,7 @@
 
 (clojure.core/defn- latest-local-id-by-name
   [lctx local-name]
-  (let [local-name (str local-name)]
-    (reduce (fn [best [id d]]
-              (if (and (= local-name (:name d))
-                       (or (nil? best) (> (long id) (long best))))
-                id best))
-            nil
-            lctx)))
+  (:id (red/find-from-user-name? lctx local-name)))
 
 (clojure.core/defn- get-case-goal
   "Lean BuiltinTactic.lean getCaseGoals/findTag?: exact, suffix, then prefix."
@@ -1144,12 +1128,7 @@
                 (let [hyp-name (str (first args))
                       argc (count args)
                       g (proof/current-goal ps)
-                      old-fid (reduce (fn [best [id d]]
-                                        (if (and (= hyp-name (:name d))
-                                                 (or (nil? best) (> (long id) (long best))))
-                                          id best))
-                                      nil
-                                      (:lctx g))]
+                      old-fid (latest-local-id-by-name (:lctx g) hyp-name)]
                   (cond
                     (and (= argc 3) (= ':= (second args)))
                     (basic/replace-infer-tac ps old-fid hyp-name (nth args 2))
@@ -1331,11 +1310,7 @@
                               cond-expr (elab/elaborate-in-context (:env ps) (:lctx g) (first rest-args))]
                           (basic/cases-eq ps cond-expr hname))
                         (let [nm (str (first args))
-                              fid (reduce (fn [best [id d]]
-                                            (if (and (= nm (:name d))
-                                                     (or (nil? best) (> (long id) (long best))))
-                                              id best))
-                                          nil (:lctx (proof/current-goal ps)))]
+                              fid (latest-local-id-by-name (:lctx (proof/current-goal ps)) nm)]
                           (basic/cases ps fid)))]
                   (if (seq alts) (eval-alts result (rest alts) tail original-fids) result)))
    'generalize (fn [ps args]
@@ -1356,11 +1331,7 @@
                       tail (vec (rest (:goals ps)))
                       original-fids (set (keys (:lctx (proof/current-goal ps))))
                       find-fid (fn [ps nm]
-                                 (reduce (fn [best [id d]]
-                                           (if (and (= nm (:name d))
-                                                    (or (nil? best) (> (long id) (long best))))
-                                             id best))
-                                         nil (:lctx (proof/current-goal ps))))
+                                 (latest-local-id-by-name (:lctx (proof/current-goal ps)) nm))
                       gen? (= 'generalizing (second args))
                       gen-syms (when gen? (vec (drop 2 args)))
                       gen-ids (mapv (fn [sym]
@@ -1469,18 +1440,15 @@
                             (basic/split-local-decl ps fid)))
                   :else (throw (ex-info "Tactic error: split: expected a single location" {:kind :tactic-error}))))
    'clear     (fn [ps args]
-                (let [fid (some (fn [[id d]] (when (= (str (first args)) (:name d)) id))
-                                (:lctx (proof/current-goal ps)))]
+                (let [fid (latest-local-id-by-name (:lctx (proof/current-goal ps)) (first args))]
                   (basic/clear ps fid)))
    'revert    (fn [ps args]
-                (let [fid (some (fn [[id d]] (when (= (str (first args)) (:name d)) id))
-                                (:lctx (proof/current-goal ps)))]
+                (let [fid (latest-local-id-by-name (:lctx (proof/current-goal ps)) (first args))]
                   (basic/revert ps fid)))
    'subst     (fn [ps args]
                 ;; (subst h) — Lean's `subst h`: given `h : x = e` / `e = x`, eliminate the variable.
                 (let [nm (str (first args))
-                      fid (some (fn [[id d]] (when (= nm (:name d)) id))
-                                (:lctx (proof/current-goal ps)))]
+                      fid (latest-local-id-by-name (:lctx (proof/current-goal ps)) nm)]
                   (basic/subst ps fid)))
    'subst_vars (fn [ps _args]
                  ;; (subst_vars) — Lean's `subst_vars`: subst every variable-equality hypothesis.

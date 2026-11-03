@@ -1,7 +1,7 @@
 (ns ansatz.records-conformance-test
   "25 Lean scripts over an association-list model; reference: test/lean/records_conformance.lean.
   Translation follows list-conformance-test: constructor alternatives in order, list cons
-  fields head/tail/ih_tail, <;> = and_then, record projections = keywords.
+  fields explicitly named head/tail/ih_tail, <;> = and_then, record projections = keywords.
   rcases/obtain retain their Lean patterns to measure missing surface tactic support."
   (:refer-clojure :exclude [update remove distinct])
   (:require [clojure.test :refer [deftest]]
@@ -64,11 +64,11 @@
     [r09_update_nil [k :- Nat, v :- Nat] (= (update k v (List.nil Row)) (List.nil Row)) [(rfl)]]
     [r10_update_count [k :- Nat, v :- Nat, xs :- (List Row)]
      (= (countRows (update k v xs)) (countRows xs))
-     [(induction xs) (simp [update countRows])
+     [(induction xs) (simp [update countRows]) (rename_i head tail ih_tail)
       (and_then (cases h (Nat.beq k (:key head))) (simp [update countRows h ih_tail]))]]
     [r11_remove_count [k :- Nat, xs :- (List Row)]
      (<= (countRows (remove k xs)) (countRows xs))
-     [(induction xs) (simp [remove countRows])
+     [(induction xs) (simp [remove countRows]) (rename_i head tail ih_tail)
       (and_then (and_then (cases h (Nat.beq k (:key head))) (simp [remove countRows h])) (omega))]]
     [r12_pushRow_count [r :- Row, s :- State]
      (= (countRows (:rows (pushRow r s))) (+ (countRows (:rows s)) 1)) [(rfl)]]
@@ -77,26 +77,26 @@
     [r14_total_head [r :- Row, xs :- (List Row)]
      (= (total (List.cons Row r xs)) (+ (:value r) (total xs))) [(rfl)]]
     [r15_enabled_count [xs :- (List Row)] (<= (countRows (enabled xs)) (countRows xs))
-     [(induction xs) (simp [enabled countRows])
+     [(induction xs) (simp [enabled countRows]) (rename_i head tail ih_tail)
       (and_then (and_then (cases h (:active head)) (simp [enabled countRows h])) (omega))]]
     [r16_enabled_idem [xs :- (List Row)] (= (enabled (enabled xs)) (enabled xs))
-     [(induction xs) (simp [enabled])
+     [(induction xs) (simp [enabled]) (rename_i head tail ih_tail)
       (and_then (cases h (:active head)) (simp [enabled h ih_tail]))]]
     [r17_hasKey_update [x :- Nat, k :- Nat, v :- Nat, xs :- (List Row)]
      (= (hasKey x (update k v xs)) (hasKey x xs))
-     [(induction xs) (simp [update hasKey])
+     [(induction xs) (simp [update hasKey]) (rename_i head tail ih_tail)
       (and_then (cases h (Nat.beq k (:key head))) (simp [update hasKey h ih_tail]))]]
     [r18_distinct_update [k :- Nat, v :- Nat, xs :- (List Row)]
      (= (distinct (update k v xs)) (distinct xs))
-     [(induction xs) (simp [update distinct])
+     [(induction xs) (simp [update distinct]) (rename_i head tail ih_tail)
       (and_then (cases h (Nat.beq k (:key head))) (simp [update distinct h ih_tail r17_hasKey_update]))]]
     [r19_owners_update [op :- (List Nat), k :- Nat, v :- Nat, xs :- (List Row), h :- (= (ownersPresent op xs) true)]
      (= (ownersPresent op (update k v xs)) true)
-     [(induction xs) (simp [update ownersPresent])
+     [(induction xs) (simp [update ownersPresent]) (rename_i head tail ih_tail)
       (and_then (cases hk (Nat.beq k (:key head))) (simp_all [update ownersPresent]))]]
     [r20_sorted_update [lo :- Nat, k :- Nat, v :- Nat, xs :- (List Row)]
      (=> (= (sortedFrom xs lo) true) (= (sortedFrom (update k v xs) lo) true))
-     [(induction xs generalizing lo) (simp [update sortedFrom]) (intro h)
+     [(induction xs generalizing lo) (simp [update sortedFrom]) (rename_i head tail ih_tail) (intro h)
       (and_then (cases hk (Nat.beq k (:key head))) (simp_all [update sortedFrom]))]]
     [r21_pushRow_distinct [r :- Row, s :- State, h :- (= (distinct (:rows s)) true), hk :- (= (hasKey (:key r) (:rows s)) false)]
      (= (distinct (:rows (pushRow r s))) true) [(simp [pushRow distinct h hk])]]
@@ -105,7 +105,7 @@
      [(simp [pushRow ownersPresent h ho])]]
     [r23_remove_owners [op :- (List Nat), k :- Nat, xs :- (List Row), h :- (= (ownersPresent op xs) true)]
      (= (ownersPresent op (remove k xs)) true)
-     [(induction xs) (simp [ownersPresent] at h) (simp [remove ownersPresent])
+     [(induction xs) (simp [ownersPresent] at h) (simp [remove ownersPresent]) (rename_i head tail ih_tail)
       (and_then (cases hk (Nat.beq k (:key head))) (simp_all [remove ownersPresent]))]]
     [r24_closed []
      (= (lookup 2 (update 2 9 (List.cons Row (Row.mk 1 0 true 3) (List.cons Row (Row.mk 2 0 false 4) (List.nil Row))))) 9)

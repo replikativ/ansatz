@@ -190,7 +190,7 @@
             (cond-> decl
               (:type decl) (update :type #(zonk est %))
               (:value decl) (update :value #(zonk est %)))))
-   {}
+   (red/empty-lctx)
    lctx))
 
 (defn- meta-mvar-type
@@ -1733,20 +1733,18 @@
   (whnf-with-mvars est expr))
 
 (defn- attach-elab-lctx
-  "Populate an elaboration state with a proof/local context."
+  "Populate scope using Lean LocalContext.findFromUserName?; retain all locals
+   for type checking, including inaccessible and shadowed declarations."
   [est lctx]
-  (reduce (fn [est [id decl]]
-            (if-let [n (:name decl)]
-              (let [sym (symbol n)]
-                (-> est
-                    (assoc-in [:scope sym]
-                              (cond-> {:fvar-id id :type (:type decl)}
-                                (:as-term decl) (assoc :as-term (:as-term decl))))
-                    (update :tc update :lctx
-                            red/lctx-add-local id n (:type decl))))
-              est))
-          est
-          lctx))
+  (let [lctx (red/ordered-lctx lctx)]
+    (reduce (fn [est n]
+              (if-let [decl (red/find-from-user-name? lctx n)]
+                (assoc-in est [:scope (symbol n)]
+                          (cond-> {:fvar-id (:id decl) :type (:type decl)}
+                            (:as-term decl) (assoc :as-term (:as-term decl))))
+                est))
+            (update-in est [:tc :lctx] into lctx)
+            (distinct (keep (comp :name val) lctx)))))
 
 (defn- check-expected!
   [est expr expected]

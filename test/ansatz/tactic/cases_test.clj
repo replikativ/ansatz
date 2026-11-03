@@ -65,7 +65,7 @@
   (binding [a/*verbose* false]
     (a/inductive CasesChain [] :in Prop (base) (step [hx CasesChain])))
   (is (proves '[h :- CasesChain] 'CasesChain
-              '[(cases h) (observe-cases) (exact CasesChain.base) (exact hx)]))
+              '[(cases h) (observe-cases) (exact CasesChain.base) (rename_i hx) (exact hx)]))
   (is (= [0 1] (mapv (comp count :lctx) (proof/goals (first @observed)))))
   (is (proves '[h :- CasesChain] 'CasesChain
               '[(cases h :with

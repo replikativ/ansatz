@@ -70,6 +70,7 @@
                                      (wsum (List.map X S (fn [x :- X] (WAddMonoid.add m (f x) (g x))) xs))
                                      (WAddMonoid.add m (wsum (List.map X S f xs)) (wsum (List.map X S g xs))))
                                   (induction xs)
+                                  (case' [cons head tail ih_tail])
                                   (all_goals (simp_all [List.map_cons List.map_nil wsum.eq_1 wsum.eq_2
                                                         (WAddMonoid.zero_add m) (WAddMonoid.add_zero m)]))
                                   (all_goals (try (rw (op_medial S (WAddMonoid.add m)
@@ -103,6 +104,7 @@
                                      (wsum (List.map X S (fn [x :- X] (wsum (List.map Y S (g x) ys))) xs))
                                      (wsum (List.map Y S (fn [y :- Y] (wsum (List.map X S (fn [x :- X] (g x y)) xs))) ys)))
                                   (induction xs)
+                                  (case' [cons head tail ih_tail])
                                   (all_goals (simp_all [List.map_cons List.map_nil wsum.eq_1 wsum.eq_2
                                                         (WAddMonoid.zero_add m) wsum_map_const_zero]))
                                   (all_goals (try (rw (wsum_map_add Y S hc (g head)
@@ -119,6 +121,7 @@
                                                               (instHAppendOfAppend (List S) (List.instAppend S)) l1 l2))
                                      (WAddMonoid.add m (wsum l1) (wsum l2)))
                                   (induction l1)
+                                  (case' [cons head tail ih_tail])
                                   (all_goals (simp_all [List.cons_append List.nil_append wsum.eq_1 wsum.eq_2
                                                         (WAddMonoid.zero_add m)]))
                                   (all_goals (try (rw (WAddMonoid.add_assoc m head (wsum tail) (wsum l2)))))))
@@ -163,6 +166,7 @@
                                   [S :- Type, m :- (WAddMonoid S) :inst, hc :- (Std.Commutative S (WAddMonoid.add m)), l :- (List S)]
                                   (= S (wsum (List.reverse S l)) (wsum l))
                                   (induction l)
+                                  (case' [cons head tail ih_tail])
                                   (all_goals (simp_all [List.reverse_cons List.reverse_nil wsum.eq_1 wsum.eq_2 wsum_append
                                                         (WAddMonoid.zero_add m) (WAddMonoid.add_zero m)]))
                                   (all_goals (try (rw (Std.Commutative.comm S (WAddMonoid.add m) hc head (wsum tail)))))))
@@ -225,6 +229,7 @@
                                      (wsum (List.map Y S h (List.filter Y p ys)))
                                      (wsum (List.map Y S (fn [y :- Y] (if (p y) (h y) (WAddMonoid.zero m))) ys)))
                                   (induction ys)
+                                  (case' [cons head tail ih_tail])
                                   (all_goals (simp [List.filter_cons List.filter_nil List.map_cons List.map_nil
                                                     wsum.eq_1 wsum.eq_2]))
                                   (all_goals (try (cases hp (p head))))
@@ -267,8 +272,10 @@
                                                                (fn [p :- (Prod α β)] (Bool.not (BEq.beq α (instBEqOfDecidableEq α dec) (Prod.fst α β p) k'))) l))
                                      (List.lookup α β (instBEqOfDecidableEq α dec) k l))
                                   (induction l)
+                                  (case' [cons head tail ih_tail])
                                   (all_goals (try (simp_all [List.filter_nil List.lookup_nil])))
                                   (cases head)
+                                  (rename_i fst snd)
                                   (all_goals (try (dsimp)))
                                   (by_cases (BEq.beq α (instBEqOfDecidableEq α dec) fst k'))
                                   (all_goals (try (by_cases (BEq.beq α (instBEqOfDecidableEq α dec) fst k))))

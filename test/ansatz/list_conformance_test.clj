@@ -5,8 +5,8 @@
   test/lean/list_conformance.lean (all accepted by Lean 4.33).
 
   Translation rules: `t1 <;> t2` is `(and_then t1 t2)`; `induction xs with | nil => A | cons … => B`
-  is `(induction xs) A B` (alternatives come in constructor order; the cons fields are named
-  `head`/`tail`/`ih_tail`); `cases h : e` is `(cases h e)`; `simp [a, b]` is `(simp [a b])`;
+  is `(induction xs) A B` (alternatives come in constructor order; name cons fields with
+  `(rename_i head tail ih_tail)` before referring to them); `cases h : e` is `(cases h e)`; `simp [a, b]` is `(simp [a b])`;
   `p x && q x` is `(Bool.and (p x) (q x))`."
   (:require [clojure.test :refer [deftest]]
             [ansatz.conformance-support :as cs]))
@@ -54,36 +54,36 @@
     [c09_filter_app [p :- (=> Nat Bool), xs :- (List Nat), ys :- (List Nat)]
      (= (myfilter p (myapp xs ys)) (myapp (myfilter p xs) (myfilter p ys)))
      [(induction xs)
-      (simp [myfilter myapp])
+      (simp [myfilter myapp]) (rename_i head tail ih_tail)
       (and_then (cases hp (p head)) (simp [myfilter myapp hp ih_tail]))]]
     [c10_len_filter_le [p :- (=> Nat Bool), xs :- (List Nat)] (<= (mylen (myfilter p xs)) (mylen xs))
      [(induction xs)
-      (simp [myfilter mylen])
+      (simp [myfilter mylen]) (rename_i head tail ih_tail)
       (and_then (and_then (cases hp (p head)) (simp [myfilter mylen hp])) (omega))]]
     [c11_sum_app [xs :- (List Nat), ys :- (List Nat)] (= (mysum (myapp xs ys)) (+ (mysum xs) (mysum ys)))
      [(and_then (and_then (induction xs) (simp [mysum myapp *])) (omega))]]
     [c12_mem_app [x :- Nat, xs :- (List Nat), ys :- (List Nat)]
      (= (mymem x (myapp xs ys)) (Bool.or (mymem x xs) (mymem x ys)))
      [(induction xs)
-      (simp [mymem myapp])
+      (simp [mymem myapp]) (rename_i head tail ih_tail)
       (and_then (cases hx (Nat.beq x head)) (simp [mymem myapp hx ih_tail]))]]
     [c13_filter_filter [p :- (=> Nat Bool), q :- (=> Nat Bool), xs :- (List Nat)]
      (= (myfilter p (myfilter q xs)) (myfilter (fn [x :- Nat] (Bool.and (p x) (q x))) xs))
      [(induction xs)
-      (simp [myfilter])
+      (simp [myfilter]) (rename_i head tail ih_tail)
       (and_then (and_then (cases hq (q head)) (cases hp (p head))) (simp [myfilter hp hq ih_tail]))]]
     [c14_all_filter [p :- (=> Nat Bool), xs :- (List Nat)] (= (myall p (myfilter p xs)) true)
      [(induction xs)
-      (simp [myfilter myall])
+      (simp [myfilter myall]) (rename_i head tail ih_tail)
       (and_then (cases hp (p head)) (simp [myfilter myall hp ih_tail]))]]
     [c15_count_le_len [x :- Nat, xs :- (List Nat)] (<= (mycount x xs) (mylen xs))
      [(induction xs)
-      (simp [mycount mylen])
+      (simp [mycount mylen]) (rename_i head tail ih_tail)
       (and_then (and_then (cases hx (Nat.beq x head)) (simp [mycount mylen hx])) (omega))]]
     [c16_mem_filter [p :- (=> Nat Bool), x :- Nat, xs :- (List Nat)]
      (=> (= (mymem x (myfilter p xs)) true) (= (mymem x xs) true))
      [(induction xs)
-      (simp [myfilter mymem])
+      (simp [myfilter mymem]) (rename_i head tail ih_tail)
       (intro hm)
       (and_then (and_then (cases hp (p head)) (cases hx (Nat.beq x head))) (simp_all [myfilter mymem]))]]
     [c17_map_id [xs :- (List Nat)] (= (mymap (fn [x :- Nat] x) xs) xs)
@@ -91,7 +91,7 @@
     [c18_mem_app_left [x :- Nat, xs :- (List Nat), ys :- (List Nat), h :- (= (mymem x xs) true)]
      (= (mymem x (myapp xs ys)) true)
      [(induction xs)
-      (simp [mymem] at h)
+      (simp [mymem] at h) (rename_i head tail ih_tail)
       (and_then (cases hx (Nat.beq x head)) (simp_all [mymem myapp]))]]
     [c19_closed [] (= (mylen (myrev (List.cons Nat 1 (List.cons Nat 2 (List.cons Nat 3 (List.nil Nat)))))) 3)
      [(decide)]]
