@@ -168,8 +168,8 @@
 
 (deftest unfolding-metadata-survives-tuple-installation-and-forks
   (let [tuples (attrs/parse-attr-lines
-                 ["{\"kind\":\"recursive\",\"name\":\"List.foldl\"}"
-                  "{\"kind\":\"smart-unfolding\",\"name\":\"List.foldl\"}"])
+                ["{\"kind\":\"recursive\",\"name\":\"List.foldl\"}"
+                 "{\"kind\":\"smart-unfolding\",\"name\":\"List.foldl\"}"])
         [loaded stats] (attrs/import-attr-tuples (env/empty-env) tuples {:present? (constantly true)})
         forked (env/fork loaded)]
     (is (= [["recursive" "List.foldl" nil nil] ["smart-unfolding" "List.foldl" nil nil]] tuples))

@@ -45,7 +45,7 @@
       (is (= [inner] (normal-form inner [])))
       (is (= [inner] (normal-form (e/app (c "selected-outer") b) ["selected-outer"])))
       (is (= [(e/lit-nat 21)] (normal-form (e/app (c "selected-inner") (c "Bool.true"))
-                                                     ["selected-inner"]))))))
+                                           ["selected-inner"]))))))
 
 (deftest equations-belong-to-their-declaration
   (doseq [n ["selected-inner" "selected-rec"]]
@@ -67,19 +67,19 @@
 
 (deftest constructor-contradictions-use-no-confusion
   (doseq [form ['(a/theorem option-constructor-contradiction
-                  [x :- Nat, h :- (= (Option Nat) (Option.none Nat) (Option.some Nat x))]
-                  False (simp at h))
+                            [x :- Nat, h :- (= (Option Nat) (Option.none Nat) (Option.some Nat x))]
+                            False (simp at h))
                 '(a/theorem selected-constructor-contradiction
-                  [x :- Nat, h :- (= (Option Nat) (Option.none Nat) (Option.some Nat x))]
-                  False (simp only [reduceCtorEq] at h))
+                            [x :- Nat, h :- (= (Option Nat) (Option.none Nat) (Option.some Nat x))]
+                            False (simp only [reduceCtorEq] at h))
                 '(a/theorem list-constructor-contradiction
-                  [x :- Nat, xs :- (List Nat), h :- (= (List Nat) (List.nil Nat) (List.cons Nat x xs))]
-                  False (simp at h))]]
+                            [x :- Nat, xs :- (List Nat), h :- (= (List Nat) (List.nil Nat) (List.cons Nat x xs))]
+                            False (simp at h))]]
     (is (true? (do (eval form) true))))
   (eval '(a/inductive SelectedChoice [A Type] (left [x A]) (right [x A])))
   (is (true? (do (eval '(a/theorem custom-constructor-contradiction
-                     [x :- Nat, h :- (= (SelectedChoice Nat) (SelectedChoice.left Nat x) (SelectedChoice.right Nat x))]
-                     False (simp at h))) true))))
+                                   [x :- Nat, h :- (= (SelectedChoice Nat) (SelectedChoice.left Nat x) (SelectedChoice.right Nat x))]
+                                   False (simp at h))) true))))
 
 (deftest selected-spend-preserves-option-and-store-callees
   (eval '(a/structure SelectedStore [] (wallet Nat) (live Nat)))
@@ -102,19 +102,19 @@
         option (e/app (e/const' (name/from-string "Option") [lvl/zero]) (c "Nat"))
         expected
         (e/app* (e/const' (name/from-string "selected-spendN.match_1") [(lvl/succ lvl/zero)])
-          (e/lam "_x" option (c "Nat") :default)
-          (e/app (c "selected-amount") (e/fvar 104))
-          (e/lam "_" (c "Unit") (e/lit-nat 0) :default)
-          (e/lam "n" (c "Nat")
-            (e/app* (e/const' (name/from-string "selected-spendN.match_2") [(lvl/succ lvl/zero)])
-              (e/lam "_x" (c "SelectedStore") (c "Nat") :default) (e/fvar 102)
-              (e/lam "wallet" (c "Nat")
-                (e/lam "live" (c "Nat")
-                  (e/app* (c "selected-spendH")
-                    (e/app* (c "SelectedStore.mk") (e/bvar 1) (e/bvar 0))
-                    (e/fvar 103) (e/bvar 2)
-                    (e/app* (c "selected-held") (e/fvar 100) (e/bvar 0) (e/fvar 103)))
-                  :default) :default)) :default))]
+                (e/lam "_x" option (c "Nat") :default)
+                (e/app (c "selected-amount") (e/fvar 104))
+                (e/lam "_" (c "Unit") (e/lit-nat 0) :default)
+                (e/lam "n" (c "Nat")
+                       (e/app* (e/const' (name/from-string "selected-spendN.match_2") [(lvl/succ lvl/zero)])
+                               (e/lam "_x" (c "SelectedStore") (c "Nat") :default) (e/fvar 102)
+                               (e/lam "wallet" (c "Nat")
+                                      (e/lam "live" (c "Nat")
+                                             (e/app* (c "selected-spendH")
+                                                     (e/app* (c "SelectedStore.mk") (e/bvar 1) (e/bvar 0))
+                                                     (e/fvar 103) (e/bvar 2)
+                                                     (e/app* (c "selected-held") (e/fvar 100) (e/bvar 0) (e/fvar 103)))
+                                             :default) :default)) :default))]
     (is (= expected result))
     (doseq [callee ["selected-amount" "selected-held" "selected-spendH"]]
       (is (contains? constants (name/from-string callee)))
@@ -126,10 +126,10 @@
   (eval '(a/defn selected-seq1 [o :- Bool, fr :- (=> Nat Nat), done :- Nat] Nat
            (match o [true done] [false (fr done)])))
   (let [done (e/app* (c "selected-pick") (e/app (c "selected-truthy") (e/lit-nat 0))
-                    (e/lit-nat 13) (e/lit-nat 21))
+                     (e/lit-nat 13) (e/lit-nat 21))
         fr (e/lam "x" (c "Nat") (e/bvar 0) :default)]
     (is (= [done] (normal-form (e/app* (c "selected-seq1") (c "Bool.true") fr done)
-                              ["selected-seq1"])))))
+                               ["selected-seq1"])))))
 
 (deftest only-empty-does-not-discriminate-constructors
   (let [nat (c "Nat")
@@ -143,7 +143,7 @@
                      {100 {:tag :local :id 100 :name "x" :type nat}
                       101 {:tag :local :id 101 :name "h" :type eq}})]
     (is (thrown-with-msg? clojure.lang.ExceptionInfo #"made no progress"
-                         (simp/simp-at ps 101 [] {:only? true})))
+                          (simp/simp-at ps 101 [] {:only? true})))
     (is (empty? (:goals (simp/simp-at ps 101 ["reduceCtorEq"] {:only? true}))))))
 
 (deftest only-preserves-partial-applications-and-structural-reductions
@@ -155,57 +155,57 @@
     (is (= [value] (normal-form (e/let' "n" (c "Nat") value (e/bvar 0)) [])))
     (is (= [value]
            (normal-form (e/app* (e/const' (name/from-string "Prod.fst") [lvl/zero lvl/zero])
-                               (c "Nat") (c "Nat")
-                               (e/app* (e/const' (name/from-string "Prod.mk") [lvl/zero lvl/zero])
-                                       (c "Nat") (c "Nat") value (e/lit-nat 21))) [])))))
+                                (c "Nat") (c "Nat")
+                                (e/app* (e/const' (name/from-string "Prod.mk") [lvl/zero lvl/zero])
+                                        (c "Nat") (c "Nat") value (e/lit-nat 21))) [])))))
 
 (deftest default-nat-predicate-simprocs-do-not-require-decide
   (let [le (fn [a b] (e/app* (e/const' (name/from-string "LE.le") [lvl/zero])
-                            (c "Nat") (c "instLENat") (e/lit-nat a) (e/lit-nat b)))
+                             (c "Nat") (c "instLENat") (e/lit-nat a) (e/lit-nat b)))
         opts {:result-type (e/sort' lvl/zero)}]
     (doseq [[expr expected] [[(le 0 1) (c "True")] [(le 2 1) (c "False")]]]
       (is (= [expr] (normal-form expr [] opts)))
       (is (= [expected] (normal-form expr [] (assoc opts :only? false :decide? false))))
       (is (= [expected] (normal-form expr ["Nat.reduceLeDiff"] opts)))))
   (is (true? (do (eval '(a/theorem literal-nat-order-contradiction
-                         [h :- (<= Nat 2 1)] False (simp at h))) true))))
+                                   [h :- (<= Nat 2 1)] False (simp at h))) true))))
 
 (deftest selected-imported-recursive-equations-preserve-the-induction-hypothesis
   (is (true?
        (do (eval '(a/theorem selected-foldl-filter
-                    [A :- Type, G :- Type, f :- (=> G A G), p :- (=> A Bool), l :- (List A)]
-                    (forall [b :- G]
-                      (= G (List.foldl f b (List.filter p l))
-                         (List.foldl (fn [acc :- G, x :- A]
-                                       (match (p x) [true (f acc x)] [false acc])) b l)))
-                    (induction l)
-                    (all_goals (intro b))
-                    (all_goals (simp only [List.filter List.foldl]))
-                    (cases hp (p head))
-                    (all_goals (simp only [hp List.foldl]))
-                    (all_goals (exact (ih_tail _)))))
+                             [A :- Type, G :- Type, f :- (=> G A G), p :- (=> A Bool), l :- (List A)]
+                             (forall [b :- G]
+                                     (= G (List.foldl f b (List.filter p l))
+                                        (List.foldl (fn [acc :- G, x :- A]
+                                                      (match (p x) [true (f acc x)] [false acc])) b l)))
+                             (induction l)
+                             (all_goals (intro b))
+                             (all_goals (simp only [List.filter List.foldl]))
+                             (cases hp (p head))
+                             (all_goals (simp only [hp List.foldl]))
+                             (all_goals (exact (ih_tail _)))))
            true))))
 
 (deftest literal-predicate-simprocs-are-default-and-selectable
   (let [opts {:result-type (e/sort' lvl/zero)}]
     (doseq [[carrier x y] [["String" (e/lit-str "alpha") (e/lit-str "beta")]
-                            ["Int" (e/app (c "Int.ofNat") (e/lit-nat 2))
-                             (e/app (c "Int.negSucc") (e/lit-nat 0))]
-                            ["Char" (e/app (c "Char.ofNat") (e/lit-nat 97))
-                             (e/app (c "Char.ofNat") (e/lit-nat 98))]]]
+                           ["Int" (e/app (c "Int.ofNat") (e/lit-nat 2))
+                            (e/app (c "Int.negSucc") (e/lit-nat 0))]
+                           ["Char" (e/app (c "Char.ofNat") (e/lit-nat 97))
+                            (e/app (c "Char.ofNat") (e/lit-nat 98))]]]
       (doseq [[head suffix expected] [["Eq" "Eq" "False"] ["Ne" "Ne" "True"]]]
         (let [expr (e/app* (e/const' (name/from-string head) [(lvl/succ lvl/zero)]) (c carrier) x y)]
           (is (= [expr] (normal-form expr [] opts)))
           (is (= [(c expected)] (normal-form expr [] (assoc opts :only? false :decide? false))))
           (is (= [(c expected)] (normal-form expr [(str carrier ".reduce" suffix)] opts)))))))
   (is (true? (do (eval '(a/theorem string-literal-contradiction
-                         [h :- (= String "alpha" "beta")] False (simp at h))) true))))
+                                   [h :- (= String "alpha" "beta")] False (simp at h))) true))))
 
 (deftest only-explicit-arithmetic-simprocs
   (let [expr (e/app* (e/const' (name/from-string "HAdd.hAdd") [lvl/zero lvl/zero lvl/zero])
-                    (c "Nat") (c "Nat") (c "Nat")
-                    (e/app* (e/const' (name/from-string "instHAdd") [lvl/zero]) (c "Nat") (c "instAddNat"))
-                    (e/lit-nat 2) (e/lit-nat 3))]
+                     (c "Nat") (c "Nat") (c "Nat")
+                     (e/app* (e/const' (name/from-string "instHAdd") [lvl/zero]) (c "Nat") (c "instAddNat"))
+                     (e/lit-nat 2) (e/lit-nat 3))]
     (is (= [expr] (normal-form expr [])))
     (is (= [expr] (normal-form expr ["Nat.reduceMul"])))
     (is (= [(e/lit-nat 5)] (normal-form expr ["Nat.reduceAdd"]))))
@@ -219,11 +219,11 @@
     (try
       ;; Checked declarations without a local inventory, as after kernel import.
       (swap! a/ansatz-env env/check-constant
-        (env/mk-def n [] (e/forall' "b" (c "Bool") (c "Nat") :default)
-          (e/lam "b" (c "Bool")
-            (e/app* (e/const' (name/from-string "Bool.rec") [(lvl/succ lvl/zero)])
-              (e/lam "b" (c "Bool") (c "Nat") :default)
-              (e/lit-nat 13) (e/lit-nat 21) (e/bvar 0)) :default)))
+             (env/mk-def n [] (e/forall' "b" (c "Bool") (c "Nat") :default)
+                         (e/lam "b" (c "Bool")
+                                (e/app* (e/const' (name/from-string "Bool.rec") [(lvl/succ lvl/zero)])
+                                        (e/lam "b" (c "Bool") (c "Nat") :default)
+                                        (e/lit-nat 13) (e/lit-nat 21) (e/bvar 0)) :default)))
       (doseq [[i b v] [[1 "Bool.false" 13] [2 "Bool.true" 21]]]
         (let [lhs (e/app (c "imported-bool-match") (c b))
               ty (e/app* (e/const' (name/from-string "Eq") [(lvl/succ lvl/zero)])
@@ -254,19 +254,19 @@
       (doseq [inventory [[] equations]]
         (reset! a/ansatz-env (eqns/register-eqn-thms before n inventory [error]))
         (is (thrown-with-msg? clojure.lang.ExceptionInfo #"equation generation errors"
-                             (eqns/get-eqns-for? (a/env) n)))
+                              (eqns/get-eqns-for? (a/env) n)))
         (is (thrown-with-msg? clojure.lang.ExceptionInfo #"equation generation errors"
-                             (normal-form (e/app (c "selected-inner") (e/fvar 100)) ["selected-inner"]))))
+                              (normal-form (e/app (c "selected-inner") (e/fvar 100)) ["selected-inner"]))))
       (reset! a/ansatz-env before)
       (is (= [(e/lit-nat 21)] (normal-form (e/app (c "selected-inner") (c "Bool.true")) ["selected-inner"])))
       (finally (reset! a/ansatz-env before)))))
 
 (deftest only-explicit-dependent-if-simproc
   (let [expr (e/app* (e/const' (name/from-string "dite") [(lvl/succ lvl/zero)])
-                    (c "Nat") (c "True")
-                    (e/app* (c "Decidable.isTrue") (c "True") (c "True.intro"))
-                    (e/lam "h" (c "True") (e/lit-nat 2) :default)
-                    (e/lam "h" (e/app (c "Not") (c "True")) (e/lit-nat 3) :default))]
+                     (c "Nat") (c "True")
+                     (e/app* (c "Decidable.isTrue") (c "True") (c "True.intro"))
+                     (e/lam "h" (c "True") (e/lit-nat 2) :default)
+                     (e/lam "h" (e/app (c "Not") (c "True")) (e/lit-nat 3) :default))]
     (is (= [expr] (normal-form expr [])))
     (is (= [expr] (normal-form expr ["reduceIte"])))
     (is (= [(e/lit-nat 2)] (normal-form expr ["reduceDIte"])))))

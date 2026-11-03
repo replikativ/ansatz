@@ -910,9 +910,9 @@
                                             obligation-type inst)
                         ;; Use the checker reducer's string-literal/structure iota
                   ;; support (kernel/type_checker.cpp, inductive_reduce_rec).
-                  result (if-let [^ansatz.kernel.TypeChecker checker (tc/java-tc st)]
-                           (.whnf (.getReducer checker) decide-term)
-                           (#'tc/cached-whnf st decide-term))
+                        result (if-let [^ansatz.kernel.TypeChecker checker (tc/java-tc st)]
+                                 (.whnf (.getReducer checker) decide-term)
+                                 (#'tc/cached-whnf st decide-term))
                         bool-true-val (e/const' bt-name [])]
                     (when (and (e/const? result)
                                (= (e/const-name result) bt-name))
@@ -1255,11 +1255,11 @@
                (contains? #{nat-add-name nat-mul-name nat-sub-name nat-div-name nat-mod-name
                             nat-ble-name nat-beq-name} hname)
                (simproc-enabled? config
-                 (get {nat-add-name "Nat.reduceAdd" nat-mul-name "Nat.reduceMul"
-                       nat-sub-name "Nat.reduceSub" nat-div-name "Nat.reduceDiv"
-                       nat-mod-name "Nat.reduceMod" nat-beq-name "Nat.reduceBEq"
+                                 (get {nat-add-name "Nat.reduceAdd" nat-mul-name "Nat.reduceMul"
+                                       nat-sub-name "Nat.reduceSub" nat-div-name "Nat.reduceDiv"
+                                       nat-mod-name "Nat.reduceMod" nat-beq-name "Nat.reduceBEq"
                        ;; The surface emits Nat.ble for Boolean comparisons.
-                       nat-ble-name "Nat.reduceLeDiff"} hname)))
+                                       nat-ble-name "Nat.reduceLeDiff"} hname)))
           (when-let [a (get-nat-value? st (nth args 0))]
             (when-let [b (get-nat-value? st (nth args 1))]
               (cond
@@ -1278,8 +1278,8 @@
           ;; The surface also emits direct Nat applications, handled above.
           (and (= 6 nargs) (= (first args) (e/const' (name/from-string "Nat") [])))
           (when-let [op (get {"HAdd.hAdd" nat-add-name "HMul.hMul" nat-mul-name
-                             "HSub.hSub" nat-sub-name "HDiv.hDiv" nat-div-name
-                             "HMod.hMod" nat-mod-name} (str hname))]
+                              "HSub.hSub" nat-sub-name "HDiv.hDiv" nat-div-name
+                              "HMod.hMod" nat-mod-name} (str hname))]
             (try-nat-literal-reduce st (e/app* (e/const' op []) (nth args 4) (nth args 5)) config))
 
           :else nil)))))
@@ -1301,9 +1301,9 @@
           (and (= 2 nargs)
                (contains? #{int-add-name int-mul-name int-sub-name int-div-name int-mod-name} hname)
                (simproc-enabled? config
-                 (get {int-add-name "Int.reduceAdd" int-mul-name "Int.reduceMul"
-                       int-sub-name "Int.reduceSub" int-div-name "Int.reduceDiv"
-                       int-mod-name "Int.reduceMod"} hname)))
+                                 (get {int-add-name "Int.reduceAdd" int-mul-name "Int.reduceMul"
+                                       int-sub-name "Int.reduceSub" int-div-name "Int.reduceDiv"
+                                       int-mod-name "Int.reduceMod"} hname)))
           (when-let [a (get-int-value? st (nth args 0))]
             (when-let [b (get-int-value? st (nth args 1))]
               (cond
@@ -1316,8 +1316,8 @@
 
           (and (= 6 nargs) (= (first args) (e/const' (name/from-string "Int") [])))
           (when-let [op (get {"HAdd.hAdd" int-add-name "HMul.hMul" int-mul-name
-                             "HSub.hSub" int-sub-name "HDiv.hDiv" int-div-name
-                             "HMod.hMod" int-mod-name} (str hname))]
+                              "HSub.hSub" int-sub-name "HDiv.hDiv" int-div-name
+                              "HMod.hMod" int-mod-name} (str hname))]
             (try-int-literal-reduce st (e/app* (e/const' op []) (nth args 4) (nth args 5)) config))
 
           :else nil)))))
@@ -1777,10 +1777,10 @@
               (cond
                 (and (= "Ne" pname) (= 3 (count pargs)))
                 (e/app (e/const' (name/from-string "Not") [])
-                  (reduce e/app (e/const' eq-name (e/const-levels phead)) pargs))
+                       (reduce e/app (e/const' eq-name (e/const-levels phead)) pargs))
                 (and (#{"GT.gt" "GE.ge"} pname) (= 4 (count pargs)))
                 (e/app* (e/const' (name/from-string (if (= pname "GT.gt") "LT.lt" "LE.le"))
-                                 (e/const-levels phead))
+                                  (e/const-levels phead))
                         (nth pargs 0) (nth pargs 1) (nth pargs 3) (nth pargs 2))
                 :else expr)
               decidable-goal (e/app (e/const' decidable-name []) instance-prop)
@@ -2024,8 +2024,8 @@
       (try-int-literal-reduce st expr config)
       (try-hpow-reduce st expr config)
       (when (simproc-enabled? config
-              (if (let [head (e/get-app-fn expr)] (and (e/const? head) (= dite-name (e/const-name head))))
-                "reduceDIte" "reduceIte"))
+                              (if (let [head (e/get-app-fn expr)] (and (e/const? head) (= dite-name (e/const-name head))))
+                                "reduceDIte" "reduceIte"))
         (try-reduce-ite st expr))
       (when (simproc-enabled? config "reduceCtorEq")
         (try-reduce-ctor-eq st expr))
@@ -2263,15 +2263,15 @@
                           (<= (loop [v value n 0]
                                 (if (e/lam? v) (recur (e/lam-body v) (inc n)) n))
                               (count args)))
-                (let [levels (e/const-levels head)
-                      lparams (vec (.levelParams ci))
-                      level-subst (into {} (map vector lparams
-                                                (concat levels (repeat lvl/zero))))
-                      body (if (seq level-subst)
-                             (e/instantiate-level-params value level-subst)
-                             value)
-                      args (e/get-app-args expr)]
-                  (reduce e/app body args)))))))))))
+                  (let [levels (e/const-levels head)
+                        lparams (vec (.levelParams ci))
+                        level-subst (into {} (map vector lparams
+                                                  (concat levels (repeat lvl/zero))))
+                        body (if (seq level-subst)
+                               (e/instantiate-level-params value level-subst)
+                               value)
+                        args (e/get-app-args expr)]
+                    (reduce e/app body args)))))))))))
 
 (defn- try-eta-reduce
   "Eta reduction: (fun x => f x) → f when x is not free in f.
@@ -3388,8 +3388,8 @@
         entries (mapcat #(simp-theorems/mk-simp-entry-of-decl-to-unfold env %)
                         (remove (set (map (comp str :name) lemmas)) (map str all-names)))
         eqn-lemmas (mapcat (fn [{:keys [kind name priority]}]
-                            (when (= kind :thm)
-                              (extract-simp-lemma env (env/lookup! env name) priority))) entries)
+                             (when (= kind :thm)
+                               (extract-simp-lemma env (env/lookup! env name) priority))) entries)
         all-lemmas (concat lemmas term-lemmas hyp-lemmas eqn-lemmas)
         lemma-index (build-lemma-index st env all-lemmas)
         to-unfold (into #{} (keep #(when (= :to-unfold (:kind %)) (str (:name %)))) entries)
@@ -3615,8 +3615,8 @@
           entries (mapcat #(simp-theorems/mk-simp-entry-of-decl-to-unfold env %)
                           (remove (set (map (comp str :name) base-lemmas)) (map str all-names)))
           eqn-lemmas (mapcat (fn [{:keys [kind name priority]}]
-                              (when (= kind :thm)
-                                (extract-simp-lemma env (env/lookup! env name) priority))) entries)
+                               (when (= kind :thm)
+                                 (extract-simp-lemma env (env/lookup! env name) priority))) entries)
           to-unfold (into #{} (keep #(when (= :to-unfold (:kind %)) (str (:name %)))) entries)
           inst-index (delay (inst/index-for env))
            ;; an entry a previous round already simplified stays in the context (its original

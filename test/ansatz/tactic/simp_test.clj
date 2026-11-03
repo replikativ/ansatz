@@ -460,7 +460,7 @@
                        nat-e (mk-nat-list []))
           _ (is (tc/is-def-eq st (tc/infer-type st expr) nat-e))
           lemmas (simp/make-simp-lemmas env ["List.length.eq_1" "List.length.eq_2"
-                                                 "List.append.eq_1" "List.append.eq_2"])
+                                             "List.append.eq_1" "List.append.eq_2"])
           result (simp/simp-expr st env (simp/build-lemma-index st env lemmas) expr 40)]
       (is (not= expr result) "simp evaluates the length application")
       (is (tc/is-def-eq st result (e/lit-nat 0))))))
@@ -474,7 +474,7 @@
                        nat-e (mk-nat-list [1 2 3]))
           _ (is (tc/is-def-eq st (tc/infer-type st expr) nat-e))
           lemmas (simp/make-simp-lemmas env ["List.length.eq_1" "List.length.eq_2"
-                                                 "List.append.eq_1" "List.append.eq_2"])
+                                             "List.append.eq_1" "List.append.eq_2"])
           result (simp/simp-expr st env (simp/build-lemma-index st env lemmas) expr 40)]
       (is (not= expr result) "simp evaluates the length application")
       (is (tc/is-def-eq st result (e/lit-nat 3))))))
@@ -489,7 +489,7 @@
           _ (is (tc/is-def-eq st (tc/infer-type st expr)
                               (e/app (e/const' (name/from-string "List") [lvl/zero]) nat-e)))
           lemmas (simp/make-simp-lemmas env ["List.length.eq_1" "List.length.eq_2"
-                                                 "List.append.eq_1" "List.append.eq_2"])
+                                             "List.append.eq_1" "List.append.eq_2"])
           result (simp/simp-expr st env (simp/build-lemma-index st env lemmas) expr 40)]
       (let [head (e/get-app-fn result)]
         (is (e/const? head))
