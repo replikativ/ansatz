@@ -387,6 +387,20 @@ Init export with `a/load-export!` instead.
 (a/load-init! :verify? true)  ;; full kernel recheck; stop on the first error
 ```
 
+Repeated `load-init!` calls with the same full bundled manifest retain the current
+environment, user declarations, metadata, store handle, and tactic caches.
+Zero-argument `init!` (and `init! :medium`) use the same semantics. Identity comes
+from the manifest retained on the immutable environment, including its cohort
+and producer; finding an Init declaration by name is insufficient.
+
+`:verify? true` always kernel-checks the bundled declarations in isolation,
+including after a TRUST load. A failed check leaves the session unchanged. A
+successful check preserves an existing session and its original admission
+profile; it does not recheck user additions or promote their verification status.
+A different bundle replaces the session. Explicit store-backed `init!` and
+`load-export!` also replace it; loading bundled Init after a store replaces that
+store session. This API does not add arbitrary modules to an existing environment.
+
 To regenerate, use the pinned toolchain and exporter source specified in
 `scripts/generate-bundle.py`:
 

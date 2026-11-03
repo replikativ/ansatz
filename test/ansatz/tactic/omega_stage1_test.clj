@@ -5,6 +5,7 @@
             [ansatz.conformance-support :as cs]
             [ansatz.test-env :as te]
             [ansatz.kernel.expr :as e]
+            [ansatz.kernel.env :as env]
             [ansatz.kernel.name :as name]
             [ansatz.kernel.tc :as tc]
             [ansatz.kernel.reduce :as red]
@@ -297,6 +298,8 @@
     (is (= 6 @work))))
 
 (deftest unsupported-carrier-is-visited-before-useful-fact
+  ;; Reprove the suite example while observing its fact traversal.
+  (reset! a/ansatz-env (env/empty-env))
   (a/load-init!)
   (let [events (atom [])
         add-fact f/add-fact

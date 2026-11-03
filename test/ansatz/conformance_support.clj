@@ -7,7 +7,8 @@
   diagnosis: the suite stays green while it prints the score, fails when a passing theorem
   regresses, and fails when a known gap starts passing (so the list is kept honest)."
   (:require [clojure.test :refer [is testing]]
-            [ansatz.core :as a]))
+            [ansatz.core :as a]
+            [ansatz.kernel.env :as env]))
 
 (defn attempt
   "Prove one `[name params statement tactics]` within `timeout-ms`: :ok, or the failure message."
@@ -22,6 +23,8 @@
   "On a fresh Init env: eval `defs` (in namespace `ns-sym`), then attempt every theorem in order.
    Returns [[name result] …]."
   [ns-sym defs theorems & {:keys [timeout-ms] :or {timeout-ms 60000}}]
+  ;; These independent suites deliberately reset rather than extend a model.
+  (reset! a/ansatz-env (env/empty-env))
   (a/load-init!)
   (binding [a/*verbose* false
             *ns* (the-ns ns-sym)]
