@@ -121,7 +121,9 @@
             cls (subs hn 0 (.lastIndexOf ^String hn "."))
             field (e/proj (name/from-string cls) 0 (nth args 3))
             op (runtime-instance-op env field)]
-        (ansatz->clj env (reduce e/app op (drop 4 args)) names)))))
+        ;; Standard instances eta-wrap their primitive. Apply those lambdas before
+        ;; lowering so class and concrete spellings emit the same runtime operation.
+        (ansatz->clj env (beta-apply op (drop 4 args)) names)))))
 
 (clojure.core/defn- bi-const "App handler for a nullary constant." [v] (fn [_ _ _ _ _] v))
 
@@ -474,17 +476,18 @@
    excessive unfolding fail explicitly, never select an operation by its carrier."
   [env expr]
   (let [fuel (volatile! 256)]
-    (letfn [(step [expr]
+    (letfn [(step [expr & [instance?]]
               (when (neg? (vswap! fuel dec))
                 (throw (ex-info "Runtime instance resolution exceeded its unfolding budget" {})))
               (let [[head args] (e/get-app-fn-args expr)]
                 (cond
                   (e/let? head)
                   (step (reduce e/app
-                                (e/instantiate1 (e/let-body head) (e/let-value head)) args))
-                  (and (e/lam? head) (seq args)) (step (beta-apply head args))
+                                (e/instantiate1 (e/let-body head) (e/let-value head)) args) instance?)
+                  (and (e/lam? head) (seq args)) (step (beta-apply head args) instance?)
                   (e/proj? head)
-                  (let [struct (step (e/proj-struct head))
+                  ;; A compiled instance still needs its kernel fields inspected.
+                  (let [struct (step (e/proj-struct head) true)
                         [sh sa] (e/get-app-fn-args struct)
                         ci (when (e/const? sh) (env/lookup env (e/const-name sh)))
                         idx (when (and ci (.isCtor ^ConstantInfo ci))
@@ -504,9 +507,10 @@
                         ci (env/lookup env (e/const-name head))]
                     (if (and ci (.value ^ConstantInfo ci)
                              (not (contains? builtin-app hn))
-                             (not (contains? @codegen-registry hn))
-                             (not (contains? @arity-registry hn)))
-                      (step (beta-apply (.value ^ConstantInfo ci) args))
+                             (or instance?
+                                 (and (not (contains? @codegen-registry hn))
+                                      (not (contains? @arity-registry hn)))))
+                      (step (beta-apply (.value ^ConstantInfo ci) args) instance?)
                       expr))
                   :else expr)))
             (walk [expr]

@@ -488,10 +488,9 @@
 ;; leaves and emits the heterogeneous class operator `HMul.hMul α β γ inst a b`,
 ;; leaving `inst` to instance synthesis. Numeric literals carry no type of their own —
 ;; they become `OfNat.ofNat T n inst`, which is how `(2 : ℝ)` type-checks.
-;; We mirror that here (../lean4/src/Lean/Elab/Extra.lean). The Nat/Int fast path
-;; through `ingest/arith-lift` stays: picking the concrete kernel op (`Nat.mul`) for
-;; the types the runtime lowers natively keeps those terms small and their proofs
-;; unchanged.
+;; We mirror Lean/Elab/Extra.lean elabBinOp / toExprCore (Lean 4.33.1):
+;; Nat and Int addition, subtraction and multiplication both use class operators.
+;; Power and quotient/remainder retain the surface-specific concrete mappings.
 
 (def ^:private hop-table
   "Surface op → [class method] for Lean's heterogeneous operator classes."
@@ -572,12 +571,8 @@
     (num-lit-at-type est T tn (elab-term est form))))
 
 (defn- concrete-arith
-  "The concrete kernel op for a carrier `ingest/arith-lift` names (`Int.add`, `Nat.mul`, …).
-   These are homogeneous in the carrier, so a bare numeral operand has to be given that type
-   as well — `(+ a 1)` over `Int` is `Int.add a (Int.ofNat 1)`, the coercion Lean's `binop%`
-   performs through `OfNat`. Over `Nat` a literal already has the carrier's type, so that
-   path stays exactly as it was. `pow` is heterogeneous in its exponent (`Int.pow : Int → Nat
-   → Int`), so only its base is coerced."
+  "A surface-specific concrete operation from `ingest/arith-lift` (power or division).
+   Coerce operands to the carrier, except the Nat exponent of power."
   [est const T tn args pow?]
   (if (= tn "Nat")
     (elab-app est (symbol const) args)
@@ -589,15 +584,23 @@
 
 (defn- elab-hop
   "`HOp.hOp.{u,v,w} α β γ ?inst a b` — the heterogeneous class operator with its instance
-   left to synthesis. `γ` is the result type (an `outParam`), so for the homogeneous case
+   synthesized immediately for Nat and postponed otherwise. `γ` is the result type
+   (an `outParam`), so for the homogeneous case
    the three types coincide."
-  [est cls method A B C a b]
+  [est cls method A B C & args]
   (let [u (type-sort-level est A)
         v (type-sort-level est B)
         w (type-sort-level est C)
-        goal (e/app* (e/const' (name/from-string cls) [u v w]) A B C)]
-    (e/app* (e/const' (name/from-string method) [u v w])
-            A B C (inst-mvar! est goal) a b)))
+        goal (e/app* (e/const' (name/from-string cls) [u v w]) A B C)
+        ;; Lean/Elab/App.lean synthesizeAppInstMVars: solve a determined instance
+        ;; before later dependent arguments need to reduce arithmetic in their types.
+        ;; Nat's carrier is already known here; other carriers retain postponement.
+        inst (when (= "Nat" (type-head-name est A))
+               ((requiring-resolve 'ansatz.tactic.instance/synthesize*)
+                (:tc est) (elab-env est)
+                ((requiring-resolve 'ansatz.tactic.instance/index-for) (elab-env est)) goal 0))]
+    (apply e/app* (e/const' (name/from-string method) [u v w])
+           A B C (or inst (inst-mvar! est goal)) args)))
 
 (defn- arith-leaves
   "The leaves of a nested arithmetic form — the operands that are not themselves
@@ -1393,10 +1396,9 @@
                               ret-type cond-expr inst then-fn else-fn))
 
         ;; Type-directed arithmetic — Lean's `binop%` (../lean4/src/Lean/Elab/Extra.lean):
-        ;; analyse the operand TREE for its max type, then either take the concrete kernel op
-        ;; from the core-lift table (Nat/Int — the types the runtime lowers natively, and the
-        ;; shape every existing proof is stated in) or emit the heterogeneous class operator
-        ;; with its instance left to synthesis. n-ary folds left, as Lean's infixl ops do.
+        ;; analyse the operand tree for its max type, then emit the class operator.
+        ;; Power and quotient/remainder have surface-specific concrete mappings.
+        ;; n-ary folds left, as Lean's infixl ops do.
               ("+" "-" "*" "quot" "rem")
               (let [op (str head)
                     args (rest sexpr)]
@@ -1405,17 +1407,24 @@
                   (elab-term est (reduce (fn [a b] (list head a b)) args))
 
                   ;; unary minus `(- a)` is Lean's `-a`, Neg.neg at the operand's type (over
-                  ;; Nat, which has no Neg, the former partial `Nat.sub a` is kept)
+                  ;; Nat, which has no Neg, the surface partial subtraction is kept)
                   (and (= op "-") (= 1 (count args))
                        (let [[_ tn] (arith-type est (first args))] (and tn (not= tn "Nat"))))
                   (let [[T _] (arith-type est (first args))]
                     (elab-arith-at-type* est "neg" T args))
 
                   (< (count args) 2)
-                  (elab-app est (symbol (get-in ingest/arith-lift [op "Nat"])) args)
+                  (if-let [const (get-in ingest/arith-lift [op "Nat"])]
+                    (elab-app est (symbol const) args)
+                    (let [T (e/const' (name/from-string "Nat") [])
+                          [cls method] (hop-table op)]
+                      ;; Preserve the surface's Nat partial applications, including `(- a)`,
+                      ;; with the same class/instance spelling as a fully applied operator.
+                      (apply elab-hop est cls method T T T
+                             (map #(elab-arith-operand est T "Nat" %) args))))
 
                   :else
-                  (let [[T tn] (or (arith-type est sexpr) [nil "Nat"])]
+                  (let [[T tn] (or (arith-type est sexpr) [(e/const' (name/from-string "Nat") []) "Nat"])]
                     (if-let [const (get-in ingest/arith-lift [op tn])]
                       (concrete-arith est const T tn args false)
                       (let [[cls method] (hop-table op)]

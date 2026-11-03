@@ -5,13 +5,13 @@
   heterogeneous class operator, with numeric literals becoming `OfNat.ofNat T n inst`. The
   Mathlib half (`(mul Real …)`, `OfNat` at a field) is exercised by
   `ansatz.theory.convergence-test`; here we pin the parts a plain Init env can see — the
-  Nat/Int fast path, n-ary folding, and the `apply` that has to bridge a goal carrying the
-  concrete kernel op to a lemma stated with `+`."
+  Nat/Int class operators, n-ary folding, and compatibility with hand-built kernel operations."
   (:require [clojure.test :refer [deftest testing is use-fixtures]]
             [ansatz.core :as a]
             [ansatz.kernel.expr :as e]
             [ansatz.kernel.level :as lvl]
             [ansatz.surface.elaborate :as el]
+            [ansatz.codegen :as cg]
             [ansatz.kernel.env]
             [ansatz.kernel.name]))
 
@@ -24,10 +24,10 @@
   (e/->string (el/elaborate (a/env) form)))
 
 (deftest explicit-type-arithmetic-on-nat
-  (testing "(op T a b) takes the concrete kernel op for the types that have one"
-    (is (re-find #"Nat\.mul" (elab-str '(forall [a Nat b Nat] (= Nat (mul Nat a b) a)))))
-    (is (re-find #"Nat\.add" (elab-str '(forall [a Nat b Nat] (= Nat (add Nat a b) a)))))
-    (is (re-find #"Nat\.sub" (elab-str '(forall [a Nat b Nat] (= Nat (sub Nat a b) a)))))
+  (testing "Nat +, -, * use class operators; power and division retain concrete mappings"
+    (is (re-find #"HMul\.hMul" (elab-str '(forall [a Nat b Nat] (= Nat (mul Nat a b) a)))))
+    (is (re-find #"HAdd\.hAdd" (elab-str '(forall [a Nat b Nat] (= Nat (add Nat a b) a)))))
+    (is (re-find #"HSub\.hSub" (elab-str '(forall [a Nat b Nat] (= Nat (sub Nat a b) a)))))
     (is (re-find #"Nat\.div" (elab-str '(forall [a Nat b Nat] (= Nat (div Nat a b) a)))))
     (is (re-find #"Nat\.pow" (elab-str '(forall [a Nat b Nat] (= Nat (pow Nat a b) a))))))
   (testing "and agrees with the operator spelling"
@@ -57,11 +57,10 @@
         (finally (reset! a/ansatz-env saved))))))
 
 (deftest apply-bridges-kernel-op-and-class-operator
-  (testing "the goal carries Nat.add (our surface's Nat fast path), the Init lemma is stated
-            with HAdd — lazy delta reduction has to walk them to a common head"
+  (testing "an explicit Nat.add goal still matches an Init lemma stated with HAdd"
     (binding [a/*verbose* false]
       (a/prove-theorem 'le-add-one '[n :- Nat]
-                       '(<= Nat n (+ n 1))
+                       '(<= Nat n (Nat.add n 1))
                        '[(apply Nat.le_add_right)])
       (is (some? (ansatz.kernel.env/lookup (a/env)
                                            (ansatz.kernel.name/from-string "le-add-one")))))))
@@ -104,3 +103,56 @@
                   (a/env) (ansatz.kernel.env/mk-def
                            (ansatz.kernel.name/from-string (str "numeralDefault" carrier))
                            [] type term)))))))
+
+(deftest nat-operators-use-lean-instances
+  (doseq [[op method cls inst] [['+ "HAdd.hAdd" "instHAdd" "instAddNat"]
+                                ['- "HSub.hSub" "instHSub" "instSubNat"]
+                                ['* "HMul.hMul" "instHMul" "instMulNat"]]
+          operands [[] [2] [2 3]]]
+    (let [term (el/elaborate (a/env) (cons op operands))
+          [head args] (e/get-app-fn-args term)
+          [inst-head inst-args] (e/get-app-fn-args (nth args 3))]
+      (is (= method (ansatz.kernel.name/->string (e/const-name head))))
+      (is (= (+ 4 (count operands)) (count args)))
+      (is (= ["Nat" "Nat" "Nat"] (mapv e/->string (take 3 args))))
+      (is (= cls (ansatz.kernel.name/->string (e/const-name inst-head))))
+      (is (= ["Nat" inst] (mapv e/->string inst-args))))))
+
+(deftest nat-codegen-retains-concrete-runtime-operations
+  (doseq [[op primitive] [['+ 'Nat.add] ['- 'Nat.sub] ['* 'Nat.mul]]]
+    (let [compile-form #(cg/ansatz->clj (a/env) (el/elaborate (a/env) %) [])
+          surface (compile-form (list 'fn '[x Nat y Nat] (list op 'x 'y)))
+          concrete (compile-form (list 'fn '[x Nat y Nat] (list primitive 'x 'y)))]
+      (is (= concrete surface))
+      (doseq [[x y] [[0 4] [9 2] [9223372036854775807N 2]]]
+        (is (= (((eval concrete) x) y) (((eval surface) x) y)))))))
+
+(deftest simp-packs-concrete-nat-operations
+  (binding [a/*verbose* false]
+    (doseq [[primitive op lemma] [['Nat.add '+ 'Nat.add_eq]
+                                  ['Nat.sub '- 'Nat.sub_eq]
+                                  ['Nat.mul '* 'Nat.mul_eq]]]
+      ;; Exercise the public tactics with a packed-form hypothesis. The structural
+      ;; rewrite direction is checked independently in simp-edge-test.
+      (doseq [tactics [[(list 'simp 'only [lemma]) '(assumption)]
+                       ['(simp) '(assumption)]]]
+        (a/prove-theorem (gensym "packNat")
+                         (vector 'f ':- '(arrow Nat Nat) 'x ':- 'Nat 'y ':- 'Nat
+                                 'h ':- (list '= 'Nat (list 'f (list op 'x 'y)) 7))
+                         (list '= 'Nat (list 'f (list primitive 'x 'y)) 7)
+                         tactics)))))
+
+(deftest nat-arithmetic-reduces-in-dependent-application-arguments
+  (binding [a/*verbose* false]
+    ;; The proof argument needs (+ j 1) reduced while the surrounding application
+    ;; is still elaborating, before final instance synthesis.
+    (a/prove-theorem 'dependentNatIndex
+                     '[P :- (arrow Nat Prop), j :- Nat,
+                       h :- (P (Nat.succ j)),
+                       ih :- (forall [k :- Nat] (arrow (P (Nat.succ k)) True))]
+                     'True '[(exact (ih j h))])
+    (a/prove-theorem 'dependentNatArithmetic
+                     '[P :- (arrow Nat Prop), j :- Nat,
+                       h :- (P (Nat.succ j)),
+                       ih :- (forall [k :- Nat] (arrow (P k) True))]
+                     'True '[(exact (ih (+ j 1) h))])))

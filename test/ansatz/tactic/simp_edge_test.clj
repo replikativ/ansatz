@@ -557,14 +557,17 @@
     (is (some? ((requiring-resolve 'ansatz.tactic.extract/verify) ps)))))
 
 (deftest test-raw-nat-packing-keeps-definitional-progress
-  (let [env (#'simp/ensure-nat-packing (require-env) ["Nat.add_eq" "Nat.le_eq"])
+  (let [env (#'simp/ensure-nat-packing (require-env) ["Nat.add_eq" "Nat.sub_eq" "Nat.mul_eq" "Nat.le_eq"])
         nat (e/const' (name/from-string "Nat") [])
         st (tc/mk-tc-state-with-locals env {993010 {:name "x" :type nat}
                                             993011 {:name "y" :type nat}})]
     (doseq [[raw lemma packed] [["Nat.add" "Nat.add_eq" "HAdd.hAdd"]
-                                ["Nat.le" "Nat.le_eq" "LE.le"]]]
+                                ["Nat.sub" "Nat.sub_eq" "HSub.hSub"]
+                                ["Nat.mul" "Nat.mul_eq" "HMul.hMul"]
+                                ["Nat.le" "Nat.le_eq" "LE.le"]]
+            lemmas (if (= raw "Nat.le") [[lemma]] [[lemma] @#'simp/default-simp-lemmas])]
       (let [term (e/app* (e/const' (name/from-string raw) []) (e/fvar 993010) (e/fvar 993011))
-            result (simp/simp-expr-result st env (simp/build-lemma-index st env (simp/make-simp-lemmas env [lemma])) term)]
+            result (simp/simp-expr-result st env (simp/build-lemma-index st env (simp/make-simp-lemmas env lemmas)) term)]
         (is (= packed (name/->string (e/const-name (e/get-app-fn (:expr result))))))
         (is (not= term (:expr result)))
         (is (nil? (:proof? result)) "rfl normalization still counts as progress")

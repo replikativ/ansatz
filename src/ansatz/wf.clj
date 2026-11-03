@@ -598,7 +598,12 @@
               ctor-names (vec (.ctors (env/lookup env ind-name)))
               rec? (fn [ty] (let [[h2 _] (e/get-app-fn-args ty)]
                               (and (e/const? h2) (= (e/const-name h2) ind-name))))
-              nadd (fn [a b] (e/app* (e/const' (name/from-string "Nat.add") []) a b))
+              ;; Lean/Meta/SizeOf.lean mkSizeOfMinors uses AppBuilder.mkAdd (Lean 4.33.1).
+              nadd (fn [a b]
+                     (e/app* (e/const' (name/from-string "HAdd.hAdd") [lvl/zero lvl/zero lvl/zero])
+                             nat-c nat-c nat-c
+                             (e/app* (e/const' (name/from-string "instHAdd") [lvl/zero])
+                                     nat-c (e/const' (name/from-string "instAddNat") [])) a b))
               ;; minor for one ctor: λ fields… ihs… => 1 + Σ contributions
               minor-of
               (fn [cn]

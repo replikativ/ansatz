@@ -75,20 +75,11 @@
 ;; the type" design; extend as Int/Float/… ops land in the env. (Float.* and Int Bool-compare
 ;; ops are absent in Init today, so they're simply not listed.)
 (def arith-lift
-  "op-name → {operand-type-head → kernel constant}. Type-directed +/-/* lift.
-
-   Only `Nat` takes the concrete-op shortcut for `+`/`-`/`*`. Init states its `Nat` lemmas
-   about `Nat.add` and omega speaks it, so the shortcut IS the shape proofs are in. `Int` is
-   the opposite: Mathlib's `Int` lemmas and omega's preprocessing are stated in the `HAdd`/
-   `OfNat` spelling, so elaborating `(+ a b)` to `Int.add` produced terms no tactic could
-   reason about (`rfl`, `simp` and `omega` all failed on `a + 0 = a`). Int goes through the
-   heterogeneous operator like every other carrier; the runtime lowering is the same."
-  {"+" {"Nat" "Nat.add"}
-   "-" {"Nat" "Nat.sub"}
-   "*" {"Nat" "Nat.mul"}
-   ;; `pow` is only reachable through the explicit-type form `(pow T a n)`; the exponent is
-   ;; a Nat on both (Lean's Monoid npow), so these stay homogeneous in the operand type.
-   "pow" {"Nat" "Nat.pow", "Int" "Int.pow"}
+  "op-name → {operand-type-head → concrete constant} for surface-specific operations.
+   Nat and Int `+`/`-`/`*` use heterogeneous class operators, as Lean's
+   Elab/Extra.lean elabBinOp does; Init's arithmetic lemmas use that spelling."
+  ;; Power retains its concrete mappings; Nat and Int power both take a Nat exponent.
+  {"pow" {"Nat" "Nat.pow", "Int" "Int.pow"}
    ;; `quot`/`rem`, NOT `/`. Clojure's `/` on integers is Ratio division --
    ;; `(/ 7 3)` is `7/3` -- while `Nat.div` is floor division. Lifting `/`
    ;; would make a verified definition mean something different from the
