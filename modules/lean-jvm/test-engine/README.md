@@ -69,8 +69,9 @@ private normalized semantic compiler, finite references, stable compatibility
 keys, constructor alternatives, Bool/Char and scalar domains, detached canonical
 construction, raw-field child access, and root-only boxed argument tokens. The
 embedded native004 observations supply internal layout facts; they are not
-admitted evidence. Independent native constructor/projection tests and actual v3
-product/entry admission remain required before public nominal interop. The private
+admitted evidence. The separate [native captures](../test/fixtures/nominal-entry-v3/README.md)
+and [nominal application consumer](../consumer/NominalSmoke.java) exercise actual
+v3 product/entry admission and independent constructors/readers. The private
 `payloadCost` bound counts scalar/buffer bytes separately from `stringUnits`,
 which counts logical String UTF-16 units. Every String occurrence counts,
 including repeated shared leaves and repeated uses of the same certified input,

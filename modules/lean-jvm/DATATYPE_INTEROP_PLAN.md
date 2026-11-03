@@ -178,7 +178,8 @@ limits to admit new types.
 ## Phase 1 exact logical wire/model
 
 `ansatz.lean.jvm.type-graph` implements the following internal model only.
-No entry dispatcher, native producer or artifact cohort currently accepts it.
+The v3 source and artifact paths integrate this model with checked native entry
+and layout evidence. This pure model alone grants no entry authority.
 All keys below are required string keys; unknown keys are rejected at every
 level. No JSON null, open variables, term parameters, proof or dependency
 expression grammar exists in this version.
@@ -213,12 +214,12 @@ float bits; product first/second; option/list/array element; sum left/right;
 except error/value), plus `{"kind":"nominal","id":N}`. Nominal IDs select
 closed definitions, not open constructors or type variables. Definition
 arguments are closed type descriptors; universes are normalized closed natural
-levels, not arbitrary Lean Level syntax. A future native classifier must prove
-that normalization and the supported type-only parameter grammar independently.
+levels, not arbitrary Lean Level syntax. The native classifier independently
+checks that normalization and the supported type-only parameter grammar.
 
 Roots are an ordered, nonempty, duplicate-free list of at most 1,024 types.
-They form an evidence catalog; entry argument/result linkage is future producer
-work. Root order affects the whole-graph digest. Definition IDs are distinct
+They form an evidence catalog; v3 entries bind their argument/result root
+indices to the native checked function signatures. Root order affects the whole-graph digest. Definition IDs are distinct
 integers 0–255; table order and original IDs do not affect canonical digests.
 There are at most 256 definitions, 1,024 constructors globally, 64 ordered logical
 fields per constructor, 64 closed arguments and 32 universes per definition.
@@ -264,8 +265,9 @@ its reachable closure with a singleton root: it is independent of unrelated
 selected entries, roots, discovery IDs and table order. The latter is the
 logical-schema component of type identity. Neither digest authenticates itself.
 
-Physical evidence remains a separate future document. The shape-only reference
-model is exactly:
+Physical evidence is validated separately by the native observation normalizer.
+The earlier shape-only reference model remains an independent structural check,
+not the executable v3 storage program. Its exact shape is:
 
 ```clojure
 {"schema" "lean-jvm-layout-references/3"
@@ -299,9 +301,9 @@ references authorize any reads, writes or allocation.
 The isolated [NativeTypeGraph module](../../tools/lean-producer/src/NativeTypeGraph.lean)
 now defines `discover (roots : Array Expr) (products : Name → Option String) :
 MetaM Discovery`, returning `logical : Json` and separate `layouts : Json`.
-It is not imported by the v2 producer, registered as a helper cohort, or accepted
-by public entry dispatch. Source implementation alone is not a native acceptance
-receipt. Its [probe](../../tools/lean-producer/test/NativeTypeGraphProbe.lean)
+It is imported by the v3 producer, separately from the unchanged v2 producer.
+Only the registered source/binary/closure/receipt cohort and source/artifact
+issuers grant entry authority; source implementation alone does not. Its [probe](../../tools/lean-producer/test/NativeTypeGraphProbe.lean)
 uses explicit dummy product claims only to test lookup custody; those hashes
 are never authenticated product evidence.
 
