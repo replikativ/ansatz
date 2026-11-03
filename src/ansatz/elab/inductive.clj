@@ -10,17 +10,17 @@
   ;; Preserve the older inductive spelling of arrows and Nat `le`, and its
   ;; string-valued programmatic type input. All terms use the common elaborator.
   (walk/postwalk
-    (fn [x]
-      (if (seq? x)
-        (cond
-          (and (= 'Type (first x)) (= 2 (count x)))
-          (symbol (str "Type.{" (second x) "}"))
-          (= '-> (first x)) (cons '=> (rest x))
-          (and (= 'le (first x)) (= 3 (count x))) (cons '<= (rest x))
-          (= '(nil) x) nil
-          :else x)
-        x))
-    (if (string? form) (read-string form) form)))
+   (fn [x]
+     (if (seq? x)
+       (cond
+         (and (= 'Type (first x)) (= 2 (count x)))
+         (symbol (str "Type.{" (second x) "}"))
+         (= '-> (first x)) (cons '=> (rest x))
+         (and (= 'le (first x)) (= 3 (count x))) (cons '<= (rest x))
+         (= '(nil) x) nil
+         :else x)
+       x))
+   (if (string? form) (read-string form) form)))
 
 (defn- telescope [type syms]
   (loop [type type syms syms acc []]
@@ -70,7 +70,7 @@
                 (case (e/tag expr)
                   :app (e/app (visit (e/app-fn expr)) (visit (e/app-arg expr)))
                   :forall (e/forall' (e/forall-name expr) (visit (e/forall-type expr))
-                                    (visit (e/forall-body expr)) (e/forall-info expr))
+                                     (visit (e/forall-body expr)) (e/forall-info expr))
                   :lam (e/lam (e/lam-name expr) (visit (e/lam-type expr))
                               (visit (e/lam-body expr)) (e/lam-info expr))
                   :let (e/let' (e/let-name expr) (visit (e/let-type expr))
@@ -88,38 +88,38 @@
         lctx (assoc lctx family-id {:name family :type type :tag :local})
         n-indices (count (:indices header))]
     (mapv
-      (fn [i [cname fields-spec return-indices]]
-        (when-not (= n-indices (count return-indices))
-          (throw (ex-info "Constructor result must supply every family index"
-                          {:constructor cname :expected n-indices :indices return-indices})))
-        (let [field-pairs (vec (partition 2 fields-spec))
+     (fn [i [cname fields-spec return-indices]]
+       (when-not (= n-indices (count return-indices))
+         (throw (ex-info "Constructor result must supply every family index"
+                         {:constructor cname :expected n-indices :indices return-indices})))
+       (let [field-pairs (vec (partition 2 fields-spec))
               ;; Default results refer to the original locals even when a field
               ;; shadows a header name (Lean uses mkAppN indFVar params).
-              result (apply list (e/fvar family-id)
-                            (concat (map e/fvar ids) (map surface-form return-indices)))
+             result (apply list (e/fvar family-id)
+                           (concat (map e/fvar ids) (map surface-form return-indices)))
               ;; Lean elabCtors checks the result and synthesizes holes while
               ;; constructor locals are live, before mkForallFVars abstracts.
-              check-params #(check-param-occs %1 %2 (e/fvar family-id) (mapv e/fvar ids))
-              type (term/elaborate-binders-in-context
-                     environment lctx
-                     (mapv (fn [[s t]] [s (surface-form t)]) field-pairs) result
-                     {:check-result check-params :check-binder-type check-params})
-              type (e/instantiate1 (e/abstract1 type family-id) self-const)
-              type (e/abstract-many type ids)
-              [fields result] (telescope type (map first field-pairs))
-              [head args] (e/get-app-fn-args result)
-              n-fields (count fields)]
-          (when-not (and (= head self-const)
-                         (= (count args) (+ (count params) n-indices))
-                         (= (take (count params) args)
-                            (map #(e/bvar (+ n-fields (- (count params) % 1)))
-                                 (range (count params)))))
-            (throw (ex-info "Invalid constructor result or parameter occurrence" {:constructor cname})))
-          {:name (if (nil? cname) "nil" (str cname)) :sym cname :idx i
-           :full-name (str family "." (if (nil? cname) "nil" cname))
-           :fields (mapv #(-> % (assoc :type (:compiled-type %)) (dissoc :compiled-type)) fields)
-           :compiled-return-indices (vec (drop (count params) args))}))
-      (range) ctors-spec)))
+             check-params #(check-param-occs %1 %2 (e/fvar family-id) (mapv e/fvar ids))
+             type (term/elaborate-binders-in-context
+                   environment lctx
+                   (mapv (fn [[s t]] [s (surface-form t)]) field-pairs) result
+                   {:check-result check-params :check-binder-type check-params})
+             type (e/instantiate1 (e/abstract1 type family-id) self-const)
+             type (e/abstract-many type ids)
+             [fields result] (telescope type (map first field-pairs))
+             [head args] (e/get-app-fn-args result)
+             n-fields (count fields)]
+         (when-not (and (= head self-const)
+                        (= (count args) (+ (count params) n-indices))
+                        (= (take (count params) args)
+                           (map #(e/bvar (+ n-fields (- (count params) % 1)))
+                                (range (count params)))))
+           (throw (ex-info "Invalid constructor result or parameter occurrence" {:constructor cname})))
+         {:name (if (nil? cname) "nil" (str cname)) :sym cname :idx i
+          :full-name (str family "." (if (nil? cname) "nil" cname))
+          :fields (mapv #(-> % (assoc :type (:compiled-type %)) (dissoc :compiled-type)) fields)
+          :compiled-return-indices (vec (drop (count params) args))}))
+     (range) ctors-spec)))
 
 (defn elab-inductive [environment family param-pairs index-pairs ctors-spec result-level self-const]
   (let [header (elab-headers environment param-pairs index-pairs result-level)]
