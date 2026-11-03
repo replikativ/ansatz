@@ -148,3 +148,19 @@
       (is (= [expected] (normal-form expr ["Nat.reduceLeDiff"] opts)))))
   (is (true? (do (eval '(a/theorem literal-nat-order-contradiction
                          [h :- (<= Nat 2 1)] False (simp at h))) true))))
+
+(deftest selected-imported-recursive-equations-preserve-the-induction-hypothesis
+  (is (true?
+       (do (eval '(a/theorem selected-foldl-filter
+                    [A :- Type, G :- Type, f :- (=> G A G), p :- (=> A Bool), l :- (List A)]
+                    (forall [b :- G]
+                      (= G (List.foldl f b (List.filter p l))
+                         (List.foldl (fn [acc :- G, x :- A]
+                                       (match (p x) [true (f acc x)] [false acc])) b l)))
+                    (induction l)
+                    (all_goals (intro b))
+                    (all_goals (simp only [List.filter List.foldl]))
+                    (cases hp (p head))
+                    (all_goals (simp only [hp List.foldl]))
+                    (all_goals (exact (ih_tail _)))))
+           true))))

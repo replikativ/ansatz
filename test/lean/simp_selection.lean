@@ -95,3 +95,13 @@ example (P : Prop → Prop) (h : P False) : P (2 ≤ 1 : Prop) := by
   guard_target =ₛ P False
   exact h
 example (h : (2 : Nat) ≤ 1) : False := by simp at h
+
+example (A G : Type) (f : G → A → G) (p : A → Bool) (l : List A) :
+    ∀ b, List.foldl f b (List.filter p l) =
+      List.foldl (fun acc x => match p x with | true => f acc x | false => acc) b l := by
+  induction l with
+  | nil => intro b; simp only [List.filter, List.foldl]
+  | cons head tail ih =>
+    intro b
+    simp only [List.filter, List.foldl]
+    cases hp : p head <;> simp only [List.foldl] <;> exact ih _

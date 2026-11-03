@@ -7,8 +7,11 @@
             [ansatz.meta.rec-ext :as rec-ext]))
 
 (defn unfold-even-with-eqns [environment n]
-  ;; Surface definitions have no separate smart-unfolding declarations.
-  (not (rec-ext/is-recursive-definition environment n)))
+  ;; Exports omit RecExt/smart-unfolding metadata. An eager local inventory
+  ;; identifies definitions whose recursion status we know; imported equations
+  ;; remain usable without guessing whether additional delta unfolding is safe.
+  (and (some? (eqns/eqns-for environment n))
+       (not (rec-ext/is-recursive-definition environment n))))
 
 (defn mk-simp-entry-of-decl-to-unfold [environment n]
   (let [n (if (instance? ansatz.kernel.Name n) n (name/from-string (str n)))
