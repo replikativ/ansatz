@@ -106,7 +106,7 @@ def check(args):
         if label == "fp-sort":
             locked = next(p for p in manifest["packages"] if p["name"] == "subverso")
             need(locked["rev"] == provenance["resolvedBuildDependency"]["revision"], "Subverso lock changed")
-        native = command([lake, "--no-build", "--quiet", "env", sysroot / "bin/lean", "-M384", "-j1"]
+        native = command([lake, "--no-build", "--quiet", "env", sysroot / "bin/lean", "-M768", "-j1"]
                          + (["--run"] if label == "cli" else []) + ["Oracle.lean"], directory, logs, label + "-oracle", env)
         # Sharing trace counts depend on allocation; compare program values.
         values = lambda text: [line for line in text.splitlines() if line != "shared RC array to swap"]
