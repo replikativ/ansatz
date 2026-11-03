@@ -60,6 +60,29 @@
   (is (= "Nat" (e/->string (e/forall-type (ctor-type "InferredField.mk")))))
   (is (= "Nat" (e/->string (e/forall-type (ctor-type "InferredHeader.mk"))))))
 
+(deftest unresolved-recursive-parameter-hole-is-an-elaboration-error
+  (let [error (try
+                (a/inductive RecursiveHole [A Type]
+                  (mk [x A] [xs (RecursiveHole _)]))
+                nil
+                (catch clojure.lang.ExceptionInfo ex ex))]
+    (is (= :elab-error (:kind (ex-data error))))
+    (is (re-find #"Unsolved metavariables" (or (some-> error ex-message) "")))
+    (is (seq (:mvars (ex-data error)))))
+  (is (nil? (env/lookup (a/env) (name/from-string "RecursiveHole")))))
+
+(deftest recursive-parameter-hole-is-solved-by-the-index
+  (a/inductive SolvedRecursive [A Type] :indices [x A]
+    (leaf [x A] :where [x])
+    (mk [x A] [xs (SolvedRecursive _ x)] :where [x]))
+  (a/defn solved-recursive-constructor [A :- Type x :- A xs :- (SolvedRecursive A x)]
+    (SolvedRecursive A x) (SolvedRecursive.mk x xs))
+  (let [type (ctor-type "SolvedRecursive.mk")
+        after-fields (e/forall-body (e/forall-body type))]
+    (is (e/forall? after-fields))
+    (is (= "(SolvedRecursive #1 #0)" (e/->string (e/forall-type after-fields))))
+    (is (= "(SolvedRecursive #2 #1)" (e/->string (e/forall-body after-fields))))))
+
 (deftest dependent-headers-fields-and-inferred-implicits
   (a/inductive DepBound [n Nat p (<= n 3)]
     (mk [xs (List Nat)] [h (= (Option.some n) (Option.some n))]))

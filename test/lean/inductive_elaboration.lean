@@ -87,3 +87,20 @@ inductive Negative where
 #guard_msgs in
 inductive Varying (A : Type) where
   | mk (xs : Varying Nat)
+
+inductive SolvedRecursive (A : Type) : A → Type where
+  | leaf (x : A) : SolvedRecursive A x
+  | mk (x : A) (xs : SolvedRecursive _ x) : SolvedRecursive A x
+example (A : Type) (x : A) (xs : SolvedRecursive A x) : SolvedRecursive A x :=
+  SolvedRecursive.mk x xs
+
+/--
+error: don't know how to synthesize placeholder for argument `A`
+context:
+A : Type
+x : A
+⊢ Type
+-/
+#guard_msgs in
+inductive RecursiveHole (A : Type) where
+  | mk (x : A) (xs : RecursiveHole _)

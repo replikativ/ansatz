@@ -1807,10 +1807,7 @@
                (or (:type-position opts)
                    (and expected (e/sort? expected)))
                (assoc :prop-ctx true))
-         expr (if (:type-position opts) (elab-type est sexpr) (elab-term est sexpr))
-         ;; Declaration elaborators may check/normalize the elaborated type while
-         ;; its metavariables are still assignable (e.g. inductive parameters).
-         expr (if-let [post-elab (:post-elab opts)] (post-elab est expr) expr)]
+         expr (if (:type-position opts) (elab-type est sexpr) (elab-term est sexpr))]
      (check-expected! est expr expected)
      (let [result (finalize-elaboration mode (refresh-env est) expr)
            result-env (elab-env est)]
@@ -1881,6 +1878,37 @@
    (elaborate* :strict env lctx sexpr expected))
   ([env lctx sexpr expected opts]
    (elaborate* :strict env lctx sexpr expected opts)))
+
+(defn elaborate-binders-in-context
+  "Elaborate type binders and a resulting type with their locals live through
+   checking and synthesis, then abstract the telescope once. Lean's
+   Elab/Binders.lean elabBinders and Elab/Inductive.lean elabCtors staging."
+  [environment lctx binder-pairs body-form {:keys [check-result check-binder-type]}]
+  (let [est (-> (mk-elab-state environment) (attach-elab-lctx lctx) (assoc :prop-ctx true))]
+    (letfn [(bind [est pairs locals]
+              (if-let [[sym type-form] (first pairs)]
+                (let [type (elab-type est type-form)]
+                  (with-local est sym type
+                    (fn [est id]
+                      (bind est (next pairs) (conj locals {:id id :name (str sym) :type type})))))
+                (let [body (elab-type est body-form)
+                      body (if check-result (check-result est body) body)
+                      ;; Unresolved binder holes must fail before parameter
+                      ;; canonicalization can replace them, as in elabCtors.
+                      body (strict-finalize (refresh-env est) body)
+                      types (mapv (fn [{:keys [type]}]
+                                    (let [type (zonk est type)]
+                                      (if check-binder-type (check-binder-type est type) type)))
+                                  locals)
+                      ids (mapv :id locals)
+                      body (e/abstract-many body ids)]
+                  (reduce (fn [body i]
+                            (e/forall' (:name (nth locals i))
+                                       (e/abstract-many (nth types i) (subvec ids 0 i))
+                                       body :default))
+                          body (reverse (range (count locals)))))))]
+      (let [expr (bind est binder-pairs [])]
+        (inline-local-matchers environment (elab-env est) expr)))))
 
 (defn elaborate-in-context-with-env
   "Elaborate with a local auxiliary-declaration environment, returning {:env :expr}.

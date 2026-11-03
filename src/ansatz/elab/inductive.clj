@@ -97,14 +97,13 @@
               ;; shadows a header name (Lean uses mkAppN indFVar params).
               result (apply list (e/fvar family-id)
                             (concat (map e/fvar ids) (map surface-form return-indices)))
-              form (list 'forall
-                         (vec (mapcat (fn [[s t]] [s (surface-form t)]) field-pairs)) result)
-              ;; One elaboration shares metavariables across the whole telescope;
-              ;; strict finalization synthesizes instances and instantiates holes.
-              type (term/elaborate-in-context
-                     environment lctx form nil
-                     {:type-position true
-                      :post-elab #(check-param-occs %1 %2 (e/fvar family-id) (mapv e/fvar ids))})
+              ;; Lean elabCtors checks the result and synthesizes holes while
+              ;; constructor locals are live, before mkForallFVars abstracts.
+              check-params #(check-param-occs %1 %2 (e/fvar family-id) (mapv e/fvar ids))
+              type (term/elaborate-binders-in-context
+                     environment lctx
+                     (mapv (fn [[s t]] [s (surface-form t)]) field-pairs) result
+                     {:check-result check-params :check-binder-type check-params})
               type (e/instantiate1 (e/abstract1 type family-id) self-const)
               type (e/abstract-many type ids)
               [fields result] (telescope type (map first field-pairs))
