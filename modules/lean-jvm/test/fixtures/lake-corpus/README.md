@@ -14,7 +14,9 @@ Use a scratch parent directory containing:
 - `fp-sort`: a copy of this directory's `fp-sort` caller.
 
 Build callers explicitly with Lean 4.33.1 before invoking built-workspace mode.
-Lake resolves the FP Lean package's pinned Subverso dependency during that build.
+The caller manifests pin the FP Lean package's Subverso dependency. The native
+CI runner materializes that exact commit before building, so a moving upstream
+`main` does not change the checked dependency.
 The upstream projects' sources and configuration remain unchanged; the callers
 select the SDK's supported toolchain and expose monomorphic boundary functions.
 
@@ -31,7 +33,8 @@ The [optional corpus runner](../../lake_corpus.clj) accepts paths to already
 built callers, prepares artifacts and checks Java/Clojure-visible behavior.
 The [scope guide](../../../LAKE.md) distinguishes preparation, execution and
 unsupported large-project boundaries. Demo and article publication follow the
-separate launch review.
+separate launch review. CircleCI runs both callers through the
+[native gate](../../../../../bin/lean-jvm-native-ci), using the retained SDK JAR.
 
 Each caller includes `Oracle.lean` and captured `native.stdout`/`native.stderr`
 from its pinned native reference. Run the CLI oracle with `lake env lean --run

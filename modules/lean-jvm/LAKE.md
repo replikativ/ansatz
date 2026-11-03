@@ -84,7 +84,15 @@ The authored [two-package fixture](test/fixtures/lake-workspace/README.md) cover
 cross-package calls, a dependency initializer and datatype, optional host binding,
 stale and missing products, dependency rebuild/cache invalidation and collection
 mutation. Its prepared Java/Clojure consumer runs without source/native tools.
-The optional [native runner](test/lake_acceptance.clj) works on a fresh owned copy.
+The [native runner](test/lake_acceptance.clj) works on a fresh owned copy. CircleCI's
+`test-lean-jvm-native` job installs hash-pinned Lean and producer archives, builds
+this fixture and the pinned external callers, runs native references, and checks
+fresh preparation plus Java/Clojure artifact execution against the exact SDK JAR
+retained by `test-lean-jvm-sdk`. Both deployment jobs require this gate. The test
+harness explicitly builds its fixtures; the SDK's no-build policy is unchanged.
+Logs and the acceptance report are retained as CI artifacts. See
+[the runner](../../bin/lean-jvm-native-ci) for local reproduction with supplied
+native tools; the runtime/preparation namespaces must come from the SDK JAR.
 
 The [external corpus](test/fixtures/lake-corpus/README.md) records upstream pins
 and separate caller adapters. Current observations:

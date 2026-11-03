@@ -1,0 +1,13 @@
+{"version": "1.2.0",
+ "packagesDir": ".lake/packages",
+ "packages":
+ [{"type": "path",
+   "scope": "",
+   "name": "Cli",
+   "manifestFile": "lake-manifest.json",
+   "inherited": false,
+   "dir": "../lean4-cli",
+   "configFile": "lakefile.toml"}],
+ "name": "cli_probe",
+ "lakeDir": ".lake",
+ "fixedToolchain": false}

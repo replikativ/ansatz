@@ -29,7 +29,8 @@
       "lakefile.toml": "7884cf3f1ca6c96ab7cb09025855709c76d65722732709cd7c4dfabc1d2b814d",
       "lean-toolchain": "3aac669c7a910ec2389f4e4f921b605adf6ebf2d1e0c9b9cd0be4d33f3f5db71",
       "native.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-      "native.stdout": "0e6c953b0b6e3841733841d3219f2b623a74d3eb8cee6d90be34d489577af3e7"
+      "native.stdout": "0e6c953b0b6e3841733841d3219f2b623a74d3eb8cee6d90be34d489577af3e7",
+      "lake-manifest.json": "c31ae1a57fcc7707fe7522ebc50060a259c961d1ec743abe9347ae83a58721bb"
     },
     "fp-sort": {
       "App.lean": "1c5cc26e893b90beae93fa1e9247039b61034d87d317093b6fc5f2104cf6dee9",
@@ -37,7 +38,8 @@
       "lakefile.toml": "3982844b720214e89588a4af38062293c5fcbef973c894ee77328e8e4b0b5de1",
       "lean-toolchain": "3aac669c7a910ec2389f4e4f921b605adf6ebf2d1e0c9b9cd0be4d33f3f5db71",
       "native.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-      "native.stdout": "8dd1aabfc51251840c84b029d25066a4bb85b79a99da53eab081b04b10d570b8"
+      "native.stdout": "8dd1aabfc51251840c84b029d25066a4bb85b79a99da53eab081b04b10d570b8",
+      "lake-manifest.json": "d6192430fd2ab3baad5b69c7f4987950cdf5f322edaea16c9e9988d504b18867"
     }
   },
   "outOfProfile": [

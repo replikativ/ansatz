@@ -53,6 +53,51 @@ jobs:
           paths:
             - lean-jvm-sdk-release
 
+  test-lean-jvm-native:
+    executor: tools/clojurecli
+    # Keep the native monitor's 2 GiB available-memory floor, alongside the JVM.
+    resource_class: large
+    steps:
+      - attach_workspace:
+          at: /home/circleci
+      - run:
+          name: Ensure native archive decompression is available
+          command: |
+            if ! command -v zstd >/dev/null; then
+              if [ "$(id -u)" = 0 ]; then
+                apt-get update && apt-get install -y zstd
+              else
+                sudo apt-get update && sudo apt-get install -y zstd
+              fi
+            fi
+      - restore_cache:
+          keys:
+            - lean-native-v1-{{ checksum "modules/lean-jvm/test/native-ci-tools.json" }}-{{ checksum "modules/lean-jvm/producer/candidate-v4.json" }}
+      - run:
+          name: Install hash-pinned Lean and native producer archives
+          command: >-
+            ./bin/lean-jvm-native-ci install
+            --directory target/lean-native-tools
+            --downloads /home/circleci/lean-native-downloads
+          no_output_timeout: 10m
+      - save_cache:
+          key: lean-native-v1-{{ checksum "modules/lean-jvm/test/native-ci-tools.json" }}-{{ checksum "modules/lean-jvm/producer/candidate-v4.json" }}
+          paths:
+            - /home/circleci/lean-native-downloads
+      - run:
+          name: Fresh Lake builds, native references and packaged SDK execution
+          command: >-
+            ./bin/lean-jvm-native-ci check
+            --sysroot target/lean-native-tools/lean
+            --producer-bundle target/lean-native-tools/producer
+            --sdk /home/circleci/lean-jvm-sdk-release/target/ansatz-lean-jvm.jar
+            --work target/lean-jvm-native-checks
+          no_output_timeout: 5m
+      - store_artifacts:
+          path: target/lean-jvm-native-checks/logs
+      - store_artifacts:
+          path: target/lean-jvm-native-checks/report.json
+
   lean-jvm-deploy:
     executor: tools/clojurecli
     resource_class: medium
@@ -88,6 +133,10 @@ workflows:
           context: docker-deploy
           requires:
             - tools/build
+      - test-lean-jvm-native:
+          context: docker-deploy
+          requires:
+            - test-lean-jvm-sdk
       - tools/deploy:
           context:
             - clojars-deploy
@@ -99,6 +148,7 @@ workflows:
             - unittests
             - test-contracts
             - test-lean-jvm-sdk
+            - test-lean-jvm-native
       - lean-jvm-deploy:
           context:
             - clojars-deploy
@@ -109,6 +159,7 @@ workflows:
           requires:
             - tools/deploy
             - test-lean-jvm-sdk
+            - test-lean-jvm-native
       - tools/release:
           context:
             - github-token
