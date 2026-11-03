@@ -307,7 +307,10 @@
        (every? keyword? (keys value)) (= expected (set (keys value)))))
 
 (defn- bounded-vector [value]
-  (require-value (or (genuine-view? value) (standard-carrier? :list value))
+  ;; Deftype constructors are public: a wrapper's class alone does not prove its
+  ;; backing collection is safe to traverse. Root imports still use Java's full
+  ;; type/capability validation; ordinary fields must pass this carrier check.
+  (require-value (standard-carrier? :list (if (genuine-view? value) (backing-value value) value))
                  "Expected standard indexed fields/elements; lazy and custom adapters are unsupported")
   (loop [xs (seq value) result (transient []) n 0]
     (if xs

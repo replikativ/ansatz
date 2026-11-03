@@ -34,13 +34,17 @@
                      (seq [] (swap! touched inc) (seq {:some nil})))
         custom-key (proxy [Object] [] (hashCode [] (swap! touched inc) 1))
         bad-tags (array-map custom-key nil)
-        comparator-tags (sorted-map-by (fn [a b] (swap! touched inc) (compare a b)) :some nil)]
+        comparator-tags (sorted-map-by (fn [a b] (swap! touched inc) (compare a b)) :some nil)
+        forged-view (value/->TypedVector nil custom-list nil nil)
+        forged-fields (assoc (value/materialize (value/view (.type raw) raw)) :lean/fields forged-view)]
     (reset! touched 0)
     (doseq [input [lazy-input (list 1 2 3) custom-list (java.util.Collections/unmodifiableList custom-list)]]
       (is (thrown? IllegalArgumentException (value/host-value array-type input))))
     (is (thrown? IllegalArgumentException (value/host-value option-type custom-map)))
     (is (thrown? IllegalArgumentException (value/host-value option-type bad-tags)))
     (is (thrown? IllegalArgumentException (value/host-value option-type comparator-tags)))
+    (is (thrown? IllegalArgumentException (value/host-value (.type raw) forged-fields)))
+    (is (thrown? IllegalArgumentException (value/materialize forged-view)))
     (is (zero? @touched))
     (is (= [1 2 3] (value/host-value array-type [1 2 3])))
     (is (= [1 2 3] (value/host-value array-type (java.util.LinkedList. [1 2 3]))))))

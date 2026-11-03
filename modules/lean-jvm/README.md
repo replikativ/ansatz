@@ -253,8 +253,9 @@ construction, first validation, equality and materialization have real costs.
 This is not a zero-allocation or zero-first-crossing-cost guarantee.
 
 All explicit arguments share one preflight budget outside the execution lease.
-Bad host arguments fail with `InvalidArgument`; aggregate limits fail with
-`ResourceLimit`, before guest effects, leaving the Project reusable. Shared
+Java argument validation reports `InvalidArgument`; Clojure literal conversion
+can reject with `IllegalArgumentException`. Combined input quotas report
+`ResourceLimit` before guest effects, leaving the Project reusable. Shared
 certified root frontier counts once; distinct overlapping frontiers can be
 conservatively overcounted. IO custom-data success freezes only its pure
 payload and releases the IO envelope. Uncaught guest IO errors retain the
