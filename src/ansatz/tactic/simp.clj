@@ -3450,8 +3450,9 @@
 (defn simp-at
   "Lean's `simp [lemmas] at h` (Meta/Tactic/Simp/Main.lean `simpLocalDecl`/`applySimpResultToLocalDecl`):
    simplify the TYPE of hypothesis `hyp-id` with the simp set (not containing `h` itself).
-   `False` closes the goal; `True` clears `h`; otherwise `h` is replaced (same name) by its
-   simplified form, transported with `Eq.mp`. No progress is an error, as in Lean."
+   `False` closes the goal unless disabled. Assert the transported replacement (including
+   `True`), then try to clear the original local, preserving dependencies as Lean does.
+   No progress is an error."
   ([ps hyp-id lemma-names] (simp-at ps hyp-id lemma-names {}))
   ([ps hyp-id lemma-names opts]
    (let [goal (proof/current-goal ps)
@@ -3479,18 +3480,22 @@
               :old-type old-type :new-type new-type
               :proof-old-type proof-old :proof-new-type proof-new
               :eq-proof (:proof? result)}
-         child-lctx (cond-> (dissoc (:lctx goal) hyp-id)
-                      (not (true-const? new-type))
-                      (assoc new-id {:tag :local :id new-id :name (:name decl) :type new-type}))
+         ;; Lean Main.lean applySimpResultToLocalDeclCore: assert, tryClear,
+         ;; then introduce the named replacement. The original remains in scope
+         ;; when used by the target or later local types/values.
+         child-lctx (assoc (:lctx goal) new-id
+                           {:tag :local :id new-id :name (:name decl) :type new-type})
          [ps child-id] (proof/fresh-mvar ps (:type goal) child-lctx)
          ps (-> (update ps :goals #(into [child-id] (remove #{child-id} %)))
                 (proof/assign-mvar (:id goal) {:kind :simp-all-hyps :replacements [rep] :child child-id})
-                (proof/record-tactic :simp-at (vec lemma-names) (:id goal)))]
+                (proof/record-tactic :simp-at (vec lemma-names) (:id goal)))
+         ps ((requiring-resolve 'ansatz.tactic.basic/try-clear) ps hyp-id)]
      (if (and (not= false (:may-close-goal? opts)) (false-const? new-type))
-       (let [st' (tc/attach-lctx (tc/mk-tc-state (:env ps)) child-lctx)
+       (let [goal (proof/current-goal ps)
+             st' (tc/attach-lctx (tc/mk-tc-state (:env ps)) (:lctx goal))
              s (#'tc/cached-whnf st' (tc/infer-type st' (:type goal)))
              u (if (and s (e/sort? s)) (e/sort-level s) lvl/zero)]
-         (proof/assign-mvar ps child-id
+         (proof/assign-mvar ps (:id goal)
                             {:kind :exact
                              :term (e/app* (e/const' (name/from-string "False.elim") [u])
                                            (:type goal) (e/fvar new-id))}))

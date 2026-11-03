@@ -5,6 +5,7 @@
             [ansatz.kernel.expr :as e]
             [ansatz.kernel.level :as lvl]
             [ansatz.kernel.name :as name]
+            [ansatz.meta :as meta]
             [ansatz.surface.elaborate :as elab]
             [ansatz.tactic.basic :as basic]
             [ansatz.tactic.extract :as extract]
@@ -61,8 +62,18 @@
             (left) (exact hp) (right) (exact hp) (exact hq)]))
 
 (deftest proposition-by-cases-uses-local-decidable
-  (proves 'local_decidable_cases '[p :- Prop, d :- (Decidable p)] '(Or p (Not p))
-          '[(by_cases hp :- p) (left) (exact hp) (right) (exact hp)]))
+  (let [ty (elab/elaborate (a/env) '(forall [p :- Prop, d :- (Decidable p)] (Or p (Not p))))
+        [ps _] (proof/start-proof (a/env) ty)
+        ps (basic/intros ps ["p" "d"])
+        g (proof/current-goal ps)
+        d (first (for [[id decl] (:lctx g) :when (= "d" (:name decl))] id))
+        ps (a/run-tactic ps '(by_cases hp :- p))
+        [head args] (e/get-app-fn-args (meta/expr-assignment (:meta-mctx ps) (:id g)))]
+    (is (= "Decidable.casesOn" (name/->string (e/const-name head))))
+    (is (= (e/fvar d) (nth args 2)))
+    (let [ps (reduce a/run-tactic ps '[(left) (exact hp) (right) (exact hp)])
+          term (extract/verify ps)]
+      (is (not (.contains (e/->string term) "Classical.propDecidable"))))))
 
 (deftest proposition-by-cases-default-name
   (proves 'default_prop_cases '[p :- Prop] '(Or p (Not p))
@@ -171,7 +182,97 @@
       (is (some? (extract/verify ps))))))
 
 (deftest split-explicit-target-and-wildcard-fallback
-  (doseq [[nm tactic] [['split_explicit_target '(split at ⊢)]
-                       ['split_wildcard_target '(split at *)]]]
-    (proves nm '[b :- Bool, n :- Nat, unused :- True] '(= (if b n n) n)
-            [tactic '(all_goals (rfl))])))
+  (doseq [tactic '[(split at ⊢) (split at *)]]
+    (let [ty (elab/elaborate (a/env) '(forall [b :- Bool, n :- Nat, unused :- True] (= (if b n n) n)))
+          [ps _] (proof/start-proof (a/env) ty)
+          ps (basic/intros ps ["b" "n" "unused"])
+          old (proof/current-goal ps)
+          b (first (for [[id d] (:lctx old) :when (= "b" (:name d))] id))
+          ps (a/run-tactic ps tactic)]
+      (is (= 2 (count (:goals ps))))
+      (is (= ["Bool.false" "Bool.true"]
+             (mapv (fn [g]
+                     (let [decl (first (for [[id d] (:lctx g)
+                                             :when (and (= "hc" (:name d)) (not (contains? (:lctx old) id)))] d))
+                           [_ args] (e/get-app-fn-args (:type decl))]
+                       (is (= (e/fvar b) (nth args 1)))
+                       (e/->string (nth args 2)))) (proof/goals ps))))
+      (is (every? #(not= (:type old) (:type %)) (proof/goals ps)))
+      (is (some? (extract/verify (a/run-tactic ps '(all_goals (rfl)))))))))
+
+(defn- context-closed? [goal]
+  (let [close #(reduce e/abstract1 % (keys (:lctx goal)))]
+    (every? #(not (e/has-fvar-flag (close %)))
+            (cons (:type goal) (mapcat (fn [[_ d]] (remove nil? [(:type d) (:value d)])) (:lctx goal))))))
+
+(deftest split-decidable-local-preserves-target-and-context-dependencies
+  (let [hyp (list '= (list (symbol "@ite") 'Nat 'p 'd 0 1) 0)
+        params (into '[p :- Prop, d :- (Decidable p)] ['hh ':- hyp 'dep ':- '(= hh hh)])
+        ty (elab/elaborate (a/env) (list 'forall params '(= hh hh)))
+        [ps _] (proof/start-proof (a/env) ty)
+        ps (basic/intros ps ["p" "d" "hh" "dep"])
+        old (proof/current-goal ps)
+        hh (first (for [[id d] (:lctx old) :when (= "hh" (:name d))] id))
+        dep (first (for [[id d] (:lctx old) :when (= "dep" (:name d))] id))
+        ps (a/run-tactic ps '(split at hh))]
+    (is (= 2 (count (:goals ps))))
+    (doseq [g (proof/goals ps)]
+      (is (context-closed? g))
+      (is (= (:type old) (:type g)))
+      (is (= (get-in old [:lctx dep]) (get-in g [:lctx dep])))
+      (is (contains? (:lctx g) hh))
+      (is (= 2 (count (filter #(= "hh" (:name %)) (vals (:lctx g)))))))
+    (is (some? (extract/verify (a/run-tactic ps '(all_goals (rfl))))))))
+
+(deftest split-decidable-local-retains-named-true-replacement
+  (let [hyp (list (symbol "@ite") 'Prop 'p 'd 'True 'True)
+        params (into '[p :- Prop, d :- (Decidable p)] ['hh ':- hyp])
+        ty (elab/elaborate (a/env) (list 'forall params 'True))
+        [ps _] (proof/start-proof (a/env) ty)
+        ps (-> ps (basic/intros ["p" "d" "hh"]) (a/run-tactic '(split at hh)))]
+    (is (= 2 (count (:goals ps))))
+    (doseq [g (proof/goals ps)]
+      (is (context-closed? g))
+      (is (= ["True"] (mapv (comp e/->string :type) (filter #(= "hh" (:name %)) (vals (:lctx g)))))))
+    (is (some? (extract/verify (a/run-tactic ps '(all_goals (exact hh))))))))
+
+(deftest rewrite-synthesizes-instance-implicit-parameters
+  (let [eqn (e/app* (e/const' (name/from-string "Eq") [(lvl/succ lvl/zero)])
+                       (e/const' (name/from-string "Nat") [])
+                       (e/app* (e/const' (name/from-string "Nat.add") []) (e/lit-nat 1) (e/lit-nat 0))
+                       (e/lit-nat 1))
+        inst-type (elab/elaborate (a/env) '(Inhabited Nat))
+        rule-type (e/forall' "inst" inst-type eqn :inst-implicit)
+        ty (e/forall' "rule" rule-type eqn :default)
+        [ps _] (proof/start-proof (a/env) ty)
+        ps (-> ps (basic/intro "rule") (a/run-tactic '(rewrite rule)))]
+    (is (= 1 (count (:goals ps))))
+    (is (= "(Eq.{1} Nat 1 1)" (e/->string (:type (proof/current-goal ps)))))
+    (is (some? (extract/verify (a/run-tactic ps '(rfl)))))))
+
+(deftest rewrite-reports-unsynthesizable-instance
+  (let [eqn (e/app* (e/const' (name/from-string "Eq") [(lvl/succ lvl/zero)])
+                       (e/const' (name/from-string "Nat") [])
+                       (e/app* (e/const' (name/from-string "Nat.add") []) (e/lit-nat 1) (e/lit-nat 0))
+                       (e/lit-nat 1))
+        rule-type (e/forall' "inst" (elab/elaborate (a/env) '(Inhabited False)) eqn :inst-implicit)
+        [ps _] (proof/start-proof (a/env) (e/forall' "rule" rule-type eqn :default))
+        ps (basic/intro ps "rule")]
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Tactic error: rewrite: failed to synthesize"
+                          (a/run-tactic ps '(rewrite rule))))))
+
+(deftest try-clear-keeps-dependencies-then-clears-independent-local
+  (let [ty (elab/elaborate (a/env) '(forall [n :- Nat, dep :- (= n n), unused :- True] (= n n)))
+        [ps _] (proof/start-proof (a/env) ty)
+        ps (basic/intros ps ["n" "dep" "unused"])
+        ids (into {} (map (fn [[id d]] [(:name d) id]) (:lctx (proof/current-goal ps))))
+        kept (basic/try-clear ps (ids "n"))
+        cleared (basic/try-clear kept (ids "unused"))]
+    (is (= ps kept))
+    (is (not (contains? (:lctx (proof/current-goal cleared)) (ids "unused"))))
+    (is (some? (extract/verify (a/run-tactic cleared '(rfl)))))
+    (with-redefs [basic/clear (fn [& _] (throw (IllegalStateException. "clear bug")))]
+      (is (thrown-with-msg? IllegalStateException #"clear bug" (basic/try-clear ps (ids "unused")))))))
+
+(deftest simp-local-false-closes-after-clearing-original
+  (proves 'simp_local_false_closes '[hh :- (And True False)] 'False '[(simp at hh)]))

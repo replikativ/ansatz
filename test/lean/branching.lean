@@ -82,3 +82,20 @@ example (b : Bool) (h : (match b with | true => 0 | false => 1) = (0 : Nat))
   split at h
   · exact ⟨rfl, hh⟩
   · cases h
+
+example (p : Prop) (d : Decidable p) (hh : @ite Nat p d 0 1 = 0)
+    (_dep : hh = hh) : hh = hh := by
+  split at hh <;> rfl
+example (p : Prop) (d : Decidable p) (hh : @ite Prop p d True True) : True := by
+  split at hh <;> exact hh
+example (rule : [Inhabited Nat] → 1 + 0 = 1) : 1 + 0 = 1 := by
+  rw [rule]
+example (_rule : [Inhabited False] → 1 + 0 = 1) : 1 + 0 = 1 := by
+  fail_if_success rw [_rule]
+  rfl
+example (n : Nat) (_dep : n = n) (_unused : True) : n = n := by
+  fail_if_success clear n
+  clear _unused
+  rfl
+
+example (hh : True ∧ False) : False := by simp at hh

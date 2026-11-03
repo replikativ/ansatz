@@ -220,17 +220,18 @@
           (assoc ps :meta-mctx mctx))
         (catch Throwable _ nil)))))
 
-(defn- synthesize-apply-instances
-  "Lean-shaped `synthAppInstances` for `apply`: synthesize inst-implicit
+(defn- synth-app-instances
+  "Lean Meta/Tactic/Apply.lean synthAppInstances (also used by rewrite): synthesize inst-implicit
    telescope metavariables after result-type unification, including assigned
    instance arguments, and retry postponed failures when later synthesis made
    progress."
   ([ps arg-mvars arg-binfos]
-   (synthesize-apply-instances ps arg-mvars arg-binfos
+   (synth-app-instances ps arg-mvars arg-binfos
                                {:synth-assigned-instances? true
                                 :allow-synth-failures? false}))
   ([ps arg-mvars arg-binfos {:keys [synth-assigned-instances?
-                                    allow-synth-failures?]}]
+                                    allow-synth-failures? tactic-name]
+                             :or {tactic-name "apply"}}]
    (let [todo (->> (map vector arg-mvars arg-binfos)
                    (filterv (fn [[mvar-id binfo]]
                               (and (= binfo :inst-implicit)
@@ -260,16 +261,16 @@
                           (assoc acc
                                  :saw-error? true
                                  :first-error (or (:first-error acc)
-                                                  (ex-info "apply: failed to assign synthesized instance"
-                                                           {:mvar-id mvar-id
+                                                  (ex-info (str "Tactic error: " tactic-name ": failed to assign synthesized instance")
+                                                           {:kind :tactic-error :mvar-id mvar-id
                                                             :type mtype
                                                             :instance inst-term}))
                                  :postponed (conj (:postponed acc) [mvar-id :inst-implicit]))))
                       (assoc acc
                              :saw-error? true
                              :first-error (or (:first-error acc)
-                                              (ex-info "apply: failed to synthesize instance implicit argument"
-                                                       {:mvar-id mvar-id
+                                              (ex-info (str "Tactic error: " tactic-name ": failed to synthesize instance implicit argument")
+                                                       {:kind :tactic-error :mvar-id mvar-id
                                                         :type mtype}))
                              :postponed (conj (:postponed acc) [mvar-id :inst-implicit])))))
                 {:ps ps
@@ -897,7 +898,7 @@
                   ;; telescope metavariables with synthAppInstances. It retries
                   ;; postponed synthesis when later instance synthesis made
                   ;; progress, and it checks already-assigned instance mvars too.
-                   ps (synthesize-apply-instances ps arg-mvars arg-binfos)
+                   ps (synth-app-instances ps arg-mvars arg-binfos)
                    ps (apply-meta/append-parent-tag ps (:user-name goal) arg-mvars arg-binfos)
                    unsolved-args (filterv #(not (proof/mvar-assigned? ps %)) arg-mvars)
                    unsolved-args (apply-meta/reorder-goals ps unsolved-args
@@ -1122,14 +1123,20 @@
          ;; Lean Meta/Basic.lean forallMetaTelescopeReducingAux uses
          ;; mkFreshExprMVar: every rule needs fresh IDs in the shared context,
          ;; including when an earlier rewrite has already assigned its parameters.
-         [ps mvars body] (loop [ps ps t ty xs []]
-                           (if (e/forall? t)
-                             (let [[ps id] (proof/alloc-id ps)
-                                   _ (swap! mctx meta/add-expr-mvar-decl id
-                                            (e/forall-type t) (:lctx goal))]
-                               (recur ps (e/instantiate1 (e/forall-body t) (e/mvar id))
-                                      (conj xs (e/mvar id))))
-                             [ps xs t]))
+         [ps mvars binder-infos body]
+         (loop [ps ps t ty xs [] infos []]
+           (if (e/forall? t)
+             (let [[ps id] (proof/alloc-id ps)
+                   info (e/forall-info t)
+                   binder-name (e/forall-name t)
+                   binder-name (if (string? binder-name) (name/from-string binder-name) binder-name)
+                   _ (swap! mctx meta/add-expr-mvar-decl id
+                            (e/forall-type t) (:lctx goal)
+                            {:kind (if (= info :inst-implicit) :synthetic :natural)
+                             :user-name binder-name})]
+               (recur ps (e/instantiate1 (e/forall-body t) (e/mvar id))
+                      (conj xs (e/mvar id)) (conj infos info)))
+             [ps xs infos t]))
          heq (reduce e/app term mvars)
          [head args] (e/get-app-fn-args body)
          hname (when (e/const? head) (name/->string (e/const-name head)))
@@ -1185,7 +1192,14 @@
                                          (catch Exception _ nil))]
                          (reset! mctx m)))))))
              (when (not= before @mctx) (recur (inc i))))))
-       (let [zonk* #(meta/zonk-expr @mctx %)
+       (let [;; Rewrite.lean postprocessAppMVars calls Apply.lean
+             ;; synthAppInstances before exposing residual non-instance goals.
+             ps (synth-app-instances (assoc ps :meta-mctx @mctx)
+                                     (mapv e/mvar-id mvars) binder-infos
+                                     {:synth-assigned-instances? true
+                                      :allow-synth-failures? false :tactic-name "rewrite"})
+             _ (reset! mctx (:meta-mctx ps))
+             zonk* #(meta/zonk-expr @mctx %)
              eq-proof (zonk* eq-proof)
              ;; Lean Meta/Tactic/Rewrite.lean rewrite: telescope holes first,
              ;; then holes from the input term. Elab/Tactic/Rewrite.lean
@@ -1938,11 +1952,14 @@
                             :child new-goal-id})
         (proof/record-tactic :clear [hyp-fvar-id] (:id goal)))))
 
-(defn- try-clear
+(defn try-clear
+  "Lean MVarId.tryClear: keep a local when the target or context depends on it."
   [ps hyp-fvar-id]
-  (try
-    (clear ps hyp-fvar-id)
-    (catch Exception _
+  (let [goal (proof/current-goal ps)]
+    (if (and goal (get (:lctx goal) hyp-fvar-id)
+             (not (lctx-dependency-on-fvar (:lctx goal) hyp-fvar-id))
+             (not (expr-depends-on-fvar? (:type goal) hyp-fvar-id)))
+      (clear ps hyp-fvar-id)
       ps)))
 
 (defn specialize
