@@ -1,8 +1,8 @@
 # JVM host bindings for Lean
 
-This candidate API connects checked Lean declarations to Java or Clojure functions,
-using the existing [value boundary](VALUE_EXAMPLES.md). Its native producer has
-been built locally; producer publication and release remain pending. Loading a
+This API connects checked Lean declarations to Java or Clojure functions,
+using the existing [value boundary](VALUE_EXAMPLES.md). Its matching native producer is
+[published and verified](producer/README.md#host-binding-producer). Loading a
 prepared artifact needs no native toolchain.
 
 ## Declaring a host import
@@ -17,7 +17,9 @@ Use a standard extern with an explicit `ansatz_jvm_` symbol:
 The marker opts a declaration into this bounded JVM binding profile. Only a sole
 standard all/C extern with that prefix is admitted; arbitrary package externs do
 not acquire binding authority. The registry uses the Lean declaration name,
-such as `length`, rather than the native symbol. Signatures must be closed,
+such as `length`, rather than the native symbol. There is no automatic case conversion:
+`readConfig` and `ansatz_jvm_read_config` are independent explicit names. A
+namespaced declaration uses its full Lean name, for example `App.readConfig`. Signatures must be closed,
 first-order and supported by the datatype boundary. A custom datatype used by a
 bodyless declaration may need `deriving Inhabited` for Lean to construct its safe
 opaque placeholder.
@@ -73,7 +75,7 @@ payload; the adapter constructs the Lean IO result.
 names. When preparing an artifact separately, explicitly select import and
 replacement names with `ProjectOptions.Builder.function(name)`. The combined
 entry/binding selection is bounded by 1,024 names. Source preparation requires
-the candidate producer; older producer evidence cannot authorize bindings.
+the matching host-binding producer; older producer evidence cannot authorize bindings.
 
 For custom results, `pureFactory` and `ioFactory` receive a detached
 `HostBindings.Signature` once during linking. Derive constructors from

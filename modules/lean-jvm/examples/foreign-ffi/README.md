@@ -19,4 +19,4 @@ responsible for the declared purity contract.
 
 Prepared test artifacts belong under `consumer/resources/lean`, outside the SDK
 runtime JAR. See the [binding guide](../../FFI.md) for API usage and limits.
-The candidate producer is locally built; publication and release remain pending.
+The matching [producer bundle](../../producer/README.md#host-binding-producer) is published and public-download verified.

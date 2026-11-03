@@ -157,11 +157,10 @@ See [JVM and Clojure value examples](VALUE_EXAMPLES.md) for nested carriers and
 Java varargs calls. The [preparation guide](PREPARATION.md) covers build-time
 artifact export through the Java/Clojure APIs and CLI.
 
-The [host-binding candidate](FFI.md) connects Java/Clojure implementations to
+The [host bindings](FFI.md) connect Java/Clojure implementations to
 explicit pure or synchronous IO imports and optional noinline reference
-replacements, using the same value boundary. It includes type-driven factories
-for custom results. Its source producer is locally built; publication and release
-remain pending.
+replacements, using the same value boundary. They include type-driven factories
+for custom results. Their matching [source producer](producer/README.md#host-binding-producer) is published and verified.
 
 Containers nest over supported types. `none` and `some ()` stay distinct: the
 latter is `Optional.of(LeanUnit.INSTANCE)` or `{:some nil}`. Results contain no

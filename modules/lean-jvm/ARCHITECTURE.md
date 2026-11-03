@@ -136,8 +136,8 @@ See [FILESYSTEM.md](FILESYSTEM.md) for the bounded Linux provider contract.
 
 ## Research boundary
 
-The [host-binding candidate](FFI.md) reuses the engine's host-request protocol and
-existing detached value bridge. Candidate producer evidence authenticates explicit
+The [host bindings](FFI.md) reuses the engine's host-request protocol and
+existing detached value bridge. Producer evidence authenticates explicit
 foreign imports and noinline reference replacements, including their pure or IO
 effect; older evidence receives no new binding authority. The publisher validates
 the full selection before invoking factories, materializing callers or starting

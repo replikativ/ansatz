@@ -31,7 +31,7 @@ public final class Lean implements AutoCloseable {
         return loadArtifact(input, expectedManifestSHA256, HostBindings.empty());
     }
 
-    /** Select pure implementations against the artifact's checked binding evidence. */
+    /** Select pure or IO implementations against the artifact's checked binding evidence. */
     public synchronized LeanProject loadArtifact(InputStream input, String expectedManifestSHA256, HostBindings bindings) {
         ensureOpen();
         Objects.requireNonNull(input, "input");
@@ -75,7 +75,7 @@ public final class Lean implements AutoCloseable {
         return loadProject(sourceRoot, options, HostBindings.empty());
     }
 
-    /** Bindings select implementations for noinline pure Lean reference definitions. */
+    /** Bindings supply required foreign imports or replace eligible noinline reference definitions. */
     public synchronized LeanProject loadProject(Path sourceRoot, ProjectOptions options, HostBindings bindings) {
         ensureOpen();
         Objects.requireNonNull(sourceRoot, "sourceRoot");

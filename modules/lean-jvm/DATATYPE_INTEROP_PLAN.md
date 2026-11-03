@@ -5,7 +5,7 @@ packaged-consumer acceptance. This contract does not establish a published
 version or admit a type independently of the source/artifact issuers.
 The existing [value conventions](VALUE_EXAMPLES.md), [compatibility policy](COMPATIBILITY.md),
 and [release gates](RELEASE_CHECKLIST.md) remain authoritative for current SDKs.
-The subsequent host-binding candidate is specified separately in
+The subsequent host bindings is specified separately in
 [FFI.md](FFI.md); later-work references below describe this datatype
 milestone's scope.
 

@@ -40,14 +40,13 @@ engine operations or admission rules but are not native execution receipts.
 
 ## Reviewed boundaries by layer
 
-The [host-binding candidate](FFI.md) adds Java/Clojure implementations for explicit
-pure or synchronous IO imports and noinline reference replacements. It uses the
+The [host bindings](FFI.md) add Java/Clojure implementations for explicit
+pure or synchronous IO imports and noinline reference replacements. They use the
 existing first-order value boundary and type-driven constructor factories. The
 [reference corpus](examples/pure-ffi/README.md) compares native, JVM-reference and
 host execution, including initialization and the audited String.any worker. The
 [foreign-import corpus](examples/foreign-ffi/README.md) covers required bodyless
-imports and explicit catchable IO errors. The producer is locally built;
-publication and release remain pending. Function-valued callbacks, async work and
+imports and explicit catchable IO errors. The matching [producer](producer/candidate-v4.json) is published and public-download verified. Function-valued callbacks, async work and
 opaque host resource handles remain outside this profile.
 
 | Layer / obligation | Status and boundary | Source / checks / remaining evidence |

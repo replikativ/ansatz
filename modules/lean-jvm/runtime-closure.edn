@@ -62,7 +62,7 @@
             {:path "ansatz/lean/jvm/LeanUnit.java" :class "ansatz.lean.jvm.LeanUnit" :sha256 "f1d0c8703511f24c98af395caf9786bd9667ae0dace912003c5cf8377d0f550d"}
             {:path "ansatz/lean/jvm/Bridge.java" :class "ansatz.lean.jvm.Bridge" :sha256 "724dc87bfde74ee51caadab4201097e1ff9a6a546ccb8d97b677c0b2bc353946"}
             {:path "ansatz/lean/jvm/LeanFunction.java" :class "ansatz.lean.jvm.LeanFunction" :sha256 "7e1f8292da06bad04ce2289d9c5f72e460622ab335f32ec79b4f12b0712106fa"}
-            {:path "ansatz/lean/jvm/Lean.java" :class "ansatz.lean.jvm.Lean" :sha256 "cd8abcdd9b02b38468ba97e5724e4d477e24bf1fb77980acd6f46e94f601eaef"}
+            {:path "ansatz/lean/jvm/Lean.java" :class "ansatz.lean.jvm.Lean" :sha256 "9906bdbde42c92db42ca1073ccd1a95137a96ec80571b6664527a7878b300265"}
             {:path "ansatz/lean/jvm/LeanException.java" :class "ansatz.lean.jvm.LeanException" :sha256 "4ae0653ecb4730a8b7432ef8fec05e46c7d0c7ae9f3bce35dd5696a07c583aea"}
             {:path "ansatz/lean/jvm/LeanProject.java" :class "ansatz.lean.jvm.LeanProject" :sha256 "8c4576f1d0dcda1d493c5333e227b9bf77bcff94db64a1176b2d46e86419220a"}
             {:path "ansatz/lean/jvm/MainResult.java" :class "ansatz.lean.jvm.MainResult" :sha256 "e82cc335d2b483291d2f1d7bf80420411d62a37d32f50819ea82b92fdc1510c6"}
