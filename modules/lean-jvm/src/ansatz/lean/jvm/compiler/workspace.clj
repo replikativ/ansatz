@@ -41,9 +41,11 @@
   (doseq [[path expected] files]
     (need (if expected (= expected (record! path installed/max-product-bytes)) (Files/notExists ^Path path no-links))
           "ArtifactConflict" {:stage :lake-product-mutation})))
-(defn- run! [state journal directory label arguments]
-  (#'transport/run-process! state journal directory label arguments
-                           (#'transport/environment state (str (.resolve ^Path (:sysroot state) "lib/lean")))))
+(defn- run!
+  ([state journal directory label arguments]
+   (run! state journal directory label arguments (str (.resolve ^Path (:sysroot state) "lib/lean"))))
+  ([state journal directory label arguments search]
+   (#'transport/run-process! state journal directory label arguments (#'transport/environment state search))))
 (defn- text! [directory receipt]
   (String. ^bytes (#'transport/bytes! (.resolve ^Path directory ^String (get receipt "stdout")) (* 4 1048576))
            StandardCharsets/UTF_8))
@@ -144,18 +146,28 @@
                     [lake "--no-build" "--no-cache" "--rehash" "--quiet" "--json" "query" target])
         _ (need (= "null" (str/trim (text! stage query))) "ArtifactConflict" {:stage :lake-query-protocol})
         _ (verify-files! configs)
+        ;; Lake can retain a large elaborated lakefile environment. Obtain its
+        ;; search path, then retire Lake before starting the Lean inventory reader
+        ;; rather than paying both RSS footprints in one owned process tree.
+        search-receipt (run! execution journal stage "lake-search-path"
+                             [lake "--no-build" "--no-cache" "--quiet" "env"])
+        search-output (text! stage search-receipt)
+        search-lines (filterv #(str/starts-with? % "LEAN_PATH=") (str/split search-output #"\n" -1))
+        _ (need (= 1 (count search-lines)) "ArtifactConflict" {:stage :lake-search-protocol})
+        search (subs (first search-lines) 10)
+        _ (need (and (<= 1 (count search) 65536) (not-any? #{\newline \return \u0000} search))
+                "ArtifactConflict" {:stage :lake-search-protocol})
+        _ (verify-files! configs)
         probe (.resolve stage "LakeInventory.lean")
         probe-bytes (with-open [input (io/input-stream (io/resource probe-resource))] (.readNBytes input 65537))
         _ (need (<= (alength probe-bytes) 65536) "BuildResourceLimit" {})
         _ (Files/write probe probe-bytes (into-array OpenOption [StandardOpenOption/CREATE_NEW StandardOpenOption/WRITE]))
         probe-record (record! probe 65536)
+        ;; Elaborating the reader with the stock toolchain exceeded 512 MiB
+        ;; on the CI executor. The independent native RSS cap still applies.
         inventory-receipt (run! execution journal stage "lake-inventory"
-                               [lake "--no-build" "--no-cache" "--quiet" "env"
-                                ;; Elaborating the inventory reader with the stock
-                                ;; toolchain exceeded 512 MiB on the CI executor.
-                                ;; The independent native RSS cap still applies.
-                                (.resolve ^Path (:sysroot state) "bin/lean") "-M768" "-j1" "--run" probe
-                                (str/join "." components)])
+                               [(.resolve ^Path (:sysroot state) "bin/lean") "-M768" "-j1" "--run" probe
+                                (str/join "." components)] search)
         inventory (#'transport/read-json! (.resolve stage (get inventory-receipt "stdout")) (* 4 1048576))
         _ (need (and (= #{"schema" "leanCommit" "leanVersion" "modules"} (set (keys inventory)))
                      (= "lean-lake-product-inventory/1" (get inventory "schema"))

@@ -44,8 +44,9 @@ overrides are not supported in this mode.
    directories and locked Git revisions. Path and Git dependencies are supported.
 2. Ask pinned Lake to check `+Root:leanArts` with `--no-build --rehash --no-cache`.
    Stale or missing products fail; the SDK issues no build or update command.
-3. Run an SDK-owned bounded inventory reader in Lake's environment. It reads
-   compiled import headers, including transitive dependency modules.
+3. Read Lake's search path and retire Lake before starting the SDK-owned bounded
+   inventory reader directly. It reads compiled import headers, including
+   transitive dependency modules, without overlapping two large native heaps.
 4. Capture the workspace-owned compiled products unchanged. A generated empty
    import adapter supplies the existing producer context; application and library
    source implementations are not flattened, rewritten or recompiled.
