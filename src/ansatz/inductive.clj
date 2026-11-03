@@ -12,6 +12,7 @@
 (ns ansatz.inductive
   "Define inductive types compatible with Lean 4's kernel."
   (:require [ansatz.kernel.expr :as e]
+            [ansatz.elab.inductive :as elab]
             [ansatz.kernel.env :as env]
             [ansatz.kernel.name :as name]
             [ansatz.kernel.level :as lvl]
@@ -25,10 +26,6 @@
             [ansatz.meta.constructions.no-confusion :as no-confusion])
   (:import [ansatz.kernel ConstantInfo TypeChecker]))
 
-;; ============================================================
-;; Scope helpers (de Bruijn index computation)
-;; ============================================================
-
 (defn- sref
   "Reference a symbol in scope at given depth → bvar."
   [scope depth sym]
@@ -41,149 +38,12 @@
   [scope depth sym]
   [(assoc scope sym depth) (inc depth)])
 
-;; ============================================================
-;; Type compilation (compiles field types with self-references in scope (surface/elaborate handles user terms))
-;; ============================================================
-
-(declare compile-type)
-
-(defn- parse-binders
-  "Parse [a Type, b Type] or [a : Type, b : Type] → [[a Type] [b Type]].
-   Commas and colons are syntactic sugar; both are ignored."
-  [binder-vec]
-  (let [tokens (remove (fn [t] (contains? #{"," ":" ":-" "="} (str t))) binder-vec)]
-    (loop [ts (seq tokens) result []]
-      (if (or (nil? ts) (empty? ts))
-        result
-        (let [nam (first ts) typ (second ts)]
-          (when (nil? typ)
-            (throw (ex-info (str "Binder missing type for: " nam) {:name nam})))
-          (recur (nnext ts) (conj result [nam typ])))))))
-
-(defn- compile-type
-  "Compile a type s-expression to Ansatz Expr.
-   Handles self-references to the inductive being defined."
-  [env scope depth form self-name self-const]
-  (cond
-    ;; an already-elaborated kernel Expr passes through (programmatic callers, e.g.
-    ;; ansatz.malli record synthesis, supply CLOSED Exprs as field types)
-    (instance? ansatz.kernel.Expr form) form
-    ;; nil in Clojure quoted data represents List.nil Nat
-    (nil? form) (e/app (e/const' (name/from-string "List.nil") [lvl/zero])
-                       (e/const' (name/from-string "Nat") []))
-    (integer? form) (e/lit-nat form)
-
-    (symbol? form)
-    (let [s (str form)]
-      (cond
-        (contains? scope form) (sref scope depth form)
-        (= s (str self-name))  self-const
-        (= s "Prop")   (e/sort' lvl/zero)
-        (= s "Type")   (e/sort' (lvl/succ lvl/zero))
-        (= s "Nat")    (e/const' (name/from-string "Nat") [])
-        (= s "Int")    (e/const' (name/from-string "Int") [])
-        (= s "Bool")   (e/const' (name/from-string "Bool") [])
-        (= s "String") (e/const' (name/from-string "String") [])
-        (= s "True")   (e/const' (name/from-string "True") [])
-        (= s "False")  (e/const' (name/from-string "False") [])
-        :else
-        (if-let [ci (or (env/lookup env (name/from-string s))
-                        ;; Also check global env (may have types added in this session)
-                        (when-let [global-env (try @@(requiring-resolve 'ansatz.core/ansatz-env)
-                                                   (catch Exception _ nil))]
-                          (env/lookup global-env (name/from-string s))))]
-          (let [lps (vec (.levelParams ^ConstantInfo ci))]
-            (e/const' (name/from-string s) (mapv (fn [_] lvl/zero) lps)))
-          (throw (ex-info (str "Cannot compile type: " s) {:form s})))))
-
-    (and (sequential? form) (seq form))
-    (let [h (if (nil? (first form)) "nil" (str (first form)))]
-      (case h
-        ;; Non-dependent function type. Glyphs: `=>` (the canonical arrow), `→`, `arrow`, AND `->`.
-        ;; NOTE: design #54's "`->` is Clojure threading, never an arrow" applies to TERM position
-        ;; (the fvar elaborator, elaborate.clj) where the ambivalence is real. compile-type handles
-        ;; only TYPES, where `->` is unambiguously a function arrow (as in Lean) — threading is
-        ;; meaningless in a type. So `->` IS an arrow here. N-ary currying: (=> A B C) = A → B → C.
-        ("arrow" "=>" "→" "->")
-        (let [parts (vec (rest form))]
-          (when (< (count parts) 2)
-            (throw (ex-info "arrow / => expects at least two types" {:form form})))
-          (letfn [(build [ps d]
-                    (if (= 1 (count ps))
-                      (compile-type env scope d (first ps) self-name self-const)
-                      (e/arrow (compile-type env scope d (first ps) self-name self-const)
-                               (build (rest ps) (inc d)))))]
-            (build parts depth)))
-        ;; Dependent function type: (forall [a Type, b Type, ...] body)
-        ;; Needed so structure/inductive fields can express categorical operations
-        ;; like (forall [a Ob b Ob c Ob] (=> (Hom a b) (=> (Hom b c) (Hom a c))))
-        ;; and equation axioms like (forall [a M b M c M] (= (mul (mul a b) c) ...)).
-        "forall"
-        (let [[_ binder-vec & body-forms] form
-              binders    (parse-binders binder-vec)
-              body-sexpr (if (= 1 (count body-forms))
-                           (first body-forms)
-                           (throw (ex-info "forall expects exactly one body form"
-                                           {:forms body-forms})))]
-          (letfn [(build [bs scope depth]
-                    (if (empty? bs)
-                      (compile-type env scope depth body-sexpr self-name self-const)
-                      (let [[nam typ-sexpr] (first bs)
-                            typ-expr  (compile-type env scope depth typ-sexpr self-name self-const)
-                            new-scope (assoc scope nam depth)
-                            body-expr (build (rest bs) new-scope (inc depth))]
-                        (e/forall' (str nam) typ-expr body-expr :default))))]
-            (build binders scope depth)))
-        ;; Arithmetic operators
-        ("+" "-" "*")
-        (let [op (case h "+" "HAdd.hAdd" "*" "HMul.hMul" "-" "HSub.hSub")
-              ic (case h "+" "instHAdd"   "*" "instHMul"   "-" "instHSub")
-              in (case h "+" "instAddNat" "*" "instMulNat" "-" "instSubNat")
-              nat (e/const' (name/from-string "Nat") [])
-              a (compile-type env scope depth (nth form 1) self-name self-const)
-              b (compile-type env scope depth (nth form 2) self-name self-const)]
-          (e/app* (e/const' (name/from-string op) [lvl/zero lvl/zero lvl/zero])
-                  nat nat nat
-                  (e/app* (e/const' (name/from-string ic) [lvl/zero])
-                          nat (e/const' (name/from-string in) []))
-                  a b))
-        ;; Equality
-        ("=" "Eq")
-        (let [args (vec (rest form))
-              [ty lhs rhs] (if (= 3 (count args))
-                             (mapv #(compile-type env scope depth % self-name self-const) args)
-                             [(e/const' (name/from-string "Nat") [])
-                              (compile-type env scope depth (nth args 0) self-name self-const)
-                              (compile-type env scope depth (nth args 1) self-name self-const)])]
-          (e/app* (e/const' (name/from-string "Eq") [(lvl/succ lvl/zero)]) ty lhs rhs))
-        ;; Prop-valued ≤ for Nat: (le a b) → @LE.le Nat instLENat a b
-        "le"
-        (let [nat (e/const' (name/from-string "Nat") [])
-              inst (e/const' (name/from-string "instLENat") [])
-              a (compile-type env scope depth (nth form 1) self-name self-const)
-              b (compile-type env scope depth (nth form 2) self-name self-const)]
-          (e/app* (e/const' (name/from-string "LE.le") [lvl/zero])
-                  nat inst a b))
-        ;; List.nil Nat: (nil) → @List.nil Nat
-        "nil"
-        (e/app (e/const' (name/from-string "List.nil") [lvl/zero])
-               (e/const' (name/from-string "Nat") []))
-        ;; List.cons Nat: (cons a b) → @List.cons Nat a b
-        "cons"
-        (let [nat (e/const' (name/from-string "Nat") [])
-              a (compile-type env scope depth (nth form 1) self-name self-const)
-              b (compile-type env scope depth (nth form 2) self-name self-const)]
-          (e/app* (e/const' (name/from-string "List.cons") [lvl/zero])
-                  nat a b))
-        ;; Default: application
-        (reduce e/app (mapv #(compile-type env scope depth % self-name self-const) form))))
-
-    ;; String: read as Clojure form and recurse (field specs use strings)
-    (string? form)
-    (let [parsed (read-string form)]
-      (compile-type env scope depth parsed self-name self-const))
-
-    :else (throw (ex-info (str "Cannot compile type: " form) {:form form}))))
+(defn- lift-fields
+  "Insert the recursor's motive/minors between parameters and constructor fields."
+  [ctor n-params base-depth]
+  (mapv (fn [i field]
+          (update field :type e/lift (- base-depth n-params) i))
+        (range) (:fields ctor)))
 
 ;; ============================================================
 ;; Phase 2: Validation
@@ -363,19 +223,6 @@
                                   (:type (nth fields i))
                                   body :default))))))
 
-(defn- compile-fields
-  "Compile constructor field types starting at [base-scope, base-depth].
-   Returns [{:name :sym :type (Ansatz Expr)} ...]"
-  [env base-scope base-depth fields-spec self-name self-const]
-  (loop [i 0 scope base-scope depth base-depth acc []]
-    (if (>= i (count fields-spec))
-      acc
-      (let [[fname ftype-form] (nth fields-spec i)
-            ftype (compile-type env scope depth ftype-form self-name self-const)
-            [scope' depth'] (sbind scope depth fname)]
-        (recur (inc i) scope' depth'
-               (conj acc {:name (str fname) :sym fname :type ftype}))))))
-
 (defn- is-recursive-field?
   "Check if a field has a recursive type."
   [field ind-name]
@@ -417,11 +264,8 @@
    base-scope base-depth self-name self-const is-rec]
   (let [n-params (count params)
         n-indices (count indices)
-        ;; Compile field types at the minor's inner telescope
-        fields (compile-fields env base-scope base-depth
-                               (mapv (fn [f] [(:sym f) (:type-form f)])
-                                     (:field-specs ctor))
-                               self-name self-const)
+        ;; Lift field types into the minor's inner telescope
+        fields (lift-fields ctor n-params base-depth)
         n-fields (count fields)
         ;; Identify recursive fields for IH
         rec-field-indices (when is-rec
@@ -446,20 +290,12 @@
         ;; The return indices are compiled at depth n-params + n-fields (scope of params + fields)
         ;; We need to lift them to body-depth
         ctor-return-indices (or (:compiled-return-indices ctor) [])
-        ;; Lift: each index was compiled at ctor field depth (n-params + n-fields)
-        ;; Now at body-depth = base-depth + n-fields + n-ih
-        ;; The bvars in index exprs reference params (0..n-params-1) and fields (n-params..n-params+n-fields-1)
-        ;; At body-depth with base-scope, params are sref-accessible, fields are at base-depth+i
-        ;; We need to recompile indices at body-depth using the field scope
-        recompiled-indices (when (pos? n-indices)
-                             (let [field-scope (reduce (fn [s [i f]] (assoc s (:sym f) (+ base-depth i)))
-                                                       base-scope (map-indexed vector fields))]
-                               (mapv (fn [idx-form]
-                                       (compile-type env field-scope body-depth idx-form
-                                                     self-name (e/const' ind-name ind-lvls)))
-                                     (:return-index-forms ctor))))
+        lifted-indices (mapv #(-> %
+                                  (e/lift (- base-depth n-params) n-fields)
+                                  (e/lift n-ih 0))
+                             ctor-return-indices)
         body (reduce (fn [acc idx] (e/app acc idx))
-                     motive-ref (or recompiled-indices []))
+                     motive-ref (or lifted-indices []))
         body (e/app body ctor-app)]
     ;; Wrap IH binders (from right to left)
     ;; IH for recursive field i: motive(field-indices..., field_i)
@@ -511,11 +347,8 @@
         [scope depth] (reduce (fn [[s d] c]
                                 (sbind s d (symbol (str "minor_" (:name c)))))
                               [scope depth] ctors)
-        ;; Now at depth = pre-fields, compile field types
-        fields (compile-fields env scope depth
-                               (mapv (fn [f] [(:sym f) (:type-form f)])
-                                     (:field-specs ctor))
-                               self-name self-const)
+        ;; Insert the motive and minor binders before the constructor fields
+        fields (lift-fields ctor n-params depth)
         n-fields (count fields)
         rec-field-indices (when is-rec
                             (vec (keep-indexed
@@ -690,11 +523,13 @@
                       t-ind (range n-indices))
         body (e/forall' "t" t-ind body :default)
 
-        ;; Wrap index foralls
+        ;; Insert motive/minors before the index telescope, preserving earlier indices.
+        ;; Lean kernel/inductive.cpp declare_recursors abstracts these parameter fvars.
         body (loop [i (dec n-indices) body body]
                (if (< i 0) body
                    (recur (dec i) (e/forall' (:name (nth indices i))
-                                             (:compiled-type (nth indices i))
+                                             (e/lift (:compiled-type (nth indices i))
+                                                     (+ n-motives n-minors) i)
                                              body :default))))
 
         ;; Wrap minors (right to left)
@@ -723,14 +558,14 @@
                                  self-name self-const)]
                         (env/mk-recursor-rule
                          (name/from-string (:full-name ctor))
-                         (count (:field-specs ctor))
+                         (count (:fields ctor))
                          rhs)))
                     (range n-ctors))
 
         ;; K-axiom: only for Prop with exactly 1 ctor with 0 fields
         is-k (and (= result-level lvl/zero)
                   (= n-ctors 1)
-                  (zero? (count (:field-specs (first ctors)))))]
+                  (zero? (count (:fields (first ctors)))))]
 
     (env/mk-recursor rec-name (vec rec-level-params) rec-type
                      :all [ind-name]
@@ -745,25 +580,9 @@
 ;; Public API
 ;; ============================================================
 
-(defn- parse-type-form
-  "Parse a parameter type form, extracting universe level params.
-   (Type u) → {:level-param u, :compiled Sort(succ(param(u)))}
-   Type     → {:level-param nil, :compiled Sort(succ(zero))}
-   Prop     → {:level-param nil, :compiled Sort(zero)}"
-  [form]
-  (cond
-    (and (sequential? form) (= 'Type (first form)) (= 2 (count form)))
-    (let [u (second form)
-          u-name (name/from-string (str u))]
-      {:level-param u-name :level (lvl/param u-name)
-       :compiled (e/sort' (lvl/succ (lvl/param u-name)))})
-    (= 'Type form)
-    {:level-param nil :level (lvl/succ lvl/zero)
-     :compiled (e/sort' (lvl/succ lvl/zero))}
-    (= 'Prop form)
-    {:level-param nil :level lvl/zero
-     :compiled (e/sort' lvl/zero)}
-    :else nil))
+(defn- type-level-param [form]
+  (when (and (sequential? form) (= 'Type (first form)) (= 2 (count form)))
+    (name/from-string (str (second form)))))
 
 (defn define-inductive
   "Define an inductive type, adding kernel declarations to env.
@@ -796,7 +615,7 @@
         ;; E.g., [α (Type u) β (Type v)] → level params [u, v]
         level-param-names (vec (distinct
                                 (keep (fn [[_ ptype-form]]
-                                        (:level-param (parse-type-form ptype-form)))
+                                        (type-level-param ptype-form))
                                       param-pairs)))
         ;; Level param Level objects for const references
         ind-levels level-param-names
@@ -820,78 +639,14 @@
 
         self-const (e/const' ind-name ind-level-levels)
 
-        ;; Compile parameter types
-        params (loop [i 0 scope {} depth 0 acc []]
-                 (if (>= i n-params)
-                   acc
-                   (let [[pname ptype-form] (nth param-pairs i)
-                         parsed (parse-type-form ptype-form)
-                         ptype (if parsed
-                                 (:compiled parsed)
-                                 (compile-type env scope depth ptype-form
-                                               ind-name-str self-const))
-                         [scope' depth'] (sbind scope depth pname)]
-                     (recur (inc i) scope' depth'
-                            (conj acc {:name (str pname) :sym pname
-                                       :compiled-type ptype :depth i})))))
-
-        param-scope (reduce (fn [s p] (assoc s (:sym p) (:depth p))) {} params)
-
-        ;; Parse indices (if any)
-        index-pairs (vec (partition 2 (or indices [])))
-        n-indices (count index-pairs)
-        ;; Compile index types at depth n-params (after params)
-        compiled-indices (loop [i 0 scope param-scope depth n-params acc []]
-                           (if (>= i n-indices)
-                             acc
-                             (let [[iname itype-form] (nth index-pairs i)
-                                   parsed (parse-type-form itype-form)
-                                   itype (if parsed
-                                           (:compiled parsed)
-                                           (compile-type env scope depth itype-form
-                                                         ind-name-str self-const))
-                                   [scope' depth'] (sbind scope depth iname)]
-                               (recur (inc i) scope' depth'
-                                      (conj acc {:name (str iname) :sym iname
-                                                 :compiled-type itype :depth (+ n-params i)})))))
-
-        ;; Parse constructors
-        ;; Each ctor-spec is [cname cfields-spec] or [cname cfields-spec return-indices]
-        ctors (mapv (fn [i ctor-entry]
-                      (let [[cname cfields-spec return-idx-forms]
-                            (if (= 3 (count ctor-entry))
-                              ctor-entry
-                              [(first ctor-entry) (second ctor-entry) nil])
-                            cname-str (if (nil? cname) "nil" (str cname))
-                            cfields-pairs (vec (partition 2 cfields-spec))
-                            ;; Compile field types at ctor telescope depth
-                            fields (compile-fields env param-scope n-params
-                                                   cfields-pairs ind-name-str self-const)
-                            n-fields (count fields)
-                            ;; For non-indexed types, return-idx-forms is nil
-                            ;; For indexed types, compile each return index at depth n-params + n-fields
-                            field-scope (reduce (fn [s [j f]] (assoc s (:sym f) (+ n-params j)))
-                                                param-scope (map-indexed vector fields))
-                            compiled-ret-indices
-                            (when (and (pos? n-indices) return-idx-forms)
-                              (mapv (fn [idx-form]
-                                      (compile-type env field-scope (+ n-params n-fields)
-                                                    idx-form ind-name-str self-const))
-                                    return-idx-forms))
-                            ;; Keep original forms for recompilation at different depths
-                            field-specs (mapv (fn [j [fname ftype-form]]
-                                                {:name (str fname) :sym fname
-                                                 :type-form ftype-form})
-                                              (range) cfields-pairs)]
-                        {:name cname-str :sym (symbol cname-str) :idx i
-                         :full-name (str ind-name-str "." cname-str)
-                         :fields fields
-                         :field-specs field-specs
-                         :return-index-forms (or return-idx-forms
-                                                 ;; Default: use param refs as indices (non-indexed)
-                                                 (vec (repeat n-indices nil)))
-                         :compiled-return-indices (or compiled-ret-indices [])}))
-                    (range) ctors-spec)
+        ;; Lean Elab/MutualInductive.lean elabHeaders/withInductiveLocalDecls,
+        ;; then Elab/Inductive.lean elabCtors: no provisional constant in elaboration.
+        {:keys [params indices ctors]}
+        (elab/elab-inductive env ind-name-str param-pairs
+                             (vec (partition 2 (or indices []))) ctors-spec
+                             result-level self-const)
+        compiled-indices indices
+        n-indices (count indices)
 
         ;; Phase 2: Validation
         _ (doseq [ctor ctors, field (:fields ctor)]

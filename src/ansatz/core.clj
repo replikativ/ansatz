@@ -3186,17 +3186,17 @@
   "Rewrite bare references to a parent's field names inside a child structure field-type form
    into explicit subobject projections — mirroring Lean's `fromSubobject` resolution (../lean4
    Structure.lean: parent fields are opened into scope as projections of the subobject while
-   elaborating child fields). A reference to parent field `f` becomes `(Parent.f carrier… toField)`:
+   elaborating child fields). A reference to parent field `f` becomes `(@Parent.f carrier… toField)`:
    the parent projection applied (carrier args explicit) to the embedded subobject. This keeps the
-   child's axiom fields (e.g. `mul_add : mul a (add b c) = …`) admissible by the existing field
-   compiler with no changes to it. `field-set` = parent field-name strings; `carrier-args` = the
-   carrier s-exprs from `:extends (Parent carrier…)`; `to-field` = the subobject field symbol.
+   child's axiom fields (e.g. `mul_add : mul a (add b c) = …`) explicit when the
+   projection is partially applied through the term elaborator. `field-set` = parent field-name
+   strings; `carrier-args` = the carrier s-exprs from `:extends (Parent carrier…)`; `to-field` = the subobject field symbol.
    Assumes no local binder shadows a parent field name (parent fields are ops/axioms like add/zero;
    child binders are a/b/c — no collision)."
   [form field-set parent-sym carrier-args to-field]
   (cond
     (and (symbol? form) (contains? field-set (str form)))
-    (apply list (symbol (str parent-sym "." form)) (concat carrier-args [to-field]))
+    (apply list (symbol (str "@" parent-sym "." form)) (concat carrier-args [to-field]))
     (seq? form)
     (apply list (map #(rewrite-inherited-field-refs % field-set parent-sym carrier-args to-field) form))
     (vector? form)

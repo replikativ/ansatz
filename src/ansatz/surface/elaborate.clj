@@ -644,11 +644,13 @@
         ;; the user supplies exactly the full binder count (implicits INCLUDED, e.g.
         ;; (List.cons Nat x xs) or (TRBTree.node Nat color l v r)), apply positionally —
         ;; i.e. treat like @-explicit (no implicit insertion). Fewer args ⇒ implicits are
-        ;; inferred as usual (e.g. (List.cons x xs), (Eq n n)).
+        ;; inferred as usual (e.g. (List.cons x xs), (Eq n n)). Typed auxiliary
+        ;; locals, including inductive family headers, follow the same convention.
         total-binders (loop [t head-type c 0]
                         (if (e/forall? t) (recur (e/forall-body t) (inc c)) c))
         explicit? (or explicit?
-                      (and (e/const? head-expr) (pos? (count arg-sexprs))
+                      (and (or (e/const? head-expr) (e/fvar? head-expr))
+                           (pos? (count arg-sexprs))
                            (= (count arg-sexprs) total-binders)))
         ;; Insert leading implicits (unless @-explicit or positional)
         [head-expr head-type] (if explicit?
@@ -697,7 +699,10 @@
                              arg-expr)
                   ;; Unify arg type with expected domain
                   arg-type (infer-with-mvars est arg-expr)]
-              (unify! est arg-type dom-type)
+              (when-not (unify! est arg-type dom-type)
+                (elab-error! "Type mismatch in application"
+                             {:fn head-sexpr :argument arg-sexpr
+                              :expected dom-type :inferred arg-type}))
               (let [expr' (e/app expr arg-expr)
                     body-inst (e/instantiate1 (e/forall-body ty) arg-expr)
                     ty' (whnf-with-mvars est body-inst)]
@@ -1711,6 +1716,11 @@
                  (update :tc update :lctx red/lctx-add-local fid (str sym) ty))]
     (f est' fid)))
 
+(defn unify-subterms!
+  "Try definitional unification in a live elaboration, assigning its metavariables."
+  [est lhs rhs]
+  (unify! est lhs rhs))
+
 (defn subterm-type
   "The (whnf'd, zonked) TYPE of an elaborated subterm — for type-directed dispatch
    (e.g. count → vsize / Map.size / List.length depending on the collection type)."
@@ -1868,6 +1878,37 @@
    (elaborate* :strict env lctx sexpr expected))
   ([env lctx sexpr expected opts]
    (elaborate* :strict env lctx sexpr expected opts)))
+
+(defn elaborate-binders-in-context
+  "Elaborate type binders and a resulting type with their locals live through
+   checking and synthesis, then abstract the telescope once. Lean's
+   Elab/Binders.lean elabBinders and Elab/Inductive.lean elabCtors staging."
+  [environment lctx binder-pairs body-form {:keys [check-result check-binder-type]}]
+  (let [est (-> (mk-elab-state environment) (attach-elab-lctx lctx) (assoc :prop-ctx true))]
+    (letfn [(bind [est pairs locals]
+              (if-let [[sym type-form] (first pairs)]
+                (let [type (elab-type est type-form)]
+                  (with-local est sym type
+                    (fn [est id]
+                      (bind est (next pairs) (conj locals {:id id :name (str sym) :type type})))))
+                (let [body (elab-type est body-form)
+                      body (if check-result (check-result est body) body)
+                      ;; Unresolved binder holes must fail before parameter
+                      ;; canonicalization can replace them, as in elabCtors.
+                      body (strict-finalize (refresh-env est) body)
+                      types (mapv (fn [{:keys [type]}]
+                                    (let [type (zonk est type)]
+                                      (if check-binder-type (check-binder-type est type) type)))
+                                  locals)
+                      ids (mapv :id locals)
+                      body (e/abstract-many body ids)]
+                  (reduce (fn [body i]
+                            (e/forall' (:name (nth locals i))
+                                       (e/abstract-many (nth types i) (subvec ids 0 i))
+                                       body :default))
+                          body (reverse (range (count locals)))))))]
+      (let [expr (bind est binder-pairs [])]
+        (inline-local-matchers environment (elab-env est) expr)))))
 
 (defn elaborate-in-context-with-env
   "Elaborate with a local auxiliary-declaration environment, returning {:env :expr}.
