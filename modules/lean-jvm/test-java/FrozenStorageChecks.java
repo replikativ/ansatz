@@ -203,7 +203,11 @@ public final class FrozenStorageChecks {
         Node io=ctor(e,cert);Object payload=fields(io)[0];check(payload==n&&rc(io)==1);
         freeze(e,payload,row);release(e,io);check((Boolean)get(io,"dead")&&fields(io)[0]==null&&!(Boolean)get(n,"dead"));
         Node interrupted=ctor(e,1L);Thread.currentThread().interrupt();
-        try { refuse(()->freeze(e,interrupted,record(nat))); } finally { Thread.interrupted(); }
+        try {
+            freeze(e,interrupted,record(nat));throw new AssertionError("Interrupted frozen preflight accepted");
+        } catch(java.util.concurrent.CancellationException expected) {
+            check(Thread.currentThread().isInterrupted());
+        } finally { Thread.interrupted(); }
         check(rc(interrupted)==1&&get(interrupted,"frozen")==null);
         // Compact DAG doubles logical occurrences; saturation refuses without an exponential walk/partial commit.
         Node diamond=ctor(e,1L);Object diamondPlan=record(nat);List<Node> diamondNodes=new ArrayList<>();diamondNodes.add(diamond);

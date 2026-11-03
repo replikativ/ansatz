@@ -49,4 +49,21 @@ structure Dependent where
 structure ProofBearing where
   valid : True
 
+inductive Higher : Type 1 where
+  | only
+
+def echoAST (value : AST) : AST := value
+def scalarStep (value : UInt32) : UInt32 := value + 1
+def opValue : Op := .add
+def boxWord : Box UInt32 := ⟨42⟩
+def ioIdentity (value : Mixed) : IO Mixed := pure value
+def echoNested (value : List (Box UInt32)) : List (Box UInt32) := value
+def echoHigher (value : List Higher) : List Higher := value
+def emptyValue : Empty := {}
+def singletonValue : Singleton := .only
+def unitIO : IO Unit := pure ()
+
+unsafe def unsafeEntry (value : AST) : AST := value
+def implicitEntry {value : Nat} : Nat := value
+
 end NativeNominalFixtures

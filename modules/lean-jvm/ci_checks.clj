@@ -39,6 +39,12 @@
               "test/used_products_checks.clj"
               "test/representation_checks.clj"
               "test/compiler_products_checks.clj"
+              "test/compiler_bundle_checks.clj"
+              "test/entry_v3_checks.clj"
+              "test/representation_witness_checks.clj"
+              "test/representation_entry_checks.clj"
+              "test/compiler_v3_reconciliation_checks.clj"
+              "test/nominal_artifact_checks.clj"
               "test/native_transport_checks.clj"
               "test/io_error_checks.clj"
               "test-engine/source-contracts/source_authority_contracts.clj"]]
@@ -75,6 +81,15 @@
               ['ansatz-lean-jvm-used-products-checks []]
               ['ansatz-lean-jvm-representation-checks ["test/fixtures/nominal-observations/observations.json"]]
               ['ansatz-lean-jvm-compiler-products-checks []]
+              ['ansatz-lean-jvm-compiler-bundle-checks ["."]]
+              ['ansatz-lean-jvm-entry-v3-checks ["test/fixtures/nominal-entry-v3/entry-evidence.json"
+                                               "test/fixtures/nominal-entry-v3/oracle-entry-evidence.json"]]
+              ['ansatz-lean-jvm-representation-witness-checks ["test/fixtures/nominal-entry-v3/builtin-observations.json"]]
+              ['ansatz-lean-jvm-representation-entry-checks ["test/fixtures/nominal-entry-v3/entry-evidence.json"]]
+              ['ansatz-lean-jvm-compiler-v3-reconciliation-checks ["test/fixtures/nominal-entry-v3/oracle-entry-evidence.json"
+                                                                 "test/fixtures/nominal-entry-v3/typed-export.jsonl"]]
+              ['ansatz-lean-jvm-nominal-artifact-checks ["test/fixtures/nominal-entry-v3/oracle-entry-evidence.json"
+                                                      "test/fixtures/nominal-entry-v3/producer-build-receipt.json"]]
               ['ansatz-lean-jvm-native-transport-checks []]
               ['ansatz-lean-jvm-io-error-checks []]
               ['source-authority-contracts ["."]]]

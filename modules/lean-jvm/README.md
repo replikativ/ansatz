@@ -10,8 +10,11 @@ World backend.
 This guide describes the general interop and preparation APIs in the current
 source tree. These APIs are available starting with SDK `0.2.580`. Earlier
 releases expose only Nat-to-Nat, String-to-String and IO Unit convenience APIs.
-The opt-in [regular-file filesystem context](FILESYSTEM.md) is a later integration
-candidate; this paragraph does not claim it exists in SDK 0.2.580.
+The new v3 datatype boundary described below is implemented in this source tree;
+its reviewed producer archive has not yet been published. This is not a claim
+that a released SDK or the published v2 bundle exposes those types.
+The opt-in [regular-file filesystem context](FILESYSTEM.md) and v3 datatype
+support below are later additions; this paragraph does not put them in 0.2.580.
 
 This is an experimental bounded profile. General named calls replace the original
 three-signature restriction; `natFunction`, `stringFunction`, and `runMain` remain
@@ -130,6 +133,9 @@ producer bundles retain their 16-entry preparation limit. This count is
 independent of function arity; dependency, byte and execution budgets still apply.
 Discovery does not automatically admit every declaration in a module.
 
+This table describes the legacy v1/v2 carriers. The v3 path described below adds
+shared typed container and byte views; old prepared artifacts keep their carriers.
+
 | Lean type | Java carrier | Clojure carrier |
 | --- | --- | --- |
 | Nat / Int | Exact integer arguments; `BigInteger` results | Exact integers |
@@ -186,13 +192,16 @@ Uncaught Lean IO errors throw `LeanException` with code `GuestIOError`. Its
 immutable `details()` map currently exposes authenticated `userError` messages as
 `{"kind": "userError", "message": "..."}`. Messages are limited to 2,048 UTF-16
 units without splitting a surrogate pair; `messageTruncated: true` marks clipping.
-Other error variants keep empty details. This is a partial error projection, not
-a general custom-datatype codec. Host cancellation and resource limits remain
+Other error variants keep empty details. This is a partial error projection;
+the v3 datatype boundary does not expose arbitrary IO.Error internals. Host cancellation and resource limits remain
 terminal host failures rather than catchable Lean exceptions.
 
-Polymorphic, implicit/dependent, proof-bearing or higher-order entry arguments,
-arbitrary records/enums/recursive ADTs, constrained Fin/Vector/Subtype/Rat
-adapters, callbacks, task resources, and public forks remain unsupported. The
+With the new v3 producer, supported entry-reachable enums, records and ordinary
+recursive datatypes have the automatic boundary below. Open polymorphic,
+implicit/dependent, proof-bearing or higher-order host arguments, indexed or
+mutually recursive families, nonuniform recursion, constrained
+Fin/Vector/Subtype/Rat adapters, callbacks, task/resource fields, cyclic values,
+and public forks remain unsupported. The
 [release checks](RELEASE_CHECKLIST.md) distinguish follow-up work from this boundary.
 An unsupported type or capability throws; it is never replaced by a guessed value
 or native execution fallback. Host argument refusal occurs before guest effects
@@ -205,6 +214,50 @@ conversion. Signature descriptors have separate depth/node bounds. Lazy sequence
 and unbounded Iterables are not materialized implicitly. These are marshalling
 limits, not claims that all Lean arithmetic or program state is restricted to
 those sizes.
+
+### Automatic datatypes with the v3 producer
+
+The new v3 source and artifact path discovers supported closed types, constructors
+and fields from native declaration, callable and compiler-layout evidence.
+Application authors supply entry names, not handwritten datatype bindings. The
+three-file [expression application](examples/datatypes/README.md) defines an enum,
+recursive tree and mixed record across `Syntax`, `Eval` and `Main`; see
+[value examples](VALUE_EXAMPLES.md#automatic-datatype-values-v3) for Java and Clojure.
+This path requires the new reviewed v3 producer, whose archive publication is
+still pending. Published v1/v2 conventions and byte-array copies remain unchanged.
+
+V3 handles expose detached `LeanType` metadata through `argumentTypes()` and
+`resultType()` when `hasTypeMetadata()` is true. Their public `descriptor()` also
+contains actual `LeanType` objects for arguments and result, rather than internal
+graph indices. Old handles report false and these metadata accessors throw
+`UnsupportedSignature`; reprepare with v3 to acquire metadata.
+
+Nominal Java results are immutable `LeanData` values with structured constructor
+Names and ordered logical fields. Clojure returns immutable tagged map views
+with `:lean/type`, `:lean/constructor` and `:lean/fields`; nested containers use
+views too. V3 bytes are immutable `LeanBytes`; `toByteArray()` explicitly copies.
+V3 Clojure Char results use characters for BMP values and scalar integers for
+supplementary values. Typed conversion depth is bounded at 1,024; the legacy
+recursive conversion path retains its depth-128 limit.
+Use `LeanType.materialize(value)` in Java or `lean/materialize` in Clojure for
+ordinary collection/byte snapshots. These detached values remain usable after
+Project close and can enter a fresh compatible Project. Compatibility requires
+matching logical type, defining-product identity, representation and runtime
+value-class cohort. Editing a defining module conservatively invalidates its
+values even when its declaration Name or apparent layout stays the same.
+
+First export validates and freezes the unique reachable graph without copying
+its data payload. Reimporting a certified compatible root uses stored bounds
+instead of rescanning that graph. Field access can allocate views or boxes;
+construction, first validation, equality and materialization have real costs.
+This is not a zero-allocation or zero-first-crossing-cost guarantee.
+
+All explicit arguments share one preflight budget outside the execution lease.
+Bad host arguments fail with `InvalidArgument`; aggregate limits fail with
+`ResourceLimit`, before guest effects, leaving the Project reusable. Shared
+certified payload counts once. IO custom-data success freezes only its pure
+payload and releases the IO envelope. Uncaught guest IO errors retain the
+existing terminal Project policy; immutable returned values remain readable.
 
 ### Clojure REPL
 

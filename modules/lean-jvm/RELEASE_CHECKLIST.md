@@ -31,12 +31,36 @@ as review or CI artifacts. Keep historical validation/source receipts unchanged;
 they do not validate a new candidate. Audit documentation examples, local links,
 producer source hashes and attribution before release.
 
+## V3 datatype acceptance
+
+Preserve old v1/v2 carriers, metadata refusals and artifact compatibility. Check
+native-derived `LeanType` descriptors, all constructors and scalar lanes,
+nominal/builtin nesting, `Option Unit`, immutable bytes, explicit materialization,
+source reconciliation and defining-product custody. Changed defining products,
+wrong identities, malformed host fields and unsupported families must fail.
+
+Run the independent three-file [datatype application](examples/datatypes/README.md)
+through public Java and Clojure calls, including transformation, records, custom
+IO payloads and reuse in a new Project after close. Check aggregate input budgets
+before execution, healthy reuse after host refusal, shared certified payloads,
+and the existing terminal policy after guest IO failure. Compare the four-type
+oracle fingerprints with genuine native captures. Run the isolated nominal
+application-JAR consumer, the independent native oracle example and the full
+engine contract gate before marking acceptance complete. Local implementation
+checks do not replace these gates or establish a performance claim.
+
 ## Publication order
 
-Publish and verify the reviewed v2 native producer bundle first, then update its
-[setup instructions](producer/README.md). Land the SDK only after its acceptance
-and the user's scope/release discussion. Use the actual coordinated release
-version. The deployment job must verify and publish the exact checked JAR/POM
+The existing published v2 bundle retains its supported scope. The new reviewed
+v3 datatype producer is implemented but its archive has not yet been published.
+The user has authorized landing datatype support before the later FFI discussion;
+that authorization does not establish archive publication or acceptance of
+uncompleted gates. Before claiming a released v3 workflow, publish and verify
+the exact reviewed producer archive, update its [setup instructions](producer/README.md),
+and complete SDK acceptance against those bytes. Main still automatically
+publishes coordinated SDK artifacts, so review that consequence before merging.
+Use the actual coordinated release version; do not assign a release claim from
+a local build. The deployment job must verify and publish the exact checked JAR/POM
 bytes without rebuilding them.
 
 ## Simm.is launch article

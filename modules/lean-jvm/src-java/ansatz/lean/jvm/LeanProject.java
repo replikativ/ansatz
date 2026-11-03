@@ -24,7 +24,10 @@ public final class LeanProject implements AutoCloseable {
             String signature = (String) Bridge.SIGNATURE.invoke(token, handle);
             int arity = ((Number) Bridge.ARITY.invoke(token, handle)).intValue();
             java.util.Map<String, Object> descriptor = (java.util.Map<String, Object>) Bridge.DESCRIPTOR.invoke(token, handle);
-            return new LeanFunction(this, handle, name, signature, arity, descriptor);
+            java.util.List<?> types = (java.util.List<?>) Bridge.TYPES.invoke(token, handle);
+            return new LeanFunction(this, handle, name, signature, arity, descriptor,
+                    types == null ? null : (java.util.List<LeanType>) types.get(0),
+                    types == null ? null : (LeanType) types.get(1));
         } catch (Throwable failure) { throw Bridge.failure(failure); }
     }
 

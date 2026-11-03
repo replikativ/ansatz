@@ -3,6 +3,7 @@
   (:require [clojure.test :refer [deftest is run-tests]]
             [clojure.data.json :as json]
             [ansatz.lean.jvm.compiler.products :as products]
+            [ansatz.lean.jvm.compiler.local :as compiler-local]
             [ansatz.lean.jvm.compiler.transport :as transport]
             [ansatz.lean.jvm.installed :as installed]
             [ansatz.lean.jvm.used-products :as used])
@@ -185,5 +186,43 @@
           (is (= :compiler-baseline-mismatch
                  (reason #(#'products/compiler-baseline! state (assoc-in inputs path "wrong"))))))
         (is (= :compiler-baseline-mismatch (reason #(#'products/compiler-baseline! state {}))))))))
+
+(deftest compilation-baseline-binds-only-selected-authorized-defining-products
+  (with-tree
+    (fn [root]
+      (let [context (fixture! root) state (:state context)
+            snapshot (#'compiler-local/compilation-products! state [implicit] [foreign])
+            inputs {"profile" compiler-local/nominal-profile "installedImports" (:installed context)
+                    "compilationProducts" snapshot}
+            context (assoc context :inputs inputs)
+            payload (#'products/capture-context! context required)]
+        (is (= #{foreign implicit} (set (map #(get % "module") (get snapshot "modules")))))
+        (is (= snapshot (#'compiler-local/compilation-products! state [foreign implicit] [foreign])))
+        (is (false? (:requires-v3-rebuild payload)))
+        (is (true? (#'products/verify-context! payload)))
+        (is (true? (compiler-local/verify-compilation-products! state inputs)))
+        ;; Removing a dependency cannot be repaired by later origin discovery.
+        (let [partial (assoc inputs "compilationProducts"
+                             (#'compiler-local/compilation-products! state [] [foreign]))]
+          (is (= :missing-compilation-product
+                 (reason #(#'products/capture-context! (assoc context :inputs partial) required)))))
+        (write! (.resolve ^Path (:sysroot state) "lib/lean") "Init/Data/Ord/Basic.olean.private" "appeared")
+        (is (refused? #(compiler-local/verify-compilation-products! state inputs)))
+        (is (refused? #(#'products/verify-context! payload)))))))
+
+(deftest compilation-baseline-profile-and-authorization-are-explicit
+  (with-tree
+    (fn [root]
+      (let [{:keys [state]} (fixture! root)
+            empty-baseline (#'compiler-local/compilation-products! state [] [])
+            nominal {"profile" compiler-local/nominal-profile "compilationProducts" empty-baseline}]
+        (is (= {"schema" used/schema "modules" []} empty-baseline))
+        (is (true? (compiler-local/verify-compilation-products! state nominal)))
+        (is (true? (compiler-local/verify-compilation-products! state {"profile" compiler-local/profile})))
+        (is (refused? #(compiler-local/verify-compilation-products! state (dissoc nominal "compilationProducts"))))
+        (is (refused? #(compiler-local/verify-compilation-products! state (assoc nominal "profile" compiler-local/profile))))
+        (is (refused? #(#'compiler-local/compilation-products! state [(n "Unlisted")] [])))
+        (is (refused? #(#'compiler-local/compilation-products! state [implicit implicit] [])))
+        (is (refused? #(#'compiler-local/compilation-products! state [(n "..")] [])))))))
 
 (defn check! [] (run-tests 'ansatz-lean-jvm-compiler-products-checks))

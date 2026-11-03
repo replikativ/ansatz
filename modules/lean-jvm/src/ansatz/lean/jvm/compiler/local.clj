@@ -3,7 +3,7 @@
    Project is issued here. Uses the fixed compiler's monitored native transport."
   (:require [ansatz.lean.jvm.producer :as producer] [ansatz.lean.jvm.compiler.transport :as compiler]
             [clojure.string :as str] [ansatz.lean.jvm.installed :as installed]
-            [clojure.data.json :as json])
+            [clojure.data.json :as json] [ansatz.lean.jvm.used-products :as used])
   (:import [java.nio.file Path Files LinkOption StandardOpenOption]
            [java.nio.file.attribute FileAttribute]
            [java.nio.charset StandardCharsets CodingErrorAction]
@@ -11,6 +11,7 @@
            [java.util Locale]))
 
 (def profile "native-local-project-prepare/2")
+(def nominal-profile "native-local-nominal-project-prepare/3")
 (def ^:dynamic *build-start-nanos* nil)
 (def ^:private no-links (into-array LinkOption [LinkOption/NOFOLLOW_LINKS]))
 (def ^:private attrs (make-array FileAttribute 0))
@@ -100,6 +101,60 @@
     (installed/validate! snapshot)
     (require! (= snapshot (installed-snapshot! state (mapv #(get % "module") (get snapshot "modules"))))
               "ArtifactConflict" {:stage :installed-product-mutation})))
+(defn- compilation-modules! [names declared]
+  ;; Selection is advisory; it authorizes no imports. Missing later origins must
+  ;; trigger a new /3 compilation, never a post-hoc cache upgrade.
+  (require! (and (vector? names) (<= (count names) used/max-modules)
+                 (= (count names) (count (set names)))) "UnsupportedProjectConfig" {})
+  (doseq [name names]
+    (#'used/module! name)
+    (require! (or (installed/init? name) (some #{name} declared))
+              "ExternalImport" {:module name :stage :compilation-products}))
+  (let [modules (vec (sort-by #(json/write-str % :escape-unicode false :escape-slash false)
+                            (distinct (concat names declared))))]
+    (require! (<= (count modules) used/max-modules) "BuildResourceLimit" {}) modules))
+(defn- compilation-products! [state names declared]
+  (let [names (compilation-modules! names declared) total (atom 0)
+        manifest
+        {"schema" used/schema
+         "modules"
+         (mapv (fn [name]
+                 (let [products
+                       (mapv (fn [suffix relative]
+                               (let [path (source-path! (:sysroot state) (str "lib/lean/" relative))]
+                                 (if (Files/exists path no-links)
+                                   (let [_ (require! (Files/isRegularFile path no-links) "ArtifactConflict" {:path relative})
+                                         size (Files/size path)
+                                         _ (require! (and (<= 0 size installed/max-product-bytes)
+                                                          (<= (+ @total size) installed/max-total-bytes))
+                                                     "BuildResourceLimit" {:stage :compilation-products})
+                                         record (#'compiler/file-record path installed/max-product-bytes)]
+                                     (swap! total + (get record "bytes"))
+                                     (require! (<= @total installed/max-total-bytes) "BuildResourceLimit" {})
+                                     (assoc record "role" suffix "present" true))
+                                   (do (require! (Files/notExists path no-links) "ArtifactConflict" {:path relative})
+                                       {"role" suffix "present" false}))))
+                             installed/suffixes (installed/product-paths name))]
+                   {"module" name "productSha256" (get-in products [0 "sha256"]) "products" products})) names)}]
+    (used/authorize! manifest names [] declared)
+    (used/canonical-bytes manifest)
+    manifest))
+(defn verify-compilation-products!
+  "Recheck /3 used defining-product bytes, including optional absence. This is
+   not complete imported-environment attestation: transitive implementation
+   dependencies retain trusted-immutable-installed-official-toolchain/1 policy."
+  [state inputs]
+  (let [baseline (get inputs "compilationProducts")
+        nominal? (= nominal-profile (get inputs "profile"))]
+    (require! (= nominal? (contains? inputs "compilationProducts"))
+              "ArtifactConflict" {:stage :compilation-profile})
+    (when nominal?
+      (used/validate! baseline)
+      (let [names (mapv #(get % "module") (get baseline "modules"))
+            declared (mapv #(get % "module") (get-in inputs ["installedImports" "modules"] []))]
+        (require! (= baseline (compilation-products! state names declared))
+                  "ArtifactConflict" {:stage :compilation-product-mutation})))
+    true))
 (def ^:private init-name ["str" ["anonymous"] "Init"])
 (defn- ordinary [name meta?] {"module" name "importAll" false "isExported" true "isMeta" meta?})
 (defn- admit-header! [raw source captured-path]
@@ -203,15 +258,18 @@
    Captures only reachable modules and plans dependencies first. Returns preparation
    metadata, never runtime admission. No native reference/main is executed."
   [compiler {:keys [project source-root roots installed-imports helper helper-source helper-sha256 helper-source-sha256
-                     typed-exporter typed-exporter-source typed-exporter-sha256 typed-exporter-source-sha256 compile?] :as configuration} journal]
+                     typed-exporter typed-exporter-source typed-exporter-sha256 typed-exporter-source-sha256 compile? v3-dependency-modules] :as configuration} journal]
   (#'compiler/guard-code!)
   (require! (= implementation-record (#'compiler/source-record! implementation-source))
             "NativeCompileFailed" {:stage :implementation-mutation})
   (require! (and (map? configuration)
                  (every? #{:project :source-root :roots :installed-imports :helper :helper-source :helper-sha256 :helper-source-sha256
-                            :typed-exporter :typed-exporter-source :typed-exporter-sha256 :typed-exporter-source-sha256 :compile?}
+                            :typed-exporter :typed-exporter-source :typed-exporter-sha256 :typed-exporter-source-sha256 :compile? :v3-dependency-modules}
                          (keys configuration))
                  (or (nil? compile?) (boolean? compile?))) "UnsupportedProjectConfig" {})
+  (when (contains? configuration :v3-dependency-modules)
+    (require! (true? compile?) "UnsupportedProjectConfig" {})
+    (compilation-modules! v3-dependency-modules (or installed-imports [])))
   (vector! roots 128 "UnsupportedProjectConfig")
   (installed/declared! (or installed-imports []))
   (doseq [name installed-imports] (module-components name))
@@ -232,6 +290,8 @@
             installed-set (set installed-imports)
             _ (check-installed-shadow! root installed-imports)
             installed-products (installed-snapshot! state installed-imports)
+            compilation-products (when (contains? configuration :v3-dependency-modules)
+                                   (compilation-products! state v3-dependency-modules (or installed-imports [])))
             helper (#'compiler/executable! helper)
             helper-source (#'compiler/path! helper-source)
             helper-record (#'compiler/file-record helper (* 256 1024 1024))
@@ -283,6 +343,8 @@
                         "typedExporter" exporter-record "typedExporterSource" exporter-source-record "maxBuildSeconds" 600}
                 inputs (cond-> inputs installed-products
                          (assoc "profile" installed/preparation-profile "installedImports" installed-products))
+                inputs (cond-> inputs compilation-products
+                         (assoc "profile" nominal-profile "compilationProducts" compilation-products))
                 inputs (json/read-str (String. ^bytes (#'compiler/canonical inputs) StandardCharsets/UTF_8))
                 key (#'compiler/digest (#'compiler/canonical inputs))
                 target (.resolve ^Path (:cache state) (str "local-modules-" key))
@@ -290,6 +352,7 @@
                 frozen-files (atom (inventory! stage))
                 verify-sources! (fn []
                                   (verify-installed! state installed-products)
+                                  (verify-compilation-products! state inputs)
                                   (doseq [[name m] modules]
                                     (doseq [source-root [root copied]]
                                       (require! (= (:record m) (#'compiler/file-record (source-path! source-root (:relative m)) 1048576))

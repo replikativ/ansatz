@@ -6,22 +6,22 @@
   "sources": [
     {
       "path": "tools/lean-producer/src/NativeEntryTransport.lean",
-      "sha256": "f9dce93877e00ef5678e9f76a0edd66259beb74afea49e165e3dbfea54af4492"
+      "sha256": "fa60e6dba69ca7433dec3a0fb50108e97aebcf5e65f8a21799aace2d26ab7bb8"
     },
     {
       "path": "tools/lean-producer/src/NativeTypeGraph.lean",
-      "sha256": "1c9c8665db8cae9f5762de91e7a817e51a353dda1d9ec28298728491e09441fe"
+      "sha256": "361234f1a0031e66dd1ff73bf40da0d4a4c77088b757324b7bd2debb2079bd64"
     },
     {
       "path": "tools/lean-producer/src/NativeNominalEntryEvidence.lean",
-      "sha256": "fd8700e6e1314a018da1d8405b313f0ef03bc530d0fce971fdc753ce5f4ff43b"
+      "sha256": "573671b46c4744c179524c95ea92233be15a213d45331e977abebbc4bea96dc5"
     },
     {
-      "path": "tools/lean-producer/test/NativeNominalFixtures.lean",
+      "path": "modules/lean-jvm/test/fixtures/nominal-observations/sources/NativeNominalFixtures.lean",
       "sha256": "1b7059808a569419c338f6363f372b9f9f645a32f3015dfec4aaf2b292db4542"
     },
     {
-      "path": "tools/lean-producer/test/NativeNominalObservationProbe.lean",
+      "path": "modules/lean-jvm/test/fixtures/nominal-observations/sources/NativeNominalObservationProbe.lean",
       "sha256": "fe9436fe0faf756acc1865e1578997c9049bc1c15ce4df3ea9d0e0b723d22904"
     }
   ],

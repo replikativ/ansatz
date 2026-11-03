@@ -1,6 +1,6 @@
 (ns ansatz.lean.jvm.compiler.products
-  "Private current-byte custody for future v3 used origins. Capturing a checked
-   old cache does NOT certify its compilation-time Init dependency baseline.
+  "Private used-origin byte custody. Only the opt-in /3 compilation profile
+   certifies compile-era defining products; old caches retain current-byte custody.
    No native process, cache transition, entry admission or receipt issuer here."
   (:require [ansatz.lean.jvm.compiler.local :as local]
             [ansatz.lean.jvm.compiler.transport :as transport]
@@ -66,7 +66,8 @@
   ;; Existing cache validation is deliberately reused, not weakened or rewritten.
   (when cache-key
     (need (= cache-manifest (#'local/cache-hit! directory cache-key inputs)) :cache-mutation {}))
-  (local/verify-installed! state installed))
+  (local/verify-installed! state installed)
+  (local/verify-compilation-products! state inputs))
 (defn- collect!
   [{:keys [state directory compiled files installed] :as context} required]
   (let [build (directory! (.resolve ^Path directory "build"))
@@ -109,6 +110,13 @@
                           :installed-role-mutation {:module module}))
                   {"module" module "productSha256" (get primary "sha256") "products" products})) required)
         manifest {"schema" used/schema "modules" modules}]
+    (when (= local/nominal-profile (get-in context [:inputs "profile"]))
+      (let [baseline (into {} (map #(vector (get % "module") %)
+                                   (get-in context [:inputs "compilationProducts" "modules"])))]
+        (doseq [row modules :let [module (get row "module")] :when (not (contains? locals module))]
+          (need (contains? baseline module) :missing-compilation-product
+                {:module module :action :compile-under-new-v3-baseline})
+          (need (= row (get baseline module)) :compilation-product-mutation {:module module}))))
     (used/authorize! manifest required local-names declared)
     ;; Materialize the bounded canonical encoding now, before exposing a receipt.
     (used/canonical-bytes manifest)
@@ -119,11 +127,11 @@
   (verify-known! context)
   true)
 (defn- capture-context! [context required]
-  ;; Private fixture/issuer seam: CURRENT bytes only, never a compile certificate.
+  ;; Private fixture/issuer seam. Authority follows only the verified cache profile.
   (verify-known! context)
   (let [manifest (collect! context required)
         payload {:context context :required required :manifest manifest :sha256 (used/digest manifest)
-                 :requires-v3-rebuild true}]
+                 :requires-v3-rebuild (not= local/nominal-profile (get-in context [:inputs "profile"]))}]
     (verify-context! payload)
     payload))
 (defn- compiler-baseline! [state inputs]
@@ -155,8 +163,9 @@
 (defn capture!
   "Internal source-issuer seam. Derive paths from an issued compiler's verified
    compiled-cache records, never caller paths. The preparation MAP is descriptive,
-   not an issuer token. This seals only current bytes and always requires a new
-   v3 compilation baseline before nominal admission; it cannot upgrade old caches."
+   not an issuer token. Old caches seal current bytes only. The /3 profile seals
+   compile-era defining products; missing origins require a new /3 compilation.
+   Transitive implementation dependencies retain the installed toolchain policy."
   [compiler preparation required]
   (let [state (#'transport/issued compiler)]
     (locking (:lock state)
@@ -169,8 +178,10 @@
 (defn manifest [capture] (:manifest (issued! capture)))
 (defn description [capture]
   (let [payload (issued! capture)]
-    {:manifest (:manifest payload) :sha256 (:sha256 payload) :requires-v3-rebuild true
-     :authority :verified-current-products-only}))
+    {:manifest (:manifest payload) :sha256 (:sha256 payload)
+     :requires-v3-rebuild (:requires-v3-rebuild payload)
+     :authority (if (:requires-v3-rebuild payload) :verified-current-products-only
+                    :verified-compilation-products)}))
 (defn verify!
   "Recheck the exact captured set, optional absence and native package resolution.
    Call immediately before and after a helper; compare its echoed inventory/table

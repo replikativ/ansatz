@@ -23,7 +23,7 @@
   (doseq [{:keys [path namespace]} (:sources closure)]
     (need (and (symbol? namespace) (string? path)
                (or (= "ansatz/lean/jvm.clj" path)
-                   (re-matches #"ansatz/lean/jvm/(?:[a-z_]+/)*[a-z_]+\.clj" path))
+                   (re-matches #"ansatz/lean/jvm/(?:[a-z_]+/)*[a-z_][a-z_0-9]*\.clj" path))
                (= path (namespace-path namespace))) "Runtime namespace/resource path mismatch"))
   (need (= (count (:sources closure)) (count (set (map :path (:sources closure))))) "Duplicate runtime source")
   (need (= runtime-resources (:resources closure)) "Unknown runtime resource inventory")

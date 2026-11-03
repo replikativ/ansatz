@@ -8,15 +8,20 @@ public final class LeanFunction {
     private final String signature;
     private final int arity;
     private final java.util.Map<String, Object> descriptor;
+    private final java.util.List<LeanType> argumentTypes;
+    private final LeanType resultType;
 
     LeanFunction(LeanProject owner, Object handle, String name, String signature, int arity,
-                 java.util.Map<String, Object> descriptor) {
+                 java.util.Map<String, Object> descriptor,
+                 java.util.List<LeanType> argumentTypes, LeanType resultType) {
         this.owner = owner;
         this.handle = handle;
         this.name = name;
         this.signature = signature;
         this.arity = arity;
         this.descriptor = java.util.Map.copyOf(descriptor);
+        this.argumentTypes = argumentTypes == null ? null : java.util.List.copyOf(argumentTypes);
+        this.resultType = resultType;
     }
 
     public String name() { return name; }
@@ -26,6 +31,16 @@ public final class LeanFunction {
     public int arity() { return arity; }
     /** Immutable closed calling descriptor, without source or interpreter owners. */
     public java.util.Map<String, Object> descriptor() { return descriptor; }
+    /** V3 prepared projects expose detached native-derived construction types. */
+    public boolean hasTypeMetadata() { return resultType != null; }
+    public java.util.List<LeanType> argumentTypes() {
+        if (!hasTypeMetadata()) throw new LeanException("UnsupportedSignature", "types", "Reprepare with the v3 producer for detached type metadata");
+        return argumentTypes;
+    }
+    public LeanType resultType() {
+        if (!hasTypeMetadata()) throw new LeanException("UnsupportedSignature", "types", "Reprepare with the v3 producer for detached type metadata");
+        return resultType;
+    }
 
     /** Unsupported argument types/arities fail before guest execution. */
     public Object invoke(Object... arguments) {

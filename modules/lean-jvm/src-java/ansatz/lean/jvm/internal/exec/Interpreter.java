@@ -73,6 +73,8 @@ public final class Interpreter implements AutoCloseable {
     private static final int U8_ADD=559,FLOAT_ADD=560,FLOAT32_ADD=561;
     private static final int FLOAT32_BITS=562,FLOAT32_DIV=563,FLOAT32_MUL=564,
             U64_FLOAT32=565,U32_OWNED_NAT=566;
+    private static final int FLOAT_TO_BITS=586,FLOAT32_TO_BITS=587;
+    private static final int U8_FROM_NAT=588,U16_FROM_NAT=589,U8_OWNED_NAT=590,U16_OWNED_NAT=591;
     private static final int INT_OF_NAT=210,INT_NEG_SUCC=211,INT_NEG=212,INT_ABS=213,INT_ADD=214,INT_SUB=215,INT_EQ=216,INT_LT=217,INT_LE=218;
     private static final int STR_MEMCMP=230,STR_SUBSTRING_EQ=231,STR_POS_OF=232,STR_OFFSET_OF_POS=233,STR_PUSHN=234;
     private static final int MAX_STRING_OUTPUT_BYTES=16*1024*1024;
@@ -480,6 +482,18 @@ public final class Interpreter implements AutoCloseable {
                 new String[]{"usize","usize"},new boolean[]{false,false}));
         register(registry,new ExternSpec("lean_uint8_to_nat",U8_NAT,"tagged",
                 new String[]{"uint8"},new boolean[]{false}));
+        register(registry,new ExternSpec("lean_uint8_of_nat",U8_FROM_NAT,"uint8",
+                new String[]{"tobject"},new boolean[]{true}));
+        register(registry,new ExternSpec("lean_uint8_of_nat",U8_FROM_NAT,"uint8",
+                new String[]{"tobject","erased"},new boolean[]{true,false}));
+        register(registry,new ExternSpec("lean_uint8_of_nat_mk",U8_OWNED_NAT,"uint8",
+                new String[]{"tobject"},new boolean[]{false}));
+        register(registry,new ExternSpec("lean_uint16_of_nat",U16_FROM_NAT,"uint16",
+                new String[]{"tobject"},new boolean[]{true}));
+        register(registry,new ExternSpec("lean_uint16_of_nat",U16_FROM_NAT,"uint16",
+                new String[]{"tobject","erased"},new boolean[]{true,false}));
+        register(registry,new ExternSpec("lean_uint16_of_nat_mk",U16_OWNED_NAT,"uint16",
+                new String[]{"tobject"},new boolean[]{false}));
         register(registry,new ExternSpec("lean_uint8_dec_eq",U8_EQ,"uint8",
                 new String[]{"uint8","uint8"},new boolean[]{false,false}));
         register(registry,new ExternSpec("lean_uint8_land",U8_AND,"uint8",
@@ -488,6 +502,8 @@ public final class Interpreter implements AutoCloseable {
                 new String[]{"uint8","uint8"},new boolean[]{false,false}));
         register(registry,new ExternSpec("lean_uint32_of_nat",U32_FROM_NAT,"uint32",
                 new String[]{"tobject","erased"},new boolean[]{true,false}));
+        register(registry,new ExternSpec("lean_uint32_of_nat",U32_FROM_NAT,"uint32",
+                new String[]{"tobject"},new boolean[]{true}));
         register(registry,new ExternSpec("lean_uint32_to_uint8",U32_TO_U8,"uint8",
                 new String[]{"uint32"},new boolean[]{false}));
         register(registry,new ExternSpec("lean_uint32_add",U32_ADD,"uint32",
@@ -671,6 +687,7 @@ public final class Interpreter implements AutoCloseable {
         register(registry,new ExternSpec("lean_string_pushn",STR_PUSHN,"object",
                 new String[]{"object","uint32","tobject"},new boolean[]{false,false,false}));
         register(registry,new ExternSpec("lean_float_of_bits",FLOAT_BITS,"float",new String[]{"uint64"},new boolean[]{false}));
+        register(registry,new ExternSpec("lean_float_to_bits",FLOAT_TO_BITS,"uint64",new String[]{"float"},new boolean[]{false}));
         register(registry,new ExternSpec("lean_uint64_to_float",FLOAT_U64,"float",new String[]{"uint64"},new boolean[]{false}));
         register(registry,new ExternSpec("lean_float_sub",FLOAT_SUB,"float",new String[]{"float","float"},new boolean[]{false,false}));
         register(registry,new ExternSpec("lean_float_mul",FLOAT_MUL,"float",new String[]{"float","float"},new boolean[]{false,false}));
@@ -685,6 +702,7 @@ public final class Interpreter implements AutoCloseable {
         register(registry,new ExternSpec("lean_float_add",FLOAT_ADD,"float",new String[]{"float","float"},new boolean[]{false,false}));
         register(registry,new ExternSpec("lean_float32_add",FLOAT32_ADD,"float32",new String[]{"float32","float32"},new boolean[]{false,false}));
         register(registry,new ExternSpec("lean_float32_of_bits",FLOAT32_BITS,"float32",new String[]{"uint32"},new boolean[]{false}));
+        register(registry,new ExternSpec("lean_float32_to_bits",FLOAT32_TO_BITS,"uint32",new String[]{"float32"},new boolean[]{false}));
         register(registry,new ExternSpec("lean_uint32_of_nat_mk",U32_OWNED_NAT,"uint32",new String[]{"tobject"},new boolean[]{false}));
         register(registry,new ExternSpec("lean_float32_div",FLOAT32_DIV,"float32",new String[]{"float32","float32"},new boolean[]{false,false}));
         register(registry,new ExternSpec("lean_float32_mul",FLOAT32_MUL,"float32",new String[]{"float32","float32"},new boolean[]{false,false}));
@@ -7417,10 +7435,11 @@ public final class Interpreter implements AutoCloseable {
         } else scalarIntrinsic(f,a,b);
     }
     private static boolean floatPrimitive(int op) { return op>=FLOAT_BITS&&op<=FLOAT_STRING||op==FLOAT_LE||op==FLOAT_ADD||op==FLOAT32_ADD
-            ||op==FLOAT32_BITS||op==FLOAT32_DIV||op==FLOAT32_MUL||op==U64_FLOAT32; }
+            ||op==FLOAT32_BITS||op==FLOAT32_DIV||op==FLOAT32_MUL||op==U64_FLOAT32
+            ||op==FLOAT_TO_BITS||op==FLOAT32_TO_BITS; }
     private strictfp void floatIntrinsic(Function f,long a,long b) {
-        // Pinned object.cpp: of_bits preserves all non-NaN bits and canonicalizes NaNs.
-        if(f.intrinsic==FLOAT32_BITS) {
+        // Pinned object.cpp: both directions preserve non-NaN bits and canonicalize NaNs.
+        if(f.intrinsic==FLOAT32_BITS||f.intrinsic==FLOAT32_TO_BITS) {
             int bits=(int)a;
             scalarResult=ScalarBits.isNaN32Bits(bits)
                     ?0x7fc00000L:Integer.toUnsignedLong(bits); return;
@@ -7435,7 +7454,7 @@ public final class Interpreter implements AutoCloseable {
             float out=f.intrinsic==FLOAT32_ADD?x+y:f.intrinsic==FLOAT32_DIV?x/y:x*y;
             scalarResult=Integer.toUnsignedLong(Float.floatToRawIntBits(out)); return;
         }
-        if(f.intrinsic==FLOAT_BITS) { scalarResult=ScalarBits.isNaN64Bits(a)?0x7ff8000000000000L:a; return; }
+        if(f.intrinsic==FLOAT_BITS||f.intrinsic==FLOAT_TO_BITS) { scalarResult=ScalarBits.isNaN64Bits(a)?0x7ff8000000000000L:a; return; }
         if(f.intrinsic==FLOAT_U64) {
             BigInteger unsigned=BigInteger.valueOf(a&Long.MAX_VALUE); if(a<0) unsigned=unsigned.setBit(63);
             scalarResult=Double.doubleToRawLongBits(unsigned.doubleValue()); return;
@@ -9461,6 +9480,7 @@ public final class Interpreter implements AutoCloseable {
     private static boolean u64ScalarPrimitive(int op) {
         switch(op) {
             case U16_EQ: case U16_NAT: case U8_ADD: case U32_OWNED_NAT:
+            case U8_FROM_NAT: case U16_FROM_NAT: case U8_OWNED_NAT: case U16_OWNED_NAT:
             case LAYOUT_FIELDS: case LAYOUT_SCALARS: case LAYOUT_TAG: case LAYOUT_USIZE: case U32_LT: case U64_TO_NAT:
             case STR_HASH: case U64_MIX: case U64_NAT: case U64_SHR: case U64_XOR: case U64_USIZE:
             case U64_LT: case U64_EQ: case U64_OWNED_NAT: case U64_TO_U32:
@@ -9502,6 +9522,13 @@ public final class Interpreter implements AutoCloseable {
             case USIZE_AND: case U8_AND: scalarResult=(Long)a&(Long)b; break;
             case U8_NAT: result=a; break;
             case U8_LE: scalarResult=(Long)a<=(Long)b?1:0; break;
+            // Pinned lean.h: borrowed and consuming forms use modulo 2^width;
+            // the optional ofNatLT proof is erased by the native C ABI.
+            case U8_FROM_NAT: case U16_FROM_NAT:
+                require(ERASED.equals(b),"Unsigned conversion proof requires erased placeholder");
+                scalarResult=nat(a).longValue()&(f.intrinsic==U8_FROM_NAT?255L:65535L); break;
+            case U8_OWNED_NAT: case U16_OWNED_NAT:
+                scalarResult=nat(a).longValue()&(f.intrinsic==U8_OWNED_NAT?255L:65535L); releaseQuiet(a,1); break;
             case U32_FROM_NAT:
                 require(ERASED.equals(b),"UInt32 conversion proof requires erased placeholder");
                 scalarResult=nat(a).longValue()&0xffffffffL; break;
@@ -9994,6 +10021,20 @@ public final class Interpreter implements AutoCloseable {
         if(value instanceof FrozenInput) return ((FrozenInput)value).cert.depth;
         if(value instanceof FrozenArgument) return ((FrozenArgument)value).input.cert.depth;
         return 1; // an exact immutable leaf
+    }
+    /** Pure batch preflight for the typed host boundary, before any engine lease.
+     * The actual construction path repeats these checks before adopting roots. */
+    private static void valueValidateArguments(Object[] roots) {
+        dataRequire(roots!=null&&roots.length<=MAX_DATA_OCCURRENCES,"Managed root extent exceeds profile");
+        long[] budgets=new long[5]; int[] owners=new int[0];
+        IdentityHashMap<FrozenCert,Boolean> certified=new IdentityHashMap<>();
+        for(Object value:roots) {
+            if(Thread.currentThread().isInterrupted()) throw new java.util.concurrent.CancellationException("Typed argument preflight interrupted");
+            dataRequire(value!=null&&(value.getClass()==FrozenArgument.class
+                    ||(value.getClass()==Long.class&&((Long)value)==0)),"Expected typed argument token or erased world");
+            checkDataValue(value,0,owners,budgets,certified,true);
+            dataRequire(dataDepth(value,owners)<=1024,"Managed frozen combined depth budget exceeded");
+        }
     }
     private static Object dataValue(Object value,Node[] shells) {
         return value instanceof DataRef?shells[((DataRef)value).index]:value instanceof FrozenArgument?((FrozenArgument)value).input.acquire():value instanceof FrozenInput?((FrozenInput)value).acquire():value;

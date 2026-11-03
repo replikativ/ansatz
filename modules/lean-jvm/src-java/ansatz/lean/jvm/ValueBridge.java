@@ -33,7 +33,7 @@ final class ValueBridge {
     };
     private final Class<?> cohort;
     private final MethodHandle compile, describe, construct, copyBytes, freeze, child, constructorIndex,
-            size, scalar, byteAt, copyBytesOut, prepare;
+            size, scalar, byteAt, copyBytesOut, prepare, validateArguments;
     private ValueBridge(Class<?> cohort) {
         this.cohort = cohort;
         if (!cohort.getName().equals("ansatz.lean.jvm.internal.exec.Interpreter"))
@@ -52,6 +52,7 @@ final class ValueBridge {
             byteAt = lookup.findStatic(cohort, "valueByteAt", MethodType.methodType(int.class, Object.class, int.class));
             copyBytesOut = lookup.findStatic(cohort, "valueCopyByteArray", MethodType.methodType(byte[].class, Object.class));
             prepare = lookup.findStatic(cohort, "valuePrepareArgument", MethodType.methodType(Object.class, Object.class, int.class, Object.class, String.class));
+            validateArguments = lookup.findStatic(cohort, "valueValidateArguments", MethodType.methodType(void.class, Object[].class));
         } catch (ReflectiveOperationException failure) {
             throw new IllegalStateException("Typed storage protocol is unavailable in this cohort", failure);
         }
@@ -63,6 +64,22 @@ final class ValueBridge {
             @SuppressWarnings("unchecked") Map<String,Object> metadata = (Map<String,Object>) bridge.describe.invokeExact(schema);
             return new LeanType.Registry(bridge, schema, metadata);
         } catch (Throwable failure) { throw failure(failure); }
+    }
+    // Internal source-loaded facade seam. Only the issued Project path supplies
+    // authenticated storage groups; these methods do not authorize caller maps.
+    static List<LeanType> compileRoots(Class<?> interpreter, Map<String,Object> logical, Map<String,Object> normalized) {
+        return compileTrusted(interpreter, logical, normalized).roots;
+    }
+    static Object prepareValue(LeanType type, Object host, String lane) {
+        ValueBridge bridge = type.bridge();
+        return bridge.prepareArgument(type, bridge.build(type, host, null), lane);
+    }
+    static Object exportValue(LeanType type, Object raw, String lane) {
+        return view(type, type.bridge().freezeBorrowed(type, raw, lane));
+    }
+    static void validateArguments(LeanType type, Object[] arguments) {
+        try { type.bridge().validateArguments.invokeExact(arguments); }
+        catch (Throwable failure) { throw failure(failure); }
     }
     static LeanBytes copyBytes(byte[] source) {
         Objects.requireNonNull(source, "source");
@@ -110,7 +127,7 @@ final class ValueBridge {
         if (!condition) throw new IllegalArgumentException(message);
     }
     private static void poll() {
-        if (Thread.currentThread().isInterrupted()) throw new IllegalStateException("Datatype conversion interrupted");
+        if (Thread.currentThread().isInterrupted()) throw new java.util.concurrent.CancellationException("Datatype conversion interrupted");
     }
     static Object view(LeanType type, Object cap) {
         ArrayDeque<Integer> wrappers = new ArrayDeque<>();
@@ -214,7 +231,8 @@ final class ValueBridge {
     private static boolean ordinaryList(Object value) {
         if (!(value instanceof List<?>)) return false;
         Class<?> type = value.getClass();
-        return type == CLOJURE_VECTOR || type == ArrayList.class || type == java.util.LinkedList.class
+        return type == Fields.class || type == Sequence.class || type == CLOJURE_VECTOR
+                || type == ArrayList.class || type == java.util.LinkedList.class
                 || switch (type.getName()) {
                     case "java.util.Arrays$ArrayList", "java.util.ImmutableCollections$ListN",
                          "java.util.ImmutableCollections$List12", "java.util.ImmutableCollections$SubList",

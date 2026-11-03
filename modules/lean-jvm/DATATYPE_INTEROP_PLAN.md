@@ -1,9 +1,32 @@
 # Automatic nominal datatype interop: implementation contract
 
-Status: approved design direction, pending implementation and acceptance. This
-document does not admit new public types or describe a released capability.
+Status: implemented experimental v3 boundary, with native, public API and
+packaged-consumer acceptance. This contract does not establish a published
+version or admit a type independently of the source/artifact issuers.
 The existing [value conventions](VALUE_EXAMPLES.md), [compatibility policy](COMPATIBILITY.md),
 and [release gates](RELEASE_CHECKLIST.md) remain authoritative for current SDKs.
+
+## Implementation checkpoint
+
+The logical graph, native discovery/layout observations, normalized storage
+plans, detached Java values, immutable Clojure views and certified storage reuse
+are implemented. The registered v3 cohort binds its exact source closure,
+executable and build receipt. Native checked entry data is admitted only through
+the actual source issuer or independently hash-validated artifact path.
+
+In a retained 384 MiB REPL, native and JVM oracle results match for a recursive
+AST, a mixed record, a scalar-only record and builtin containers. The public
+Java/Clojure path also passes the independent three-file expression application:
+host construction, custom IO results, aggregate refusal recovery and concurrent
+reuse in independent Projects. Its application-JAR consumer needs no Lean or
+source checkout. These checks are not a performance measurement.
+
+Source-phase reconciliation compares actual raw/callable IR and all selected
+local closure observations against original source rows. New compilation
+baselines bind used defining products before compilation and preserve their
+custody through helper calls, cache reuse and artifact reopening. A defining
+product edit rejects old values even when their apparent layout matches.
+Callback FFI, public forks and permissive semantic reload identity remain later.
 
 ## Outcome and scope
 
@@ -480,28 +503,26 @@ evidence collection, bind the module-cache compilation baseline, and retain the
 issued provenance for artifact reopening. A caller-created manifest or advisory
 inventory cannot issue a public datatype descriptor or admit a v3 entry.
 
-### Private observation normalization and product custody
+### Observation normalization and product custody
 
-`representation/normalize-observation!` checks the original-ID root, closed-field,
-DefEq-claim and generic layout links before emitting a canonical typed-storage
-program. It validates data depth/work, UTF-16 and integer bounds before JSON
-encoding. Explicit root subsets select complete closures, never partial fields
-or constructors. The current captured zero-field record, singleton and Ordering
-cases normalize and compile in the Java core. The full AST/mixed-record capture
-still refuses missing closed builtin and special-runtime witnesses. IO additionally
-requires its selected-entry/envelope/world bindings. These are explicit pending
-producer requirements, not fallbacks inferred from an object's apparent shape.
+`representation/normalize-observation!` validates native logical/lowering links
+before emitting a canonical typed-storage program. It bounds work, UTF-16,
+integers and encoded bytes. Root subsets select complete closures. Version 2
+observations and v3 entries carry closed builtin/special-runtime witnesses for
+full ASTs and mixed records; IO additionally requires the actual selected-entry,
+envelope and erased-world bindings. Missing witnesses fail rather than being
+inferred from an object's apparent shape.
 
-`compiler.products/capture!` derives local product paths from a verified cache
-manifest under an actual configured compiler, checks compiler-configuration
-identity, and captures the exact native package-root resolution and product-role
-set. Its sealed token proves verified current bytes only. Rechecking detects
-changed primary/sidecar bytes, optional-file appearance, package shadowing and
-compiler closure. The receipt retains the parsed immutable manifest baseline;
-caller-supplied descriptive paths or maps cannot replace it.
+`compiler.products/capture!` derives product paths from a verified cache manifest
+under an issued compiler. It checks compiler identity, exact native package-root
+resolution, every present role and optional absence, and the immutable parsed
+baseline. Caller paths or descriptive maps cannot replace the issued token.
 
-Every such capture currently reports `:requires-v3-rebuild true`: existing v2
-cache records do not prove which implicit Init bytes were present at compilation.
-The v3 source issuer must bind that baseline during a new compilation profile and
-hold before/helper/after rechecks before it can grant nominal entry authority.
-No public dispatch or artifact format is enabled by these foundation functions.
+Legacy captures report `:requires-v3-rebuild true`: old caches cannot acquire
+compilation-time evidence retrospectively. The `/3` profile snapshots selected
+used Init products and all declared installed products before compilation, binds
+those records into cache inputs, and rechecks them through final receipt issuance.
+A newly required origin needs a new compilation baseline. This supplements the
+existing trusted immutable installed-toolchain policy; it is not cryptographic
+attestation of every transitive implementation dependency. Pure normalization
+and caller-created maps still issue no public authority.

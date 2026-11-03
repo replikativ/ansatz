@@ -2,6 +2,7 @@
   "Bounded portable native-project artifacts. Reading requires an independent
    expected manifest digest and performs no native/toolchain discovery."
   (:require [ansatz.lean.jvm.producer :as producer-pins] [clojure.data.json :as json] [clojure.java.io :as io] [clojure.string :as str]
+            [ansatz.lean.jvm.entry-v3 :as entry-v3] [ansatz.lean.jvm.used-products :as used-products]
             [ansatz.lean.jvm.entry :as checked-entry] [ansatz.lean.jvm.installed :as installed])
   (:import [java.io InputStream OutputStream FilterInputStream FilterOutputStream ByteArrayOutputStream]
            [java.nio.file Path Files LinkOption]
@@ -11,6 +12,8 @@
            [java.util WeakHashMap Locale]
            [java.util.zip ZipInputStream ZipOutputStream ZipEntry]))
 (def schema "lean-native-local-project/2")
+(def nominal-schema "lean-native-local-project/3")
+(def ^:private nominal-profiles #{"nominal-local-init-v3" "nominal-local-installed-v3"})
 (def max-bytes (* 64 1048576))
 (def lean-commit "819816b2e0a3bf405af45ae5c7af2491d8f5bee6")
 (deftype ArtifactReceipt [])
@@ -161,16 +164,64 @@
               (when-let [old (get out n)] (need (= old row) "ArtifactConflict" {:name n :stage :imported-observation}))
               (need (or (contains? out n) (< (count out) 4096)) "BuildResourceLimit" {}) (assoc out n row)))
           {} (mapcat #(vector! (get % "declarations") 2048) documents)))
+(defn- custody-wire [custody]
+  {"sourceClosure" (:source-closure custody) "sourceClosureSHA256" (:source-closure-sha256 custody)
+   "buildReceipt" (:build-receipt custody) "buildReceiptSHA256" (:build-receipt-sha256 custody)})
+(defn- custody-payload [wire]
+  (need (and (map? wire) (= #{"sourceClosure" "sourceClosureSHA256" "buildReceipt" "buildReceiptSHA256"}
+                                         (set (keys wire)))) "ArtifactConflict" {:stage :nominal-custody})
+  {:source-closure (get wire "sourceClosure") :source-closure-sha256 (get wire "sourceClosureSHA256")
+   :build-receipt (get wire "buildReceipt") :build-receipt-sha256 (get wire "buildReceiptSHA256")})
+(defn- nominal-products! [original-inputs modules documents files]
+  (let [baseline (get original-inputs "compilationProducts")
+        locals (mapv #(get % "name") modules)
+        declared (mapv #(get % "module") (get-in original-inputs ["installedImports" "modules"]))
+        baseline-rows (get baseline "modules")
+        baseline-index (into {} (map #(vector (get % "module") %) baseline-rows))
+        local? (set locals)]
+    (need (= "native-local-nominal-project-prepare/3" (get original-inputs "profile"))
+          "ArtifactConflict" {:stage :nominal-compilation-profile})
+    (used-products/authorize! baseline (mapv #(get % "module") baseline-rows) [] declared)
+    (need (every? #(contains? baseline-index %) declared) "ArtifactConflict" {:stage :nominal-installed-baseline})
+    (doseq [installed (get-in original-inputs ["installedImports" "modules"])]
+      (need (= (get installed "products")
+               (mapv (fn [relative role] (assoc (dissoc role "role") "path" relative))
+                     (installed/product-paths (get installed "module"))
+                     (get-in baseline-index [(get installed "module") "products"])))
+            "ArtifactConflict" {:stage :nominal-installed-products}))
+    (doseq [{:keys [document]} documents m (get-in document ["moduleProducts" "modules"])]
+      (let [module (get m "module")]
+        (if (local? module)
+          (doseq [[relative role] (map vector (installed/product-paths module) (get m "products"))]
+            (let [data (get files (str "modules/build/" relative))]
+              (need (and (= (some? data) (get role "present"))
+                         (or (nil? data) (= (record data) (select-keys role ["bytes" "sha256"]))))
+                    "ArtifactConflict" {:stage :nominal-local-products :module module :role (get role "role")})))
+          (need (= m (get baseline-index module)) "ArtifactConflict" {:stage :nominal-compiled-products :module module}))))))
 (defn- validate! [manifest files]
-  (need (and (= schema (get manifest "schema")) (#{"legacy-local-init-v2" installed/artifact-profile} (get manifest "profile"))
+  (need (and (or (and (= schema (get manifest "schema")) (#{"legacy-local-init-v2" installed/artifact-profile} (get manifest "profile")))
+                            (and (= nominal-schema (get manifest "schema")) (nominal-profiles (get manifest "profile"))))
              (= {"frontend" "official-native" "javaKernelChecked" false "hostedInitImported" false "startupExecutionReceipt" false}
                 (get manifest "trust"))) "ArtifactConflict" {:stage :artifact-profile})
-  (let [producer (get manifest "producer")
+  (let [nominal? (= nominal-schema (get manifest "schema"))
+        producer (get manifest "producer")
+        _ (when nominal?
+            (doseq [[value ks stage]
+                    [[manifest #{"schema" "profile" "producer" "inputs" "modules" "entryEvidence" "startupEvidence" "code" "files" "trust"} :nominal-manifest-keys]
+                     [producer #{"leanCommit" "leanVersion" "target" "wordBits" "entryHelper" "entryHelperSource" "startupHelper" "startupHelperSource"
+                                 "typedSourceExporter" "typedSourceExporterSource" "orchestrator" "compiler" "transport" "nominalCustody"} :nominal-producer-keys]
+                     [(get manifest "inputs") #{"requestedRoots" "moduleManifestSHA256" "moduleCacheKey" "originalBuildInputs"} :nominal-input-keys]
+                     [(get manifest "startupEvidence") #{"raw" "actualProfile"} :nominal-startup-keys]
+                     [(get manifest "code") #{"canonicalRows" "dynamicClosureProven"} :nominal-code-keys]]]
+              (need (and (map? value) (= ks (set (keys value)))) "ArtifactConflict" {:stage stage})))
         entry-schema (try
                        (checked-entry/schema-for-pins! (get-in producer ["entryHelperSource" "sha256"])
                                                       (get-in producer ["entryHelper" "sha256"]))
                        (catch clojure.lang.ExceptionInfo _
                          (need false "ArtifactConflict" {:stage :supported-producer})))
+        _ (need (= nominal? (= 3 entry-schema)) "ArtifactConflict" {:stage :nominal-producer-profile})
+        custody (when nominal? (custody-payload (get producer "nominalCustody")))
+        _ (when nominal? (entry-v3/validate-producer-custody! custody (get producer "entryHelperSource") (get producer "entryHelper")))
         _ (need (and entry-schema (= lean-commit (get producer "leanCommit")) (= "4.33.1" (get producer "leanVersion"))
                      (= "x86_64-unknown-linux-gnu" (get producer "target")) (= 64 (get producer "wordBits"))
                      (producer-pins/supported? "startupHeader" (get-in producer ["startupHelperSource" "sha256"]) (get-in producer ["startupHelper" "sha256"]))
@@ -178,8 +229,11 @@
                      (false? (get-in manifest ["code" "dynamicClosureProven"]))) "ArtifactConflict" {:stage :supported-producer})
         original-inputs (json! (path-ref! files (get-in manifest ["inputs" "originalBuildInputs"])) (* 4 1048576))
         installed-products (get original-inputs "installedImports")
-        _ (if (= installed/artifact-profile (get manifest "profile"))
-            (do (need (= installed/preparation-profile (get original-inputs "profile"))
+        _ (need (= (boolean installed-products)
+                   (boolean (#{installed/artifact-profile "nominal-local-installed-v3"} (get manifest "profile"))))
+                "ArtifactConflict" {:stage :installed-profile})
+        _ (if (get original-inputs "installedImports")
+            (do (need (= (if nominal? "native-local-nominal-project-prepare/3" installed/preparation-profile) (get original-inputs "profile"))
                       "ArtifactConflict" {:stage :installed-profile})
                 (installed/validate! installed-products))
             (need (not (contains? original-inputs "installedImports")) "ArtifactConflict" {:stage :installed-profile}))
@@ -193,6 +247,10 @@
                 "ArtifactConflict" {:stage :original-build-cohort})
         modules (vector! (get manifest "modules") 128)
         module-names (set (map #(name! (get % "name")) modules))
+        _ (when nominal?
+            (doseq [module modules]
+              (need (= #{"name" "source" "requestedImports" "directLocalDependencies" "olean" "localStream"} (set (keys module)))
+                    "ArtifactConflict" {:stage :nominal-module-keys})))
         _ (need (= (count modules) (count module-names)) "ArtifactConflict" {:stage :module-identity})
         _ (when installed-products
             (need (not-any? module-names (map #(get % "module") (get installed-products "modules")))
@@ -217,14 +275,23 @@
                      (false? (get-in startup ["actualHeader" "isModule"]))
                      (= "private" (get-in startup ["actualHeader" "globalLevel"]))) "UnsupportedStartup" {})
         documents (mapv (fn [e]
+                          (when nominal?
+                            (need (= #{"rootModule" "request" "raw"} (set (keys e))) "ArtifactConflict" {:stage :nominal-entry-keys}))
                           (let [d (json! (path-ref! files (get e "raw")) (* 16 1048576))
                                 request (json! (path-ref! files (get e "request")) 65536)]
                             (need (= (get-in checked-entry/cohorts [entry-schema :evidence]) (get d "schema"))
                                   "EntryRejected" {:stage :entry-producer-version})
-                            (checked-entry/validate-document! (get e "rootModule") request d)
-                            {:document d :request request})) (vector! (get manifest "entryEvidence") checked-entry/max-selected-entries))
+                            (let [admitted (if nominal?
+                                             (entry-v3/validate-document!
+                                              {:root (get e "rootModule") :request request
+                                               :module-products (get d "moduleProducts")
+                                               :local-modules (mapv #(get % "name") modules)
+                                               :installed-imports (mapv #(get % "module") (get installed-products "modules"))} d)
+                                             (do (checked-entry/validate-document! (get e "rootModule") request d) nil))]
+                              {:document d :request request :admitted admitted}))) (vector! (get manifest "entryEvidence") checked-entry/max-selected-entries))
         entries (vec (mapcat #(get-in % [:document "entries"]) documents))
         imported (merge-imported! (into [startup] (map :document documents)))]
+    (when nominal? (nominal-products! original-inputs modules documents files))
     (when installed-products
       (installed/validate-graph! installed-products module-names
         (into [(get startup "moduleOrder")] (map #(get-in % [:document "importedModuleOrder"]) documents))
@@ -232,7 +299,11 @@
     (need (and (<= 1 (count entries) checked-entry/max-selected-entries) (= (count entries) (count (set (map #(get % "name") entries))))) "EntryRejected" {})
     (doseq [entry entries]
       (need (module-names (get entry "compiledModule")) "EntryRejected" {:stage :entry-module})
-      (checked-entry/validate-rows! entry index))
+      (if nominal?
+        (doseq [role ["raw" "callable"]]
+          (need (= (get entry role) (abi (get index (get-in entry [role "name"]))))
+                "EntryRejected" {:stage :nominal-canonical-abi}))
+        (checked-entry/validate-rows! entry index)))
     (doseq [[name row] index]
       (doseq [dep (get row "dependencies")] (need (contains? index dep) "MissingDependency" {:name dep}))
       (let [observed (get imported name)]
@@ -249,7 +320,9 @@
           (need (= row observed) "ArtifactConflict" {:name name :stage :imported-observation}))))
     (doseq [root (concat (get startup "closureRoots") (mapcat #(map (fn [role] (get-in % [role "name"])) ["raw" "callable"]) entries))]
       (need (contains? index root) "MissingDependency" {:name root}))
-    {:profile schema :build-inputs original-inputs :module-cache-key (get-in manifest ["inputs" "moduleCacheKey"])
+    {:profile (get manifest "schema") :entry-schema entry-schema :producer-custody custody
+     :entry-documents documents :entry-helper (get producer "entryHelper") :entry-helper-source (get producer "entryHelperSource")
+     :build-inputs original-inputs :module-cache-key (get-in manifest ["inputs" "moduleCacheKey"])
      :source-rows source-index :rows index :entries entries :startup startup :imported-rows imported
      :artifact-manifest manifest :runtime-ready false :startup-executed false}))
 
@@ -330,13 +403,17 @@
                           {"rootModule" (get-in document [:request "module"])
                            "request" (descriptor (str "evidence/" label ".request.json"))
                            "raw" (descriptor (str "evidence/" (get-in document [:receipt "stdout"])))})) (:entry-documents payload))]
-    {"schema" schema "profile" (if (get inputs "installedImports") installed/artifact-profile "legacy-local-init-v2")
-     "producer" {"leanCommit" lean-commit "leanVersion" "4.33.1" "target" "x86_64-unknown-linux-gnu" "wordBits" 64
+    {"schema" (if (= 3 (:entry-schema payload)) nominal-schema schema)
+     "profile" (if (= 3 (:entry-schema payload))
+                 (if (get inputs "installedImports") "nominal-local-installed-v3" "nominal-local-init-v3")
+                 (if (get inputs "installedImports") installed/artifact-profile "legacy-local-init-v2"))
+     "producer" (cond-> {"leanCommit" lean-commit "leanVersion" "4.33.1" "target" "x86_64-unknown-linux-gnu" "wordBits" 64
                  "entryHelper" (:entry-helper payload) "entryHelperSource" (:entry-helper-source payload)
                  "startupHelper" (get inputs "helper") "startupHelperSource" (get inputs "helperSource")
                  "typedSourceExporter" (get inputs "typedExporter") "typedSourceExporterSource" (get inputs "typedExporterSource")
                  "orchestrator" (:implementation payload) "compiler" (get inputs "implementation")
                  "transport" (get inputs "transportImplementation")}
+                   (= 3 (:entry-schema payload)) (assoc "nominalCustody" (custody-wire (:producer-custody payload))))
      "inputs" {"requestedRoots" (get inputs "roots") "moduleManifestSHA256" (:manifest-sha256 payload)
                "moduleCacheKey" (:module-cache-key payload) "originalBuildInputs" (descriptor "provenance/build-inputs.json")}
      "modules" modules "entryEvidence" entries
@@ -373,7 +450,7 @@
            (let [entry (doto (ZipEntry. ^String path) (.setTime 0))]
              (.putNextEntry archive entry) (.write archive ^bytes data 0 (alength ^bytes data)) (.closeEntry archive)))
         #(.close archive)))
-    {:schema schema :manifest-sha256 (sha manifest-bytes) :archive-sha256 (hex (.digest hash))
+    {:schema (get manifest "schema") :manifest-sha256 (sha manifest-bytes) :archive-sha256 (hex (.digest hash))
      :files (inc (count files)) :runtime-ready false}))
 (defn load!
   "Read a bounded artifact using an independently trusted expected MANIFEST hash.

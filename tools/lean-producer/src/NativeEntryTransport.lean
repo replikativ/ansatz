@@ -1,14 +1,19 @@
-import Lean.Meta.Check
-import Lean.Meta.ExprDefEq
-import Lean.Compiler.IR.CompilerM
-import Lean.Compiler.IR.ToIRType
-import Lean.Compiler.InitAttr
-import Lean.Compiler.ClosedTermCache
-import Lean.Compiler.ExportAttr
-import Lean.Compiler.ExternAttr
-import Lean.Compiler.LCNF.SimpleGroundExpr
-import Lean.Compiler.LCNF.ToImpureType
-import Lean.Elab.Deriving.FromToJson
+module
+
+public import Lean.Meta.Check
+public import Lean.Meta.ExprDefEq
+public import Lean.Compiler.IR.CompilerM
+public import Lean.Compiler.IR.ToIRType
+public import Lean.Compiler.InitAttr
+public import Lean.Compiler.ClosedTermCache
+public import Lean.Compiler.ExportAttr
+public import Lean.Compiler.ExternAttr
+public import Lean.Compiler.LCNF.SimpleGroundExpr
+public import Lean.Compiler.LCNF.ToImpureType
+meta import Lean.Elab.Deriving.FromToJson
+public import Lean.Data.Json.FromToJson.Basic
+
+public section
 
 /-!
 New transport for the private v3 campaign. Copied from immutable v2 source
@@ -160,9 +165,9 @@ def origin (env : Environment) (n : Name) : Option Name :=
 -- Export.lean so consumers can compare actual declarations rather than pretty text.
 deriving instance ToJson for IR.VarId, IR.JoinPointId, IR.IRType, IR.Arg, IR.LitVal,
   IR.CtorInfo, IR.Expr, IR.Param, IR.DeclInfo, ExternEntry, ExternAttrData
-private def node (op : String) (args : Array Json) : Json := Json.arr (#[toJson op] ++ args)
+def node (op : String) (args : Array Json) : Json := Json.arr (#[toJson op] ++ args)
 mutual
-private partial def bodyJson : IR.FnBody → Json
+partial def bodyJson : IR.FnBody → Json
   | .vdecl x t e b => node "vdecl" #[toJson x, toJson t, toJson e, bodyJson b]
   | .jdecl j xs v b => node "jdecl" #[toJson j, toJson xs, bodyJson v, bodyJson b]
   | .set x i y b => node "set" #[toJson x, toJson i, toJson y, bodyJson b]
@@ -176,7 +181,7 @@ private partial def bodyJson : IR.FnBody → Json
   | .ret x => node "ret" #[toJson x]
   | .jmp j ys => node "jmp" #[toJson j, toJson ys]
   | .unreachable => node "unreachable" #[]
-private partial def altJson : IR.Alt → Json
+partial def altJson : IR.Alt → Json
   | .ctor i b => node "ctor" #[toJson i, bodyJson b]
   | .default b => node "default" #[bodyJson b]
 end

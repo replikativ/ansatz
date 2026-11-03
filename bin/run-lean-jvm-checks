@@ -54,6 +54,8 @@ python3 consumer/project_check.py --sdk-jar target/ansatz-lean-jvm.jar \
   "${dependency_args[@]}" --main-class FelineSmoke --output target/ci-feline-consumer
 python3 consumer/project_check.py --sdk-jar target/ansatz-lean-jvm.jar \
   "${dependency_args[@]}" --main-class WriterSmoke --output target/ci-writer-consumer
+python3 consumer/project_check.py --sdk-jar target/ansatz-lean-jvm.jar \
+  "${dependency_args[@]}" --main-class NominalSmoke --output target/ci-nominal-consumer
 
 
 echo "Checking atomic resource limits against the same compiled SDK engine"
@@ -87,6 +89,8 @@ java -Xmx128m -cp target/ci-resource-checks:target/ansatz-lean-jvm.jar TypedStor
 java -Xmx128m -cp target/ci-resource-checks:target/ansatz-lean-jvm.jar ansatz.lean.jvm.PublicDatatypeChecks
 java -Xmx128m -cp "target/ansatz-lean-jvm.jar:$runtime_path" clojure.main \
   test/typed_storage_digest_checks.clj target/ci-resource-checks/typed-storage-digests.json
+java -Xmx256m -cp "target/ci-resource-checks:target/ansatz-lean-jvm.jar:$runtime_path" clojure.main \
+  -e '(load-file "test/typed_value_checks.clj") (let [result (clojure.test/run-tests (quote typed-value-checks))] (assert (= {:test 7 :fail 0 :error 0} (select-keys result [:test :fail :error]))))'
 java -Xmx192m -cp target/ci-resource-checks:target/ansatz-lean-jvm.jar SharingTraceChecks
 java -Xmx192m -cp target/ci-resource-checks:target/ansatz-lean-jvm.jar StringSearchChecks
 java -Xmx128m -cp target/ci-resource-checks:target/ansatz-lean-jvm.jar ansatz.lean.jvm.internal.exec.FilesystemLayoutChecks

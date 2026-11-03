@@ -126,7 +126,7 @@ final class FrozenValues {
         FreezeFrame(Object value,FrozenPlan plan) { this.value=value;this.plan=plan; }
     }
     private static void freezePoll() {
-        dataRequire(!Thread.currentThread().isInterrupted(),"Frozen preflight interrupted");
+        if (Thread.currentThread().isInterrupted()) throw new java.util.concurrent.CancellationException("Frozen preflight interrupted");
     }
     private static final class RawBits {
         final String lane;final long bits;

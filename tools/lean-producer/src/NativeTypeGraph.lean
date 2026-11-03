@@ -1,9 +1,13 @@
-import Lean.Meta.Check
-import Lean.Meta.ExprDefEq
-import Lean.Compiler.LCNF.ToImpureType
-import Lean.Compiler.IR.ToIRType
-import Lean.Elab.Deriving.Inhabited
-import NativeEntryTransport
+module
+
+public import Lean.Meta.Check
+public import Lean.Meta.ExprDefEq
+public import Lean.Compiler.LCNF.ToImpureType
+public import Lean.Compiler.IR.ToIRType
+meta import Lean.Elab.Deriving.Inhabited
+public import NativeEntryTransport
+
+public section
 
 /-!
 Isolated automatic logical datatype discovery. Not imported by the published v2
@@ -296,19 +300,25 @@ private partial def infer (type : Expr) (depth : Nat) : DiscoverM TypeResult := 
     constructors := s.constructors + info.ctors.length }
   return { type := canonical, descriptor := refJson id, refs := #[id] }
 
-private def constructorFields (p : Pending) (name : Name) (index : Nat) : MetaM (Array (Name × Expr)) := do
+/-- Actual closed constructor telescope. No storage allocation or caller schema authority. -/
+def observeConstructorFields (type : Expr) (name : Name) (index : Nat) : MetaM (Array (Name × Expr)) := do
+  closed! type
+  let some (.inductInfo info) := (← getEnv).find? type.getAppFn.constName!
+    | throwError "TypeGraph: missing closed inductive family"
+  unless type.getAppArgs.size == info.numParams && info.numIndices == 0 do
+    throwError "TypeGraph: closed constructor family parameters"
   let some (.ctorInfo ctor) := (← getEnv).find? name
     | throwError "TypeGraph: missing native constructor"
-  unless !ctor.isUnsafe && ctor.induct == p.info.name && ctor.cidx == index &&
-      ctor.numParams == p.info.numParams && ctor.numFields ≤ 64 &&
-      ctor.levelParams.length == p.type.getAppFn.constLevels!.length do
+  unless !ctor.isUnsafe && ctor.induct == info.name && ctor.cidx == index &&
+      ctor.numParams == info.numParams && ctor.numFields ≤ 64 &&
+      ctor.levelParams.length == type.getAppFn.constLevels!.length do
     throwError "TypeGraph: constructor family/telescope mismatch"
-  let type := ctor.type.instantiateLevelParams ctor.levelParams p.type.getAppFn.constLevels!
-  let type ← Meta.instantiateForall type p.type.getAppArgs
-  Meta.forallTelescope type fun fields result => do
+  let telescope := ctor.type.instantiateLevelParams ctor.levelParams type.getAppFn.constLevels!
+  let telescope ← Meta.instantiateForall telescope type.getAppArgs
+  Meta.forallTelescope telescope fun fields result => do
     unless fields.size == ctor.numFields do throwError "TypeGraph: constructor field count mismatch"
     closed! result
-    unless ← Meta.isDefEq result p.type do throwError "TypeGraph: constructor result mismatch"
+    unless ← Meta.isDefEq result type do throwError "TypeGraph: constructor result mismatch"
     let mut out := #[]
     for f in fields do
       let domain ← Meta.inferType f
@@ -392,7 +402,7 @@ private def classifyM (roots : Array Expr) : DiscoverM (Array TypeResult) := do
     let mut closedFields := #[]
     for index in [:p.info.ctors.length] do
       let name := p.info.ctors[index]!
-      let fields ← liftM <| constructorFields p name index
+      let fields ← liftM <| observeConstructorFields p.type name index
       let ctorName ← checkedName name
       let mut values := #[]
       let mut closedValues := #[]
@@ -429,6 +439,15 @@ private def closedIR (type : Expr) : MetaM Json := do
   let mono ← Compiler.LCNF.toMonoType lcnf
   let impure ← Compiler.LCNF.toImpureType mono
   return toJson (IR.toIRType impure)
+
+/-- Actual compiler lowering only; does not confer storage authority. -/
+def observeIRType (type : Expr) : MetaM IR.IRType := do
+  let lcnf ← Compiler.LCNF.toLCNFType type
+  let mono ← Compiler.LCNF.toMonoType lcnf
+  return IR.toIRType (← Compiler.LCNF.toImpureType mono)
+
+/-- Actual persisted generic declaration layout, including runtime envelopes. -/
+def observeFamilyLayout (name : Name) : MetaM Json := familyLayout name
 
 private def inventoryM (roots : Array Expr) : DiscoverM Json := do
   let rootTypes ← classifyM roots

@@ -2,7 +2,8 @@
   "Combined program publisher over actual native build receipts. No process launch."
   (:require [ansatz.lean.jvm.startup :as startup]
             [clojure.string :as str]
-            [ansatz.lean.jvm.entry :as checked-entry]))
+            [ansatz.lean.jvm.entry :as checked-entry]
+            [ansatz.lean.jvm.entry-v3 :as entry-v3]))
 (defn- need [p message] (when-not p (throw (ex-info message {:profile :ansatz.lean.jvm.publisher}))))
 (defn- vector! [value limit]
   (need (and (vector? value) (<= (count value) limit)) "Bounded immutable vector required") value)
@@ -34,8 +35,31 @@
                (or (= expected-role selected-role)
                    (and (= expected-role "value") (#{"closed" "ground"} selected-role))))
           "Selected canonical row conflicts with genuine startup observation")))
+(defn- typed-documents! [payload index]
+  (entry-v3/validate-producer-custody! (:producer-custody payload) (:entry-helper-source payload) (:entry-helper payload))
+  (let [locals (mapv #(get % ":name") (get-in payload [:build-inputs "modules"]))
+        installed (mapv #(get % "module") (get-in payload [:build-inputs "installedImports" "modules"]))
+        documents (vector! (:entry-documents payload) checked-entry/max-selected-entries)
+        checked (mapv (fn [{:keys [request document]}]
+                        (entry-v3/validate-document!
+                         {:root (get request "module") :request request
+                          :module-products (get document "moduleProducts")
+                          :local-modules locals :installed-imports installed} document)) documents)
+        entries (vec (mapcat :entries checked))]
+    (need (= entries (:entries payload)) "Nominal entries differ from authenticated documents")
+    (doseq [entry entries role ["raw" "callable"]]
+      (let [abi (get entry role) row (get index (get abi "name")) d (get-in row ["ir" "fdecl"])]
+        (need (and (= (get entry "compiledModule") (get row "sourceModule"))
+                   (= abi {"name" (get d "f") "xs" (get d "xs") "type" (get d "type")}))
+              "Nominal callable differs from canonical source declaration")))
+    {:typed-groups (mapv #(select-keys (:storage %) [:logical :normalized]) checked)
+     :entries (vec (mapcat (fn [group document]
+                            (mapv (fn [entry]
+                                    (assoc entry "typedStorage"
+                                           (assoc (get-in entry ["typeCheck" "signature"]) "group" group)))
+                                  (:entries document))) (range) checked))}))
 (defn- validate-combined! [payload]
-  (need (contains? #{"native-project-build-evidence/2" "lean-native-local-project/2"} (:profile payload)) "Build/artifact receipt profile differs")
+  (need (contains? #{"native-project-build-evidence/2" "lean-native-local-project/2" "native-project-build-evidence/3" "lean-native-local-project/3"} (:profile payload)) "Build/artifact receipt profile differs")
   (let [index (:rows payload) entries (vector! (:entries payload) checked-entry/max-selected-entries)
         _ (need (and (map? index) (<= 1 (count index) 4096) (seq entries)) "Bounded complete program required")
         rows (vec (vals index)) _ (bounded-rows! (into rows entries))
@@ -49,17 +73,20 @@
         (#'startup/name! dependency)
         (need (contains? index dependency) "Selected combined declaration closure incomplete")))
     (doseq [row (:rows plan)] (startup-observation! (get index (get row "name")) row))
-    (doseq [entry entries] (checked-entry/validate-rows! entry index))
-    {:plan plan :rows (vec (sort-by #(name-label (get % "name")) rows)) :entries entries}))
+    (let [typed? (contains? #{"native-project-build-evidence/3" "lean-native-local-project/3"} (:profile payload))
+          typed (when typed? (typed-documents! payload index))]
+      (when-not typed? (doseq [entry entries] (checked-entry/validate-rows! entry index)))
+      {:plan plan :rows (vec (sort-by #(name-label (get % "name")) rows))
+       :entries (if typed? (:entries typed) entries) :typed-groups (or (:typed-groups typed) [])})))
 (defn- prepare-payload! [basis payload codec-bytes]
-  (let [{:keys [plan rows entries]} (validate-combined! payload)
+  (let [{:keys [plan rows entries typed-groups]} (validate-combined! payload)
         _ (need (and (= (class (byte-array 0)) (class codec-bytes)) (<= (alength ^bytes codec-bytes) 16384)) "Bounded codec byte array required")
         codec (aclone ^bytes codec-bytes)]
     (need (= "53b224c8fa037b144260872e3b14878aff86dbb61b598e1ea49f991dabc1fb6b" (#'startup/sha codec)) "Independent codec layout witness differs")
     (#'startup/publish-prepared! basis plan rows
       {"native-project-manifest" (:manifest-sha256 payload) "profile" (:profile payload)
        "native-evidence-files" (or (:evidence-files payload) (:artifact-file-records payload))
-       "entry-helper" (:entry-helper payload) "startup-helper" (get-in payload [:build-inputs "helper"])} codec entries)))
+       "entry-helper" (:entry-helper payload) "startup-helper" (get-in payload [:build-inputs "helper"])} codec entries typed-groups)))
 (defn prepare!
   "Research path overload over an actually issued native BuildReceipt."
   [basis actual-build-receipt codec-witness-path]

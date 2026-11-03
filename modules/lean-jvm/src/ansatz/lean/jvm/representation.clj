@@ -163,13 +163,103 @@
       "sum" (-> t (update "left" #(rewrite-type ids %)) (update "right" #(rewrite-type ids %)))
       "except" (-> t (update "error" #(rewrite-type ids %)) (update "value" #(rewrite-type ids %))) t)))
 
-(defn normalize-observation!
-  "Prepare one strict private typed-storage program; this issues no source authority.
-   Explicit root subsets are for bounded observation work, never silent fallback."
-  ([observation] (normalize-observation! observation {:roots (vec (range (count (get-in observation ["typeGraph" "roots"])))) :runtime-witnesses nil :io? false}))
-  ([observation options]
-   (poll!) (keys! observation #{"schema" "scope" "typeGraph" "rootTypeChecks" "representation"})
-   (need (and (= "lean-jvm-private-nominal-observations/1" (get observation "schema")) (= "private-no-cohort-admission" (get observation "scope"))) :observation-schema)
+
+(defn- builtin-constructors [t]
+  ;; Logical builtin meaning is checked against the actual instantiated native
+  ;; telescope below. Storage locations always come from persisted native fields.
+  (let [kind (get t "kind") family ["str" ["anonymous"] (get builtin-names kind)]
+        ctor (fn [part types] {"name" ["str" family part]
+                              "fields" (mapv #(hash-map "name" ["anonymous"] "type" %) types)})
+        [a b] (children t)]
+    (case kind
+      "list" [(ctor "nil" []) (ctor "cons" [a t])]
+      "option" [(ctor "none" []) (ctor "some" [a])]
+      "product" [(ctor "mk" [a b])]
+      "sum" [(ctor "inl" [a]) (ctor "inr" [b])]
+      "except" [(ctor "error" [a]) (ctor "ok" [b])]
+      (fail :unsupported-builtin-family))))
+
+(defn- closed-constructors! [cs family observed-cs defs work register!]
+  (let [native-cs (get family "constructors")]
+    (vector! observed-cs 1024) (need (= (count cs) (count native-cs) (count observed-cs)) :constructor-closure)
+    (doseq [[ci c] (map-indexed vector cs)]
+      (let [native (nth native-cs ci) observed (nth observed-cs ci) fs (get c "fields") of (get observed "fields") nf (get native "fields")]
+        (keys! observed #{"constructor" "constructorIndex" "fields"})
+        (need (and (= ci (get observed "constructorIndex")) (= (get c "name") (get native "constructor") (get observed "constructor"))) :constructor-binding)
+        (vector! of 64) (need (= (count fs) (count of) (count nf)) :field-closure)
+        (doseq [[fi f] (map-indexed vector fs)]
+          (let [o (nth of fi) t (get f "type") check (get o "typeCheck")]
+            (keys! o #{"field" "logicalType" "typeCheck" "closedIRType" "genericFieldIndex" "genericFieldInfo"})
+            (need (and (= fi (get o "field") (get o "genericFieldIndex")) (= t (get o "logicalType")) (= (nth nf fi) (get o "genericFieldInfo"))) :generic-closed-field-binding)
+            (defeq! check defs t work) (register! t (get check "expectedType") (get o "closedIRType"))))))))
+
+(defn- family-encoding [d family ir facts plans]
+  (let [trivial (get family "trivialStructure") native-cs (get family "constructors")]
+    (when trivial (need (= (count (get d "arguments")) (get trivial "numParams")) :trivial-parameter-count))
+    (when-not trivial (need (= ir (get family "irType")) :closed-family-lowering))
+    {"kind" "family" "constructors"
+     (mapv (fn [ci c]
+             (let [native (nth native-cs ci) info (get native "ctorInfo") fields (get native "fields") alias (when trivial (get trivial "fieldIndex"))
+                   immediate? (zero? (+ (get info "size") (get info "usize") (get info "ssize")))]
+               (when-not (or immediate? trivial) (need (<= ci 243) :allocated-tag))
+               {"index" ci "name" (get c "name")
+                "representation" (cond trivial {"kind" "alias" "field" alias}
+                                       immediate? {"kind" "immediate" "tag" ci}
+                                       :else {"kind" "node" "tag" ci "objects" (get info "size") "usize" (get info "usize") "ssize" (get info "ssize")})
+                "fields" (mapv (fn [fi f]
+                                  (let [generic (nth fields fi) child (get f "type") child-ir (:ir (get facts child))]
+                                    {"index" fi "plan" (get plans child)
+                                     "location" (if trivial
+                                                    (do (need (= fi alias) :unsupported-value-erasure)
+                                                        (need (= ir child-ir) :trivial-closed-lowering) {"kind" "self"})
+                                                    (case (get generic "kind")
+                                                      "object" {"kind" "object" "slot" (get generic "index")}
+                                                      "usize" (do (need (= child-ir "usize") :closed-scalar-correspondence) {"kind" "usize" "nativeIndex" (get generic "index")})
+                                                      "scalar" (do (need (= child-ir (get generic "irType")) :closed-scalar-correspondence) {"kind" "scalar" "offset" (get generic "offset") "lane" child-ir})
+                                                      (fail :unsupported-value-erasure)))}))
+                                (range) (get c "fields"))}))
+           (range) (get d "constructors"))}))
+
+(def ^:private io-error-constructors
+  ["alreadyExists" "otherError" "resourceBusy" "resourceVanished" "unsupportedOperation"
+   "hardwareFault" "unsatisfiedConstraints" "illegalOperation" "protocolError" "timeExpired"
+   "interrupted" "noFileOrDirectory" "invalidArgument" "permissionDenied" "resourceExhausted"
+   "inappropriateType" "noSuchThing" "unexpectedEof" "userError"])
+
+(defn- io-layout! [witnesses]
+  (let [rows (get witnesses "ioFamilies") _ (vector! rows 2)
+        families (unique-index (mapv family! rows) "typeName")
+        out-name ["str" ["str" ["anonymous"] "EST"] "Out"]
+        error-name ["str" ["str" ["anonymous"] "IO"] "Error"]
+        out (get families out-name) error (get families error-name)]
+    (need (= #{out-name error-name} (set (keys families))) :io-family-closure)
+    (need (and (= "object" (get out "irType")) (nil? (get out "trivialStructure"))
+               (= 2 (count (get out "constructors")))) :io-envelope-family)
+    (doseq [[index part] (map-indexed vector ["ok" "error"])]
+      (let [c (nth (get out "constructors") index) ctor-name ["str" out-name part]]
+        (need (and (= ctor-name (get c "constructor"))
+                   (= {"name" ctor-name "cidx" index "size" 1 "usize" 0 "ssize" 0} (get c "ctorInfo"))
+                   (= [{"kind" "object" "index" 0 "irType" "tobject"} {"kind" "void"}] (get c "fields")))
+              :io-envelope-layout)))
+    (need (and (= "tobject" (get error "irType")) (nil? (get error "trivialStructure"))
+               (= (mapv #(vector "str" error-name %) io-error-constructors)
+                  (mapv #(get % "constructor") (get error "constructors")))) :io-error-family)
+    ;; Error witnesses remain opaque to shared data construction. These checks
+    ;; bind the existing literal diagnostic alternatives, not a new error codec.
+    (let [empty-error (nth (get error "constructors") 17) message-error (nth (get error "constructors") 18)]
+      (need (and (= [] (get empty-error "fields"))
+                 (= [{"kind" "object" "index" 0 "irType" "object"}] (get message-error "fields"))
+                 (= 0 (get-in message-error ["ctorInfo" "ssize"]))
+                 (= 0 (get-in message-error ["ctorInfo" "usize"]))) :io-error-diagnostic-layout))))
+
+(defn- normalize-types! [observation options entry?]
+   (poll!)
+   (let [v2? (or entry? (= "lean-jvm-private-nominal-observations/2" (get observation "schema")))]
+   (keys! observation (if entry? #{"schema" "typeGraph" "rootTypes" "representation" "runtimeWitnesses"}
+                         (cond-> #{"schema" "scope" "typeGraph" "rootTypeChecks" "representation"} v2? (conj "runtimeWitnesses"))))
+   (need (if entry? (= "lean-native-entry-evidence/3" (get observation "schema"))
+             (and (#{"lean-jvm-private-nominal-observations/1" "lean-jvm-private-nominal-observations/2"} (get observation "schema"))
+                  (= "private-no-cohort-admission" (get observation "scope")))) :observation-schema)
    (keys! options #{:roots :runtime-witnesses :io?})
    (need (or (nil? (:runtime-witnesses options)) (map? (:runtime-witnesses options))) :runtime-witnesses)
    (need (instance? Boolean (:io? options)) :options)
@@ -179,7 +269,7 @@
      (keys! rep #{"schema" "scope" "rootTypes" "applications" "closedFields" "families"})
      (need (and (= "lean-jvm-native-layout-observations/4" (get rep "schema")) (= "observed-not-admitted" (get rep "scope"))) :representation-schema)
      (encoded! rep 1048576)
-     (let [roots (get g "roots") root-native (get rep "rootTypes") checks (get observation "rootTypeChecks")
+     (let [roots (get g "roots") root-native (get rep "rootTypes") checks (get observation (if entry? "rootTypes" "rootTypeChecks"))
            applications (unique-index (get rep "applications") "definition") closed (unique-index (get rep "closedFields") "definition")
            families (unique-index (mapv family! (get rep "families")) "typeName")
            register! (fn [t expr ir]
@@ -195,47 +285,65 @@
          (need (= required (set (keys families))) :family-closure))
        (doseq [[i t] (map-indexed vector roots)]
          (let [r (nth root-native i) c (nth checks i)]
-           (keys! r #{"root" "nativeType" "irType"}) (keys! c #{"root" "algorithm" "transparency" "actualType" "expectedType"})
-           (need (and (= i (get r "root") (get c "root")) (= (get r "nativeType") (get c "expectedType"))) :root-native-binding)
-           (defeq! (dissoc c "root") defs t work) (register! t (get r "nativeType") (get r "irType"))))
+           (keys! r #{"root" "nativeType" "irType"})
+           (need (= i (get r "root")) :root-native-binding)
+           (if entry?
+             ;; Genuine CLI has a root AST catalog, not per-root DefEq rows.
+             ;; The entry validator binds this catalog to whole function proofs.
+             (need (= c (get r "nativeType")) :entry-root-native-binding)
+             (do (keys! c #{"root" "algorithm" "transparency" "actualType" "expectedType"})
+                 (need (and (= i (get c "root")) (= (get r "nativeType") (get c "expectedType"))) :root-native-binding)
+                 (defeq! (dissoc c "root") defs t work)))
+           (register! t (get r "nativeType") (get r "irType"))))
        (doseq [[id d] defs]
          (let [t {"kind" "nominal" "id" id} app (get applications id) fields (get closed id) family (get families (get d "name"))
-               cs (get d "constructors") native-cs (get family "constructors") observed-cs (get fields "constructors")]
+               cs (get d "constructors") observed-cs (get fields "constructors")]
            (keys! app #{"definition" "nativeType" "irType"}) (keys! fields #{"definition" "constructors"})
            (need family :missing-family) (register! t (get app "nativeType") (get app "irType"))
-           (vector! observed-cs 1024) (need (= (count cs) (count native-cs) (count observed-cs)) :constructor-closure)
-           (doseq [[ci c] (map-indexed vector cs)]
-             (let [native (nth native-cs ci) observed (nth observed-cs ci) fs (get c "fields") of (get observed "fields") nf (get native "fields")]
-               (keys! observed #{"constructor" "constructorIndex" "fields"})
-               (need (and (= ci (get observed "constructorIndex")) (= (get c "name") (get native "constructor") (get observed "constructor"))) :constructor-binding)
-               (vector! of 64) (need (= (count fs) (count of) (count nf)) :field-closure)
-               (doseq [[fi f] (map-indexed vector fs)]
-                 (let [o (nth of fi) t (get f "type") check (get o "typeCheck")]
-                   (keys! o #{"field" "logicalType" "typeCheck" "closedIRType" "genericFieldIndex" "genericFieldInfo"})
-                   (need (and (= fi (get o "field") (get o "genericFieldIndex")) (= t (get o "logicalType")) (= (nth nf fi) (get o "genericFieldInfo"))) :generic-closed-field-binding)
-                   (defeq! check defs t work) (register! t (get check "expectedType") (get o "closedIRType"))))))))
+           (closed-constructors! cs family observed-cs defs work register!)))
        (let [selection (:roots options) _ (vector! selection 1024)
              _ (need (and (seq selection) (= (count selection) (count (set selection)))) :selected-roots)
              _ (doseq [i selection] (nat! i (dec (count roots)))) selected (mapv #(nth roots %) selection)
              closure (type-closure defs selected) ids (zipmap (:ids closure) (range))
              pruned (assoc g "roots" selected "definitions" (filterv #(contains? ids (get % "id")) (get g "definitions")))
-             canonical (graph/canonical-graph pruned) types (:types closure) plans (zipmap types (range)) witnesses (:runtime-witnesses options)
+             canonical (graph/canonical-graph pruned) types (:types closure) plans (zipmap types (range))
+             all-types (set (:types (type-closure defs roots)))
+             witnesses (if v2?
+                         (let [embedded (get observation "runtimeWitnesses") supplied (:runtime-witnesses options)]
+                           (need (and (map? embedded) (or (nil? supplied) (= embedded supplied))) :embedded-runtime-witnesses)
+                           embedded)
+                         (:runtime-witnesses options))
              special (if witnesses
-                       (do (encoded! witnesses 1048576) (keys! witnesses #{"algorithm" "specialTypes" "ioFamilies" "world"})
+                       (do (encoded! witnesses 1048576) (keys! witnesses (cond-> #{"algorithm" "specialTypes" "ioFamilies" "world"} v2? (conj "closedBuiltins" "target")))
                            (need (= "Lean.Compiler.LCNF.toLCNFType/toMonoType/toImpureType" (get witnesses "algorithm")) :runtime-algorithm)
                            (vector! (get witnesses "specialTypes") 8192)
                            (vector! (get witnesses "ioFamilies") 64)
-                           (unique-index (get witnesses "specialTypes") "type")) {})]
+                           (unique-index (get witnesses "specialTypes") "type")) {})
+             closed-builtins (if v2? (do (vector! (get witnesses "closedBuiltins") 8192) (unique-index (get witnesses "closedBuiltins") "type")) {})]
+         (when v2?
+           (let [target (get witnesses "target")
+                 required-special (set (filter #(or (special-kinds (get % "kind")) (#{"nat" "int" "string"} (get % "kind"))) all-types))
+                 required-builtins (set (filter #(#{"list" "option" "product" "sum" "except"} (get % "kind")) all-types))]
+             (keys! target #{"wordBits" "wordBitsSource"})
+             (need (and (= 64 (get target "wordBits")) (= "System.Platform.numBits" (get target "wordBitsSource"))) :native-target-width)
+             (need (= required-special (set (keys special))) :special-witness-closure)
+             (need (= required-builtins (set (keys closed-builtins))) :closed-builtin-closure)))
          (doseq [[t w] special]
-           (keys! w #{"type" "nativeType" "irType"}) (need (special-kinds (get t "kind")) :special-witness-kind)
-           (need (contains? (set (:types (type-closure defs roots))) t) :orphan-special-witness)
+           (keys! w #{"type" "nativeType" "irType"}) (need (or (special-kinds (get t "kind")) (and v2? (#{"nat" "int" "string"} (get t "kind")))) :special-witness-kind)
+           (need (contains? all-types t) :orphan-special-witness)
            (register! t (get w "nativeType") (get w "irType")))
-         (when (:io? options)
-           (need (and witnesses (= "canonical-erased-zero" (get witnesses "world"))) :missing-io-world)
-           ;; Closed EST.Out/IO.Error witness-to-selected-entry binding is not yet
-           ;; emitted in005; generic families alone cannot authorize that envelope.
-           (fail :missing-closed-io-witness))
-         (when witnesses (need (and (nil? (get witnesses "world")) (empty? (get witnesses "ioFamilies"))) :unexpected-io-witness))
+         (doseq [[t b] closed-builtins]
+           (keys! b #{"type" "nativeType" "irType" "family" "constructors"})
+           (let [family-name ["str" ["anonymous"] (get builtin-names (get t "kind"))]
+                 family (get families family-name)]
+             (need (and (= family-name (get b "family")) family) :closed-builtin-family)
+             (register! t (get b "nativeType") (get b "irType"))
+             (closed-constructors! (builtin-constructors t) family (get b "constructors") defs work register!)))
+         (if (:io? options)
+           (do (need (and witnesses (= "canonical-erased-zero" (get witnesses "world"))) :missing-io-world)
+               (if entry? (io-layout! witnesses)
+                 (fail :missing-closed-io-witness)))
+           (when witnesses (need (and (nil? (get witnesses "world")) (empty? (get witnesses "ioFamilies"))) :unexpected-io-witness)))
          (letfn [(lower [t]
                    (poll!)
                    (let [kind (get t "kind") fact (get @facts t) ir (:ir fact)]
@@ -246,38 +354,19 @@
                        (= "unit" kind) (do (need (= ir "tagged") :unit-lowering) {"kind" "unit"})
                        (= "bytes" kind) (do (need (= ir "object") :bytes-lowering) {"kind" "bytes"})
                        (= "array" kind) (do (need (= ir "object") :array-lowering) {"kind" "array" "element" (get plans (get t "element"))})
-                       (= "word" kind) (fail :missing-native-target-width)
+                       (= "word" kind) (do (need v2? :missing-native-target-width) (need (= ir "usize") :scalar-lowering)
+                                           {"kind" "scalar" "lane" "usize" "boxed" "box64"})
                        (#{"machine-int" "float" "bool" "char"} kind)
                        (let [lane (case kind "machine-int" (str "uint" (get t "bits")) "float" (if (= 32 (get t "bits")) "float32" "float") "bool" "uint8" "char" "uint32")]
                          (need (= ir lane) :scalar-lowering)
                          {"kind" "scalar" "lane" lane "boxed" (cond (= lane "float32") "box32" (#{"uint64" "float"} lane) "box64" :else "small-immediate")})
-                       (contains? builtin-names kind) (fail :missing-closed-builtin-witness)
+                       (contains? builtin-names kind)
+                       (do (need (contains? closed-builtins t) :missing-closed-builtin-witness)
+                           (family-encoding {"name" (get-in closed-builtins [t "family"]) "arguments" (children t) "constructors" (builtin-constructors t)}
+                                            (get families (get-in closed-builtins [t "family"])) ir @facts plans))
                        (= "nominal" kind)
-                       (let [d (get defs (get t "id")) family (get families (get d "name")) trivial (get family "trivialStructure") native-cs (get family "constructors")]
-                         (when trivial (need (= (count (get d "arguments")) (get trivial "numParams")) :trivial-parameter-count))
-                         (when-not trivial (need (= ir (get family "irType")) :closed-family-lowering))
-                         {"kind" "family" "constructors"
-                          (mapv (fn [ci c]
-                                  (let [native (nth native-cs ci) info (get native "ctorInfo") fields (get native "fields") alias (when trivial (get trivial "fieldIndex"))
-                                        immediate? (zero? (+ (get info "size") (get info "usize") (get info "ssize")))]
-                                    (when-not (or immediate? trivial) (need (<= ci 243) :allocated-tag))
-                                    {"index" ci "name" (get c "name")
-                                     "representation" (cond trivial {"kind" "alias" "field" alias}
-                                                            immediate? {"kind" "immediate" "tag" ci}
-                                                            :else {"kind" "node" "tag" ci "objects" (get info "size") "usize" (get info "usize") "ssize" (get info "ssize")})
-                                     "fields" (mapv (fn [fi f]
-                                                       (let [generic (nth fields fi) child (get f "type") child-ir (:ir (get @facts child))]
-                                                         {"index" fi "plan" (get plans child)
-                                                          "location" (if trivial
-                                                                         (do (need (= fi alias) :unsupported-value-erasure)
-                                                                             (need (= ir child-ir) :trivial-closed-lowering) {"kind" "self"})
-                                                                         (case (get generic "kind")
-                                                                           "object" {"kind" "object" "slot" (get generic "index")}
-                                                                           "usize" (do (need (= child-ir "usize") :closed-scalar-correspondence) {"kind" "usize" "nativeIndex" (get generic "index")})
-                                                                           "scalar" (do (need (= child-ir (get generic "irType")) :closed-scalar-correspondence) {"kind" "scalar" "offset" (get generic "offset") "lane" child-ir})
-                                                                           (fail :unsupported-value-erasure)))}))
-                                                     (range) (get c "fields"))}))
-                                (range) (get d "constructors"))})
+                       (let [d (get defs (get t "id")) family (get families (get d "name"))]
+                         (family-encoding d family ir @facts plans))
                        :else (fail :unsupported-logical-kind))))]
            (let [rows (mapv (fn [i t] {"id" i "type" (rewrite-type ids t) "closedIR" (:ir (get @facts t)) "encoding" (lower t)}) (range) types)
                  normalized {"schema" "lean-jvm-typed-storage/1" "logicalDigest" (graph/logical-digest canonical)
@@ -285,3 +374,21 @@
                              "roots" (mapv plans selected) "plans" rows}]
              (encoded! normalized 1048576)
              {:logical canonical :normalized normalized})))))))
+
+(defn normalize-observation!
+  "Prepare a strict private typed-storage program; issue no source authority.
+   Explicit root subsets are bounded observation work, never silent fallback."
+  ([observation]
+   (normalize-observation! observation {:roots (vec (range (count (get-in observation ["typeGraph" "roots"]))))
+                                        :runtime-witnesses nil :io? false}))
+  ([observation options] (normalize-types! observation options false)))
+
+(defn normalize-entry-types!
+  "Normalize the unchanged type/layout slice of actual CLI v3 evidence.
+   Caller separately validates full entry signatures/native function DefEq/root
+   usage and derives io?; this function grants no callable or source authority."
+  [document io?]
+  (need (= "lean-native-entry-evidence/3" (get document "schema")) :entry-schema)
+  (normalize-types! (select-keys document ["schema" "typeGraph" "rootTypes" "representation" "runtimeWitnesses"])
+                    {:roots (vec (range (count (get-in document ["typeGraph" "roots"]))))
+                     :runtime-witnesses nil :io? io?} true))

@@ -1,0 +1,26 @@
+{
+  "schema": "lean-jvm-consumer-fixture/1",
+  "scope": "three-module-authored-datatype-application",
+  "artifact": "datatypes.zip",
+  "manifestSHA256": "06f1ccafd17b4cdc8915b2e41d49e8e9741b8765fa2b281b60bcce636c5daf25",
+  "archiveSHA256": "9815ce7a0824f3f493919001a7e4c8254b5161ab9effec25e863324ffc458d32",
+  "sources": [
+    {
+      "path": "examples/datatypes/Syntax.lean",
+      "sha256": "9ebc9b2999f2c2970f659cababeef80ca30704e8a12a68a49028bd49cc020dbc"
+    },
+    {
+      "path": "examples/datatypes/Eval.lean",
+      "sha256": "b79cddcf745baee316311e540b126414babeb55f0f8597aff0cc2e8a74f26fb7"
+    },
+    {
+      "path": "examples/datatypes/Main.lean",
+      "sha256": "012f81f549f69a1f9ecb7949e639729ef5bfac99971c41b2c9ac5b15a2870c56"
+    }
+  ],
+  "nativeOracle": {
+    "exit": 0,
+    "peakSampledRSSKiB": 265860,
+    "stdout": "value=33; simplified=33; nodes=9; depth=4; leaves=[11, 9, 7, 0, 3]\n"
+  }
+}

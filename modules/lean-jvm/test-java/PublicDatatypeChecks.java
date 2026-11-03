@@ -149,6 +149,8 @@ public final class PublicDatatypeChecks {
         check(!standalone.equals(new byte[]{0, -1, 7}));
         LeanData reused = (LeanData) packet.create(value);
         check(reused.equals(value) && reused.hashCode() == value.hashCode());
+        LeanData fromFields = constructor.create(value.fields());
+        check(fromFields.equals(value) && fromFields.hashCode() == value.hashCode());
         @SuppressWarnings("unchecked") Map<String,Object> materialized = (Map<String,Object>) packet.materialize(value);
         LeanData rebuilt = (LeanData) packet.create(materialized);
         check(rebuilt.equals(value) && rebuilt.hashCode() == value.hashCode());
@@ -184,6 +186,21 @@ public final class PublicDatatypeChecks {
         refused(() -> LeanBytes.copyOf(new byte[1048577]));
         Map<String,Object> wrong = new HashMap<>(materialized); wrong.put("extra", "bad");
         refused(() -> packet.create(wrong));
+        LeanType bytesType = constructor.fields().get(2).type();
+        Object a = ValueBridge.prepareValue(bytesType, new byte[600000], "object");
+        Object b = ValueBridge.prepareValue(bytesType, new byte[600000], "object");
+        ValueBridge.validateArguments(bytesType, new Object[]{a, a}); // shared payload charged once
+        checks++;
+        refused(() -> ValueBridge.validateArguments(bytesType, new Object[]{a, b}));
+        ValueBridge.validateArguments(bytesType, new Object[]{a, 0L}); // erased IO world
+        checks++;
+        Thread.currentThread().interrupt();
+        try {
+            ValueBridge.prepareValue(bytesType, payload, "object");
+            throw new AssertionError("Interrupted conversion accepted");
+        } catch (java.util.concurrent.CancellationException expected) {
+            check(Thread.currentThread().isInterrupted());
+        } finally { Thread.interrupted(); }
         System.out.println("PublicDatatypeChecks: " + checks + " checks passed against actual core");
     }
 }
