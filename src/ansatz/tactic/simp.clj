@@ -1187,8 +1187,20 @@
 (def ^:private int-mul-name (name/from-string "Int.mul"))
 (def ^:private int-sub-name (name/from-string "Int.sub"))
 (def ^:private int-neg-name (name/from-string "Int.neg"))
-(def ^:private int-div-name (name/from-string "Int.div"))
-(def ^:private int-mod-name (name/from-string "Int.mod"))
+(def ^:private int-div-name (name/from-string "Int.ediv"))
+(def ^:private int-mod-name (name/from-string "Int.emod"))
+
+(defn- int-emod
+  "Lean `Int.emod` (Init/Data/Int/DivMod/Basic.lean): Euclidean modulus, `0 ≤ a % b < |b|`
+   for `b ≠ 0`, and `a % 0 = a`."
+  [a b]
+  (if (zero? b) a (mod a (abs b))))
+
+(defn- int-ediv
+  "Lean `Int.ediv`, the `/` on Int: the unique quotient with `emod a b + ediv a b * b = a`
+   for `b ≠ 0`, and `a / 0 = 0`."
+  [a b]
+  (if (zero? b) 0 (quot (- a (int-emod a b)) b)))
 (def ^:private int-ofnat-name (name/from-string "Int.ofNat"))
 (def ^:private int-negsucc-name (name/from-string "Int.negSucc"))
 
@@ -1310,8 +1322,8 @@
                 (= hname int-add-name) (mk-result (int-to-expr (+ a b)))
                 (= hname int-mul-name) (mk-result (int-to-expr (* a b)))
                 (= hname int-sub-name) (mk-result (int-to-expr (- a b)))
-                (= hname int-div-name) (when-not (zero? b) (mk-result (int-to-expr (quot a b))))
-                (= hname int-mod-name) (when-not (zero? b) (mk-result (int-to-expr (mod a b))))
+                (= hname int-div-name) (mk-result (int-to-expr (int-ediv a b)))
+                (= hname int-mod-name) (mk-result (int-to-expr (int-emod a b)))
                 :else nil)))
 
           (and (= 6 nargs) (= (first args) (e/const' (name/from-string "Int") [])))
