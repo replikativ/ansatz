@@ -998,7 +998,7 @@
          _ (when-not goal (tactic-error! "No goals" {}))
          target-type (if hyp-id (:type (red/lctx-lookup (:lctx goal) hyp-id)) (:type goal))
          st (mk-tc ps (:lctx goal))
-         eq-type (tc/infer-type st eq-term)
+         eq-type (infer-in-goal ps (:lctx goal) eq-term)
          eq-type-whnf (whnf-in-goal ps (:lctx goal) eq-type)
          [head args] (e/get-app-fn-args eq-type-whnf)
          eq-name (name/from-string "Eq")]
@@ -1104,6 +1104,8 @@
   ([ps term] (rewrite-lemma ps term false))
   ([ps term reverse?] (rewrite-lemma ps term reverse? nil))
   ([ps term reverse? hyp-id]
+   (rewrite-lemma ps term reverse? hyp-id (:next-id ps)))
+  ([ps term reverse? hyp-id fresh-start]
    (let [goal (proof/current-goal ps)
          _ (when-not goal (tactic-error! "No goals" {}))
          st (mk-tc ps (:lctx goal))
@@ -1142,6 +1144,8 @@
               (e/app* (e/const' (name/from-string "propext") []) a b heq) [L1]])
            :else (tactic-error! "rewrite: lemma is not (∀ …, _ = _ / _ ↔ _)" {:type ty}))]
      (let [pat (if reverse? rhs0 lhs0)   ; match the side we'll FIND in the goal
+           _ (when (e/mvar? (e/get-app-fn (meta/zonk-expr @mctx pat)))
+               (tactic-error! "rewrite: pattern is a metavariable" {:pattern pat}))
            found (atom false)
            try-match (fn [e]
                        (try
@@ -1183,18 +1187,34 @@
              (when (not= before @mctx) (recur (inc i))))))
        (let [zonk* #(meta/zonk-expr @mctx %)
              eq-proof (zonk* eq-proof)
-             ps (-> ps (assoc :meta-mctx @mctx) proof/prune-solved-goals)]
-         (when (or (meta/has-expr-mvar? eq-proof)
-                   (seq (meta/unassigned-level-mvars @mctx eq-proof)))
-           (tactic-error! "rewrite: lemma parameters unresolved after matching" {:type ty}))
-         ;; Always FORWARD-rewrite: for `<-`, flip with Eq.symm (sidesteps basic/rewrite's
-         ;; reverse-motive Eq.ndrec path).
-         (if reverse?
-           (rewrite ps (e/app* (e/const' (name/from-string "Eq.symm")
-                                         (mapv #(meta/zonk-level @mctx %) eq-lvls))
-                               (zonk* eqT) (zonk* lhs0) (zonk* rhs0) eq-proof)
-                    false hyp-id)
-           (rewrite ps eq-proof false hyp-id)))))))
+             ;; Lean Meta/Tactic/Rewrite.lean rewrite: telescope holes first,
+             ;; then holes from the input term. Elab/Tactic/Rewrite.lean
+             ;; elabRewrite/finishElabRewrite keeps fresh holes and makes proof
+             ;; goals opaque; data goals remain assignable by later unification.
+             holes (vec (distinct (concat (map e/mvar-id mvars)
+                                          (meta/expr-mvars @mctx term))))
+             holes (filterv #(and (>= % fresh-start)
+                                  (not (meta/expr-assigned-or-delayed? @mctx %))) holes)
+             ps (-> ps (assoc :meta-mctx @mctx) proof/prune-solved-goals)
+             ps (reduce (fn [ps id]
+                          (let [decl (proof/mvar-decl ps id)
+                                ty (zonk* (:type decl))
+                                sort (whnf-in-goal ps (:lctx decl)
+                                                  (infer-in-goal ps (:lctx decl) ty))]
+                            (cond-> (proof/set-mvar-type ps id ty)
+                              (and (e/sort? sort) (= lvl/zero (e/sort-level sort)))
+                              (update :meta-mctx meta/set-expr-mvar-kind id :syntheticOpaque))))
+                        ps holes)
+             _ (when (seq (meta/unassigned-level-mvars @mctx eq-proof))
+                 (tactic-error! "rewrite: unresolved universe parameters" {:type ty}))
+             ;; Always forward-rewrite; Eq.symm carries the reversed rule.
+             ps (if reverse?
+                  (rewrite ps (e/app* (e/const' (name/from-string "Eq.symm")
+                                               (mapv #(meta/zonk-level @mctx %) eq-lvls))
+                                     (zonk* eqT) (zonk* lhs0) (zonk* rhs0) eq-proof)
+                           false hyp-id)
+                  (rewrite ps eq-proof false hyp-id))]
+         (update ps :goals #(vec (distinct (concat (take 1 %) holes (rest %))))))))))
 
 ;; ============================================================
 ;; cases (case analysis on an inductive hypothesis)
@@ -2631,70 +2651,63 @@
 ;; ============================================================
 
 (defn by-cases
-  "Case-split on a Bool expression. Creates two subgoals:
-   1. The goal with `cond = true` as a hypothesis (h)
-   2. The goal with `cond = false` as a hypothesis (h)
-
-   Implemented via `have h_val : Bool := cond` then `cases h_val`,
-   which substitutes cond with true/false in each branch.
-
-   Usage: (by_cases (<= x y))
-   Produces:
-     Goal 1: h : Eq Bool cond true  ⊢ goal
-     Goal 2: h : Eq Bool cond false ⊢ goal"
-  [ps cond-expr]
-  (let [goal (proof/current-goal ps)
-        _ (when-not goal (tactic-error! "No goals" {}))
-        st (mk-tc ps (:lctx goal))
-        ;; Verify cond-expr is Bool-typed
-        cond-type (tc/infer-type st cond-expr)
-        cond-type-whnf (whnf-in-goal ps (:lctx goal) cond-type)
-        _ (when-not (and (e/const? cond-type-whnf)
-                         (= (name/->string (e/const-name cond-type-whnf)) "Bool"))
-            (tactic-error! "by_cases: expression is not Bool"
-                           {:type cond-type :expr cond-expr}))
-        bool-type (e/const' (name/from-string "Bool") [])
-        bool-true (e/const' (name/from-string "Bool.true") [])
-        bool-false (e/const' (name/from-string "Bool.false") [])
-        ;; Strategy: introduce `h : cond = true` and `h : cond = false` as two subgoals.
-        ;; Build proof: Bool.rec (motive := λ b, cond = b → Goal)
-        ;;                       (λ h, false-branch) (λ h, true-branch) cond rfl
-        ;; The motive says: "for each Bool value b, if cond = b then Goal"
-        ;; Applied to cond with rfl (cond = cond), this gives Goal.
-        eq-type (fn [val] (e/app* (e/const' (name/from-string "Eq") [(lvl/succ lvl/zero)])
-                                  bool-type cond-expr val))
-        ;; Create goals with hypothesis
-        [ps' h-false-id] (proof/alloc-id ps)
-        lctx-false (add-local (:lctx goal) h-false-id "hc" (eq-type bool-false))
-        [ps' false-goal-id] (proof/fresh-mvar-replacing ps' (:type goal) lctx-false (:id goal))
-        [ps' h-true-id] (proof/alloc-id ps')
-        lctx-true (add-local (:lctx goal) h-true-id "hc" (eq-type bool-true))
-        [ps' true-goal-id] (proof/fresh-mvar-replacing ps' (:type goal) lctx-true (:id goal))
-        ;; Build the proof term directly:
-        ;; @Bool.rec (λ b, Eq Bool cond b → Goal) (λ h, false_proof) (λ h, true_proof) cond (Eq.refl Bool cond)
-        goal-sort (infer-in-goal ps (:lctx goal) (:type goal))
-        goal-sort-whnf (whnf-in-goal ps (:lctx goal) goal-sort)
-        motive-level (if (e/sort? goal-sort-whnf) (e/sort-level goal-sort-whnf) lvl/zero)
-        ;; motive: λ (b : Bool), Eq Bool cond b → Goal
-        motive (e/lam "b" bool-type
-                      (e/arrow (e/app* (e/const' (name/from-string "Eq") [(lvl/succ lvl/zero)])
-                                       bool-type cond-expr (e/bvar 0))
-                               (:type goal))
-                      :default)
-        ;; rfl : Eq Bool cond cond
-        rfl-proof (e/app* (e/const' (name/from-string "Eq.refl") [(lvl/succ lvl/zero)])
-                          bool-type cond-expr)]
-    (-> (proof/assign-mvar ps' (:id goal)
-                           {:kind :by-cases
-                            :cond cond-expr
-                            :motive motive
-                            :motive-level motive-level
-                            :rfl-proof rfl-proof
-                            :h-false-id h-false-id
-                            :h-true-id h-true-id
-                            :false-goal false-goal-id
-                            :true-goal true-goal-id})
-        (proof/record-tactic :by-cases [cond-expr] (:id goal)))))
+  "Case-split on Bool, retaining false-first constructor order and equations.
+   This is the surface encoding used by Bool conditionals; named Prop splitting
+   follows Init/ByCases.lean in by-cases-prop."
+  ([ps cond-expr] (by-cases ps cond-expr "hc"))
+  ([ps cond-expr hname]
+   (let [goal (proof/current-goal ps)
+         _ (when-not goal (tactic-error! "No goals" {}))
+         st (mk-tc ps (:lctx goal))
+         ;; Verify cond-expr is Bool-typed
+         cond-type (tc/infer-type st cond-expr)
+         cond-type-whnf (whnf-in-goal ps (:lctx goal) cond-type)
+         _ (when-not (and (e/const? cond-type-whnf)
+                          (= (name/->string (e/const-name cond-type-whnf)) "Bool"))
+             (tactic-error! "by_cases: expression is not Bool"
+                            {:type cond-type :expr cond-expr}))
+         bool-type (e/const' (name/from-string "Bool") [])
+         bool-true (e/const' (name/from-string "Bool.true") [])
+         bool-false (e/const' (name/from-string "Bool.false") [])
+         ;; Strategy: introduce `h : cond = true` and `h : cond = false` as two subgoals.
+         ;; Build proof: Bool.rec (motive := λ b, cond = b → Goal)
+         ;;                       (λ h, false-branch) (λ h, true-branch) cond rfl
+         ;; The motive says: "for each Bool value b, if cond = b then Goal"
+         ;; Applied to cond with rfl (cond = cond), this gives Goal.
+         eq-type (fn [val] (e/app* (e/const' (name/from-string "Eq") [(lvl/succ lvl/zero)])
+                                   bool-type cond-expr val))
+         ;; Create goals with hypothesis
+         [ps' h-false-id] (proof/alloc-id ps)
+         lctx-false (add-local (:lctx goal) h-false-id hname (eq-type bool-false))
+         [ps' false-goal-id] (proof/fresh-mvar-replacing ps' (:type goal) lctx-false (:id goal))
+         [ps' h-true-id] (proof/alloc-id ps')
+         lctx-true (add-local (:lctx goal) h-true-id hname (eq-type bool-true))
+         [ps' true-goal-id] (proof/fresh-mvar-replacing ps' (:type goal) lctx-true (:id goal))
+         ;; Build the proof term directly:
+         ;; @Bool.rec (λ b, Eq Bool cond b → Goal) (λ h, false_proof) (λ h, true_proof) cond (Eq.refl Bool cond)
+         goal-sort (infer-in-goal ps (:lctx goal) (:type goal))
+         goal-sort-whnf (whnf-in-goal ps (:lctx goal) goal-sort)
+         motive-level (if (e/sort? goal-sort-whnf) (e/sort-level goal-sort-whnf) lvl/zero)
+         ;; motive: λ (b : Bool), Eq Bool cond b → Goal
+         motive (e/lam "b" bool-type
+                       (e/arrow (e/app* (e/const' (name/from-string "Eq") [(lvl/succ lvl/zero)])
+                                        bool-type cond-expr (e/bvar 0))
+                                (:type goal))
+                       :default)
+         ;; rfl : Eq Bool cond cond
+         rfl-proof (e/app* (e/const' (name/from-string "Eq.refl") [(lvl/succ lvl/zero)])
+                           bool-type cond-expr)]
+     (-> (proof/assign-mvar ps' (:id goal)
+                            {:kind :by-cases
+                             :cond cond-expr
+                             :motive motive
+                             :motive-level motive-level
+                             :rfl-proof rfl-proof
+                             :h-false-id h-false-id
+                             :h-true-id h-true-id
+                             :false-goal false-goal-id
+                             :true-goal true-goal-id})
+         (proof/record-tactic :by-cases [cond-expr] (:id goal))))))
 
 (defn cases-eq
   "Lean `cases h : e`: generalize the discriminant with an equation, then cases."
@@ -3069,6 +3082,32 @@
                             :true-goal true-goal-id})
         (proof/record-tactic :by-cases-dec [c] (:id goal)))))
 
+(defn by-cases-prop
+  "Init/ByCases.lean: by_cases h : p uses a local Decidable or Classical."
+  [ps p hname]
+  (let [goal (proof/current-goal ps)
+        prop-sort (whnf-in-goal ps (:lctx goal) (infer-in-goal ps (:lctx goal) p))
+        _ (when-not (and (e/sort? prop-sort) (= lvl/zero (e/sort-level prop-sort)))
+            (tactic-error! "by_cases: expected a proposition or Bool" {:type prop-sort}))
+        dec (e/app (e/const' (name/from-string "Decidable") []) p)
+        instance (or (inst/synthesize* (mk-tc ps (:lctx goal)) (:env ps)
+                                       (inst/index-for (:env ps)) dec 0)
+                     (e/app (e/const' (name/from-string "Classical.propDecidable") []) p))
+        siblings (vec (rest (:goals ps)))
+        ps (by-cases-dec (assoc ps :goals [(first (:goals ps))]) p instance)
+        branches (vec (reverse (:goals ps)))
+        ps (reduce (fn [ps [gid tag]]
+                     (let [lctx (proof/mvar-lctx ps gid)
+                           fid (last (sort (remove (set (keys (:lctx goal))) (keys lctx))))]
+                       (-> ps
+                           (update :meta-mctx meta/set-expr-mvar-lctx gid
+                                   (assoc-in lctx [fid :name] hname))
+                           (proof/set-mvar-user-name gid
+                             (apply-meta/append-tag (or (:user-name goal) (name/anonymous))
+                                                    (name/from-string tag))))))
+                   ps (map vector branches ["pos" "neg"]))]
+    (assoc ps :goals (into branches siblings))))
+
 (declare split-matcher)
 
 (defn split-tac
@@ -3122,3 +3161,56 @@
    overlapping), so split-tac skips this discriminant."
   [ps tgt]
   ((requiring-resolve 'ansatz.tactic.match-eqns/split-matcher) ps tgt))
+
+(defn split-local-decl
+  "Lean Meta/Tactic/Split.lean splitLocalDecl?: search the selected local type."
+  [ps fid]
+  (let [g (proof/current-goal ps)
+        decl (get (:lctx g) fid)
+        tgt (find-split-target ps (:lctx g) (:type decl) #{})
+        _ (when-not tgt
+            (tactic-error! "split: no if/match/cond discriminant in hypothesis" {:id fid}))
+        siblings (vec (rest (:goals ps)))
+        ps (assoc ps :goals [(first (:goals ps))])
+        ps (case (:kind tgt)
+             ;; Bool is the surface encoding of if. Keep the original context,
+             ;; transporting only the selected declaration along the branch Eq.
+             :bool (all-goals (by-cases ps (:discr tgt))
+                             (fn [ps]
+                               (let [g (proof/current-goal ps)
+                                     hid (last (sort (keys (:lctx g))))]
+                                 (rewrite ps (e/fvar hid) false fid))))
+             :dec (all-goals (by-cases-dec ps (:cond tgt) (:inst tgt))
+                            (fn [ps]
+                              (let [g (proof/current-goal ps)
+                                    hid (last (sort (keys (:lctx g))))]
+                                ((requiring-resolve 'ansatz.tactic.simp/simp-at)
+                                 ps fid ['if_pos 'if_neg 'dif_pos 'dif_neg (e/fvar hid)]
+                                 {:only? true :simp-only-builtins? false
+                                  :may-close-goal? false :decide? false}))))
+             :matcher
+             ;; splitLocalDecl? reverts the local and its forward dependents,
+             ;; applies the matcher splitter, then reintroduces the telescope.
+             (let [ids (sort (cons fid (induction-fvars-to-generalize (:lctx g) [fid])))
+                   names (mapv #(get-in g [:lctx % :name]) ids)
+                   ps (reduce revert ps (reverse ids))]
+               (all-goals (split-matcher ps tgt) #(intros % names))))]
+    (update ps :goals into (remove #(proof/mvar-assigned? ps %) siblings))))
+
+(defn split-at-wildcard
+  "Lean Elab/Tactic/Split.lean evalSplit: first nondependent Prop local, then target."
+  [ps]
+  (let [g (proof/current-goal ps)
+        candidate
+        (some (fn [[fid d]]
+                (let [sort (whnf-in-goal ps (:lctx g) (infer-in-goal ps (:lctx g) (:type d)))]
+                  (when (and (= :local (:tag d)) (e/sort? sort) (= lvl/zero (e/sort-level sort))
+                             (not (some (fn [[id other]]
+                                          (and (not= id fid)
+                                               (or (contains? (collect-fvar-ids (:type other)) fid)
+                                                   (and (:value other) (contains? (collect-fvar-ids (:value other)) fid)))))
+                                        (:lctx g)))
+                             (find-split-target ps (:lctx g) (:type d) #{}))
+                    fid)))
+              (sort-by key (:lctx g)))]
+    (if candidate (split-local-decl ps candidate) (split-tac ps))))

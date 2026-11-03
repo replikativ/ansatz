@@ -3486,7 +3486,7 @@
          ps (-> (update ps :goals #(into [child-id] (remove #{child-id} %)))
                 (proof/assign-mvar (:id goal) {:kind :simp-all-hyps :replacements [rep] :child child-id})
                 (proof/record-tactic :simp-at (vec lemma-names) (:id goal)))]
-     (if (false-const? new-type)
+     (if (and (not= false (:may-close-goal? opts)) (false-const? new-type))
        (let [st' (tc/attach-lctx (tc/mk-tc-state (:env ps)) child-lctx)
              s (#'tc/cached-whnf st' (tc/infer-type st' (:type goal)))
              u (if (and s (e/sort? s)) (e/sort-level s) lvl/zero)]

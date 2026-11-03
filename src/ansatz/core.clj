@@ -859,7 +859,8 @@
   "A SINGLE rewrite rule: a local hypothesis (by name), an env lemma (∀-quantified, instantiated by
    matching), or an applied Eq term. `reverse?` rewrites right-to-left."
   [ps reverse? spec hyp-id]
-  (let [g (proof/current-goal ps)
+  (let [fresh-start (:next-id ps)
+        g (proof/current-goal ps)
         hyp-fid (when (symbol? spec)
                   (reduce (fn [best [id d]]
                             (if (and (= (str spec) (:name d))
@@ -868,7 +869,7 @@
                           nil (:lctx g)))
         [ps term] (if hyp-fid [ps (e/fvar hyp-fid)]
                       (elab-apply-arg ps (:lctx g) spec))]
-    (basic/rewrite-lemma ps term reverse? hyp-id)))
+    (basic/rewrite-lemma ps term reverse? hyp-id fresh-start)))
 
 (declare latest-local-id-by-name)
 
@@ -1372,9 +1373,16 @@
    'unfold    (fn [ps args]
                 (basic/unfold-in-goal ps (str (first args))))
    'by_cases  (fn [ps args]
-                (let [g (proof/current-goal ps)
-                      cond-expr (elab/elaborate-in-context (:env ps) (:lctx g) (first args))]
-                  (basic/by-cases ps cond-expr)))
+                (let [[hname form] (if (= ':- (second args))
+                                     [(str (first args)) (nth args 2)]
+                                     [nil (first args)])
+                      g (proof/current-goal ps)
+                      expr (elab/elaborate-in-context (:env ps) (:lctx g) form)
+                      st (tc/attach-lctx (tc/mk-tc-state (:env ps)) (:lctx g))
+                      ty (tc/infer-type st expr)]
+                  (if (tc/is-def-eq st ty (e/const' (name/from-string "Bool") []))
+                    (basic/by-cases ps expr (or hname "hc"))
+                    (basic/by-cases-prop ps expr (or hname "h")))))
    ;; Combinators — these receive inner tactic forms as s-expressions
    'try       (fn [ps args]
                 ;; (try (tactic args)) — try the inner tactic; on failure, leave state unchanged
@@ -1447,7 +1455,19 @@
                         (basic/solve-by-elim ps' 6 lemmas)
                         (basic/solve-by-elim ps'))))
    'split_ifs (fn [ps _args] (basic/split-ifs ps))
-   'split     (fn [ps _args] (basic/split-tac ps))
+   'split     (fn [ps args]
+                ;; Lean Elab/Tactic/Split.lean evalSplit accepts one location.
+                (cond
+                  (empty? args) (basic/split-tac ps)
+                  (and (= 'at (first args)) (= 2 (count args)))
+                  (cond
+                    (= '* (second args)) (basic/split-at-wildcard ps)
+                    (#{'⊢ '|-} (second args)) (basic/split-tac ps)
+                    :else (let [fid (latest-local-id-by-name (:lctx (proof/current-goal ps)) (second args))]
+                      (when-not fid
+                        (throw (ex-info "Tactic error: split: unknown hypothesis" {:kind :tactic-error})))
+                      (basic/split-local-decl ps fid)))
+                  :else (throw (ex-info "Tactic error: split: expected a single location" {:kind :tactic-error}))))
    'clear     (fn [ps args]
                 (let [fid (some (fn [[id d]] (when (= (str (first args)) (:name d)) id))
                                 (:lctx (proof/current-goal ps)))]
