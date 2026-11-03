@@ -31,7 +31,8 @@
             [ansatz.meta :as meta]
             [ansatz.meta.match.matcher-info :as matcher-info]
             [ansatz.surface.match :as match]
-            [ansatz.surface.ingest :as ingest])
+            [ansatz.surface.ingest :as ingest]
+            [ansatz.surface.diagnostics :as diagnostics])
   (:import [ansatz.kernel Env Expr]))
 
 ;; ============================================================
@@ -107,6 +108,8 @@
             (cond-> {:kind kind}
               user-name (assoc :user-name user-name)
               inst-implicit? (assoc :inst-implicit? true)))
+     (when-let [ref (:ref est)]
+       (swap! (:meta-mctx est) assoc-in [:decls id :ref] ref))
      (e/mvar id))))
 
 (defn- mark-inst-implicit!
@@ -217,7 +220,7 @@
   (let [mctx @(:meta-mctx est)]
     (->> (:decls mctx)
          (remove (fn [[id _]] (meta/expr-assigned-or-delayed? mctx id)))
-         (sort-by first)
+         (sort-by (comp :index second))
          (mapv (fn [[id decl]]
                  [id (cond-> {:kind (:kind decl)
                               :index (:index decl)
@@ -242,11 +245,14 @@
         unsolved (unsolved-mvars est)
         unsolved-levels (unsolved-levels est)]
     (when (seq unsolved)
-      (elab-error! "Unsolved metavariables"
-                   {:count (count unsolved)
-                    :mvars (mapv (fn [[id _]]
-                                   {:id id :type (surface-mvar-type est id)})
-                                 unsolved)}))
+      (let [diagnostic (or (diagnostics/first-instance-diagnostic (elab-env est) @(:meta-mctx est) (map first unsolved))
+                           (diagnostics/mvar-diagnostic (elab-env est) @(:meta-mctx est) (ffirst unsolved)))]
+        (elab-error! (:message diagnostic)
+                     (merge diagnostic
+                            {:count (count unsolved)
+                             :mvars (mapv (fn [[id _]]
+                                            {:id id :type (surface-mvar-type est id)})
+                                          unsolved)}))))
     (when (seq unsolved-levels)
       (elab-error! "Unsolved universe level metavariables"
                    {:count (count unsolved-levels)
@@ -1107,7 +1113,10 @@
 (defn- elab-term
   "Recursively elaborate an s-expression into a Ansatz Expr."
   [est sexpr]
-  (let [est (refresh-env est)]
+  (let [est (refresh-env est)
+        est (if-let [ranges (:syntax-ranges est)]
+              (assoc est :ref {:forms (cons (delay sexpr) (get-in est [:ref :forms])) :ranges ranges})
+              est)]
     (cond
     ;; an already-elaborated kernel Expr passes through — term elaborators (elab_rules)
     ;; splice Exprs into surface forms they hand back to elab (quotation with term holes)
@@ -1798,7 +1807,7 @@
   ([mode env lctx sexpr expected]
    (elaborate* mode env lctx sexpr expected {}))
   ([mode env lctx sexpr expected opts]
-   (let [est (cond-> (mk-elab-state env opts)
+   (let [est (cond-> (assoc (mk-elab-state env opts) :syntax-ranges (delay (diagnostics/syntax-ranges sexpr)))
                lctx (attach-elab-lctx lctx)
                ;; elaborating a type: a signature's binder types, a theorem statement, or
                ;; anything whose expected type is a Sort (change/show targets)
@@ -1882,7 +1891,10 @@
    checking and synthesis, then abstract the telescope once. Lean's
    Elab/Binders.lean elabBinders and Elab/Inductive.lean elabCtors staging."
   [environment lctx binder-pairs body-form {:keys [check-result check-binder-type]}]
-  (let [est (-> (mk-elab-state environment) (attach-elab-lctx lctx) (assoc :prop-ctx true))]
+  (let [est (-> (mk-elab-state environment)
+                (attach-elab-lctx lctx)
+                (assoc :prop-ctx true
+                       :syntax-ranges (delay (diagnostics/syntax-ranges [binder-pairs body-form]))))]
     (letfn [(bind [est pairs locals]
               (if-let [[sym type-form] (first pairs)]
                 (let [type (elab-type est type-form)]

@@ -246,7 +246,7 @@
 (deftest test-elab-strict-top-hole-fails
   (testing "strict elaboration still rejects unsolved holes"
     (let [env (env/with-extension (env/empty-env) :instances {})]
-      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Unsolved metavariables"
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"don't know how to synthesize placeholder"
                             (elab/elaborate env '_ (e/sort' lvl/zero)))))))
 
 (deftest test-elab-collecting-context-hole

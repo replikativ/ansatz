@@ -67,7 +67,7 @@
                 nil
                 (catch clojure.lang.ExceptionInfo ex ex))]
     (is (= :elab-error (:kind (ex-data error))))
-    (is (re-find #"Unsolved metavariables" (or (some-> error ex-message) "")))
+    (is (re-find #"don't know how to synthesize placeholder" (or (some-> error ex-message) "")))
     (is (seq (:mvars (ex-data error)))))
   (is (nil? (env/lookup (a/env) (name/from-string "RecursiveHole")))))
 

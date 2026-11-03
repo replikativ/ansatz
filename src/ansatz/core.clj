@@ -37,6 +37,7 @@
             [ansatz.elab.structural-eqns :as structural-eqns]
             [ansatz.surface.ingest :as ingest]
             [ansatz.surface.elaborate :as elab]
+            [ansatz.surface.diagnostics :as diagnostics]
             [ansatz.codegen :as codegen]
             [ansatz.codegen.decl :as decl]
             [ansatz.wf :as wf]
@@ -2793,7 +2794,11 @@
          ps (if (seq intro-names) (basic/intros ps intro-names) ps)
          ps (reduce run-tactic ps tactic-forms)]
      (when-not (proof/solved? ps)
-       (throw (ex-info (str "Proof incomplete\n" (proof/format-goals ps)) {:ps ps})))
+       (let [mctx (:meta-mctx ps)
+             diagnostic (diagnostics/first-instance-diagnostic (:env ps) mctx (:goals ps))]
+         (throw (ex-info (or (:message diagnostic)
+                             (str "Proof incomplete\n" (proof/format-goals ps)))
+                         (merge {:ps ps} diagnostic)))))
      (extract/verify ps)
      (let [term (extract/extract ps)
            final-env (:env ps)
@@ -2822,7 +2827,11 @@
         ps (if (seq intro-names) (basic/intros ps intro-names) ps)
         ps (reduce run-tactic ps tactic-forms)]
     (when-not (proof/solved? ps)
-      (throw (ex-info (str "Proof incomplete\n" (proof/format-goals ps)) {:ps ps})))
+      (let [mctx (:meta-mctx ps)
+            diagnostic (diagnostics/first-instance-diagnostic (:env ps) mctx (:goals ps))]
+        (throw (ex-info (or (:message diagnostic)
+                            (str "Proof incomplete\n" (proof/format-goals ps)))
+                        (merge {:ps ps} diagnostic)))))
     (extract/verify ps)
     [goal-type (extract/extract ps)]))
 

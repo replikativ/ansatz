@@ -22,6 +22,7 @@
             [ansatz.tactic.proof :as proof]
             [ansatz.tactic.elab-term :as telab]
             [ansatz.tactic.instance :as inst]
+            [ansatz.surface.diagnostics :as diagnostics]
             [ansatz.config :as config])
   (:import [ansatz.kernel ConstantInfo Expr]))
 
@@ -249,9 +250,12 @@
                       (assoc acc
                              :saw-error? true
                              :first-error (or (:first-error acc)
-                                              (ex-info (str "Tactic error: " tactic-name ": failed to synthesize instance implicit argument")
-                                                       {:kind :tactic-error :mvar-id mvar-id
-                                                        :type mtype}))
+                                              (let [diagnostic (diagnostics/mvar-diagnostic
+                                                                (:env ps)
+                                                                (meta/set-expr-mvar-inst-implicit (:meta-mctx ps) mvar-id true)
+                                                                mvar-id {:synthesis-failure? true})]
+                                                (ex-info (str "Tactic error: " tactic-name ": " (:message diagnostic))
+                                                         (assoc diagnostic :kind :tactic-error))))
                              :postponed (conj (:postponed acc) [mvar-id :inst-implicit])))))
                 {:ps ps
                  :postponed []
@@ -588,12 +592,17 @@
                                      :tactic-name "exact"})
         visible-holes (vec visible-holes)]
     (when (seq visible-holes)
-      (let [diagnostics (mapv telab/hole-diagnostic visible-holes)]
-        (tactic-error! (str "exact: unresolved holes\n"
+      (let [diagnostics (mapv telab/hole-diagnostic visible-holes)
+            diagnostic (or (diagnostics/first-instance-diagnostic (:env ps) (:meta-mctx ps) (map :id visible-holes))
+                           (diagnostics/mvar-diagnostic (:env ps) (:meta-mctx ps) (:id (first visible-holes))))]
+        (tactic-error! (str "exact: "
+                            (:message diagnostic)
+                            "\n"
                             (telab/format-hole-diagnostics diagnostics))
-                       {:holes visible-holes
-                        :hole-diagnostics diagnostics
-                        :hole-count (count diagnostics)})))
+                       (merge diagnostic
+                              {:holes visible-holes
+                               :hole-diagnostics diagnostics
+                               :hole-count (count diagnostics)}))))
     (-> (proof/assign-mvar ps (:id goal) {:kind :exact :term checked-expr})
         (proof/record-tactic :exact [form] (:id goal)))))
 
@@ -1558,14 +1567,19 @@
                                  others (filterv #(not (new-ids %)) gs)]
                              (into [sub1-id sub2-id] others)))))))
 
-(defn- reject-inline-have-holes! [tactic-name visible-holes]
+(defn- reject-inline-have-holes! [ps tactic-name visible-holes]
   (when (seq visible-holes)
-    (let [diagnostics (mapv telab/hole-diagnostic visible-holes)]
-      (tactic-error! (str tactic-name ": unresolved holes\n"
+    (let [diagnostics (mapv telab/hole-diagnostic visible-holes)
+          diagnostic (or (diagnostics/first-instance-diagnostic (:env ps) (:meta-mctx ps) (map :id visible-holes))
+                         (diagnostics/mvar-diagnostic (:env ps) (:meta-mctx ps) (:id (first visible-holes))))]
+      (tactic-error! (str tactic-name ": "
+                          (:message diagnostic)
+                          "\n"
                           (telab/format-hole-diagnostics diagnostics))
-                     {:holes visible-holes
-                      :hole-diagnostics diagnostics
-                      :hole-count (count diagnostics)}))))
+                     (merge diagnostic
+                            {:holes visible-holes
+                             :hole-diagnostics diagnostics
+                             :hole-count (count diagnostics)})))))
 
 (defn- elab-have-proof-with-inferred-type
   [ps proof-form tactic-name]
@@ -1578,7 +1592,7 @@
                                      :tag-suffix (name/from-string tactic-name)
                                      :tactic-name tactic-name})
         visible-holes (vec visible-holes)
-        _ (reject-inline-have-holes! tactic-name visible-holes)
+        _ (reject-inline-have-holes! ps tactic-name visible-holes)
         st (mk-tc ps (:lctx goal))
         hyp-type (meta/zonk-expr meta-mctx
                                  (meta/infer-type meta-mctx st checked-expr))]

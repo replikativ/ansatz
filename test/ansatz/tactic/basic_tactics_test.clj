@@ -80,9 +80,9 @@
           goal-type (e/forall' "p" prop (e/bvar 0) :default)
           [ps _] (proof/start-proof env goal-type)
           ps (basic/intro ps "p")]
-      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"exact: unresolved natural holes"
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"exact: don't know how to synthesize placeholder"
                             (basic/exact-form ps '_)))
-      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"exact: unresolved holes"
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"exact: don't know how to synthesize placeholder"
                             (basic/exact-form ps '?goal))))))
 
 ;; ============================================================

@@ -390,6 +390,6 @@
                   (if (= :tactic-error (:kind (ex-data ex))) ex (throw ex))))]
     ;; Lean rejects the conflicting local out-param instance after constraining alpha.
     (is (some? ex))
-    (is (re-find #"failed to synthesize instance" (or (some-> ex .getMessage) "")))
+    (is (re-find #"failed to synthesize" (or (some-> ex .getMessage) "")))
     (is (= (hadd (c "Nat")) (:type (ex-data ex))))
     (is (some? (extract/verify (basic/exact ps (e/lit-nat 0)))))))

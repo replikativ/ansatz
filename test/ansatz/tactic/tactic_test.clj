@@ -318,7 +318,7 @@
           (let [data (ex-data ex)
                 diagnostics (:hole-diagnostics data)
                 first-hole (first diagnostics)]
-            (is (re-find #"natural holes" (.getMessage ex)))
+            (is (re-find #"don't know how to synthesize placeholder" (.getMessage ex)))
             (is (re-find #"use refine'" (.getMessage ex)))
             (is (= 1 (:hole-count data)))
             (is (= 1 (count diagnostics)))

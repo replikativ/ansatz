@@ -13,6 +13,7 @@
             [ansatz.kernel.name :as name]
             [ansatz.meta :as meta]
             [ansatz.surface.elaborate :as surface]
+            [ansatz.surface.diagnostics :as diagnostics]
             [ansatz.tactic.proof :as proof]))
 
 (defn- tactic-error! [msg data]
@@ -97,17 +98,24 @@
         level-holes (collected-level-holes meta-mctx checked-expr old-level-ids)
         natural-holes (filterv #(= :natural (:kind %)) holes)]
     (when (seq level-holes)
-      (tactic-error! (str tactic-name ": unresolved universe level holes")
-                     {:level-holes level-holes}))
+      (let [diagnostic (diagnostics/first-instance-diagnostic (:env ps) meta-mctx (map :id holes))]
+        (tactic-error! (str tactic-name ": "
+                            (or (:message diagnostic) "unresolved universe level holes"))
+                       (merge {:level-holes level-holes} diagnostic))))
     (when (and (not allow-natural-holes?) (seq natural-holes))
-      (let [diagnostics (mapv hole-diagnostic natural-holes)]
-        (tactic-error! (str tactic-name ": unresolved natural holes\n"
+      (let [diagnostics (mapv hole-diagnostic natural-holes)
+            diagnostic (or (diagnostics/first-instance-diagnostic (:env ps) meta-mctx (map :id holes))
+                           (diagnostics/mvar-diagnostic (:env ps) meta-mctx (:id (first natural-holes))))]
+        (tactic-error! (str tactic-name ": "
+                            (:message diagnostic)
+                            "\n"
                             (format-hole-diagnostics diagnostics)
                             (when natural-hole-hint
                               (str "\n" natural-hole-hint)))
-                       {:holes natural-holes
-                        :hole-diagnostics diagnostics
-                        :hole-count (count diagnostics)})))
+                       (merge diagnostic
+                              {:holes natural-holes
+                               :hole-diagnostics diagnostics
+                               :hole-count (count diagnostics)}))))
     (let [visible-holes (if allow-natural-holes?
                           holes
                           (remove #(= :natural (:kind %)) holes))
