@@ -147,35 +147,35 @@
    structure projection declarations are registered, as for structure-like inductives)."
   [env ^ConstantInfo rec-ci major whnf-fn infer-fn opts]
   (if-not (and infer-fn whnf-fn) major
-    (let [major-idx (+ (.numParams rec-ci) (.numMotives rec-ci)
-                       (.numMinors rec-ci) (.numIndices rec-ci))
-          domain (loop [ty (.type rec-ci) n major-idx]
-                   (when (e/forall? ty)
-                     (if (zero? n) (e/forall-type ty)
-                         (recur (e/forall-body ty) (dec n)))))
-          ind-head (when domain (e/get-app-fn domain))
-          ind-name (when (and ind-head (e/const? ind-head)) (e/const-name ind-head))
-          ^ConstantInfo ind-ci (when ind-name (env/lookup env ind-name))
-          head (e/get-app-fn major)
-          ^ConstantInfo head-ci (when (e/const? head) (env/lookup env (e/const-name head)))]
-      (if-not (and ind-ci (.isInduct ind-ci) (= 1 (alength (.ctors ind-ci)))
-                   (zero? (.numIndices ind-ci)) (not (.isRec ind-ci))
-                   (use-eta-struct env ind-name opts)
-                   (not (and head-ci (.isCtor head-ci))))
-        major
-        (let [major-type (whnf-fn env (infer-fn major))
-              [type-head params] (e/get-app-fn-args major-type)]
-          (if-not (and (e/const? type-head) (= ind-name (e/const-name type-head))) major
-            (let [sort (whnf-fn env (infer-fn major-type))]
-              (when-not (e/sort? sort)
-                (throw (ex-info "Type expected during structure eta reduction"
-                                {:kind :type-error :expr major-type :type sort})))
-              (if (= lvl/zero (e/sort-level sort)) major
-                (let [ctor-name (aget (.ctors ind-ci) 0)
-                      ^ConstantInfo ctor-ci (env/lookup! env ctor-name)]
-                  (reduce e/app (e/const' ctor-name (e/const-levels type-head))
-                          (concat (take (.numParams ctor-ci) params)
-                                  (map #(e/proj ind-name % major) (range (.numFields ctor-ci))))))))))))))
+          (let [major-idx (+ (.numParams rec-ci) (.numMotives rec-ci)
+                             (.numMinors rec-ci) (.numIndices rec-ci))
+                domain (loop [ty (.type rec-ci) n major-idx]
+                         (when (e/forall? ty)
+                           (if (zero? n) (e/forall-type ty)
+                               (recur (e/forall-body ty) (dec n)))))
+                ind-head (when domain (e/get-app-fn domain))
+                ind-name (when (and ind-head (e/const? ind-head)) (e/const-name ind-head))
+                ^ConstantInfo ind-ci (when ind-name (env/lookup env ind-name))
+                head (e/get-app-fn major)
+                ^ConstantInfo head-ci (when (e/const? head) (env/lookup env (e/const-name head)))]
+            (if-not (and ind-ci (.isInduct ind-ci) (= 1 (alength (.ctors ind-ci)))
+                         (zero? (.numIndices ind-ci)) (not (.isRec ind-ci))
+                         (use-eta-struct env ind-name opts)
+                         (not (and head-ci (.isCtor head-ci))))
+              major
+              (let [major-type (whnf-fn env (infer-fn major))
+                    [type-head params] (e/get-app-fn-args major-type)]
+                (if-not (and (e/const? type-head) (= ind-name (e/const-name type-head))) major
+                        (let [sort (whnf-fn env (infer-fn major-type))]
+                          (when-not (e/sort? sort)
+                            (throw (ex-info "Type expected during structure eta reduction"
+                                            {:kind :type-error :expr major-type :type sort})))
+                          (if (= lvl/zero (e/sort-level sort)) major
+                              (let [ctor-name (aget (.ctors ind-ci) 0)
+                                    ^ConstantInfo ctor-ci (env/lookup! env ctor-name)]
+                                (reduce e/app (e/const' ctor-name (e/const-levels type-head))
+                                        (concat (take (.numParams ctor-ci) params)
+                                                (map #(e/proj ind-name % major) (range (.numFields ctor-ci))))))))))))))
 
 (defn- try-reduce-recursor
   "Try iota reduction: apply a recursor to a constructor."
