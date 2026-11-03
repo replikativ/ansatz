@@ -1114,8 +1114,9 @@
   "Recursively elaborate an s-expression into a Ansatz Expr."
   [est sexpr]
   (let [est (refresh-env est)
-        ref (when-let [ranges (:syntax-ranges est)] (.get ^java.util.IdentityHashMap ranges sexpr))
-        est (cond-> est ref (assoc :ref ref))]
+        est (if-let [ranges (:syntax-ranges est)]
+              (assoc est :ref {:forms (cons (delay sexpr) (get-in est [:ref :forms])) :ranges ranges})
+              est)]
     (cond
     ;; an already-elaborated kernel Expr passes through — term elaborators (elab_rules)
     ;; splice Exprs into surface forms they hand back to elab (quotation with term holes)
@@ -1806,7 +1807,7 @@
   ([mode env lctx sexpr expected]
    (elaborate* mode env lctx sexpr expected {}))
   ([mode env lctx sexpr expected opts]
-   (let [est (cond-> (assoc (mk-elab-state env opts) :syntax-ranges (diagnostics/syntax-ranges sexpr))
+   (let [est (cond-> (assoc (mk-elab-state env opts) :syntax-ranges (delay (diagnostics/syntax-ranges sexpr)))
                lctx (attach-elab-lctx lctx)
                ;; elaborating a type: a signature's binder types, a theorem statement, or
                ;; anything whose expected type is a Sort (change/show targets)
@@ -1893,7 +1894,7 @@
   (let [est (-> (mk-elab-state environment)
                 (attach-elab-lctx lctx)
                 (assoc :prop-ctx true
-                       :syntax-ranges (diagnostics/syntax-ranges [binder-pairs body-form])))]
+                       :syntax-ranges (delay (diagnostics/syntax-ranges [binder-pairs body-form]))))]
     (letfn [(bind [est pairs locals]
               (if-let [[sym type-form] (first pairs)]
                 (let [type (elab-type est type-form)]

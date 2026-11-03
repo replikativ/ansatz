@@ -53,10 +53,23 @@
                      implicit? :implicit-argument :else :placeholder)
       :class (when (and instance? (e/const? head)) (e/const-name head))})))
 
+(def ^:private range-node-budget 10000)
+
+(defn- ref-range
+  [{:keys [forms ranges] :as ref}]
+  (if (:bsize ref)
+    ref
+    (when-let [table (when ranges @ranges)]
+      (loop [forms forms remaining range-node-budget]
+        (when (and (seq forms) (pos? remaining))
+          (or (.get ^java.util.IdentityHashMap table @(first forms))
+              (recur (next forms) (dec remaining))))))))
+
 (defn first-instance-diagnostic
   "Failed synthesis precedes pending stuck problems. For stuck problems follow
    SyntheticMVars.reportStuckSyntheticMVars: smallest range, earliest start;
-   equal ranges retain pendingMVars order (registerSyntheticMVar conses)."
+   equal ranges retain pendingMVars order (registerSyntheticMVar conses).
+   Optional ranges are computed only here, when an error is being reported."
   [environment mctx ids]
   (let [ids (sort-by #(get-in mctx [:decls % :index])
                      (filter #(and (get-in mctx [:decls % :inst-implicit?])
@@ -64,33 +77,76 @@
         problems (mapv #(mvar-diagnostic environment mctx %) ids)
         priority (fn [problem]
                    (let [decl (meta/expr-decl mctx (:mvar-id problem))
-                         ref (:ref decl)]
+                         ref (ref-range (:ref decl))]
                      (if ref
                        [0 (:bsize ref) (:start ref) (- (:index decl))]
                        [1 0 0 (:index decl)])))]
     (or (first (filter #(= :failed-instance (:problem %)) problems))
         (first (sort-by priority problems)))))
 
+(defn- syntax-children?
+  [x]
+  ;; Inspect only concrete reader collections. In particular, do not realize
+  ;; lazy extension payloads or invoke methods of user-defined collections.
+  (contains? #{clojure.lang.PersistentList clojure.lang.PersistentList$EmptyList
+               clojure.lang.PersistentVector}
+             (class x)))
+
+(defn- token-size
+  [x]
+  ;; No generic printing of extension payloads. Unsupported tokens make range
+  ;; information unavailable; the original elaboration error still gets reported.
+  (when (or (nil? x) (symbol? x) (keyword? x) (boolean? x)
+            (contains? #{Long Integer Short Byte Double Float} (class x)))
+    (when (or (not (or (symbol? x) (keyword? x)))
+              (<= (+ (count (name x)) (count (namespace x)) 2) range-node-budget))
+      (let [s (if (nil? x) "nil" (str x))]
+        (alength (.getBytes s java.nio.charset.StandardCharsets/UTF_8))))))
+
 (defn syntax-ranges
-  "Ranges in the canonical printed surface form, for diagnostic ordering only.
-   Preserve source nesting, byte sizes, and left-to-right offsets without
-   depending on Clojure reader line metadata (runtime forms often have none).
-   Macro-generated syntax inherits its enclosing form's range."
+  "Optional canonical surface ranges for error reporting only. An iterative
+   walk bounds work to range-node-budget nodes; unsupported or larger syntax
+   returns nil, preserving the reporting fallback instead of failing a program.
+   No arbitrary payload is printed or realized. Generated syntax inherits the
+   nearest represented enclosing form's reference."
   [form]
-  (let [ranges (java.util.IdentityHashMap.)
-        ;; Kernel terms spliced by term elaborators have no surface syntax.
-        ;; Do not render their recursive Java representation just to order errors.
-        byte-size (fn [x] (if (instance? ansatz.kernel.Expr x)
-                            0
-                            (alength (.getBytes (pr-str x) java.nio.charset.StandardCharsets/UTF_8))))]
-    (letfn [(visit [x start]
-              (let [end (if (or (seq? x) (vector? x))
-                          (let [children (seq x)]
-                            (inc (reduce (fn [offset [i child]]
-                                           (visit child (+ offset (if (zero? i) 0 1))))
-                                         (inc start) (map-indexed vector children))))
-                          (+ start (byte-size x)))]
-                (.put ranges x {:start start :bsize (- end start)})
-                end))]
-      (visit form 0)
-      ranges)))
+  (let [ranges (java.util.IdentityHashMap.)]
+    (loop [todo [[:visit form false]] offset 0 remaining range-node-budget]
+      (if-let [[op x extra] (peek todo)]
+        (let [todo (pop todo)]
+          (case op
+            :close
+            (let [end (inc offset)]
+              (.put ranges x {:start extra :bsize (- end extra)})
+              (recur todo end remaining))
+
+            :items
+            ;; Consume one known reader collection cell at a time. Even an
+            ;; unusual list tail must not start an unbounded/lazy sequence walk.
+            (cond
+              (or (nil? x) (= (class x) clojure.lang.PersistentList$EmptyList))
+              (recur todo offset remaining)
+
+              (= (class x) clojure.lang.PersistentList)
+              (when (pos? remaining)
+                (recur (conj todo [:items (.next ^clojure.lang.ISeq x) (inc extra)]
+                             [:visit (.first ^clojure.lang.ISeq x) (pos? extra)])
+                       offset remaining))
+
+              (= (class x) clojure.lang.PersistentVector)
+              (if (= extra (count x))
+                (recur todo offset remaining)
+                (when (pos? remaining)
+                  (recur (conj todo [:items x (inc extra)] [:visit (nth x extra) (pos? extra)])
+                         offset remaining))))
+
+            :visit
+            (when (pos? remaining)
+              (let [start (+ offset (if extra 1 0))]
+                (if (syntax-children? x)
+                  (recur (conj todo [:close x start] [:items x 0])
+                         (inc start) (dec remaining))
+                  (when-let [size (token-size x)]
+                    (.put ranges x {:start start :bsize size})
+                    (recur todo (+ start size) (dec remaining))))))))
+        ranges))))

@@ -4,6 +4,7 @@
             [ansatz.kernel.expr :as e]
             [ansatz.kernel.name :as name]
             [ansatz.surface.elaborate :as elab]
+            [ansatz.surface.ingest :as ingest]
             [ansatz.test-env :as test-env]))
 
 (use-fixtures :each
@@ -122,3 +123,40 @@
   (let [succ (e/const' (name/from-string "Nat.succ") [])
         term (nth (iterate #(e/app succ %) (e/lit-nat 0)) 8000)]
     (is (identical? term (elab/elaborate (a/env) term)))))
+
+
+(defn- with-discard-payload [f]
+  (let [saved @ingest/term-elaborator-registry]
+    (try
+      (swap! ingest/term-elaborator-registry assoc 'discard-payload (fn [_ _] (e/lit-nat 0)))
+      (f)
+      (finally (reset! ingest/term-elaborator-registry saved)))))
+
+(deftest diagnostic-ranges-do-not-inspect-discarded-extension-payloads
+  (with-discard-payload
+    (fn []
+      (let [deep (nth (iterate vector 'unused) 8000)
+            opaque (proxy [Object] [] (toString [] (throw (ex-info "payload was printed" {}))))
+            deferred (lazy-seq (throw (ex-info "payload was realized" {})))
+            opaque-vector (subvec (proxy [clojure.lang.APersistentVector] []
+                                    (count [] 2)
+                                    (nth [i] (throw (ex-info "payload was indexed" {})))) 0 1)]
+        (doseq [payload [deep opaque deferred opaque-vector]]
+          (is (= (e/lit-nat 0)
+                 (elab/elaborate (a/env) (list 'discard-payload payload)))))))))
+
+(deftest deep-or-opaque-syntax-falls-back-when-reporting-stuck-instances
+  (a/defn diagnostic-payload-use [n :- Nat p :- Prop] Nat 0)
+  (with-discard-payload
+    (fn []
+      (let [deep (nth (iterate vector 'unused) 40000)
+            opaque (proxy [Object] [] (toString [] (throw (ex-info "payload was printed" {}))))
+            deferred (lazy-seq (throw (ex-info "payload was realized" {})))
+            opaque-vector (subvec (proxy [clojure.lang.APersistentVector] []
+                                    (count [] 2)
+                                    (nth [i] (throw (ex-info "payload was indexed" {})))) 0 1)]
+        (doseq [payload [deep opaque deferred opaque-vector]]
+          (let [form (list 'diagnostic-payload-use (list 'discard-payload payload) '(LE.le _ _))
+                error (failure #(elab/elaborate (a/env) form))]
+            (is (= :stuck-instance (:problem (ex-data error))))
+            (is (= (name/from-string "LE") (:class (ex-data error))))))))))

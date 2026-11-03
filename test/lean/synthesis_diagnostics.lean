@@ -292,3 +292,7 @@ Hint: Type class instance resolution failures can be inspected with the `set_opt
 example (A : Type) (x : A) : True := by
  have h : Prop := (x ≤ x)
  trivial
+
+-- Extension syntax may discard a payload before its terms are elaborated.
+macro "discard_payload " _payload:term : term => `(0)
+example : (discard_payload (unresolved (unresolved unused))) = (0 : Nat) := rfl
