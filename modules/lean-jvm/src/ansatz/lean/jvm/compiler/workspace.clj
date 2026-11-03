@@ -151,7 +151,10 @@
         probe-record (record! probe 65536)
         inventory-receipt (run! execution journal stage "lake-inventory"
                                [lake "--no-build" "--no-cache" "--quiet" "env"
-                                (.resolve ^Path (:sysroot state) "bin/lean") "-M512" "-j1" "--run" probe
+                                ;; Elaborating the inventory reader with the stock
+                                ;; toolchain exceeded 512 MiB on the CI executor.
+                                ;; The independent native RSS cap still applies.
+                                (.resolve ^Path (:sysroot state) "bin/lean") "-M768" "-j1" "--run" probe
                                 (str/join "." components)])
         inventory (#'transport/read-json! (.resolve stage (get inventory-receipt "stdout")) (* 4 1048576))
         _ (need (and (= #{"schema" "leanCommit" "leanVersion" "modules"} (set (keys inventory)))
