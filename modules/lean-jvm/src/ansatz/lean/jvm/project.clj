@@ -5,11 +5,12 @@
             [ansatz.lean.jvm.publisher :as publisher] [ansatz.lean.jvm.startup :as startup]
             [ansatz.lean.jvm.signature :as signature] [ansatz.lean.jvm.codec :as codec]
             [ansatz.lean.jvm.value :as value]
+            [ansatz.lean.jvm.host :as host]
             [ansatz.lean.jvm.scalar-buffer :as scalar]
             [ansatz.lean.jvm.argument :as argument] [ansatz.lean.jvm.construction :as construction]
             [clojure.java.io :as io] [clojure.string :as str])
   (:import [java.math BigInteger] [java.nio.charset StandardCharsets]
-           [java.util WeakHashMap Map] [ansatz.lean.jvm MainResult IOResult LeanUnit LeanType InvocationOptions HostServices FileAccess]))
+           [java.util WeakHashMap] [ansatz.lean.jvm MainResult IOResult LeanUnit LeanType InvocationOptions HostServices FileAccess HostBindings]))
 (deftype Services [basis capability files])
 (deftype Project [])
 (deftype Handle [owner name signature types])
@@ -50,8 +51,7 @@
   (delay
     (let [bridge (Class/forName "ansatz.lean.jvm.ValueBridge")
           method (fn [name types] (doto (.getDeclaredMethod bridge name (into-array Class types)) (.setAccessible true)))]
-      {:compile (method "compileRoots" [Class Map Map])
-       :prepare (method "prepareValue" [LeanType Object String])
+      {:prepare (method "prepareValue" [LeanType Object String])
        :validate (method "validateArguments" [LeanType (class (object-array 0))])
        :export (method "exportValue" [LeanType Object String])})))
 (defn- typed-call [operation arguments]
@@ -61,18 +61,6 @@
            (throw (ex-info (.getMessage ^Throwable (.getCause failure))
                            {:code (if (= :validate operation) "ResourceLimit" "InvalidArgument")} failure))
            (throw failure)))))
-(defn- storage-metadata [value]
-  ;; Copy only the bounded authenticated schema, once per group. Runtime data
-  ;; never takes this path. The Java schema compiler refuses executable/custom
-  ;; collection implementations and accepts these exact JDK data containers.
-  (cond
-    (map? value) (let [out (java.util.HashMap.)]
-                   (doseq [[k v] value] (.put out k (storage-metadata v))) out)
-    (vector? value) (java.util.ArrayList. ^java.util.Collection (mapv storage-metadata value))
-    :else value))
-(defn- compile-types [ctx groups]
-  (mapv (fn [{:keys [logical normalized]}]
-          (typed-call :compile [(:class ctx) (storage-metadata logical) (storage-metadata normalized)])) groups))
 (defn- deadline! [engine]
   (.invoke (.getMethod (class engine) "configureAtomicDeadlineAfterNanos" (into-array Class [Long/TYPE]))
            engine (object-array [(long duration-nanos)])))
@@ -157,9 +145,9 @@
               :io-error (throw (ex-info "Project initialization returned an IO error" {:code "InitializationFailed"}))
               (throw (ex-info "Project initialization stopped" {:code "InitializationFailed"})))))
         (let [[output types] (startup/with-ready-engine! run
-                       (fn [{:keys [engine ctx typed-groups]}]
+                       (fn [{:keys [engine types]}]
                          (invoke-zero engine "clearAtomicDeadline")
-                         [(drain! engine) (compile-types ctx typed-groups)]))]
+                         [(drain! engine) types]))]
           (swap! cell assoc :status :ready :prefix output :types types))
         (locking projects (.put projects token cell)) token)
       (catch Throwable failure
@@ -167,12 +155,17 @@
           (when-let [run (startup-from-failure failure)] (swap! cell assoc :run run)))
         (try (retire! cell) (catch Throwable _ nil))
         (throw failure)))))
-(defn open-artifact! [services input expected-manifest-sha]
+(defn open-artifact!
+  ([services input expected-manifest-sha] (open-artifact! services input expected-manifest-sha (HostBindings/empty)))
+  ([services input expected-manifest-sha bindings]
   (let [receipt (artifact/load! input expected-manifest-sha) basis (.-basis ^Services services)]
-    (open-prepared! services (publisher/prepare-artifact! basis receipt (codec-bytes)))))
-(defn open-project! [services source-root options]
+    (open-prepared! services (publisher/prepare-artifact! basis receipt (codec-bytes) bindings)))))
+(defn open-project!
+  ([services source-root options] (open-project! services source-root options (HostBindings/empty)))
+  ([services source-root options bindings]
   ;; Resolve and retire native services before any runtime Project is opened.
-  (let [bundle-open (requiring-resolve 'ansatz.lean.jvm.compiler.bundle/open!)
+  (let [binding-names (host/binding-names bindings)
+        bundle-open (requiring-resolve 'ansatz.lean.jvm.compiler.bundle/open!)
         build (requiring-resolve 'ansatz.lean.jvm.compiler.evidence/build!)
         compiler-close (requiring-resolve 'ansatz.lean.jvm.compiler.transport/close!)
         {:keys [compiler project-options evidence-options]} (bundle-open (.compiler options))
@@ -180,7 +173,11 @@
         (try
           (let [roots [(typed-name (.rootModule options))]
                 entries (mapv (fn [entry] {:root (first roots) :name (typed-name (.name entry))
-                                          :signature (.signature entry)}) (.entries options))]
+                                          :signature (.signature entry)}) (.entries options))
+                selected (set (map :name entries))
+                entries (into entries (for [name binding-names :when (not (selected name))]
+                                        {:root (first roots) :name name :signature "auto"}))
+                _ (need (<= (count entries) 1024) "EntryRejected" "Combined entries and bindings exceed selection limit")]
             (build compiler (cond-> (assoc project-options :project source-root
                                     :source-root (.sourceRoot options) :roots roots)
                              (seq (.installedImports options))
@@ -188,7 +185,7 @@
                    evidence-options entries (atom {})))
           (finally (compiler-close compiler)))
         basis (.-basis ^Services services)]
-    (open-prepared! services (publisher/prepare-build-bytes! basis receipt (codec-bytes)))))
+    (open-prepared! services (publisher/prepare-build-bytes! basis receipt (codec-bytes) bindings)))))
 (defn- descriptor [profile]
   (if (string? profile) (signature/from-legacy profile) (signature/validate! profile)))
 (defn lookup-function! [project name requested-profile]
@@ -245,7 +242,7 @@
                                   (assoc (get-in entry ["typeCheck" "signature"]) "schema" "lean-jvm-function/3")
                                   (descriptor (get-in entry ["typeCheck" "signature"])))) "EntryRejected" "Checked entry signature changed")
     [(get headers (get-in entry ["callable" "name"])) (label (get-in entry ["callable" "name"])) entry]))
-(defn- drive! [ctx engine callable args slot]
+(defn- drive! [ctx engine callable args slot host-calls]
   (deadline! engine)
   (let [deadline (+ (System/nanoTime) duration-nanos)]
     (aset ^objects slot 1 :start-pending)
@@ -259,6 +256,7 @@
       (need (< (System/nanoTime) deadline) "ResourceLimit" "Project call cooperative deadline exhausted")
       (case (ir/phase ctx engine)
         "complete" nil
+        "host-call" (do (host/complete! ctx engine host-calls) (recur))
         "running" (let [left (- instruction-limit (ir/instructions ctx engine))]
                     (need (pos? left) "ResourceLimit" "Project call instruction budget exhausted")
                     (ir/advance! ctx engine (min 128 left)) (recur))
@@ -337,7 +335,7 @@
         (try
           (let [{:keys [decoded output]}
                 (startup/with-ready-engine! (:run @cell)
-                  (fn [{:keys [ctx engine entries headers]}]
+                  (fn [{:keys [ctx engine entries headers host-calls]}]
                     (let [[header callable entry] (entry! entries headers (.-name ^Handle handle) descriptor)
                           _ (need (some? header) "RuntimeBoundary" "Actual callable Header absent")
                           _ (begin-invocation! engine options stdout-prefix stderr-prefix)
@@ -345,7 +343,7 @@
                           runtime-arguments (construction/materialize! ctx engine planned)
                           _ (aset ^objects slot 0 runtime-arguments)
                           _ (aset ^objects slot 1 :constructed)
-                          raw (drive! ctx engine callable runtime-arguments slot)
+                          raw (drive! ctx engine callable runtime-arguments slot host-calls)
                           decoded
                           (if types
                             (if io? (typed-io-result! ctx (:result types) raw)

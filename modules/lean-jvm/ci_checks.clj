@@ -27,7 +27,7 @@
 (load-file "ansatz_lean_jvm_release.clj")
 (doseq [file ["test/build_audit_checks.clj" "test/prepare_checks.clj"
               "test/encoding_checks.clj" "test/release_checks.clj" "test/facade_checks.clj"
-              "test/preparation_api_checks.clj"
+              "test/preparation_api_checks.clj" "test/pure_binding_checks.clj" "test/host_lifecycle_checks.clj"
               "test/installed_import_checks.clj"
               "test/string_action_checks.clj"
               "test/filesystem_profile_checks.clj"
@@ -84,6 +84,8 @@
               ['ansatz-lean-jvm-compiler-bundle-checks ["."]]
               ['ansatz-lean-jvm-entry-v3-checks ["test/fixtures/nominal-entry-v3/entry-evidence.json"
                                                "test/fixtures/nominal-entry-v3/oracle-entry-evidence.json"]]
+              ['pure-binding-checks []]
+              ['host-lifecycle-checks []]
               ['ansatz-lean-jvm-representation-witness-checks ["test/fixtures/nominal-entry-v3/builtin-observations.json"]]
               ['ansatz-lean-jvm-representation-entry-checks ["test/fixtures/nominal-entry-v3/entry-evidence.json"]]
               ['ansatz-lean-jvm-compiler-v3-reconciliation-checks ["test/fixtures/nominal-entry-v3/oracle-entry-evidence.json"

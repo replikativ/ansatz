@@ -4,7 +4,7 @@
   (:require [clojure.java.io :as io]
             [ansatz.lean.jvm.typed-value :as typed])
   (:import [ansatz.lean.jvm Lean LeanProject LeanFunction LeanPreparation PreparedArtifact
-            NativeCompilerOptions ProjectOptions LeanUnit IOResult LeanChoice InvocationOptions HostServices]
+            NativeCompilerOptions ProjectOptions LeanUnit IOResult LeanChoice InvocationOptions HostServices HostBindings]
            [java.nio.file Path] [java.util Optional]))
 
 (defn- path [value]
@@ -43,12 +43,39 @@
                         {:code "UnsupportedSignature"}))))
     (.build builder)))
 
+(defn bindings
+  "Capture implementations by Lean declaration name. Supply :implementation-id,
+   either :fn or :factory, and optionally :effect (:pure by default, or :io).
+   A factory receives detached :argument-types and :result-type once at linking."
+  [registrations]
+  (if (= HostBindings (class registrations)) registrations
+    (do
+      (when-not (and (map? registrations) (<= (count registrations) HostBindings/MAX_BINDINGS))
+        (throw (IllegalArgumentException. "Expected a bounded binding map")))
+      (let [builder (HostBindings/builder)]
+        (doseq [[name registration] registrations]
+          (let [effect (get registration :effect :pure)
+                factory? (contains? registration :factory)
+                allowed (cond-> #{:implementation-id (if factory? :factory :fn)}
+                          (contains? registration :effect) (conj :effect))]
+            (when-not (and (string? name) (map? registration) (= allowed (set (keys registration)))
+                           (#{:pure :io} effect))
+              (throw (IllegalArgumentException. "Binding requires implementation-id, fn or factory, and pure/io effect")))
+            (case [effect factory?]
+              [:pure false] (.pureClojure builder name (:implementation-id registration) (:fn registration))
+              [:pure true] (.pureClojureFactory builder name (:implementation-id registration) (:factory registration))
+              [:io false] (.ioClojure builder name (:implementation-id registration) (:fn registration))
+              [:io true] (.ioClojureFactory builder name (:implementation-id registration) (:factory registration)))))
+        (.build builder)))))
+
 (defn load-project
   "Load trusted source using explicit compiler options, passed as a map or a
    ProjectOptions object. No native installation or download is implicit."
-  [^Lean runtime directory options]
-  (.loadProject runtime (path directory)
-                (if (instance? ProjectOptions options) options (project-options options))))
+  ([^Lean runtime directory options]
+   (load-project runtime directory options (HostBindings/empty)))
+  ([^Lean runtime directory options implementations]
+   (.loadProject runtime (path directory)
+                 (if (instance? ProjectOptions options) options (project-options options)) (bindings implementations))))
 
 (defn prepare-project
   "Compile trusted source into OUTPUT without opening a JVM Project. Caller owns
@@ -61,8 +88,10 @@
 
 (defn load-artifact
   "The caller owns INPUT. EXPECTED-MANIFEST-SHA comes from a trusted descriptor."
-  [^Lean runtime input expected-manifest-sha]
-  (.loadArtifact runtime ^java.io.InputStream input ^String expected-manifest-sha))
+  ([^Lean runtime input expected-manifest-sha]
+   (load-artifact runtime input expected-manifest-sha (HostBindings/empty)))
+  ([^Lean runtime input expected-manifest-sha implementations]
+   (.loadArtifact runtime ^java.io.InputStream input ^String expected-manifest-sha (bindings implementations))))
 
 (defn- clojure-value [type value]
   (case (get type "kind")

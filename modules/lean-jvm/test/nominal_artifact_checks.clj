@@ -81,7 +81,8 @@
         index (into {} (map #(vector (get % "name") %) (get doc "declarations")))
         typed (#'publisher/typed-documents! payload index)]
     (is (= 1 (count (:typed-groups typed))))
-    (is (= #{:logical :normalized} (set (keys (first (:typed-groups typed))))))
+    (is (= #{:logical :normalized :runtime-witnesses} (set (keys (first (:typed-groups typed))))))
+    (is (= (get doc "runtimeWitnesses") (:runtime-witnesses (first (:typed-groups typed)))))
     (is (= (count (get doc "entries")) (count (:entries typed))))
     (doseq [[original compact] (map vector (get doc "entries") (:entries typed))]
       (is (= (assoc (get-in original ["typeCheck" "signature"]) "group" 0) (get compact "typedStorage")))

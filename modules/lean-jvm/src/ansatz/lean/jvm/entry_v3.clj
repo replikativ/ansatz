@@ -298,9 +298,10 @@
         (vector! pair 2) (need (= 2 (count pair)) :initializer-pair)
         (doseq [name pair] (name! name)))))
   inventory)
-(defn- entry! [entry roots root-irs index local-modules imported work]
-  (exact! entry #{"name" "kind" "levelParams" "compiledModule" "actualType" "typeCheck" "semanticArity"
-                  "runtimeArity" "argumentPlan" "resultABI" "raw" "callable" "selection"})
+(defn- entry! [entry roots root-irs index local-modules imported work binding-profile?]
+  (exact! entry (cond-> #{"name" "kind" "levelParams" "compiledModule" "actualType" "typeCheck" "semanticArity"
+                         "runtimeArity" "argumentPlan" "resultABI" "raw" "callable" "selection"}
+                 binding-profile? (conj "hostBinding")))
   (name! (get entry "name")) (module! (get entry "compiledModule"))
   (need (and (#{"definition" "opaque"} (get entry "kind")) (= [] (get entry "levelParams"))
              (contains? local-modules (get entry "compiledModule")) (contains? imported (get entry "compiledModule"))) :entry-origin)
@@ -312,6 +313,13 @@
         boxed? (= "original-interpreter-boxed-lookup" (get entry "selection"))
         result-abi (get entry "resultABI") scalar? (= "raw-nullary-scalar" (get result-abi "kind"))
         boxed-lane #(case % ("object" "float" "float32") "object" ("void" "tagged" "uint8" "uint16") "tagged" "tobject")]
+    (when binding-profile?
+      (let [binding (get entry "hostBinding")]
+        (need (#{"none" "reference" "foreign"} binding) :host-binding-kind)
+        (when (= "reference" binding)
+          (need (= "definition" (get entry "kind")) :host-binding-reference))
+        (when (= "foreign" binding)
+          (need (= "opaque" (get entry "kind")) :host-binding-foreign))))
     (need (and (= "Lean.Meta.isDefEq" (get check "algorithm")) (= "default" (get check "transparency"))
                (= (expected-type signature roots) (get check "expectedType"))) :expected-type)
     (actual-type! (get entry "actualType") work)
@@ -340,11 +348,22 @@
       (do (exact! result-abi #{"kind"})
           (need (and (= "boxed-object-lane" (get result-abi "kind")) (object-lanes (get callable "type"))) :boxed-result-abi)))
     (doseq [role ["raw" "callable"]]
-      (let [abi (get entry role) row (get index (get abi "name")) declaration (get-in row ["ir" "fdecl"])]
+      (let [abi (get entry role) row (get index (get abi "name"))
+            external (get-in row ["ir" "extern"])
+            declaration (or (get-in row ["ir" "fdecl"]) external)
+            foreign? (and binding-profile? (= "foreign" (get entry "hostBinding")))
+            raw? (= role "raw")]
         (need (and declaration (= abi (declaration-abi declaration))
+                   (= (boolean external) (and foreign? (or raw? (not boxed?))))
                    (= (get entry "compiledModule") (get row "sourceModule"))
                    (nil? (get row "redirect")) (nil? (get-in row ["runtime" "initializer"]))
-                   (nil? (get-in row ["runtime" "initializationAction"]))) :original-returned-declaration)))
+                   (nil? (get-in row ["runtime" "initializationAction"]))) :original-returned-declaration)
+        (when external
+          (let [externs (get-in external ["ext" "entries"]) standard (get-in externs [0 "standard"])]
+            (need (and (= 1 (count externs)) (= #{"standard"} (set (keys (first externs))))
+                       (#{["str" ["anonymous"] "all"] ["str" ["anonymous"] "c"]} (get standard "backend"))
+                       (string? (get standard "fn")) (re-matches #"ansatz_jvm_[A-Za-z0-9_]+" (get standard "fn")))
+                  :host-binding-extern)))))
     entry))
 (defn validate-document!
   "Return bounded checked-description-only data. Native Meta DefEq/safety claims
@@ -355,16 +374,17 @@
   (data-bound! document (* 16 1048576))
   (exact! document top-keys)
   (let [{:keys [root request module-products local-modules installed-imports]} context
+        version (case (get document "schema") "lean-native-entry-evidence/3" 3 "lean-native-entry-evidence/4" 4 nil)
         _ (module! root) _ (exact! request #{"schema" "module" "entries" "moduleProductsSHA256"})
         _ (data-bound! request 65536)
-        _ (need (= "lean-native-entry-requests/3" (get request "schema")) :request-schema)
+        _ (need (and version (= (str "lean-native-entry-requests/" version) (get request "schema"))) :request-schema)
         _ (sha! (get request "moduleProductsSHA256"))
         requested (vector! (get request "entries") legacy/max-selected-entries)
         entries (vector! (get document "entries") legacy/max-selected-entries)
         _ (need (and (seq requested) (= (count requested) (count entries))
                      (= (count requested) (count (set (map #(get % "name") requested))))) :selected-entries)
         _ (doseq [selection requested] (exact! selection #{"name"}) (name! (get selection "name")))
-        _ (need (and (= "lean-native-entry-evidence/3" (get document "schema"))
+        _ (need (and version
                      (= "NativeNominalEntryEvidence.exportEntries" (get document "producer"))
                      (= "819816b2e0a3bf405af45ae5c7af2491d8f5bee6" (get document "leanCommit"))
                      (= "4.33.1" (get document "leanVersion"))
@@ -404,7 +424,7 @@
         _ (need (= (mapv #(get % "name") requested) (mapv #(get % "name") entries)) :entry-request-order)
         work (volatile! 0)
         _ (doseq [type roots] (closed-type! type 0 work))
-        checked (mapv #(entry! % roots root-irs (:index rows) locals imported work) entries)
+        checked (mapv #(entry! % roots root-irs (:index rows) locals imported work (= version 4)) entries)
         start (vec (mapcat #(map (fn [role] (get-in % [role "name"])) ["raw" "callable"]) checked))
         reachable (loop [todo start seen #{}]
                     (if (empty? todo) seen
@@ -462,7 +482,9 @@
   [custody helper-source helper]
   (exact! custody #{:source-closure :source-closure-sha256 :build-receipt :build-receipt-sha256})
   (custody-data-bound! {"closure" (:source-closure custody) "receipt" (:build-receipt custody)} (* 2 1048576))
-  (let [cohort (get legacy/cohorts 3) rows (:source-closure custody) receipt (:build-receipt custody)]
+  (let [version (legacy/schema-for-pins! (get helper-source "sha256") (get helper "sha256"))
+        cohort (when (legacy/nominal-schema? version) (get legacy/cohorts version))
+        rows (:source-closure custody) receipt (:build-receipt custody)]
     (need (and cohort (= (:source cohort) (get helper-source "sha256"))
                (= (:binary cohort) (get helper "sha256"))
                (= (:source-closure cohort) (:source-closure-sha256 custody))

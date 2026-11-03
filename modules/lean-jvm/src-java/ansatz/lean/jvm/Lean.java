@@ -28,6 +28,11 @@ public final class Lean implements AutoCloseable {
      * This path does not invoke a native compiler or discover a Lean installation.
      */
     public synchronized LeanProject loadArtifact(InputStream input, String expectedManifestSHA256) {
+        return loadArtifact(input, expectedManifestSHA256, HostBindings.empty());
+    }
+
+    /** Select pure or IO implementations against the artifact's checked binding evidence. */
+    public synchronized LeanProject loadArtifact(InputStream input, String expectedManifestSHA256, HostBindings bindings) {
         ensureOpen();
         Objects.requireNonNull(input, "input");
         Objects.requireNonNull(expectedManifestSHA256, "expectedManifestSHA256");
@@ -35,7 +40,8 @@ public final class Lean implements AutoCloseable {
             throw new IllegalArgumentException("Expected a lowercase SHA-256 manifest digest");
         }
         try {
-            LeanProject project = new LeanProject(this, Bridge.OPEN.invoke(services(), input, expectedManifestSHA256));
+            LeanProject project = new LeanProject(this, Bridge.OPEN.invoke(services(), input, expectedManifestSHA256,
+                    Objects.requireNonNull(bindings, "bindings")));
             projects.add(project);
             return project;
         } catch (Throwable failure) {
@@ -46,12 +52,17 @@ public final class Lean implements AutoCloseable {
     /** Load a JAR/classpath resource; this overload closes its own resource stream. */
     public synchronized LeanProject loadArtifact(ClassLoader loader, String resource, String expectedManifestSHA256)
             throws IOException {
+        return loadArtifact(loader, resource, expectedManifestSHA256, HostBindings.empty());
+    }
+
+    public synchronized LeanProject loadArtifact(ClassLoader loader, String resource, String expectedManifestSHA256,
+                                                 HostBindings bindings) throws IOException {
         ensureOpen();
         Objects.requireNonNull(loader, "loader");
         Objects.requireNonNull(resource, "resource");
         try (InputStream input = loader.getResourceAsStream(resource)) {
             if (input == null) throw new IOException("Compiled Lean artifact resource is missing: " + resource);
-            return loadArtifact(input, expectedManifestSHA256);
+            return loadArtifact(input, expectedManifestSHA256, bindings);
         }
     }
 
@@ -61,11 +72,17 @@ public final class Lean implements AutoCloseable {
      * permitted by this trusted-source profile; it is not a sandbox.
      */
     public synchronized LeanProject loadProject(Path sourceRoot, ProjectOptions options) {
+        return loadProject(sourceRoot, options, HostBindings.empty());
+    }
+
+    /** Bindings supply required foreign imports or replace eligible noinline reference definitions. */
+    public synchronized LeanProject loadProject(Path sourceRoot, ProjectOptions options, HostBindings bindings) {
         ensureOpen();
         Objects.requireNonNull(sourceRoot, "sourceRoot");
         Objects.requireNonNull(options, "options");
         try {
-            LeanProject project = new LeanProject(this, Bridge.SOURCE.invoke(services(), sourceRoot, options));
+            LeanProject project = new LeanProject(this, Bridge.SOURCE.invoke(services(), sourceRoot, options,
+                    Objects.requireNonNull(bindings, "bindings")));
             projects.add(project);
             return project;
         } catch (Throwable failure) {

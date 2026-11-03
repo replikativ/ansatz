@@ -1,0 +1,65 @@
+{
+  "leanCommit": "819816b2e0a3bf405af45ae5c7af2491d8f5bee6",
+  "leanVersion": "4.33.1",
+  "producers": {
+    "entry": {
+      "binary": "bin/entry",
+      "binarySHA256": "e9268a4924ddee1cf42c1396c7d13f0f360e65556a0d7d98bea7c646d4647342",
+      "buildReceipt": "receipts/entry-build.json",
+      "buildReceiptSHA256": "095878a26cd8abcca485ae749b21dfcb74bd1f0b160deb2f587120809f9949a4",
+      "source": "NativeNominalEntryEvidence.lean",
+      "sourceClosure": [
+        {
+          "module": [
+            "str",
+            [
+              "anonymous"
+            ],
+            "NativeEntryTransport"
+          ],
+          "sha256": "fa60e6dba69ca7433dec3a0fb50108e97aebcf5e65f8a21799aace2d26ab7bb8",
+          "source": "NativeEntryTransport.lean"
+        },
+        {
+          "module": [
+            "str",
+            [
+              "anonymous"
+            ],
+            "NativeTypeGraph"
+          ],
+          "sha256": "361234f1a0031e66dd1ff73bf40da0d4a4c77088b757324b7bd2debb2079bd64",
+          "source": "NativeTypeGraph.lean"
+        },
+        {
+          "module": [
+            "str",
+            [
+              "anonymous"
+            ],
+            "NativeNominalEntryEvidence"
+          ],
+          "sha256": "15103e7d32fbeec5dfa9ad5c21ddf611c9f8a8fe2399f5f3123f1af9c529af19",
+          "source": "NativeNominalEntryEvidence.lean"
+        }
+      ],
+      "sourceClosureSHA256": "c144bdc0f88b25afc4f26bab548135d941f1f48410b6433c0c677df90fb74560",
+      "sourceSHA256": "15103e7d32fbeec5dfa9ad5c21ddf611c9f8a8fe2399f5f3123f1af9c529af19"
+    },
+    "startupHeader": {
+      "binary": "bin/startupHeader",
+      "binarySHA256": "2693f971452aa28190ca5c1033bf2b1030f9703b22f53181cd0591b1ab90399c",
+      "source": "sources/NativeStartupEvidence.lean",
+      "sourceSHA256": "f8c92d652c596b9bf656135348b190a5c09cf61ec40c8775835cf180a8833dd1"
+    },
+    "typedSource": {
+      "binary": "bin/typedSource",
+      "binarySHA256": "c28866c7fcf13b141336547d4da1372ad1f90dfe46c04e5f72e5081466ce2d36",
+      "source": "sources/TypedSourceExport.lean",
+      "sourceSHA256": "ac6ec4462614d39beed124c81f304b3c4875ce5fc6b15fd7b31bd0bbd56ca190"
+    }
+  },
+  "schema": "lean-native-producer-bundle/2",
+  "target": "x86_64-unknown-linux-gnu",
+  "wordBits": 64
+}

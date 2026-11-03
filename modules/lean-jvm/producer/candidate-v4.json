@@ -1,0 +1,44 @@
+{
+  "schema": "lean-jvm-entry-candidate-record/1",
+  "status": "published-public-download-verified",
+  "entrySchema": 4,
+  "leanCommit": "819816b2e0a3bf405af45ae5c7af2491d8f5bee6",
+  "leanVersion": "4.33.1",
+  "entrySourceSHA256": "15103e7d32fbeec5dfa9ad5c21ddf611c9f8a8fe2399f5f3123f1af9c529af19",
+  "entryBinarySHA256": "e9268a4924ddee1cf42c1396c7d13f0f360e65556a0d7d98bea7c646d4647342",
+  "sourceClosureSHA256": "c144bdc0f88b25afc4f26bab548135d941f1f48410b6433c0c677df90fb74560",
+  "buildReceiptSHA256": "095878a26cd8abcca485ae749b21dfcb74bd1f0b160deb2f587120809f9949a4",
+  "scope": "typed-pure-and-io-foreign-imports-and-reference-replacements",
+  "publication": {
+    "release": "lean-native-producer-4.33.1-v4",
+    "releaseURL": "https://github.com/replikativ/ansatz-stores/releases/tag/lean-native-producer-4.33.1-v4",
+    "publicDownloadVerified": true,
+    "relocatedSourceLoadingVerified": true
+  },
+  "fixture": "../test/fixtures/pure-ffi/provenance.json",
+  "guide": "../FFI.md",
+  "acceptance": {
+    "targetedPureAdapterChecks": 111,
+    "targetedIOAdapterChecks": 60,
+    "applicationJarConsumers": 12,
+    "sourceWithForeignPureAndIOBindings": true,
+    "referenceNativeOracle": true,
+    "finalPackagedGates": "passed",
+    "sdkTests": 248,
+    "sdkAssertions": 2912,
+    "engineTests": 1279,
+    "engineAssertions": 57548,
+    "typedViewAndClojureHostTests": 11,
+    "typedViewAndClojureHostAssertions": 124,
+    "producerPublication": "public-download-verified",
+    "hostedCI": "prelanding-required"
+  },
+  "foreignFixture": "../test/fixtures/foreign-ffi/provenance.json",
+  "archive": {
+    "name": "ansatz-lean-native-producer-4.33.1-linux-x86_64-v4.tar.zst",
+    "bytes": 156217503,
+    "sha256": "cdcf1e23042217aa146968a8cb2bace7b723a7c183b1b01aba2c09734fa2342d",
+    "files": 16,
+    "extractedBytes": 694905770
+  }
+}

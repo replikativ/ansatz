@@ -119,3 +119,29 @@ subsequent identical preparations use the corresponding caches.
 JVM-only artifact deployment needs none of this archive or the native toolchain.
 The build receipt retains its historical `entry-built-not-published` stage text;
 publication is a separate archive record, not a rewrite of the pinned receipt.
+
+## Host binding producer
+
+Typed pure and synchronous IO host bindings use the
+[host-binding bundle](producer-bundle-v4.example.json). The
+[publication record](candidate-v4.json) pins its exact source closure, executable,
+build receipt and archive. The [published release](https://github.com/replikativ/ansatz-stores/releases/tag/lean-native-producer-4.33.1-v4)
+contains the helpers, original sources, receipt, inventory and license notices.
+Its public download was verified byte-for-byte, extracted into a fresh directory,
+and exercised through source loading with pure and IO implementations.
+
+The archive is 156,217,503 bytes; SHA-256:
+`cdcf1e23042217aa146968a8cb2bace7b723a7c183b1b01aba2c09734fa2342d`.
+
+```sh
+curl --fail --location --output lean-producer.tar.zst https://github.com/replikativ/ansatz-stores/releases/download/lean-native-producer-4.33.1-v4/ansatz-lean-native-producer-4.33.1-linux-x86_64-v4.tar.zst
+printf '%s  %s\n' 'cdcf1e23042217aa146968a8cb2bace7b723a7c183b1b01aba2c09734fa2342d' 'lean-producer.tar.zst' | sha256sum --check
+mkdir lean-native-producer
+tar --zstd -xf lean-producer.tar.zst -C lean-native-producer
+```
+
+Pass the extracted directory as `NativeCompilerOptions.producerBundle`.
+Use an SDK containing [host-binding support](../FFI.md); older SDKs reject this
+producer. Existing supported producer bundles and prepared artifacts retain
+their previous scopes. No producer bundle is required for JVM-only deployment
+of a prepared artifact.

@@ -5,6 +5,9 @@ packaged-consumer acceptance. This contract does not establish a published
 version or admit a type independently of the source/artifact issuers.
 The existing [value conventions](VALUE_EXAMPLES.md), [compatibility policy](COMPATIBILITY.md),
 and [release gates](RELEASE_CHECKLIST.md) remain authoritative for current SDKs.
+The subsequent host bindings is specified separately in
+[FFI.md](FFI.md); later-work references below describe this datatype
+milestone's scope.
 
 ## Implementation checkpoint
 
@@ -26,7 +29,7 @@ local closure observations against original source rows. New compilation
 baselines bind used defining products before compilation and preserve their
 custody through helper calls, cache reuse and artifact reopening. A defining
 product edit rejects old values even when their apparent layout matches.
-Callback FFI, public forks and permissive semantic reload identity remain later.
+Function-valued callbacks, public forks and permissive semantic reload identity remain later.
 
 ## Outcome and scope
 

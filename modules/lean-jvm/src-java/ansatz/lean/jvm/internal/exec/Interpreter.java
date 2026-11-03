@@ -142,6 +142,26 @@ public final class Interpreter implements AutoCloseable {
             return true;
         }
     }
+    /** Trusted publisher input, not logical purity or source authentication.
+     * Derive the ABI from one actual original Header; no second host signature
+     * is accepted. Each declaration receives a distinct descriptor identity. */
+    public static final class HostBinding {
+        private final Header header;
+        private final HostExtern descriptor;
+        public HostBinding(Header header) {
+            require(header!=null&&(header.kind.equals("fdecl")||header.kind.equals("extern"))&&!header.initialized(),
+                    "Host binding requires an original ordinary definition Header");
+            require(header.evidence.get("redirect")==null
+                    &&(!header.evidence.containsKey("runtime")
+                       ||(map(header.evidence.get("runtime")).get("initializer")==null
+                          &&map(header.evidence.get("runtime")).get("initializationAction")==null)),
+                    "Host binding cannot replace initialization or redirects");
+            this.header=header;
+            descriptor=new HostExtern("ansatz.host/"+name(header.exactName),header.paramTypes,header.borrowed,header.resultType);
+        }
+        public Header header() { return header; }
+        public HostExtern descriptor() { return descriptor; }
+    }
     /** Borrowed diagnostic views acquire NO argument credits. Owned ABI args
      * remain the handler's consume/transfer obligations. Borrowed args must not
      * be consumed: root/AP calls hold known owned facade credits until a valid
@@ -152,6 +172,7 @@ public final class Interpreter implements AutoCloseable {
         private final HostCall call;
         private HostRequest(Object owner,HostCall call) { this.owner=owner; this.call=call; }
         public String symbol() { return call.function.hostExtern.symbol; }
+        public HostExtern descriptor() { return call.function.hostExtern; }
         public String[] paramTypes() { return call.function.hostExtern.paramTypes(); }
         public boolean[] borrowed() { return call.function.hostExtern.borrowed(); }
         public String resultType() { return call.function.hostExtern.resultType; }
@@ -1551,6 +1572,32 @@ public final class Interpreter implements AutoCloseable {
          * publishes one immutable descendant; rejected batches change nothing. */
         public static Program bindGuestExports(Program base,GuestExportBinding[] bindings) {
             return boundGuestExports(base,bindings);
+        }
+        /** Select host implementations before ANY body has been materialized.
+         * Original rows remain unchanged; subsequent bodies resolve calls to
+         * the selected immutable Function identities. The adapter authenticates
+         * logical signatures, eligibility and the reference implementation. */
+        public static Program bindHostDefinitions(Program base,HostBinding[] bindings) {
+            require(base!=null&&bindings!=null&&bindings.length<=1024,"Bounded host binding batch required");
+            for(PreparedBody body:base.preparedBodies)
+                require(body==null,"Host bindings must precede body materialization");
+            Function[] functions=base.functions.clone();
+            Map<String,Function> labels=new LinkedHashMap<>(base.labels);
+            Map<Object,Function> names=new HashMap<>(base.typedNames);
+            Set<Header> seen=Collections.newSetFromMap(new IdentityHashMap<>());
+            for(HostBinding binding:bindings.clone()) {
+                require(binding!=null&&seen.add(binding.header),"Duplicate or null host binding");
+                Function original=base.functions[base.functionId(binding.header)];
+                require(original.intrinsic==0&&original.hostExtern==null&&base.guestExports[original.id]==null,
+                        "Host binding cannot replace an intrinsic or existing implementation");
+                requireExecutableAbi(original);
+                Function selected=new Function(original.label,original.id,original.params,original.paramTypes,
+                    original.resultType,0,binding.descriptor,original.privateOwner,original.header,original.borrowedUtf8);
+                functions[original.id]=selected;labels.put(selected.label,selected);names.put(selected.header.exactName,selected);
+            }
+            if(bindings.length==0) return base;
+            return new Program(functions,base.preparedBodies,Collections.unmodifiableMap(labels),
+                Collections.unmodifiableMap(names),base.hostRegistry,new Generation(base.generation),base.guestExports);
         }
         public int functionCount() { return functions.length; }
         /** Append-only link against this actual base, preserving every old
@@ -9919,6 +9966,10 @@ public final class Interpreter implements AutoCloseable {
     private static Object valueConstruct(Object schema,int rootPlan,Object tape) { return FrozenValues.construct(schema,rootPlan,tape); }
     private static Object valueCopyBytes(byte[] source) { return FrozenValues.copyBytes(source); }
     private static Object valueFreeze(Object schema,int rootPlan,Object result,String lane) { return FrozenValues.freezeTyped(schema,rootPlan,result,lane); }
+    private static Object valuePrepareReply(Object schema,int rootPlan,Object value,String lane) { return FrozenValues.prepareReply(schema,rootPlan,value,lane); }
+    private static void valueValidateIOLayouts(Object authority) { FrozenValues.validateIOLayouts(authority); }
+    private static Object valueCompileIOLayouts(Map<String,Object> witnesses) { return FrozenValues.compileIOLayouts(witnesses); }
+    private static Object valuePrepareIOReply(Object authority,Object reply,String errorKind,String message) { return FrozenValues.prepareIOReply(authority,reply,errorKind,message); }
     private static Object valueReadChild(Object capability,int index) { return FrozenValues.readChild(capability,index); }
     private static int valueConstructorIndex(Object capability) { return FrozenValues.constructorIndex(capability); }
     private static int valueSize(Object capability) { return FrozenValues.size(capability); }
@@ -10650,6 +10701,41 @@ public final class Interpreter implements AutoCloseable {
             hostCompletion=call.previousCompletion;
         } catch(Throwable failure) { markHostFailure(request,failure); throw failure; }
         finally { advancing=false; }
+    }
+    /** Trusted typed adapter completion, not source/signature admission. All
+     * object inputs must already be certified pure persistent storage. Their
+     * owned occurrences require no DEC; borrowed occurrences remain untouched.
+     * Separate reply tokens prevent importing raw scalars as object roots. */
+    public void validateFrozenHostRequest(HostRequest request) {
+        requireHostRequest(request);
+        require(taskRuntime==null&&hostGuestRecord==null,
+                "Frozen host completion requires task-free execution");
+        int depth=0;
+        for(RuntimeAction action=runtimeAction;action!=null;action=action.parent) {
+            Function function=action.function;
+            require(++depth<=256&&action.operation==ACTION_NATIVE&&function!=null&&function.intrinsic==STR_ANY
+                    &&function.id>=0&&function.id<program.functions.length&&program.functions[function.id]==function
+                    &&action.stage==1&&action.guest==null&&action.completion==null&&action.request==null
+                    &&action.task==null&&action.scope==null,
+                    "Frozen host callback requires an ordinary String.any predicate continuation");
+        }
+    }
+    /** Check the completed input conversion before any host effect. */
+    public void validateFrozenHostInputs(HostRequest request) {
+        validateFrozenHostRequest(request);
+        for(Object argument:request.call.arguments) if(argument instanceof Node) {
+            Node value=node(argument);
+            require(value.frozen!=null&&value.rc==0,"Host input was not certified frozen");
+        }
+    }
+    public void resumeFrozenHost(HostRequest request,Object preparedReply) {
+        validateFrozenHostInputs(request);
+        HostCall call=requireHostRequest(request);
+        require(preparedReply!=null&&preparedReply.getClass()==FrozenReply.class,
+                "Actual prepared frozen reply required");
+        FrozenReply reply=(FrozenReply)preparedReply;
+        require(reply.lane.equals(call.function.hostExtern.resultType),"Frozen reply ABI differs");
+        resumeHost(request,reply.value);
     }
     /** Terminal external failure preserves all outstanding argument/facade
      * obligations and frames. No host effect, argument release, or replay occurs. */

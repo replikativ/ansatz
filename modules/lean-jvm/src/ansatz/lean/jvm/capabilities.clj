@@ -62,10 +62,11 @@
 (defn check-rows!
   "Refuse every unknown capability before Header publication/engine effects.
    Match actual runtime symbol AND full ABI, then classify semantic intrinsic ID."
-  [basis rows]
+  ([basis rows] (check-rows! basis rows #{}))
+  ([basis rows foreign-names]
   (let [cls (:class basis) registry (static-field cls "EXTERNS") index (family-index cls)
         externs (into {}
-                      (for [row rows :let [declaration (get-in row ["ir" "extern"])] :when declaration]
+                      (for [row rows :let [declaration (get-in row ["ir" "extern"])] :when (and declaration (not (contains? foreign-names (get row "name"))))]
                         (let [symbol (try (j/invoke-static (.getMethod ^Class cls "validateExternAbi" (into-array Class [java.util.Map])) [row])
                                           (catch java.lang.reflect.InvocationTargetException failure
                                             (throw (ex-info "Unsupported Lean runtime extern or ABI"
@@ -99,7 +100,7 @@
      :runtime-unsupported (if (some #(= :filesystem (:family %)) (vals externs))
                             #{:panic-default-return :heap-leaf-sharing-observation :stdio-redirection :filesystem-directories :filesystem-initialization :arbitrary-host-filesystem}
                             #{:panic-default-return :heap-leaf-sharing-observation :stdio-redirection :host-filesystem})
-     :task-runtime false :host-handlers false :guest-export-aliases false :code-demand false}))
+     :task-runtime false :host-handlers false :guest-export-aliases false :code-demand false})))
 (defn check-program!
   "Bind the requirements to the actual fully prepared canonical Program. No engine exists."
   [ctx headers descriptor]
@@ -110,11 +111,14 @@
     (need (empty? (field program "hostRegistry")) "Host service registration is outside this profile")
     (need (= (count headers) (alength ^objects functions) (alength ^objects bodies) (alength ^objects exports)) "Program/header domain differs")
     (doseq [[name header] headers] (.put by-header header name))
+    (doseq [header (keys (:host-bindings descriptor))]
+      (need (.containsKey by-header header) "Host binding Header is outside the program"))
     (doseq [i (range (alength ^objects functions))]
       (let [function (aget ^objects functions i) header (field function "header") name (.get by-header header)
             requirement (get-in descriptor [:externs name]) intrinsic (field function "intrinsic")]
-        (need (and name (nil? (field function "hostExtern")) (nil? (aget ^objects exports i))) "Program has foreign Header/host handler/guest export")
+        (need (and name (identical? (get (:host-bindings descriptor) header) (field function "hostExtern"))
+                   (nil? (aget ^objects exports i))) "Program has foreign Header/host handler/guest export")
         (if requirement
           (need (= intrinsic (:intrinsic requirement)) "Actual Program intrinsic differs from audited descriptor")
-          (need (and (= 0 intrinsic) (some? (aget ^objects bodies i))) "Program body is unavailable or unclassified"))))
+          (need (and (= 0 intrinsic) (or (get (:host-bindings descriptor) header) (some? (aget ^objects bodies i)))) "Program body is unavailable or unclassified"))))
     descriptor))

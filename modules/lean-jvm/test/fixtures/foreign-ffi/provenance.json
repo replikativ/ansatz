@@ -1,0 +1,18 @@
+{
+  "schema": "lean-jvm-foreign-ffi-fixture/1",
+  "leanVersion": "4.33.1",
+  "leanCommit": "819816b2e0a3bf405af45ae5c7af2491d8f5bee6",
+  "manifestSHA256": "860bed68ede444aca008e5e6fb570c86fe7a4248bda9cd7761d0b20f2dd9dfab",
+  "archiveSHA256": "cdd95addc04a91ae70a0bcd9aa0695b58d45ad38b3735c85d4acc9d4cb6a399b",
+  "entryProducer": {
+    "source": "15103e7d32fbeec5dfa9ad5c21ddf611c9f8a8fe2399f5f3123f1af9c529af19",
+    "binary": "e9268a4924ddee1cf42c1396c7d13f0f360e65556a0d7d98bea7c646d4647342",
+    "source-closure": "c144bdc0f88b25afc4f26bab548135d941f1f48410b6433c0c677df90fb74560",
+    "build-receipt": "095878a26cd8abcca485ae749b21dfcb74bd1f0b160deb2f587120809f9949a4"
+  },
+  "nativeReference": "none; foreign implementations are supplied by the host registry",
+  "files": {
+    "../../../examples/foreign-ffi/Bindings.lean": "9527526a58bdc42ba1a610561e385c60bcfc553ed5f335b43e1ac02c52bfcc82",
+    "../../../examples/foreign-ffi/Main.lean": "c13ad780222c71280d5edfe71a8dcf454e762c79a9ed866ceacbd73cd14d081b"
+  }
+}

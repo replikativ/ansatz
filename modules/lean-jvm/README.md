@@ -10,9 +10,9 @@ World backend.
 This guide describes the general interop and preparation APIs in the current
 source tree. These APIs are available starting with SDK `0.2.580`. Earlier
 releases expose only Nat-to-Nat, String-to-String and IO Unit convenience APIs.
-The new v3 datatype boundary described below is implemented in this source tree;
-its reviewed producer archive has not yet been published. This is not a claim
-that a released SDK or the published v2 bundle exposes those types.
+The datatype boundary described below uses its separately
+[published producer](producer/README.md#datatype-v3-producer). Use a coordinated
+SDK containing that integration; the older v2 producer does not expose those types.
 The opt-in [regular-file filesystem context](FILESYSTEM.md) and v3 datatype
 support below are later additions; this paragraph does not put them in 0.2.580.
 
@@ -157,6 +157,11 @@ See [JVM and Clojure value examples](VALUE_EXAMPLES.md) for nested carriers and
 Java varargs calls. The [preparation guide](PREPARATION.md) covers build-time
 artifact export through the Java/Clojure APIs and CLI.
 
+The [host bindings](FFI.md) connect Java/Clojure implementations to
+explicit pure or synchronous IO imports and optional noinline reference
+replacements, using the same value boundary. They include type-driven factories
+for custom results. Their matching [source producer](producer/README.md#host-binding-producer) is published and verified.
+
 Containers nest over supported types. `none` and `some ()` stay distinct: the
 latter is `Optional.of(LeanUnit.INSTANCE)` or `{:some nil}`. Results contain no
 raw guest Nodes or aliases to mutable interpreter storage. Byte arrays are mutable
@@ -200,7 +205,7 @@ With the new v3 producer, supported entry-reachable enums, records and ordinary
 recursive datatypes have the automatic boundary below. Open polymorphic,
 implicit/dependent, proof-bearing or higher-order host arguments, indexed or
 mutually recursive families, nonuniform recursion, constrained
-Fin/Vector/Subtype/Rat adapters, callbacks, task/resource fields, cyclic values,
+Fin/Vector/Subtype/Rat adapters, function-valued callbacks, task/resource fields, cyclic values,
 and public forks remain unsupported. The
 [release checks](RELEASE_CHECKLIST.md) distinguish follow-up work from this boundary.
 An unsupported type or capability throws; it is never replaced by a guessed value

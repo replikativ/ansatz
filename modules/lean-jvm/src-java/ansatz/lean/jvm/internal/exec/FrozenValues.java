@@ -722,6 +722,104 @@ final class FrozenValues {
         final FrozenInput input;final String lane;
         FrozenArgument(FrozenInput input,String lane) { this.input=input;this.lane=lane; }
     }
+    /** Separate from construction arguments: raw reply lanes must never become
+     * object roots through constructDataArguments. Only this class issues it. */
+    static final class FrozenReply {
+        final Object value;final String lane;
+        private FrozenReply(Object value,String lane) { this.value=value;this.lane=lane; }
+    }
+    /** Derived only by the trusted publisher from an authenticated IO witness.
+     * This token retains no caller maps, schema, engine or callback. */
+    private static final class IOLayouts { private IOLayouts() { } }
+    private static Object ioName(String parent,String child) {
+        return List.of("str",List.of("str",List.of("anonymous"),parent),child);
+    }
+    private static void ioConstructor(Object candidate,Object family,String name,int tag,int objects) {
+        Map<String,Object> row=object(candidate), info=object(row.get("ctorInfo"));
+        Object exact=List.of("str",family,name);
+        dataRequire(exact.equals(row.get("constructor"))&&exact.equals(info.get("name"))
+                &&number(info.get("cidx"),243)==tag&&number(info.get("size"),64)==objects
+                &&number(info.get("usize"),64)==0&&number(info.get("ssize"),1024)==0,"IO constructor witness differs");
+    }
+    static Object compileIOLayouts(Map<String,Object> witnesses) {
+        dataRequire("canonical-erased-zero".equals(witnesses.get("world")),"IO world witness required");
+        Object outName=ioName("EST","Out"), errorName=ioName("IO","Error");
+        Map<String,Object> out=null,error=null;
+        List<?> families=vector(witnesses.get("ioFamilies"),2);
+        dataRequire(families.size()==2,"Two IO witness families required");
+        for(Object value:families) {
+            Map<String,Object> family=object(value);
+            if(outName.equals(family.get("typeName"))) { dataRequire(out==null,"Duplicate IO envelope witness");out=family; }
+            else if(errorName.equals(family.get("typeName"))) { dataRequire(error==null,"Duplicate IO error witness");error=family; }
+            else throw new IllegalArgumentException("Foreign IO witness family");
+        }
+        dataRequire(out!=null&&error!=null&&"object".equals(out.get("irType"))
+                &&"tobject".equals(error.get("irType"))&&out.get("trivialStructure")==null
+                &&error.get("trivialStructure")==null,"IO witness families differ");
+        List<?> envelopes=vector(out.get("constructors"),2),errors=vector(error.get("constructors"),19);
+        dataRequire(envelopes.size()==2&&errors.size()==19,"IO constructor extent differs");
+        for(int i=0;i<2;i++) {
+            ioConstructor(envelopes.get(i),outName,i==0?"ok":"error",i,1);
+            List<?> fields=vector(object(envelopes.get(i)).get("fields"),2);
+            dataRequire(fields.size()==2,"IO envelope fields differ");
+            Map<String,Object> payload=object(fields.get(0));
+            dataRequire(payload.keySet().equals(Set.of("kind","index","irType"))&&"object".equals(payload.get("kind"))
+                    &&number(payload.get("index"),0)==0&&"tobject".equals(payload.get("irType"))
+                    &&Map.of("kind","void").equals(fields.get(1)),"IO envelope fields differ");
+        }
+        ioConstructor(errors.get(17),errorName,"unexpectedEof",17,0);
+        ioConstructor(errors.get(18),errorName,"userError",18,1);
+        dataRequire(vector(object(errors.get(17)).get("fields"),0).isEmpty(),"IO EOF fields differ");
+        List<?> message=vector(object(errors.get(18)).get("fields"),1);
+        dataRequire(message.size()==1,"IO userError fields differ");
+        Map<String,Object> field=object(message.get(0));
+        dataRequire(field.keySet().equals(Set.of("kind","index","irType"))&&"object".equals(field.get("kind"))
+                &&number(field.get("index"),0)==0&&"object".equals(field.get("irType")),"IO userError fields differ");
+        return new IOLayouts();
+    }
+    static void validateIOLayouts(Object authority) {
+        dataRequire(authority!=null&&authority.getClass()==IOLayouts.class,"Authenticated IO layout token required");
+    }
+    static FrozenReply prepareIOReply(Object authority,Object prepared,String errorKind,String message) {
+        validateIOLayouts(authority);
+        Object payload;int tag;
+        if(errorKind==null) {
+            dataRequire(prepared!=null&&prepared.getClass()==FrozenReply.class&&((FrozenReply)prepared).lane.equals("object"),
+                    "Prepared object payload required for IO success");
+            payload=((FrozenReply)prepared).value;tag=0;
+        } else {
+            dataRequire(prepared==null,"IO failure cannot carry a success value");tag=1;
+            if(errorKind.equals("unexpectedEof")) { dataRequire(message==null,"EOF carries no message");payload=Long.valueOf(17); }
+            else {
+                dataRequire(errorKind.equals("userError")&&message!=null,"Unsupported explicit IO error");unicode(message,65536);
+                Node error=allocated(Node.storageNew(0,18,1,0,0));error.storageInitializeField(0,message);payload=error;
+            }
+        }
+        // Fresh plain owned shells contain only a certified frozen success
+        // payload or witnessed literal error. No engine/session allocation is
+        // adopted until resumeHost claims this genuine reply token.
+        Node envelope=allocated(Node.storageNew(0,tag,1,0,0));envelope.storageInitializeField(0,payload);
+        return new FrozenReply(envelope,"object");
+    }
+    static FrozenReply prepareReply(Object schema,int root,Object value,String lane) {
+        FrozenPlan expected=schema(schema).plan(root);FrozenInput input=capability(value);
+        dataRequire(compatible(expected,input.cert.plan),"Reply type/layout/cohort mismatch");
+        if(OBJECT_LANES.contains(lane)) {
+            FrozenArgument argument=prepareArgument(schema,root,value,lane);
+            return new FrozenReply(argument.input.acquire(),lane);
+        }
+        dataRequire(lane.equals(expected.row.closedIR)&&lane.equals(expected.schema.rawLanes.get(expected.row.id)),
+                    "Raw reply ABI/type mismatch");
+        long bits=scalarBits(input.value,input.cert.plan);
+        Object raw=lane.equals("float")?Double.valueOf(Double.longBitsToDouble(bits))
+            :lane.equals("float32")?(Object)Float.valueOf(Float.intBitsToFloat((int)bits)):Long.valueOf(bits);
+        // Apply the same raw scalar validation as guest exports before issuing
+        // the reply token; never authorize arbitrary host scalar carriers.
+        freezeTyped(schema,root,raw,lane);
+        if((lane.equals("uint64")||lane.equals("usize"))&&bits<0)
+            raw=BigInteger.valueOf(bits&Long.MAX_VALUE).setBit(63);
+        return new FrozenReply(raw,lane);
+    }
     private static Object canonicalScalar(FrozenPlan plan,Object storage) {
         String lane=plan.schema.rawLanes.get(plan.row.id);dataRequire(lane!=null,"Raw-to-object adaptation requires scalar type");
         long bits=scalarBits(storage,plan.raw(lane));FrozenPlan terminal=plan;

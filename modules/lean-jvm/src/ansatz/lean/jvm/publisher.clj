@@ -3,7 +3,8 @@
   (:require [ansatz.lean.jvm.startup :as startup]
             [clojure.string :as str]
             [ansatz.lean.jvm.entry :as checked-entry]
-            [ansatz.lean.jvm.entry-v3 :as entry-v3]))
+            [ansatz.lean.jvm.entry-v3 :as entry-v3])
+  (:import [ansatz.lean.jvm HostBindings]))
 (defn- need [p message] (when-not p (throw (ex-info message {:profile :ansatz.lean.jvm.publisher}))))
 (defn- vector! [value limit]
   (need (and (vector? value) (<= (count value) limit)) "Bounded immutable vector required") value)
@@ -48,11 +49,14 @@
         entries (vec (mapcat :entries checked))]
     (need (= entries (:entries payload)) "Nominal entries differ from authenticated documents")
     (doseq [entry entries role ["raw" "callable"]]
-      (let [abi (get entry role) row (get index (get abi "name")) d (get-in row ["ir" "fdecl"])]
+      (let [abi (get entry role) row (get index (get abi "name")) d (or (get-in row ["ir" "fdecl"]) (get-in row ["ir" "extern"]))]
         (need (and (= (get entry "compiledModule") (get row "sourceModule"))
                    (= abi {"name" (get d "f") "xs" (get d "xs") "type" (get d "type")}))
               "Nominal callable differs from canonical source declaration")))
-    {:typed-groups (mapv #(select-keys (:storage %) [:logical :normalized]) checked)
+    {:typed-groups (mapv (fn [result document]
+                           (assoc (select-keys (:storage result) [:logical :normalized])
+                                  :runtime-witnesses (get-in document [:document "runtimeWitnesses"])))
+                         checked documents)
      :entries (vec (mapcat (fn [group document]
                             (mapv (fn [entry]
                                     (assoc entry "typedStorage"
@@ -78,7 +82,9 @@
       (when-not typed? (doseq [entry entries] (checked-entry/validate-rows! entry index)))
       {:plan plan :rows (vec (sort-by #(name-label (get % "name")) rows))
        :entries (if typed? (:entries typed) entries) :typed-groups (or (:typed-groups typed) [])})))
-(defn- prepare-payload! [basis payload codec-bytes]
+(defn- prepare-payload!
+  ([basis payload codec-bytes] (prepare-payload! basis payload codec-bytes (HostBindings/empty)))
+  ([basis payload codec-bytes bindings]
   (let [{:keys [plan rows entries typed-groups]} (validate-combined! payload)
         _ (need (and (= (class (byte-array 0)) (class codec-bytes)) (<= (alength ^bytes codec-bytes) 16384)) "Bounded codec byte array required")
         codec (aclone ^bytes codec-bytes)]
@@ -86,7 +92,7 @@
     (#'startup/publish-prepared! basis plan rows
       {"native-project-manifest" (:manifest-sha256 payload) "profile" (:profile payload)
        "native-evidence-files" (or (:evidence-files payload) (:artifact-file-records payload))
-       "entry-helper" (:entry-helper payload) "startup-helper" (get-in payload [:build-inputs "helper"])} codec entries typed-groups)))
+       "entry-helper" (:entry-helper payload) "startup-helper" (get-in payload [:build-inputs "helper"])} codec entries typed-groups bindings))))
 (defn prepare!
   "Research path overload over an actually issued native BuildReceipt."
   [basis actual-build-receipt codec-witness-path]
@@ -94,10 +100,14 @@
     (prepare-payload! basis payload (#'startup/read-bytes! codec-witness-path 16384))))
 (defn prepare-build-bytes!
   "Source publisher with SDK-owned codec resource bytes; never accepts a payload map."
-  [basis actual-build-receipt codec-bytes]
-  (prepare-payload! basis ((requiring-resolve 'ansatz.lean.jvm.compiler.evidence/authenticated-build) actual-build-receipt) codec-bytes))
+  ([basis actual-build-receipt codec-bytes]
+   (prepare-build-bytes! basis actual-build-receipt codec-bytes (HostBindings/empty)))
+  ([basis actual-build-receipt codec-bytes bindings]
+   (prepare-payload! basis ((requiring-resolve 'ansatz.lean.jvm.compiler.evidence/authenticated-build) actual-build-receipt) codec-bytes bindings)))
 (defn prepare-artifact!
   "Pure JVM publisher over an actual ArtifactReceipt and SDK-owned codec bytes.
    Resolving this accessor never discovers a toolchain or loads the build service."
-  [basis actual-artifact-receipt codec-bytes]
-  (prepare-payload! basis ((requiring-resolve 'ansatz.lean.jvm.artifact/authenticated-artifact) actual-artifact-receipt) codec-bytes))
+  ([basis actual-artifact-receipt codec-bytes]
+   (prepare-artifact! basis actual-artifact-receipt codec-bytes (HostBindings/empty)))
+  ([basis actual-artifact-receipt codec-bytes bindings]
+   (prepare-payload! basis ((requiring-resolve 'ansatz.lean.jvm.artifact/authenticated-artifact) actual-artifact-receipt) codec-bytes bindings)))
