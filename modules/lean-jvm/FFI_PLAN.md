@@ -1,12 +1,14 @@
 # Typed JVM host bindings
 
-Status: implementation in progress. No public source/artifact binding API is
-admitted yet. The first slice is the private typed suspended-call adapter.
+Status: candidate source/artifact admission, registry and runtime adapter are
+implemented. The v4 producer has been built and exercised locally; publication,
+and release remain pending. Local exact-JAR, engine and native-reference
+acceptance passed; hosted CI remains a release gate. See the [API guide](FFI.md).
 
 ## Contract
 
 Lean owns the logical signature and an executable reference definition. The host
-supplies an implementation and an explicit implementation version. A generated,
+supplies an implementation and an explicit implementation label. A generated,
 authenticated manifest joins the structured declaration Name, defining product,
 logical types, runtime argument mapping, effect, original Header and lowered ABI.
 The registry does not repeat types or grant authority to caller-authored schemas.
@@ -21,7 +23,8 @@ implementations requires a separate explicit trust policy.
 Capture the Clojure IFn value once per Project generation. This prevents direct
 Var rebinding from changing that target, but does not freeze transitive Vars,
 dynamic bindings, mutable captures, or external state. A changed implementation
-opens a new Project generation. No automatic retries or memoization of host calls.
+opens a new Project generation. No automatic retries are performed. Existing Lean
+closed-value caching remains part of execution; callback counts are not promised.
 
 ## Execution and ownership
 
@@ -40,6 +43,12 @@ opens a new Project generation. No automatic retries or memoization of host call
 The engine completion seam is task-free and accepts only an unforgeable private
 prepared-reply token. It does not admit signatures, source, or host code. Existing
 generic resumeHost and ownership contracts remain unchanged.
+The only admitted enclosing native action is the exact current String.any
+predicate continuation (including nested workers); other task/resource/release
+protocols are refused. Failure retirement recognizes only the actual runtime
+owner/current Program Function and its exact selected descriptor, with one
+pending or failed packet and no parent completion. The prior stopped-heap and
+filesystem resource-ledger checks still apply.
 
 ## Compiler integration gate
 
@@ -47,11 +56,12 @@ A function-name replacement after compilation is insufficient: inlining,
 specialization, constant evaluation and compiler simplification may remove calls.
 Likewise the current interpreter selects all/c externs, not jvm externs.
 
-Before public registration, add a producer-owned JVM import annotation or wrapper
-mechanism which retains the Lean body for reference/native execution and emits
-an explicit JVM host-call boundary. Authenticate that association together with
-v3 logical/layout evidence. Neither an unchecked symbol map nor hand-edited IR
-is a substitute. Account for nullary calls and optimizer purity assumptions.
+The candidate uses standard noinline definitions instead of introducing new Lean
+syntax. The independent v4 producer observes the noinline attribute and pure
+definition eligibility beside existing nominal signature/layout evidence.
+Only those selected original Headers can receive per-Project implementations.
+Original IR is unchanged, and registration precedes all body materialization and
+guest initialization. The selected registry supplies no second type signature.
 No v3 producer or archived evidence is retrospectively assigned new authority.
 
 A small Lean 4.33.1 IR probe confirmed that noinline retains a direct function
@@ -65,14 +75,15 @@ optimizer-preservation contract for an import annotation.
 
 ## Sequence and acceptance
 
-1. Private typed adapter: identity and modified returns, zero/multiple arguments,
+1. Implemented private typed adapter: identity and modified returns, zero/multiple arguments,
    borrowed/repeated inputs, scalar lanes, aliasing, malformed results, cancellation,
    stale/foreign requests and fatal errors. Use synthetic IR only as engine tests.
-2. Producer/admission: exact imports and generated signatures, missing/extra and
+2. Implemented v4 producer/admission: exact definitions and generated signatures, missing/extra and
    duplicate bindings, nominal same-lane mismatches, stale products, effects,
    finite monomorphic instances and optimizer-preserved boundaries.
-3. Public Java/Clojure registry and portable example; native reference oracle
-   must use the Lean implementation rather than the same foreign callback.
+3. Implemented Java/Clojure registry and portable two-file example. Factories
+   derive nominal constructors once from detached signatures. The native
+   reference oracle uses the Lean implementation rather than a foreign callback.
 4. IO bindings and exception envelopes/capability lifetimes. Reentrancy, function
    callbacks, resources, async execution and fork/replay policies follow later.
 

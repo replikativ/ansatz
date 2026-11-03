@@ -219,7 +219,7 @@
                                                       (get-in producer ["entryHelper" "sha256"]))
                        (catch clojure.lang.ExceptionInfo _
                          (need false "ArtifactConflict" {:stage :supported-producer})))
-        _ (need (= nominal? (= 3 entry-schema)) "ArtifactConflict" {:stage :nominal-producer-profile})
+        _ (need (= nominal? (checked-entry/nominal-schema? entry-schema)) "ArtifactConflict" {:stage :nominal-producer-profile})
         custody (when nominal? (custody-payload (get producer "nominalCustody")))
         _ (when nominal? (entry-v3/validate-producer-custody! custody (get producer "entryHelperSource") (get producer "entryHelper")))
         _ (need (and entry-schema (= lean-commit (get producer "leanCommit")) (= "4.33.1" (get producer "leanVersion"))
@@ -403,8 +403,8 @@
                           {"rootModule" (get-in document [:request "module"])
                            "request" (descriptor (str "evidence/" label ".request.json"))
                            "raw" (descriptor (str "evidence/" (get-in document [:receipt "stdout"])))})) (:entry-documents payload))]
-    {"schema" (if (= 3 (:entry-schema payload)) nominal-schema schema)
-     "profile" (if (= 3 (:entry-schema payload))
+    {"schema" (if (checked-entry/nominal-schema? (:entry-schema payload)) nominal-schema schema)
+     "profile" (if (checked-entry/nominal-schema? (:entry-schema payload))
                  (if (get inputs "installedImports") "nominal-local-installed-v3" "nominal-local-init-v3")
                  (if (get inputs "installedImports") installed/artifact-profile "legacy-local-init-v2"))
      "producer" (cond-> {"leanCommit" lean-commit "leanVersion" "4.33.1" "target" "x86_64-unknown-linux-gnu" "wordBits" 64
@@ -413,7 +413,7 @@
                  "typedSourceExporter" (get inputs "typedExporter") "typedSourceExporterSource" (get inputs "typedExporterSource")
                  "orchestrator" (:implementation payload) "compiler" (get inputs "implementation")
                  "transport" (get inputs "transportImplementation")}
-                   (= 3 (:entry-schema payload)) (assoc "nominalCustody" (custody-wire (:producer-custody payload))))
+                   (checked-entry/nominal-schema? (:entry-schema payload)) (assoc "nominalCustody" (custody-wire (:producer-custody payload))))
      "inputs" {"requestedRoots" (get inputs "roots") "moduleManifestSHA256" (:manifest-sha256 payload)
                "moduleCacheKey" (:module-cache-key payload) "originalBuildInputs" (descriptor "provenance/build-inputs.json")}
      "modules" modules "entryEvidence" entries

@@ -203,13 +203,13 @@
           (need (or (locals name) (installed/init? name) (some #{name} installed))
                 "EntryRejected" {:stage :undeclared-origin :module name}))
         (vec (sort-by json/write-str (remove locals required)))))))
-(defn- collect-v3-entry! [compiler state build root requests helper journal stage label source-rows budget]
+(defn- collect-v3-entry! [compiler state build root requests helper journal stage label source-rows budget entry-schema]
   (let [{:keys [required receipt]} (origins! state helper build root requests journal stage (str label "-origins") budget)
         capture (products/capture! compiler build required)
         _ (need (false? (:requires-v3-rebuild (products/description capture)))
                 "ArtifactConflict" {:stage :nominal-compilation-baseline})
         manifest (json/read-str (String. ^bytes (used/canonical-bytes (products/manifest capture)) StandardCharsets/UTF_8))
-        request {"schema" "lean-native-entry-requests/3" "module" root "entries" requests
+        request {"schema" (get-in checked-entry/cohorts [entry-schema :request]) "module" root "entries" requests
                  "moduleProductsSHA256" (used/digest manifest)}
         path (.resolve ^Path stage (str label ".request.json"))
         product-path (.resolve ^Path stage (str label ".products.json"))
@@ -248,16 +248,16 @@
     (local/module-components root) (name! name))
   (need (= (count entries) (count (set (map :name entries)))) "EntryRejected" {:stage :duplicate-request})
   (let [entry-schema (get evidence-configuration :entry-schema 1)]
-    (need (#{1 2 3} entry-schema) "UnsupportedProjectConfig" {:stage :entry-schema})
-    (need (or (#{2 3} entry-schema) (not-any? #(= "auto" (:signature %)) entries))
+    (need (#{1 2 3 4} entry-schema) "UnsupportedProjectConfig" {:stage :entry-schema})
+    (need (or (#{2 3 4} entry-schema) (not-any? #(= "auto" (:signature %)) entries))
           "UnsupportedSignature" {:stage :auto-requires-entry-v2}))
   (let [started (System/nanoTime)
         {:keys [entry-helper entry-helper-source entry-helper-sha256 entry-helper-source-sha256]} evidence-configuration
         entry-schema (get evidence-configuration :entry-schema 1)
         _ (need (= (cond-> #{:entry-helper :entry-helper-source :entry-helper-sha256 :entry-helper-source-sha256}
-                            (= 3 entry-schema) (conj :producer-custody :producer-files))
+                            (checked-entry/nominal-schema? entry-schema) (conj :producer-custody :producer-files))
                    (disj (set (keys evidence-configuration)) :entry-schema)) "UnsupportedProjectConfig" {})
-        _ (when (#{2 3} entry-schema)
+        _ (when (#{2 3 4} entry-schema)
             (need (= entry-schema (checked-entry/schema-for-pins! entry-helper-source-sha256 entry-helper-sha256))
                   "UnsupportedProjectConfig" {:stage :entry-helper-cohort}))
         helper (#'compiler/executable! entry-helper) helper-source (#'compiler/path! entry-helper-source)
@@ -265,12 +265,12 @@
         helper-source-record (#'compiler/file-record helper-source (* 2 1048576))
         _ (need (and (= entry-helper-sha256 (get helper-record "sha256"))
                      (= entry-helper-source-sha256 (get helper-source-record "sha256"))) "EntryRejected" {:stage :helper-pin})
-        _ (when (= 3 entry-schema)
+        _ (when (checked-entry/nominal-schema? entry-schema)
             (verify-producer-files! (:producer-files evidence-configuration))
             (entry-v3/validate-producer-custody! (:producer-custody evidence-configuration) helper-source-record helper-record))
-        dependencies (when (= 3 entry-schema) (discover-dependencies! compiler project-configuration helper entries started))
+        dependencies (when (checked-entry/nominal-schema? entry-schema) (discover-dependencies! compiler project-configuration helper entries started))
         build (binding [local/*build-start-nanos* started]
-                (local/compile-modules! compiler (cond-> project-configuration (= 3 entry-schema)
+                (local/compile-modules! compiler (cond-> project-configuration (checked-entry/nominal-schema? entry-schema)
                                                  (assoc :v3-dependency-modules dependencies)) journal))
         state (#'compiler/issued compiler)]
     (locking (:lock state)
@@ -304,9 +304,9 @@
                 grouped (mapv (fn [root] [root (filterv #(= root (:root %)) entries)]) roots)
                 documents
                 (mapv (fn [index [root selected]]
-                        (if (= 3 entry-schema)
+                        (if (checked-entry/nominal-schema? entry-schema)
                           (let [result (collect-v3-entry! compiler state build root (mapv #(hash-map "name" (:name %)) selected)
-                                                         helper journal stage (str "entries-" index) source-rows byte-budget)]
+                                                         helper journal stage (str "entries-" index) source-rows byte-budget entry-schema)]
                             (doseq [[requested emitted] (map vector selected (get-in result [:admitted :entries]))]
                               (when-not (= "auto" (:signature requested))
                                 (let [sig (get-in emitted ["typeCheck" "signature"]) roots (get-in result [:document "typeGraph" "roots"])]
@@ -345,7 +345,7 @@
                 startup-helper (#'compiler/executable! (:helper project-configuration))
                 _ (local/verify-installed! state installed-products)
                 _ (local/verify-compilation-products! state (:inputs build))
-                _ (when (= 3 entry-schema)
+                _ (when (checked-entry/nominal-schema? entry-schema)
                     (verify-producer-files! (:producer-files evidence-configuration))
                     (doseq [document documents] (products/verify! (:product-capture document))))
                 startup-receipt (#'compiler/run-process! state journal stage "startup" [startup-helper "--startup" startup-path] env)
@@ -382,7 +382,7 @@
                              (= (get-in build [:inputs "helperSource"])
                                 (#'compiler/file-record (#'compiler/path! (:helper-source project-configuration)) (* 2 1048576))))
                         "ArtifactConflict" {:stage :build-mutation})
-                _ (when (= 3 entry-schema)
+                _ (when (checked-entry/nominal-schema? entry-schema)
                     (local/verify-compilation-products! state (:inputs build))
                     (verify-producer-files! (:producer-files evidence-configuration))
                     (doseq [document documents] (products/verify! (:product-capture document))))
@@ -394,15 +394,15 @@
                 _ (need (<= (+ (get manifest-record "bytes")
                                   (reduce + 0 (map #(get % "bytes") (concat (vals files) (vals evidence-files))))) (* 64 1048576))
                         "BuildResourceLimit" {:stage :complete-artifact-extent})
-                payload {:implementation implementation-record :evidence-files evidence-files :profile (if (= 3 entry-schema) "native-project-build-evidence/3" "native-project-build-evidence/2") :manifest-sha256 (get manifest-record "sha256")
+                payload {:implementation implementation-record :evidence-files evidence-files :profile (if (checked-entry/nominal-schema? entry-schema) "native-project-build-evidence/3" "native-project-build-evidence/2") :manifest-sha256 (get manifest-record "sha256")
                          :module-cache-key (:cache-key build) :module-directory directory :build-inputs (:inputs build)
                          :module-files files :compiled-modules (:compiled build)
                          :evidence-directory stage :entry-helper helper-record :entry-helper-source helper-source-record
                          :entry-documents (mapv #(dissoc % :product-capture) documents) :startup startup :startup-receipt startup-receipt
                          :source-rows source-index :imported-rows imported :rows selected :entries selected-entries
                          :runtime-ready false :startup-executed false}
-                payload (cond-> payload (= 3 entry-schema)
-                          (assoc :entry-schema 3 :producer-custody (:producer-custody evidence-configuration)))
+                payload (cond-> payload (checked-entry/nominal-schema? entry-schema)
+                          (assoc :entry-schema entry-schema :producer-custody (:producer-custody evidence-configuration)))
                 _ (#'compiler/check-build-deadline! state)
                 token (BuildReceipt.)]
             ;; No issuer record is published until all actual native processes,

@@ -110,10 +110,13 @@
     (need (empty? (field program "hostRegistry")) "Host service registration is outside this profile")
     (need (= (count headers) (alength ^objects functions) (alength ^objects bodies) (alength ^objects exports)) "Program/header domain differs")
     (doseq [[name header] headers] (.put by-header header name))
+    (doseq [header (keys (:pure-bindings descriptor))]
+      (need (.containsKey by-header header) "Pure binding Header is outside the program"))
     (doseq [i (range (alength ^objects functions))]
       (let [function (aget ^objects functions i) header (field function "header") name (.get by-header header)
             requirement (get-in descriptor [:externs name]) intrinsic (field function "intrinsic")]
-        (need (and name (nil? (field function "hostExtern")) (nil? (aget ^objects exports i))) "Program has foreign Header/host handler/guest export")
+        (need (and name (identical? (get (:pure-bindings descriptor) header) (field function "hostExtern"))
+                   (nil? (aget ^objects exports i))) "Program has foreign Header/host handler/guest export")
         (if requirement
           (need (= intrinsic (:intrinsic requirement)) "Actual Program intrinsic differs from audited descriptor")
           (need (and (= 0 intrinsic) (some? (aget ^objects bodies i))) "Program body is unavailable or unclassified"))))

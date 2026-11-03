@@ -10,7 +10,7 @@
 (deftest actual-package-is-explicit-and-source-only
   (let [result (audit/verify! {:module-root *module-root*})]
     (is (= 30 (:sources result))) (is (= 4 (:resources result)))
-    (is (= 30 (:java-sources result)))
+    (is (= 31 (:java-sources result)))
     (is (= '{org.clojure/clojure {:mvn/version "1.12.0"}
              org.clojure/data.json {:mvn/version "2.5.1"}} (:runtime-dependencies result)))))
 (deftest source-paths-and-dependency-closure-cannot-drift

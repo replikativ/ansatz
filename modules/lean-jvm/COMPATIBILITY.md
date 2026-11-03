@@ -40,6 +40,15 @@ engine operations or admission rules but are not native execution receipts.
 
 ## Reviewed boundaries by layer
 
+The [pure FFI candidate](FFI.md) adds optional Java/Clojure implementations for
+v4-attested noinline pure reference definitions, using the existing first-order
+value boundary. It includes type-driven constructor factories, general supported
+arity, calls during JVM initialization and through the audited String.any worker.
+The [two-file corpus](examples/pure-ffi/README.md) compares native, JVM-reference
+and host implementations. This candidate is not a published release; v4 producer
+publication is pending. IO-typed host bindings and function-valued callbacks
+remain outside this profile.
+
 | Layer / obligation | Status and boundary | Source / checks / remaining evidence |
 | --- | --- | --- |
 | Preparation: local source graph | Default: one root and a closed acyclic local import DAG plus installed Init; legacy private/ordinary source headers. Explicit finite installed-import lists add exact sysroot modules, with compiled-product identity and actual effective-graph checks. Native elaboration is trusted-source execution and can run metaprograms or compile-time IO. | [Producer guide](producer/README.md), [preparation](PREPARATION.md), [compiler sources](src/ansatz/lean/jvm/compiler), [source acceptance](test/source_acceptance.clj). This permits no extra externs or initialization forms. General package resolution and modern local module transport remain separate. The [persistent-map example](examples/persistent-map/README.md) passes independent native, public source/cache and artifact checks in the integration candidate; this is not a published-release claim. |

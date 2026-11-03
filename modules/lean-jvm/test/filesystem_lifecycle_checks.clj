@@ -13,7 +13,8 @@
   (.invoke (.getMethod (class value) method (make-array Class 0)) value (object-array 0)))
 (defn quarantine-count [] (count @(var-get (ns-resolve 'ansatz.lean.jvm.project 'quarantine))))
 (defn cancel-after-open [observations]
-  (fn [ctx engine callable args slot]
+  (fn [ctx engine callable args slot host-calls]
+    (assert (empty? host-calls))
     (#'project/deadline! engine)
     (aset ^objects slot 1 :start-pending)
     (ir/start! ctx engine callable args)

@@ -2,12 +2,14 @@
   "Interpreted startup ledger; only the fixed research publisher currently issues Prepared."
   (:require [clojure.data.json :as json] [clojure.java.io :as io]
             [ansatz.lean.jvm.ir :as j]
+            [ansatz.lean.jvm.host :as host]
             [ansatz.lean.jvm.capabilities :as caps]
             [ansatz.lean.jvm.original :as original])
   (:import [java.lang ClassValue]
            [java.nio.file Files LinkOption StandardOpenOption OpenOption]
            [java.nio.file.attribute BasicFileAttributes]
-           [java.security MessageDigest] [java.util WeakHashMap] [java.util.concurrent.locks ReentrantLock]))
+           [java.security MessageDigest] [java.util WeakHashMap] [java.util.concurrent.locks ReentrantLock]
+           [ansatz.lean.jvm HostBindings]))
 
 (def ^:private current-capture-sha "f644f89c61f672569743eb11ad6874cb35028b3e4097554f4b96145b54e32ea0")
 (def ^:private codec-sha "53b224c8fa037b144260872e3b14878aff86dbb61b598e1ea49f991dabc1fb6b")
@@ -150,7 +152,7 @@
 (defn- compact-entry [entry]
   (let [digest #(sha (.getBytes (json/write-str %) "UTF-8"))]
     (assoc (select-keys entry ["name" "kind" "compiledModule" "levelParams" "selection" "raw" "callable"
-                               "semanticArity" "runtimeArity" "argumentPlan" "resultABI" "codecWitnesses" "nativeRepresentation" "typedStorage"])
+                               "semanticArity" "runtimeArity" "argumentPlan" "resultABI" "codecWitnesses" "nativeRepresentation" "typedStorage" "pureBinding"])
            "typeCheck" (select-keys (get entry "typeCheck") ["signature" "algorithm" "transparency"])
            "nativeEvidence" {"normalizedObservationSHA256" (digest entry)
                              "actualTypeSHA256" (digest (get entry "actualType"))
@@ -159,11 +161,17 @@
   ([basis plan rows description codec entries]
    (publish-prepared! basis plan rows description codec entries []))
   ([basis plan rows description codec entries typed-groups]
+   (publish-prepared! basis plan rows description codec entries typed-groups (HostBindings/empty)))
+  ([basis plan rows description codec entries typed-groups bindings]
   ;; Private implementation shared only by reviewed authenticated publishers.
   (let [requirements (caps/check-rows! basis rows)
         base (j/prepare-host-program basis [] []) source (j/source-binding base description)
         headers (into {} (map (fn [row] [(get row "name") (j/declaration-header source row (sha (.getBytes (json/write-str row) "UTF-8")))]) rows))
         registered (j/register-headers base (mapv #(headers (get % "name")) rows))
+        binding-plan (host/admit-bindings registered bindings entries headers typed-groups)
+        requirements (cond-> requirements (seq (:headers binding-plan))
+                       (assoc :pure-bindings (:headers binding-plan) :host-handlers true))
+        registered (host/bind-program registered (:definitions binding-plan))
         prepared (reduce (fn [ctx row] (if (get-in row ["ir" "fdecl"])
                                        (j/materialize-body ctx (headers (get row "name")) row (mapv headers (original/direct-names row))) ctx)) registered rows)
         ;; Keep runtime method handles and immutable compiled code, never caller
@@ -175,7 +183,8 @@
                 (assoc :explicit true :initializing true :build-identity (j/supported-build-identity basis)))
         _ (caps/check-program! ctx headers requirements)
         token (Prepared.) cell {:ctx ctx :headers headers :plan (select-keys plan [:modules])
-                                :codec codec :entries (mapv compact-entry entries) :typed-groups typed-groups :requirements requirements}]
+                                :codec codec :entries (mapv compact-entry entries) :typed-groups typed-groups :requirements requirements
+                                :types (:types binding-plan) :host-calls (:calls binding-plan)}]
     (put-issued! prepared-registry token cell))))
 (defn prepare-current! [basis capture-path codec-path]
   ;; Fixed research issuer, never a caller-map capability factory.
@@ -264,7 +273,8 @@
     (ready-engine! prepared engine)
     (swap! cell assoc :status :calling :execution-thread (Thread/currentThread))
     (try
-      (let [answer (callback {:ctx (:ctx prepared) :engine engine :entries (:entries prepared) :typed-groups (:typed-groups prepared) :headers (:headers prepared)})]
+      (let [answer (callback {:ctx (:ctx prepared) :engine engine :entries (:entries prepared) :typed-groups (:typed-groups prepared)
+                             :types (:types prepared) :host-calls (:host-calls prepared) :headers (:headers prepared)})]
         (ready-engine! prepared engine)
         (swap! cell assoc :status :ready :execution-thread nil) answer)
       (catch Throwable failure
@@ -286,6 +296,7 @@
 
             active
             (case (j/phase ctx engine)
+              "host-call" (do (host/complete! ctx engine (:host-calls prepared)) (recur remaining))
               "running" (if (pos? remaining)
                           (let [steps (min remaining 128)] (j/advance! ctx engine steps) (recur (- remaining steps)))
                           (ansatz.lean.jvm.startup/status token))
@@ -372,6 +383,30 @@
           ;; guest heap. Recognize its actual Program function; other native
           ;; actions do not inherit this abandonment permission.
           (.put seen action true) (recur (engine-field action "parent")))))))
+(defn- stopped-pure-host! [prepared engine]
+  ;; Ordinary profiles still require no host packet. A selected pure binding
+  ;; adds only detached data and a host callable; no resource handle crosses
+  ;; this boundary. Recognize the exact current Program Function/descriptor,
+  ;; runtime owner, and single task-free request/completion packet. Dropping
+  ;; this stopped heap is not guest DEC, callback replay, or resource disposal.
+  (let [pending (engine-field engine "hostRequest") failed (engine-field engine "failedHostRequest")
+        completion (engine-field engine "hostCompletion") request (or pending failed)]
+    (if-not request (need (nil? completion) "Unclassified host completion during abandonment")
+      (let [call (engine-field request "call") function (engine-field call "function")
+            header (engine-field function "header") descriptor (get-in prepared [:requirements :pure-bindings header])
+            functions (engine-field (get-in prepared [:ctx :program]) "functions") id (engine-field function "id")]
+        (need (and (not (and pending failed)) descriptor
+                   (identical? descriptor (engine-field function "hostExtern"))
+                   (integer? id) (<= 0 id) (< id (alength ^objects functions))
+                   (identical? function (aget ^objects functions id))
+                   (identical? (engine-field engine "runtimeIdentity") (engine-field request "owner"))
+                   (nil? (engine-field call "previousCompletion"))
+                   (if pending
+                     (and (= "host-call" (j/phase (:ctx prepared) engine)) (nil? completion)
+                          (false? (engine-field call "replyClaimed")))
+                     (and (= "failed" (j/phase (:ctx prepared) engine)) (identical? call completion)
+                          (true? (engine-field call "replyClaimed")))))
+              "Abandonment found a foreign or unclassified host packet")))))
 (defn- stopped-heap! [prepared engine]
   (let [requirements (:requirements prepared)]
     (caps/check-program! (:ctx prepared) (:headers prepared) requirements)
@@ -379,7 +414,7 @@
       (need (and (not (engine-field engine "advancing"))
                  (identical? (get-in prepared [:ctx :program]) (engine-field engine "program"))
                  (every? #(nil? (engine-field engine %))
-                         ["taskRuntime" "hostRequest" "failedHostRequest" "hostCompletion" "hostGuestRecord"
+                         ["taskRuntime" "hostGuestRecord"
                           "codeRequest" "failedCodeRequest" "currentTask" "stdioContext"
                           "profilingPolicy" "hostGuestPolicy" "exprInstantiationPolicy" "exprTransformPolicy"
                           "shareCommonLayout" "levelInstantiationPolicy" "pointerHashPolicy"])
@@ -387,6 +422,7 @@
                  (not (engine-field engine "graphInstalled")) (not (engine-field engine "moduleGraphInstalled"))
                  (empty? (engine-field engine "preparedGlobalSources")))
             "Abandonment requires stopped task-free execution without requests, imports or external protocol state")
+      (stopped-pure-host! prepared engine)
       (when (some #(engine-field engine %) ["stdinDefaultRoot" "stderrRoot"])
         (need (= :bounded-stdio-read-line-write-flush-tty (:dynamic-io-profile requirements))
               "Captured stdin/stderr abandonment requires the issued bounded stdio profile"))

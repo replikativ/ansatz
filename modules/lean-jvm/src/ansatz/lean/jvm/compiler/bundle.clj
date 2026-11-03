@@ -194,7 +194,10 @@
         descriptor (#'transport/read-json! (child! root "producer-bundle.json") 262144)]
     (if (= "lean-native-producer-bundle/1" (get descriptor "schema"))
       (open-legacy! options)
-      (let [cohort (get checked-entry/cohorts 3)
+      (let [producer (get-in descriptor ["producers" "entry"])
+            version (checked-entry/schema-for-pins! (get producer "sourceSHA256") (get producer "binarySHA256"))
+            _ (need (checked-entry/nominal-schema? version) "Expected a nominal entry producer")
+            cohort (get checked-entry/cohorts version)
             expected {"sourceSHA256" (:source cohort) "binarySHA256" (:binary cohort)
                       "sourceClosureSHA256" (:source-closure cohort) "buildReceiptSHA256" (:build-receipt cohort)}
             inspected (inspect-candidate! root expected)
@@ -217,6 +220,6 @@
                            :helper-sha256 (:binary-sha256 header) :helper-source-sha256 (:source-sha256 header)
                            :typed-exporter (:binary typed) :typed-exporter-source (:source typed)
                            :typed-exporter-sha256 (:binary-sha256 typed) :typed-exporter-source-sha256 (:source-sha256 typed)}
-         :evidence-options {:entry-schema 3 :entry-helper (:entry-binary inspected) :entry-helper-source source
+         :evidence-options {:entry-schema version :entry-helper (:entry-binary inspected) :entry-helper-source source
                             :entry-helper-sha256 (:binary cohort) :entry-helper-source-sha256 (:source cohort)
                             :producer-custody custody :producer-files (:file-records inspected)}}))))

@@ -257,7 +257,7 @@
    (let [v2? (or entry? (= "lean-jvm-private-nominal-observations/2" (get observation "schema")))]
    (keys! observation (if entry? #{"schema" "typeGraph" "rootTypes" "representation" "runtimeWitnesses"}
                          (cond-> #{"schema" "scope" "typeGraph" "rootTypeChecks" "representation"} v2? (conj "runtimeWitnesses"))))
-   (need (if entry? (= "lean-native-entry-evidence/3" (get observation "schema"))
+   (need (if entry? (contains? #{"lean-native-entry-evidence/3" "lean-native-entry-evidence/4"} (get observation "schema"))
              (and (#{"lean-jvm-private-nominal-observations/1" "lean-jvm-private-nominal-observations/2"} (get observation "schema"))
                   (= "private-no-cohort-admission" (get observation "scope")))) :observation-schema)
    (keys! options #{:roots :runtime-witnesses :io?})
@@ -388,7 +388,7 @@
    Caller separately validates full entry signatures/native function DefEq/root
    usage and derives io?; this function grants no callable or source authority."
   [document io?]
-  (need (= "lean-native-entry-evidence/3" (get document "schema")) :entry-schema)
+  (need (contains? #{"lean-native-entry-evidence/3" "lean-native-entry-evidence/4"} (get document "schema")) :entry-schema)
   (normalize-types! (select-keys document ["schema" "typeGraph" "rootTypes" "representation" "runtimeWitnesses"])
                     {:roots (vec (range (count (get-in document ["typeGraph" "roots"]))))
                      :runtime-witnesses nil :io? io?} true))

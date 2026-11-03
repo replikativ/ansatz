@@ -121,6 +121,9 @@ final class Bridge {
                         || cursor instanceof NoSuchAlgorithmException || cursor instanceof NoSuchProviderException)) {
                     selected = cursor;
                     code = cursor instanceof ProviderException ? "ProviderFailure" : "ProviderUnavailable";
+                } else if (!cancelled && cursor instanceof LeanException lean && "RuntimeBoundary".equals(code)) {
+                    selected = cursor;
+                    code = lean.code();
                 } else if (cursor instanceof IExceptionInfo && "RuntimeBoundary".equals(code)) {
                     Object actual = ((IExceptionInfo) cursor).getData().valAt(Keyword.intern("code"));
                     if (actual instanceof String && ((String) actual).length() <= 96) {
@@ -143,6 +146,7 @@ final class Bridge {
             // Actual category survives wrappers; original causes/ex-data may retain
             // guest owners, and are deliberately absent from the Java exception.
             Object details = null;
+            if (selected instanceof LeanException lean) details = lean.details();
             if ("GuestIOError".equals(code) && selected instanceof IExceptionInfo) {
                 try {
                     details = ((IExceptionInfo) selected).getData().valAt(Keyword.intern("guest-io-error"));
@@ -150,7 +154,8 @@ final class Bridge {
                     // Optional projection must not replace the selected failure.
                 }
             }
-            return new LeanException(code, bounded(selected.getClass().getName(), 256), bounded(message, 2048), details);
+            String category = selected instanceof LeanException lean ? lean.category() : selected.getClass().getName();
+            return new LeanException(code, bounded(category, 256), bounded(message, 2048), details);
         }
         private Failure() { }
     }

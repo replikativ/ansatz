@@ -58,6 +58,56 @@ public final class PureHostCallChecks {
     private static Interpreter.HostExtern descriptor(String[] lanes, boolean[] borrowed, String result) {
         return new Interpreter.HostExtern("app_pure", lanes, borrowed, result);
     }
+    private static Object arg(int id) { return Map.of("var", Map.of("id", Map.of("idx", id))); }
+    private static Map<String,Object> definition(String label, Object body) {
+        return Map.of("kind", "decl", "name", name(label), "ir", Map.of("fdecl", Map.of(
+            "f", name(label), "type", "tobject", "xs", List.of(Map.of("x", Map.of("idx", 1), "ty", "tobject", "borrow", false)),
+            "body", body)));
+    }
+    private static void originalDefinitions(LeanType nat) {
+        Map<String,Object> fallback = definition("fallback", List.of("ret", arg(1)));
+        Map<String,Object> caller = definition("caller", List.of("vdecl", Map.of("idx", 2), "tobject",
+            Map.of("fap", Map.of("c", name("fallback"), "ys", List.of(arg(1)))), List.of("ret", arg(2))));
+        Interpreter.SourceBinding source = new Interpreter.SourceBinding("synthetic-only");
+        Interpreter.Header target = source.header(fallback, "a".repeat(64)), root = source.header(caller, "b".repeat(64));
+        Interpreter.Program original = Interpreter.Program.registerHeaders(Interpreter.prepare(List.of()), new Interpreter.Header[]{target, root});
+        Interpreter.PureBinding binding = new Interpreter.PureBinding(target);
+        Interpreter.Program selected = Interpreter.Program.bindPureDefinitions(original, new Interpreter.PureBinding[]{binding});
+        try {
+            Interpreter.Program.bindPureDefinitions(original, new Interpreter.PureBinding[]{binding, binding});
+            throw new AssertionError("Duplicate binding accepted");
+        } catch (IllegalArgumentException expected) { check(true); }
+        for (boolean host : new boolean[]{false, true}) {
+            Interpreter.Program program = host ? selected : original;
+            program = Interpreter.Program.materialize(program, target, fallback, new Interpreter.Header[0]);
+            program = Interpreter.Program.materialize(program, root, caller, new Interpreter.Header[]{target});
+            try {
+                Interpreter.Program.bindPureDefinitions(program, new Interpreter.PureBinding[]{binding});
+                throw new AssertionError("Late binding accepted");
+            } catch (IllegalArgumentException expected) { check(true); }
+            Interpreter engine = new Interpreter(program, true);
+            try {
+                engine.start(program.functionId(root), new Object[]{7L});
+                for (int i = 0; i < 100 && engine.phase().equals("running"); i++) engine.advance(1);
+                if (host) {
+                    check(engine.pendingHostRequest() != null);
+                    check(engine.pendingHostRequest().descriptor() == binding.descriptor());
+                    new PureHostCall(binding.descriptor(), List.of(nat), nat,
+                        xs -> ((BigInteger) xs.get(0)).add(BigInteger.ONE)).complete(engine, engine.pendingHostRequest());
+                    for (int i = 0; i < 100 && engine.phase().equals("running"); i++) engine.advance(1);
+                }
+                check(engine.phase().equals("complete"));
+                check(engine.takeResult().equals(host ? 8L : 7L));
+            } finally { retire(engine); }
+        }
+        check(original.functionId(target) == selected.functionId(target));
+        // Different source identity with the same textual name grants nothing.
+        Interpreter.Header foreign = new Interpreter.SourceBinding("other").header(fallback, "a".repeat(64));
+        try {
+            Interpreter.Program.bindPureDefinitions(original, new Interpreter.PureBinding[]{new Interpreter.PureBinding(foreign)});
+            throw new AssertionError("Foreign Header accepted");
+        } catch (IllegalArgumentException expected) { check(true); }
+    }
     private static void retire(Interpreter engine) {
         // These synthetic programs contain pure data and one fake extern only:
         // no resources, tasks or finalizers. Stopped test heaps are dropped for
@@ -104,6 +154,7 @@ public final class PureHostCallChecks {
     public static int run() throws Exception {
         checks = 0;
         LeanType packet = packet(), nat = field(packet, 0), bool = field(packet, 6);
+        originalDefinitions(nat);
         check(invoke(nat, "tobject", 41L, xs -> ((BigInteger) xs.get(0)).add(BigInteger.ONE)).equals(BigInteger.valueOf(42)));
         check(invoke(bool, "uint8", 1L, xs -> !((Boolean) xs.get(0))).equals(false));
         check(invoke(field(packet, 1), "uint32", 0xffffffffL, xs -> xs.get(0)).equals(new BigInteger("4294967295")));

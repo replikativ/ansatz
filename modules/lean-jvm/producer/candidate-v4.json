@@ -1,0 +1,28 @@
+{
+  "schema": "lean-jvm-entry-candidate-record/1",
+  "status": "local-acceptance-passed-unpublished",
+  "entrySchema": 4,
+  "leanCommit": "819816b2e0a3bf405af45ae5c7af2491d8f5bee6",
+  "leanVersion": "4.33.1",
+  "entrySourceSHA256": "0a56bfa925eff72580d32bcfc4b34c598feb0937a661a2f4a1212bc06c688c77",
+  "entryBinarySHA256": "ad9efbb2320c1b1d033d5fcc6b32bc7d267d087f25666c2eb0d44d47708c61f7",
+  "sourceClosureSHA256": "5ffbac629057c7bca182aa5a126b93588d5b574f60bd470fa4972f25127699dc",
+  "buildReceiptSHA256": "1e14aa779c780eb12505b07477e2121f29d02eec0a2a26851757dd1c0d3e0f6a",
+  "scope": "selected-noinline-pure-reference-definitions",
+  "publication": null,
+  "fixture": "../test/fixtures/pure-ffi/provenance.json",
+  "guide": "../FFI.md",
+  "acceptance": {
+    "sdkTests": 244,
+    "sdkAssertions": 2884,
+    "engineTests": 1279,
+    "engineAssertions": 57548,
+    "applicationJarConsumers": 11,
+    "privateHostAdapterChecks": 111,
+    "typedViewAndClojureHostTests": 11,
+    "typedViewAndClojureHostAssertions": 124,
+    "sourceWithBindingsAndInitialization": true,
+    "independentNativeOracle": true,
+    "publicationAndHostedCI": "pending"
+  }
+}
