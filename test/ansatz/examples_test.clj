@@ -393,6 +393,10 @@
       ;; the derived machinery exists and is kernel-checked
       (is (some? (env/lookup (a/env) (name/from-string "ExL._sizeOf_inst"))) "SizeOf instance derived")
       (is (some? (env/lookup (a/env) (name/from-string "ExL.econs.sizeOf_spec"))) "cons spec equation derived")
+      (let [spec (env/lookup (a/env) (name/from-string "ExL.econs.sizeOf_spec"))]
+        (is (re-find #"HAdd\.hAdd" (e/->string (.type spec))))
+        (is (not (re-find #"Nat\.add" (e/->string (.type spec)))))
+        (is (env/verifies? (a/env) (.type spec) (.value spec))))
       ;; rest∘rest over the custom type, NO annotation — auto-guessed (sizeOf xs)
       (when-not (env/lookup (a/env) (name/from-string "ex-cpairs"))
         (eval '(ansatz.core/defn ^Nat ex-cpairs [^ExL xs]

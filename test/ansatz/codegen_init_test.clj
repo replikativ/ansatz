@@ -316,3 +316,13 @@
           tc (TypeChecker. (a/env))]
       (is (= expected (#'am/decode-val #(.whnf (.getReducer tc) %) :boolean term)))
       (is (= expected (eval (cg/ansatz->clj (a/env) term [])))))))
+
+(deftest compiled-instances-still-expose-their-arithmetic-fields
+  (doseq [instance ["instAddNat" "instSubNat" "instMulNat"]]
+    (is (some? (sd/compile-store-def! (a/env) instance))))
+  (doseq [[op primitive] [['+ 'Nat.add] ['- 'Nat.sub] ['* 'Nat.mul]]]
+    (let [compile-form #(cg/ansatz->clj (a/env) (elab/elaborate (a/env) %) [])
+          surface (compile-form (list 'fn '[x Nat y Nat] (list op 'x 'y)))
+          concrete (compile-form (list 'fn '[x Nat y Nat] (list primitive 'x 'y)))]
+      (is (= concrete surface))
+      (is (= (((eval concrete) 9) 2) (((eval surface) 9) 2))))))
