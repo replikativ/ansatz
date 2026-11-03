@@ -1,0 +1,71 @@
+{
+  "schema": "lean-native-witness-probe-process/1",
+  "command": [
+    "/home/christian-weilbach/.elan/toolchains/leanprover--lean4---v4.33.1/bin/lean",
+    "-M512",
+    "-j1",
+    "-o",
+    "NativeBuiltinWitnessProbe.olean",
+    "NativeBuiltinWitnessProbe.lean"
+  ],
+  "cwd": "/home/christian-weilbach/Development/simm.is/.tmp/ansatz-lean-jvm-nominal-values/.tmp/native-v3-witness-001",
+  "environment": {
+    "LEAN_SYSROOT": "/home/christian-weilbach/.elan/toolchains/leanprover--lean4---v4.33.1",
+    "LEAN_PATH": "/home/christian-weilbach/Development/simm.is/.tmp/ansatz-lean-jvm-nominal-values/.tmp/native-v3-witness-001",
+    "LEAN_NUM_THREADS": "1",
+    "MALLOC_ARENA_MAX": "1",
+    "PATH": "/home/christian-weilbach/.elan/toolchains/leanprover--lean4---v4.33.1/bin:/home/christian-weilbach/.pyenv/versions/3.12.2/bin:/usr/share/pyenv/libexec:/usr/share/pyenv/plugins/python-build/bin:/home/christian-weilbach/.elan/bin:/home/christian-weilbach/.codex/packages/app-server-daemon/releases/0.166.0-x86_64-unknown-linux-musl/codex-path:/home/christian-weilbach/.codex/tmp/arg0-linux/codex-arg0FrIB6e:/home/christian-weilbach/.codex/tmp/arg0-linux/codex-arg077Ibwn:/home/christian-weilbach/.nvm/versions/node/v24.15.0/lib/node_modules/@openai/codex/node_modules/@openai/codex-linux-x64/vendor/x86_64-unknown-linux-musl/codex-path:/home/christian-weilbach/.sdkman/candidates/kotlin/current/bin:/home/christian-weilbach/Programs/graalvm-jdk-25.0.1+8.1//bin:/home/christian-weilbach/.bun/bin:/home/christian-weilbach/Development/duckdb/build:/home/christian-weilbach/.local/bin:/home/christian-weilbach/.opencode/bin:/home/christian-weilbach/Programs/bbin-0.2.4/:/home/christian-weilbach/.juliaup/bin:/home/christian-weilbach/Programs/bin:/home/christian-weilbach/.pyenv/shims:/home/christian-weilbach/.pyenv/bin:/home/christian-weilbach/.nvm/versions/node/v24.15.0/bin:/home/christian-weilbach/.elan/bin:/home/christian-weilbach/.cargo/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin:/snap/bin:/home/christian-weilbach/.local/share/coursier/bin:/home/christian-weilbach/.local/bin:/home/christian-weilbach/.local/share/coursier/bin:/home/christian-weilbach/.local/share/coursier/bin"
+  },
+  "mode": "observe",
+  "sourceSHA256": {
+    "NativeBuiltinWitnessFixtures.lean": "eb6ecc05d17d22aee2a6c9562fe734795af8c7878c1d9fcfaa435e024a610e02",
+    "NativeNominalEntryEvidence.lean": "573671b46c4744c179524c95ea92233be15a213d45331e977abebbc4bea96dc5",
+    "NativeBuiltinWitnessProbe.lean": "7afbf7753a141e95a0ef7dc980ff181e65b429c2bd22032499fb6cd3a53bff10",
+    "NativeEntryTransport.lean": "fa60e6dba69ca7433dec3a0fb50108e97aebcf5e65f8a21799aace2d26ab7bb8",
+    "NativeNominalFixtures.lean": "395e9c3f355631f1b4a22594ad9af849957914cc148f2ceed2828c8ca8f5a860",
+    "NativeTypeGraph.lean": "361234f1a0031e66dd1ff73bf40da0d4a4c77088b757324b7bd2debb2079bd64"
+  },
+  "toolSHA256": "e8baaa71855a616dc351028f3ad2200051b0671f423a1696a100e809302d5550",
+  "memAvailableBytes": 6577541120,
+  "memoryFloorBytes": 2147483648,
+  "rssLimitBytes": 536870912,
+  "cpuSeconds": 60,
+  "wallSeconds": 60,
+  "peakSampledAggregateRSSBytes": 533774336,
+  "exit": 0,
+  "elapsedSeconds": 0.4568472299724817,
+  "stdout": {
+    "path": "observe.stdout",
+    "sha256": "0354ca50b2a2767a94ead0dcde11c57a3403ea43835c409f9130c26fa0759723",
+    "bytes": 51613
+  },
+  "stderr": {
+    "path": "observe.stderr",
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "bytes": 0
+  },
+  "products": [
+    {
+      "role": ".olean",
+      "present": true,
+      "bytes": 71584,
+      "sha256": "a211b164228888e78c094376180c479775359e6c1256cf4b00d73a61d11e39b7"
+    },
+    {
+      "role": ".olean.server",
+      "present": false
+    },
+    {
+      "role": ".olean.private",
+      "present": false
+    },
+    {
+      "role": ".ir.sig",
+      "present": false
+    },
+    {
+      "role": ".ir",
+      "present": false
+    }
+  ]
+}

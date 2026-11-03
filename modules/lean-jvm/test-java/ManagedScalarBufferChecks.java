@@ -8,6 +8,16 @@ import java.util.*;
 
 /** Synthetic engine contract checks; native source/cohort acceptance is separate. */
 public final class ManagedScalarBufferChecks {
+    private static Object nodeMember(Interpreter.Node value,String name) {
+        try { java.lang.reflect.Field field=Interpreter.Node.class.getDeclaredField(name);
+            field.setAccessible(true); return field.get(value);
+        } catch(ReflectiveOperationException failure) { throw new AssertionError(failure); }
+    }
+    private static Object[] nodeFields(Interpreter.Node value) { return (Object[])nodeMember(value,"fields"); }
+    private static byte[] nodeScalars(Interpreter.Node value) { return (byte[])nodeMember(value,"scalars"); }
+    private static int nodeTag(Interpreter.Node value) { return (Integer)nodeMember(value,"tag"); }
+    private static int nodeRC(Interpreter.Node value) { return (Integer)nodeMember(value,"rc"); }
+
     private static int checks;
     private static void check(boolean ok,String message) { checks++; if(!ok) throw new AssertionError(message); }
     private static Object field(Object value,String name) throws Exception {
@@ -35,7 +45,10 @@ public final class ManagedScalarBufferChecks {
                 "ext",map("entries",List.of(map("standard",map("backend",name("all"),"fn",symbol)))))));
     }
     private static Object callABI(String symbol,String result,String[] lanes,Object... arguments) {
-        try(Interpreter engine=new Interpreter(Interpreter.prepare(List.of(externABI(symbol,result,lanes))),true)) {
+        return callRow(externABI(symbol,result,lanes),arguments);
+    }
+    private static Object callRow(Map<String,Object> row,Object... arguments) {
+        try(Interpreter engine=new Interpreter(Interpreter.prepare(List.of(row)),true)) {
             engine.start(0,arguments);
             for(int i=0;i<1000&&!engine.advance(1000);i++) { }
             check("complete".equals(engine.phase()),"Intrinsic did not complete"); return engine.takeResult();
@@ -46,6 +59,51 @@ public final class ManagedScalarBufferChecks {
         return callABI(symbol,lane,lanes,arguments);
     }
     private static int f32bits(Object value) { return Float.floatToRawIntBits((Float)value); }
+    @SuppressWarnings("unchecked")
+    private static void unsignedNatNarrowing() {
+        // Pinned lean.h uint{8,16,32}_of_nat(_mk): modulo conversion for both
+        // borrowed Nat and consuming BitVec representations, proof erased.
+        for(int bits:new int[]{8,16,32}) for(int form=0;form<3;form++) {
+            boolean owned=form==2,proof=form==1;
+            String symbol="lean_uint"+bits+"_of_nat"+(owned?"_mk":""),lane="uint"+bits;
+            Map<String,Object> row=externABI(symbol,lane,proof?new String[]{"tobject","erased"}:new String[]{"tobject"});
+            Map<String,Object> ext=(Map<String,Object>)((Map<String,Object>)row.get("ir")).get("extern");
+            ((Map<String,Object>)((List<?>)ext.get("xs")).get(0)).put("borrow",!owned);
+            BigInteger mask=BigInteger.ONE.shiftLeft(bits).subtract(BigInteger.ONE);
+            for(BigInteger n:new BigInteger[]{BigInteger.ZERO,mask,mask.add(BigInteger.ONE),
+                    BigInteger.ONE.shiftLeft(64).subtract(BigInteger.ONE),
+                    BigInteger.ONE.shiftLeft(200).add(new BigInteger("89abcdef",16))}) {
+                Object actual=proof?callRow(row,n,0L):callRow(row,n);
+                check(actual.equals(Long.valueOf(n.and(mask).longValue())),"Unsigned Nat narrowing/ownership ABI");
+            }
+        }
+    }
+    private static void floatBitObservations() {
+        // Independent pinned object.cpp to_bits contract: all NaNs use the
+        // logical canonical pattern; every other IEEE bit pattern is exact.
+        for(long bits:new long[]{0,Long.MIN_VALUE,1,0x000fffffffffffffL,0x0010000000000000L,
+                0x3ff0000000000001L,0x7fefffffffffffffL,0x7ff0000000000000L,0xfff0000000000000L,
+                0x7ff8000000001234L,0x7ff0000000000001L,0xfff8000000001234L}) {
+            long expected=Double.isNaN(Double.longBitsToDouble(bits))?0x7ff8000000000000L:bits;
+            Object actual=callABI("lean_float_to_bits","uint64",new String[]{"float"},Double.valueOf(Double.longBitsToDouble(bits)));
+            BigInteger observed=actual instanceof BigInteger?(BigInteger)actual:BigInteger.valueOf((Long)actual);
+            check(observed.equals(new BigInteger(Long.toUnsignedString(expected))),"Float.toBits exact IEEE/canonical NaN");
+        }
+        for(int bits:new int[]{0,Integer.MIN_VALUE,1,0x007fffff,0x00800000,0x3f800001,
+                0x7f7fffff,0x7f800000,0xff800000,0x7fc01234,0x7fa00001,0xffc01234}) {
+            int expected=Float.isNaN(Float.intBitsToFloat(bits))?0x7fc00000:bits;
+            check(callABI("lean_float32_to_bits","uint32",new String[]{"float32"},Float.valueOf(Float.intBitsToFloat(bits)))
+                    .equals(Long.valueOf(Integer.toUnsignedLong(expected))),"Float32.toBits exact IEEE/canonical NaN");
+        }
+        try {
+            Interpreter.prepare(List.of(externABI("lean_float_to_bits","uint32","float")));
+            throw new AssertionError("Float.toBits accepted wrong result lane");
+        } catch(IllegalArgumentException expected) { checks++; }
+        try {
+            Interpreter.prepare(List.of(externABI("lean_float32_to_bits","uint32","float")));
+            throw new AssertionError("Float32.toBits accepted wrong argument lane");
+        } catch(IllegalArgumentException expected) { checks++; }
+    }
     private static void float32LiteralDependencies() {
         // Pin819816 object.cpp:1987 canonicalizes NaNs; non-NaNs retain their exact bits.
         for(long bits:new long[]{0,0x80000000L,1,0x007fffffL,0x00800000L,0x3f800001L,0x7f7fffffL,0x7f800000L,0xff800000L})
@@ -78,28 +136,28 @@ public final class ManagedScalarBufferChecks {
             byte[] input={1,2,3}; Object[] arrayFields={new DataRef(0),new DataRef(1)};
             Object[] roots=engine.constructDataArguments(new DataCtor[]{DataCtor.boxedScalar("float",Long.MIN_VALUE),
                     DataCtor.bytes(input),DataCtor.array(arrayFields)},new Object[]{new DataRef(2)});
-            Node array=(Node)roots[0],scalar=(Node)array.fields[0],bytes=(Node)array.fields[1];
-            check(array.tag==246&&Boolean.TRUE.equals(field(array,"array")),"Array runtime kind");
+            Node array=(Node)roots[0],scalar=(Node)nodeFields(array)[0],bytes=(Node)nodeFields(array)[1];
+            check(nodeTag(array)==246&&Boolean.TRUE.equals(field(array,"array")),"Array runtime kind");
             check(field(array,"metadata").getClass().getSimpleName().equals("ArrayState"),"Array metadata");
             check(((Integer)field(field(array,"metadata"),"size"))==2,"Array live size");
-            check(scalar.tag==0&&scalar.fields.length==0&&scalar.scalars.length==8,"Scalar BOX layout");
-            check(scalar.scalars[7]==(byte)128,"Float negative-zero raw bits");
-            check(bytes.tag==248&&bytes.fields.length==0&&bytes.scalars.length==3,"ByteArray layout");
+            check(nodeTag(scalar)==0&&nodeFields(scalar).length==0&&nodeScalars(scalar).length==8,"Scalar BOX layout");
+            check(nodeScalars(scalar)[7]==(byte)128,"Float negative-zero raw bits");
+            check(nodeTag(bytes)==248&&nodeFields(bytes).length==0&&nodeScalars(bytes).length==3,"ByteArray layout");
             check(field(bytes,"metadata").getClass().getSimpleName().equals("ByteArrayState"),"ByteArray metadata");
-            check(array.rc==1&&scalar.rc==1&&bytes.rc==1,"Single owner per node");
+            check(nodeRC(array)==1&&nodeRC(scalar)==1&&nodeRC(bytes)==1,"Single owner per node");
             input[0]=99; arrayFields[0]=Long.valueOf(9);
-            check(bytes.scalars[0]==1&&array.fields[0]==scalar,"Caller snapshots changed");
+            check(nodeScalars(bytes)[0]==1&&nodeFields(array)[0]==scalar,"Caller snapshots changed");
             release(engine,array);
             check(Boolean.TRUE.equals(field(array,"dead"))&&Boolean.TRUE.equals(field(scalar,"dead"))
                     &&Boolean.TRUE.equals(field(bytes,"dead")),"Owned tree release missed a special node");
             Object[] empty=engine.constructDataArguments(new DataCtor[]{DataCtor.array(new Object[0])},new Object[]{new DataRef(0)});
-            check(((Node)empty[0]).fields.length==0,"Empty Array"); release(engine,empty[0]);
+            check(nodeFields(((Node)empty[0])).length==0,"Empty Array"); release(engine,empty[0]);
             Object[] ordinary=engine.constructDataArguments(new DataCtor[]{new DataCtor(1,new Object[]{Long.valueOf(7)})},new Object[]{new DataRef(0)});
-            check(((Node)ordinary[0]).tag==1,"Old constructor compatibility"); release(engine,ordinary[0]);
+            check(nodeTag(((Node)ordinary[0]))==1,"Old constructor compatibility"); release(engine,ordinary[0]);
             Object[] f32=engine.constructDataArguments(new DataCtor[]{DataCtor.boxedScalar("float32",0x80000000L)},new Object[]{new DataRef(0)});
-            check(((Node)f32[0]).scalars.length==4&&((Node)f32[0]).scalars[3]==(byte)128,"Float32 negative zero"); release(engine,f32[0]);
+            check(nodeScalars(((Node)f32[0])).length==4&&nodeScalars(((Node)f32[0]))[3]==(byte)128,"Float32 negative zero"); release(engine,f32[0]);
             Object[] u64=engine.constructDataArguments(new DataCtor[]{DataCtor.boxedScalar("uint64",-1L)},new Object[]{new DataRef(0)});
-            check(Arrays.equals(((Node)u64[0]).scalars,new byte[]{-1,-1,-1,-1,-1,-1,-1,-1}),"UInt64 all bits"); release(engine,u64[0]);
+            check(Arrays.equals(nodeScalars(((Node)u64[0])),new byte[]{-1,-1,-1,-1,-1,-1,-1,-1}),"UInt64 all bits"); release(engine,u64[0]);
             rejected(engine,()->DataCtor.boxedScalar("float32",0x100000000L));
             rejected(engine,()->DataCtor.boxedScalar("uint32",1));
             rejected(engine,()->engine.constructDataArguments(new DataCtor[]{DataCtor.array(new Object[]{new DataRef(0)})},new Object[]{new DataRef(0)}));
@@ -118,6 +176,8 @@ public final class ManagedScalarBufferChecks {
         check(Float.floatToRawIntBits((Float)call("lean_float32_add","float32",Float.valueOf(-0.0f),Float.valueOf(-0.0f)))==Integer.MIN_VALUE,"Float32 signed zero");
         check(Float.isInfinite((Float)call("lean_float32_add","float32",Float.MAX_VALUE,Float.MAX_VALUE)),"Float32 overflow");
         float32LiteralDependencies();
+        floatBitObservations();
+        unsignedNatNarrowing();
         System.out.println("ManagedScalarBufferChecks PASS "+checks);
     }
 }

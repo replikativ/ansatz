@@ -3,8 +3,11 @@
    Load once: issued receipt identities survive only in this namespace cohort."
   (:require [ansatz.lean.jvm.compiler.transport :as compiler]
             [ansatz.lean.jvm.compiler.local :as local]
+            [ansatz.lean.jvm.compiler.products :as products]
+            [ansatz.lean.jvm.used-products :as used]
             [clojure.data.json :as json]
             [ansatz.lean.jvm.entry :as checked-entry]
+            [ansatz.lean.jvm.entry-v3 :as entry-v3]
             [ansatz.lean.jvm.signature :as signature] [ansatz.lean.jvm.installed :as installed])
   (:import [java.nio.file Path Files LinkOption]
            [java.nio.file.attribute FileAttribute]
@@ -91,6 +94,33 @@
           (let [row (get index n)]
             (need row "MissingDependency" {:name n})
             (recur (into pending (get row "dependencies")) (assoc selected n row))))))))
+(defn- reconcile-callables! [entries index modules source-index]
+  (doseq [entry entries]
+    (let [owner (get entry "compiledModule")]
+      (need (contains? modules owner) "EntryRejected" {:name (get entry "name")})
+      (doseq [role ["raw" "callable"]]
+        (let [name (get-in entry [role "name"]) row (get index name) source (get source-index name)]
+          (need (and source (true? (get source "sourceLocal"))
+                     (= owner (get source "sourceModule")) (= (get row "ir") (get source "ir")))
+                "EntryRejected" {:name name :stage :original-callable})))))
+  true)
+(defn- reconcile-v3-description!
+  "Private description check only. The future source issuer supplies context and
+   source rows from its own verified build, then authenticates producer custody.
+   Matching caller maps here cannot issue a BuildReceipt or admit an entry."
+  [context document source-rows]
+  (let [checked (entry-v3/validate-document! context document)
+        source-index (row-index source-rows)
+        modules (set (:local-modules context))
+        _ (doseq [[name row] source-index]
+            (need (and (true? (get row "sourceLocal")) (contains? modules (get row "sourceModule")))
+                  "ArtifactConflict" {:name name :stage :source-row-owner}))
+        _ (doseq [[name row] (:declarations checked)]
+            (when (contains? modules (get row "sourceModule"))
+              (need (contains? source-index name) "ArtifactConflict" {:name name :stage :missing-local-source-row})))
+        _ (reconcile-callables! (:entries checked) (:declarations checked) modules source-index)
+        reconciled (merge-source (:declarations checked) source-index)]
+    (assoc checked :declarations reconciled :source-reconciliation :matched-source-rows)))
 (defn- admit-entries!
   ([root requests document modules source-index]
    (admit-entries! root requests document modules source-index 1))
@@ -98,15 +128,8 @@
    (let [request {"schema" (get-in checked-entry/cohorts [entry-schema :request]) "module" root "entries" requests}
          entries (checked-entry/validate-document! root request document)
          index (row-index (get document "declarations"))]
-     (doseq [entry entries]
-       (let [owner (get entry "compiledModule")]
-         (need (contains? modules owner) "EntryRejected" {:name (get entry "name")})
-         (checked-entry/validate-rows! entry index)
-         ;; Preserve the actual native imported/source-phase IR comparison.
-         (doseq [role ["raw" "callable"]]
-           (let [name (get-in entry [role "name"]) row (get index name) source (get source-index name)]
-             (need (and source (= owner (get source "sourceModule")) (= (get row "ir") (get source "ir")))
-                   "EntryRejected" {:name name :stage :original-callable})))))
+     (doseq [entry entries] (checked-entry/validate-rows! entry index))
+     (reconcile-callables! entries index modules source-index)
      {:entries entries :index index})))
 (defn authenticated-build
   "Internal publisher seam. Only actual issued identity authenticates the payload;
@@ -122,6 +145,95 @@
   (need (= implementation-record (#'compiler/source-record! implementation-source))
         "ArtifactConflict" {:stage :issuer-source-mutation}))
 
+(defn- verify-producer-files! [files]
+  (vector! files 16)
+  (doseq [{:keys [path maximum record]} files]
+    (need (= record (#'compiler/file-record path maximum)) "ArtifactConflict" {:stage :producer-closure-mutation})))
+(defn- origins!
+  [state helper build root requests journal stage label budget]
+  (let [request {"schema" "lean-native-entry-origin-requests/1" "module" root "entries" requests}
+        path (.resolve ^Path stage (str label ".request.json"))
+        bytes (alength ^bytes (#'compiler/canonical request))
+        _ (need (<= bytes 65536) "BuildResourceLimit" {:stage :origin-request})
+        _ (charge-bytes! budget bytes)
+        directory (#'compiler/path! (:directory build))
+        env (#'compiler/environment state (str (.resolve directory "build") ":" (.resolve ^Path (:sysroot state) "lib/lean")))
+        _ (#'compiler/write-json! path request)
+        _ (#'local/cache-hit! directory (:cache-key build) (:inputs build))
+        _ (local/verify-installed! state (get-in build [:inputs "installedImports"]))
+        _ (local/verify-compilation-products! state (:inputs build))
+        receipt (#'compiler/run-process! state journal stage label [helper "--entry-origins" path] env)
+        _ (charge-produced! budget stage receipt)
+        document (read-produced! stage receipt (* 4 1048576))
+        types (get document "types")
+        required (get types "requiredModules")]
+    (need (and (= #{"schema" "scope" "request" "types"} (set (keys document)))
+               (= "lean-native-entry-origin-inventory/1" (get document "schema"))
+               (= "advisory-no-entry-authority" (get document "scope")) (= request (get document "request"))
+               (= "lean-jvm-type-origin-inventory/1" (get types "schema"))
+               (= "advisory-no-type-authority" (get types "scope"))
+               (vector? required) (<= (count required) used/max-modules)
+               (= (count required) (count (set required)))) "EntryRejected" {:stage :origin-inventory})
+    (doseq [name required] (#'used/module! name))
+    (#'local/cache-hit! directory (:cache-key build) (:inputs build))
+    (local/verify-installed! state (get-in build [:inputs "installedImports"]))
+    (local/verify-compilation-products! state (:inputs build))
+    {:required required :receipt receipt}))
+(defn- discover-dependencies! [compiler configuration helper entries started]
+  ;; An old/current preparation is advisory only. It selects product names for
+  ;; a NEW /3 cache baseline; it never upgrades an existing compiled cache.
+  (let [journal (atom {})
+        build (binding [local/*build-start-nanos* started]
+                (local/compile-modules! compiler (dissoc configuration :v3-dependency-modules) journal))
+        state (#'compiler/issued compiler)]
+    (locking (:lock state)
+      (let [state (assoc state :build-start-nanos started :max-build-nanos 600000000000)
+            stage (Files/createTempDirectory ^Path (:cache state) ".nominal-origin-discovery-" (make-array FileAttribute 0))
+            locals (set (keys (:modules build)))
+            _ (doseq [{:keys [root]} entries]
+                (need (some #{root} (get-in build [:inputs "roots"])) "EntryRejected" {:root root}))
+            installed (mapv #(get % "module") (get-in build [:inputs "installedImports" "modules"]))
+            budget (atom 0)
+            required (vec (distinct
+                       (mapcat (fn [index [root selected]]
+                                 (:required (origins! state helper build root (mapv #(hash-map "name" (:name %)) selected)
+                                                      journal stage (str "origins-" index) budget)))
+                               (range) (group-by :root entries))))]
+        (doseq [name required]
+          (need (or (locals name) (installed/init? name) (some #{name} installed))
+                "EntryRejected" {:stage :undeclared-origin :module name}))
+        (vec (sort-by json/write-str (remove locals required)))))))
+(defn- collect-v3-entry! [compiler state build root requests helper journal stage label source-rows budget]
+  (let [{:keys [required receipt]} (origins! state helper build root requests journal stage (str label "-origins") budget)
+        capture (products/capture! compiler build required)
+        _ (need (false? (:requires-v3-rebuild (products/description capture)))
+                "ArtifactConflict" {:stage :nominal-compilation-baseline})
+        manifest (json/read-str (String. ^bytes (used/canonical-bytes (products/manifest capture)) StandardCharsets/UTF_8))
+        request {"schema" "lean-native-entry-requests/3" "module" root "entries" requests
+                 "moduleProductsSHA256" (used/digest manifest)}
+        path (.resolve ^Path stage (str label ".request.json"))
+        product-path (.resolve ^Path stage (str label ".products.json"))
+        _ (need (<= (alength ^bytes (#'compiler/canonical request)) 65536) "BuildResourceLimit" {})
+        _ (charge-bytes! budget (+ (alength ^bytes (#'compiler/canonical request))
+                                   (alength ^bytes (#'compiler/canonical manifest))))
+        _ (#'compiler/write-json! path request)
+        _ (#'compiler/write-json! product-path manifest)
+        directory (#'compiler/path! (:directory build))
+        env (#'compiler/environment state (str (.resolve directory "build") ":" (.resolve ^Path (:sysroot state) "lib/lean")))
+        _ (products/verify! capture)
+        emitted (#'compiler/run-process! state journal stage label [helper "--entries" path "--module-products" product-path] env)
+        _ (charge-produced! budget stage emitted)
+        document (read-produced! stage emitted (* 16 1048576))
+        _ (products/verify! capture)
+        admitted (reconcile-v3-description!
+                  {:root root :request request :module-products manifest
+                   :local-modules (vec (keys (:modules build)))
+                   :installed-imports (mapv #(get % "module") (get-in build [:inputs "installedImports" "modules"]))}
+                  document source-rows)]
+    {:request request :receipt emitted :document document
+     :admitted (assoc admitted :index (:declarations admitted)) :product-capture capture
+     :origin-receipt receipt}))
+
 (defn build!
   "Compile and collect actual checked-entry/ordinary-startup evidence. Neither a
    preexisting caller map nor an external accepted flag can issue a BuildReceipt.
@@ -136,24 +248,30 @@
     (local/module-components root) (name! name))
   (need (= (count entries) (count (set (map :name entries)))) "EntryRejected" {:stage :duplicate-request})
   (let [entry-schema (get evidence-configuration :entry-schema 1)]
-    (need (#{1 2} entry-schema) "UnsupportedProjectConfig" {:stage :entry-schema})
-    (need (or (= 2 entry-schema) (not-any? #(= "auto" (:signature %)) entries))
+    (need (#{1 2 3} entry-schema) "UnsupportedProjectConfig" {:stage :entry-schema})
+    (need (or (#{2 3} entry-schema) (not-any? #(= "auto" (:signature %)) entries))
           "UnsupportedSignature" {:stage :auto-requires-entry-v2}))
   (let [started (System/nanoTime)
         {:keys [entry-helper entry-helper-source entry-helper-sha256 entry-helper-source-sha256]} evidence-configuration
         entry-schema (get evidence-configuration :entry-schema 1)
-        _ (need (= #{:entry-helper :entry-helper-source :entry-helper-sha256 :entry-helper-source-sha256}
+        _ (need (= (cond-> #{:entry-helper :entry-helper-source :entry-helper-sha256 :entry-helper-source-sha256}
+                            (= 3 entry-schema) (conj :producer-custody :producer-files))
                    (disj (set (keys evidence-configuration)) :entry-schema)) "UnsupportedProjectConfig" {})
-        _ (when (= 2 entry-schema)
-            (need (= 2 (checked-entry/schema-for-pins! entry-helper-source-sha256 entry-helper-sha256))
+        _ (when (#{2 3} entry-schema)
+            (need (= entry-schema (checked-entry/schema-for-pins! entry-helper-source-sha256 entry-helper-sha256))
                   "UnsupportedProjectConfig" {:stage :entry-helper-cohort}))
         helper (#'compiler/executable! entry-helper) helper-source (#'compiler/path! entry-helper-source)
         helper-record (#'compiler/file-record helper (* 256 1048576))
         helper-source-record (#'compiler/file-record helper-source (* 2 1048576))
         _ (need (and (= entry-helper-sha256 (get helper-record "sha256"))
                      (= entry-helper-source-sha256 (get helper-source-record "sha256"))) "EntryRejected" {:stage :helper-pin})
+        _ (when (= 3 entry-schema)
+            (verify-producer-files! (:producer-files evidence-configuration))
+            (entry-v3/validate-producer-custody! (:producer-custody evidence-configuration) helper-source-record helper-record))
+        dependencies (when (= 3 entry-schema) (discover-dependencies! compiler project-configuration helper entries started))
         build (binding [local/*build-start-nanos* started]
-                (local/compile-modules! compiler project-configuration journal))
+                (local/compile-modules! compiler (cond-> project-configuration (= 3 entry-schema)
+                                                 (assoc :v3-dependency-modules dependencies)) journal))
         state (#'compiler/issued compiler)]
     (locking (:lock state)
       (need (identical? state (#'compiler/issued compiler)) "NativeCompileFailed" {:stage :closed-compiler})
@@ -186,7 +304,18 @@
                 grouped (mapv (fn [root] [root (filterv #(= root (:root %)) entries)]) roots)
                 documents
                 (mapv (fn [index [root selected]]
-                        (let [requests (mapv #(cond-> {"name" (:name %)}
+                        (if (= 3 entry-schema)
+                          (let [result (collect-v3-entry! compiler state build root (mapv #(hash-map "name" (:name %)) selected)
+                                                         helper journal stage (str "entries-" index) source-rows byte-budget)]
+                            (doseq [[requested emitted] (map vector selected (get-in result [:admitted :entries]))]
+                              (when-not (= "auto" (:signature requested))
+                                (let [sig (get-in emitted ["typeCheck" "signature"]) roots (get-in result [:document "typeGraph" "roots"])]
+                                  (need (= (signature/from-legacy (:signature requested))
+                                           {"arguments" (mapv #(nth roots %) (get sig "arguments"))
+                                            "result" (nth roots (get sig "result")) "effect" (get sig "effect")})
+                                        "EntryRejected" {:stage :requested-signature :name (:name requested)}))))
+                            result)
+                          (let [requests (mapv #(cond-> {"name" (:name %)}
                                                      (= 1 entry-schema) (assoc "signature" (:signature %))) selected)
                               request {"schema" (get-in checked-entry/cohorts [entry-schema :request]) "module" root "entries" requests}
                               path (.resolve stage (str "entries-" index ".request.json"))
@@ -204,7 +333,7 @@
                                     (when-not (= "auto" (:signature requested))
                                       (need (= (signature/from-legacy (:signature requested)) (checked-entry/descriptor emitted))
                                             "EntryRejected" {:stage :requested-signature :name (:name requested)}))))]
-                          {:request request :receipt receipt :document document :admitted admitted}))
+                          {:request request :receipt receipt :document document :admitted admitted})))
                       (range) (filterv #(seq (second %)) grouped))
                 startup-request {"schema" "lean-native-startup-requests/1" "profile" "legacy-private-ordinary/1"
                                  "requestedImports" (mapv #(hash-map "module" % "importAll" false "isExported" true "isMeta" false) roots)}
@@ -215,6 +344,10 @@
                 _ (#'compiler/write-json! startup-path startup-request)
                 startup-helper (#'compiler/executable! (:helper project-configuration))
                 _ (local/verify-installed! state installed-products)
+                _ (local/verify-compilation-products! state (:inputs build))
+                _ (when (= 3 entry-schema)
+                    (verify-producer-files! (:producer-files evidence-configuration))
+                    (doseq [document documents] (products/verify! (:product-capture document))))
                 startup-receipt (#'compiler/run-process! state journal stage "startup" [startup-helper "--startup" startup-path] env)
                 _ (charge-produced! byte-budget stage startup-receipt)
                 startup (read-produced! stage startup-receipt (* 16 1048576))
@@ -249,6 +382,10 @@
                              (= (get-in build [:inputs "helperSource"])
                                 (#'compiler/file-record (#'compiler/path! (:helper-source project-configuration)) (* 2 1048576))))
                         "ArtifactConflict" {:stage :build-mutation})
+                _ (when (= 3 entry-schema)
+                    (local/verify-compilation-products! state (:inputs build))
+                    (verify-producer-files! (:producer-files evidence-configuration))
+                    (doseq [document documents] (products/verify! (:product-capture document))))
                 _ (guard-source!) _ (#'compiler/guard-code!) _ (#'compiler/check-build-deadline! state)
                 evidence-files (#'local/inventory! stage)
                 _ (doseq [receipt (conj (mapv :receipt documents) startup-receipt)]
@@ -257,13 +394,15 @@
                 _ (need (<= (+ (get manifest-record "bytes")
                                   (reduce + 0 (map #(get % "bytes") (concat (vals files) (vals evidence-files))))) (* 64 1048576))
                         "BuildResourceLimit" {:stage :complete-artifact-extent})
-                payload {:implementation implementation-record :evidence-files evidence-files :profile "native-project-build-evidence/2" :manifest-sha256 (get manifest-record "sha256")
+                payload {:implementation implementation-record :evidence-files evidence-files :profile (if (= 3 entry-schema) "native-project-build-evidence/3" "native-project-build-evidence/2") :manifest-sha256 (get manifest-record "sha256")
                          :module-cache-key (:cache-key build) :module-directory directory :build-inputs (:inputs build)
                          :module-files files :compiled-modules (:compiled build)
                          :evidence-directory stage :entry-helper helper-record :entry-helper-source helper-source-record
-                         :entry-documents documents :startup startup :startup-receipt startup-receipt
+                         :entry-documents (mapv #(dissoc % :product-capture) documents) :startup startup :startup-receipt startup-receipt
                          :source-rows source-index :imported-rows imported :rows selected :entries selected-entries
                          :runtime-ready false :startup-executed false}
+                payload (cond-> payload (= 3 entry-schema)
+                          (assoc :entry-schema 3 :producer-custody (:producer-custody evidence-configuration)))
                 _ (#'compiler/check-build-deadline! state)
                 token (BuildReceipt.)]
             ;; No issuer record is published until all actual native processes,

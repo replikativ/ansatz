@@ -150,12 +150,15 @@
 (defn- compact-entry [entry]
   (let [digest #(sha (.getBytes (json/write-str %) "UTF-8"))]
     (assoc (select-keys entry ["name" "kind" "compiledModule" "levelParams" "selection" "raw" "callable"
-                               "semanticArity" "runtimeArity" "argumentPlan" "resultABI" "codecWitnesses" "nativeRepresentation"])
+                               "semanticArity" "runtimeArity" "argumentPlan" "resultABI" "codecWitnesses" "nativeRepresentation" "typedStorage"])
            "typeCheck" (select-keys (get entry "typeCheck") ["signature" "algorithm" "transparency"])
            "nativeEvidence" {"normalizedObservationSHA256" (digest entry)
                              "actualTypeSHA256" (digest (get entry "actualType"))
                              "expectedTypeSHA256" (digest (get-in entry ["typeCheck" "expectedType"]))})))
-(defn- publish-prepared! [basis plan rows description codec entries]
+(defn- publish-prepared!
+  ([basis plan rows description codec entries]
+   (publish-prepared! basis plan rows description codec entries []))
+  ([basis plan rows description codec entries typed-groups]
   ;; Private implementation shared only by reviewed authenticated publishers.
   (let [requirements (caps/check-rows! basis rows)
         base (j/prepare-host-program basis [] []) source (j/source-binding base description)
@@ -172,8 +175,8 @@
                 (assoc :explicit true :initializing true :build-identity (j/supported-build-identity basis)))
         _ (caps/check-program! ctx headers requirements)
         token (Prepared.) cell {:ctx ctx :headers headers :plan (select-keys plan [:modules])
-                                :codec codec :entries (mapv compact-entry entries) :requirements requirements}]
-    (put-issued! prepared-registry token cell)))
+                                :codec codec :entries (mapv compact-entry entries) :typed-groups typed-groups :requirements requirements}]
+    (put-issued! prepared-registry token cell))))
 (defn prepare-current! [basis capture-path codec-path]
   ;; Fixed research issuer, never a caller-map capability factory.
   (let [bytes (read-bytes! capture-path 1048576) _ (need (= current-capture-sha (sha bytes)) "Research capture differs")
@@ -261,7 +264,7 @@
     (ready-engine! prepared engine)
     (swap! cell assoc :status :calling :execution-thread (Thread/currentThread))
     (try
-      (let [answer (callback {:ctx (:ctx prepared) :engine engine :entries (:entries prepared) :headers (:headers prepared)})]
+      (let [answer (callback {:ctx (:ctx prepared) :engine engine :entries (:entries prepared) :typed-groups (:typed-groups prepared) :headers (:headers prepared)})]
         (ready-engine! prepared engine)
         (swap! cell assoc :status :ready :execution-thread nil) answer)
       (catch Throwable failure

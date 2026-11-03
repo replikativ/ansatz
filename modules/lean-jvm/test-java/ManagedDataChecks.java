@@ -10,6 +10,16 @@ import java.util.Collections;
 /** Standalone actual-runtime ownership checks. Reflection below only injects boundary states,
  * inspects custody, and does not construct guest Nodes or confer native type authority. */
 public final class ManagedDataChecks {
+    private static Object nodeMember(Interpreter.Node value,String name) {
+        try { java.lang.reflect.Field field=Interpreter.Node.class.getDeclaredField(name);
+            field.setAccessible(true); return field.get(value);
+        } catch(ReflectiveOperationException failure) { throw new AssertionError(failure); }
+    }
+    private static Object[] nodeFields(Interpreter.Node value) { return (Object[])nodeMember(value,"fields"); }
+    private static byte[] nodeScalars(Interpreter.Node value) { return (byte[])nodeMember(value,"scalars"); }
+    private static int nodeTag(Interpreter.Node value) { return (Integer)nodeMember(value,"tag"); }
+    private static int nodeRC(Interpreter.Node value) { return (Integer)nodeMember(value,"rc"); }
+
     private static int checks;
     private static void check(boolean ok) { checks++; if(!ok) throw new AssertionError("check "+checks); }
     private static Field field(String name) throws Exception {
@@ -48,13 +58,13 @@ public final class ManagedDataChecks {
         Object[] callerFields={7L,0L}; Object[] callerRoots={ref(1)};
         DataCtor[] recipes={new DataCtor(1,callerFields),ctor(0,ref(0),"tail")};
         roots=e.constructDataArguments(recipes,callerRoots);
-        Node outer=(Node)roots[0],inner=(Node)outer.fields[0];
-        check(outer.rc==1&&inner.rc==1&&outer.tag==0&&inner.tag==1&&e.allocations==2);
-        check(outer.scalars.length==0&&inner.scalars.length==0&&inner.fields!=callerFields&&roots!=callerRoots);
+        Node outer=(Node)roots[0],inner=(Node)nodeFields(outer)[0];
+        check(nodeRC(outer)==1&&nodeRC(inner)==1&&nodeTag(outer)==0&&nodeTag(inner)==1&&e.allocations==2);
+        check(nodeScalars(outer).length==0&&nodeScalars(inner).length==0&&nodeFields(inner)!=callerFields&&roots!=callerRoots);
         callerFields[0]=99L; callerRoots[0]=0L; recipes[0]=null;
-        check(inner.fields[0].equals(7L)&&outer.fields[1].equals("tail"));
+        check(nodeFields(inner)[0].equals(7L)&&nodeFields(outer)[1].equals("tail"));
         refuse(e,()->e.constructDataArguments(new DataCtor[0],new Object[]{outer}));
-        check(outer.rc==1&&inner.rc==1&&!dead(inner));
+        check(nodeRC(outer)==1&&nodeRC(inner)==1&&!dead(inner));
         release(e,outer); check(dead(outer)&&dead(inner));
         refuse(e,()->e.constructDataArguments(null,new Object[0]));
         refuse(e,()->e.constructDataArguments(new DataCtor[0],null));
@@ -106,8 +116,8 @@ public final class ManagedDataChecks {
         for(int i=1;i<count;i++) chain[i]=ctor(1,(long)i,ref(i-1));
         roots=e.constructDataArguments(chain,new Object[]{ref(count-1)});
         Node last=(Node)roots[0],first=last;
-        for(int i=1;i<count;i++) first=(Node)first.fields[1];
-        check(e.allocations==2002&&last.rc==1&&first.rc==1);
+        for(int i=1;i<count;i++) first=(Node)nodeFields(first)[1];
+        check(e.allocations==2002&&nodeRC(last)==1&&nodeRC(first)==1);
         release(e,last); check(dead(last)&&dead(first));
         e.close(); refuse(e,()->e.constructDataArguments(new DataCtor[0],new Object[]{0L}));
         System.out.println("ManagedDataChecks checks="+checks);

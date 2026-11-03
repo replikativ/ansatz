@@ -31,12 +31,34 @@ as review or CI artifacts. Keep historical validation/source receipts unchanged;
 they do not validate a new candidate. Audit documentation examples, local links,
 producer source hashes and attribution before release.
 
+## V3 datatype acceptance
+
+Preserve old v1/v2 carriers, metadata refusals and artifact compatibility. Check
+native-derived `LeanType` descriptors, all constructors and scalar lanes,
+nominal/builtin nesting, `Option Unit`, immutable bytes, explicit materialization,
+source reconciliation and defining-product custody. Changed defining products,
+wrong identities, malformed host fields and unsupported families must fail.
+
+Run the independent three-file [datatype application](examples/datatypes/README.md)
+through public Java and Clojure calls, including transformation, records, custom
+IO payloads and reuse in a new Project after close. Check aggregate input budgets
+before execution, healthy reuse after host refusal, shared certified payloads,
+and the existing terminal policy after guest IO failure. Compare the four-type
+oracle fingerprints with genuine native captures. Run the isolated nominal
+application-JAR consumer, the independent native oracle example and the full
+engine contract gate before marking acceptance complete. Local implementation
+checks do not replace these gates or establish a performance claim.
+
 ## Publication order
 
-Publish and verify the reviewed v2 native producer bundle first, then update its
-[setup instructions](producer/README.md). Land the SDK only after its acceptance
-and the user's scope/release discussion. Use the actual coordinated release
-version. The deployment job must verify and publish the exact checked JAR/POM
+The published v1/v2 bundles retain their supported scopes. The independently
+pinned v3 producer is published separately with its source closure and build
+receipt; its [publication record](producer/candidate-v3.json) records the exact
+archive. Source support must be checked against those actual bytes before
+landing. Main automatically publishes coordinated SDK artifacts; the user's
+landing authorization includes that consequence. FFI is a later design discussion.
+Use the actual coordinated release version; do not assign a release claim from
+a local build. The deployment job must verify and publish the exact checked JAR/POM
 bytes without rebuilding them.
 
 ## Simm.is launch article

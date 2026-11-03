@@ -1,0 +1,67 @@
+{
+  "schema": "lean-native-witness-probe-process/1",
+  "command": [
+    "/home/christian-weilbach/Development/simm.is/.tmp/ansatz-lean-jvm-nominal-values/.tmp/native-v3-entry-interpreter-001/entry",
+    "--entries",
+    "entries.request.json",
+    "--module-products",
+    "module-products.json"
+  ],
+  "cwd": "/home/christian-weilbach/Development/simm.is/.tmp/ansatz-lean-jvm-nominal-values/.tmp/native-v3-oracle-cli-canonical-001",
+  "environment": {
+    "LEAN_SYSROOT": "/home/christian-weilbach/.elan/toolchains/leanprover--lean4---v4.33.1",
+    "LEAN_PATH": "/home/christian-weilbach/Development/simm.is/.tmp/ansatz-lean-jvm-nominal-values/.tmp/native-v3-oracle-cli-canonical-001",
+    "LEAN_NUM_THREADS": "1",
+    "MALLOC_ARENA_MAX": "1",
+    "PATH": "/home/christian-weilbach/.elan/toolchains/leanprover--lean4---v4.33.1/bin:/home/christian-weilbach/.pyenv/versions/3.12.2/bin:/usr/share/pyenv/libexec:/usr/share/pyenv/plugins/python-build/bin:/home/christian-weilbach/.elan/bin:/home/christian-weilbach/.codex/packages/app-server-daemon/releases/0.166.0-x86_64-unknown-linux-musl/codex-path:/home/christian-weilbach/.codex/tmp/arg0-linux/codex-arg0FrIB6e:/home/christian-weilbach/.codex/tmp/arg0-linux/codex-arg077Ibwn:/home/christian-weilbach/.nvm/versions/node/v24.15.0/lib/node_modules/@openai/codex/node_modules/@openai/codex-linux-x64/vendor/x86_64-unknown-linux-musl/codex-path:/home/christian-weilbach/.sdkman/candidates/kotlin/current/bin:/home/christian-weilbach/Programs/graalvm-jdk-25.0.1+8.1//bin:/home/christian-weilbach/.bun/bin:/home/christian-weilbach/Development/duckdb/build:/home/christian-weilbach/.local/bin:/home/christian-weilbach/.opencode/bin:/home/christian-weilbach/Programs/bbin-0.2.4/:/home/christian-weilbach/.juliaup/bin:/home/christian-weilbach/Programs/bin:/home/christian-weilbach/.pyenv/shims:/home/christian-weilbach/.pyenv/bin:/home/christian-weilbach/.nvm/versions/node/v24.15.0/bin:/home/christian-weilbach/.elan/bin:/home/christian-weilbach/.cargo/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin:/snap/bin:/home/christian-weilbach/.local/share/coursier/bin:/home/christian-weilbach/.local/bin:/home/christian-weilbach/.local/share/coursier/bin:/home/christian-weilbach/.local/share/coursier/bin"
+  },
+  "mode": "v3-entries",
+  "sourceSHA256": {
+    "NativeBuiltinWitnessFixtures.lean": "eb6ecc05d17d22aee2a6c9562fe734795af8c7878c1d9fcfaa435e024a610e02",
+    "NativeNominalFixtures.lean": "395e9c3f355631f1b4a22594ad9af849957914cc148f2ceed2828c8ca8f5a860",
+    "NativeDatatypeOracle.lean": "4457ea38fb5484d2a6df4f896ef7655e4d6912a774f7c71ce7eb80aa67594e64"
+  },
+  "toolSHA256": "9cf560924d662f4078be81322ef00d25f6ec71bb475faffa183b5c8a766f5004",
+  "memAvailableBytes": 5881966592,
+  "memoryFloorBytes": 2147483648,
+  "rssLimitBytes": 536870912,
+  "cpuSeconds": 60,
+  "wallSeconds": 60,
+  "peakSampledAggregateRSSBytes": 267878400,
+  "exit": 0,
+  "elapsedSeconds": 1.1160999329877086,
+  "stdout": {
+    "path": "entries.stdout",
+    "sha256": "a5a962bb6d044b2aef04032c8cf30a965ecd688afebf2a2c1e952fba275c88e9",
+    "bytes": 446150
+  },
+  "stderr": {
+    "path": "entries.stderr",
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "bytes": 0
+  },
+  "products": [
+    {
+      "role": ".olean",
+      "present": true,
+      "bytes": 312840,
+      "sha256": "c83236ffaf07d3e6a454775a605dd53765ccfc0397b556cc036f32e8df0bbb28"
+    },
+    {
+      "role": ".olean.server",
+      "present": false
+    },
+    {
+      "role": ".olean.private",
+      "present": false
+    },
+    {
+      "role": ".ir.sig",
+      "present": false
+    },
+    {
+      "role": ".ir",
+      "present": false
+    }
+  ]
+}

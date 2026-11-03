@@ -17,14 +17,21 @@
    2 {:evidence "lean-native-entry-evidence/2" :request "lean-native-entry-requests/2"
       :producer "NativeGeneralEntryEvidence.exportEntries"
       :source "e3e6f269769d2155b2367fc12e685b86b18204248b4303639e9fa6a59325f8ed"
-      :binary "64fc830a0bc395eed1e11280321331c9877021ce0e69b3aec6dfcb8b7646355a"}})
+      :binary "64fc830a0bc395eed1e11280321331c9877021ce0e69b3aec6dfcb8b7646355a"}
+   3 {:evidence "lean-native-entry-evidence/3" :request "lean-native-entry-requests/3"
+      :producer "NativeNominalEntryEvidence.exportEntries"
+      :source "573671b46c4744c179524c95ea92233be15a213d45331e977abebbc4bea96dc5"
+      :binary "9cf560924d662f4078be81322ef00d25f6ec71bb475faffa183b5c8a766f5004"
+      :source-closure "aa19dc3b9b31099a23212e564bf887df0af42f6e5345e1dfb949f03f33c55f08"
+      :build-receipt "c0a3c810abe8e0eca1930ec55609f114485f1ac260be51497238473d720013f0"}})
 (def producer-pins
   "Independently admitted source/binary pairs. New producer builds enter only
    after root-owned compilation/acceptance; the original v2 pair stays explicit."
   {1 #{[(get-in cohorts [1 :source]) (get-in cohorts [1 :binary])]}
    2 #{[(get-in cohorts [2 :source]) (get-in cohorts [2 :binary])]
        ["1a8a0bf73fc7d6a18cd2b2d8cf9a693264ad3801cde396bd42190f2ebcca5a13" "736374c5c4baa38d952f1ed4d332754da171d53f67ca8f3a5104b997417a539a"]
-       ["9aab83d109979676c7f4f9657366548dca774b3ffefc83806d3e76697fca6b9a" "f970838c6c3d7dfa800e8e6d9780b18ceb9d37f708a7fe127430f18ccf2439d1"]}})
+       ["9aab83d109979676c7f4f9657366548dca774b3ffefc83806d3e76697fca6b9a" "f970838c6c3d7dfa800e8e6d9780b18ceb9d37f708a7fe127430f18ccf2439d1"]}
+   3 #{[(get-in cohorts [3 :source]) (get-in cohorts [3 :binary])]}})
 (defn- need [ok stage]
   (when-not ok (throw (ex-info "Native entry observation rejected" {:code "EntryRejected" :stage stage}))))
 (defn schema-for-pins! [source binary]
@@ -187,7 +194,7 @@
 (defn validate-document! [root request document]
   (let [schema (some (fn [[schema cohort]] (when (= (:evidence cohort) (get document "schema")) schema)) cohorts)
         cohort (get cohorts schema) requests (get request "entries") entries (get document "entries")]
-    (need (and cohort (= (:request cohort) (get request "schema"))
+    (need (and (#{1 2} schema) cohort (= (:request cohort) (get request "schema"))
                (= (:producer cohort) (get document "producer"))
                (= "819816b2e0a3bf405af45ae5c7af2491d8f5bee6" (get document "leanCommit"))
                (= "4.33.1" (get document "leanVersion"))

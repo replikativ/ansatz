@@ -1,0 +1,15 @@
+{
+  "archive": "ansatz-lean-native-producer-4.33.1-linux-x86_64-v3.tar.zst",
+  "bytes": 132643271,
+  "sha256": "f72a632f97c611c89e7eec60d31a246114a863bd91d1449ebeae30326438efea",
+  "files": 16,
+  "extractedBytes": 694895802,
+  "schema": "lean-native-producer-publication/1",
+  "release": "lean-native-producer-4.33.1-v3",
+  "sourceClosureSHA256": "aa19dc3b9b31099a23212e564bf887df0af42f6e5345e1dfb949f03f33c55f08",
+  "entryBinarySHA256": "9cf560924d662f4078be81322ef00d25f6ec71bb475faffa183b5c8a766f5004",
+  "buildReceiptSHA256": "c0a3c810abe8e0eca1930ec55609f114485f1ac260be51497238473d720013f0",
+  "publicationStatus": "published-public-download-verified",
+  "publicDownloadVerified": true,
+  "releaseURL": "https://github.com/replikativ/ansatz-stores/releases/tag/lean-native-producer-4.33.1-v3"
+}

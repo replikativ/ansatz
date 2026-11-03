@@ -245,7 +245,7 @@
       (is (= "idle" (j/phase ctx engine)))
       (finally (j/close! ctx engine)))))
 
-(deftest allocator-exhaustion-and-no-common-node-state-growth
+(deftest allocator-exhaustion-and-bounded-node-state
   (let [loader (:loader *basis*) cls (Class/forName "ansatz.lean.jvm.internal.exec.Interpreter$PointerAllocator" true loader)
         ctor (.getDeclaredConstructor cls (into-array Class [Long/TYPE]))
         _ (.setAccessible ctor true) allocator (.newInstance ctor (object-array [(long -8)]))
@@ -253,8 +253,16 @@
     (.setAccessible allocate true)
     (is (= -8 (.invoke allocate allocator (object-array 0))))
     (is (g/bad? #(.invoke allocate allocator (object-array 0)))))
-  (is (= #{"tag" "rc" "fields" "scalars" "closure" "metadata" "dead" "array" "ref" "readyTask"}
-         (set (map #(.getName ^java.lang.reflect.Field %) (.getDeclaredFields ^Class (:node-class *basis*)))))))
+  ;; One private reference is the explicit common-node cost of frozen sharing.
+  ;; Keep the inventory exact: no pointer allocator or per-Project state belongs
+  ;; on every node, and the publication marker must remain private and volatile.
+  (is (= #{"tag" "rc" "fields" "scalars" "closure" "metadata" "dead" "array" "ref" "readyTask" "frozen"}
+         (set (map #(.getName ^java.lang.reflect.Field %) (.getDeclaredFields ^Class (:node-class *basis*))))))
+  (let [field (.getDeclaredField ^Class (:node-class *basis*) "frozen")
+        modifiers (.getModifiers field)]
+    (is (java.lang.reflect.Modifier/isPrivate modifiers))
+    (is (java.lang.reflect.Modifier/isVolatile modifiers))
+    (is (= "ansatz.lean.jvm.internal.exec.FrozenValues$FrozenStamp" (.getName (.getType field))))))
 
 (deftest operand-audit-rejects-call-capture-projection-mutation-and-hidden-branch-escapes
   (let [wrapped (fn [tail type] (c/decl "escape" [(c/p 1 "object") (c/p 2 "object")] type

@@ -21,6 +21,7 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.security.SecureRandom;
 import java.security.ProviderException;
 import ansatz.lean.jvm.internal.fs.FileSession;
+import static ansatz.lean.jvm.internal.exec.FrozenValues.*;
 
 public final class Interpreter implements AutoCloseable {
     private static final int OBJ=0, U8=1, U32=2, USIZE=3, U64=4, F64=5, U16=6, F32=7;
@@ -72,6 +73,8 @@ public final class Interpreter implements AutoCloseable {
     private static final int U8_ADD=559,FLOAT_ADD=560,FLOAT32_ADD=561;
     private static final int FLOAT32_BITS=562,FLOAT32_DIV=563,FLOAT32_MUL=564,
             U64_FLOAT32=565,U32_OWNED_NAT=566;
+    private static final int FLOAT_TO_BITS=586,FLOAT32_TO_BITS=587;
+    private static final int U8_FROM_NAT=588,U16_FROM_NAT=589,U8_OWNED_NAT=590,U16_OWNED_NAT=591;
     private static final int INT_OF_NAT=210,INT_NEG_SUCC=211,INT_NEG=212,INT_ABS=213,INT_ADD=214,INT_SUB=215,INT_EQ=216,INT_LT=217,INT_LE=218;
     private static final int STR_MEMCMP=230,STR_SUBSTRING_EQ=231,STR_POS_OF=232,STR_OFFSET_OF_POS=233,STR_PUSHN=234;
     private static final int MAX_STRING_OUTPUT_BYTES=16*1024*1024;
@@ -479,6 +482,18 @@ public final class Interpreter implements AutoCloseable {
                 new String[]{"usize","usize"},new boolean[]{false,false}));
         register(registry,new ExternSpec("lean_uint8_to_nat",U8_NAT,"tagged",
                 new String[]{"uint8"},new boolean[]{false}));
+        register(registry,new ExternSpec("lean_uint8_of_nat",U8_FROM_NAT,"uint8",
+                new String[]{"tobject"},new boolean[]{true}));
+        register(registry,new ExternSpec("lean_uint8_of_nat",U8_FROM_NAT,"uint8",
+                new String[]{"tobject","erased"},new boolean[]{true,false}));
+        register(registry,new ExternSpec("lean_uint8_of_nat_mk",U8_OWNED_NAT,"uint8",
+                new String[]{"tobject"},new boolean[]{false}));
+        register(registry,new ExternSpec("lean_uint16_of_nat",U16_FROM_NAT,"uint16",
+                new String[]{"tobject"},new boolean[]{true}));
+        register(registry,new ExternSpec("lean_uint16_of_nat",U16_FROM_NAT,"uint16",
+                new String[]{"tobject","erased"},new boolean[]{true,false}));
+        register(registry,new ExternSpec("lean_uint16_of_nat_mk",U16_OWNED_NAT,"uint16",
+                new String[]{"tobject"},new boolean[]{false}));
         register(registry,new ExternSpec("lean_uint8_dec_eq",U8_EQ,"uint8",
                 new String[]{"uint8","uint8"},new boolean[]{false,false}));
         register(registry,new ExternSpec("lean_uint8_land",U8_AND,"uint8",
@@ -487,6 +502,8 @@ public final class Interpreter implements AutoCloseable {
                 new String[]{"uint8","uint8"},new boolean[]{false,false}));
         register(registry,new ExternSpec("lean_uint32_of_nat",U32_FROM_NAT,"uint32",
                 new String[]{"tobject","erased"},new boolean[]{true,false}));
+        register(registry,new ExternSpec("lean_uint32_of_nat",U32_FROM_NAT,"uint32",
+                new String[]{"tobject"},new boolean[]{true}));
         register(registry,new ExternSpec("lean_uint32_to_uint8",U32_TO_U8,"uint8",
                 new String[]{"uint32"},new boolean[]{false}));
         register(registry,new ExternSpec("lean_uint32_add",U32_ADD,"uint32",
@@ -670,6 +687,7 @@ public final class Interpreter implements AutoCloseable {
         register(registry,new ExternSpec("lean_string_pushn",STR_PUSHN,"object",
                 new String[]{"object","uint32","tobject"},new boolean[]{false,false,false}));
         register(registry,new ExternSpec("lean_float_of_bits",FLOAT_BITS,"float",new String[]{"uint64"},new boolean[]{false}));
+        register(registry,new ExternSpec("lean_float_to_bits",FLOAT_TO_BITS,"uint64",new String[]{"float"},new boolean[]{false}));
         register(registry,new ExternSpec("lean_uint64_to_float",FLOAT_U64,"float",new String[]{"uint64"},new boolean[]{false}));
         register(registry,new ExternSpec("lean_float_sub",FLOAT_SUB,"float",new String[]{"float","float"},new boolean[]{false,false}));
         register(registry,new ExternSpec("lean_float_mul",FLOAT_MUL,"float",new String[]{"float","float"},new boolean[]{false,false}));
@@ -684,6 +702,7 @@ public final class Interpreter implements AutoCloseable {
         register(registry,new ExternSpec("lean_float_add",FLOAT_ADD,"float",new String[]{"float","float"},new boolean[]{false,false}));
         register(registry,new ExternSpec("lean_float32_add",FLOAT32_ADD,"float32",new String[]{"float32","float32"},new boolean[]{false,false}));
         register(registry,new ExternSpec("lean_float32_of_bits",FLOAT32_BITS,"float32",new String[]{"uint32"},new boolean[]{false}));
+        register(registry,new ExternSpec("lean_float32_to_bits",FLOAT32_TO_BITS,"uint32",new String[]{"float32"},new boolean[]{false}));
         register(registry,new ExternSpec("lean_uint32_of_nat_mk",U32_OWNED_NAT,"uint32",new String[]{"tobject"},new boolean[]{false}));
         register(registry,new ExternSpec("lean_float32_div",FLOAT32_DIV,"float32",new String[]{"float32","float32"},new boolean[]{false,false}));
         register(registry,new ExternSpec("lean_float32_mul",FLOAT32_MUL,"float32",new String[]{"float32","float32"},new boolean[]{false,false}));
@@ -883,6 +902,7 @@ public final class Interpreter implements AutoCloseable {
         if(value instanceof Long&&((Long)value)>=0) return (((Long)value)<<1)|1;
         require(value instanceof Node,"Pointer identity supports only Nodes and canonical nonnegative Long immediates");
         Node node=node(value);
+        require(node.frozen==null,"Pointer identity rejects frozen data");
         require(node.rc>=0,"Invalid pointer object reference count");
         if(node.metadata instanceof PointerMetadata) return ((PointerMetadata)node.metadata).word;
         long word=POINTER_WORDS.allocate();
@@ -917,11 +937,71 @@ public final class Interpreter implements AutoCloseable {
         ByteArrayState(int size) { this.size=size; }
         public ByteArrayState copyForFork(Object childOwner) { return new ByteArrayState(size); }
     }
+    private static void setArraySize(Node node,int size) {
+        require(node.frozen==null&&exclusive(node),"Array extent requires mutable exclusive storage");
+        ((ArrayState)kindMetadata(node)).size=size;
+    }
+    private static void setByteArraySize(Node node,int size) {
+        require(node.frozen==null&&exclusive(node),"ByteArray extent requires mutable exclusive storage");
+        ((ByteArrayState)kindMetadata(node)).size=size;
+    }
     private static boolean isByteArray(Node value) { return kindMetadata(value) instanceof ByteArrayState; }
     public static final class Node {
-        public int tag, rc=1;
-        public final Object[] fields;
-        public final byte[] scalars;
+        private int tag, rc=1;
+        private final Object[] fields;
+        private final byte[] scalars;
+        private volatile FrozenStamp frozen;
+        static Node storageNew(int kind,int tag,int objects,int bytes,int live) {
+            Node node=new Node(tag,objects,bytes);
+            if(kind==1) { node.array=true;node.metadata=new ArrayState(live); }
+            else if(kind==2) node.metadata=new ByteArrayState(live);
+            return node;
+        }
+        static Node storageBytesOwned(byte[] owned) {
+            Node node=new Node(248,new Object[0],owned);node.metadata=new ByteArrayState(owned.length);return node;
+        }
+        private Node(int tag,Object[] fields,byte[] scalars) { this.tag=tag;this.fields=fields;this.scalars=scalars; }
+        void storageInitializeField(int index,Object value) {
+            require(frozen==null&&!dead&&rc==1&&fields[index]==null&&value!=null,"Fresh storage field required");fields[index]=value;
+        }
+        void storageInitializeBits(int offset,int width,long value) {
+            require(frozen==null&&!dead&&rc==1&&offset>=0&&offset<=scalars.length-width,"Fresh scalar storage required");
+            ScalarBits.writeLittleEndian(scalars,offset,width,value);
+        }
+        FrozenStamp frozenState() { return frozen; }
+        int storageTag() { return tag; }
+        int fieldCount() { return fields.length; }
+        int scalarCount() { return scalars.length; }
+        Object storageField(int index) { return fields[index]; }
+        int storageByte(int index) { return Byte.toUnsignedInt(scalars[index]); }
+        long storageBits(int offset,int width) { return ScalarBits.readLittleEndian(scalars,offset,width); }
+        int storageKind() {
+            if(dead||rc<0||ref||readyTask||closure!=null||metadata instanceof PointerMetadata) return -1;
+            NodeMetadata kind=kindMetadata(this);
+            if(!(metadata==null||metadata==kind||metadata instanceof SharingMetadata)) return -1;
+            if(array) return kind instanceof ArrayState?1:-1;
+            if(kind instanceof ByteArrayState) return 2;
+            return kind==null?0:-1;
+        }
+        int storageLive() {
+            return array?((ArrayState)kindMetadata(this)).size:((ByteArrayState)kindMetadata(this)).size;
+        }
+        // Called only with fully preallocated helper proof state under confinement.
+        void commitFrozen(FrozenStamp state) { rc=0;frozen=state; }
+        // Trusted package-only construction seam. Never returns payload arrays.
+        boolean freshLayout(int expectedTag,int objects,int bytes) {
+            return frozen==null&&!dead&&rc==1&&tag==expectedTag&&fields.length==objects&&scalars.length==bytes
+                    &&metadata==null&&closure==null&&!array&&!ref&&!readyTask;
+        }
+        void initializeField(int index,Object value) {
+            require(freshLayout(tag,fields.length,scalars.length),"Fresh plain constructor required");
+            require(fields[index]==null&&value!=null,"Fresh empty field required"); fields[index]=value;
+        }
+        void initializeBits(int offset,int width,long value) {
+            require(freshLayout(tag,fields.length,scalars.length),"Fresh plain constructor required");
+            require(offset>=0&&width>=1&&width<=8&&offset<=scalars.length-width,"Scalar initialization extent");
+            for(int i=0;i<width;i++) scalars[offset+i]=(byte)(value>>>(8*i));
+        }
         private Function closure;
         // Kind metadata: Generation for closures, ArrayState for arrays, otherwise
         // null. Lazy sharing/pointer wrappers preserve it without owning guest values.
@@ -5836,7 +5916,7 @@ public final class Interpreter implements AutoCloseable {
                 if(op==ARRAY_POP) {
                     action.stage=2;
                     if(arrayState(out).size!=0) {
-                        int index=--arrayState(out).size; old=out.fields[index]; out.fields[index]=null; stores++;
+                        int index=arrayState(out).size-1; setArraySize(out,index); old=out.fields[index]; out.fields[index]=null; stores++;
                     }
                 } else { action.cursor=arrayIndex(out,externalArgument(action.function,args,2)); old=out.fields[action.cursor]; }
             }
@@ -6163,6 +6243,7 @@ public final class Interpreter implements AutoCloseable {
             if(source instanceof Node) {
                 Node old=(Node)source;
                 checkRuntimeOwner(old);
+                if(old.frozen!=null) return old; // certified transitive pure storage only
                 Object[] fields=(Object[])copies.get(old.fields);
                 boolean fresh=fields==null;
                 if(fresh) fields=new Object[old.fields.length];
@@ -7354,10 +7435,11 @@ public final class Interpreter implements AutoCloseable {
         } else scalarIntrinsic(f,a,b);
     }
     private static boolean floatPrimitive(int op) { return op>=FLOAT_BITS&&op<=FLOAT_STRING||op==FLOAT_LE||op==FLOAT_ADD||op==FLOAT32_ADD
-            ||op==FLOAT32_BITS||op==FLOAT32_DIV||op==FLOAT32_MUL||op==U64_FLOAT32; }
+            ||op==FLOAT32_BITS||op==FLOAT32_DIV||op==FLOAT32_MUL||op==U64_FLOAT32
+            ||op==FLOAT_TO_BITS||op==FLOAT32_TO_BITS; }
     private strictfp void floatIntrinsic(Function f,long a,long b) {
-        // Pinned object.cpp: of_bits preserves all non-NaN bits and canonicalizes NaNs.
-        if(f.intrinsic==FLOAT32_BITS) {
+        // Pinned object.cpp: both directions preserve non-NaN bits and canonicalize NaNs.
+        if(f.intrinsic==FLOAT32_BITS||f.intrinsic==FLOAT32_TO_BITS) {
             int bits=(int)a;
             scalarResult=ScalarBits.isNaN32Bits(bits)
                     ?0x7fc00000L:Integer.toUnsignedLong(bits); return;
@@ -7372,7 +7454,7 @@ public final class Interpreter implements AutoCloseable {
             float out=f.intrinsic==FLOAT32_ADD?x+y:f.intrinsic==FLOAT32_DIV?x/y:x*y;
             scalarResult=Integer.toUnsignedLong(Float.floatToRawIntBits(out)); return;
         }
-        if(f.intrinsic==FLOAT_BITS) { scalarResult=ScalarBits.isNaN64Bits(a)?0x7ff8000000000000L:a; return; }
+        if(f.intrinsic==FLOAT_BITS||f.intrinsic==FLOAT_TO_BITS) { scalarResult=ScalarBits.isNaN64Bits(a)?0x7ff8000000000000L:a; return; }
         if(f.intrinsic==FLOAT_U64) {
             BigInteger unsigned=BigInteger.valueOf(a&Long.MAX_VALUE); if(a<0) unsigned=unsigned.setBit(63);
             scalarResult=Double.doubleToRawLongBits(unsigned.doubleValue()); return;
@@ -7486,11 +7568,11 @@ public final class Interpreter implements AutoCloseable {
             }
             case ARRAY_PUSH: {
                 validateHostObject(b); Node out=exclusiveArray(n,true);
-                out.fields[arrayState(out).size++]=b; stores++; result=out; return;
+                int size=arrayState(out).size; out.fields[size]=b; setArraySize(out,size+1); stores++; result=out; return;
             }
             case ARRAY_POP: {
                 Node out=exclusiveArray(n,false);
-                if(arrayState(out).size!=0) { int i=--arrayState(out).size; Object old=out.fields[i]; out.fields[i]=null; stores++; releaseQuiet(old,1); }
+                if(arrayState(out).size!=0) { int i=arrayState(out).size-1; setArraySize(out,i); Object old=out.fields[i]; out.fields[i]=null; stores++; releaseQuiet(old,1); }
                 result=out; return;
             }
             case ARRAY_FSET: case ARRAY_USET: case ARRAY_CHECKED_SET: {
@@ -7843,7 +7925,7 @@ public final class Interpreter implements AutoCloseable {
             System.arraycopy(input.scalars,0,out.scalars,0,state.size); releaseQuiet(input,1);
         }
         ByteArrayState target=(ByteArrayState)kindMetadata(out);
-        out.scalars[target.size++]=(byte)value; stores++; result=out;
+        out.scalars[target.size]=(byte)value; setByteArraySize(out,target.size+1); stores++; result=out;
     }
     private int utf8Extent(Object value) {
         String text=text(value); long size=0;
@@ -7909,7 +7991,7 @@ public final class Interpreter implements AutoCloseable {
             releaseQuiet(dest,1);
         }
         System.arraycopy(src.scalars,from,out.scalars,to,count);
-        ((ByteArrayState)kindMetadata(out)).size=next; stores++; result=out;
+        setByteArraySize(out,next); stores++; result=out;
     }
     private String text(Object value) { require(value instanceof String,"Expected immutable String"); return (String)value; }
     private byte[] utf8(Object value) {
@@ -9398,6 +9480,7 @@ public final class Interpreter implements AutoCloseable {
     private static boolean u64ScalarPrimitive(int op) {
         switch(op) {
             case U16_EQ: case U16_NAT: case U8_ADD: case U32_OWNED_NAT:
+            case U8_FROM_NAT: case U16_FROM_NAT: case U8_OWNED_NAT: case U16_OWNED_NAT:
             case LAYOUT_FIELDS: case LAYOUT_SCALARS: case LAYOUT_TAG: case LAYOUT_USIZE: case U32_LT: case U64_TO_NAT:
             case STR_HASH: case U64_MIX: case U64_NAT: case U64_SHR: case U64_XOR: case U64_USIZE:
             case U64_LT: case U64_EQ: case U64_OWNED_NAT: case U64_TO_U32:
@@ -9439,6 +9522,13 @@ public final class Interpreter implements AutoCloseable {
             case USIZE_AND: case U8_AND: scalarResult=(Long)a&(Long)b; break;
             case U8_NAT: result=a; break;
             case U8_LE: scalarResult=(Long)a<=(Long)b?1:0; break;
+            // Pinned lean.h: borrowed and consuming forms use modulo 2^width;
+            // the optional ofNatLT proof is erased by the native C ABI.
+            case U8_FROM_NAT: case U16_FROM_NAT:
+                require(ERASED.equals(b),"Unsigned conversion proof requires erased placeholder");
+                scalarResult=nat(a).longValue()&(f.intrinsic==U8_FROM_NAT?255L:65535L); break;
+            case U8_OWNED_NAT: case U16_OWNED_NAT:
+                scalarResult=nat(a).longValue()&(f.intrinsic==U8_OWNED_NAT?255L:65535L); releaseQuiet(a,1); break;
             case U32_FROM_NAT:
                 require(ERASED.equals(b),"UInt32 conversion proof requires erased placeholder");
                 scalarResult=nat(a).longValue()&0xffffffffL; break;
@@ -9812,6 +9902,31 @@ public final class Interpreter implements AutoCloseable {
         if(closed||disposed||advancing||untrackedFailure||(phase!=IDLE&&phase!=HOST_CALL&&phase!=CODE_CALL)||(!explicit&&sp!=0))
             throw new IllegalStateException(operation+" requires an open idle, host-call or code-call boundary");
     }
+    private FrozenInput freezeData(Object value,FrozenPlan plan) {
+        generationBoundary("Private frozen export");
+        dataRequire(explicit&&phase==IDLE&&taskRuntime==null&&sp==0&&jsp==0&&continuationDepth==0
+                &&runtimeAction==null&&releaseTransaction==null&&!releaseRoot&&quietCurrent==null
+                &&hostRequest==null&&hostCompletion==null&&hostGuestRecord==null&&codeRequest==null
+                &&!pendingOwnedResult&&pendingInitializerGlobal==null&&!initializerFailed&&pendingEntropy==null,
+                "Frozen export requires explicit idle task-free boundary");
+        return FrozenValues.freeze(value,plan);
+    }
+
+    // Private static actual-class bridge. Compiling a data program does not
+    // authenticate Lean source, native products or public entry admission.
+    private static Object valueCompileSchema(Map<String,Object> logical,Map<String,Object> normalized) { return FrozenValues.compile(logical,normalized); }
+    private static Map<String,Object> valueDescribeSchema(Object schema) { return FrozenValues.describe(schema); }
+    private static Object valueConstruct(Object schema,int rootPlan,Object tape) { return FrozenValues.construct(schema,rootPlan,tape); }
+    private static Object valueCopyBytes(byte[] source) { return FrozenValues.copyBytes(source); }
+    private static Object valueFreeze(Object schema,int rootPlan,Object result,String lane) { return FrozenValues.freezeTyped(schema,rootPlan,result,lane); }
+    private static Object valueReadChild(Object capability,int index) { return FrozenValues.readChild(capability,index); }
+    private static int valueConstructorIndex(Object capability) { return FrozenValues.constructorIndex(capability); }
+    private static int valueSize(Object capability) { return FrozenValues.size(capability); }
+    private static Object valueScalar(Object capability) { return FrozenValues.scalar(capability); }
+    private static int valueByteAt(Object capability,int index) { return FrozenValues.byteAt(capability,index); }
+    private static byte[] valueCopyByteArray(Object capability) { return FrozenValues.copyByteArray(capability); }
+    private static Object valuePrepareArgument(Object schema,int plan,Object capability,String lane) { return FrozenValues.prepareArgument(schema,plan,capability,lane); }
+
     /** A recipe reference, never an existing guest value or owner credit. */
     public static final class DataRef {
         public final int index;
@@ -9849,9 +9964,33 @@ public final class Interpreter implements AutoCloseable {
     private static void dataRequire(boolean condition,String message) {
         if(!condition) throw new IllegalArgumentException(message);
     }
-    private static void checkDataValue(Object value,int before,int[] owners,long[] budgets) {
+    private static FrozenInput dataInput(Object value,boolean root) {
+        if(value!=null&&value.getClass()==FrozenArgument.class) {
+            dataRequire(root,"Typed argument token is root-only");return ((FrozenArgument)value).input;
+        }
+        if(value!=null&&value.getClass()==FrozenInput.class) {
+            FrozenInput input=(FrozenInput)value;
+            dataRequire(input.cert.plan.schema==null,"Typed values require a checked boxed argument token");return input;
+        }
+        return null;
+    }
+    private static void checkDataValue(Object value,int before,int[] owners,long[] budgets,IdentityHashMap<FrozenCert,Boolean> certified,boolean root) {
         dataRequire(++budgets[0]<=MAX_DATA_OCCURRENCES,"Managed data occurrence budget exceeded");
-        if(value!=null&&value.getClass()==DataRef.class) {
+        FrozenInput shared=dataInput(value,root);
+        if(shared!=null) {
+            FrozenInput input=shared; input.acquire();
+            budgets[0]+=input.cert.occurrences-1;
+            dataRequire(budgets[0]<=MAX_DATA_OCCURRENCES,"Managed frozen occurrence budget exceeded");
+            // String aggregate limits follow logical occurrences, as ordinary
+            // recipes do: even the same shared capability is charged each time.
+            budgets[2]+=input.cert.stringUnits;
+            dataRequire(budgets[2]<=MAX_DATA_STRING_UNITS,"Managed data String aggregate budget exceeded");
+            if(certified.put(input.cert,Boolean.TRUE)==null) {
+                budgets[3]+=input.cert.payloadCost;budgets[4]+=input.cert.capacityCost;budgets[1]+=input.cert.integerCost;
+                dataRequire(budgets[3]<=MAX_DATA_BUFFER_BYTES&&budgets[4]<=MAX_DATA_OCCURRENCES,
+                        "Managed frozen frontier budget exceeded");
+            }
+        } else if(value!=null&&value.getClass()==DataRef.class) {
             int index=((DataRef)value).index;
             dataRequire(index>=0&&index<before,"Managed data references must select an earlier constructor");
             dataRequire(++owners[index]==1,"Managed constructor requires exactly one owning occurrence");
@@ -9877,8 +10016,28 @@ public final class Interpreter implements AutoCloseable {
         } else throw new IllegalArgumentException("Managed data accepts only exact immutable leaves or DataRef");
         dataRequire(budgets[1]<=MAX_DATA_INTEGER_BITS,"Managed data integer aggregate budget exceeded");
     }
+    private static int dataDepth(Object value,int[] depths) {
+        if(value instanceof DataRef) return depths[((DataRef)value).index];
+        if(value instanceof FrozenInput) return ((FrozenInput)value).cert.depth;
+        if(value instanceof FrozenArgument) return ((FrozenArgument)value).input.cert.depth;
+        return 1; // an exact immutable leaf
+    }
+    /** Pure batch preflight for the typed host boundary, before any engine lease.
+     * The actual construction path repeats these checks before adopting roots. */
+    private static void valueValidateArguments(Object[] roots) {
+        dataRequire(roots!=null&&roots.length<=MAX_DATA_OCCURRENCES,"Managed root extent exceeds profile");
+        long[] budgets=new long[5]; int[] owners=new int[0];
+        IdentityHashMap<FrozenCert,Boolean> certified=new IdentityHashMap<>();
+        for(Object value:roots) {
+            if(Thread.currentThread().isInterrupted()) throw new java.util.concurrent.CancellationException("Typed argument preflight interrupted");
+            dataRequire(value!=null&&(value.getClass()==FrozenArgument.class
+                    ||(value.getClass()==Long.class&&((Long)value)==0)),"Expected typed argument token or erased world");
+            checkDataValue(value,0,owners,budgets,certified,true);
+            dataRequire(dataDepth(value,owners)<=1024,"Managed frozen combined depth budget exceeded");
+        }
+    }
     private static Object dataValue(Object value,Node[] shells) {
-        return value instanceof DataRef?shells[((DataRef)value).index]:value;
+        return value instanceof DataRef?shells[((DataRef)value).index]:value instanceof FrozenArgument?((FrozenArgument)value).input.acquire():value instanceof FrozenInput?((FrozenInput)value).acquire():value;
     }
     /** Construct fresh managed argument trees, without importing a graph or changing code/globals.
      * Every constructor has one incoming parent edge or argument-root occurrence; there is no INC.
@@ -9900,7 +10059,8 @@ public final class Interpreter implements AutoCloseable {
         DataCtor[] snapshot=constructors.clone(); Object[] rootSnapshot=roots.clone();
         Object[][] fields=new Object[snapshot.length][]; byte[][] bytes=new byte[snapshot.length][];
         int[] owners=new int[snapshot.length];
-        long[] budgets=new long[4];
+        long[] budgets=new long[5];
+        IdentityHashMap<FrozenCert,Boolean> certified=new IdentityHashMap<>();
         for(int i=0;i<snapshot.length;i++) {
             DataCtor recipe=snapshot[i];
             dataRequire(recipe!=null,"Null managed construction recipe");
@@ -9909,8 +10069,10 @@ public final class Interpreter implements AutoCloseable {
                         &&(recipe.kind==DataCtor.ARRAY||(recipe.tag>=0&&recipe.tag<=243&&recipe.fields.length>0)),
                         "Managed data requires a bounded constructor or Array");
                 dataRequire(budgets[0]+recipe.fields.length<=MAX_DATA_OCCURRENCES,"Managed data occurrence budget exceeded");
+                budgets[4]+=recipe.fields.length;
+                dataRequire(budgets[4]<=MAX_DATA_OCCURRENCES,"Managed physical slot budget exceeded");
                 fields[i]=recipe.fields.clone();
-                for(Object value:fields[i]) checkDataValue(value,i,owners,budgets);
+                for(Object value:fields[i]) checkDataValue(value,i,owners,budgets,certified,false);
             } else if(recipe.kind==DataCtor.BYTES) {
                 dataRequire(recipe.bytes!=null&&recipe.bytes.length<=MAX_DATA_BUFFER_BYTES,
                         "Managed ByteArray exceeds payload budget");
@@ -9924,8 +10086,23 @@ public final class Interpreter implements AutoCloseable {
                 dataRequire(budgets[3]<=MAX_DATA_BUFFER_BYTES,"Managed scalar/buffer aggregate budget exceeded");
             } else throw new IllegalArgumentException("Unknown managed recipe kind");
         }
-        for(Object value:rootSnapshot) checkDataValue(value,snapshot.length,owners,budgets);
+        for(Object value:rootSnapshot) checkDataValue(value,snapshot.length,owners,budgets,certified,true);
         for(int owner:owners) dataRequire(owner==1,"Managed constructor requires exactly one owning occurrence");
+        if(!certified.isEmpty()) {
+            // Earlier-only DataRefs make this a bounded bottom-up pass. Shared
+            // logical leaves/bytes/scalar boxes have depth 1; a fresh record or
+            // Array adds 1 to its deepest field. Certified depth includes any
+            // erased wrappers already proved by its private plan.
+            int[] depths=new int[snapshot.length];
+            for(int i=0;i<depths.length;i++) {
+                int depth=1;
+                if(fields[i]!=null) for(Object value:fields[i])
+                    depth=Math.max(depth,Math.min(1025,1+dataDepth(value,depths)));
+                depths[i]=depth;
+            }
+            for(Object value:rootSnapshot)
+                dataRequire(dataDepth(value,depths)<=1024,"Managed frozen combined depth budget exceeded");
+        }
         Object[] output=new Object[rootSnapshot.length]; Node[] shells=new Node[snapshot.length];
         long nextAllocations=Math.addExact(allocations,snapshot.length);
         for(int i=0;i<shells.length;i++) {

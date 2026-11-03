@@ -1,0 +1,42 @@
+{
+  "schema": "lean-jvm-private-observation-provenance/1",
+  "scope": "normalizer-test-capture-not-entry-authority",
+  "leanCommit": "819816b2e0a3bf405af45ae5c7af2491d8f5bee6",
+  "leanVersion": "4.33.1",
+  "sources": [
+    {
+      "path": "tools/lean-producer/src/NativeEntryTransport.lean",
+      "sha256": "fa60e6dba69ca7433dec3a0fb50108e97aebcf5e65f8a21799aace2d26ab7bb8"
+    },
+    {
+      "path": "tools/lean-producer/src/NativeTypeGraph.lean",
+      "sha256": "361234f1a0031e66dd1ff73bf40da0d4a4c77088b757324b7bd2debb2079bd64"
+    },
+    {
+      "path": "tools/lean-producer/src/NativeNominalEntryEvidence.lean",
+      "sha256": "573671b46c4744c179524c95ea92233be15a213d45331e977abebbc4bea96dc5"
+    },
+    {
+      "path": "modules/lean-jvm/test/fixtures/nominal-observations/sources/NativeNominalFixtures.lean",
+      "sha256": "1b7059808a569419c338f6363f372b9f9f645a32f3015dfec4aaf2b292db4542"
+    },
+    {
+      "path": "modules/lean-jvm/test/fixtures/nominal-observations/sources/NativeNominalObservationProbe.lean",
+      "sha256": "fe9436fe0faf756acc1865e1578997c9049bc1c15ce4df3ea9d0e0b723d22904"
+    }
+  ],
+  "files": [
+    {
+      "path": "observations.json",
+      "sha256": "cfbcd9b1177d910d8c2b40fd91fca590ed224e6af1c77bb809f86b70bcde6524"
+    },
+    {
+      "path": "module-products.json",
+      "sha256": "b1acfaf52094120128e150ba9479776b15da8c94c16027ed79cd46d2e7db2fb8"
+    },
+    {
+      "path": "origin-inventory.json",
+      "sha256": "bdff10085dcba99445714a366a8b35e9abf56697e4d4b52f644ab227eaf99278"
+    }
+  ]
+}

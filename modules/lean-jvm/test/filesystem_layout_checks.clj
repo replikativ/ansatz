@@ -18,9 +18,19 @@
     (Interpreter/prepare (mapv json/read-str (rest (clojure.string/split-lines (String. bytes "UTF-8")))))))
 (defn call [engine program name & args]
   (.invoke ^Interpreter engine (.functionId program (str "RuntimeLayoutWitness." name)) (object-array (map #(if (instance? clojure.lang.BigInt %) (biginteger %) %) args))))
+
+;; Trusted fixture readers follow the adapter's declared-field reflection seam;
+;; encapsulated Node payloads remain unavailable through ordinary public fields.
+(def ^:private node-readers
+  (into {} (for [name ["tag" "fields" "scalars"]]
+             [name (doto (.getDeclaredField Interpreter$Node name) (.setAccessible true))])))
+(defn- node-member [^Interpreter$Node node name]
+  (.get ^java.lang.reflect.Field (get node-readers name) node))
+(defn- node-tag [^Interpreter$Node node] (node-member node "tag"))
+(defn- scalars ^bytes [^Interpreter$Node node] (node-member node "scalars"))
 (defn scalar32 [^Interpreter$Node node]
-  (Integer/toUnsignedLong (.getInt (doto (ByteBuffer/wrap (.-scalars node)) (.order ByteOrder/LITTLE_ENDIAN)))))
-(defn fields [^Interpreter$Node node] (mapv identity (seq (.-fields node))))
+  (Integer/toUnsignedLong (.getInt (doto (ByteBuffer/wrap (scalars node)) (.order ByteOrder/LITTLE_ENDIAN)))))
+(defn fields [^Interpreter$Node node] (mapv identity (seq (node-member node "fields"))))
 
 (deftest metadata-and-system-time-native-fields-roundtrip
   (let [program (load-program)]
@@ -30,8 +40,8 @@
           (let [at (call engine program "systemTime" -1 999999999)
                 mt (call engine program "systemTime" 123 456)
                 data (call engine program "metadata" at mt size kind 7)]
-            (is (= 0 (.-tag ^Interpreter$Node data)))
-            (is (= 17 (alength (.-scalars ^Interpreter$Node data))))
+            (is (= 0 (node-tag data)))
+            (is (= 17 (alength (scalars data))))
             (is (= size (call engine program "fileSize" data)))
             (is (= 7 (call engine program "fileLinks" data)))
             (is (= kind (call engine program "fileKind" data)))
@@ -67,7 +77,7 @@
             (if (= shape :empty)
               (is (= tag value))
               (do
-                (is (= tag (.-tag ^Interpreter$Node value)))
+                (is (= tag (node-tag value)))
                 (is (= (if (#{:plain :message} shape) 1 2) (count (fields value))))
                 (is (= message (last (fields value))))
                 (when-not (= shape :message) (is (= code (scalar32 value))))
@@ -81,7 +91,7 @@
         (let [ok (call engine program "ioSuccess" 42 0)
               err (call engine program "error_userError" message)
               failed (call engine program "ioFailure" err 0)]
-          (is (= 0 (.-tag ^Interpreter$Node ok))) (is (= [42] (fields ok)))
-          (is (= 1 (.-tag ^Interpreter$Node failed))) (is (= [err] (fields failed)))
+          (is (= 0 (node-tag ok))) (is (= [42] (fields ok)))
+          (is (= 1 (node-tag failed))) (is (= [err] (fields failed)))
           (.dec engine ok 1) (.dec engine failed 1))))))
 (defn check! [] (run-tests 'ansatz-lean-jvm-filesystem-layout-checks))

@@ -36,6 +36,28 @@ objects and ownership obligations remain private. Lean's explicit RC operations
 and reuse decisions are implemented on JVM objects; host garbage collection
 reclaims the Java storage. Public Project forking is separate follow-up work.
 
+The new v3 datatype path binds native defining-product origins, a canonical
+logical type graph and independently checked compiler representation evidence.
+An advisory origin inventory selects products for a new `/3` compilation cache;
+it cannot upgrade an old cache. Compilation captures selected Init products and
+all explicitly declared installed products, including optional-file absence.
+Custody is rechecked around native evidence collection and before receipt issue.
+This binds used defining-product identities; transitive implementation dependencies
+retain the existing trusted immutable installed-toolchain policy, rather than a
+claim of complete imported-environment attestation. Artifacts carry the checked
+schema, product records and producer closure for native-free validation.
+
+`LeanType`, `LeanTypeId`, `LeanName`, `LeanData` and `LeanBytes` describe detached
+immutable values. Their storage has no Project, Program, engine or execution
+lease reference. The first export validates/freezes the unique graph without a
+payload copy; compatible certified-root import reads precomputed bounds without
+a graph rescan. Clojure map/indexed views adapt this storage lazily. Explicit
+materialization copies to ordinary host collections and bytes. All argument
+preflight shares aggregate budgets outside the execution lease; IO success
+freezes its pure payload and retires the envelope. V1/v2 codecs and artifacts
+retain their established carriers. The [v3 producer archive](producer/README.md#datatype-v3-producer)
+is published separately; use a coordinated SDK release containing this integration.
+
 Ownership-sensitive sharing diagnostics check actual values in the canonical
 engine. Managed objects and nonnegative immediate scalars are supported;
 immutable Java String/BigInteger leaves have no logical RC and throw if reached.

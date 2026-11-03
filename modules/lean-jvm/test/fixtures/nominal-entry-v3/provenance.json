@@ -1,0 +1,235 @@
+{
+  "schema": "lean-jvm-native-v3-fixture-provenance/1",
+  "scope": "offline-regression-evidence-not-admission",
+  "leanCommit": "819816b2e0a3bf405af45ae5c7af2491d8f5bee6",
+  "leanVersion": "4.33.1",
+  "entryProducerSHA256": "9cf560924d662f4078be81322ef00d25f6ec71bb475faffa183b5c8a766f5004",
+  "entrySourceClosureSHA256": "aa19dc3b9b31099a23212e564bf887df0af42f6e5345e1dfb949f03f33c55f08",
+  "producerSources": [
+    {
+      "path": "tools/lean-producer/src/NativeEntryTransport.lean",
+      "bytes": 18218,
+      "sha256": "fa60e6dba69ca7433dec3a0fb50108e97aebcf5e65f8a21799aace2d26ab7bb8"
+    },
+    {
+      "path": "tools/lean-producer/src/NativeTypeGraph.lean",
+      "bytes": 25088,
+      "sha256": "361234f1a0031e66dd1ff73bf40da0d4a4c77088b757324b7bd2debb2079bd64"
+    },
+    {
+      "path": "tools/lean-producer/src/NativeNominalEntryEvidence.lean",
+      "bytes": 30320,
+      "sha256": "573671b46c4744c179524c95ea92233be15a213d45331e977abebbc4bea96dc5"
+    }
+  ],
+  "files": [
+    {
+      "path": "entry-evidence.json",
+      "bytes": 238867,
+      "sha256": "9f232a37a716e672417800e1b8823a2c3a9a4afbd1a5e938969e9e4b0b728091",
+      "originalPath": ".tmp/native-v3-entry-cli-001/entry-evidence.json",
+      "kind": "native-output"
+    },
+    {
+      "path": "receipts/native-v3-entry-cli-001.json",
+      "bytes": 3725,
+      "sha256": "0403082506260f9858f3fd8983337a889cd3fc364d73ad33613441c9c13535d2",
+      "originalPath": ".tmp/native-v3-entry-cli-001/entries-interpreter-receipt.json",
+      "kind": "native-process-receipt"
+    },
+    {
+      "path": "oracle-entry-evidence.json",
+      "bytes": 446150,
+      "sha256": "a5a962bb6d044b2aef04032c8cf30a965ecd688afebf2a2c1e952fba275c88e9",
+      "originalPath": ".tmp/native-v3-oracle-cli-canonical-001/entry-evidence.json",
+      "kind": "native-output"
+    },
+    {
+      "path": "receipts/native-v3-oracle-cli-canonical-001.json",
+      "bytes": 3723,
+      "sha256": "a603354c55a862ee442bed99e5df0da37d906fb6f13941ccb4e572067197a729",
+      "originalPath": ".tmp/native-v3-oracle-cli-canonical-001/entries-receipt.json",
+      "kind": "native-process-receipt"
+    },
+    {
+      "path": "typed-export.jsonl",
+      "bytes": 181635,
+      "sha256": "0d8987ce3fdb4de2ae78dad4ee2a07cb53c1955fefff78552fc68ece770f7b87",
+      "originalPath": ".tmp/native-v3-datatype-oracle-001/typed-export-final.stdout",
+      "kind": "native-output"
+    },
+    {
+      "path": "receipts/native-v3-datatype-oracle-001.json",
+      "bytes": 3847,
+      "sha256": "6e9a4a6ecdaee883693ddc6579102dc1d9cd97f5eb4247b487324b1af51d55a6",
+      "originalPath": ".tmp/native-v3-datatype-oracle-001/typed-export-final-receipt.json",
+      "kind": "native-process-receipt"
+    },
+    {
+      "path": "builtin-observations.json",
+      "bytes": 51551,
+      "sha256": "4f5fa034643db731c82c4dbbf0ac847d6812e9a1ec19ac9eb33dbfa4e083ad17",
+      "originalPath": ".tmp/native-v3-witness-001/observations.json",
+      "kind": "extracted-native-json"
+    },
+    {
+      "path": "receipts/native-v3-witness-001.json",
+      "bytes": 3969,
+      "sha256": "fcc118048292004a2048d23edeada035a97aea5672b183eb313814b1d564be8f",
+      "originalPath": ".tmp/native-v3-witness-001/observe-receipt.json",
+      "kind": "native-process-receipt"
+    },
+    {
+      "path": "receipts/native-v3-witness-001.stdout",
+      "bytes": 51613,
+      "sha256": "0354ca50b2a2767a94ead0dcde11c57a3403ea43835c409f9130c26fa0759723",
+      "originalPath": ".tmp/native-v3-witness-001/observe.stdout",
+      "kind": "native-output-before-extraction"
+    },
+    {
+      "path": "inputs/native-v3-witness-001-module-products.json",
+      "bytes": 1723,
+      "sha256": "35897c010852931abbd9684f1a744ee2d33bd77c5e6b9030de6cf648193abffc",
+      "originalPath": ".tmp/native-v3-witness-001/module-products.json",
+      "kind": "probe-product-input"
+    },
+    {
+      "path": "oracle-type-observations.json",
+      "bytes": 52830,
+      "sha256": "1ecfede5fd947c72b1dfc80e9bc2958235247e20919af83f6e3720bf0042abac",
+      "originalPath": ".tmp/native-v3-oracle-types-001/observations.json",
+      "kind": "extracted-native-json"
+    },
+    {
+      "path": "receipts/native-v3-oracle-types-001.json",
+      "bytes": 3987,
+      "sha256": "cfb74ca0bc05ff7e00fd6a2f680f9ca7d0f0fdf3dd1bca629be95be894c8b566",
+      "originalPath": ".tmp/native-v3-oracle-types-001/observe-002-receipt.json",
+      "kind": "native-process-receipt"
+    },
+    {
+      "path": "receipts/native-v3-oracle-types-001.stdout",
+      "bytes": 52892,
+      "sha256": "a6a2f287fe715baeb71ffb49040aa3e029990bcac23c0eb5100abf3ffa70f13d",
+      "originalPath": ".tmp/native-v3-oracle-types-001/observe-002.stdout",
+      "kind": "native-output-before-extraction"
+    },
+    {
+      "path": "inputs/native-v3-oracle-types-001-module-products.json",
+      "bytes": 1723,
+      "sha256": "35897c010852931abbd9684f1a744ee2d33bd77c5e6b9030de6cf648193abffc",
+      "originalPath": ".tmp/native-v3-oracle-types-001/module-products.json",
+      "kind": "probe-product-input"
+    },
+    {
+      "path": "inputs/entry-entries.request.json",
+      "bytes": 949,
+      "sha256": "a01cde225d44046d51d6df05c741b363fdd057e6a6f2cd74774f8cc3831ac847",
+      "originalPath": ".tmp/native-v3-entry-cli-001/entries.request.json",
+      "kind": "native-input-or-advisory-inventory"
+    },
+    {
+      "path": "inputs/entry-entry-origins.request.json",
+      "bytes": 866,
+      "sha256": "73f453be55f26eaf895dd7dec1943a75875635c5c95bef10a1b541987fe95be1",
+      "originalPath": ".tmp/native-v3-entry-cli-001/entry-origins.request.json",
+      "kind": "native-input-or-advisory-inventory"
+    },
+    {
+      "path": "inputs/entry-module-products.json",
+      "bytes": 1291,
+      "sha256": "f80e1ee4b2faa089c67a01a3bf314171cbd1a8d2e4532b779c6fda8444700b74",
+      "originalPath": ".tmp/native-v3-entry-cli-001/module-products.json",
+      "kind": "native-input-or-advisory-inventory"
+    },
+    {
+      "path": "inputs/entry-origin-inventory.json",
+      "bytes": 2160,
+      "sha256": "ea2e4f071e27be43b59e776ae1df8e79370e682e211ca04e22f2c4cdc1ced494",
+      "originalPath": ".tmp/native-v3-entry-cli-001/origin-inventory.json",
+      "kind": "native-input-or-advisory-inventory"
+    },
+    {
+      "path": "inputs/oracle-entries.request.json",
+      "bytes": 916,
+      "sha256": "d5ce1c45b90b1a759278703f4ad3961686778e8dfb0d0006c3913af9d1434f22",
+      "originalPath": ".tmp/native-v3-oracle-cli-canonical-001/entries.request.json",
+      "kind": "native-input-or-advisory-inventory"
+    },
+    {
+      "path": "inputs/oracle-entry-origins.request.json",
+      "bytes": 833,
+      "sha256": "9ee0847c7634fe9b3b2be5783b79c992e4234bef21d9d1efd7482201280aba54",
+      "originalPath": ".tmp/native-v3-oracle-cli-canonical-001/entry-origins.request.json",
+      "kind": "native-input-or-advisory-inventory"
+    },
+    {
+      "path": "inputs/oracle-module-products.json",
+      "bytes": 1723,
+      "sha256": "35897c010852931abbd9684f1a744ee2d33bd77c5e6b9030de6cf648193abffc",
+      "originalPath": ".tmp/native-v3-oracle-cli-canonical-001/module-products.json",
+      "kind": "native-input-or-advisory-inventory"
+    },
+    {
+      "path": "inputs/oracle-origin-inventory.json",
+      "bytes": 1849,
+      "sha256": "ec035e2631f9ccdcb305403e0b9307d21796a1918dbd2f1b17f8c21b89746fee",
+      "originalPath": ".tmp/native-v3-oracle-cli-canonical-001/origin-inventory.json",
+      "kind": "native-input-or-advisory-inventory"
+    },
+    {
+      "path": "producer-build-receipt.json",
+      "bytes": 16230,
+      "sha256": "c0a3c810abe8e0eca1930ec55609f114485f1ac260be51497238473d720013f0",
+      "originalPath": ".tmp/native-v3-bundle-candidate-001/receipts/entry-build.json",
+      "kind": "independently-pinned-producer-build-receipt"
+    },
+    {
+      "path": "sources/NativeNominalFixtures.lean",
+      "bytes": 1536,
+      "sha256": "395e9c3f355631f1b4a22594ad9af849957914cc148f2ceed2828c8ca8f5a860",
+      "originalPath": ".tmp/native-v3-entry-cli-001/NativeNominalFixtures.lean",
+      "kind": "exact-fixture-source"
+    },
+    {
+      "path": "sources/NativeBuiltinWitnessFixtures.lean",
+      "bytes": 332,
+      "sha256": "eb6ecc05d17d22aee2a6c9562fe734795af8c7878c1d9fcfaa435e024a610e02",
+      "originalPath": ".tmp/native-v3-entry-cli-001/NativeBuiltinWitnessFixtures.lean",
+      "kind": "exact-fixture-source"
+    },
+    {
+      "path": "sources/NativeDatatypeOracle.lean",
+      "bytes": 4201,
+      "sha256": "4457ea38fb5484d2a6df4f896ef7655e4d6912a774f7c71ce7eb80aa67594e64",
+      "originalPath": ".tmp/native-v3-entry-cli-001/NativeDatatypeOracle.lean",
+      "kind": "exact-fixture-source"
+    },
+    {
+      "path": "sources/NativeBuiltinWitnessProbe.lean",
+      "bytes": 3280,
+      "sha256": "7afbf7753a141e95a0ef7dc980ff181e65b429c2bd22032499fb6cd3a53bff10",
+      "originalPath": ".tmp/native-v3-witness-001/NativeBuiltinWitnessProbe.lean",
+      "kind": "exact-fixture-source"
+    },
+    {
+      "path": "sources/NativeDatatypeOracleTypes.lean",
+      "bytes": 3331,
+      "sha256": "225c24055342ac233aac2aa858ed27da78049a5d3e48fdd6de64e6e1e1307d6a",
+      "originalPath": ".tmp/native-v3-oracle-types-001/NativeDatatypeOracleTypes.lean",
+      "kind": "exact-fixture-source"
+    }
+  ],
+  "extractions": [
+    {
+      "output": "builtin-observations.json",
+      "stdout": "receipts/native-v3-witness-001.stdout",
+      "prefix": "NOMINAL_WITNESS_OBSERVATIONS_JSON "
+    },
+    {
+      "output": "oracle-type-observations.json",
+      "stdout": "receipts/native-v3-oracle-types-001.stdout",
+      "prefix": "NOMINAL_WITNESS_OBSERVATIONS_JSON "
+    }
+  ]
+}

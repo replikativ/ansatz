@@ -52,3 +52,49 @@ The canonical engine contract runner requires JDK 17, matching the optional SDK.
 It compiles the exact interpreter/helper/provider sources with `--release 17`.
 The kernel memo fixture remains compiled with `--release 11`; this does not add
 an optional SDK dependency to core Ansatz startup or its kernel artifact.
+
+
+`test-java/FrozenStorageChecks.java` exercises the private storage foundation with
+fixed internal plans: bounded typed freeze, persistent pure-data storage,
+publication, certified input reuse, copy-on-write updates, forks, and release.
+It is included in `bin/run-lean-jvm-checks`; it does not issue native layout
+or public nominal admission authority. First freeze accounts actual physical
+storage once; cached frontiers use constant-time conservative bounds, so distinct
+overlapping frontiers can exceed a budget even when their exact union would fit.
+The public legacy decoders still materialize their existing carriers.
+
+The original fixed record test plan proves physical pure storage and sequential
+raw-byte lane coverage only. `TypedStorageChecks.java` separately exercises the
+private normalized semantic compiler, finite references, stable compatibility
+keys, constructor alternatives, Bool/Char and scalar domains, detached canonical
+construction, raw-field child access, and root-only boxed argument tokens. The
+embedded native004 observations supply internal layout facts; they are not
+admitted evidence. The separate [native captures](../test/fixtures/nominal-entry-v3/README.md)
+and [nominal application consumer](../consumer/NominalSmoke.java) exercise actual
+v3 product/entry admission and independent constructors/readers. The private
+`payloadCost` bound counts scalar/buffer bytes separately from `stringUnits`,
+which counts logical String UTF-16 units. Every String occurrence counts,
+including repeated shared leaves and repeated uses of the same certified input,
+as in ordinary legacy recipes. Neither bound measures retained heap. Shared-input
+construction composes certified child depth with fresh records and Arrays before
+guest allocation, with a maximum root depth of 1,024. A leaf, byte buffer, or
+scalar box has depth one; a fresh record or Array adds one to its deepest field.
+Certified depth includes any erased wrapper in its private plan. Ordinary legacy
+construction without certified inputs keeps its existing depth behavior. These
+are private-foundation checks, not public immutable-value guarantees.
+
+
+The typed core rejects delegating unmodifiable input wrappers, snapshots only
+exact trusted data carriers, and bounds validation work before scanning strings.
+The snapshot scan-work ceiling is 1 MiB of UTF-16 units per schema document and
+2 MiB per construction tape including its metadata. This is separate from the
+1 MiB logical String aggregate limit, which counts every logical occurrence.
+Argument preparation rechecks cached logical and physical proof bounds before
+allocating any shallow scalar box. A private detached-construction allocation
+counter supports refusal tests; ordinary interpreter execution is not instrumented.
+
+Frozen sharing adds one private volatile stamp reference to each Node. The exact
+field-inventory contract records this common-node cost and prevents unrelated
+per-Project or pointer-allocator state from accumulating there. Actual object
+size depends on JVM reference compression and alignment; no fixed byte-size
+claim is made by that reflection check.

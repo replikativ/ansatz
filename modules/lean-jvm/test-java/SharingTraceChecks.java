@@ -9,6 +9,16 @@ import java.util.Map;
 /** Actual engine operations; synthetic IR exercises both invocation drivers.
  * Reflection injects output budget/MT boundary states, never admission evidence. */
 public final class SharingTraceChecks {
+    private static Object nodeMember(Interpreter.Node value,String name) {
+        try { java.lang.reflect.Field field=Interpreter.Node.class.getDeclaredField(name);
+            field.setAccessible(true); return field.get(value);
+        } catch(ReflectiveOperationException failure) { throw new AssertionError(failure); }
+    }
+    private static Object[] nodeFields(Interpreter.Node value) { return (Object[])nodeMember(value,"fields"); }
+    private static byte[] nodeScalars(Interpreter.Node value) { return (byte[])nodeMember(value,"scalars"); }
+    private static int nodeTag(Interpreter.Node value) { return (Integer)nodeMember(value,"tag"); }
+    private static int nodeRC(Interpreter.Node value) { return (Integer)nodeMember(value,"rc"); }
+
     private static int checks;
     private static void check(boolean value) { checks++; if(!value) throw new AssertionError("check "+checks); }
     private static List<Object> name(String name) { return List.of("str",List.of("anonymous"),name); }
@@ -61,12 +71,12 @@ public final class SharingTraceChecks {
             Node value=fresh(e);
             long retains=e.retains,releases=e.releases;
             check(e.invoke(trace,new Object[]{0L,"array",value})==value);
-            check(value.rc==1&&e.retains==retains&&e.releases==releases);
+            check(nodeRC(value)==1&&e.retains==retains&&e.releases==releases);
             check(e.drainCapturedOutput()[1].isEmpty());
             e.inc(value,1);
             check(e.invoke(trace,new Object[]{0L,"λ😀\u0000ignored",value})==value);
             check(e.drainCapturedOutput()[1].equals("shared RC λ😀\n"));
-            check(value.rc==2&&e.releases==releases);
+            check(nodeRC(value)==2&&e.releases==releases);
             check(e.invoke(wrapped,new Object[]{"via IR",value})==value);
             check(e.drainCapturedOutput()[1].equals("shared RC via IR\n"));
             check(e.invoke(trace,new Object[]{0L,"scalar",7L}).equals(7L));
@@ -76,13 +86,14 @@ public final class SharingTraceChecks {
                 refuse(()->e.invoke(trace,new Object[]{0L,"bad","untracked"}));
                 refuse(()->e.invoke(trace,new Object[]{0L,"bad",BigInteger.ONE.shiftLeft(80)}));
                 refuse(()->e.invoke(trace,new Object[]{0L,"\ud800",value}));
-                check(value.rc==2&&e.drainCapturedOutput()[1].isEmpty());
+                check(nodeRC(value)==2&&e.drainCapturedOutput()[1].isEmpty());
             }
             e.dec(value,1); // unique again
             Method mt=Interpreter.class.getDeclaredMethod("markLogicalMT",Object.class); mt.setAccessible(true); mt.invoke(e,value);
             check(e.invoke(trace,new Object[]{0L,"MT",value})==value);
             check(e.drainCapturedOutput()[1].equals("shared RC MT\n"));
-            value.rc=0; // persistent fixture boundary
+            try { java.lang.reflect.Field rc=Interpreter.Node.class.getDeclaredField("rc"); rc.setAccessible(true); rc.setInt(value,0); }
+            catch(ReflectiveOperationException failure) { throw new AssertionError(failure); } // persistent fixture boundary
             check(e.invoke(trace,new Object[]{0L,"persistent",value})==value);
             check(e.drainCapturedOutput()[1].equals("shared RC persistent\n"));
             e.close();
@@ -93,7 +104,7 @@ public final class SharingTraceChecks {
         check(e.drainCapturedOutput()[1].equals("shared RC x\n"));
         field("stderrOutputBytes").setInt(e,16*1024*1024-11);
         refuse(()->e.invoke(trace,new Object[]{0L,"x",shared}));
-        check(e.capturedStderr().isEmpty()&&shared.rc==2);
+        check(e.capturedStderr().isEmpty()&&nodeRC(shared)==2);
         e.close();
         // Each failure has its own stopped, resource-free fixture engine. Check
         // both drivers and direct/FAP/PAP+AP paths: no unsupported leaf becomes

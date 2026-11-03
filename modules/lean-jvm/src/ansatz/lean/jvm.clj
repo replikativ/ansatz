@@ -1,7 +1,8 @@
 (ns ansatz.lean.jvm
   "Clojure REPL interface to checked Lean project execution. Core Ansatz can be
    used alongside this optional module; kernel declaration import is separate."
-  (:require [clojure.java.io :as io])
+  (:require [clojure.java.io :as io]
+            [ansatz.lean.jvm.typed-value :as typed])
   (:import [ansatz.lean.jvm Lean LeanProject LeanFunction LeanPreparation PreparedArtifact
             NativeCompilerOptions ProjectOptions LeanUnit IOResult LeanChoice InvocationOptions HostServices]
            [java.nio.file Path] [java.util Optional]))
@@ -154,21 +155,32 @@
    {:value value :stdout text :stderr text}. Unsupported codecs throw explicitly."
   [^LeanProject project name options]
   (let [^LeanFunction handle (.function project name)
-        arity (.arity handle) descriptor (.descriptor handle)]
+        arity (.arity handle) descriptor (.descriptor handle)
+        typed? (.hasTypeMetadata handle)
+        argument-types (when typed? (.argumentTypes handle))
+        result-type (when typed? (.resultType handle))]
     (with-meta
       (fn [& arguments]
         (when-not (= arity (bounded-count (inc arity) arguments))
           (throw (ex-info (str "Expected " arity " explicit arguments") {:code "ArityMismatch"})))
-        (let [arguments (host-arguments descriptor arguments)
+        (let [arguments (if typed? (mapv typed/host-value argument-types arguments)
+                                  (host-arguments descriptor arguments))
               result (if options (.invokeWith handle ^InvocationOptions options (object-array arguments))
                          (.invoke handle (object-array arguments)))]
           (if (= "io" (get descriptor "effect"))
             (let [^IOResult result result]
-              (cond-> {:value (clojure-value (get descriptor "result") (.value result))
+              (cond-> {:value (if typed? (typed/view result-type (.value result))
+                                 (clojure-value (get descriptor "result") (.value result)))
                        :stdout (.stdout result) :stderr (.stderr result)}
                 options (assoc :stdout-bytes (.stdoutBytes result) :stderr-bytes (.stderrBytes result))))
-            (clojure-value (get descriptor "result") result))))
-      {:lean/name name :lean/signature descriptor :lean/type (.signature handle) :lean/arity arity})))
+            (if typed? (typed/view result-type result) (clojure-value (get descriptor "result") result)))))
+      (cond-> {:lean/name name :lean/signature descriptor :lean/type (.signature handle) :lean/arity arity}
+        typed? (assoc :lean/argument-types argument-types :lean/result-type result-type)))))
+
+(defn materialize
+  "Explicitly copy a detached typed view into ordinary Clojure maps/vectors.
+   Immutable LeanBytes values become fresh byte arrays."
+  [value] (typed/materialize value))
 
 (defn function
   "Retain a callable. With invocation options, each call starts fresh finite

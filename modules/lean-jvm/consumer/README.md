@@ -177,3 +177,20 @@ It is not a third-party application. The native-free
 quota side effects, resource retirement, healthy peers and interruption after a
 real physical write. Initializer IO remains refused by the existing engine
 models; these checks do not claim a new initializer-write execution campaign.
+
+
+## Automatic datatype application
+
+`NominalSmoke.java` loads `resources/lean/datatypes.zip`, prepared from the three
+ordinary modules in [the expression application](../examples/datatypes/README.md).
+Its independent expected manifest hash and native output observation are retained
+in [datatypes.json](resources/lean/datatypes.json). This is an authored application,
+not an upstream tutorial or a handwritten schema fixture.
+
+Run `project_check.py --main-class NominalSmoke` with the same dependency arguments
+as above. The consumer covers native-derived constructor/field metadata, Java
+host construction, Clojure tagged views and materialization, IO custom results,
+bounded guest error details, aggregate refusal without poisoning the Project,
+shared immutable bytes, detached descriptors after close, and concurrent reuse
+in two Projects. It checks that native compiler namespaces never load. The
+canonical SDK runner includes this consumer alongside the existing corpus.
