@@ -118,7 +118,7 @@
           ty (tc/infer-type st cons-term)
           ty-str (e/->string ty)]
       (is (clojure.string/includes? ty-str "TVec"))
-      (is (clojure.string/includes? ty-str "HAdd") "return type has n+1"))))
+      (is (clojure.string/includes? ty-str "Nat.add") "return type has n+1 through term elaboration"))))
 
 (deftest test-vec-recursor-structure
   (testing "Vec.rec has correct structure (motive takes index + major)"

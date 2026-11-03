@@ -644,11 +644,13 @@
         ;; the user supplies exactly the full binder count (implicits INCLUDED, e.g.
         ;; (List.cons Nat x xs) or (TRBTree.node Nat color l v r)), apply positionally —
         ;; i.e. treat like @-explicit (no implicit insertion). Fewer args ⇒ implicits are
-        ;; inferred as usual (e.g. (List.cons x xs), (Eq n n)).
+        ;; inferred as usual (e.g. (List.cons x xs), (Eq n n)). Typed auxiliary
+        ;; locals, including inductive family headers, follow the same convention.
         total-binders (loop [t head-type c 0]
                         (if (e/forall? t) (recur (e/forall-body t) (inc c)) c))
         explicit? (or explicit?
-                      (and (e/const? head-expr) (pos? (count arg-sexprs))
+                      (and (or (e/const? head-expr) (e/fvar? head-expr))
+                           (pos? (count arg-sexprs))
                            (= (count arg-sexprs) total-binders)))
         ;; Insert leading implicits (unless @-explicit or positional)
         [head-expr head-type] (if explicit?
@@ -697,7 +699,10 @@
                              arg-expr)
                   ;; Unify arg type with expected domain
                   arg-type (infer-with-mvars est arg-expr)]
-              (unify! est arg-type dom-type)
+              (when-not (unify! est arg-type dom-type)
+                (elab-error! "Type mismatch in application"
+                             {:fn head-sexpr :argument arg-sexpr
+                              :expected dom-type :inferred arg-type}))
               (let [expr' (e/app expr arg-expr)
                     body-inst (e/instantiate1 (e/forall-body ty) arg-expr)
                     ty' (whnf-with-mvars est body-inst)]
@@ -1711,6 +1716,11 @@
                  (update :tc update :lctx red/lctx-add-local fid (str sym) ty))]
     (f est' fid)))
 
+(defn unify-subterms!
+  "Try definitional unification in a live elaboration, assigning its metavariables."
+  [est lhs rhs]
+  (unify! est lhs rhs))
+
 (defn subterm-type
   "The (whnf'd, zonked) TYPE of an elaborated subterm — for type-directed dispatch
    (e.g. count → vsize / Map.size / List.length depending on the collection type)."
@@ -1797,7 +1807,10 @@
                (or (:type-position opts)
                    (and expected (e/sort? expected)))
                (assoc :prop-ctx true))
-         expr (if (:type-position opts) (elab-type est sexpr) (elab-term est sexpr))]
+         expr (if (:type-position opts) (elab-type est sexpr) (elab-term est sexpr))
+         ;; Declaration elaborators may check/normalize the elaborated type while
+         ;; its metavariables are still assignable (e.g. inductive parameters).
+         expr (if-let [post-elab (:post-elab opts)] (post-elab est expr) expr)]
      (check-expected! est expr expected)
      (let [result (finalize-elaboration mode (refresh-env est) expr)
            result-env (elab-env est)]
