@@ -86,23 +86,23 @@
 
 (deftest split-at-boolean-hypothesis
   (proves 'split_bool_local '[b :- Bool, h :- (= (if b 0 1) 0)] '(= b true)
-          '[(split at h) (cases h) (exact hc)]))
+          '[(split at h) (all_goals (rename_i hc)) (cases h) (exact hc)]))
 
 (deftest split-at-decidable-hypothesis-keeps-branches-open
   (proves 'split_decidable_local
           (into '[p :- Prop, d :- (Decidable p)]
                 ['hh ':- (list '= (list (symbol "@ite") 'Nat 'p 'd 0 1) 0)])
-          'p '[(split at hh) (exact h) (cases hh)]))
+          'p '[(split at hh) (rename_i h) (exact h) (cases hh)]))
 
 (deftest split-at-local-preserves-dependent-hypothesis
   (proves 'split_bool_local_dependent
           '[b :- Bool, h :- (= (if b 0 1) 0), hh :- (= h h)]
           '(And (= b true) (= h h))
-          '[(split at h) (cases h) (constructor) (exact hc) (exact hh)]))
+          '[(split at h) (all_goals (rename_i hc)) (cases h) (constructor) (exact hc) (exact hh)]))
 
 (deftest split-at-wildcard-skips-unsplittable-hypothesis
   (proves 'split_wildcard_local '[b :- Bool, unused :- True, h :- (= (if b 0 1) 0)]
-          '(= b true) '[(split at *) (cases h) (exact hc)]))
+          '(= b true) '[(split at *) (all_goals (rename_i hc)) (cases h) (exact hc)]))
 
 (deftest split-at-local-matcher-reintroduces-hypothesis-and-dependents
   (let [c (fn [s levels] (e/const' (name/from-string s) levels))
@@ -194,7 +194,7 @@
       (is (= ["Bool.false" "Bool.true"]
              (mapv (fn [g]
                      (let [decl (first (for [[id d] (:lctx g)
-                                             :when (and (= "hc" (:name d)) (not (contains? (:lctx old) id)))] d))
+                                             :when (and (= "heq" (:name d)) (not (contains? (:lctx old) id)))] d))
                            [_ args] (e/get-app-fn-args (:type decl))]
                        (is (= (e/fvar b) (nth args 1)))
                        (e/->string (nth args 2)))) (proof/goals ps))))
@@ -348,7 +348,7 @@
         ps (a/run-tactic ps '(split at hh))]
     (is (= [(e/fvar pid) (e/app (e/const' (name/from-string "Not") []) (e/fvar pid))]
            (mapv (fn [g] (:type (first (filter #(= "h" (:name %)) (vals (:lctx g)))))) (proof/goals ps))))
-    (is (some? (extract/verify (reduce a/run-tactic ps '[(exact h) (cases hh)]))))))
+    (is (some? (extract/verify (reduce a/run-tactic ps '[(rename_i h) (exact h) (cases hh)]))))))
 
 (deftest wildcard-split-skips-local-used-by-target
   (let [ite #(list (symbol "@ite") 'Prop %1 %2 'True 'True)

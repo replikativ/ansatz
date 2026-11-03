@@ -180,6 +180,7 @@
                              (induction l)
                              (all_goals (intro b))
                              (all_goals (simp only [List.filter List.foldl]))
+                             (rename_i head tail ih_tail)
                              (cases hp (p head))
                              (all_goals (simp only [hp List.foldl]))
                              (all_goals (exact (ih_tail _)))))

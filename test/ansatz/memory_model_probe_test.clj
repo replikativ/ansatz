@@ -133,6 +133,7 @@
                               (=> (= (memq x op) true) (= (Nat.beq x sc) false) (= (memq x (drop-nat sc op)) true))
                               (induction op)
                               (simp [memq])
+                              (rename_i head tail ih_tail)
                               (intro hm) (intro hne)
                               (and_then (and_then (cases hh (Nat.beq head sc)) (cases hx (Nat.beq x head)))
                                         (simp_all [memq drop-nat Nat.beq_eq]))))))
@@ -143,6 +144,7 @@
                                   (= (owners-open (drop-owned sc os) (drop-nat sc op)) true))
                               (induction os)
                               (intro h0) (simp [drop-owned owners-open])
+                              (rename_i head tail ih_tail)
                               (intro h)
                               (and_then (and_then (cases hm (memq (:scope head) op)) (cases hs (Nat.beq (:scope head) sc)))
                                         (simp_all [owners-open drop-owned memq-drop-m]))))))
@@ -153,6 +155,7 @@
                               (= (owners-open (drop-owned sc os) (drop-nat sc op)) true)
                               (induction os)
                               (simp [drop-owned owners-open])
+                              (rename_i head tail ih_tail)
                               (and_then (and_then (cases hm (memq (:scope head) op)) (cases hs (Nat.beq (:scope head) sc)))
                                         (simp_all [owners-open drop-owned memq-drop-m]))))))
   (testing "T8. Lean: inv_close := close_pres sc s.open_ s.owns (term proof via exact)"

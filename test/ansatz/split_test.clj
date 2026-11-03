@@ -9,6 +9,7 @@
             [ansatz.kernel.env :as env]
             [ansatz.kernel.name :as name]
             [ansatz.kernel.expr :as e]
+            [ansatz.kernel.reduce :as red]
             [ansatz.kernel.level :as lvl]
             [ansatz.attrs :as attrs]
             [ansatz.matchers :as matchers]
@@ -37,6 +38,18 @@
         term (extract/extract ps)]
     [(proof/solved? ps) (env/verifies? (a/env) goal term)]))
 
+(defn- split-with-inaccessible-equation [ps]
+  (let [ps (basic/split-tac ps)]
+    (doseq [g (proof/goals ps)]
+      (is (some :inaccessible (vals (:lctx g))))
+      (doseq [nm ["heq" "h" "hc"]]
+        (is (nil? (red/find-from-user-name? (:lctx g) nm)))))
+    (basic/all-goals ps
+                     (fn [p]
+                       (let [p (a/run-tactic p '(rename_i equation))]
+                         (is (some? (red/find-from-user-name? (:lctx (proof/current-goal p)) "equation")))
+                         p)))))
+
 (deftest split-cond-bool
   ;; ∀ (c : Bool) (x : Nat), cond Nat c x x = x   — needs split on the Bool c
   (when @full
@@ -45,7 +58,7 @@
           goal (e/forall' "c" (c' "Bool" []) (e/forall' "x" (nat) eqn :default) :default)
           [solved verifies]
           (prove goal (fn [ps]
-                        (-> ps (basic/intros ["c" "x"]) (basic/split-tac)
+                        (-> ps (basic/intros ["c" "x"]) (split-with-inaccessible-equation)
                             (basic/all-goals (fn [p] (simp/simp-all p []))))))]
       (is solved "cond split: all goals closed")
       (is verifies "cond split: proof term kernel-verifies (Bool.rec by-cases)"))))
@@ -63,7 +76,7 @@
                                      (e/forall' "x" (nat) eqn :default) :default) :default)
           [solved verifies]
           (prove goal (fn [ps]
-                        (-> ps (basic/intros ["a" "b" "x"]) (basic/split-tac)
+                        (-> ps (basic/intros ["a" "b" "x"]) (split-with-inaccessible-equation)
                             (basic/all-goals (fn [p] (simp/simp-all p []))))))]
       (is solved "ite split: all goals closed")
       (is verifies "ite split: proof term kernel-verifies (Decidable.casesOn byCasesDec)"))))
@@ -84,7 +97,7 @@
           goal (e/forall' "b" bool (e/forall' "x" (nat) eqn :default) :default)
           [solved verifies]
           (prove goal (fn [ps]
-                        (-> ps (basic/intros ["b" "x"]) (basic/split-tac)
+                        (-> ps (basic/intros ["b" "x"]) (split-with-inaccessible-equation)
                             (basic/all-goals (fn [p] (simp/simp-all p []))))))]
       (is solved "matcher split: all alternative branches closed")
       (is verifies "matcher split: proof term kernel-verifies (matcher eliminator + match equations)"))))

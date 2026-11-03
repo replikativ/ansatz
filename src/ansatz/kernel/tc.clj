@@ -50,7 +50,7 @@
   [st lctx]
   (let [mx (lctx-max-id lctx)]
     (swap! (:next-id st) (fn [v] (if (> (inc mx) v) (inc mx) v)))
-    (assoc st :lctx lctx)))
+    (assoc st :lctx (red/ordered-lctx lctx))))
 
 (defn mk-tc-state-with-locals
   "A tc-state with `lctx-map` (a {fvar-id → {:name :type ...}} map, e.g. core's

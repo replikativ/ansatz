@@ -59,7 +59,7 @@
    (let [kind (canonical-kind kind)
          idx (:mvar-counter mctx 0)
          decl (cond-> {:user-name user-name
-                       :lctx lctx
+                       :lctx (red/ordered-lctx lctx)
                        :type type
                        :depth (:depth mctx 0)
                        :local-instances local-instances
@@ -114,7 +114,7 @@
   (assoc-in mctx [:decls id :type] type))
 
 (defn set-expr-mvar-lctx [mctx id lctx]
-  (assoc-in mctx [:decls id :lctx] lctx))
+  (assoc-in mctx [:decls id :lctx] (red/ordered-lctx lctx)))
 
 (defn set-expr-mvar-kind [mctx id kind]
   (assoc-in mctx [:decls id :kind] (canonical-kind kind)))
@@ -883,7 +883,7 @@
                    (:type decl) (update :type #(zonk-expr mctx %))
                    (:value decl) (update :value #(zonk-expr mctx %)))]
        (assoc lctx id decl')))
-   {}
+   (red/empty-lctx)
    lctx))
 
 (defn instantiate-mvar-decl-mvars

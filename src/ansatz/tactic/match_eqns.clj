@@ -7,6 +7,7 @@
             [ansatz.kernel.level :as lvl]
             [ansatz.kernel.reduce :as red]
             [ansatz.kernel.tc :as tc]
+            [ansatz.meta :as meta]
             [ansatz.meta.fvar-subst :as subst]
             [ansatz.meta.constructions.util :as u]
             [ansatz.meta.match.matcher-info :as mi]
@@ -598,8 +599,13 @@
                       ps
                       (let [[ps new-ids]
                             (reduce (fn [[ps ids] _]
+                                      ;; Lean Cases.unifyEqs? uses intro1, so
+                                      ;; decomposed equations are hygienic too.
                                       (let [ps (basic/intro ps)
-                                            new-id (last (sort (keys (:lctx (proof/current-goal ps)))))]
+                                            g (proof/current-goal ps)
+                                            new-id (last (keys (:lctx g)))
+                                            ps (update ps :meta-mctx meta/set-expr-mvar-lctx
+                                                       (:id g) (assoc-in (:lctx g) [new-id :inaccessible] true))]
                                         [ps (conj ids new-id)]))
                                     [ps []] (range (:num-new-eqs result)))]
                         (recur ps (concat new-ids (next pending))))))))
@@ -711,13 +717,13 @@
                                    (e/app* (e/const' (name/from-string "Eq") [eq-lvl])
                                            discr-type discr pattern)))
                                eq-lvls discr-types pattern-types discrs patterns hetero?)
-                 lctx (reduce (fn [lc [id ty]] (red/lctx-add-local lc id "y" ty))
+                 lctx (reduce (fn [lc [id ty]] (assoc-in (red/lctx-add-local lc id "x" ty) [id :inaccessible] true))
                               (:lctx goal) (map vector ys-ids ys-types))
-                 lctx (reduce (fn [lc [id ty]] (red/lctx-add-local lc id "notAlt" ty))
+                 lctx (reduce (fn [lc [id ty]] (assoc-in (red/lctx-add-local lc id "notAlt" ty) [id :inaccessible] true))
                               lctx (map vector guard-ids guard-types))
-                 lctx (reduce (fn [lc [id ty]] (red/lctx-add-local lc id "hDiscr" ty))
+                 lctx (reduce (fn [lc [id ty]] (assoc-in (red/lctx-add-local lc id "hDiscr" ty) [id :inaccessible] true))
                               lctx (map vector named-eq-ids named-eq-types))
-                 lctx (reduce (fn [lc [id ty]] (red/lctx-add-local lc id "h" ty))
+                 lctx (reduce (fn [lc [id ty]] (assoc-in (red/lctx-add-local lc id "heq" ty) [id :inaccessible] true))
                               lctx (map vector h-ids h-types))
                  sg-type (if (pos? (mi/get-num-discr-eqs info))
                            (transport-named-alts (:type goal) app args info patterns

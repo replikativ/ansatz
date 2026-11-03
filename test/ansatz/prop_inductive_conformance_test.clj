@@ -39,16 +39,16 @@
      [(constructor) (exact hx) (exact ht)]]
     [p06_all_head [p :- (=> Nat Prop), x :- Nat, xs :- (List Nat), h :- (All p (List.cons Nat x xs))]
      (p x)
-     [(cases h) (exact hx)]]
+     [(cases h) (assumption)]]
     [p07_all_tail [p :- (=> Nat Prop), x :- Nat, xs :- (List Nat), h :- (All p (List.cons Nat x xs))]
      (All p xs)
-     [(cases h) (exact ht)]]
+     [(cases h) (assumption)]]
     [p08_all_true [xs :- (List Nat)]
      (All (fn [x :- Nat] True) xs)
-     [(induction xs) (constructor) (constructor) (trivial) (exact ih_tail)]]
+     [(induction xs) (constructor) (constructor) (trivial) (assumption)]]
     [p09_all_nonneg [xs :- (List Nat)]
      (All (fn [x :- Nat] (<= Nat 0 x)) xs)
-     [(induction xs) (constructor) (constructor) (omega) (exact ih_tail)]]
+     [(induction xs) (constructor) (constructor) (omega) (assumption)]]
     [p10_sorted_nil [n :- Nat]
      (Sorted n (List.nil Nat))
      [(constructor)]]
@@ -57,7 +57,7 @@
      [(constructor) (exact h) (constructor)]]
     [p12_sorted_head [n :- Nat, x :- Nat, xs :- (List Nat), h :- (Sorted n (List.cons Nat x xs))]
      (<= n x)
-     [(cases h) (exact hx)]]
+     [(cases h) (assumption)]]
     [p13_reach_refl [r :- (=> Nat Nat Prop), x :- Nat]
      (Reach r x x)
      [(constructor)]]
