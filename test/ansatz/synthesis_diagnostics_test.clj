@@ -46,7 +46,7 @@
 
 (deftest tactic-terms-report-the-missing-class
   (doseq [tactic ['(exact (<= x x)) '(refine (<= x x)) '(apply (LE.le x x))
-                 '(have h Prop (<= x x)) '(have h := (LE.le x x))]]
+                  '(have h Prop (<= x x)) '(have h := (LE.le x x))]]
     (let [error (failure #(a/prove-law '[A :- Type x :- A] 'Prop [tactic]))]
       (is (re-find #"failed to synthesize\n  \(LE\.\{0\} A\)" (or (ex-message error) "")) (str tactic))
       (is (= :failed-instance (:problem (ex-data error))))
@@ -54,23 +54,23 @@
 
 (deftest tactic-terms-distinguish-stuck-instances
   (doseq [tactic ['(exact (LE.le _ _)) '(refine (LE.le _ _))
-                 '(apply (LE.le _ _)) '(have h Prop (LE.le _ _)) '(have h := (LE.le _ _))]]
+                  '(apply (LE.le _ _)) '(have h Prop (LE.le _ _)) '(have h := (LE.le _ _))]]
     (let [error (failure #(a/prove-law [] 'Prop [tactic]))]
       (is (re-find #"typeclass instance problem is stuck" (or (ex-message error) "")) (str tactic))
       (is (= :stuck-instance (:problem (ex-data error)))))))
 
 (deftest failed-instances-precede-stuck-problems
   (let [error (failure #(elab/elaborate (a/env)
-                                       '(forall [A Type x A]
-                                                (arrow (LE.le _ _) (< x x)))))]
+                                        '(forall [A Type x A]
+                                                 (arrow (LE.le _ _) (< x x)))))]
     (is (= :failed-instance (:problem (ex-data error))))
     (is (= (name/from-string "LT") (:class (ex-data error))))
     (is (re-find #"\(LT\.\{0\} A\)" (or (ex-message error) "")))))
 
 (deftest instance-diagnostics-retain-source-order
   (let [error (failure #(elab/elaborate (a/env)
-                                       '(forall [A Type x A]
-                                                (arrow (<= x x) (< x x)))))]
+                                        '(forall [A Type x A]
+                                                 (arrow (<= x x) (< x x)))))]
     (is (= (name/from-string "LE") (:class (ex-data error))))))
 
 (deftest output-metavariables-do-not-make-synthesis-stuck
@@ -80,9 +80,9 @@
     (is (= (name/from-string "HAdd") (:class (ex-data error)))))
   (a/defn diagnostic-consume [A :- Type :implicit x :- A q :- Prop] Nat 0)
   (let [error (failure #(elab/elaborate (a/env)
-                                       '(forall [A Type x A]
-                                                (= (diagnostic-consume (HAdd.hAdd Bool.false Bool.false)
-                                                                       (LE.le x x)) 0))))]
+                                        '(forall [A Type x A]
+                                                 (= (diagnostic-consume (HAdd.hAdd Bool.false Bool.false)
+                                                                        (LE.le x x)) 0))))]
     (is (= :failed-instance (:problem (ex-data error))))
     (is (= (name/from-string "HAdd") (:class (ex-data error))))))
 
@@ -123,7 +123,6 @@
   (let [succ (e/const' (name/from-string "Nat.succ") [])
         term (nth (iterate #(e/app succ %) (e/lit-nat 0)) 8000)]
     (is (identical? term (elab/elaborate (a/env) term)))))
-
 
 (defn- with-discard-payload [f]
   (let [saved @ingest/term-elaborator-registry]

@@ -251,9 +251,9 @@
                              :saw-error? true
                              :first-error (or (:first-error acc)
                                               (let [diagnostic (diagnostics/mvar-diagnostic
-                                                                  (:env ps)
-                                                                  (meta/set-expr-mvar-inst-implicit (:meta-mctx ps) mvar-id true)
-                                                                  mvar-id {:synthesis-failure? true})]
+                                                                (:env ps)
+                                                                (meta/set-expr-mvar-inst-implicit (:meta-mctx ps) mvar-id true)
+                                                                mvar-id {:synthesis-failure? true})]
                                                 (ex-info (str "Tactic error: " tactic-name ": " (:message diagnostic))
                                                          (assoc diagnostic :kind :tactic-error))))
                              :postponed (conj (:postponed acc) [mvar-id :inst-implicit])))))

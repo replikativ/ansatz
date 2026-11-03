@@ -2828,10 +2828,10 @@
         ps (reduce run-tactic ps tactic-forms)]
     (when-not (proof/solved? ps)
       (let [mctx (:meta-mctx ps)
-             diagnostic (diagnostics/first-instance-diagnostic (:env ps) mctx (:goals ps))]
-         (throw (ex-info (or (:message diagnostic)
-                             (str "Proof incomplete\n" (proof/format-goals ps)))
-                         (merge {:ps ps} diagnostic)))))
+            diagnostic (diagnostics/first-instance-diagnostic (:env ps) mctx (:goals ps))]
+        (throw (ex-info (or (:message diagnostic)
+                            (str "Proof incomplete\n" (proof/format-goals ps)))
+                        (merge {:ps ps} diagnostic)))))
     (extract/verify ps)
     [goal-type (extract/extract ps)]))
 
