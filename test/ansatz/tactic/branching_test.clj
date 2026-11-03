@@ -115,16 +115,16 @@
                         (e/lam "_" (c "Unit" []) (e/lit-nat 1) :default))
         hyp (e/app* (c "Eq" [l1]) nat matcher (e/lit-nat 0))
         goal (e/forall' "b" bool
-                         (e/forall' "h" hyp
-                                    (e/app* (c "Eq" [l1]) bool (e/bvar 1) (c "Bool.true" []))
-                                    :default) :default)
+                        (e/forall' "h" hyp
+                                   (e/app* (c "Eq" [l1]) bool (e/bvar 1) (c "Bool.true" []))
+                                   :default) :default)
         dep-type (e/app* (c "Eq" [lvl/zero]) (e/lift hyp 1 0) (e/bvar 0) (e/bvar 0))
         dep-goal (e/forall' "b" bool
                             (e/forall' "h" hyp
                                        (e/forall' "hh" dep-type
                                                   (e/app* (c "And" [])
-                                                           (e/app* (c "Eq" [l1]) bool (e/bvar 2) (c "Bool.true" []))
-                                                           (e/lift dep-type 1 0))
+                                                          (e/app* (c "Eq" [l1]) bool (e/bvar 2) (c "Bool.true" []))
+                                                          (e/lift dep-type 1 0))
                                                   :default) :default) :default)]
     (proves 'split_match_local '[b h] goal '[(split at h) (rfl) (cases h)])
     (proves 'split_match_local_dependent '[b h hh] dep-goal
@@ -138,9 +138,9 @@
 
 (deftest rewrite-proof-goals-are-opaque
   (let [ty (elab/elaborate (a/env)
-                         '(forall [n :- Nat,
-                                   rule :- (forall [x :- Nat, h :- True] (= (+ x 0) x))]
-                            (= (+ n 0) n)))
+                           '(forall [n :- Nat,
+                                     rule :- (forall [x :- Nat, h :- True] (= (+ x 0) x))]
+                                    (= (+ n 0) n)))
         [ps _] (proof/start-proof (a/env) ty)
         ps (-> ps (basic/intros ["n" "rule"]) (a/run-tactic '(rewrite (rule _ _))))
         hole (second (:goals ps))]
@@ -148,13 +148,13 @@
     (is (= :syntheticOpaque (:kind (proof/mvar-decl ps hole))))
     (is (= "True" (e/->string (proof/mvar-type ps hole))))
     (is (some? (extract/verify (-> ps (a/run-tactic '(rfl))
-                                  (a/run-tactic '(exact True.intro))))))))
+                                   (a/run-tactic '(exact True.intro))))))))
 
 (deftest rewrite-preserves-preexisting-goals-and-their-kind
   (let [ty (elab/elaborate (a/env)
-                         '(forall [n :- Nat,
-                                   rule :- (forall [x :- Nat, h :- True] (= (+ x 0) x))]
-                            (= (+ n 0) n)))
+                           '(forall [n :- Nat,
+                                     rule :- (forall [x :- Nat, h :- True] (= (+ x 0) x))]
+                                    (= (+ n 0) n)))
         [ps _] (proof/start-proof (a/env) ty)
         ps (basic/intros ps ["n" "rule"])
         g (proof/current-goal ps)
@@ -165,13 +165,13 @@
     (is (= old (second (:goals ps))))
     (is (= :natural (:kind (proof/mvar-decl ps old))))
     (is (some? (extract/verify (-> ps (a/run-tactic '(rfl))
-                                  (a/run-tactic '(exact True.intro))))))))
+                                   (a/run-tactic '(exact True.intro))))))))
 
 (deftest rewrite-data-hole-is-assignable-from-proof-obligation
   (let [ty (elab/elaborate (a/env)
-                         '(forall [n :- Nat,
-                                   rule :- (forall [x :- Nat, y :- Nat, h :- (= y 0)] (= (+ x 0) x))]
-                            (= (+ n 0) n)))
+                           '(forall [n :- Nat,
+                                     rule :- (forall [x :- Nat, y :- Nat, h :- (= y 0)] (= (+ x 0) x))]
+                                    (= (+ n 0) n)))
         [ps _] (proof/start-proof (a/env) ty)
         ps (-> ps (basic/intros ["n" "rule"]) (a/run-tactic '(rw [(rule _ _ _)])))
         [data-id proof-id] (:goals ps)]
@@ -239,9 +239,9 @@
 
 (deftest rewrite-synthesizes-instance-implicit-parameters
   (let [eqn (e/app* (e/const' (name/from-string "Eq") [(lvl/succ lvl/zero)])
-                       (e/const' (name/from-string "Nat") [])
-                       (e/app* (e/const' (name/from-string "Nat.add") []) (e/lit-nat 1) (e/lit-nat 0))
-                       (e/lit-nat 1))
+                    (e/const' (name/from-string "Nat") [])
+                    (e/app* (e/const' (name/from-string "Nat.add") []) (e/lit-nat 1) (e/lit-nat 0))
+                    (e/lit-nat 1))
         inst-type (elab/elaborate (a/env) '(Inhabited Nat))
         rule-type (e/forall' "inst" inst-type eqn :inst-implicit)
         ty (e/forall' "rule" rule-type eqn :default)
@@ -253,9 +253,9 @@
 
 (deftest rewrite-reports-unsynthesizable-instance
   (let [eqn (e/app* (e/const' (name/from-string "Eq") [(lvl/succ lvl/zero)])
-                       (e/const' (name/from-string "Nat") [])
-                       (e/app* (e/const' (name/from-string "Nat.add") []) (e/lit-nat 1) (e/lit-nat 0))
-                       (e/lit-nat 1))
+                    (e/const' (name/from-string "Nat") [])
+                    (e/app* (e/const' (name/from-string "Nat.add") []) (e/lit-nat 1) (e/lit-nat 0))
+                    (e/lit-nat 1))
         rule-type (e/forall' "inst" (elab/elaborate (a/env) '(Inhabited False)) eqn :inst-implicit)
         [ps _] (proof/start-proof (a/env) (e/forall' "rule" rule-type eqn :default))
         ps (basic/intro ps "rule")]
@@ -282,11 +282,11 @@
   (let [c #(e/const' (name/from-string %) [])
         nat (c "Nat")
         eqn (e/app* (e/const' (name/from-string "Eq") [(lvl/succ lvl/zero)])
-                     nat (e/app* (c "Nat.add") (e/lit-nat 1) (e/lit-nat 0)) (e/lit-nat 1))
+                    nat (e/app* (c "Nat.add") (e/lit-nat 1) (e/lit-nat 0)) (e/lit-nat 1))
         hadd (e/app* (e/const' (name/from-string "HAdd") [lvl/zero lvl/zero lvl/zero])
-                      nat nat (e/bvar 0))
+                     nat nat (e/bvar 0))
         rule (e/forall' "alpha" (e/sort' (lvl/succ lvl/zero))
-                       (e/forall' "inst" hadd eqn :inst-implicit) :implicit)
+                        (e/forall' "inst" hadd eqn :inst-implicit) :implicit)
         [ps _] (proof/start-proof (a/env) (e/forall' "rule" rule eqn :default))]
     (basic/intro ps "rule")))
 
@@ -314,9 +314,9 @@
         falsehood (e/const' (name/from-string "False") [])
         inhabited #(e/app (e/const' (name/from-string "Inhabited") [%1]) %2)
         eqn (e/app* (e/const' (name/from-string "Eq") [(lvl/succ lvl/zero)])
-                     nat (e/app* (e/const' (name/from-string "Nat.add") []) (e/lit-nat 1) (e/lit-nat 0)) (e/lit-nat 1))]
+                    nat (e/app* (e/const' (name/from-string "Nat.add") []) (e/lit-nat 1) (e/lit-nat 0)) (e/lit-nat 1))]
     (doseq [[goal tactic] [[truth '(first (apply bad) (apply good))]
-                          [eqn '(first (rw [bad]) (rw [good]))]]]
+                           [eqn '(first (rw [bad]) (rw [good]))]]]
       (let [bad (e/forall' "inst" (inhabited lvl/zero falsehood) goal :inst-implicit)
             good (e/forall' "inst" (inhabited (lvl/succ lvl/zero) nat) goal :inst-implicit)
             ty (e/forall' "bad" bad (e/forall' "good" good goal :default) :default)
@@ -333,7 +333,7 @@
 
 (deftest synthesized-instance-must-unify-with-its-full-type
   (with-redefs [inst/synth-instance (fn [mctx & _]
-                                   [mctx (e/const' (name/from-string "Bool.true") [])])]
+                                      [mctx (e/const' (name/from-string "Bool.true") [])])]
     (doseq [tactic '[(apply rule) (rewrite rule)]]
       (is (thrown-with-msg? clojure.lang.ExceptionInfo #"failed to assign synthesized instance"
                             (a/run-tactic (out-param-rewrite-proof) tactic))))))
@@ -370,19 +370,19 @@
       (is (= [(get-in before [:lctx (locals "hh")])]
              (vec (filter #(= "hh" (:name %)) (vals (:lctx g))))))
       (is (= ["True"] (mapv (comp e/->string :type)
-                                   (filter #(= "other" (:name %)) (vals (:lctx g)))))))
+                            (filter #(= "other" (:name %)) (vals (:lctx g)))))))
     (is (some? (extract/verify (a/run-tactic ps '(all_goals (rfl))))))))
 
 (deftest apply-constrains-instance-output-type-before-synthesis
   (let [c #(e/const' (name/from-string %) [])
         hadd #(e/app* (e/const' (name/from-string "HAdd") [lvl/zero lvl/zero lvl/zero])
-                       (c "Nat") (c "Nat") %)
+                      (c "Nat") (c "Nat") %)
         rule (e/forall' "alpha" (e/sort' (lvl/succ lvl/zero))
-                       (e/forall' "inst" (hadd (e/bvar 0))
-                                  (e/forall' "x" (e/bvar 1) (e/bvar 2) :default)
-                                  :inst-implicit) :implicit)
+                        (e/forall' "inst" (hadd (e/bvar 0))
+                                   (e/forall' "x" (e/bvar 1) (e/bvar 2) :default)
+                                   :inst-implicit) :implicit)
         ty (e/forall' "boolAdd" (hadd (c "Bool"))
-                     (e/forall' "rule" rule (c "Nat") :default) :inst-implicit)
+                      (e/forall' "rule" rule (c "Nat") :default) :inst-implicit)
         [ps _] (proof/start-proof (a/env) ty)
         ps (basic/intros ps ["boolAdd" "rule"])
         ex (try (a/run-tactic ps '(apply rule)) nil

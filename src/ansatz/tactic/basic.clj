@@ -200,8 +200,8 @@
         ;; Opening synthesis answers must use fresh ids in the shared context.
         ;; Scan here, once per synthesis, rather than at every WHNF/inference call.
         _ (swap! (:next-id st) max (reduce max (:next-id ps 1)
-                                          (concat (keys (:decls (:meta-mctx ps)))
-                                                  (keys (:level-depth (:meta-mctx ps))))))]
+                                           (concat (keys (:decls (:meta-mctx ps)))
+                                                   (keys (:level-depth (:meta-mctx ps))))))]
     (when-let [[mctx value] (inst/synth-instance (:meta-mctx ps) st goal-type)]
       [(assoc ps :meta-mctx mctx :next-id (max (:next-id ps) (inc @(:next-id st))))
        value])))
@@ -213,8 +213,8 @@
    progress."
   ([ps arg-mvars arg-binfos]
    (synth-app-instances ps arg-mvars arg-binfos
-                               {:synth-assigned-instances? true
-                                :allow-synth-failures? false}))
+                        {:synth-assigned-instances? true
+                         :allow-synth-failures? false}))
   ([ps arg-mvars arg-binfos {:keys [synth-assigned-instances?
                                     allow-synth-failures? tactic-name]
                              :or {tactic-name "apply"}}]
@@ -1147,7 +1147,7 @@
        (let [;; Rewrite.lean postprocessAppMVars calls Apply.lean
              ;; synthAppInstances before exposing residual non-instance goals.
              ps (synth-app-instances (assoc ps :meta-mctx @mctx
-                                           :next-id (max (:next-id ps) (inc @(:next-id st))))
+                                            :next-id (max (:next-id ps) (inc @(:next-id st))))
                                      (mapv e/mvar-id mvars) binder-infos
                                      {:synth-assigned-instances? true
                                       :allow-synth-failures? false :tactic-name "rewrite"})
@@ -1167,7 +1167,7 @@
                           (let [decl (proof/mvar-decl ps id)
                                 ty (zonk* (:type decl))
                                 sort (whnf-in-goal ps (:lctx decl)
-                                                  (infer-in-goal ps (:lctx decl) ty))]
+                                                   (infer-in-goal ps (:lctx decl) ty))]
                             (cond-> (proof/set-mvar-type ps id ty)
                               (and (e/sort? sort) (= lvl/zero (e/sort-level sort)))
                               (update :meta-mctx meta/set-expr-mvar-kind id :syntheticOpaque))))
@@ -1177,8 +1177,8 @@
              ;; Always forward-rewrite; Eq.symm carries the reversed rule.
              ps (if reverse?
                   (rewrite ps (e/app* (e/const' (name/from-string "Eq.symm")
-                                               (mapv #(meta/zonk-level @mctx %) eq-lvls))
-                                     (zonk* eqT) (zonk* lhs0) (zonk* rhs0) eq-proof)
+                                                (mapv #(meta/zonk-level @mctx %) eq-lvls))
+                                      (zonk* eqT) (zonk* lhs0) (zonk* rhs0) eq-proof)
                            false hyp-id)
                   (rewrite ps eq-proof false hyp-id))]
          (update ps :goals #(vec (distinct (concat (take 1 %) holes (rest %))))))))))
@@ -3075,8 +3075,8 @@
                            (update :meta-mctx meta/set-expr-mvar-lctx gid
                                    (assoc-in lctx [fid :name] hname))
                            (proof/set-mvar-user-name gid
-                             (apply-meta/append-tag (or (:user-name goal) (name/anonymous))
-                                                    (name/from-string tag))))))
+                                                     (apply-meta/append-tag (or (:user-name goal) (name/anonymous))
+                                                                            (name/from-string tag))))))
                    ps (map vector branches ["pos" "neg"]))]
     (assoc ps :goals (into branches siblings))))
 
@@ -3148,18 +3148,18 @@
              ;; Bool is the surface encoding of if. Keep the original context,
              ;; transporting only the selected declaration along the branch Eq.
              :bool (all-goals (by-cases ps (:discr tgt))
+                              (fn [ps]
+                                (let [g (proof/current-goal ps)
+                                      hid (last (sort (keys (:lctx g))))]
+                                  (rewrite ps (e/fvar hid) false fid))))
+             :dec (all-goals (by-cases-dec ps (:cond tgt) (:inst tgt))
                              (fn [ps]
                                (let [g (proof/current-goal ps)
                                      hid (last (sort (keys (:lctx g))))]
-                                 (rewrite ps (e/fvar hid) false fid))))
-             :dec (all-goals (by-cases-dec ps (:cond tgt) (:inst tgt))
-                            (fn [ps]
-                              (let [g (proof/current-goal ps)
-                                    hid (last (sort (keys (:lctx g))))]
-                                ((requiring-resolve 'ansatz.tactic.simp/simp-at)
-                                 ps fid ['if_pos 'if_neg 'dif_pos 'dif_neg (e/fvar hid)]
-                                 {:only? true :simp-only-builtins? false
-                                  :may-close-goal? false :decide? false}))))
+                                 ((requiring-resolve 'ansatz.tactic.simp/simp-at)
+                                  ps fid ['if_pos 'if_neg 'dif_pos 'dif_neg (e/fvar hid)]
+                                  {:only? true :simp-only-builtins? false
+                                   :may-close-goal? false :decide? false}))))
              :matcher
              ;; splitLocalDecl? reverts the local and its forward dependents,
              ;; applies the matcher splitter, then reintroduces the telescope.

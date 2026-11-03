@@ -1464,9 +1464,9 @@
                     (= '* (second args)) (basic/split-at-wildcard ps)
                     (#{'⊢ '|-} (second args)) (basic/split-tac ps)
                     :else (let [fid (latest-local-id-by-name (:lctx (proof/current-goal ps)) (second args))]
-                      (when-not fid
-                        (throw (ex-info "Tactic error: split: unknown hypothesis" {:kind :tactic-error})))
-                      (basic/split-local-decl ps fid)))
+                            (when-not fid
+                              (throw (ex-info "Tactic error: split: unknown hypothesis" {:kind :tactic-error})))
+                            (basic/split-local-decl ps fid)))
                   :else (throw (ex-info "Tactic error: split: expected a single location" {:kind :tactic-error}))))
    'clear     (fn [ps args]
                 (let [fid (some (fn [[id d]] (when (= (str (first args)) (:name d)) id))
