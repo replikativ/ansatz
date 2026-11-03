@@ -77,6 +77,22 @@ def checkout(record, directory, logs, label, env):
         need(digest(directory / record["source"]) == record["sourceSHA256"], label + " source mismatch")
 
 
+def native_diagnostics(work):
+    """Retain process evidence without copying compiled products or source caches."""
+    cache = work / "cache"
+    target = work / "diagnostics"
+    total = 0
+    for receipt in sorted(cache.rglob("*.receipt.json")):
+        data = json.loads(receipt.read_text())
+        for path in [receipt] + [receipt.parent / data[key] for key in ["stdout", "stderr"] if key in data]:
+            size = path.stat().st_size
+            if size <= 4 * 1048576 and total + size <= 64 * 1048576:
+                destination = target / path.relative_to(cache)
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(path, destination)
+                total += size
+
+
 def check(args):
     sdk, sysroot, producer = args.sdk.resolve(), args.sysroot.resolve(), args.producer_bundle.resolve()
     need(sdk.is_file(), "Supply the already checked SDK JAR; this gate never rebuilds it")
@@ -118,9 +134,12 @@ def check(args):
     config_file.write_text(json.dumps(config))
     deps = json.dumps(str(sdk))  # Clojure string syntax for this explicit path.
     sdk_before = digest(sdk)
-    command(["clojure", "-J-Xmx384m", "-J-Xss4m", "-Srepro", "-Sdeps",
-             '{:paths ["test"] :deps {org.replikativ/ansatz-lean-jvm {:local/root ' + deps + '}}}',
-             "-M", "test/native_ci_checks.clj", config_file], MODULE, logs, "packaged-native-acceptance", env, timeout=900)
+    try:
+        command(["clojure", "-J-Xmx384m", "-J-Xss4m", "-J-Dclojure.main.report=stderr", "-Srepro", "-Sdeps",
+                 '{:paths ["test"] :deps {org.replikativ/ansatz-lean-jvm {:local/root ' + deps + '}}}',
+                 "-M", "test/native_ci_checks.clj", config_file], MODULE, logs, "packaged-native-acceptance", env, timeout=900)
+    finally:
+        native_diagnostics(work)
     need(digest(sdk) == sdk_before, "Checked SDK JAR changed during native acceptance")
     report_file = work / "report.json"
     report = json.loads(report_file.read_text())

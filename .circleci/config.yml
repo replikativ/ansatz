@@ -96,6 +96,8 @@ jobs:
       - store_artifacts:
           path: target/lean-jvm-native-checks/logs
       - store_artifacts:
+          path: target/lean-jvm-native-checks/diagnostics
+      - store_artifacts:
           path: target/lean-jvm-native-checks/report.json
 
   lean-jvm-deploy:
