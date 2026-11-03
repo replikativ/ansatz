@@ -44,10 +44,9 @@
     (.build builder)))
 
 (defn bindings
-  "Capture pure implementations by Lean declaration name. Each value supplies
-   :implementation-id and either :fn or :factory. A factory receives detached
-   :argument-types/:result-type and returns a function. A Var's current
-   function value is captured once; dependencies and captures are not frozen."
+  "Capture implementations by Lean declaration name. Supply :implementation-id,
+   either :fn or :factory, and optionally :effect (:pure by default, or :io).
+   A factory receives detached :argument-types and :result-type once at linking."
   [registrations]
   (if (= HostBindings (class registrations)) registrations
     (do
@@ -55,12 +54,18 @@
         (throw (IllegalArgumentException. "Expected a bounded binding map")))
       (let [builder (HostBindings/builder)]
         (doseq [[name registration] registrations]
-          (when-not (and (string? name) (map? registration)
-                         (contains? #{#{:implementation-id :fn} #{:implementation-id :factory}} (set (keys registration))))
-            (throw (IllegalArgumentException. "Binding requires implementation-id and either fn or factory")))
-          (if (contains? registration :factory)
-            (.pureClojureFactory builder name (:implementation-id registration) (:factory registration))
-            (.pureClojure builder name (:implementation-id registration) (:fn registration))))
+          (let [effect (get registration :effect :pure)
+                factory? (contains? registration :factory)
+                allowed (cond-> #{:implementation-id (if factory? :factory :fn)}
+                          (contains? registration :effect) (conj :effect))]
+            (when-not (and (string? name) (map? registration) (= allowed (set (keys registration)))
+                           (#{:pure :io} effect))
+              (throw (IllegalArgumentException. "Binding requires implementation-id, fn or factory, and pure/io effect")))
+            (case [effect factory?]
+              [:pure false] (.pureClojure builder name (:implementation-id registration) (:fn registration))
+              [:pure true] (.pureClojureFactory builder name (:implementation-id registration) (:factory registration))
+              [:io false] (.ioClojure builder name (:implementation-id registration) (:fn registration))
+              [:io true] (.ioClojureFactory builder name (:implementation-id registration) (:factory registration)))))
         (.build builder)))))
 
 (defn load-project

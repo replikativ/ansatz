@@ -9,6 +9,7 @@ or a successful local rebuild does not establish a supported producer identity.
 
 | Source | Role |
 | --- | --- |
+| [src/NativeNominalEntryEvidence.lean](src/NativeNominalEntryEvidence.lean) | Nominal types, typed pure/IO host import eligibility and original interpreter declarations; the current binding candidate is not published. |
 | [src/NativeGeneralEntryEvidence.lean](src/NativeGeneralEntryEvidence.lean) | v2 entry discovery: native types, callable lookup, representation/layout facts and reachable structural IR. |
 | [src/NativeStartupEvidence.lean](src/NativeStartupEvidence.lean) | Source-header and imported initialization provenance. Native import can execute native initializers; this is not evidence that a JVM initializer ran. |
 | [src/TypedSourceExport.lean](src/TypedSourceExport.lean) | Genuine frontend elaboration, `.olean` production and structural declaration export. Frontend diagnostics go to stderr; structural NDJSON goes to stdout. See the [diagnostics contract](src/TypedSourceExport.diagnostics.md). |
@@ -37,8 +38,10 @@ records the published v1 source/binary pairs. The
 [v2 descriptor](../../modules/lean-jvm/producer/producer-bundle-v2.example.json)
 records the general-entry, diagnostics-aware candidate; its
 [archive record](../../modules/lean-jvm/producer/candidate-v2.json) remains
-unpublished. The three current `src/` files match that v2 descriptor's source
-hashes; the legacy entry source matches the v1 descriptor. The v1 typed exporter
+unpublished. Published descriptors retain their exact historical source identities. The
+maintained nominal entry source now implements the [host-binding candidate](../../modules/lean-jvm/producer/candidate-v4.json);
+its source-closed build uses `build-entry-v3.py` (the retained builder filename).
+That candidate remains unpublished. The legacy entry source matches the v1 descriptor. The v1 typed exporter
 has a different immutable source identity; the current typed exporter must not
 be substituted into a v1 bundle.
 

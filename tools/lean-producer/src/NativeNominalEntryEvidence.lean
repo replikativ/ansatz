@@ -86,7 +86,20 @@ private structure Selected where
   kind : String
   actual : Expr
   signature : Signature
+  hostBinding : String
   deriving Inhabited
+
+/-- An explicit runtime trust boundary. The opaque declaration's synthesized
+    inhabitant is kernel bookkeeping, not a reference implementation. Extern
+    lowering ignores it; a missing native implementation fails instead of using it.
+    This marker grants no equations, purity proof, or kernel admission. -/
+private def foreignSymbol? (env : Environment) (name : Name) : Option String := do
+  let data ← getExternAttrData? env name
+  let [.standard backend symbol] := data.entries | none
+  guard (backend == `all || backend == `c)
+  guard (symbol.startsWith "ansatz_jvm_" && symbol.length > 11)
+  guard (symbol.toList.all (fun c => c.isAlphanum && c.toNat < 128 || c == '_'))
+  return symbol
 
 private def select (env : Environment) (name : Name) : MetaM Selected := do
   let some ci := env.find? name | throwError "NominalEntry: requested declaration absent"
@@ -98,10 +111,14 @@ private def select (env : Environment) (name : Name) : MetaM Selected := do
       !ci.type.hasMVar && !ci.type.hasFVar && !ci.type.hasLevelParam && !ci.type.hasLooseBVars do
     throwError "NominalEntry: identity/safety/closedness refusal"
   unless ← Compiler.LCNF.declIsNotUnsafe name do throwError "NominalEntry: unsafe or partial entry"
-  unless !isExtern env name && (Compiler.getImplementedBy? env name).isNone &&
+  let foreign := (foreignSymbol? env name).isSome
+  unless (!isExtern env name || (kind == "opaque" && foreign)) && (Compiler.getImplementedBy? env name).isNone &&
       (getInitFnNameFor? env name).isNone && !isIOUnitInitFn env name && !isIOUnitBuiltinInitFn env name do
     throwError "NominalEntry: extern/redirect/initializer entry refusal"
-  return { name, kind, actual := ci.type, signature := ← signatureOf ci.type }
+  let hostBinding := if foreign then "foreign"
+    else if kind == "definition" && Compiler.hasNoInlineAttribute env name then "reference"
+    else "none"
+  return { name, kind, actual := ci.type, signature := ← signatureOf ci.type, hostBinding }
 
 private def jsonValue {α} (value : Except String α) : MetaM α :=
   match value with
@@ -288,15 +305,20 @@ private def emit (env : Environment) (selected : Selected)
     throwError "NominalEntry: actual/expected native signature mismatch"
   let some raw := NativeEntryTransport.findInterpreterDecl env selected.name
     | throwError "NominalEntry: original raw interpreter declaration absent"
-  unless raw.name == selected.name && !raw.isExtern && raw.getInfo.sorryDep?.isNone do
+  let foreign := selected.hostBinding == "foreign"
+  unless raw.name == selected.name && raw.isExtern == foreign && raw.getInfo.sorryDep?.isNone do
     throwError "NominalEntry: raw declaration identity/safety refusal"
+  if foreign then
+    let .extern _ _ _ ext := raw | throwError "NominalEntry: foreign raw declaration is not extern"
+    unless some ext == getExternAttrData? env selected.name do
+      throwError "NominalEntry: foreign declaration/IR extern mismatch"
   let boxed := if raw.params.isEmpty then none else NativeEntryTransport.findInterpreterDeclBoxed env selected.name
   let callable := boxed.getD raw
   let runtimeArity := selected.signature.arguments.size + (if selected.signature.io then 1 else 0)
   let resultIR ← NativeTypeGraph.observeIRType result
   let nullaryScalar := !selected.signature.io && selected.signature.arguments.isEmpty &&
     scalarLane resultIR && callable.resultType == resultIR
-  unless !callable.isExtern && callable.getInfo.sorryDep?.isNone && callable.params.size == runtimeArity &&
+  unless (!callable.isExtern || (foreign && boxed.isNone)) && callable.getInfo.sorryDep?.isNone && callable.params.size == runtimeArity &&
       callable.params.all (fun p => !p.borrow && NativeEntryTransport.boxedLane p.ty) &&
       (NativeEntryTransport.boxedLane callable.resultType || nullaryScalar) do
     throwError "NominalEntry: unsupported owned callable ABI"
@@ -315,6 +337,7 @@ private def emit (env : Environment) (selected : Selected)
     else Json.mkObj [("kind", toJson "boxed-object-lane")]
   let row := Json.mkObj [("name", NativeEntryTransport.nameJson selected.name),
     ("kind", toJson selected.kind), ("levelParams", Json.arr #[]),
+    ("hostBinding", toJson selected.hostBinding),
     ("compiledModule", NativeEntryTransport.nameJson owner), ("actualType", ← encode selected.actual),
     ("typeCheck", Json.mkObj [("algorithm", toJson "Lean.Meta.isDefEq"),
       ("transparency", toJson "default"), ("signature", signature), ("expectedType", ← encode expected)]),
@@ -364,7 +387,7 @@ private def requestNames (request : Json) (origins : Bool := false) : IO (Name �
   keys! request (if origins then ["schema", "module", "entries"]
     else ["schema", "module", "entries", "moduleProductsSHA256"])
   let schema ← NativeEntryTransport.checkedIO (request.getObjValAs? String "schema")
-  unless schema == (if origins then "lean-native-entry-origin-requests/1" else "lean-native-entry-requests/3") do
+  unless schema == (if origins then "lean-native-entry-origin-requests/1" else "lean-native-entry-requests/4") do
     throw <| IO.userError "NominalEntry: request schema"
   unless origins do digest! (← NativeEntryTransport.checkedIO (request.getObjValAs? String "moduleProductsSHA256"))
   let module ← NativeEntryTransport.checkedIO <| NativeEntryTransport.checkedName
@@ -472,7 +495,7 @@ def inspectEntries (env : Environment) (request productsDocument : Json) : IO Js
   let (declarations, dynamic) ← NativeEntryTransport.rows env roots origins forced
   let inventory ← NativeEntryTransport.initializerInventory env
   let encodedRoots ← rootTypes.mapM (fun t => NativeEntryTransport.checkedIO (NativeEntryTransport.encodeType t))
-  let document := Json.mkObj [("schema", toJson "lean-native-entry-evidence/3"),
+  let document := Json.mkObj [("schema", toJson "lean-native-entry-evidence/4"),
     ("producer", toJson "NativeNominalEntryEvidence.exportEntries"),
     ("leanCommit", toJson Lean.githash), ("leanVersion", toJson Lean.versionString),
     ("compiledModule", NativeEntryTransport.nameJson module),

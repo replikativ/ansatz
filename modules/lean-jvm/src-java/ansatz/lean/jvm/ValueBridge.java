@@ -33,7 +33,7 @@ final class ValueBridge {
     };
     private final Class<?> cohort;
     private final MethodHandle compile, describe, construct, copyBytes, freeze, child, constructorIndex,
-            size, scalar, byteAt, copyBytesOut, prepare, prepareReply, validateArguments;
+            size, scalar, byteAt, copyBytesOut, prepare, prepareReply, compileIOLayouts, prepareIOReply, validateIOLayouts, validateArguments;
     private ValueBridge(Class<?> cohort) {
         this.cohort = cohort;
         if (!cohort.getName().equals("ansatz.lean.jvm.internal.exec.Interpreter"))
@@ -53,6 +53,9 @@ final class ValueBridge {
             copyBytesOut = lookup.findStatic(cohort, "valueCopyByteArray", MethodType.methodType(byte[].class, Object.class));
             prepare = lookup.findStatic(cohort, "valuePrepareArgument", MethodType.methodType(Object.class, Object.class, int.class, Object.class, String.class));
             prepareReply = lookup.findStatic(cohort, "valuePrepareReply", MethodType.methodType(Object.class, Object.class, int.class, Object.class, String.class));
+            validateIOLayouts = lookup.findStatic(cohort, "valueValidateIOLayouts", MethodType.methodType(void.class, Object.class));
+            compileIOLayouts = lookup.findStatic(cohort, "valueCompileIOLayouts", MethodType.methodType(Object.class, Map.class));
+            prepareIOReply = lookup.findStatic(cohort, "valuePrepareIOReply", MethodType.methodType(Object.class, Object.class, Object.class, String.class, String.class));
             validateArguments = lookup.findStatic(cohort, "valueValidateArguments", MethodType.methodType(void.class, Object[].class));
         } catch (ReflectiveOperationException failure) {
             throw new IllegalStateException("Typed storage protocol is unavailable in this cohort", failure);
@@ -82,6 +85,22 @@ final class ValueBridge {
         ValueBridge bridge = type.bridge();
         Object capability = bridge.build(type, host, null);
         try { return (Object) bridge.prepareReply.invokeExact(type.registry.schema, type.plan, capability, lane); }
+        catch (Throwable failure) { throw failure(failure); }
+    }
+    static void validateIOLayouts(LeanType type, Object authority) {
+        try { type.bridge().validateIOLayouts.invokeExact(authority); }
+        catch (Throwable failure) { throw failure(failure); }
+    }
+    static Object compileIOLayouts(Class<?> interpreter, Map<String,Object> witnesses) {
+        try { return (Object) BUNDLES.get(interpreter).compileIOLayouts.invokeExact(witnesses); }
+        catch (Throwable failure) { throw failure(failure); }
+    }
+    static Object prepareIOReply(LeanType type, Object host, Object authority, LeanIOError error) {
+        ValueBridge bridge = type.bridge();
+        Object payload = error == null ? prepareReply(type, host, "object") : null;
+        String kind = error == null ? null : error.kind();
+        String message = error == null ? null : error.getMessage();
+        try { return (Object) bridge.prepareIOReply.invokeExact(authority, payload, kind, message); }
         catch (Throwable failure) { throw failure(failure); }
     }
     static void validateArguments(LeanType type, Object[] arguments) {

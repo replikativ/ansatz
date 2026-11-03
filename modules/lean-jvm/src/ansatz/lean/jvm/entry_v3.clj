@@ -301,7 +301,7 @@
 (defn- entry! [entry roots root-irs index local-modules imported work binding-profile?]
   (exact! entry (cond-> #{"name" "kind" "levelParams" "compiledModule" "actualType" "typeCheck" "semanticArity"
                          "runtimeArity" "argumentPlan" "resultABI" "raw" "callable" "selection"}
-                 binding-profile? (conj "pureBinding")))
+                 binding-profile? (conj "hostBinding")))
   (name! (get entry "name")) (module! (get entry "compiledModule"))
   (need (and (#{"definition" "opaque"} (get entry "kind")) (= [] (get entry "levelParams"))
              (contains? local-modules (get entry "compiledModule")) (contains? imported (get entry "compiledModule"))) :entry-origin)
@@ -314,9 +314,12 @@
         result-abi (get entry "resultABI") scalar? (= "raw-nullary-scalar" (get result-abi "kind"))
         boxed-lane #(case % ("object" "float" "float32") "object" ("void" "tagged" "uint8" "uint16") "tagged" "tobject")]
     (when binding-profile?
-      (need (boolean? (get entry "pureBinding")) :pure-binding-flag)
-      (when (get entry "pureBinding")
-        (need (and (= "definition" (get entry "kind")) (not io?)) :pure-binding-effect)))
+      (let [binding (get entry "hostBinding")]
+        (need (#{"none" "reference" "foreign"} binding) :host-binding-kind)
+        (when (= "reference" binding)
+          (need (= "definition" (get entry "kind")) :host-binding-reference))
+        (when (= "foreign" binding)
+          (need (= "opaque" (get entry "kind")) :host-binding-foreign))))
     (need (and (= "Lean.Meta.isDefEq" (get check "algorithm")) (= "default" (get check "transparency"))
                (= (expected-type signature roots) (get check "expectedType"))) :expected-type)
     (actual-type! (get entry "actualType") work)
@@ -345,11 +348,22 @@
       (do (exact! result-abi #{"kind"})
           (need (and (= "boxed-object-lane" (get result-abi "kind")) (object-lanes (get callable "type"))) :boxed-result-abi)))
     (doseq [role ["raw" "callable"]]
-      (let [abi (get entry role) row (get index (get abi "name")) declaration (get-in row ["ir" "fdecl"])]
+      (let [abi (get entry role) row (get index (get abi "name"))
+            external (get-in row ["ir" "extern"])
+            declaration (or (get-in row ["ir" "fdecl"]) external)
+            foreign? (and binding-profile? (= "foreign" (get entry "hostBinding")))
+            raw? (= role "raw")]
         (need (and declaration (= abi (declaration-abi declaration))
+                   (= (boolean external) (and foreign? (or raw? (not boxed?))))
                    (= (get entry "compiledModule") (get row "sourceModule"))
                    (nil? (get row "redirect")) (nil? (get-in row ["runtime" "initializer"]))
-                   (nil? (get-in row ["runtime" "initializationAction"]))) :original-returned-declaration)))
+                   (nil? (get-in row ["runtime" "initializationAction"]))) :original-returned-declaration)
+        (when external
+          (let [externs (get-in external ["ext" "entries"]) standard (get-in externs [0 "standard"])]
+            (need (and (= 1 (count externs)) (= #{"standard"} (set (keys (first externs))))
+                       (#{["str" ["anonymous"] "all"] ["str" ["anonymous"] "c"]} (get standard "backend"))
+                       (string? (get standard "fn")) (re-matches #"ansatz_jvm_[A-Za-z0-9_]+" (get standard "fn")))
+                  :host-binding-extern)))))
     entry))
 (defn validate-document!
   "Return bounded checked-description-only data. Native Meta DefEq/safety claims

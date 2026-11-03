@@ -34,20 +34,21 @@
              "META-INF/ansatz-lean-jvm/filesystem-layouts.jsonl"
              "META-INF/ansatz-lean-jvm/NOTICE"]
  :engine-class "ansatz.lean.jvm.internal.exec.Interpreter"
- :engine-closure-sha256 "b305edb0f4f99316cc76890bd47f9c6473cfa1164235677d90761d7cefd33678"
- :java-engine [{:path "ansatz/lean/jvm/internal/exec/FrozenValues.java" :class "ansatz.lean.jvm.internal.exec.FrozenValues" :sha256 "f20d71cf0eb64c8c16686661dbaa59de7d6cf398c8e8915bbc45065ef4f0127c"}
+ :engine-closure-sha256 "58d683ad9295f6fc70c5243c0e5d502b26ad8af59eb0681cc8a6f6944c18002d"
+ :java-engine [{:path "ansatz/lean/jvm/internal/exec/FrozenValues.java" :class "ansatz.lean.jvm.internal.exec.FrozenValues" :sha256 "7dc2a583e83f161ab0854967ad21f3d44ca7b903c55475009258b31c43c4cca2"}
               {:path "ansatz/lean/jvm/internal/fs/FileSession.java" :class "ansatz.lean.jvm.internal.fs.FileSession" :sha256 "af5d13b527fb420f53dccc550fe877982fe7b1ef8e3d98c2e53f798ede1aeaa9"}
               {:path "ansatz/lean/jvm/internal/exec/FilesystemLayouts.java" :class "ansatz.lean.jvm.internal.exec.FilesystemLayouts" :sha256 "f4f2889a57ebf535aa76cdf2728fcb542017d4ababc2fc41c99513f72a70dbe9"}
-              {:path "ansatz/lean/jvm/internal/exec/Interpreter.java" :class "ansatz.lean.jvm.internal.exec.Interpreter" :sha256 "381a544ee2a42e1de89e51176256ec5e790b78850467ad1d7d856e29ba0460c4"}
+              {:path "ansatz/lean/jvm/internal/exec/Interpreter.java" :class "ansatz.lean.jvm.internal.exec.Interpreter" :sha256 "39411d3eb7947ad258f75815a678422a9996709aacd3b0f88104cd86879b7c32"}
                {:path "ansatz/lean/jvm/internal/exec/ScalarBits.java" :class "ansatz.lean.jvm.internal.exec.ScalarBits" :sha256 "f7f105354cb7c66c3aa1834254113738ed52d14a47fe92308d1dd4e9db5f6fe9"}
                {:path "ansatz/lean/jvm/internal/exec/Utf8Bytes.java" :class "ansatz.lean.jvm.internal.exec.Utf8Bytes" :sha256 "74eb7745542b95b40ad166517fd79bf60500363792f771a34a2bd4c52a64fb18"}]
  :java-api [
-              {:path "ansatz/lean/jvm/HostBindings.java" :class "ansatz.lean.jvm.HostBindings" :sha256 "47d200d4848e56bb1e8e4cc9e002d87d426b5a9c13a37973cb2188b45631125a"}
-              {:path "ansatz/lean/jvm/PureHostCall.java" :class "ansatz.lean.jvm.PureHostCall" :sha256 "3e862c6c4d5fc04174b21178df8e022322b9e1818ac85c1bc2b9558fc164b39e"}
+              {:path "ansatz/lean/jvm/LeanIOError.java" :class "ansatz.lean.jvm.LeanIOError" :sha256 "f9d09e98bdb66e01fd5e36c7472c8f1d3b2e7e5be96548103012aab72cbe6490"}
+              {:path "ansatz/lean/jvm/HostBindings.java" :class "ansatz.lean.jvm.HostBindings" :sha256 "0ea1e2da29706393d862ab04b7b6282b04baaa562e600f56eaecbd670775d2c7"}
+              {:path "ansatz/lean/jvm/HostCall.java" :class "ansatz.lean.jvm.HostCall" :sha256 "42eb48df883a940ca65a0906a4b570cd8893fe5c7f171925d143f4d82c4674f2"}
               {:path "ansatz/lean/jvm/LeanType.java" :class "ansatz.lean.jvm.LeanType" :sha256 "a04b02cea786e1a6328d9f9516bf5f3a3bc35e51149408493d912084b0a1330f"}
               {:path "ansatz/lean/jvm/LeanData.java" :class "ansatz.lean.jvm.LeanData" :sha256 "392b12c00e94205aa6df4507b3b7dc21f749d28db0db22b19d6eede478f1cf62"}
               {:path "ansatz/lean/jvm/LeanBytes.java" :class "ansatz.lean.jvm.LeanBytes" :sha256 "23c83f2b8008f62ba2e6dfde984e944b636467c8d5572b15faffc1002be5d1b8"}
-              {:path "ansatz/lean/jvm/ValueBridge.java" :class "ansatz.lean.jvm.ValueBridge" :sha256 "5282326ba3370c1c6cca96ea4b6bc35f44e5c785599bf9092b85e53026dcae60"}
+              {:path "ansatz/lean/jvm/ValueBridge.java" :class "ansatz.lean.jvm.ValueBridge" :sha256 "97a4dba06cd57465bd31824075027637b603756bef421383c23dab3aa5023a71"}
               {:path "ansatz/lean/jvm/LeanName.java" :class "ansatz.lean.jvm.LeanName" :sha256 "71cb4ea3e027d3504f39fa3cb538d17876f61fce7798afd558d288e3ba573af3"}
               {:path "ansatz/lean/jvm/LeanTypeId.java" :class "ansatz.lean.jvm.LeanTypeId" :sha256 "f90153d5253c18ff2f59ebe73fe54f1dfd9299189e3cdb061993348a44f0587f"}
               {:path "ansatz/lean/jvm/FileAccess.java" :class "ansatz.lean.jvm.FileAccess" :sha256 "8677eb2d31f854f32991e06460e045681bd4310f9141d2383bafdccd684677d6"}

@@ -26,8 +26,11 @@ views, a result-constructor factory, unsupported registrations, error/cancellati
 propagation and failed-Project retirement.
 
 The prepared artifact is test evidence under `consumer/resources/lean`, not an
-automatic SDK runtime resource. The source/oracle snapshots and producer receipt
+automatic SDK runtime resource. The canonical example sources, native output and producer receipt
 are recorded in [fixture provenance](../../test/fixtures/pure-ffi/provenance.json).
 No native toolchain is used by the application-JAR test. See the
 [FFI guide](../../FFI.md) for candidate API usage and limits; v4 producer publication
 and release are pending.
+
+For required imports without reference bodies and synchronous IO bindings, see
+the [foreign-import example](../foreign-ffi/README.md).

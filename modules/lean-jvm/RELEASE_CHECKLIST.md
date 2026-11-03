@@ -51,9 +51,11 @@ checks do not replace these gates or establish a performance claim.
 
 ## Publication order
 
-For the [pure FFI candidate](FFI.md), additionally run its prepared two-file
-application-JAR consumer, v4 metadata refusal models, actual initializer/call/
-String.any failure retirement checks, and independent Lean oracle. Exercise the
+For the [host-binding candidate](FFI.md), run both prepared application-JAR
+consumers, metadata refusal models, actual initializer/call/String.any failure
+retirement checks, and the reference corpus's independent Lean oracle. Cover
+required bodyless imports, missing bindings before factories, pure/IO effect
+mismatches, catchable explicit IO errors and terminal unexpected failures. Exercise the
 source API with automatic binding-name selection using the exact v4 bundle.
 Record the independently built source closure, receipt and executable in the
 [v4 candidate record](producer/candidate-v4.json). Do not infer publication from
@@ -64,9 +66,9 @@ pinned v3 producer is published separately with its source closure and build
 receipt; its [publication record](producer/candidate-v3.json) records the exact
 archive. Source support must be checked against those actual bytes before
 landing. Main automatically publishes coordinated SDK artifacts; the user's
-landing authorization includes that consequence. Pure FFI is a separate v4
-candidate: publish and verify its exact producer bundle before landing that
-release. IO-typed FFI remains a later design discussion.
+landing authorization includes that consequence. Host bindings are a separate
+candidate: publish and verify the exact producer bundle before landing that
+release.
 Use the actual coordinated release version; do not assign a release claim from
 a local build. The deployment job must verify and publish the exact checked JAR/POM
 bytes without rebuilding them.

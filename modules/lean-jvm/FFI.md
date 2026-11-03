@@ -1,152 +1,163 @@
-# Pure JVM implementations of Lean functions
+# JVM host bindings for Lean
 
-This is the candidate FFI API. It is implemented and exercised against a native
-Lean reference corpus; release and v4 producer publication are still pending.
+This candidate API connects checked Lean declarations to Java or Clojure functions,
+using the existing [value boundary](VALUE_EXAMPLES.md). Its native producer has
+been built locally; producer publication and release remain pending. Loading a
+prepared artifact needs no native toolchain.
 
-A Project can select Java or Clojure implementations of named Lean functions.
-The Lean function must be a checked, closed, first-order pure definition marked
-`@[noinline]`, with types supported by the v3 datatype boundary. Its ordinary Lean
-body remains the reference implementation. Without a registry entry, the JVM
-executes that Lean body. Native Lean also executes the ordinary body.
+## Declaring a host import
+
+Use a standard extern with an explicit `ansatz_jvm_` symbol:
+
+```lean
+@[extern "ansatz_jvm_length"] opaque length : String → Nat
+@[extern "ansatz_jvm_read_config"] opaque readConfig : String → IO String
+```
+
+The marker opts a declaration into this bounded JVM binding profile. Only a sole
+standard all/C extern with that prefix is admitted; arbitrary package externs do
+not acquire binding authority. The registry uses the Lean declaration name,
+such as `length`, rather than the native symbol. Signatures must be closed,
+first-order and supported by the datatype boundary. A custom datatype used by a
+bodyless declaration may need `deriving Inhabited` for Lean to construct its safe
+opaque placeholder.
+
+Every required import must have a matching registration. Missing bindings and wrong effects fail with `BindingRejected`; unsupported
+signatures are rejected during entry preparation/admission. These checks precede
+guest initialization and implementation factories. A safe opaque
+inhabitant placeholder is not an executable fallback. Native execution of these
+imports requires an actual native implementation.
+
+For an optional replacement with an executable Lean fallback, retain a reference
+body:
 
 ```lean
 @[noinline] def normalize (n : Nat) : Nat := n + 1
-
-def pipeline (n : Nat) : Nat := normalize n + normalize 3
+@[noinline] def referenceRead (key : String) : IO String :=
+  pure ("reference:" ++ key)
 ```
 
-There is no signature to repeat in the host registry. The native v4 entry
-producer observes eligibility and the elaborated signature. Preparation binds
-these observations to the original IR, source/module products, exact producer
-source closure and executable. Older v3 evidence cannot authorize a binding.
-The current v3 native bundle still supports ordinary source loading. Source
-preparation for bindings requires the v4 candidate, which is not published yet.
-Loading an already prepared artifact requires no native toolchain.
+Without a registration, the JVM executes that body. Native Lean also executes
+the reference body. Both pure and IO reference replacements are supported.
 
-## Java
+## Registering Java functions
 
 ```java
 HostBindings implementations = HostBindings.builder()
-    .pure("normalize", "normalize/1", arguments ->
-        ((BigInteger) arguments.get(0)).add(BigInteger.ONE))
+    .pure("length", "length/1", arguments -> {
+        String text = (String) arguments.get(0);
+        return BigInteger.valueOf(text.codePointCount(0, text.length()));
+    })
+    .io("readConfig", "config/1", arguments -> {
+        String key = (String) arguments.get(0);
+        if (key.isEmpty()) throw LeanIOError.userError("Empty configuration key");
+        return "configured:" + key;
+    })
     .build();
 
 try (Lean runtime = Lean.open();
      InputStream input = Files.newInputStream(artifact);
      LeanProject project = runtime.loadArtifact(input, manifestSHA256, implementations)) {
-    Object result = project.call("pipeline", BigInteger.valueOf(41));
-    // result is BigInteger.valueOf(46)
+    // Call an admitted Lean entry that uses these imports.
 }
 ```
 
-The name is the same bounded dotted declaration name used by `function`/`call`.
-The implementation ID is a diagnostic/version label; it is not a code hash or a
-purity proof. The argument List is immutable and has the declaration's semantic
-arity, including zero. Java uses the existing typed carriers: exact integers,
-Boolean, String, immutable containers, LeanData, LeanBytes and the other
-[documented value types](VALUE_EXAMPLES.md). Arguments contain no erased proofs,
-runtime world parameter, raw guest Nodes or ownership tokens.
+The native producer derives the logical signature, effect and actual runtime ABI;
+the registry does not repeat them. The implementation ID is a diagnostic/version
+label, not a code hash or purity proof. Arguments are an immutable List of the
+declaration's semantic arguments, including zero arguments. Erased proofs and
+the IO world parameter are absent. An IO implementation returns its ordinary
+payload; the adapter constructs the Lean IO result.
 
-`loadProject(directory, options, implementations)` automatically adds binding
-names to the native selection. For artifact-only deployment, explicitly select
-those names with `ProjectOptions.Builder.function(name)` during preparation.
-The combined entry/binding selection remains bounded by 1,024 names.
+`loadProject(directory, options, implementations)` automatically selects registered
+names. When preparing an artifact separately, explicitly select import and
+replacement names with `ProjectOptions.Builder.function(name)`. The combined
+entry/binding selection is bounded by 1,024 names. Source preparation requires
+the candidate producer; older producer evidence cannot authorize bindings.
 
-## Clojure
-
-```clojure
-(require '[ansatz.lean.jvm :as lean]
-         '[clojure.java.io :as io])
-
-(def implementations
-  (lean/bindings
-    {"normalize" {:implementation-id "normalize/1" :fn inc}}))
-
-(with-open [runtime (lean/open)
-            input (io/input-stream artifact)
-            project (lean/load-artifact runtime input manifest-sha256 implementations)]
-  (lean/call project "pipeline" 41)) ; => 46
-```
-
-Functions receive ordinary positional arguments. Clojure integer results are
-normalized through the existing type-directed adapter. Custom datatype inputs
-are detached tagged map views, so a record transformation can use
-`(fn [message] (update-in message [:lean/fields 0] inc))`.
-
-`lean/bindings` captures each supplied Var's current function value once. Changing
-that Var later does not rebind an existing Project. Open a new Project with a new
-registry to select another implementation. Transitive Vars, dynamic bindings and
-mutable captures remain the application's responsibility.
-
-## Constructing custom results
-
-A function with only primitive inputs may still return a custom Lean datatype.
-Use a factory to obtain its constructors from the admitted result type once at
-linking; no additional datatype registration is required.
+For custom results, `pureFactory` and `ioFactory` receive a detached
+`HostBindings.Signature` once during linking. Derive constructors from
+`argumentTypes()` or `resultType()` without an additional datatype registration:
 
 ```java
-HostBindings.builder().pureFactory("Interop.combine", "combine/1", signature -> {
+HostBindings.builder().pureFactory("HostInterop.makeMessage", "message/1", signature -> {
     LeanType.Constructor constructor = signature.resultType().constructors().get(0);
-    return arguments -> {
-        String label = (String) arguments.get(2);
-        BigInteger count = ((BigInteger) arguments.get(0)).add(
-            BigInteger.valueOf(label.codePointCount(0, label.length())));
-        return constructor.create(List.of(count, arguments.get(1)));
-    };
+    return arguments -> constructor.create(List.of(arguments.get(0), arguments.get(1)));
 }).build();
 ```
 
-Factories receive a detached `HostBindings.Signature` with `argumentTypes()` and
-`resultType()`. Clojure uses `:factory` instead of `:fn`:
+Factories run only after the complete selection passes admission, before guest
+initialization. Registries and factories are host configuration, never artifact
+contents.
+
+## Registering Clojure functions
 
 ```clojure
-{"Interop.combine"
- {:implementation-id "combine/1"
-  :factory
-  (fn [{:keys [result-type]}]
-    (let [type-id (.get (.nominalId result-type))
-          constructor (.name (first (.constructors result-type)))]
-      (fn [n enabled label]
-        {:lean/type type-id
-         :lean/constructor constructor
-         :lean/fields [(+ n (.codePointCount ^String label 0 (.length ^String label)))
-                       enabled]})))}}
+(require '[ansatz.lean.jvm :as lean])
+(import '[ansatz.lean.jvm LeanIOError])
+
+(def implementations
+  (lean/bindings
+    {"length" {:implementation-id "length/1"
+               :fn (fn [^String text] (.codePointCount text 0 (.length text)))}
+     "readConfig" {:implementation-id "config/1" :effect :io
+                   :fn (fn [key]
+                         (if (empty? key)
+                           (throw (LeanIOError/userError "Empty configuration key"))
+                           (str "configured:" key)))}}))
 ```
 
-All requested declarations and signatures are checked before any factory runs.
-Factories run once per Project linking, before guest initialization. The registry
-and factories are host configuration and are never stored in an artifact.
+`:effect` defaults to `:pure`; use `:io` for an IO declaration. Functions receive
+ordinary positional arguments and return the existing Clojure value carriers.
+Custom inputs use detached tagged map views; for example,
+`(fn [message] (update-in message [:lean/fields 0] inc))`. Use `:factory` instead
+of `:fn` to receive `{:argument-types [...] :result-type ...}` once at linking.
+The Java builder also offers `pureClojure`, `ioClojure` and their `Factory` forms.
 
-## Semantics and limits
+## Semantics and failures
 
-The host implementation promises the same pure function as the Lean body. Types
-establish representation compatibility, not semantic equivalence. Time, random
-state, changing dynamic bindings or mutable state that changes the result do not
-fit this contract. Compiler transformations may hoist, specialize or cache pure
-calls; callback count and timing are not API guarantees. The pinned corpus tests
-direct and boxed calls, closed constant calls, nullary values, List.map and the
-audited String.any predicate worker.
-
-This API does not add kernel axioms, import declarations into the Ansatz kernel,
-or use host callbacks to admit proofs. Integration with proof mechanisms that
-trust compiled evaluation requires a separate policy. Lean itself warns that an
-incorrect implementation replacement can invalidate native_decide results;
-ordinary kernel reduction and executable replacement are distinct paths.
-
-Unexpected callback or result-conversion failures terminate the Project with
-`HostFailure`. They do not select the reference body as a retry. Use a supported
-Except result for expected domain failures. Fatal JVM Errors retain their
-identity; interruption/cancellation retains the interrupt flag. A failed Project
-can be closed, with its stopped packet retired through the audited heap/resource
-protocol. External effects are not rolled back.
-
-An unknown, unselected or ineligible declaration is refused before JVM initialization
-with `BindingRejected`. Host code runs synchronously under the Project's execution
-lease. Same-Project reentrancy, passing Lean functions as host values, IO-typed
-host implementations, async callbacks, opaque Java resource handles and public
-fork/replay remain follow-up work. Guest instruction budgets do not preempt
+A pure host implementation promises purity and, for a reference replacement,
+equivalence to the Lean body. No proof is required or inferred from Java typing.
+Time, randomness or mutable state that changes the result violates that promise.
+Compiler transformations and closed-value caches can move or share pure work;
+callback count and timing are not API guarantees. IO bindings express synchronous
+effects through Lean's IO sequence. Guest instruction budgets do not preempt
 arbitrary in-process host work.
 
-The [two-file example](examples/pure-ffi/README.md) and independent application-JAR
-[consumer](consumer/PureFFISmoke.java) exercise both directions. The
-[implementation contract](FFI_PLAN.md) records the remaining sequence.
+Each Project captures its callable targets once. Capturing a Clojure Var freezes
+its current function value, not transitive Vars, dynamic bindings or mutable
+captures. Open a new Project to change implementations. There is no live rebinding
+or automatic retry.
+
+An IO binding may throw `LeanIOError.userError(message)` or
+`LeanIOError.unexpectedEof()`. The adapter returns the corresponding Lean IO error,
+which Lean `try`/`catch` can handle. Clojure throws the same Java error values.
+There is no implicit mapping from arbitrary Java exceptions to Lean errors.
+Unexpected callback or conversion failures terminate the Project with
+`HostFailure`; they do not retry a reference body. Fatal JVM Errors retain their
+identity and cancellation preserves interruption. Close a failed Project;
+external effects are not rolled back. Expected pure domain failures can use a
+supported `Except` result.
+
+Bindings add no kernel axioms, equations for opaque declarations, or proof
+admission. Ordinary kernel reduction and executable implementation replacement
+are distinct. Trusting compiled evaluation for proofs requires a separate policy.
+
+Async callbacks, opaque Java resource handles, same-Project reentrancy,
+function-valued arguments and public fork/replay are outside this profile.
+
+## Implementation safety and examples
+
+The publisher authenticates declaration/product identity, logical types, effect,
+original Header and lowered ABI before creating a callback plan. The runtime
+matches the actual pending request and descriptor by identity, exports detached
+values, freezes object storage and validates the result against the admitted
+type before resuming. Borrowed/owned input handling retains the existing ownership
+protocol; host functions receive no guest Nodes, engines or ownership tokens.
+Failure retires the actual stopped packet without replay or guessed cleanup.
+
+The [reference example](examples/pure-ffi/README.md) includes an independent native
+oracle. The [foreign-import example](examples/foreign-ffi/README.md) covers bodyless
+imports and synchronous IO. Their prepared application-JAR consumers exercise the
+SDK independently of source directories and native tools. See the
+[release checks](RELEASE_CHECKLIST.md) for acceptance and publication gates.

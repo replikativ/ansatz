@@ -8,26 +8,37 @@ import java.util.Objects;
 import java.util.concurrent.CancellationException;
 import java.util.function.Function;
 
-/** Private adapter. Only a future authenticated import publisher may construct
+/** Private adapter. Only the authenticated import publisher may construct
  * these plans. A descriptor or a LeanType supplied by an application is not
  * authority to register a binding with a Project. */
-final class PureHostCall {
+final class HostCall {
+    private final Object ioLayouts;
     private final Interpreter.HostExtern descriptor;
     private final List<LeanType> arguments;
     private final LeanType result;
     private final Function<List<Object>, Object> implementation;
 
-    PureHostCall(Interpreter.HostExtern descriptor, List<LeanType> arguments,
+    HostCall(Interpreter.HostExtern descriptor, List<LeanType> arguments,
                  LeanType result, Function<List<Object>, Object> implementation) {
+        this(descriptor, arguments, result, implementation, null);
+    }
+
+    HostCall(Interpreter.HostExtern descriptor, List<LeanType> arguments,
+             LeanType result, Function<List<Object>, Object> implementation, Object ioLayouts) {
+        if (ioLayouts != null) ValueBridge.validateIOLayouts(result, ioLayouts);
+        this.ioLayouts = ioLayouts;
         this.descriptor = Objects.requireNonNull(descriptor, "descriptor");
         this.arguments = List.copyOf(arguments);
         this.result = Objects.requireNonNull(result, "result");
         this.implementation = Objects.requireNonNull(implementation, "implementation");
-        if (arguments.size() != descriptor.paramTypes().length || arguments.size() > 64)
+        if (arguments.size() + (ioLayouts == null ? 0 : 1) != descriptor.paramTypes().length || arguments.size() > 64)
             throw new IllegalArgumentException("Host signature/ABI arity differs");
         String[] lanes = descriptor.paramTypes();
-        for (int i = 0; i < lanes.length; i++) lane(arguments.get(i), lanes[i]);
-        lane(result, descriptor.resultType());
+        for (int i = 0; i < arguments.size(); i++) lane(arguments.get(i), lanes[i]);
+        if (ioLayouts == null) lane(result, descriptor.resultType());
+        else if (!(lanes[lanes.length - 1].equals("void") || lanes[lanes.length - 1].equals("tagged"))
+                || !descriptor.resultType().equals("object"))
+            throw new IllegalArgumentException("Host IO world/result ABI differs");
     }
 
     private static void lane(LeanType type, String lane) {
@@ -46,8 +57,10 @@ final class PureHostCall {
             cancelled();
             Object[] raw = request.arguments();
             String[] lanes = descriptor.paramTypes();
-            ArrayList<Object> values = new ArrayList<>(raw.length);
-            for (int i = 0; i < raw.length; i++) {
+            if (ioLayouts != null && !Long.valueOf(0).equals(raw[raw.length - 1]))
+                throw new IllegalArgumentException("Host IO world must be erased zero");
+            ArrayList<Object> values = new ArrayList<>(arguments.size());
+            for (int i = 0; i < arguments.size(); i++) {
                 cancelled();
                 Object value = raw[i];
                 // Requests expose UInt64/USize as unsigned BigInteger while
@@ -61,9 +74,17 @@ final class PureHostCall {
                 }
                 values.add(ValueBridge.exportValue(arguments.get(i), value, lanes[i]));
             }
-            Object value = implementation.apply(List.copyOf(values));
+            engine.validateFrozenHostInputs(request);
+            Object value;
+            LeanIOError ioFailure = null;
+            try { value = implementation.apply(List.copyOf(values)); }
+            catch (LeanIOError failure) {
+                if (ioLayouts == null) throw failure;
+                ioFailure = failure; value = null;
+            }
             cancelled();
-            Object reply = ValueBridge.prepareReply(result, value, descriptor.resultType());
+            Object reply = ioLayouts == null ? ValueBridge.prepareReply(result, value, descriptor.resultType())
+                    : ValueBridge.prepareIOReply(result, value, ioLayouts, ioFailure);
             engine.resumeFrozenHost(request, reply);
         } catch (Throwable failure) {
             // failHost preserves the actual pending ownership packet. Never
@@ -71,12 +92,12 @@ final class PureHostCall {
             if (engine.pendingHostRequest() == request) engine.failHost(request, failure);
             if (failure instanceof Error error) throw error;
             if (failure instanceof CancellationException cancelled) throw cancelled;
-            throw new LeanException("HostFailure", "host", "Pure host implementation failed");
+            throw new LeanException("HostFailure", "host", "Host implementation failed");
         }
     }
 
     private static void cancelled() {
         if (Thread.currentThread().isInterrupted())
-            throw new CancellationException("Pure host invocation interrupted");
+            throw new CancellationException("Host invocation interrupted");
     }
 }

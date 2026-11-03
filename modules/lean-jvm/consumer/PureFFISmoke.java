@@ -7,7 +7,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 /** Real native-prepared multi-module code, both reference and host execution. */
 public final class PureFFISmoke {
-    private static final String MANIFEST = "5f65bfb38748fd50ca24869a244af15dee933fe6454287d7c0d3b0426371bff4";
+    private static final String MANIFEST = "da1169a358c744b5c07eb4c68dd3a45b5e70638f8141b98f2f153e293ac457ac";
     private static void check(boolean ok) { if (!ok) throw new AssertionError("Pure FFI contract"); }
     private static BigInteger n(long value) { return BigInteger.valueOf(value); }
     private static LeanProject load(Lean runtime, HostBindings bindings) throws Exception {

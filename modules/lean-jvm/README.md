@@ -157,10 +157,11 @@ See [JVM and Clojure value examples](VALUE_EXAMPLES.md) for nested carriers and
 Java varargs calls. The [preparation guide](PREPARATION.md) covers build-time
 artifact export through the Java/Clojure APIs and CLI.
 
-The [pure FFI candidate](FFI.md) selects Java/Clojure implementations for checked
-noinline Lean reference definitions, using the same value boundary. It includes
-general arity and type-driven factories for custom results. V4 source producer
-publication and release are pending; existing v3 loading remains unchanged.
+The [host-binding candidate](FFI.md) connects Java/Clojure implementations to
+explicit pure or synchronous IO imports and optional noinline reference
+replacements, using the same value boundary. It includes type-driven factories
+for custom results. Its source producer is locally built; publication and release
+remain pending.
 
 Containers nest over supported types. `none` and `some ()` stay distinct: the
 latter is `Optional.of(LeanUnit.INSTANCE)` or `{:some nil}`. Results contain no

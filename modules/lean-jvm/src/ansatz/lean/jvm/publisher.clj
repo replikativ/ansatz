@@ -49,11 +49,14 @@
         entries (vec (mapcat :entries checked))]
     (need (= entries (:entries payload)) "Nominal entries differ from authenticated documents")
     (doseq [entry entries role ["raw" "callable"]]
-      (let [abi (get entry role) row (get index (get abi "name")) d (get-in row ["ir" "fdecl"])]
+      (let [abi (get entry role) row (get index (get abi "name")) d (or (get-in row ["ir" "fdecl"]) (get-in row ["ir" "extern"]))]
         (need (and (= (get entry "compiledModule") (get row "sourceModule"))
                    (= abi {"name" (get d "f") "xs" (get d "xs") "type" (get d "type")}))
               "Nominal callable differs from canonical source declaration")))
-    {:typed-groups (mapv #(select-keys (:storage %) [:logical :normalized]) checked)
+    {:typed-groups (mapv (fn [result document]
+                           (assoc (select-keys (:storage result) [:logical :normalized])
+                                  :runtime-witnesses (get-in document [:document "runtimeWitnesses"])))
+                         checked documents)
      :entries (vec (mapcat (fn [group document]
                             (mapv (fn [entry]
                                     (assoc entry "typedStorage"

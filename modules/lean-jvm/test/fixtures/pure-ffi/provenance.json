@@ -3,20 +3,20 @@
   "leanCommit": "819816b2e0a3bf405af45ae5c7af2491d8f5bee6",
   "leanVersion": "4.33.1",
   "entryProducer": {
-    "source": "0a56bfa925eff72580d32bcfc4b34c598feb0937a661a2f4a1212bc06c688c77",
-    "binary": "ad9efbb2320c1b1d033d5fcc6b32bc7d267d087f25666c2eb0d44d47708c61f7",
-    "source-closure": "5ffbac629057c7bca182aa5a126b93588d5b574f60bd470fa4972f25127699dc",
-    "build-receipt": "1e14aa779c780eb12505b07477e2121f29d02eec0a2a26851757dd1c0d3e0f6a"
+    "source": "15103e7d32fbeec5dfa9ad5c21ddf611c9f8a8fe2399f5f3123f1af9c529af19",
+    "binary": "e9268a4924ddee1cf42c1396c7d13f0f360e65556a0d7d98bea7c646d4647342",
+    "source-closure": "c144bdc0f88b25afc4f26bab548135d941f1f48410b6433c0c677df90fb74560",
+    "build-receipt": "095878a26cd8abcca485ae749b21dfcb74bd1f0b160deb2f587120809f9949a4"
   },
-  "manifestSHA256": "5f65bfb38748fd50ca24869a244af15dee933fe6454287d7c0d3b0426371bff4",
-  "archiveSHA256": "7654ff9b6a49430cc5a27f0a37641d29cfced7d64419f5e4c8f1a3d7bfe50c34",
+  "manifestSHA256": "da1169a358c744b5c07eb4c68dd3a45b5e70638f8141b98f2f153e293ac457ac",
+  "archiveSHA256": "14698880f4f4914d14c3c4794a89b7ea9dc805eecfeb34f47d7aad58b612ce0a",
   "oracle": "official Lean --run, ordinary reference definitions, no JVM imports",
   "files": {
     "native.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-    "Bindings.lean": "19a432cdad8ad8fafa45814700be1e37ec12a9855587c67090787f76f12190b7",
-    "Oracle.lean": "93706a0494a10bafba26001ba693f6c243b06c1c6d15a0e51be99c0f94c87e71",
-    "Main.lean": "e3c24283a3b530ab9fbc5e24f1d429dc74bd194bf569c89c11897f84d9fa4874",
-    "producer-build-receipt.json": "1e14aa779c780eb12505b07477e2121f29d02eec0a2a26851757dd1c0d3e0f6a",
+    "../../../examples/pure-ffi/Bindings.lean": "19a432cdad8ad8fafa45814700be1e37ec12a9855587c67090787f76f12190b7",
+    "../../../examples/pure-ffi/Oracle.lean": "93706a0494a10bafba26001ba693f6c243b06c1c6d15a0e51be99c0f94c87e71",
+    "../../../examples/pure-ffi/Main.lean": "e3c24283a3b530ab9fbc5e24f1d429dc74bd194bf569c89c11897f84d9fa4874",
+    "producer-build-receipt.json": "095878a26cd8abcca485ae749b21dfcb74bd1f0b160deb2f587120809f9949a4",
     "native.stdout": "1e72363f0c52546b4b851eff905c1f94e0b873c4e2b7af1568d72c45f770bd71"
   }
 }

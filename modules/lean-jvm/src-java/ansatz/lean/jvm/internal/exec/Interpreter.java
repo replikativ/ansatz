@@ -145,19 +145,19 @@ public final class Interpreter implements AutoCloseable {
     /** Trusted publisher input, not logical purity or source authentication.
      * Derive the ABI from one actual original Header; no second host signature
      * is accepted. Each declaration receives a distinct descriptor identity. */
-    public static final class PureBinding {
+    public static final class HostBinding {
         private final Header header;
         private final HostExtern descriptor;
-        public PureBinding(Header header) {
-            require(header!=null&&header.kind.equals("fdecl")&&!header.initialized(),
-                    "Pure binding requires an original ordinary definition Header");
+        public HostBinding(Header header) {
+            require(header!=null&&(header.kind.equals("fdecl")||header.kind.equals("extern"))&&!header.initialized(),
+                    "Host binding requires an original ordinary definition Header");
             require(header.evidence.get("redirect")==null
                     &&(!header.evidence.containsKey("runtime")
                        ||(map(header.evidence.get("runtime")).get("initializer")==null
                           &&map(header.evidence.get("runtime")).get("initializationAction")==null)),
-                    "Pure binding cannot replace initialization or redirects");
+                    "Host binding cannot replace initialization or redirects");
             this.header=header;
-            descriptor=new HostExtern("ansatz.pure/"+name(header.exactName),header.paramTypes,header.borrowed,header.resultType);
+            descriptor=new HostExtern("ansatz.host/"+name(header.exactName),header.paramTypes,header.borrowed,header.resultType);
         }
         public Header header() { return header; }
         public HostExtern descriptor() { return descriptor; }
@@ -1573,23 +1573,23 @@ public final class Interpreter implements AutoCloseable {
         public static Program bindGuestExports(Program base,GuestExportBinding[] bindings) {
             return boundGuestExports(base,bindings);
         }
-        /** Select pure implementations before ANY body has been materialized.
+        /** Select host implementations before ANY body has been materialized.
          * Original rows remain unchanged; subsequent bodies resolve calls to
          * the selected immutable Function identities. The adapter authenticates
          * logical signatures, eligibility and the reference implementation. */
-        public static Program bindPureDefinitions(Program base,PureBinding[] bindings) {
-            require(base!=null&&bindings!=null&&bindings.length<=1024,"Bounded pure binding batch required");
+        public static Program bindHostDefinitions(Program base,HostBinding[] bindings) {
+            require(base!=null&&bindings!=null&&bindings.length<=1024,"Bounded host binding batch required");
             for(PreparedBody body:base.preparedBodies)
-                require(body==null,"Pure bindings must precede body materialization");
+                require(body==null,"Host bindings must precede body materialization");
             Function[] functions=base.functions.clone();
             Map<String,Function> labels=new LinkedHashMap<>(base.labels);
             Map<Object,Function> names=new HashMap<>(base.typedNames);
             Set<Header> seen=Collections.newSetFromMap(new IdentityHashMap<>());
-            for(PureBinding binding:bindings.clone()) {
-                require(binding!=null&&seen.add(binding.header),"Duplicate or null pure binding");
+            for(HostBinding binding:bindings.clone()) {
+                require(binding!=null&&seen.add(binding.header),"Duplicate or null host binding");
                 Function original=base.functions[base.functionId(binding.header)];
                 require(original.intrinsic==0&&original.hostExtern==null&&base.guestExports[original.id]==null,
-                        "Pure binding cannot replace an intrinsic or existing implementation");
+                        "Host binding cannot replace an intrinsic or existing implementation");
                 requireExecutableAbi(original);
                 Function selected=new Function(original.label,original.id,original.params,original.paramTypes,
                     original.resultType,0,binding.descriptor,original.privateOwner,original.header,original.borrowedUtf8);
@@ -9967,6 +9967,9 @@ public final class Interpreter implements AutoCloseable {
     private static Object valueCopyBytes(byte[] source) { return FrozenValues.copyBytes(source); }
     private static Object valueFreeze(Object schema,int rootPlan,Object result,String lane) { return FrozenValues.freezeTyped(schema,rootPlan,result,lane); }
     private static Object valuePrepareReply(Object schema,int rootPlan,Object value,String lane) { return FrozenValues.prepareReply(schema,rootPlan,value,lane); }
+    private static void valueValidateIOLayouts(Object authority) { FrozenValues.validateIOLayouts(authority); }
+    private static Object valueCompileIOLayouts(Map<String,Object> witnesses) { return FrozenValues.compileIOLayouts(witnesses); }
+    private static Object valuePrepareIOReply(Object authority,Object reply,String errorKind,String message) { return FrozenValues.prepareIOReply(authority,reply,errorKind,message); }
     private static Object valueReadChild(Object capability,int index) { return FrozenValues.readChild(capability,index); }
     private static int valueConstructorIndex(Object capability) { return FrozenValues.constructorIndex(capability); }
     private static int valueSize(Object capability) { return FrozenValues.size(capability); }
@@ -10717,17 +10720,21 @@ public final class Interpreter implements AutoCloseable {
                     "Frozen host callback requires an ordinary String.any predicate continuation");
         }
     }
-    public void resumeFrozenHost(HostRequest request,Object preparedReply) {
+    /** Check the completed input conversion before any host effect. */
+    public void validateFrozenHostInputs(HostRequest request) {
         validateFrozenHostRequest(request);
+        for(Object argument:request.call.arguments) if(argument instanceof Node) {
+            Node value=node(argument);
+            require(value.frozen!=null&&value.rc==0,"Host input was not certified frozen");
+        }
+    }
+    public void resumeFrozenHost(HostRequest request,Object preparedReply) {
+        validateFrozenHostInputs(request);
         HostCall call=requireHostRequest(request);
         require(preparedReply!=null&&preparedReply.getClass()==FrozenReply.class,
                 "Actual prepared frozen reply required");
         FrozenReply reply=(FrozenReply)preparedReply;
         require(reply.lane.equals(call.function.hostExtern.resultType),"Frozen reply ABI differs");
-        for(Object argument:call.arguments) if(argument instanceof Node) {
-            Node value=node(argument);
-            require(value.frozen!=null&&value.rc==0,"Host input was not certified frozen");
-        }
         resumeHost(request,reply.value);
     }
     /** Terminal external failure preserves all outstanding argument/facade

@@ -27,10 +27,10 @@
       :build-receipt "c0a3c810abe8e0eca1930ec55609f114485f1ac260be51497238473d720013f0"}
    4 {:evidence "lean-native-entry-evidence/4" :request "lean-native-entry-requests/4"
       :producer "NativeNominalEntryEvidence.exportEntries"
-      :source "0a56bfa925eff72580d32bcfc4b34c598feb0937a661a2f4a1212bc06c688c77"
-      :binary "ad9efbb2320c1b1d033d5fcc6b32bc7d267d087f25666c2eb0d44d47708c61f7"
-      :source-closure "5ffbac629057c7bca182aa5a126b93588d5b574f60bd470fa4972f25127699dc"
-      :build-receipt "1e14aa779c780eb12505b07477e2121f29d02eec0a2a26851757dd1c0d3e0f6a"}})
+      :source "15103e7d32fbeec5dfa9ad5c21ddf611c9f8a8fe2399f5f3123f1af9c529af19"
+      :binary "e9268a4924ddee1cf42c1396c7d13f0f360e65556a0d7d98bea7c646d4647342"
+      :source-closure "c144bdc0f88b25afc4f26bab548135d941f1f48410b6433c0c677df90fb74560"
+      :build-receipt "095878a26cd8abcca485ae749b21dfcb74bd1f0b160deb2f587120809f9949a4"}})
 (def producer-pins
   "Independently admitted source/binary pairs. New producer builds enter only
    after root-owned compilation/acceptance; the original v2 pair stays explicit."

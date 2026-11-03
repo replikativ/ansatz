@@ -136,13 +136,13 @@ See [FILESYSTEM.md](FILESYSTEM.md) for the bounded Linux provider contract.
 
 ## Research boundary
 
-The [pure FFI candidate](FFI.md) reuses the engine's host-request protocol and the
-existing detached value bridge. V4 producer evidence authenticates noinline
-reference-definition eligibility; v3 receives no new binding authority. The
-publisher selects immutable Function identities before materializing any caller
-body, then starts the engine with a per-Project callback table. Original IR stays
-unchanged. The [FFI plan](FFI_PLAN.md) records the pure-function contract,
-ownership protocol and remaining sequence.
+The [host-binding candidate](FFI.md) reuses the engine's host-request protocol and
+existing detached value bridge. Candidate producer evidence authenticates explicit
+foreign imports and noinline reference replacements, including their pure or IO
+effect; older evidence receives no new binding authority. The publisher validates
+the full selection before invoking factories, materializing callers or starting
+guest initialization. Per-Project callable identities remain fixed. The binding
+guide records ownership, failure and proof-trust boundaries.
 
 The former hosting experiments and unpublished World facade are preserved at
 Git tag `lean-jvm-research-2026-11-01` (commit `4ace73f0`) and removed from the active

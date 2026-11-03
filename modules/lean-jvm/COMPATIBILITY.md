@@ -40,14 +40,15 @@ engine operations or admission rules but are not native execution receipts.
 
 ## Reviewed boundaries by layer
 
-The [pure FFI candidate](FFI.md) adds optional Java/Clojure implementations for
-v4-attested noinline pure reference definitions, using the existing first-order
-value boundary. It includes type-driven constructor factories, general supported
-arity, calls during JVM initialization and through the audited String.any worker.
-The [two-file corpus](examples/pure-ffi/README.md) compares native, JVM-reference
-and host implementations. This candidate is not a published release; v4 producer
-publication is pending. IO-typed host bindings and function-valued callbacks
-remain outside this profile.
+The [host-binding candidate](FFI.md) adds Java/Clojure implementations for explicit
+pure or synchronous IO imports and noinline reference replacements. It uses the
+existing first-order value boundary and type-driven constructor factories. The
+[reference corpus](examples/pure-ffi/README.md) compares native, JVM-reference and
+host execution, including initialization and the audited String.any worker. The
+[foreign-import corpus](examples/foreign-ffi/README.md) covers required bodyless
+imports and explicit catchable IO errors. The producer is locally built;
+publication and release remain pending. Function-valued callbacks, async work and
+opaque host resource handles remain outside this profile.
 
 | Layer / obligation | Status and boundary | Source / checks / remaining evidence |
 | --- | --- | --- |

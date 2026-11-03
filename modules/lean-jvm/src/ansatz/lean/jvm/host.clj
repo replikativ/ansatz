@@ -47,41 +47,59 @@
         (typed/host-value result-type
                           (apply target (mapv typed/view types arguments)))))))
 
+(defn required-imports!
+  "Only authenticated selected foreign entries may bypass intrinsic admission.
+   Require every such entry's implementation before any initialization or factory."
+  [bindings entries]
+  (let [registered (set (binding-names bindings))
+        imports (set (map #(get % "name") (filter #(= "foreign" (get % "hostBinding")) entries)))]
+    (need (every? registered imports) "Required foreign implementation is missing")
+    imports))
+
 (defn admit-bindings
-  "Internal publisher only: ENTRIES/HEADERS/GROUPS must already be authenticated.
-   A registry selects implementations; it never authenticates these inputs."
+  "Internal publisher only: entries, headers and groups are authenticated first."
   [ctx ^HostBindings bindings entries headers groups]
   (let [names (binding-names bindings)
         types (compile-types ctx groups)
         loader ^ClassLoader (:loader ctx)
-        binding-class (.loadClass loader "ansatz.lean.jvm.internal.exec.Interpreter$PureBinding")
+        binding-class (.loadClass loader "ansatz.lean.jvm.internal.exec.Interpreter$HostBinding")
         header-class (.loadClass loader "ansatz.lean.jvm.internal.exec.Interpreter$Header")
         extern-class (.loadClass loader "ansatz.lean.jvm.internal.exec.Interpreter$HostExtern")
-        call-class (when (seq names) (.loadClass loader "ansatz.lean.jvm.PureHostCall"))
+        request-class (.loadClass loader "ansatz.lean.jvm.internal.exec.Interpreter$HostRequest")
+        call-class (.loadClass loader "ansatz.lean.jvm.HostCall")
         ctor (.getConstructor binding-class (into-array Class [header-class]))
-        call-ctor (when call-class
-                    (doto (.getDeclaredConstructor call-class (into-array Class [extern-class List LeanType Function])) (.setAccessible true)))
+        call-ctor (doto (.getDeclaredConstructor call-class (into-array Class [extern-class List LeanType Function Object])) (.setAccessible true))
+        complete (doto (.getDeclaredMethod call-class "complete" (into-array Class [(:class ctx) request-class])) (.setAccessible true))
+        pending (.getMethod ^Class (:class ctx) "pendingHostRequest" (make-array Class 0))
+        descriptor-method (.getMethod request-class "descriptor" (make-array Class 0))
+        bridge (.loadClass loader "ansatz.lean.jvm.ValueBridge")
+        compile-io (doto (.getDeclaredMethod bridge "compileIOLayouts" (into-array Class [Class Map])) (.setAccessible true))
         index (into {} (map #(vector (get % "name") %) entries))
         array (java.lang.reflect.Array/newInstance binding-class (count names))
         plans
         (mapv (fn [i name registration]
                 (let [entry (get index name) header (get headers (get-in entry ["raw" "name"]))
-                      storage (get entry "typedStorage")
-                      _ (need (and (true? (get entry "pureBinding")) storage header
-                                   (= "definition" (get entry "kind")) (= "pure" (get storage "effect")))
-                              "Binding requires selected v4 noinline pure reference definition")
-                      roots (nth types (get storage "group"))
+                      storage (get entry "typedStorage") io? (.isIO ^ansatz.lean.jvm.HostBindings$Entry registration)
+                      _ (need (and (#{"reference" "foreign"} (get entry "hostBinding")) storage header
+                                   (= (if io? "io" "pure") (get storage "effect")))
+                              "Binding requires an eligible declaration with matching effect")
+                      group (get storage "group") roots (nth types group)
                       argument-types (mapv #(nth roots %) (get storage "arguments"))
                       result-type (nth roots (get storage "result"))
+                      io-layouts (when io? (ir/invoke-static compile-io [(:class ctx) (metadata (:runtime-witnesses (nth groups group)))]))
                       definition (.newInstance ctor (object-array [header]))
-                      descriptor (.invoke (.getMethod binding-class "descriptor" (make-array Class 0)) definition (object-array 0))]
+                      descriptor (.invoke (.getMethod binding-class "descriptor" (make-array Class 0)) definition (object-array 0))
+                      ;; Check the adapter ABI now, without executing user factories.
+                      _ (.newInstance call-ctor (object-array [descriptor argument-types result-type
+                                                              (reify Function (apply [_ _] (throw (IllegalStateException. "Validation only")))) io-layouts]))]
                   (java.lang.reflect.Array/set array i definition)
-                  {:header header :descriptor descriptor :registration registration
+                  {:header header :descriptor descriptor :registration registration :io-layouts io-layouts
                    :argument-types argument-types :result-type result-type}))
               (range) names (.entries bindings))
-        ;; Validate the entire selection before invoking any user factory.
-        selected
-        (mapv (fn [{:keys [header descriptor registration argument-types result-type]}]
+        ;; Validate every declaration/effect before invoking any user factory.
+        realize
+        (fn []
+          (let [selected (mapv (fn [{:keys [header descriptor registration argument-types result-type io-layouts]}]
                 (let [implementation (.implementation ^ansatz.lean.jvm.HostBindings$Entry registration)
                       implementation (if-not (.isFactory ^ansatz.lean.jvm.HostBindings$Entry registration) implementation
                                        (if (.isClojure ^ansatz.lean.jvm.HostBindings$Entry registration)
@@ -92,24 +110,24 @@
                               "Host factory must return an implementation function")
                       implementation (if (.isClojure ^ansatz.lean.jvm.HostBindings$Entry registration)
                                        (clojure-implementation argument-types result-type implementation) implementation)
-                      _ (need (instance? Function implementation) "Host factory must return an implementation function")
-                      call (.newInstance call-ctor (object-array [descriptor argument-types result-type implementation]))]
-                  {:header header :descriptor descriptor :call call}))
-              plans)]
+                      call (.newInstance call-ctor (object-array [descriptor argument-types result-type implementation io-layouts]))]
+                  {:header header :descriptor descriptor :call call})) plans)]
+            (if (empty? selected) {}
+              {:pending pending :descriptor descriptor-method :complete complete
+               :implementations (into {} (map #(vector (:descriptor %) (:call %)) selected))})))]
     {:types types :definitions array
-     :headers (into {} (map #(vector (:header %) (:descriptor %)) selected))
-     :calls (into {} (map #(vector (:descriptor %) (:call %)) selected))}))
+     :headers (into {} (map #(vector (:header %) (:descriptor %)) plans))
+     :realize realize}))
 
 (defn bind-program [ctx definitions]
   (let [program (:program ctx) klass (class program)
-        method (.getMethod klass "bindPureDefinitions" (into-array Class [klass (class definitions)]))]
+        method (.getMethod klass "bindHostDefinitions" (into-array Class [klass (class definitions)]))]
     (assoc ctx :program (ir/invoke-static method [program definitions]))))
 
-(defn complete! [ctx engine calls]
-  (let [request (.invoke (.getMethod ^Class (:class ctx) "pendingHostRequest" (make-array Class 0)) engine (object-array 0))
-        descriptor (when request (.invoke (.getMethod (class request) "descriptor" (make-array Class 0)) request (object-array 0)))
-        call (get calls descriptor)]
+(defn complete! [ctx engine {:keys [pending descriptor complete implementations]}]
+  (let [request (.invoke ^java.lang.reflect.Method pending engine (object-array 0))
+        key (when request (.invoke ^java.lang.reflect.Method descriptor request (object-array 0)))
+        call (get implementations key)]
     (need (and request call) "Runtime host request has no admitted implementation")
-    (let [method (doto (.getDeclaredMethod (class call) "complete" (into-array Class [(:class ctx) (class request)])) (.setAccessible true))]
-      (try (.invoke method call (object-array [engine request]))
-           (catch java.lang.reflect.InvocationTargetException failure (throw (.getCause failure)))))))
+    (try (.invoke ^java.lang.reflect.Method complete call (object-array [engine request]))
+         (catch java.lang.reflect.InvocationTargetException failure (throw (.getCause failure))))))

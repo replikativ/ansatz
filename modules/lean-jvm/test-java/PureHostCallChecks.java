@@ -71,10 +71,10 @@ public final class PureHostCallChecks {
         Interpreter.SourceBinding source = new Interpreter.SourceBinding("synthetic-only");
         Interpreter.Header target = source.header(fallback, "a".repeat(64)), root = source.header(caller, "b".repeat(64));
         Interpreter.Program original = Interpreter.Program.registerHeaders(Interpreter.prepare(List.of()), new Interpreter.Header[]{target, root});
-        Interpreter.PureBinding binding = new Interpreter.PureBinding(target);
-        Interpreter.Program selected = Interpreter.Program.bindPureDefinitions(original, new Interpreter.PureBinding[]{binding});
+        Interpreter.HostBinding binding = new Interpreter.HostBinding(target);
+        Interpreter.Program selected = Interpreter.Program.bindHostDefinitions(original, new Interpreter.HostBinding[]{binding});
         try {
-            Interpreter.Program.bindPureDefinitions(original, new Interpreter.PureBinding[]{binding, binding});
+            Interpreter.Program.bindHostDefinitions(original, new Interpreter.HostBinding[]{binding, binding});
             throw new AssertionError("Duplicate binding accepted");
         } catch (IllegalArgumentException expected) { check(true); }
         for (boolean host : new boolean[]{false, true}) {
@@ -82,7 +82,7 @@ public final class PureHostCallChecks {
             program = Interpreter.Program.materialize(program, target, fallback, new Interpreter.Header[0]);
             program = Interpreter.Program.materialize(program, root, caller, new Interpreter.Header[]{target});
             try {
-                Interpreter.Program.bindPureDefinitions(program, new Interpreter.PureBinding[]{binding});
+                Interpreter.Program.bindHostDefinitions(program, new Interpreter.HostBinding[]{binding});
                 throw new AssertionError("Late binding accepted");
             } catch (IllegalArgumentException expected) { check(true); }
             Interpreter engine = new Interpreter(program, true);
@@ -92,7 +92,7 @@ public final class PureHostCallChecks {
                 if (host) {
                     check(engine.pendingHostRequest() != null);
                     check(engine.pendingHostRequest().descriptor() == binding.descriptor());
-                    new PureHostCall(binding.descriptor(), List.of(nat), nat,
+                    new HostCall(binding.descriptor(), List.of(nat), nat,
                         xs -> ((BigInteger) xs.get(0)).add(BigInteger.ONE)).complete(engine, engine.pendingHostRequest());
                     for (int i = 0; i < 100 && engine.phase().equals("running"); i++) engine.advance(1);
                 }
@@ -104,7 +104,7 @@ public final class PureHostCallChecks {
         // Different source identity with the same textual name grants nothing.
         Interpreter.Header foreign = new Interpreter.SourceBinding("other").header(fallback, "a".repeat(64));
         try {
-            Interpreter.Program.bindPureDefinitions(original, new Interpreter.PureBinding[]{new Interpreter.PureBinding(foreign)});
+            Interpreter.Program.bindHostDefinitions(original, new Interpreter.HostBinding[]{new Interpreter.HostBinding(foreign)});
             throw new AssertionError("Foreign Header accepted");
         } catch (IllegalArgumentException expected) { check(true); }
     }
@@ -120,7 +120,7 @@ public final class PureHostCallChecks {
         Interpreter engine = engine(descriptor);
         try {
             Interpreter.HostRequest request = start(engine, raw);
-            new PureHostCall(descriptor, List.of(type), type, implementation).complete(engine, request);
+            new HostCall(descriptor, List.of(type), type, implementation).complete(engine, request);
             check(engine.phase().equals("complete"));
             Object result = engine.takeResult();
             check(engine.phase().equals("idle"));
@@ -146,7 +146,7 @@ public final class PureHostCallChecks {
         try {
             Object[] arguments = engine.constructDataArguments(new Interpreter.DataCtor[0],
                 new Object[]{ValueBridge.prepareValue(type, value, "object")});
-            new PureHostCall(descriptor, List.of(type), type, implementation).complete(engine, start(engine, arguments));
+            new HostCall(descriptor, List.of(type), type, implementation).complete(engine, start(engine, arguments));
             Object raw = engine.takeResult(); Object result = ValueBridge.exportValue(type, raw, "object");
             engine.dec(raw, 1); return result;
         } finally { retire(engine); }
@@ -186,7 +186,7 @@ public final class PureHostCallChecks {
             Object safeReply = ValueBridge.prepareReply(array, List.of(1, 2), "object");
             try { e.resumeFrozenHost(r, safeReply); throw new AssertionError("Unfrozen input accepted"); }
             catch (IllegalArgumentException expected) { check(e.pendingHostRequest() == r); }
-            new PureHostCall(d, List.of(array, array), array, xs -> {
+            new HostCall(d, List.of(array, array), array, xs -> {
                 check(xs.get(0).equals(List.of(BigInteger.valueOf(4), BigInteger.valueOf(5))));
                 check(xs.get(0).equals(xs.get(1)));
                 try { xs.clear(); throw new AssertionError("Mutable argument list"); }
@@ -196,7 +196,7 @@ public final class PureHostCallChecks {
             Object raw = e.takeResult(); saved = ValueBridge.exportValue(array, raw, "object"); e.dec(raw, 1);
             check(e.phase().equals("idle"));
             try {
-                new PureHostCall(d, List.of(array, array), array, xs -> { throw new AssertionError("Stale callback ran"); }).complete(e, r);
+                new HostCall(d, List.of(array, array), array, xs -> { throw new AssertionError("Stale callback ran"); }).complete(e, r);
                 throw new AssertionError("Stale request accepted");
             } catch (IllegalStateException expected) { check(e.phase().equals("idle")); }
         } finally { retire(e); }
@@ -208,7 +208,7 @@ public final class PureHostCallChecks {
             Interpreter foreign = engine(d);
             try {
                 Interpreter.HostRequest foreignRequest = start(foreign, 8L);
-                PureHostCall adapter = new PureHostCall(d, List.of(nat), nat, xs -> {
+                HostCall adapter = new HostCall(d, List.of(nat), nat, xs -> {
                     calls.incrementAndGet(); return xs.get(0);
                 });
                 try { adapter.complete(e, foreignRequest); throw new AssertionError("Foreign request accepted"); }
@@ -220,18 +220,18 @@ public final class PureHostCallChecks {
             } finally { retire(foreign); }
             Interpreter.HostExtern other = descriptor(new String[]{"tobject"}, new boolean[]{false}, "tobject");
             try {
-                new PureHostCall(other, List.of(nat), nat, xs -> { calls.incrementAndGet(); return xs.get(0); }).complete(e, r);
+                new HostCall(other, List.of(nat), nat, xs -> { calls.incrementAndGet(); return xs.get(0); }).complete(e, r);
                 throw new AssertionError("Wrong binding accepted");
             } catch (IllegalStateException expected) { check(calls.get() == 0 && e.pendingHostRequest() == r); }
             try { e.resumeFrozenHost(r, 1L); throw new AssertionError("Forged reply accepted"); }
             catch (IllegalArgumentException expected) { check(e.pendingHostRequest() == r); }
-            new PureHostCall(d, List.of(nat), nat, xs -> xs.get(0)).complete(e, r);
+            new HostCall(d, List.of(nat), nat, xs -> xs.get(0)).complete(e, r);
             check(e.takeResult().equals(9L));
         } finally { retire(e); }
         // Nullary calls, a legitimate pure constant rather than hidden IO.
         d = descriptor(new String[0], new boolean[0], "tobject"); e = engine(d);
         try {
-            new PureHostCall(d, List.of(), nat, xs -> { check(xs.isEmpty()); return BigInteger.TEN; }).complete(e, start(e));
+            new HostCall(d, List.of(), nat, xs -> { check(xs.isEmpty()); return BigInteger.TEN; }).complete(e, start(e));
             check(e.takeResult().equals(10L));
         } finally { retire(e); }
         for (int mode = 0; mode < 3; mode++) {
@@ -239,7 +239,7 @@ public final class PureHostCallChecks {
             final int which = mode;
             try {
                 Interpreter.HostRequest r = start(e, 1L); AtomicInteger calls = new AtomicInteger();
-                PureHostCall adapter = new PureHostCall(d, List.of(nat), nat, xs -> {
+                HostCall adapter = new HostCall(d, List.of(nat), nat, xs -> {
                     calls.incrementAndGet();
                     if (which == 0) throw new IllegalArgumentException("host error");
                     if (which == 1) return "wrong type";
@@ -256,7 +256,7 @@ public final class PureHostCallChecks {
         d = descriptor(new String[]{"tobject"}, new boolean[]{false}, "tobject"); e = engine(d);
         try {
             Interpreter.HostRequest r = start(e, 1L); AtomicInteger calls = new AtomicInteger();
-            PureHostCall adapter = new PureHostCall(d, List.of(nat), nat, xs -> { calls.incrementAndGet(); return xs.get(0); });
+            HostCall adapter = new HostCall(d, List.of(nat), nat, xs -> { calls.incrementAndGet(); return xs.get(0); });
             Thread.currentThread().interrupt();
             try { adapter.complete(e, r); throw new AssertionError("Ignored cancellation"); }
             catch (CancellationException expected) { check(Thread.currentThread().isInterrupted() && calls.get() == 0); }
@@ -266,7 +266,7 @@ public final class PureHostCallChecks {
         d = descriptor(new String[]{"tobject"}, new boolean[]{false}, "tobject"); e = engine(d);
         try {
             Interpreter.HostRequest r = start(e, 1L); AtomicInteger calls = new AtomicInteger();
-            PureHostCall adapter = new PureHostCall(d, List.of(nat), nat, xs -> {
+            HostCall adapter = new HostCall(d, List.of(nat), nat, xs -> {
                 calls.incrementAndGet(); Thread.currentThread().interrupt(); return xs.get(0);
             });
             try { adapter.complete(e, r); throw new AssertionError("Ignored callback cancellation"); }
@@ -276,7 +276,86 @@ public final class PureHostCallChecks {
         } finally { retire(e); }
         return checks;
     }
+    private static Map<String,Object> ioCtor(Object family,String label,int tag,int objects,List<Object> fields) {
+        Object name=List.of("str",family,label);
+        return Map.of("constructor",name,"ctorInfo",Map.of("name",name,"cidx",tag,"size",objects,"usize",0,"ssize",0),"fields",fields);
+    }
+    private static Map<String,Object> ioWitness() {
+        Object out=List.of("str",name("EST"),"Out"),error=List.of("str",name("IO"),"Error");
+        List<Object> fields=List.of(Map.of("kind","object","index",0,"irType","tobject"),Map.of("kind","void"));
+        ArrayList<Object> errors=new ArrayList<>();
+        for(int i=0;i<17;i++) errors.add(Map.of());
+        errors.add(ioCtor(error,"unexpectedEof",17,0,List.of()));
+        errors.add(ioCtor(error,"userError",18,1,List.of(Map.of("kind","object","index",0,"irType","object"))));
+        return Map.of("world","canonical-erased-zero","ioFamilies",List.of(
+            Map.of("typeName",out,"irType","object","constructors",List.of(ioCtor(out,"ok",0,1,fields),ioCtor(out,"error",1,1,fields))),
+            Map.of("typeName",error,"irType","tobject","constructors",errors)));
+    }
+    private static Object nodeField(Object node,String field) throws Exception {
+        java.lang.reflect.Field f=node.getClass().getDeclaredField(field);f.setAccessible(true);return f.get(node);
+    }
+    private static int ioChecks() throws Exception {
+        int before=checks;LeanType nat=field(packet(),0);
+        Map<String,Object> foreign=Map.of("kind","decl","name",name("foreign"),"ir",Map.of("extern",Map.of(
+            "f",name("foreign"),"type","tobject","xs",List.of(Map.of("x",Map.of("idx",1),"ty","tobject","borrow",false)),
+            "ext",Map.of("entries",List.of(Map.of("standard",Map.of("backend",name("all"),"fn","app_foreign")))))));
+        Interpreter.Header foreignHeader=new Interpreter.SourceBinding("synthetic-foreign").header(foreign,"c".repeat(64));
+        Interpreter.Program foreignProgram=Interpreter.Program.registerHeaders(Interpreter.prepare(List.of()),new Interpreter.Header[]{foreignHeader});
+        Interpreter.HostBinding foreignBinding=new Interpreter.HostBinding(foreignHeader);
+        foreignProgram=Interpreter.Program.bindHostDefinitions(foreignProgram,new Interpreter.HostBinding[]{foreignBinding});
+        Interpreter foreignEngine=new Interpreter(foreignProgram,true);
+        try {
+            foreignEngine.start(foreignProgram.functionId(foreignHeader),new Object[]{3L});
+            while(foreignEngine.phase().equals("running")) foreignEngine.advance(1);
+            new HostCall(foreignBinding.descriptor(),List.of(nat),nat,xs->BigInteger.TEN).complete(foreignEngine,foreignEngine.pendingHostRequest());
+            check(foreignEngine.takeResult().equals(10L));
+        } finally {retire(foreignEngine);}
+
+        Object authority=ValueBridge.compileIOLayouts(Interpreter.class,ioWitness());
+        for(String worldLane:new String[]{"void","tagged"}) for(int mode=0;mode<5;mode++) {
+            Interpreter.HostExtern d=descriptor(new String[]{"tobject",worldLane},new boolean[]{false,false},"object");
+            Interpreter e=engine(d);final int which=mode;AtomicInteger calls=new AtomicInteger();
+            try {
+                Interpreter.HostRequest request=start(e,7L,0L);
+                HostCall adapter=new HostCall(d,List.of(nat),nat,xs->{
+                    check(xs.size()==1&&xs.get(0).equals(BigInteger.valueOf(7)));calls.incrementAndGet();
+                    if(which==1) throw LeanIOError.userError("explicit IO failure");
+                    if(which==2) throw LeanIOError.unexpectedEof();
+                    if(which==3) throw new IllegalStateException("unexpected host failure");
+                    if(which==4) return "invalid Nat";
+                    return BigInteger.TEN;
+                },authority);
+                if(mode>=3) {
+                    try {adapter.complete(e,request);throw new AssertionError("Host failure accepted");}
+                    catch(LeanException failure) {check(failure.code().equals("HostFailure"));}
+                    check(e.phase().equals("failed")&&e.failureRequest()==request&&calls.get()==1);
+                } else {
+                    adapter.complete(e,request);check(calls.get()==1&&e.phase().equals("complete"));
+                    Object envelope=e.takeResult();check(((Integer)nodeField(envelope,"tag"))==(mode==0?0:1));
+                    Object payload=((Object[])nodeField(envelope,"fields"))[0];
+                    if(mode==0) check(payload.equals(10L));
+                    else if(mode==1) {check(((Integer)nodeField(payload,"tag"))==18);check(((Object[])nodeField(payload,"fields"))[0].equals("explicit IO failure"));}
+                    else check(payload.equals(17L));
+                    e.dec(envelope,1);check(e.phase().equals("idle"));
+                }
+            } finally {retire(e);}
+        }
+        Interpreter.HostExtern invalid=descriptor(new String[]{"void"},new boolean[]{false},"object");
+        try {new HostCall(invalid,List.of(),nat,xs->BigInteger.ONE,new Object());throw new AssertionError("Forged IO authority accepted");}
+        catch(IllegalArgumentException expected) {check(true);}
+        Interpreter wrongWorld=engine(invalid);AtomicInteger wrongCalls=new AtomicInteger();
+        try {
+            Interpreter.HostRequest request=start(wrongWorld,1L);
+            try {new HostCall(invalid,List.of(),nat,xs->{wrongCalls.incrementAndGet();return BigInteger.ONE;},authority).complete(wrongWorld,request);throw new AssertionError("Nonzero world accepted");}
+            catch(LeanException expected) {check(expected.code().equals("HostFailure")&&wrongCalls.get()==0&&wrongWorld.phase().equals("failed"));}
+        } finally {retire(wrongWorld);}
+        try {ValueBridge.compileIOLayouts(Interpreter.class,Map.of());throw new AssertionError("Missing IO witnesses accepted");}
+        catch(IllegalArgumentException expected) {check(true);}
+        try {LeanIOError.userError("\ud800");throw new AssertionError("Malformed IO error accepted");}
+        catch(IllegalArgumentException expected) {check(true);}
+        return checks-before;
+    }
     public static void main(String[] args) throws Exception {
-        System.out.println("PureHostCallChecks: " + run() + " checks passed");
+        int pure=run(); int io=ioChecks(); System.out.println("HostCallChecks: " + pure + " pure, " + io + " IO checks passed");
     }
 }
