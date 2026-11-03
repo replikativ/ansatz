@@ -81,3 +81,17 @@ example (P : Nat → Prop) (h : P 13) : P ((13, 21).1) := by
   simp only []
   guard_target =ₛ P 13
   exact h
+
+example (P : Prop → Prop) (h : P (0 ≤ 1 : Prop)) : P (0 ≤ 1 : Prop) := by
+  try simp only []
+  guard_target =ₛ P (0 ≤ 1 : Prop)
+  exact h
+example (P : Prop → Prop) (h : P True) : P (0 ≤ 1 : Prop) := by
+  simp only [Nat.reduceLeDiff]
+  guard_target =ₛ P True
+  exact h
+example (P : Prop → Prop) (h : P False) : P (2 ≤ 1 : Prop) := by
+  simp (config := { decide := false })
+  guard_target =ₛ P False
+  exact h
+example (h : (2 : Nat) ≤ 1) : False := by simp at h

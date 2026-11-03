@@ -1250,6 +1250,14 @@
                 (mk-result (e/const' (if (= a b) bool-true-name bool-false-name) []))
                 :else nil)))
 
+          ;; Lean Nat.reduceAdd/reduceMul/... use the overloaded operator spelling.
+          ;; The surface also emits direct Nat applications, handled above.
+          (and (= 6 nargs) (= (first args) (e/const' (name/from-string "Nat") [])))
+          (when-let [op (get {"HAdd.hAdd" nat-add-name "HMul.hMul" nat-mul-name
+                             "HSub.hSub" nat-sub-name "HDiv.hDiv" nat-div-name
+                             "HMod.hMod" nat-mod-name} (str hname))]
+            (try-nat-literal-reduce st (e/app* (e/const' op []) (nth args 4) (nth args 5))))
+
           :else nil)))))
 
 (defn- try-int-literal-reduce
@@ -1751,6 +1759,21 @@
 
                 :else nil))))))))
 
+(defn- reduce-bin-pred
+  "Lean BuiltinSimprocs/Nat.lean reduceBinPred and reduceLTLE's const/const case.
+   Util.lean evalPropStep uses a decide certificate independently of Config.decide."
+  [st expr config]
+  (let [[head args] (e/get-app-fn-args expr)
+        simproc (when (e/const? head)
+                  (get {"LE.le" "Nat.reduceLeDiff" "LT.lt" "Nat.reduceLT" "GT.gt" "Nat.reduceGT"}
+                       (str (e/const-name head))))]
+    (when (and simproc (= 4 (count args))
+               (= (first args) (e/const' nat-name []))
+               (or (get config :simprocs? true) (contains? (:simproc-names config) simproc))
+               (some? (get-nat-value? st (nth args 2)))
+               (some? (get-nat-value? st (nth args 3))))
+      (try-simp-using-decide st expr (assoc config :decide? true)))))
+
 (declare try-fold-bool-and)
 
 (defn- try-reduce-proj-fn
@@ -1920,6 +1943,7 @@
    5. simpUsingDecide — decide on ground decidable propositions"
   [st expr config & {:keys [env lemma-index]}]
   (or (try-reduce-proj-fn st expr)
+      (reduce-bin-pred st expr config)
       (when (get config :simprocs? true)
         (or (try-nat-literal-reduce st expr)
             (try-int-literal-reduce st expr)

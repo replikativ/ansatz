@@ -137,3 +137,14 @@
                                (c "Nat") (c "Nat")
                                (e/app* (e/const' (name/from-string "Prod.mk") [lvl/zero lvl/zero])
                                        (c "Nat") (c "Nat") value (e/lit-nat 21))) [])))))
+
+(deftest default-nat-predicate-simprocs-do-not-require-decide
+  (let [le (fn [a b] (e/app* (e/const' (name/from-string "LE.le") [lvl/zero])
+                            (c "Nat") (c "instLENat") (e/lit-nat a) (e/lit-nat b)))
+        opts {:result-type (e/sort' lvl/zero)}]
+    (doseq [[expr expected] [[(le 0 1) (c "True")] [(le 2 1) (c "False")]]]
+      (is (= [expr] (normal-form expr [] opts)))
+      (is (= [expected] (normal-form expr [] (assoc opts :only? false :decide? false))))
+      (is (= [expected] (normal-form expr ["Nat.reduceLeDiff"] opts)))))
+  (is (true? (do (eval '(a/theorem literal-nat-order-contradiction
+                         [h :- (<= Nat 2 1)] False (simp at h))) true))))
