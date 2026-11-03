@@ -590,3 +590,16 @@
                     (e/sort' lvl/zero) truth)]
       (is (thrown-with-msg? clojure.lang.ExceptionInfo #"invalid equality proof"
                             (#'simp/close-goal-with-proof ps goal st {:expr truth :proof? h} []))))))
+
+(deftest default-simp-does-not-require-nat-arithmetic-in-a-reduced-environment
+  (doseq [eq? [false true]
+          operation [simp/simp simp/simp-all]]
+    (let [constants (cond-> ["Nat" "Nat.zero" "Nat.succ" "True" "True.intro"]
+                      eq? (into ["Eq" "Eq.refl"]))
+          reduced (reduce (fn [en nm]
+                            (env/add-constant en (env/lookup! (require-env) (name/from-string nm))))
+                          (env/empty-env) constants)
+          [ps _] (proof/start-proof reduced (e/const' (name/from-string "True") []))]
+      (is (proof/solved? (operation ps)))
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Packing lemma dependencies"
+                            (operation ps ['Nat.add_eq]))))))

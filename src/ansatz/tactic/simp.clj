@@ -3220,38 +3220,44 @@
   "Init/Data/Nat/Basic.lean add_eq/sub_eq/mul_eq/le_eq (Lean 55f80e10a3).
    Older Init exports omit these packing theorems. Derive their exact rfl
    statements so default simp and explicit `simp only` retain Lean's normal forms."
-  [env lemma-names]
-  ;; Minimal environments need not contain Nat (and therefore have no packing rules).
-  (if-not (env/lookup env (name/from-string "Nat"))
-    env
-    (reduce
-     (fn [env nm]
-       (let [cn (name/from-string nm)]
-         (if (or (env/lookup env cn) (not (some #(= nm (str %)) lemma-names)))
-           env
-           (let [nat (e/const' (name/from-string "Nat") [])
-                 x (e/bvar 1) y (e/bvar 0)
-                 [op cls method inst] (case nm
-                                        "Nat.add_eq" ["Nat.add" "instHAdd" "HAdd.hAdd" "instAddNat"]
-                                        "Nat.sub_eq" ["Nat.sub" "instHSub" "HSub.hSub" "instSubNat"]
-                                        "Nat.mul_eq" ["Nat.mul" "instHMul" "HMul.hMul" "instMulNat"]
-                                        "Nat.le_eq" ["Nat.le"])
-                 arithmetic? (some? cls)
-                 lhs (e/app* (e/const' (name/from-string op) []) x y)
-                 rhs (if arithmetic?
-                       (e/app* (e/const' (name/from-string method) [lvl/zero lvl/zero lvl/zero])
-                               nat nat nat
-                               (e/app* (e/const' (name/from-string cls) [lvl/zero])
-                                       nat (e/const' (name/from-string inst) [])) x y)
-                       (e/app* (e/const' (name/from-string "LE.le") [lvl/zero])
-                               nat (e/const' (name/from-string "instLENat") []) x y))
-                 carrier (if arithmetic? nat (e/sort' lvl/zero))
-                 u (lvl/succ lvl/zero)
-                 type (e/app* (e/const' eq-name [u]) carrier lhs rhs)
-                 value (e/app* (e/const' eq-refl-name [u]) carrier lhs)
-                 bind (fn [ctor body] (ctor "x" nat (ctor "y" nat body :implicit) :implicit))]
-             (env/check-constant env (env/mk-thm cn [] (bind e/forall' type) (bind e/lam value)))))))
-     env ["Nat.add_eq" "Nat.sub_eq" "Nat.mul_eq" "Nat.le_eq"])))
+  [env lemma-names & [optional?]]
+  (reduce
+   (fn [env nm]
+     (let [cn (name/from-string nm)]
+       (if (or (env/lookup env cn) (not (some #(= nm (str %)) lemma-names)))
+         env
+         (let [nat (e/const' (name/from-string "Nat") [])
+               x (e/bvar 1) y (e/bvar 0)
+               [op cls method inst] (case nm
+                                      "Nat.add_eq" ["Nat.add" "instHAdd" "HAdd.hAdd" "instAddNat"]
+                                      "Nat.sub_eq" ["Nat.sub" "instHSub" "HSub.hSub" "instSubNat"]
+                                      "Nat.mul_eq" ["Nat.mul" "instHMul" "HMul.hMul" "instMulNat"]
+                                      "Nat.le_eq" ["Nat.le"])
+               arithmetic? (some? cls)
+               dependencies (concat ["Nat" "Eq" "Eq.refl" op]
+                                    (if arithmetic? [cls method inst] ["LE.le" "instLENat"]))
+               missing (remove #(env/lookup env (name/from-string %)) dependencies)]
+             ;; Lean's simp set contains only available declarations. Optional packing
+             ;; for trimmed exports must not make unrelated goals require arithmetic.
+           (if (seq missing)
+             (if optional? env
+                 (tactic-error! "Packing lemma dependencies are unavailable"
+                                {:lemma nm :missing (vec missing)}))
+             (let [lhs (e/app* (e/const' (name/from-string op) []) x y)
+                   rhs (if arithmetic?
+                         (e/app* (e/const' (name/from-string method) [lvl/zero lvl/zero lvl/zero])
+                                 nat nat nat
+                                 (e/app* (e/const' (name/from-string cls) [lvl/zero])
+                                         nat (e/const' (name/from-string inst) [])) x y)
+                         (e/app* (e/const' (name/from-string "LE.le") [lvl/zero])
+                                 nat (e/const' (name/from-string "instLENat") []) x y))
+                   carrier (if arithmetic? nat (e/sort' lvl/zero))
+                   u (lvl/succ lvl/zero)
+                   type (e/app* (e/const' eq-name [u]) carrier lhs rhs)
+                   value (e/app* (e/const' eq-refl-name [u]) carrier lhs)
+                   bind (fn [ctor body] (ctor "x" nat (ctor "y" nat body :implicit) :implicit))]
+               (env/check-constant env (env/mk-thm cn [] (bind e/forall' type) (bind e/lam value)))))))))
+   env ["Nat.add_eq" "Nat.sub_eq" "Nat.mul_eq" "Nat.le_eq"]))
 
 (defn- try-close-eq-rfl
   "If expr is Eq T a b where a and b are def-eq, return rfl proof. Else nil."
@@ -3360,8 +3366,11 @@
   "The simp context for `goal`: [ps st env lemma-index config]. `:exclude-hyp` drops that local
    from the contextual / term lemmas (Lean erases the simplified hypothesis itself in `simp at h`)."
   [ps goal lemma-names opts]
-  (let [env (ensure-nat-packing (or (ensure-ble-eq (:env ps)) (:env ps))
-                                (concat (when-not (:only? opts) default-simp-lemmas) lemma-names))
+  (let [env (ensure-nat-packing
+             (if (:only? opts)
+               (or (ensure-ble-eq (:env ps)) (:env ps))
+               (ensure-nat-packing (or (ensure-ble-eq (:env ps)) (:env ps)) default-simp-lemmas true))
+             lemma-names)
          ;; Update proof state with enriched env (e.g., derived Nat.ble_eq)
         ps (if (not (identical? env (:env ps))) (assoc ps :env env) ps)
          ;; attach-lctx (NOT plain assoc): bumps :next-id above the goal's max fvar id so
@@ -3621,8 +3630,11 @@
   [ps lemma-names opts]
   (let [goal (proof/current-goal ps)
         _ (when-not goal (tactic-error! "No goals" {}))
-        env (ensure-nat-packing (or (ensure-ble-eq (:env ps)) (:env ps))
-                                (concat (when-not (:only? opts) default-simp-lemmas) lemma-names))
+        env (ensure-nat-packing
+             (if (:only? opts)
+               (or (ensure-ble-eq (:env ps)) (:env ps))
+               (ensure-nat-packing (or (ensure-ble-eq (:env ps)) (:env ps)) default-simp-lemmas true))
+             lemma-names)
         ps (if (not (identical? env (:env ps))) (assoc ps :env env) ps)
          ;; the inherited @[simp] extension: lazy via the persistent index when present (see simp)
         ext-trie (when-not (:only? opts) (si/ensure-simp-trie! env))

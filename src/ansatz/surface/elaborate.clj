@@ -1155,10 +1155,16 @@
     ;; A bare symbol in term position: insert its implicit/instance arguments
     ;; (as Lean does for any term, not only application heads) so e.g. List.nil
     ;; becomes List.nil.{?u} ?α rather than the under-applied bare constant.
-      (let [{:keys [expr explicit?]} (resolve-symbol est sexpr)]
-        (if explicit?
-          expr
-          (first (insert-implicits est expr (infer-with-mvars est expr)))))
+      (if (and (contains? #{'+ '- '*} sexpr) (not (bound-name? est sexpr)))
+        ;; Extra.toTree processes only syntactic binary notation as binop%; an
+        ;; operator in value position is its class method with implicit arguments.
+        (let [T (e/const' (name/from-string "Nat") [])
+              [cls method] (hop-table (str sexpr))]
+          (elab-hop est cls method T T T))
+        (let [{:keys [expr explicit?]} (resolve-symbol est sexpr)]
+          (if explicit?
+            expr
+            (first (insert-implicits est expr (infer-with-mvars est expr))))))
 
       (seq? sexpr)
       (let [head (first sexpr)

@@ -44,3 +44,19 @@ example (n : Nat) (xs : SizedList) : sizeOf (SizedList.cons n xs) = 1 + n + size
 example (P : Nat → Prop) (j : Nat) (h : P (Nat.succ j))
     (ih : ∀ k, P k → True) : True := by
   exact ih (j + 1) h
+
+-- A value-position operator is the class method, not binary notation's binop% tree.
+def natAddValue : Nat → Nat → Nat := HAdd.hAdd
+def natSubValue : Nat → Nat → Nat := HSub.hSub
+def natMulValue : Nat → Nat → Nat := HMul.hMul
+#guard [2, 3].map (natAddValue 5) == [7, 8]
+#guard [2, 3].map (natSubValue 5) == [3, 2]
+#guard [2, 3].map (natMulValue 5) == [10, 15]
+#guard [5, 2].foldl natAddValue 10 == 17
+#guard [5, 2].foldl natSubValue 10 == 3
+#guard [5, 2].foldl natMulValue 10 == 100
+
+example (P : Prop) (xs : List Nat) (hd j v : Nat)
+    (h : xs[j]? = some v)
+    (ih : ∀ (k value : Nat), (hd :: xs)[k]? = some value → P) : P := by
+  exact ih (j + 1) v h

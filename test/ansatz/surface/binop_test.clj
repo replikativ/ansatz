@@ -6,12 +6,16 @@
   Mathlib half (`(mul Real …)`, `OfNat` at a field) is exercised by
   `ansatz.theory.convergence-test`; here we pin the parts a plain Init env can see — the
   Nat/Int class operators, n-ary folding, and compatibility with hand-built kernel operations."
-  (:require [clojure.test :refer [deftest testing is use-fixtures]]
+  (:require [clojure.walk]
+            [clojure.test :refer [deftest testing is use-fixtures]]
             [ansatz.core :as a]
             [ansatz.kernel.expr :as e]
             [ansatz.kernel.level :as lvl]
             [ansatz.surface.elaborate :as el]
             [ansatz.codegen :as cg]
+            [ansatz.tactic.proof :as proof]
+            [ansatz.tactic.basic :as basic]
+            [ansatz.tactic.simp :as simp]
             [ansatz.kernel.env]
             [ansatz.kernel.name]))
 
@@ -128,31 +132,73 @@
         (is (= (((eval concrete) x) y) (((eval surface) x) y)))))))
 
 (deftest simp-packs-concrete-nat-operations
-  (binding [a/*verbose* false]
-    (doseq [[primitive op lemma] [['Nat.add '+ 'Nat.add_eq]
-                                  ['Nat.sub '- 'Nat.sub_eq]
-                                  ['Nat.mul '* 'Nat.mul_eq]]]
-      ;; Exercise the public tactics with a packed-form hypothesis. The structural
-      ;; rewrite direction is checked independently in simp-edge-test.
-      (doseq [tactics [[(list 'simp 'only [lemma]) '(assumption)]
-                       ['(simp) '(assumption)]]]
-        (a/prove-theorem (gensym "packNat")
-                         (vector 'f ':- '(arrow Nat Nat) 'x ':- 'Nat 'y ':- 'Nat
-                                 'h ':- (list '= 'Nat (list 'f (list op 'x 'y)) 7))
-                         (list '= 'Nat (list 'f (list primitive 'x 'y)) 7)
-                         tactics)))))
+  (doseq [[primitive method lemma] [['Nat.add "HAdd.hAdd" 'Nat.add_eq]
+                                    ['Nat.sub "HSub.hSub" 'Nat.sub_eq]
+                                    ['Nat.mul "HMul.hMul" 'Nat.mul_eq]]
+          only? [false true]]
+    (let [target (el/elaborate (a/env)
+                               (list 'forall '[f (arrow Nat Nat) x Nat y Nat]
+                                     (list '= 'Nat (list 'f (list primitive 'x 'y)) 7)))
+          [ps _] (proof/start-proof (a/env) target)
+          ps (basic/intros ps ["f" "x" "y"])
+          before (e/->string (:type (proof/current-goal ps)))
+          ps (simp/simp ps (if only? [lemma] []) {:only? only?})
+          after (e/->string (:type (proof/current-goal ps)))]
+      ;; No hypothesis or reflexive goal can close this proof independently of simp.
+      (is (.contains before (str primitive)))
+      (is (.contains after method))
+      (is (not (.contains after (str primitive)))))))
 
-(deftest nat-arithmetic-reduces-in-dependent-application-arguments
-  (binding [a/*verbose* false]
-    ;; The proof argument needs (+ j 1) reduced while the surrounding application
-    ;; is still elaborating, before final instance synthesis.
-    (a/prove-theorem 'dependentNatIndex
-                     '[P :- (arrow Nat Prop), j :- Nat,
-                       h :- (P (Nat.succ j)),
-                       ih :- (forall [k :- Nat] (arrow (P (Nat.succ k)) True))]
-                     'True '[(exact (ih j h))])
-    (a/prove-theorem 'dependentNatArithmetic
-                     '[P :- (arrow Nat Prop), j :- Nat,
-                       h :- (P (Nat.succ j)),
-                       ih :- (forall [k :- Nat] (arrow (P k) True))]
-                     'True '[(exact (ih (+ j 1) h))])))
+(deftest nat-instance-is-ready-before-dependent-argument-checking
+  (let [target (el/elaborate
+                (a/env)
+                '(forall [P Prop xs (List Nat) hd Nat j Nat v Nat
+                          h (= (Option Nat) (List.get?Internal xs j) (Option.some Nat v))
+                          ih (forall [k Nat value Nat]
+                                     (arrow (= (Option Nat) (List.get?Internal (List.cons Nat hd xs) k)
+                                               (Option.some Nat value)) P))] P))
+        [ps _] (proof/start-proof (a/env) target)
+        ps (basic/intros ps ["P" "xs" "hd" "j" "v" "h" "ih"])
+        ;; Inspect the application BEFORE strict/collecting finalization can synthesize
+        ;; pending instances. A completed theorem alone does not establish this timing.
+        ready? (fn []
+                 (let [est (#'el/attach-elab-lctx (#'el/mk-elab-state (a/env))
+                                                  (:lctx (proof/current-goal ps)))
+                       partial (#'el/elab-term est '(ih (+ j 1) v))
+                       index (first (e/get-app-args partial))
+                       pending? (#'el/has-unsolved-mvar? est index)
+                       term (#'el/elab-term est '(ih (+ j 1) v h))]
+                   (is (= "HAdd.hAdd" (ansatz.kernel.name/->string (e/const-name (e/get-app-fn index)))))
+                   (is (e/app? term))
+                   (not pending?)))
+        postponed-hop (fn [est cls method A B C & args]
+                        (let [u (#'el/type-sort-level est A)
+                              v (#'el/type-sort-level est B)
+                              w (#'el/type-sort-level est C)
+                              goal (e/app* (e/const' (ansatz.kernel.name/from-string cls) [u v w]) A B C)]
+                          (apply e/app* (e/const' (ansatz.kernel.name/from-string method) [u v w])
+                                 A B C (#'el/inst-mvar! est goal) args)))]
+    (is (ready?) "the instance must be ready while checking subsequent dependent arguments")
+    (with-redefs-fn {#'el/elab-hop postponed-hop}
+      #(is (not (ready?)) "control: disabling eager synthesis fails the readiness requirement"))))
+
+(deftest nat-operator-values-preserve-primitive-calling-conventions
+  (let [compile-form #(eval (cg/ansatz->clj (a/env) (el/elaborate (a/env) %) []))
+        outcome (fn [f args]
+                  (try
+                    (let [v (apply f args)]
+                      (if (fn? v) [:partial (v 2)] [:value v]))
+                    (catch clojure.lang.ArityException _ :arity-error)))]
+    (doseq [[op primitive] [['+ 'Nat.add] ['- 'Nat.sub] ['* 'Nat.mul]]
+            [form concrete] [[op primitive] [(list op) (list primitive)]
+                             [(list op 5) (list primitive 5)]]
+            args [[] [5] [5 2] [5 2 3]]]
+      (is (= (outcome (compile-form concrete) args) (outcome (compile-form form) args))
+          (pr-str [form args])))
+    (doseq [[op primitive] [['+ 'Nat.add] ['- 'Nat.sub] ['* 'Nat.mul]]]
+      (let [f (compile-form (list op))]
+        (is (= (f 5 2) ((f 5) 2)))
+        (doseq [form [(list 'List.foldl op 10 '(List.cons Nat 5 (List.cons Nat 2 (List.nil Nat))))
+                      (list 'List.map (list op 5) '(List.cons Nat 2 (List.cons Nat 3 (List.nil Nat))))]]
+          (let [concrete (clojure.walk/postwalk-replace {op primitive} form)]
+            (is (= (compile-form concrete) (compile-form form)))))))))

@@ -107,6 +107,19 @@
     (let [[h _] (e/get-app-fn-args (first args))]
       (when (e/const? h) (name/->string (e/const-name h))))))
 
+(clojure.core/defn- eta-expanded-strict?
+  "Lean/Expr.lean etaExpandedStrict? (Lean 4.33.1), for closed instance fields."
+  [expr]
+  (when (e/lam? expr)
+    (let [[body n] (loop [body expr n 0]
+                     (if (e/lam? body) (recur (e/lam-body body) (inc n)) [body n]))]
+      (loop [body body i 0]
+        (if (= i n)
+          (when-not (e/has-loose-bvars? body) body)
+          (when (and (e/app? body) (e/bvar? (e/app-arg body))
+                     (= i (e/bvar-idx (e/app-arg body))))
+            (recur (e/app-fn body) (inc i))))))))
+
 (clojure.core/defn- hop
   "Compile an H-op's actual instance field. Carrier names never establish which
    implementation an instance contains. All H* classes here have one field."
@@ -120,9 +133,10 @@
       (let [hn (name/->string (e/const-name head))
             cls (subs hn 0 (.lastIndexOf ^String hn "."))
             field (e/proj (name/from-string cls) 0 (nth args 3))
-            op (runtime-instance-op env field)]
-        ;; Standard instances eta-wrap their primitive. Apply those lambdas before
-        ;; lowering so class and concrete spellings emit the same runtime operation.
+            op (runtime-instance-op env field)
+            op (or (eta-expanded-strict? op) op)]
+        ;; Expose the primitive's flat/curried value contract through standard eta
+        ;; wrappers; beta-apply any remaining custom implementation to supplied operands.
         (ansatz->clj env (beta-apply op (drop 4 args)) names)))))
 
 (clojure.core/defn- bi-const "App handler for a nullary constant." [v] (fn [_ _ _ _ _] v))
