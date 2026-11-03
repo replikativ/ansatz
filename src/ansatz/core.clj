@@ -261,35 +261,46 @@
       (parser/parse-ndjson-string text)
       (fn [parsed] (:env (replay/replay (:decls parsed) :verify? verify? :stop-on-error? true))))))
 
-(clojure.core/defn- init!-bundled-medium! []
+(clojure.core/defn- activate-bundled-medium! [verify?]
+  ;; Lean v4.33.1 Environment.lean importModulesCore deduplicates module identities;
+  ;; importModules/finalizeImport build a fresh base. Retaining an already activated
+  ;; base here is the interactive API adaptation, not additive module importing.
   (bundle/with-verified
     (fn [manifest]
       (bundle/assert-consumable!)
-      (let [loaded (-> (bundled-medium-env false)
-                       (env/with-extension :bundled-artifacts manifest)
-                       (env/with-extension artifact-profile/extension-key (artifact-profile/bundled manifest)))]
-        (setup-env! loaded)
-        (println (str "Ansatz: loaded the bundled medium Init tier ("
-                      (.size ^ansatz.kernel.Env @ansatz-env) " declarations, TRUST mode).\n"
-                      "  For the full Init or Mathlib, build a durable store and call "
-                      "(init! \"init\") / (init! \"mathlib\")."))
-        :medium))))
+      (locking state/session-lock
+        (if (and @ansatz-env
+                 (= manifest (env/get-extension @ansatz-env :bundled-artifacts)))
+          (do
+            ;; Check in isolation, including after TRUST admission. Do not rebuild
+            ;; session metadata/caches or relabel the original admission mode.
+            (when verify? (bundled-medium-env true))
+            @ansatz-env)
+          (let [loaded (-> (bundled-medium-env verify?)
+                           (env/with-extension :bundled-artifacts manifest)
+                           (env/with-extension artifact-profile/extension-key
+                             (artifact-profile/bundled manifest verify?)))]
+            (setup-env! loaded)
+            @ansatz-env))))))
+
+(clojure.core/defn- init!-bundled-medium! []
+  (activate-bundled-medium! false)
+  (println (str "Ansatz: loaded the bundled medium Init tier ("
+                (.size ^ansatz.kernel.Env @ansatz-env) " declarations).\n"
+                "  For the full Init or Mathlib, build a durable store and call "
+                "(init! \"init\") / (init! \"mathlib\")."))
+  :medium)
 
 (clojure.core/defn load-init!
-  "Load the bundled Init export and companion metadata after integrity and
-   consumer preflight. Replay in TRUST mode by default; `:verify? true`
-   rechecks every declaration and stops on an error. The manifest's producer and
-   the actual replay mode remain visible on the immutable Env."
+  "Activate bundled Init after integrity and consumer preflight. The same full
+   manifest on the active immutable Env preserves that Env and the entire session.
+   A different base replaces the session. TRUST replay is the default.
+   `:verify? true` always rechecks the bundle in isolation, stopping on error;
+   an existing session and its original admission profile remain unchanged."
   [& {:keys [verify?] :or {verify? false}}]
-  (bundle/with-verified
-    (fn [manifest]
-      (bundle/assert-consumable!)
-      (let [loaded (-> (bundled-medium-env verify?)
-                       (env/with-extension :bundled-artifacts manifest)
-                       (env/with-extension artifact-profile/extension-key (artifact-profile/bundled manifest verify?)))]
-        (setup-env! loaded)
-        (when *verbose* (println "Ansatz: Init loaded —" (.size ^ansatz.kernel.Env @ansatz-env) "declarations"))
-        @ansatz-env))))
+  (let [loaded (activate-bundled-medium! verify?)]
+    (when *verbose* (println "Ansatz: Init loaded —" (.size ^ansatz.kernel.Env loaded) "declarations"))
+    loaded))
 
 (clojure.core/defn load-export!
   "Load a lean4export NDJSON file (one library's export, e.g. a dependency closure) as the

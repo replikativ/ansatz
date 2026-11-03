@@ -12,7 +12,8 @@
   Surface-syntax notes: `->` is clojure.core's threading macro, so implications are written
   `=>`, `→` or `arrow` (all n-ary)."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
-            [ansatz.core :as a]))
+            [ansatz.core :as a]
+            [ansatz.kernel.env :as env]))
 
 (def ^:private model
   '[(ansatz.core/structure Own [] (ent Nat) (scope Nat))
@@ -42,6 +43,7 @@
 ;; that same test, in order.
 (use-fixtures :each
   (fn [f]
+    (reset! a/ansatz-env (env/empty-env))
     (a/load-init!)
     (binding [a/*verbose* false
               *ns* (the-ns 'ansatz.memory-model-probe-test)]
