@@ -488,6 +488,15 @@
                             (into [child-id] (remove #{child-id} gs))))
            (proof/record-tactic :intro [binder-name] (:id goal)))))))
 
+(defn intro-preserving-name
+  "Lean introNP: reintroduce a reverted local with its full scoped user name."
+  [ps original]
+  (let [ps (intro ps (:name original))
+        g (proof/current-goal ps)
+        fid (last (keys (:lctx g)))]
+    (update ps :meta-mctx meta/set-expr-mvar-lctx (:id g)
+            (update (:lctx g) fid red/preserve-user-name original))))
+
 (declare apply-tac)
 
 (defn- funext-sort-lvl
@@ -1026,8 +1035,7 @@
                                         (str (:name (get (:lctx goal) hyp-id)) "✝"))
                               (dissoc (:lctx goal) hyp-id))
                             (add-local new-id (:name (get (:lctx goal) hyp-id)) new-goal-type)
-                            (assoc-in [new-id :inaccessible]
-                                      (get-in goal [:lctx hyp-id :inaccessible])))
+                            (update new-id red/preserve-user-name (get-in goal [:lctx hyp-id])))
                         (:lctx goal))
            [ps'' child-id] (proof/fresh-mvar-replacing ps'
                                                        (if hyp-id (:type goal) new-goal-type) child-lctx (:id goal))
@@ -1503,7 +1511,7 @@
                             {:variables user-generalizing}))]
      (if (empty? generalized)
        (induction-core ps hyp-fvar-id)
-       (let [names (mapv #(:name (red/lctx-lookup lctx %)) generalized)
+       (let [decls (mapv #(red/lctx-lookup lctx %) generalized)
              ;; revert innermost first, so no remaining local mentions a reverted one
              ps (reduce revert ps (rseq generalized))
              n-before (count (:goals ps))
@@ -1513,7 +1521,7 @@
          (let [[ps children]
                (reduce (fn [[ps children] alt-id]
                          (let [ps (move-goals-to-front ps [alt-id])
-                               ps (reduce intro ps names)]
+                               ps (reduce intro-preserving-name ps decls)]
                            [ps (conj children (first (:goals ps)))]))
                        [ps []] alt-ids)]
            (move-goals-to-front ps children)))))))
@@ -1847,16 +1855,7 @@
          full-term (reduce e/app rec-term (map e/fvar dependent-fids))
          ps (-> (proof/assign-mvar ps (:id goal) {:kind :subst :full-term full-term :child child})
                 (proof/record-tactic :subst [hyp-fvar-id] (:id goal)))]
-     ;; Lean substCore reintroduces the original user names, including scopes.
-     (reduce (fn [ps fid]
-               (let [ps (intro ps)
-                     g (proof/current-goal ps)
-                     new-id (last (keys (:lctx g)))]
-                 (if (get-in lctx [fid :inaccessible])
-                   (update ps :meta-mctx meta/set-expr-mvar-lctx (:id g)
-                           (assoc-in (:lctx g) [new-id :inaccessible] true))
-                   ps)))
-             ps dependent-fids))))
+     (reduce intro-preserving-name ps (mapv #(get lctx %) dependent-fids)))))
 
 (defn subst-vars
   "Lean 4 `subst_vars`: repeatedly substitute every hypothesis that is a *variable*
@@ -2746,7 +2745,8 @@
     (update ps :meta-mctx meta/set-expr-mvar-lctx (:id g)
             (-> (:lctx g)
                 (assoc-in [fid :name] (str nm))
-                (assoc-in [fid :inaccessible] false)))))
+                (assoc-in [fid :inaccessible] false)
+                (update fid dissoc :user-name-scope)))))
 
 (defn- rcases-map-goals [ps f]
   ;; Process just these goals, in order, retaining all descendants of each.
@@ -3195,9 +3195,9 @@
              ;; splitLocalDecl? reverts the local and its forward dependents,
              ;; applies the matcher splitter, then reintroduces the telescope.
              (let [ids (sort (cons fid (induction-fvars-to-generalize (:lctx g) [fid])))
-                   names (mapv #(get-in g [:lctx % :name]) ids)
+                   decls (mapv #(get-in g [:lctx %]) ids)
                    ps (reduce revert ps (reverse ids))]
-               (all-goals (split-matcher ps tgt) #(intros % names))))]
+               (all-goals (split-matcher ps tgt) #(reduce intro-preserving-name % decls))))]
     (update ps :goals into (remove #(proof/mvar-assigned? ps %) siblings))))
 
 (defn split-at-wildcard

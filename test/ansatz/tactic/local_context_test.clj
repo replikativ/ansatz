@@ -133,3 +133,70 @@
     (is (nil? (red/find-from-user-name? (:lctx g) (:name ignored))))
     (is (some? (extract/verify (-> ps (a/run-tactic '(rename_i hf))
                                   (a/run-tactic '(exact hf))))))))
+
+(deftest elimination-preserves-dependent-scoped-names
+  (doseq [tactic '[(cases n) (induction n)]]
+    (let [ty (elab/elaborate (a/env) '(forall [n :- Nat] (=> (= n n) True)))
+          [ps _] (proof/start-proof (a/env) ty)
+          ps (-> ps (a/run-tactic '(intro n)) (a/run-tactic '(intro)))
+          original (last (vals (:lctx (proof/current-goal ps))))
+          ps (a/run-tactic ps tactic)]
+      (doseq [g (proof/goals ps)]
+        (let [reintroduced (first (filter #(= (:name original) (:name %)) (vals (:lctx g))))]
+          (is (:inaccessible reintroduced))
+          (is (= (red/user-name-key original) (red/user-name-key reintroduced)))
+          (is (nil? (red/find-from-user-name? (:lctx g) (:name original))))))
+      (is (some? (extract/verify
+                  (basic/all-goals ps #(-> % (a/run-tactic '(rename_i eqn))
+                                          (a/run-tactic '(exact True.intro))))))))))
+
+(deftest substitution-preserves-dependent-scoped-names
+  (doseq [tactic '[(cases eqn) (subst eqn)]]
+    (let [ty (elab/elaborate (a/env)
+                            '(forall [n :- Nat, m :- Nat, eqn :- (= n m)] (=> (= n n) True)))
+          [ps _] (proof/start-proof (a/env) ty)
+          ps (-> ps (basic/intros ["n" "m" "eqn"]) (a/run-tactic '(intro)))
+          original (last (vals (:lctx (proof/current-goal ps))))
+          ps (a/run-tactic ps tactic)
+          g (proof/current-goal ps)
+          reintroduced (first (filter #(= (:name original) (:name %)) (vals (:lctx g))))]
+      (is (:inaccessible reintroduced))
+      (is (= (red/user-name-key original) (red/user-name-key reintroduced)))
+      (is (nil? (red/find-from-user-name? (:lctx g) (:name original))))
+      (is (some? (extract/verify (-> ps (a/run-tactic '(rename_i hidden))
+                                    (a/run-tactic '(exact True.intro)))))))))
+
+(deftest rename-inaccessibles-compares-full-names
+  (let [ty (elab/elaborate (a/env)
+                          (list 'forall '[p :- Prop, d :- (Decidable p), h :- False]
+                                (list '= 'Nat (list (symbol "@ite") 'Nat 'p 'd 0 1) 0)))
+        [ps _] (proof/start-proof (a/env) ty)
+        ps (basic/intros ps ["p" "d" "h"])
+        original (red/find-from-user-name? (:lctx (proof/current-goal ps)) 'h)
+        ps (a/run-tactic ps '(split))]
+    (doseq [g (proof/goals ps)]
+      (let [branch (assoc ps :goals [(:id g)])]
+        (is (thrown-with-msg? clojure.lang.ExceptionInfo #"too many"
+                             (a/run-tactic branch '(rename_i old new))))
+        (let [renamed (a/run-tactic branch '(rename_i condition))]
+          (is (= (:id original) (:id (red/find-from-user-name? (:lctx (proof/current-goal renamed)) 'h)))))))
+    (is (some? (extract/verify (basic/all-goals ps #(-> % (a/run-tactic '(rename_i condition))
+                                                       (a/run-tactic '(cases h)))))))))
+
+(deftest located-matcher-split-preserves-reverted-scoped-names
+  (let [ty (elab/elaborate (a/env)
+                          '(forall [b :- Bool]
+                                   (=> (= Nat (List.filter.match_1 (fn [x :- Bool] Nat) b
+                                                                  (fn [u :- Unit] 0) (fn [u :- Unit] 1)) 0)
+                                       True)))
+        [ps _] (proof/start-proof (a/env) ty)
+        ps (-> ps (a/run-tactic '(intro b)) (a/run-tactic '(intro)))
+        original (last (vals (:lctx (proof/current-goal ps))))
+        ps (basic/split-local-decl ps (:id original))]
+    (doseq [g (proof/goals ps)]
+      (let [reintroduced (first (filter #(= (:name original) (:name %)) (vals (:lctx g))))]
+        (is (:inaccessible reintroduced))
+        (is (= (red/user-name-key original) (red/user-name-key reintroduced)))))
+    (is (some? (extract/verify
+                (basic/all-goals ps #(-> % (a/run-tactic '(rename_i eqn))
+                                        (a/run-tactic '(exact True.intro)))))))))

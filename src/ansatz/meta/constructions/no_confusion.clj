@@ -59,7 +59,7 @@
                             [new-locals subst]
                             (reduce (fn [[vs subst] v]
                                       (let [d (u/decl ctx v)
-                                            v' (u/local-decl ctx (:name d) (u/replace-fvars (:type d) subst) (:info d))]
+                                            v' (u/local-decl-preserving-name ctx d (u/replace-fvars (:type d) subst))]
                                         [(conj vs v') (conj subst [v v'])]))
                                     [[] [[y x]]] generalized)
                             next-ys (mapv #(u/replace-fvars % subst) rest-ys)

@@ -23,6 +23,10 @@
    (let [id (swap! (:next-id @ctx) inc)]
      (swap! ctx update :lctx assoc id {:tag :local :id id :name n :type t :info info})
      (e/fvar id))))
+(defn local-decl-preserving-name [ctx original type]
+  (let [x (local-decl ctx (:name original) type (:info original))]
+    (swap! ctx update-in [:lctx (e/fvar-id x)] red/preserve-user-name original)
+    x))
 (defn decl [ctx x] (get (:lctx @ctx) (e/fvar-id x)))
 (defn forall-telescope
   ([ctx t] (forall-telescope ctx t nil))

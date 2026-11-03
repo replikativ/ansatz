@@ -9,6 +9,7 @@
             [ansatz.kernel.name :as name]
             [ansatz.kernel.level :as lvl]
             [ansatz.kernel.tc :as tc]
+            [ansatz.kernel.reduce :as red]
             [ansatz.meta :as meta]
             [ansatz.meta.fvar-subst :as subst]
             [ansatz.meta.constructions.util :as u]
@@ -123,7 +124,7 @@
         (let [[new-ds s]
               (reduce (fn [[xs s] old]
                         (let [d (get lctx old)
-                              x (u/local-decl ctx (:name d) (subst/apply s (:type d)) (:info d))]
+                              x (u/local-decl-preserving-name ctx d (subst/apply s (:type d)))]
                           [(conj xs x) (subst/insert s old x)])) [[] base-subst] deps)
               child (fresh-mvar! ctx (subst/apply s target-new))
               minor (mk-lambda-fvars ctx new-ds (e/mvar child))
@@ -217,6 +218,10 @@
                     (let [[vs body] (intro-n ctx minor-type (+ (.numFields ct) (count deps)))
                           fields (subvec vs 0 (.numFields ct))
                           extra (subvec vs (.numFields ct))
+                          ;; Induction.finalize uses introNP for reverted dependents.
+                          _ (doseq [[old new] (map vector deps extra)]
+                              (swap! ctx update-in [:lctx (e/fvar-id new)]
+                                     red/preserve-user-name (get lctx old)))
                           ctor-app (u/app (e/const' ctor-name us) (concat params fields))
                           ret-args (e/get-app-args (u/whnf ctx (u/infer-type ctx ctor-app)))
                           s (reduce (fn [s [old new]] (subst/insert s old new)) {}
@@ -238,7 +243,7 @@
         np (.numParams ind) indices (subvec args np)
         ia (u/app f (subvec args 0 np))
         [new-indices _] (u/forall-telescope ctx (u/infer-type ctx ia) (.numIndices ind))
-        new-x (u/local-decl ctx (:name (get (:lctx @ctx) major)) (u/app ia new-indices))
+        new-x (u/local-decl-preserving-name ctx (get (:lctx @ctx) major) (u/app ia new-indices))
         pairs (mapv vector (conj indices x) (conj new-indices new-x))
         eqs (mapv (fn [[a b]] (u/local-decl ctx "h" (u/mk-eq-heq ctx a b))) pairs)
         refls (mapv (fn [[a b]]

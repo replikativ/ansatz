@@ -88,3 +88,54 @@ example (h : True ∧ False) : False := by
   rcases h with ⟨ht, _⟩
   rename_i hf
   exact hf
+
+example (n : Nat) : n = n → True := by
+  intro
+  cases n
+  all_goals
+    rename_i eqn
+    trivial
+
+example (n : Nat) : n = n → True := by
+  intro
+  induction n
+  all_goals
+    rename_i eqn
+    trivial
+
+example (n m : Nat) (eqn : n = m) : n = n → True := by
+  intro
+  cases eqn
+  rename_i hidden
+  trivial
+
+example (n m : Nat) (eqn : n = m) : n = n → True := by
+  intro
+  subst eqn
+  rename_i hidden
+  trivial
+
+example (p : Prop) (d : Decidable p) (h : False) : @ite Nat p d 0 1 = 0 := by
+  split
+  all_goals
+    rename_i condition
+    cases h
+
+/--
+error: too many variable names provided
+---
+error: too many variable names provided
+-/
+#guard_msgs in
+example (p : Prop) (d : Decidable p) (h : False) : @ite Nat p d 0 1 = 0 := by
+  split
+  all_goals
+    rename_i old new
+    cases h
+
+example (b : Bool) : (match b with | false => 0 | true => 1) = 0 → True := by
+  intro
+  split at *
+  all_goals
+    rename_i eqn
+    trivial

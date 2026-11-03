@@ -926,7 +926,8 @@
   (let [lctx (reduce (fn [ctx [fid nm]]
                        (if (or (nil? fid) (= '_ nm)) ctx
                            (-> ctx (assoc-in [fid :name] (str nm))
-                               (assoc-in [fid :inaccessible] false))))
+                               (assoc-in [fid :inaccessible] false)
+                               (update fid dissoc :user-name-scope))))
                      (proof/mvar-lctx ps gid) (map vector fields names))]
     (update ps :meta-mctx meta/set-expr-mvar-lctx gid lctx)))
 
@@ -1196,9 +1197,9 @@
                             (throw (ex-info "Tactic error: No goals" {:kind :tactic-error})))
                       [fields _] (reduce (fn [[ids seen] [fid d]]
                                            [(cond-> ids
-                                              (or (:inaccessible d) (contains? seen (:name d)))
+                                              (or (:inaccessible d) (contains? seen (red/user-name-key d)))
                                               (conj fid))
-                                            (conj seen (:name d))])
+                                            (conj seen (red/user-name-key d))])
                                          [[] #{}] (reverse (sort-by key (:lctx g))))]
                   (if (every? #{'_} names) ps
                       (rename-branch-locals ps (:id g)

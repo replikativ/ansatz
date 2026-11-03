@@ -37,6 +37,19 @@
             (assoc decl :id id)))
         (rseq (ordered-lctx lctx))))
 
+(defn user-name-key
+  "Lean Name equality includes macro scopes, not only the printed base name."
+  [decl]
+  [(:name decl) (when (:inaccessible decl) (or (:user-name-scope decl) (:id decl)))])
+
+(defn preserve-user-name
+  "Lean introNP preserves the original complete user name across reintroduction."
+  [decl original]
+  (cond-> (assoc (dissoc decl :user-name-scope)
+                :name (:name original) :inaccessible (boolean (:inaccessible original)))
+    (:inaccessible original)
+    (assoc :user-name-scope (second (user-name-key original)))))
+
 (defn empty-lctx [] (sorted-map))
 
 (defn lctx-add-local

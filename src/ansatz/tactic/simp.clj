@@ -3479,8 +3479,7 @@
          ;; then introduce the named replacement. The original remains in scope
          ;; when used by the target or later local types/values.
          child-lctx (assoc (:lctx goal) new-id
-                           (merge {:tag :local :id new-id :name (:name decl) :type new-type}
-                                  (select-keys decl [:inaccessible])))
+                           (red/preserve-user-name {:tag :local :id new-id :type new-type} decl))
          [ps child-id] (proof/fresh-mvar ps (:type goal) child-lctx)
          ps (-> (update ps :goals #(into [child-id] (remove #{child-id} %)))
                 (proof/assign-mvar (:id goal) {:kind :simp-all-hyps :replacements [rep] :child child-id})
@@ -3689,6 +3688,7 @@
                                [nil nil]))
                            [nil nil])]
                      (conj acc {:old-fvar-id id :name (:name decl) :inaccessible (:inaccessible decl)
+                                :user-name-scope (second (red/user-name-key decl))
                                 :old-type (:type decl) :new-type (:expr result)
                                    ;; proof-consistent types for extraction
                                 :proof-old-type (or proof-old (:type decl))
@@ -3735,12 +3735,13 @@
                  ;; Build new lctx: keep originals, add simplified versions
                  ;; Use distinct names (append ') to avoid name collision with
                  ;; originals — otherwise sexp->ansatz name lookup picks the wrong one
-              new-lctx (reduce (fn [lctx {:keys [new-fvar-id name new-type inaccessible]}]
+              new-lctx (reduce (fn [lctx {:keys [new-fvar-id name new-type inaccessible user-name-scope]}]
                                  (if (true-const? new-type)
                                    lctx
                                    (assoc lctx new-fvar-id
                                           {:tag :local :id new-fvar-id
-                                           :name (str name "'") :type new-type :inaccessible inaccessible})))
+                                           :name (str name "'") :type new-type :inaccessible inaccessible
+                                           :user-name-scope user-name-scope})))
                                lctx
                                replacements')
               _ (when *simp-all-superseded*
