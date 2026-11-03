@@ -251,8 +251,9 @@
                              :saw-error? true
                              :first-error (or (:first-error acc)
                                               (let [diagnostic (diagnostics/mvar-diagnostic
+                                                                  (:env ps)
                                                                   (meta/set-expr-mvar-inst-implicit (:meta-mctx ps) mvar-id true)
-                                                                  mvar-id)]
+                                                                  mvar-id {:synthesis-failure? true})]
                                                 (ex-info (str "Tactic error: " tactic-name ": " (:message diagnostic))
                                                          (assoc diagnostic :kind :tactic-error))))
                              :postponed (conj (:postponed acc) [mvar-id :inst-implicit])))))
@@ -592,8 +593,8 @@
         visible-holes (vec visible-holes)]
     (when (seq visible-holes)
       (let [diagnostics (mapv telab/hole-diagnostic visible-holes)
-            diagnostic (or (diagnostics/first-instance-diagnostic (:meta-mctx ps) (map :id visible-holes))
-                           (diagnostics/mvar-diagnostic (:meta-mctx ps) (:id (first visible-holes))))]
+            diagnostic (or (diagnostics/first-instance-diagnostic (:env ps) (:meta-mctx ps) (map :id visible-holes))
+                           (diagnostics/mvar-diagnostic (:env ps) (:meta-mctx ps) (:id (first visible-holes))))]
         (tactic-error! (str "exact: "
                             (:message diagnostic)
                             "\n"
@@ -1569,8 +1570,8 @@
 (defn- reject-inline-have-holes! [ps tactic-name visible-holes]
   (when (seq visible-holes)
     (let [diagnostics (mapv telab/hole-diagnostic visible-holes)
-          diagnostic (or (diagnostics/first-instance-diagnostic (:meta-mctx ps) (map :id visible-holes))
-                         (diagnostics/mvar-diagnostic (:meta-mctx ps) (:id (first visible-holes))))]
+          diagnostic (or (diagnostics/first-instance-diagnostic (:env ps) (:meta-mctx ps) (map :id visible-holes))
+                         (diagnostics/mvar-diagnostic (:env ps) (:meta-mctx ps) (:id (first visible-holes))))]
       (tactic-error! (str tactic-name ": "
                           (:message diagnostic)
                           "\n"

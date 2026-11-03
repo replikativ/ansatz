@@ -71,3 +71,54 @@
                                        '(forall [A Type x A]
                                                 (arrow (<= x x) (< x x)))))]
     (is (= (name/from-string "LE") (:class (ex-data error))))))
+
+(deftest output-metavariables-do-not-make-synthesis-stuck
+  (let [error (failure #(elab/elaborate (a/env) '(HAdd.hAdd Bool.false Bool.false)))]
+    (is (re-find #"failed to synthesize" (or (ex-message error) "")))
+    (is (= :failed-instance (:problem (ex-data error))))
+    (is (= (name/from-string "HAdd") (:class (ex-data error)))))
+  (a/defn diagnostic-consume [A :- Type :implicit x :- A q :- Prop] Nat 0)
+  (let [error (failure #(elab/elaborate (a/env)
+                                       '(forall [A Type x A]
+                                                (= (diagnostic-consume (HAdd.hAdd Bool.false Bool.false)
+                                                                       (LE.le x x)) 0))))]
+    (is (= :failed-instance (:problem (ex-data error))))
+    (is (= (name/from-string "HAdd") (:class (ex-data error))))))
+
+(deftest direct-apply-reports-synthesis-failure-for-unknown-inputs
+  ;; Meta.synthInstance reports failure even when its inputs are stuck; compound
+  ;; apply terms instead use Elab.reportStuckSyntheticMVar (covered above).
+  (let [error (failure #(a/prove-law [] 'Prop '[(apply LE.le)]))]
+    (is (re-find #"apply: failed to synthesize" (or (ex-message error) "")))
+    (is (= :failed-instance (:problem (ex-data error))))
+    (is (= (name/from-string "LE") (:class (ex-data error))))
+    (is (= :synthetic (:mvar-kind (ex-data error))))))
+
+(deftest stuck-problems-prefer-the-smallest-syntax-range
+  (a/defn diagnostic-f [p :- Prop :implicit inst :- (Decidable p) :inst q :- Prop] Nat 0)
+  (let [error (failure #(elab/elaborate (a/env) '(diagnostic-f (LE.le _ _))))]
+    (is (= :stuck-instance (:problem (ex-data error))))
+    (is (= (name/from-string "LE") (:class (ex-data error))))))
+
+(deftest stuck-problems-use-source-position-then-pending-order
+  (a/defn diagnostic-two [p :- Prop q :- Prop] Nat 0)
+  (let [error (failure #(elab/elaborate (a/env) '(diagnostic-two (LE.le _ _) (LT.lt _ _))))]
+    (is (= :stuck-instance (:problem (ex-data error))))
+    (is (= (name/from-string "LE") (:class (ex-data error)))))
+  (a/defn diagnostic-g [p :- Prop :implicit A :- Type :implicit
+                        instP :- (Decidable p) :inst instA :- (LE A) :inst q :- Prop] Nat 0)
+  (let [error (failure #(elab/elaborate (a/env) '(diagnostic-g True)))]
+    (is (= :stuck-instance (:problem (ex-data error))))
+    (is (= (name/from-string "LE") (:class (ex-data error))))))
+
+(deftest semi-output-metavariables-do-not-make-synthesis-stuck
+  (a/class DiagnosticSemi [A (semiOutParam Type)] (witness A))
+  (a/defn diagnostic-semi [A :- Type :implicit inst :- (DiagnosticSemi A) :inst] Nat 0)
+  (let [error (failure #(elab/elaborate (a/env) '(diagnostic-semi)))]
+    (is (= :failed-instance (:problem (ex-data error))))
+    (is (= (name/from-string "DiagnosticSemi") (:class (ex-data error))))))
+
+(deftest diagnostic-ranges-preserve-deep-kernel-term-passthrough
+  (let [succ (e/const' (name/from-string "Nat.succ") [])
+        term (nth (iterate #(e/app succ %) (e/lit-nat 0)) 8000)]
+    (is (identical? term (elab/elaborate (a/env) term)))))

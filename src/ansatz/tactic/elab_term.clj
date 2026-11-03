@@ -98,14 +98,14 @@
         level-holes (collected-level-holes meta-mctx checked-expr old-level-ids)
         natural-holes (filterv #(= :natural (:kind %)) holes)]
     (when (seq level-holes)
-      (let [diagnostic (diagnostics/first-instance-diagnostic meta-mctx (map :id holes))]
+      (let [diagnostic (diagnostics/first-instance-diagnostic (:env ps) meta-mctx (map :id holes))]
         (tactic-error! (str tactic-name ": "
                             (or (:message diagnostic) "unresolved universe level holes"))
                        (merge {:level-holes level-holes} diagnostic))))
     (when (and (not allow-natural-holes?) (seq natural-holes))
       (let [diagnostics (mapv hole-diagnostic natural-holes)
-            diagnostic (or (diagnostics/first-instance-diagnostic meta-mctx (map :id holes))
-                           (diagnostics/mvar-diagnostic meta-mctx (:id (first natural-holes))))]
+            diagnostic (or (diagnostics/first-instance-diagnostic (:env ps) meta-mctx (map :id holes))
+                           (diagnostics/mvar-diagnostic (:env ps) meta-mctx (:id (first natural-holes))))]
         (tactic-error! (str tactic-name ": "
                             (:message diagnostic)
                             "\n"
