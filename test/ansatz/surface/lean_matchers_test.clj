@@ -450,7 +450,14 @@
         (is (tc/is-def-eq (tc/mk-tc-state (a/env)) (e/app* (.value ci) n h) h))))))
 
 (deftest fixed-successor-indices-realize-missing-constructor-no-confusion
-  ;; Start with the plain load-init! fixture, without construction prewarming.
+  ;; Omit this auxiliary from the checked library fixture explicitly: unrelated
+  ;; bundled equation proofs may already need it. The matcher must realize it.
+  (reset! a/ansatz-env
+          (-> (reduce env/add-constant (env/enable-quot (env/empty-env))
+                      (remove #(= "Nat.succ.noConfusion" (str (.name %)))
+                              (env/all-constants (a/env))))
+              (env/with-extension :instances (instance/index-for (a/env)))
+              (env/with-extension :classes (env/get-extension (a/env) :classes #{}))))
   (is (nil? (decl "Nat.succ.noConfusion")))
   (reset! a/ansatz-env
           (ind/define-inductive (a/env) "ProbeVec" '[a Type]

@@ -58,5 +58,8 @@
 (defn get-eqns-for?
   "Lean getEqnsFor?Core: prefer the eager local inventory; recognize imported equations."
   [environment n]
+  (when-let [errors (seq (errors-for environment n))]
+    (throw (ex-info "Tactic error: definition has equation generation errors"
+                    {:kind :tactic-error :definition (decl-name n) :errors (vec errors)})))
   (let [equations (eqns-for environment n)]
     (if (some? equations) equations (already-generated? environment n))))

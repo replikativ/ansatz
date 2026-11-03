@@ -573,6 +573,11 @@
     "Nat.zero_ne_add_one",
     "List.map_map",
     "Option.map_some",
-    "Option.map_none"
+    "Option.map_none",
+    "instDecidableEqChar",
+    "Char.instDecidableLt",
+    "Char.instDecidableLe",
+    "String.decidableLT",
+    "String.decLE"
   ]
 }

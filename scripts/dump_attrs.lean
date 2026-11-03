@@ -73,6 +73,10 @@ def dumpAttrs : CoreM Unit := do
   -- @[extern] / @[implemented_by] (ParametricAttributes — getParam? works post-import)
   let env ← getEnv
   for (n, _) in env.constants.toList do
+    -- Meta/RecExt.lean and Meta/WHNF.lean: preserve the producer's unfolding
+    -- metadata, rather than reconstructing recursion from declaration bodies.
+    if recExt.isTagged env n then emit "recursive" n
+    if hasSmartUnfoldingDecl env n then emit "smart-unfolding" n
     if (getExternAttrData? env n).isSome then emit "extern" n
     match getImplementedBy? env n with
     | some impl => emit "impl" n (some impl)

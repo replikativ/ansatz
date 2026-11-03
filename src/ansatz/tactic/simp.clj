@@ -42,6 +42,7 @@
             [ansatz.kernel.name :as name]
             [ansatz.tactic.discr-tree :as dt]
             [ansatz.meta :as meta]
+            [ansatz.meta.rec-ext :as rec-ext]
             [ansatz.kernel.level :as lvl]
             [ansatz.kernel.tc :as tc]
             [ansatz.meta.match.matcher-info :as matcher-info]
@@ -907,7 +908,11 @@
                   (let [bt-name (name/from-string "Bool.true")
                         decide-term (e/app* (e/const' decidable-decide-name [])
                                             obligation-type inst)
-                        result (#'tc/cached-whnf st decide-term)
+                        ;; Use the checker reducer's string-literal/structure iota
+                  ;; support (kernel/type_checker.cpp, inductive_reduce_rec).
+                  result (if-let [^ansatz.kernel.TypeChecker checker (tc/java-tc st)]
+                           (.whnf (.getReducer checker) decide-term)
+                           (#'tc/cached-whnf st decide-term))
                         bool-true-val (e/const' bt-name [])]
                     (when (and (e/const? result)
                                (= (e/const-name result) bt-name))
@@ -1212,7 +1217,15 @@
       (when-let [n (get-nat-value? st (first args))] (- (inc n)))
       (and (e/const? head) (= "OfNat.ofNat" (name/->string (e/const-name head)))
            (= 3 (count args)) (= (first args) (e/const' (name/from-string "Int") []))
-           (e/lit-nat? (second args))) (e/lit-nat-val (second args)))))
+           (e/lit-nat? (second args))) (e/lit-nat-val (second args))
+      ;; Int.ofNat_eq_natCast rewrites the surface's canonical positive
+      ;; constructor to Nat.cast during ordinary simp; retain literal recognition.
+      (and (e/const? head) (= "Nat.cast" (str (e/const-name head)))
+           (= 3 (count args)) (= (first args) (e/const' (name/from-string "Int") [])))
+      (get-nat-value? st (nth args 2))
+      (and (e/const? head) (= "Neg.neg" (str (e/const-name head)))
+           (= 3 (count args)) (= (first args) (e/const' (name/from-string "Int") [])))
+      (when-let [n (get-int-value? st (nth args 2))] (- n)))))
 
 (defn- int-to-expr
   "Convert a Clojure integer to a Ansatz Int expression."
@@ -1221,21 +1234,32 @@
     (e/app (e/const' int-ofnat-name []) (e/lit-nat n))
     (e/app (e/const' int-negsucc-name []) (e/lit-nat (dec (- n))))))
 
+(defn- simproc-enabled? [config proc-name]
+  ;; Elab/Tactic/Simp.lean elabSimpArgs: explicit additions follow the
+  ;; (possibly empty) default simproc set.
+  (or (get config :simprocs? true) (contains? (:simproc-names config) proc-name)))
+
 (defn- try-nat-literal-reduce
   "Reduce arithmetic on Nat literals.
    Lean 4: BuiltinSimprocs/Nat.lean."
-  [st expr]
+  [st expr config]
   (let [[head args] (e/get-app-fn-args expr)]
     (when (e/const? head)
       (let [hname (e/const-name head) nargs (count args)]
         (cond
-          (and (= hname nat-succ-name) (= 1 nargs))
+          (and (= hname nat-succ-name) (= 1 nargs) (simproc-enabled? config "Nat.reduceSucc"))
           (when-let [n (get-nat-value? st (nth args 0))]
             (mk-result (e/lit-nat (inc n))))
 
           (and (= 2 nargs)
                (contains? #{nat-add-name nat-mul-name nat-sub-name nat-div-name nat-mod-name
-                            nat-ble-name nat-beq-name} hname))
+                            nat-ble-name nat-beq-name} hname)
+               (simproc-enabled? config
+                 (get {nat-add-name "Nat.reduceAdd" nat-mul-name "Nat.reduceMul"
+                       nat-sub-name "Nat.reduceSub" nat-div-name "Nat.reduceDiv"
+                       nat-mod-name "Nat.reduceMod" nat-beq-name "Nat.reduceBEq"
+                       ;; The surface emits Nat.ble for Boolean comparisons.
+                       nat-ble-name "Nat.reduceLeDiff"} hname)))
           (when-let [a (get-nat-value? st (nth args 0))]
             (when-let [b (get-nat-value? st (nth args 1))]
               (cond
@@ -1256,26 +1280,30 @@
           (when-let [op (get {"HAdd.hAdd" nat-add-name "HMul.hMul" nat-mul-name
                              "HSub.hSub" nat-sub-name "HDiv.hDiv" nat-div-name
                              "HMod.hMod" nat-mod-name} (str hname))]
-            (try-nat-literal-reduce st (e/app* (e/const' op []) (nth args 4) (nth args 5))))
+            (try-nat-literal-reduce st (e/app* (e/const' op []) (nth args 4) (nth args 5)) config))
 
           :else nil)))))
 
 (defn- try-int-literal-reduce
   "Reduce arithmetic on Int literals.
    Lean 4: BuiltinSimprocs/Int.lean."
-  [st expr]
+  [st expr config]
   (let [[head args] (e/get-app-fn-args expr)]
     (when (e/const? head)
       (let [hname (e/const-name head) nargs (count args)]
         (cond
           ;; Unary: Int.neg
-          (and (= hname int-neg-name) (= 1 nargs))
+          (and (= hname int-neg-name) (= 1 nargs) (simproc-enabled? config "Int.reduceNeg"))
           (when-let [n (get-int-value? st (nth args 0))]
             (mk-result (int-to-expr (- n))))
 
           ;; Binary: Int.add, Int.mul, Int.sub, Int.div, Int.mod
           (and (= 2 nargs)
-               (contains? #{int-add-name int-mul-name int-sub-name int-div-name int-mod-name} hname))
+               (contains? #{int-add-name int-mul-name int-sub-name int-div-name int-mod-name} hname)
+               (simproc-enabled? config
+                 (get {int-add-name "Int.reduceAdd" int-mul-name "Int.reduceMul"
+                       int-sub-name "Int.reduceSub" int-div-name "Int.reduceDiv"
+                       int-mod-name "Int.reduceMod"} hname)))
           (when-let [a (get-int-value? st (nth args 0))]
             (when-let [b (get-int-value? st (nth args 1))]
               (cond
@@ -1285,6 +1313,12 @@
                 (= hname int-div-name) (when-not (zero? b) (mk-result (int-to-expr (quot a b))))
                 (= hname int-mod-name) (when-not (zero? b) (mk-result (int-to-expr (mod a b))))
                 :else nil)))
+
+          (and (= 6 nargs) (= (first args) (e/const' (name/from-string "Int") [])))
+          (when-let [op (get {"HAdd.hAdd" int-add-name "HMul.hMul" int-mul-name
+                             "HSub.hSub" int-sub-name "HDiv.hDiv" int-div-name
+                             "HMod.hMod" int-mod-name} (str hname))]
+            (try-int-literal-reduce st (e/app* (e/const' op []) (nth args 4) (nth args 5)) config))
 
           :else nil)))))
 
@@ -1695,17 +1729,17 @@
   "Reduce HPow.hPow and HDiv.hDiv on ground Nat literals.
    HPow.hPow args: [α β γ inst a b] → a^b
    HDiv.hDiv args: [α β γ inst a b] → a/b"
-  [st expr]
+  [st expr config]
   (let [[head args] (e/get-app-fn-args expr)]
     (when (and (e/const? head) (= 6 (count args)))
       (let [hname (e/const-name head)
             a (get-nat-value? st (nth args 4))
             b (get-nat-value? st (nth args 5))]
-        (when (and a b)
+        (when (and a b (= (first args) (e/const' nat-name [])))
           (cond
-            (= hname hpow-name)
+            (and (= hname hpow-name) (simproc-enabled? config "Nat.reducePow"))
             (mk-result (e/lit-nat (.pow (biginteger a) (int b))))
-            (= hname hdiv-name)
+            (and (= hname hdiv-name) (simproc-enabled? config "Nat.reduceDiv"))
             (when (pos? b) (mk-result (e/lit-nat (quot a b))))
             :else nil))))))
 
@@ -1735,11 +1769,29 @@
               inst-index (if-let [idx (:inst-index config)]
                            (if (instance? clojure.lang.Delay idx) @idx idx)
                            (inst/index-for env))
-              decidable-goal (e/app (e/const' decidable-name []) expr)
+              ;; Expose the reducible Ne/GT/GE aliases to the instance index,
+              ;; as mkDecide's elaboration does in Lean (Meta/AppBuilder.lean).
+              [phead pargs] (e/get-app-fn-args expr)
+              pname (when (e/const? phead) (str (e/const-name phead)))
+              instance-prop
+              (cond
+                (and (= "Ne" pname) (= 3 (count pargs)))
+                (e/app (e/const' (name/from-string "Not") [])
+                  (reduce e/app (e/const' eq-name (e/const-levels phead)) pargs))
+                (and (#{"GT.gt" "GE.ge"} pname) (= 4 (count pargs)))
+                (e/app* (e/const' (name/from-string (if (= pname "GT.gt") "LT.lt" "LE.le"))
+                                 (e/const-levels phead))
+                        (nth pargs 0) (nth pargs 1) (nth pargs 3) (nth pargs 2))
+                :else expr)
+              decidable-goal (e/app (e/const' decidable-name []) instance-prop)
               inst (inst/synthesize* st env inst-index decidable-goal 0)]
           (when inst
             (let [decide-term (e/app* (e/const' decidable-decide-name []) expr inst)
-                  result (#'tc/cached-whnf st decide-term)
+                  ;; Use the checker reducer's string-literal/structure iota
+                  ;; support (kernel/type_checker.cpp, inductive_reduce_rec).
+                  result (if-let [^ansatz.kernel.TypeChecker checker (tc/java-tc st)]
+                           (.whnf (.getReducer checker) decide-term)
+                           (#'tc/cached-whnf st decide-term))
                   u1 (lvl/succ lvl/zero)
                   bool-type (e/const' bool-name [])
                   bool-true-val (e/const' bool-true-name [])
@@ -1759,20 +1811,44 @@
 
                 :else nil))))))))
 
+(defn- get-char-value? [st expr]
+  ;; Meta/LitValues.lean getCharValue?: Char.ofNat of a literal scalar.
+  (let [[head args] (e/get-app-fn-args expr)]
+    (when (and (e/const? head) (= "Char.ofNat" (str (e/const-name head)))
+               (= 1 (count args)))
+      (get-nat-value? st (first args)))))
+
 (defn- reduce-bin-pred
-  "Lean BuiltinSimprocs/Nat.lean reduceBinPred and reduceLTLE's const/const case.
+  "BuiltinSimprocs/{Nat,Int,Char,String}.lean reduceBinPred.
    Util.lean evalPropStep uses a decide certificate independently of Config.decide."
   [st expr config]
   (let [[head args] (e/get-app-fn-args expr)
-        simproc (when (e/const? head)
-                  (get {"LE.le" "Nat.reduceLeDiff" "LT.lt" "Nat.reduceLT" "GT.gt" "Nat.reduceGT"}
-                       (str (e/const-name head))))]
-    (when (and simproc (= 4 (count args))
-               (= (first args) (e/const' nat-name []))
-               (or (get config :simprocs? true) (contains? (:simproc-names config) simproc))
-               (some? (get-nat-value? st (nth args 2)))
-               (some? (get-nat-value? st (nth args 3))))
-      (try-simp-using-decide st expr (assoc config :decide? true)))))
+        carrier (when (and (seq args) (e/const? (first args)))
+                  (str (e/const-name (first args))))
+        reader (case carrier
+                 "Nat" get-nat-value? "Int" get-int-value? "Char" get-char-value?
+                 "String" (fn [_ x] (when (e/lit-str? x) (e/lit-str-val x)))
+                 nil)
+        op (when (e/const? head)
+             (get {"LE.le" "LE" "LT.lt" "LT" "GT.gt" "GT" "GE.ge" "GE"
+                   "Eq" "Eq" "Ne" "Ne" "BEq.beq" "BEq" "bne" "BNe"} (str (e/const-name head))))
+        proc-name (when op
+                    (if (= carrier "Nat")
+                      (get {"LE" "Nat.reduceLeDiff" "LT" "Nat.reduceLT" "GT" "Nat.reduceGT"
+                            "BEq" "Nat.reduceBEq" "BNe" "Nat.reduceBNe"} op)
+                      (str carrier ".reduce" op)))
+        arity (if (#{"Eq" "Ne"} op) 3 4)]
+    (when (and reader proc-name (= arity (count args))
+               (simproc-enabled? config proc-name)
+               (some? (reader st (nth args (- arity 2))))
+               (some? (reader st (nth args (dec arity)))))
+      (if (#{"BEq" "BNe"} op)
+        (let [result (if-let [^ansatz.kernel.TypeChecker checker (tc/java-tc st)]
+                       (.whnf (.getReducer checker) expr)
+                       (#'tc/cached-whnf st expr))]
+          (when (and (e/const? result) (#{bool-true-name bool-false-name} (e/const-name result)))
+            (mk-result result)))
+        (try-simp-using-decide st expr (assoc config :decide? true))))))
 
 (declare try-fold-bool-and)
 
@@ -1944,13 +2020,14 @@
   [st expr config & {:keys [env lemma-index]}]
   (or (try-reduce-proj-fn st expr)
       (reduce-bin-pred st expr config)
-      (when (get config :simprocs? true)
-        (or (try-nat-literal-reduce st expr)
-            (try-int-literal-reduce st expr)
-            (try-hpow-reduce st expr)))
-      (when (or (get config :simprocs? true) (contains? (:simproc-names config) "reduceIte"))
+      (try-nat-literal-reduce st expr config)
+      (try-int-literal-reduce st expr config)
+      (try-hpow-reduce st expr config)
+      (when (simproc-enabled? config
+              (if (let [head (e/get-app-fn expr)] (and (e/const? head) (= dite-name (e/const-name head))))
+                "reduceDIte" "reduceIte"))
         (try-reduce-ite st expr))
-      (when (or (get config :simprocs? true) (contains? (:simproc-names config) "reduceCtorEq"))
+      (when (simproc-enabled? config "reduceCtorEq")
         (try-reduce-ctor-eq st expr))
       ;; Bool.rec → Bool.and folding inside (Eq Bool (Bool.rec ...) Bool.true).
       ;; Folds the inner Bool.rec to Bool.and so Bool.and_eq_true can match.
@@ -2170,8 +2247,13 @@
                         (or (e/lit-nat? w) (and ci (.isCtor ^ConstantInfo ci)))))
                     (subvec (vec args) (inc (:num-params info))
                             (+ 1 (:num-params info) (:num-discrs info)))))]
-        (when (or (contains? to-unfold hstr) matcher-ready?
-                  (.endsWith hstr ".casesOn"))
+        ;; WHNF.lean unfoldDefinition? uses the annotated smart-unfolding body,
+        ;; never the raw recursive implementation. The kernel export does not
+        ;; retain that body/annotations yet; its admitted equations remain usable.
+        (when (and (not (and (rec-ext/is-recursive-definition env hname)
+                             (rec-ext/has-smart-unfolding-decl env hname)))
+                   (or (contains? to-unfold hstr) matcher-ready?
+                       (.endsWith hstr ".casesOn")))
           (when-let [^ConstantInfo ci (env/lookup env hname)]
               ;; definitions only: theorems are opaque to unfolding (lean4#12973 —
               ;; Meta.unfoldDefinition?/getUnfoldableConst? no longer look through them)

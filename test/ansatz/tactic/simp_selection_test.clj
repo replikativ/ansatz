@@ -2,6 +2,10 @@
   "Lean pairs: test/lean/simp_selection.lean. Check the actual simp normal form."
   (:require [clojure.test :refer [deftest is use-fixtures]]
             [ansatz.core :as a]
+            [ansatz.attrs :as attrs]
+            [ansatz.kernel.env :as env]
+            [ansatz.meta.rec-ext :as rec-ext]
+            [ansatz.tactic.simp.simp-theorems :as simp-theorems]
             [ansatz.config :as config]
             [ansatz.eqns :as eqns]
             [ansatz.kernel.expr :as e]
@@ -94,10 +98,27 @@
                               {:extra-lctx {102 {:tag :local :id 102 :name "s" :type (c "SelectedStore")}
                                             103 {:tag :local :id 103 :name "i" :type (c "Nat")}
                                             104 {:tag :local :id 104 :name "x" :type (c "Nat")}}})
-        constants (construction/fold-constants conj #{} result)]
+        constants (construction/fold-constants conj #{} result)
+        option (e/app (e/const' (name/from-string "Option") [lvl/zero]) (c "Nat"))
+        expected
+        (e/app* (e/const' (name/from-string "selected-spendN.match_1") [(lvl/succ lvl/zero)])
+          (e/lam "_x" option (c "Nat") :default)
+          (e/app (c "selected-amount") (e/fvar 104))
+          (e/lam "_" (c "Unit") (e/lit-nat 0) :default)
+          (e/lam "n" (c "Nat")
+            (e/app* (e/const' (name/from-string "selected-spendN.match_2") [(lvl/succ lvl/zero)])
+              (e/lam "_x" (c "SelectedStore") (c "Nat") :default) (e/fvar 102)
+              (e/lam "wallet" (c "Nat")
+                (e/lam "live" (c "Nat")
+                  (e/app* (c "selected-spendH")
+                    (e/app* (c "SelectedStore.mk") (e/bvar 1) (e/bvar 0))
+                    (e/fvar 103) (e/bvar 2)
+                    (e/app* (c "selected-held") (e/fvar 100) (e/bvar 0) (e/fvar 103)))
+                  :default) :default)) :default))]
+    (is (= expected result))
     (doseq [callee ["selected-amount" "selected-held" "selected-spendH"]]
       (is (contains? constants (name/from-string callee)))
-      (is (not-any? #(.startsWith (str %) (str callee ".match_")) constants)))))
+      (is (not-any? #(.startsWith (str %) (str callee "._match_")) constants)))))
 
 (deftest selected-sequence-preserves-pick-and-truthy
   (eval '(a/defn selected-truthy [x :- Nat] Bool (match x [zero false] [(succ n) true])))
@@ -164,3 +185,104 @@
                     (all_goals (simp only [hp List.foldl]))
                     (all_goals (exact (ih_tail _)))))
            true))))
+
+(deftest literal-predicate-simprocs-are-default-and-selectable
+  (let [opts {:result-type (e/sort' lvl/zero)}]
+    (doseq [[carrier x y] [["String" (e/lit-str "alpha") (e/lit-str "beta")]
+                            ["Int" (e/app (c "Int.ofNat") (e/lit-nat 2))
+                             (e/app (c "Int.negSucc") (e/lit-nat 0))]
+                            ["Char" (e/app (c "Char.ofNat") (e/lit-nat 97))
+                             (e/app (c "Char.ofNat") (e/lit-nat 98))]]]
+      (doseq [[head suffix expected] [["Eq" "Eq" "False"] ["Ne" "Ne" "True"]]]
+        (let [expr (e/app* (e/const' (name/from-string head) [(lvl/succ lvl/zero)]) (c carrier) x y)]
+          (is (= [expr] (normal-form expr [] opts)))
+          (is (= [(c expected)] (normal-form expr [] (assoc opts :only? false :decide? false))))
+          (is (= [(c expected)] (normal-form expr [(str carrier ".reduce" suffix)] opts)))))))
+  (is (true? (do (eval '(a/theorem string-literal-contradiction
+                         [h :- (= String "alpha" "beta")] False (simp at h))) true))))
+
+(deftest only-explicit-arithmetic-simprocs
+  (let [expr (e/app* (e/const' (name/from-string "HAdd.hAdd") [lvl/zero lvl/zero lvl/zero])
+                    (c "Nat") (c "Nat") (c "Nat")
+                    (e/app* (e/const' (name/from-string "instHAdd") [lvl/zero]) (c "Nat") (c "instAddNat"))
+                    (e/lit-nat 2) (e/lit-nat 3))]
+    (is (= [expr] (normal-form expr [])))
+    (is (= [expr] (normal-form expr ["Nat.reduceMul"])))
+    (is (= [(e/lit-nat 5)] (normal-form expr ["Nat.reduceAdd"]))))
+  (let [v (fn [n] (e/app (c "Int.ofNat") (e/lit-nat n)))
+        expr (e/app* (c "Int.add") (v 2) (v 3))]
+    (is (= [expr] (normal-form expr [] {:result-type (c "Int")})))
+    (is (= [(v 5)] (normal-form expr ["Int.reduceAdd"] {:result-type (c "Int")})))))
+
+(deftest imported-equations-use-recursion-and-smart-unfolding-metadata
+  (let [before (a/env) n (name/from-string "imported-bool-match")]
+    (try
+      ;; Checked declarations without a local inventory, as after kernel import.
+      (swap! a/ansatz-env env/check-constant
+        (env/mk-def n [] (e/forall' "b" (c "Bool") (c "Nat") :default)
+          (e/lam "b" (c "Bool")
+            (e/app* (e/const' (name/from-string "Bool.rec") [(lvl/succ lvl/zero)])
+              (e/lam "b" (c "Bool") (c "Nat") :default)
+              (e/lit-nat 13) (e/lit-nat 21) (e/bvar 0)) :default)))
+      (doseq [[i b v] [[1 "Bool.false" 13] [2 "Bool.true" 21]]]
+        (let [lhs (e/app (c "imported-bool-match") (c b))
+              ty (e/app* (e/const' (name/from-string "Eq") [(lvl/succ lvl/zero)])
+                         (c "Nat") lhs (e/lit-nat v))
+              refl (e/app* (e/const' (name/from-string "Eq.refl") [(lvl/succ lvl/zero)]) (c "Nat") lhs)
+              ci (env/mk-thm (name/mk-str n (str "eq_" i)) [] ty refl)]
+          (swap! a/ansatz-env env/check-constant ci)))
+      (swap! a/ansatz-env env/update-extension :eqns {} dissoc n)
+      (let [expr (e/app (c "imported-bool-match") (e/fvar 100))
+            expected (e/app* (e/const' (name/from-string "Bool.rec") [(lvl/succ lvl/zero)])
+                             (e/lam "b" (c "Bool") (c "Nat") :default)
+                             (e/lit-nat 13) (e/lit-nat 21) (e/fvar 100))]
+        (is (= [expected] (normal-form expr ["imported-bool-match"]))))
+      (let [[recursive _] (attrs/import-attr-tuples (a/env) [["recursive" "imported-bool-match" nil nil]] {})
+            [smart _] (attrs/import-attr-tuples recursive [["smart-unfolding" "imported-bool-match" nil nil]] {})]
+        (is (not (simp-theorems/unfold-even-with-eqns (env/fork recursive) n)))
+        (is (simp-theorems/unfold-even-with-eqns (env/fork smart) n))
+        (is (= [:thm :thm :to-unfold]
+               (mapv :kind (simp-theorems/mk-simp-entry-of-decl-to-unfold smart n)))))
+      (is (rec-ext/is-recursive-definition (a/env) (name/from-string "List.foldl")))
+      (finally (reset! a/ansatz-env before)))))
+
+(deftest failed-equation-inventories-are-diagnostic
+  (let [before (a/env) n (name/from-string "selected-inner")
+        equations (eqns/eqns-for before n)
+        error (ex-info "injected equation admission failure" {:kind :test-failure})]
+    (try
+      (doseq [inventory [[] equations]]
+        (reset! a/ansatz-env (eqns/register-eqn-thms before n inventory [error]))
+        (is (thrown-with-msg? clojure.lang.ExceptionInfo #"equation generation errors"
+                             (eqns/get-eqns-for? (a/env) n)))
+        (is (thrown-with-msg? clojure.lang.ExceptionInfo #"equation generation errors"
+                             (normal-form (e/app (c "selected-inner") (e/fvar 100)) ["selected-inner"]))))
+      (reset! a/ansatz-env before)
+      (is (= [(e/lit-nat 21)] (normal-form (e/app (c "selected-inner") (c "Bool.true")) ["selected-inner"])))
+      (finally (reset! a/ansatz-env before)))))
+
+(deftest only-explicit-dependent-if-simproc
+  (let [expr (e/app* (e/const' (name/from-string "dite") [(lvl/succ lvl/zero)])
+                    (c "Nat") (c "True")
+                    (e/app* (c "Decidable.isTrue") (c "True") (c "True.intro"))
+                    (e/lam "h" (c "True") (e/lit-nat 2) :default)
+                    (e/lam "h" (e/app (c "Not") (c "True")) (e/lit-nat 3) :default))]
+    (is (= [expr] (normal-form expr [])))
+    (is (= [expr] (normal-form expr ["reduceIte"])))
+    (is (= [(e/lit-nat 2)] (normal-form expr ["reduceDIte"])))))
+
+(deftest literal-order-predicate-simprocs
+  (let [opts {:result-type (e/sort' lvl/zero)}]
+    (doseq [[carrier lt le x y]
+            [["String" "String.instLT" "String.instLE" (e/lit-str "a") (e/lit-str "b")]
+             ["Int" "Int.instLTInt" "Int.instLEInt" (e/app (c "Int.negSucc") (e/lit-nat 0))
+              (e/app (c "Int.ofNat") (e/lit-nat 2))]
+             ["Char" "Char.instLT" "Char.instLE" (e/app (c "Char.ofNat") (e/lit-nat 97))
+              (e/app (c "Char.ofNat") (e/lit-nat 98))]]
+            [op instance expected] [["LT" lt "True"] ["LE" le "True"]
+                                    ["GT" lt "False"] ["GE" le "False"]]]
+      (let [expr (e/app* (e/const' (name/from-string (str op "." (.toLowerCase op))) [lvl/zero])
+                         (c carrier) (c instance) x y)]
+        (is (= [expr] (normal-form expr [] opts)))
+        (is (= [(c expected)] (normal-form expr [(str carrier ".reduce" op)] opts)))
+        (is (= [(c expected)] (normal-form expr [] (assoc opts :only? false :decide? false))))))))

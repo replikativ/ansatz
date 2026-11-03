@@ -105,3 +105,36 @@ example (A G : Type) (f : G → A → G) (p : A → Bool) (l : List A) :
     intro b
     simp only [List.filter, List.foldl]
     cases hp : p head <;> simp only [List.foldl] <;> exact ih _
+
+example (h : ("alpha" : String) = "beta") : False := by simp at h
+example (P : Prop → Prop) (h : P False) : P (("alpha" : String) = "beta") := by
+  simp only [String.reduceEq]
+  guard_target =ₛ P False
+  exact h
+example (P : Prop → Prop) (h : P True) : P ((2 : Int) ≠ -1) := by
+  simp only [Int.reduceNe]
+  guard_target =ₛ P True
+  exact h
+example (P : Prop → Prop) (h : P False) : P ('a' = 'b') := by
+  simp only [Char.reduceEq]
+  guard_target =ₛ P False
+  exact h
+example (P : Nat → Prop) (h : P 5) : P ((2 : Nat) + 3) := by
+  simp only [Nat.reduceAdd]
+  guard_target =ₛ P 5
+  exact h
+example (P : Int → Prop) (h : P 5) : P ((2 : Int) + 3) := by
+  simp only [Int.reduceAdd]
+  guard_target =ₛ P 5
+  exact h
+example (P : Nat → Prop) (h : P 2) : P (if _h : True then 2 else 3) := by
+  simp only [reduceDIte]
+  guard_target =ₛ P 2
+  exact h
+example (b : Bool) (P : Nat → Prop) :
+    P (match b with | false => 13 | true => 21) → P (selectedInner b) := by
+  simp only [selectedInner]
+  guard_target =ₛ P (match b with | false => 13 | true => 21) →
+    P (match b with | false => 13 | true => 21)
+  intro h
+  exact h

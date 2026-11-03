@@ -66,4 +66,3 @@
               heq? (= "HEq" (str (e/const-name (e/get-app-fn eq))))]
           (e/app start (if heq?
                          (u/app (u/const' "heq_of_eq" [(u/get-level ctx type)]) [type a b h]) h)))))))
-
