@@ -289,8 +289,26 @@
   (let [klass (class value)]
     (or (identical? klass java-sequence-class) (identical? klass java-fields-class))))
 
+(defonce ^:private carrier-checks
+  (delay
+    (let [bridge (Class/forName "ansatz.lean.jvm.ValueBridge" false (.getClassLoader LeanType))]
+      (into {} (for [[kind name] [[:list "ordinaryList"] [:map "ordinaryMap"]]]
+                 [kind (doto (.getDeclaredMethod bridge name (into-array Class [Object]))
+                         (.setAccessible true))])))))
+
+(defn- standard-carrier? [kind value]
+  (boolean (.invoke ^java.lang.reflect.Method (get @carrier-checks kind) nil (object-array [value]))))
+
+(defn- tagged-map? [value expected]
+  (and (map? value) (standard-carrier? :map value)
+       (= (count expected) (count value))
+       ;; Check key classes before hashing them; rejected keys need not execute
+       ;; user hashCode/equals implementations during tag validation.
+       (every? keyword? (keys value)) (= expected (set (keys value)))))
+
 (defn- bounded-vector [value]
-  (require-value (or (sequential? value) (instance? List value)) "Expected ordered fields/elements")
+  (require-value (or (genuine-view? value) (standard-carrier? :list value))
+                 "Expected standard indexed fields/elements; lazy and custom adapters are unsupported")
   (loop [xs (seq value) result (transient []) n 0]
     (if xs
       (do (require-value (< n 100000) "Container exceeds value bound")
@@ -301,7 +319,7 @@
   (let [arguments (.arguments type)]
     (case (.name (.kind type))
       "NOMINAL"
-      (do (require-value (and (map? value) (= #{:lean/type :lean/constructor :lean/fields} (set (keys value)))) "Invalid nominal map keys")
+      (do (require-value (tagged-map? value #{:lean/type :lean/constructor :lean/fields}) "Invalid nominal map keys or adapter")
           (require-value (= (.orElseThrow (.nominalId type)) (:lean/type value)) "Nominal identity mismatch")
           (let [constructor (.constructor type (:lean/constructor value))
                 fields (bounded-vector (:lean/fields value))
@@ -316,7 +334,7 @@
       "OPTION"
       (cond
         (nil? value) [[] [] (fn [_] (Optional/empty))]
-        (and (map? value) (= #{:some} (set (keys value))))
+        (tagged-map? value #{:some})
         [[(:some value)] [(first arguments)] (fn [xs] (Optional/of (first xs))) ]
         (instance? Optional value)
         (if (.isPresent ^Optional value)
@@ -326,6 +344,7 @@
       ("SUM" "EXCEPT")
       (let [[a b] (if (= "SUM" (.name (.kind type))) [:left :right] [:error :ok])
             java? (instance? LeanChoice value)
+            _ (require-value (or java? (tagged-map? value #{a}) (tagged-map? value #{b})) "Invalid Sum/Except branch tag or adapter")
             left? (if java? (.isLeft ^LeanChoice value) (contains? value a))
             key (if left? a b)]
         (require-value (or java? (and (map? value) (= #{key} (set (keys value))))) "Invalid Sum/Except branch tag")
@@ -394,6 +413,8 @@
                 (.containsKey memo v) (recur (pop tasks) (conj results (.get memo v)) (inc work))
                 (or (map? v) (ordered? v))
                 (let [map-value? (map? v)
+                      _ (when map-value? (require-value (or (genuine-view? v) (standard-carrier? :map v))
+                                                       "Custom materialization map adapter is unsupported"))
                       keys (when map-value? (vec (keys v)))
                       children (if map-value? (mapv #(get v %) keys) (bounded-vector v))
                       finish (if map-value? #(zipmap keys %) identity)]

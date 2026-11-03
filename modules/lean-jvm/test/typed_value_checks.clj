@@ -19,6 +19,32 @@
     (.create constructor [42 4294967295 (byte-array [1 2 -1]) (Optional/of LeanUnit/INSTANCE)
                           [1 2 3] (.create (first (.constructors ^LeanType (.get types 7))) [99]) true (float -0.0) (int \λ) -128])))
 
+(deftest rejected-input-adapters-are-not-evaluated
+  (let [types (fixture-types) raw (packet types)
+        fields (.fields (.constructor raw))
+        array-type (.type ^ansatz.lean.jvm.LeanType$Field (nth fields 4))
+        option-type (.type ^ansatz.lean.jvm.LeanType$Field (nth fields 3))
+        touched (atom 0)
+        lazy-input (map (fn [x] (swap! touched inc) x) [1 2 3])
+        custom-list (proxy [java.util.AbstractList] []
+                      (size [] (swap! touched inc) 1)
+                      (get [_] (swap! touched inc) 1))
+        custom-map (proxy [clojure.lang.APersistentMap] []
+                     (count [] (swap! touched inc) 1)
+                     (seq [] (swap! touched inc) (seq {:some nil})))
+        custom-key (proxy [Object] [] (hashCode [] (swap! touched inc) 1))
+        bad-tags (array-map custom-key nil)
+        comparator-tags (sorted-map-by (fn [a b] (swap! touched inc) (compare a b)) :some nil)]
+    (reset! touched 0)
+    (doseq [input [lazy-input (list 1 2 3) custom-list (java.util.Collections/unmodifiableList custom-list)]]
+      (is (thrown? IllegalArgumentException (value/host-value array-type input))))
+    (is (thrown? IllegalArgumentException (value/host-value option-type custom-map)))
+    (is (thrown? IllegalArgumentException (value/host-value option-type bad-tags)))
+    (is (thrown? IllegalArgumentException (value/host-value option-type comparator-tags)))
+    (is (zero? @touched))
+    (is (= [1 2 3] (value/host-value array-type [1 2 3])))
+    (is (= [1 2 3] (value/host-value array-type (java.util.LinkedList. [1 2 3]))))))
+
 (deftest nominal-map-is-a-complete-immutable-collection
   (let [types (fixture-types) raw (packet types) type (.type raw)
         x (value/view type raw) ordinary (value/materialize x)
