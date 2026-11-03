@@ -438,7 +438,7 @@
 ;; ============================================================
 
 ;; ============================================================
-;; Ground evaluation tests (equation theorems)
+;; Evaluation with selected equation theorems
 ;; ============================================================
 
 (defn- mk-nat-list
@@ -451,32 +451,36 @@
             nil-nat
             (reverse ns))))
 
-(deftest test-ground-eval-list-length-nil
-  (testing "List.length [] = 0 via the bundled equations"
+(deftest test-selected-list-length-nil-equations
+  (testing "List.length [] = 0 via explicitly selected bundled equations"
     (let [env (require-env)
           st (tc/mk-tc-state env)
           nat-e (e/const' (name/from-string "Nat") [])
           expr (e/app* (e/const' (name/from-string "List.length") [lvl/zero])
                        nat-e (mk-nat-list []))
           _ (is (tc/is-def-eq st (tc/infer-type st expr) nat-e))
-          result (simp/simp-expr st env {} expr 40)]
+          lemmas (simp/make-simp-lemmas env ["List.length.eq_1" "List.length.eq_2"
+                                             "List.append.eq_1" "List.append.eq_2"])
+          result (simp/simp-expr st env (simp/build-lemma-index st env lemmas) expr 40)]
       (is (not= expr result) "simp evaluates the length application")
       (is (tc/is-def-eq st result (e/lit-nat 0))))))
 
-(deftest test-ground-eval-list-length-cons
-  (testing "List.length [1,2,3] = 3 via the bundled equations"
+(deftest test-selected-list-length-cons-equations
+  (testing "List.length [1,2,3] = 3 via explicitly selected bundled equations"
     (let [env (require-env)
           st (tc/mk-tc-state env)
           nat-e (e/const' (name/from-string "Nat") [])
           expr (e/app* (e/const' (name/from-string "List.length") [lvl/zero])
                        nat-e (mk-nat-list [1 2 3]))
           _ (is (tc/is-def-eq st (tc/infer-type st expr) nat-e))
-          result (simp/simp-expr st env {} expr 40)]
+          lemmas (simp/make-simp-lemmas env ["List.length.eq_1" "List.length.eq_2"
+                                             "List.append.eq_1" "List.append.eq_2"])
+          result (simp/simp-expr st env (simp/build-lemma-index st env lemmas) expr 40)]
       (is (not= expr result) "simp evaluates the length application")
       (is (tc/is-def-eq st result (e/lit-nat 3))))))
 
-(deftest test-ground-eval-list-append
-  (testing "List.append [1,2] [3] = [1,2,3] via the bundled equations"
+(deftest test-selected-list-append-equations
+  (testing "List.append [1,2] [3] = [1,2,3] via explicitly selected bundled equations"
     (let [env (require-env)
           st (tc/mk-tc-state env)
           nat-e (e/const' (name/from-string "Nat") [])
@@ -484,7 +488,9 @@
                        nat-e (mk-nat-list [1 2]) (mk-nat-list [3]))
           _ (is (tc/is-def-eq st (tc/infer-type st expr)
                               (e/app (e/const' (name/from-string "List") [lvl/zero]) nat-e)))
-          result (simp/simp-expr st env {} expr 40)]
+          lemmas (simp/make-simp-lemmas env ["List.length.eq_1" "List.length.eq_2"
+                                             "List.append.eq_1" "List.append.eq_2"])
+          result (simp/simp-expr st env (simp/build-lemma-index st env lemmas) expr 40)]
       (let [head (e/get-app-fn result)]
         (is (e/const? head))
         (is (= (name/from-string "List.cons") (e/const-name head))))

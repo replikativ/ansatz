@@ -42,14 +42,18 @@
             [ansatz.kernel.name :as name]
             [ansatz.tactic.discr-tree :as dt]
             [ansatz.meta :as meta]
+            [ansatz.meta.rec-ext :as rec-ext]
             [ansatz.kernel.level :as lvl]
             [ansatz.kernel.tc :as tc]
             [ansatz.meta.match.matcher-info :as matcher-info]
             [ansatz.kernel.reduce :as red]
             [ansatz.tactic.proof :as proof]
-            [ansatz.tactic.decide :as decide-tac]
             [ansatz.tactic.instance :as inst]
             [ansatz.simp-index :as si]
+            [ansatz.eqns :as eqns]
+            [ansatz.meta.app-builder :as app-builder]
+            [ansatz.meta.constructions.util :as construction]
+            [ansatz.tactic.simp.simp-theorems :as simp-theorems]
             [ansatz.config :as config])
   (:import [ansatz.kernel ConstantInfo ExprMap LeanExprKey]))
 
@@ -904,7 +908,11 @@
                   (let [bt-name (name/from-string "Bool.true")
                         decide-term (e/app* (e/const' decidable-decide-name [])
                                             obligation-type inst)
-                        result (#'tc/cached-whnf st decide-term)
+                        ;; Use the checker reducer's string-literal/structure iota
+                  ;; support (kernel/type_checker.cpp, inductive_reduce_rec).
+                        result (if-let [^ansatz.kernel.TypeChecker checker (tc/java-tc st)]
+                                 (.whnf (.getReducer checker) decide-term)
+                                 (#'tc/cached-whnf st decide-term))
                         bool-true-val (e/const' bt-name [])]
                     (when (and (e/const? result)
                                (= (e/const-name result) bt-name))
@@ -975,24 +983,9 @@
    Returns a SimpResult or nil.
    Following Lean 4's rewrite? with synthesizeArgs + discharge."
   [st env lemma-index expr config]
-  (let [;; Disc tree candidates + direct equation theorem lookup by head constant.
-        ;; Direct lookup avoids disc tree star-arity mismatch for equation theorems.
-        dt-candidates (lookup-lemmas st env lemma-index expr config)
-        head-fn (e/get-app-fn expr)
-        eqn-candidates (when (and (not (:unfold-theorem config)) (e/const? head-fn))
-                         (when-let [eqns (find-eqn-theorems env (e/const-name head-fn))]
-                           (vec (mapcat (fn [eqn-name]
-                                          (when-let [ci (env/lookup env eqn-name)]
-                                            (extract-simp-lemma env ci 50)))
-                                        eqns))))
-        ;; Lean 4: rewriteUsingIndex? sorts candidates by priority (descending)
-        ;; before trying them. This ensures hypothesis rewrites (priority 2000)
-        ;; fire before equation theorems (priority 50), letting the IH match
-        ;; before sorted/insertSorted get unfolded.
+  (let [;; Lean Rewrite.lean rewriteUsingIndex?: only the context's theorem set.
         candidates (sort-by (comp - :priority)
-                            (if (seq eqn-candidates)
-                              (distinct (concat dt-candidates eqn-candidates))
-                              dt-candidates))]
+                            (lookup-lemmas st env lemma-index expr config))]
     (or
      (some (fn [lemma]
              (when-let [subst (match-lemma st (:lhs-pattern lemma) expr (:num-params lemma))]
@@ -1224,7 +1217,15 @@
       (when-let [n (get-nat-value? st (first args))] (- (inc n)))
       (and (e/const? head) (= "OfNat.ofNat" (name/->string (e/const-name head)))
            (= 3 (count args)) (= (first args) (e/const' (name/from-string "Int") []))
-           (e/lit-nat? (second args))) (e/lit-nat-val (second args)))))
+           (e/lit-nat? (second args))) (e/lit-nat-val (second args))
+      ;; Int.ofNat_eq_natCast rewrites the surface's canonical positive
+      ;; constructor to Nat.cast during ordinary simp; retain literal recognition.
+      (and (e/const? head) (= "Nat.cast" (str (e/const-name head)))
+           (= 3 (count args)) (= (first args) (e/const' (name/from-string "Int") [])))
+      (get-nat-value? st (nth args 2))
+      (and (e/const? head) (= "Neg.neg" (str (e/const-name head)))
+           (= 3 (count args)) (= (first args) (e/const' (name/from-string "Int") [])))
+      (when-let [n (get-int-value? st (nth args 2))] (- n)))))
 
 (defn- int-to-expr
   "Convert a Clojure integer to a Ansatz Int expression."
@@ -1233,21 +1234,32 @@
     (e/app (e/const' int-ofnat-name []) (e/lit-nat n))
     (e/app (e/const' int-negsucc-name []) (e/lit-nat (dec (- n))))))
 
+(defn- simproc-enabled? [config proc-name]
+  ;; Elab/Tactic/Simp.lean elabSimpArgs: explicit additions follow the
+  ;; (possibly empty) default simproc set.
+  (or (get config :simprocs? true) (contains? (:simproc-names config) proc-name)))
+
 (defn- try-nat-literal-reduce
   "Reduce arithmetic on Nat literals.
    Lean 4: BuiltinSimprocs/Nat.lean."
-  [st expr]
+  [st expr config]
   (let [[head args] (e/get-app-fn-args expr)]
     (when (e/const? head)
       (let [hname (e/const-name head) nargs (count args)]
         (cond
-          (and (= hname nat-succ-name) (= 1 nargs))
+          (and (= hname nat-succ-name) (= 1 nargs) (simproc-enabled? config "Nat.reduceSucc"))
           (when-let [n (get-nat-value? st (nth args 0))]
             (mk-result (e/lit-nat (inc n))))
 
           (and (= 2 nargs)
                (contains? #{nat-add-name nat-mul-name nat-sub-name nat-div-name nat-mod-name
-                            nat-ble-name nat-beq-name} hname))
+                            nat-ble-name nat-beq-name} hname)
+               (simproc-enabled? config
+                                 (get {nat-add-name "Nat.reduceAdd" nat-mul-name "Nat.reduceMul"
+                                       nat-sub-name "Nat.reduceSub" nat-div-name "Nat.reduceDiv"
+                                       nat-mod-name "Nat.reduceMod" nat-beq-name "Nat.reduceBEq"
+                       ;; The surface emits Nat.ble for Boolean comparisons.
+                                       nat-ble-name "Nat.reduceLeDiff"} hname)))
           (when-let [a (get-nat-value? st (nth args 0))]
             (when-let [b (get-nat-value? st (nth args 1))]
               (cond
@@ -1262,24 +1274,36 @@
                 (mk-result (e/const' (if (= a b) bool-true-name bool-false-name) []))
                 :else nil)))
 
+          ;; Lean Nat.reduceAdd/reduceMul/... use the overloaded operator spelling.
+          ;; The surface also emits direct Nat applications, handled above.
+          (and (= 6 nargs) (= (first args) (e/const' (name/from-string "Nat") [])))
+          (when-let [op (get {"HAdd.hAdd" nat-add-name "HMul.hMul" nat-mul-name
+                              "HSub.hSub" nat-sub-name "HDiv.hDiv" nat-div-name
+                              "HMod.hMod" nat-mod-name} (str hname))]
+            (try-nat-literal-reduce st (e/app* (e/const' op []) (nth args 4) (nth args 5)) config))
+
           :else nil)))))
 
 (defn- try-int-literal-reduce
   "Reduce arithmetic on Int literals.
    Lean 4: BuiltinSimprocs/Int.lean."
-  [st expr]
+  [st expr config]
   (let [[head args] (e/get-app-fn-args expr)]
     (when (e/const? head)
       (let [hname (e/const-name head) nargs (count args)]
         (cond
           ;; Unary: Int.neg
-          (and (= hname int-neg-name) (= 1 nargs))
+          (and (= hname int-neg-name) (= 1 nargs) (simproc-enabled? config "Int.reduceNeg"))
           (when-let [n (get-int-value? st (nth args 0))]
             (mk-result (int-to-expr (- n))))
 
           ;; Binary: Int.add, Int.mul, Int.sub, Int.div, Int.mod
           (and (= 2 nargs)
-               (contains? #{int-add-name int-mul-name int-sub-name int-div-name int-mod-name} hname))
+               (contains? #{int-add-name int-mul-name int-sub-name int-div-name int-mod-name} hname)
+               (simproc-enabled? config
+                                 (get {int-add-name "Int.reduceAdd" int-mul-name "Int.reduceMul"
+                                       int-sub-name "Int.reduceSub" int-div-name "Int.reduceDiv"
+                                       int-mod-name "Int.reduceMod"} hname)))
           (when-let [a (get-int-value? st (nth args 0))]
             (when-let [b (get-int-value? st (nth args 1))]
               (cond
@@ -1289,6 +1313,12 @@
                 (= hname int-div-name) (when-not (zero? b) (mk-result (int-to-expr (quot a b))))
                 (= hname int-mod-name) (when-not (zero? b) (mk-result (int-to-expr (mod a b))))
                 :else nil)))
+
+          (and (= 6 nargs) (= (first args) (e/const' (name/from-string "Int") [])))
+          (when-let [op (get {"HAdd.hAdd" int-add-name "HMul.hMul" int-mul-name
+                              "HSub.hSub" int-sub-name "HDiv.hDiv" int-div-name
+                              "HMod.hMod" int-mod-name} (str hname))]
+            (try-int-literal-reduce st (e/app* (e/const' op []) (nth args 4) (nth args 5)) config))
 
           :else nil)))))
 
@@ -1602,34 +1632,15 @@
     (and (e/const? w) (= (e/const-name w) nat-name))))
 
 (defn- mk-ctor-ne-false-proof
-  "Build a kernel-checkable proof of `(t1 = t2) = False` for distinct constructors of
-   the same parameter-free inductive, faithful to Lean 4's reduceCtorEq:
-       eq_false (fun h : t1 = t2 => @Ind.noConfusion.{0,us} False t1 t2 h)
-   `Ind.noConfusionType False t1 t2` reduces to `False` (the kernel whnfs the discrs),
-   so the inner term inhabits False and `eq_false` lifts `¬(t1=t2)` to `(t1=t2)=False`.
-   Restricted to the SIMPLE homogeneous noConfusion telescope [P, t, t', h] (4 binders)
-   — parametrized/indexed inductives use the heterogeneous HEq form and are left to the
-   decide-based path. Returns a proof-carrying Result, or nil if not buildable."
+  "Lean BuiltinSimprocs/Core.lean reduceCtorEq: mkEqFalse' of mkNoConfusion."
   [st expr alpha]
-  (let [[ahead _] (e/get-app-fn-args alpha)]
-    (when (e/const? ahead)
-      (let [env (:env st)
-            ind-name (e/const-name ahead)
-            ind-levels (e/const-levels ahead)
-            noconf-name (name/mk-str ind-name "noConfusion")
-            noconf-ci (env/lookup env noconf-name)]
-        (when noconf-ci
-          (let [nty (.type ^ConstantInfo noconf-ci)
-                arity (loop [t nty n 0] (if (e/forall? t) (recur (e/forall-body t) (inc n)) n))]
-            (when (= arity 4)                       ;; simple [P t t' h] form only
-              (let [[_ args] (e/get-app-fn-args expr)
-                    t1 (nth args 1) t2 (nth args 2)
-                    neg (e/lam "h" expr
-                               (e/app* (e/const' noconf-name (cons lvl/zero ind-levels))
-                                       (e/const' false-name []) t1 t2 (e/bvar 0))
-                               :default)
-                    proof (e/app* (e/const' eq-false-name []) expr neg)]
-                {:expr (e/const' false-name []) :proof? proof :cache true}))))))))
+  (let [[_ [_ lhs rhs]] (e/get-app-fn-args expr)
+        ctx (atom st)
+        h (construction/local-decl ctx "h" expr)
+        neg (construction/mk-lambda-fvars
+             ctx [h] (app-builder/mk-no-confusion ctx (e/const' false-name []) alpha lhs rhs h))]
+    (mk-result (e/const' false-name [])
+               (e/app* (e/const' eq-false-name []) expr neg))))
 
 (defn- try-reduce-ctor-eq
   "Reduce constructor equality to False when constructors differ — Lean 4's reduceCtorEq
@@ -1648,8 +1659,8 @@
           ;; Nat: distinct concrete values (literals / succ / zero), recursive noConfusion.
          (when (nat-type? st alpha)
            (nat-lit-ne-false-proof st expr (nth args 1) (nth args 2)))
-          ;; Distinct named constructors of the same inductive (Bool, etc.) — simple
-          ;; noConfusion. (Same-ctor and non-Nat literals fall through to decide.)
+          ;; Distinct named constructors share AppBuilder.mkNoConfusion, including
+          ;; parameterized and indexed families. Same constructors do not reduce.
          (let [lhs (#'tc/cached-whnf st (nth args 1))
                rhs (#'tc/cached-whnf st (nth args 2))
                [lh _] (e/get-app-fn-args lhs)
@@ -1662,8 +1673,8 @@
                (when (and lci rci
                           (.isCtor ^ConstantInfo lci)
                           (.isCtor ^ConstantInfo rci))
-                 (let [lparent (name/name-prefix (e/const-name lh))
-                       rparent (name/name-prefix (e/const-name rh))]
+                 (let [lparent (.inductName ^ConstantInfo lci)
+                       rparent (.inductName ^ConstantInfo rci)]
                    (when (and lparent rparent (= lparent rparent))
                      (mk-ctor-ne-false-proof st expr alpha))))))))))))
 
@@ -1677,44 +1688,8 @@
 ;; For fully concrete expressions (no free vars), unfold step by step
 ;; using equation theorems: f.eq_1, f.eq_2, ...
 
-(defn- find-eqn-theorems
-  "Find equation theorems for a declaration: declName.eq_1, eq_1t, eq_1f, eq_2, ...
-   Lean 4: getEqnsFor? discovers these lazily.
-   Also finds conditional variants (eq_Nt, eq_Nf) and inner-split variants
-   (eq_N_M from nested match splitting) for Bool-split branches."
-  [env decl-name]
-  (loop [i 1 result []]
-    (let [base-name (name/mk-str decl-name (str "eq_" i))
-          base-ci (env/lookup env base-name)
-          ;; Also check conditional variants
-          true-name (name/mk-str decl-name (str "eq_" i "t"))
-          true-ci (env/lookup env true-name)
-          false-name (name/mk-str decl-name (str "eq_" i "f"))
-          false-ci (env/lookup env false-name)
-          ;; Check leaf-level split variants (Lean 4 style: flat sequential).
-          ;; Names: eq_Ns1, eq_Ns2, ... (one per leaf of match tree).
-          split-names (loop [j 1 splits []]
-                        (let [sn (name/mk-str decl-name (str "eq_" i "s" j))]
-                          (if (env/lookup env sn)
-                            (recur (inc j) (conj splits sn))
-                            splits)))
-          found (cond-> (vec split-names)
-                  base-ci (conj base-name)
-                  true-ci (conj true-name)
-                  false-ci (conj false-name))]
-      (if (seq found)
-        (recur (inc i) (into result found))
-        ;; No more direct equations — also search for auxiliary matcher equations.
-        ;; Lean 4: each nested match becomes a named matcher with its own equations.
-        ;; We generate these as fn._match_N with their own eq_1, eq_2, etc.
-        (let [aux-results (loop [m 1 aux-acc []]
-                            (let [aux-name (name/mk-str decl-name (str "_match_" m))]
-                              (if-let [aux-eqns (when (env/lookup env aux-name)
-                                                  (find-eqn-theorems env aux-name))]
-                                (recur (inc m) (into aux-acc aux-eqns))
-                                aux-acc)))]
-          (when (seq (into result aux-results))
-            (into result aux-results)))))))
+(defn- find-eqn-theorems [env decl-name]
+  (eqns/get-eqns-for? env decl-name))
 
 (defn- try-ground-eval
   "Try to evaluate a ground term using equation theorems.
@@ -1754,17 +1729,17 @@
   "Reduce HPow.hPow and HDiv.hDiv on ground Nat literals.
    HPow.hPow args: [α β γ inst a b] → a^b
    HDiv.hDiv args: [α β γ inst a b] → a/b"
-  [st expr]
+  [st expr config]
   (let [[head args] (e/get-app-fn-args expr)]
     (when (and (e/const? head) (= 6 (count args)))
       (let [hname (e/const-name head)
             a (get-nat-value? st (nth args 4))
             b (get-nat-value? st (nth args 5))]
-        (when (and a b)
+        (when (and a b (= (first args) (e/const' nat-name [])))
           (cond
-            (= hname hpow-name)
+            (and (= hname hpow-name) (simproc-enabled? config "Nat.reducePow"))
             (mk-result (e/lit-nat (.pow (biginteger a) (int b))))
-            (= hname hdiv-name)
+            (and (= hname hdiv-name) (simproc-enabled? config "Nat.reduceDiv"))
             (when (pos? b) (mk-result (e/lit-nat (quot a b))))
             :else nil))))))
 
@@ -1777,7 +1752,7 @@
    4. If it reduces to Bool.false → return {P = False, proof: eq_false_of_decide P inst (Eq.refl false)}
    5. Otherwise return nil"
   [st expr config]
-  (when (and (:decide? config true)
+  (when (and (:decide? config false)
              ;; Guard: skip if expr has free variables or bound variables
              (not (e/has-fvar-flag expr))
              (not (e/has-loose-bvars? expr))
@@ -1794,11 +1769,29 @@
               inst-index (if-let [idx (:inst-index config)]
                            (if (instance? clojure.lang.Delay idx) @idx idx)
                            (inst/index-for env))
-              decidable-goal (e/app (e/const' decidable-name []) expr)
+              ;; Expose the reducible Ne/GT/GE aliases to the instance index,
+              ;; as mkDecide's elaboration does in Lean (Meta/AppBuilder.lean).
+              [phead pargs] (e/get-app-fn-args expr)
+              pname (when (e/const? phead) (str (e/const-name phead)))
+              instance-prop
+              (cond
+                (and (= "Ne" pname) (= 3 (count pargs)))
+                (e/app (e/const' (name/from-string "Not") [])
+                       (reduce e/app (e/const' eq-name (e/const-levels phead)) pargs))
+                (and (#{"GT.gt" "GE.ge"} pname) (= 4 (count pargs)))
+                (e/app* (e/const' (name/from-string (if (= pname "GT.gt") "LT.lt" "LE.le"))
+                                  (e/const-levels phead))
+                        (nth pargs 0) (nth pargs 1) (nth pargs 3) (nth pargs 2))
+                :else expr)
+              decidable-goal (e/app (e/const' decidable-name []) instance-prop)
               inst (inst/synthesize* st env inst-index decidable-goal 0)]
           (when inst
             (let [decide-term (e/app* (e/const' decidable-decide-name []) expr inst)
-                  result (#'tc/cached-whnf st decide-term)
+                  ;; Use the checker reducer's string-literal/structure iota
+                  ;; support (kernel/type_checker.cpp, inductive_reduce_rec).
+                  result (if-let [^ansatz.kernel.TypeChecker checker (tc/java-tc st)]
+                           (.whnf (.getReducer checker) decide-term)
+                           (#'tc/cached-whnf st decide-term))
                   u1 (lvl/succ lvl/zero)
                   bool-type (e/const' bool-name [])
                   bool-true-val (e/const' bool-true-name [])
@@ -1817,6 +1810,45 @@
                   (mk-result (e/const' false-name []) proof))
 
                 :else nil))))))))
+
+(defn- get-char-value? [st expr]
+  ;; Meta/LitValues.lean getCharValue?: Char.ofNat of a literal scalar.
+  (let [[head args] (e/get-app-fn-args expr)]
+    (when (and (e/const? head) (= "Char.ofNat" (str (e/const-name head)))
+               (= 1 (count args)))
+      (get-nat-value? st (first args)))))
+
+(defn- reduce-bin-pred
+  "BuiltinSimprocs/{Nat,Int,Char,String}.lean reduceBinPred.
+   Util.lean evalPropStep uses a decide certificate independently of Config.decide."
+  [st expr config]
+  (let [[head args] (e/get-app-fn-args expr)
+        carrier (when (and (seq args) (e/const? (first args)))
+                  (str (e/const-name (first args))))
+        reader (case carrier
+                 "Nat" get-nat-value? "Int" get-int-value? "Char" get-char-value?
+                 "String" (fn [_ x] (when (e/lit-str? x) (e/lit-str-val x)))
+                 nil)
+        op (when (e/const? head)
+             (get {"LE.le" "LE" "LT.lt" "LT" "GT.gt" "GT" "GE.ge" "GE"
+                   "Eq" "Eq" "Ne" "Ne" "BEq.beq" "BEq" "bne" "BNe"} (str (e/const-name head))))
+        proc-name (when op
+                    (if (= carrier "Nat")
+                      (get {"LE" "Nat.reduceLeDiff" "LT" "Nat.reduceLT" "GT" "Nat.reduceGT"
+                            "BEq" "Nat.reduceBEq" "BNe" "Nat.reduceBNe"} op)
+                      (str carrier ".reduce" op)))
+        arity (if (#{"Eq" "Ne"} op) 3 4)]
+    (when (and reader proc-name (= arity (count args))
+               (simproc-enabled? config proc-name)
+               (some? (reader st (nth args (- arity 2))))
+               (some? (reader st (nth args (dec arity)))))
+      (if (#{"BEq" "BNe"} op)
+        (let [result (if-let [^ansatz.kernel.TypeChecker checker (tc/java-tc st)]
+                       (.whnf (.getReducer checker) expr)
+                       (#'tc/cached-whnf st expr))]
+          (when (and (e/const? result) (#{bool-true-name bool-false-name} (e/const-name result)))
+            (mk-result result)))
+        (try-simp-using-decide st expr (assoc config :decide? true))))))
 
 (declare try-fold-bool-and)
 
@@ -1986,12 +2018,17 @@
    4. simpArith (we have omega externally)
    5. simpUsingDecide — decide on ground decidable propositions"
   [st expr config & {:keys [env lemma-index]}]
-  (or (try-nat-literal-reduce st expr)
-      (try-int-literal-reduce st expr)
-      (try-reduce-proj-fn st expr)
-      (try-hpow-reduce st expr)
-      (try-reduce-ite st expr)
-      (try-reduce-ctor-eq st expr)
+  (or (try-reduce-proj-fn st expr)
+      (reduce-bin-pred st expr config)
+      (try-nat-literal-reduce st expr config)
+      (try-int-literal-reduce st expr config)
+      (try-hpow-reduce st expr config)
+      (when (simproc-enabled? config
+                              (if (let [head (e/get-app-fn expr)] (and (e/const? head) (= dite-name (e/const-name head))))
+                                "reduceDIte" "reduceIte"))
+        (try-reduce-ite st expr))
+      (when (simproc-enabled? config "reduceCtorEq")
+        (try-reduce-ctor-eq st expr))
       ;; Bool.rec → Bool.and folding inside (Eq Bool (Bool.rec ...) Bool.true).
       ;; Folds the inner Bool.rec to Bool.and so Bool.and_eq_true can match.
       ;; Only fires in this specific context — standalone Bool.rec is handled
@@ -2142,7 +2179,7 @@
                                         false
                                         (throw ex)))))]
                       (if ok folded deq-only)))))))))
-      (try-ground-eval st (:env st) expr)
+      (when (:ground? config) (try-ground-eval st (:env st) expr))
       (try-simp-using-decide st expr config)
       ;; User-registered simprocs: dynamic var + persistent registry
       (some (fn [sp]
@@ -2151,8 +2188,9 @@
                      (if (and (= :tactic-error (:kind (ex-data ex)))
                               (not (:limit (ex-data ex)))
                               (not (:proof-construction (ex-data ex)))) nil (throw ex)))))
-            (concat config/*simprocs*
-                    (deref @(requiring-resolve 'ansatz.core/simproc-registry))))))
+            (when (get config :simprocs? true)
+              (concat config/*simprocs*
+                      (deref @(requiring-resolve 'ansatz.core/simproc-registry)))))))
 
 ;; ============================================================
 ;; Reduction
@@ -2209,22 +2247,31 @@
                         (or (e/lit-nat? w) (and ci (.isCtor ^ConstantInfo ci)))))
                     (subvec (vec args) (inc (:num-params info))
                             (+ 1 (:num-params info) (:num-discrs info)))))]
-        (when (or (contains? to-unfold hstr) matcher-ready?
-                  (.endsWith hstr ".casesOn"))
+        ;; WHNF.lean unfoldDefinition? uses the annotated smart-unfolding body,
+        ;; never the raw recursive implementation. The kernel export does not
+        ;; retain that body/annotations yet; its admitted equations remain usable.
+        (when (and (not (and (rec-ext/is-recursive-definition env hname)
+                             (rec-ext/has-smart-unfolding-decl env hname)))
+                   (or (contains? to-unfold hstr) matcher-ready?
+                       (.endsWith hstr ".casesOn")))
           (when-let [^ConstantInfo ci (env/lookup env hname)]
               ;; definitions only: theorems are opaque to unfolding (lean4#12973 —
               ;; Meta.unfoldDefinition?/getUnfoldableConst? no longer look through them)
             (when (.isDef ci)
               (when-let [value (.value ci)]
-                (let [levels (e/const-levels head)
-                      lparams (vec (.levelParams ci))
-                      level-subst (into {} (map vector lparams
-                                                (concat levels (repeat lvl/zero))))
-                      body (if (seq level-subst)
-                             (e/instantiate-level-params value level-subst)
-                             value)
-                      args (e/get-app-args expr)]
-                  (reduce e/app body args))))))))))
+                (when (or matcher-ready? (.endsWith hstr ".casesOn")
+                          (<= (loop [v value n 0]
+                                (if (e/lam? v) (recur (e/lam-body v) (inc n)) n))
+                              (count args)))
+                  (let [levels (e/const-levels head)
+                        lparams (vec (.levelParams ci))
+                        level-subst (into {} (map vector lparams
+                                                  (concat levels (repeat lvl/zero))))
+                        body (if (seq level-subst)
+                               (e/instantiate-level-params value level-subst)
+                               value)
+                        args (e/get-app-args expr)]
+                    (reduce e/app body args)))))))))))
 
 (defn- try-eta-reduce
   "Eta reduction: (fun x => f x) → f when x is not free in f.
@@ -3186,23 +3233,6 @@
         (when deq
           (e/app* (e/const' eq-refl-name (e/const-levels h)) (nth a 0) lhs))))))
 
-(defn- decide-goal
-  "Preflight optional decide with the nonthrowing instance API."
-  [ps]
-  ;; Lean Simp/Rewrite.lean simpUsingDecide treats missing instances as inapplicable.
-  ;; As in evalDecideCore, synthesis must share the goal's local context.
-  (let [[ps idx] (#'decide-tac/get-instance-index ps)
-        goal (proof/current-goal ps)
-        prop (:type goal)
-        env (:env ps)]
-    ;; Lean Simp/Rewrite.lean simpUsingDecide: only closed terms (`e.hasFVar || e.hasMVar` → no-op)
-    (when (e/has-fvar-flag (decide-tac/zeta-let-locals (:lctx goal) prop))
-      (tactic-error! "decide: goal is not closed" {:goal prop}))
-    (when-not (inst/synthesize* (tc/mk-tc-state env) env idx
-                                (e/app (e/const' decidable-name []) prop) 0)
-      (tactic-error! "no Decidable instance for goal" {:goal prop}))
-    (decide-tac/decide ps)))
-
 (defn- close-goal-with-proof
   "Try to close the goal using a simp result.
    Following Lean 4's simpTargetCore (Main.lean:780-790):
@@ -3270,12 +3300,9 @@
                                   goal-type (:proof? result))]
            (-> (proof/assign-mvar ps (:id goal) {:kind :exact :term proof-term})
                (proof/record-tactic :simp lemma-names (:id goal))))
-         (try (decide-goal ps)
-              (catch clojure.lang.ExceptionInfo ex
-                (if (and (= :tactic-error (:kind (ex-data ex)))
-                         (not (:limit (ex-data ex)))
-                         (not (:proof-construction (ex-data ex))))
-                  (tactic-error! "simplified to True but cannot certify" {:goal goal-type}) (throw ex)))))
+         (-> (proof/assign-mvar ps (:id goal)
+                                {:kind :exact :term (e/const' true-intro-name [])})
+             (proof/record-tactic :simp lemma-names (:id goal))))
 
       ;; Simplified to False
        (and (not target-core?) (e/const? simplified-whnf) (= (e/const-name simplified-whnf) false-name))
@@ -3299,40 +3326,18 @@
                              rfl-proof)]
            (-> (proof/assign-mvar ps (:id goal) {:kind :exact :term final-proof})
                (proof/record-tactic :simp lemma-names (:id goal))))
-        ;; Try decide as last resort
-         (try (decide-goal ps)
-              (catch clojure.lang.ExceptionInfo ex
-                (if (and (= :tactic-error (:kind (ex-data ex)))
-                         (not (:limit (ex-data ex)))
-                         (not (:proof-construction (ex-data ex))))
-                  (if (= simplified goal-type)
-                    ps
-                 ;; Lean 4: simp replaces goal with simplified form via Eq.mpr
-                 ;; when it can't close. Create a new goal with the simplified type.
-                 ;; This follows Lean 4's applySimpResultToTarget (Main.lean:780).
-                    (if (:proof? result)
-                      (let [mpr-level (let [gs (safe-infer st goal-type)
-                                            gsw (when gs (safe-whnf st gs))]
-                                        (if (and gsw (e/sort? gsw)) (e/sort-level gsw) lvl/zero))
-                            [ps' new-id] (proof/fresh-mvar-replacing ps simplified (:lctx goal) (:id goal))]
-                        (-> (proof/assign-mvar ps' (:id goal)
-                                               {:kind :simp-reduce
-                                                :eq-proof (:proof? result)
-                                                :child new-id
-                                                :mpr-level mpr-level
-                                                :goal-type goal-type
-                                                :simplified simplified})
-                            (proof/record-tactic :simp lemma-names (:id goal))))
-                   ;; Proof chain is nil (all rfl steps) but simp simplified.
-                      (let [[ps' new-id] (proof/fresh-mvar-replacing ps simplified (:lctx goal) (:id goal))]
-                        (-> (proof/assign-mvar ps' (:id goal)
-                                               {:kind :simp-reduce
-                                                :eq-proof nil
-                                                :child new-id
-                                                :mpr-level lvl/zero
-                                                :goal-type goal-type
-                                                :simplified simplified})
-                            (proof/record-tactic :simp lemma-names (:id goal)))))) (throw ex)))))))))
+         ;; Lean Main.lean applySimpResultToTarget: retain the simplified goal.
+         (if (= simplified goal-type)
+           ps
+           (let [mpr-level (if (:proof? result)
+                             (e/sort-level (tc/ensure-sort st (tc/infer-type st goal-type)))
+                             lvl/zero)
+                 [ps child] (proof/fresh-mvar-replacing ps simplified (:lctx goal) (:id goal))]
+             (-> (proof/assign-mvar ps (:id goal)
+                                    {:kind :simp-reduce :eq-proof (:proof? result)
+                                     :child child :mpr-level mpr-level
+                                     :goal-type goal-type :simplified simplified})
+                 (proof/record-tactic :simp lemma-names (:id goal))))))))))
 
 (defn- simp-setup
   "The simp context for `goal`: [ps st env lemma-index config]. `:exclude-hyp` drops that local
@@ -3380,28 +3385,22 @@
         hyp-lemmas (when (:contextual? opts)
                      (make-hyp-lemmas st (:lctx goal)))
          ;; For user definitions with equation theorems, add those as rewrite lemmas
-        eqn-lemmas (vec (mapcat (fn [n]
-                                  (let [cn (if (instance? ansatz.kernel.Name n) n (name/from-string (str n)))]
-                                    (when-let [eqns (find-eqn-theorems env cn)]
-                                      (mapcat (fn [eqn-name]
-                                                (when-let [ci (env/lookup env eqn-name)]
-                                                  (extract-simp-lemma env ci 50)))
-                                              eqns))))
-                                all-names))
+        entries (mapcat #(simp-theorems/mk-simp-entry-of-decl-to-unfold env %)
+                        (remove (set (map (comp str :name) lemmas)) (map str all-names)))
+        eqn-lemmas (mapcat (fn [{:keys [kind name priority]}]
+                             (when (= kind :thm)
+                               (extract-simp-lemma env (env/lookup! env name) priority))) entries)
         all-lemmas (concat lemmas term-lemmas hyp-lemmas eqn-lemmas)
         lemma-index (build-lemma-index st env all-lemmas)
-        to-unfold (into #{} (keep (fn [n]
-                                    (let [cn (if (instance? ansatz.kernel.Name n) n (name/from-string (str n)))
-                                          ci (env/lookup env cn)]
-                                      (when (and ci
-                                                 (not (seq (extract-simp-lemma env ci 0)))
-                                                 (not (find-eqn-theorems env cn)))
-                                        (str n)))))
-                        all-names)
+        to-unfold (into #{} (keep #(when (= :to-unfold (:kind %)) (str (:name %)))) entries)
         config {:max-depth (or (:max-depth opts) 20)
                 :single-pass? (:single-pass? opts)
                 :contextual? (:contextual? opts)
-                :decide? (get opts :decide? true)
+                ;; Init/MetaTypes.lean Config; Elab/Tactic/Simp.lean mkSimpContext.
+                :decide? (get opts :decide? false)
+                :ground? (get opts :ground? false)
+                :simprocs? (get opts :simprocs? (not (:only? opts)))
+                :simproc-names (set (map str name-args))
                 :max-steps (atom 0)
                 :cache (atom {})
                 :to-unfold to-unfold
@@ -3413,7 +3412,7 @@
 
 (defn simp
   "Simplify the current goal using rewrite lemmas.
-   Options: :contextual? :single-pass? :decide? (default true)"
+   Options: :contextual? :single-pass? :decide? (default false)"
   ([ps] (simp ps []))
   ([ps lemma-names] (simp ps lemma-names {}))
   ([ps lemma-names opts]
@@ -3613,22 +3612,12 @@
           lctx (:lctx goal')
           st (tc/attach-lctx (tc/mk-tc-state env) lctx)
           base-lemmas (make-simp-lemmas env all-names)
-          eqn-lemmas (vec (mapcat (fn [n]
-                                    (let [cn (if (instance? ansatz.kernel.Name n) n (name/from-string (str n)))]
-                                      (when-let [eqns (find-eqn-theorems env cn)]
-                                        (mapcat (fn [eqn-name]
-                                                  (when-let [ci (env/lookup env eqn-name)]
-                                                    (extract-simp-lemma env ci 50)))
-                                                eqns))))
-                                  all-names))
-          to-unfold (into #{} (keep (fn [n]
-                                      (let [cn (if (instance? ansatz.kernel.Name n) n (name/from-string (str n)))
-                                            ci (env/lookup env cn)]
-                                        (when (and ci
-                                                   (not (seq (extract-simp-lemma env ci 0)))
-                                                   (not (find-eqn-theorems env cn)))
-                                          (str n)))))
-                          all-names)
+          entries (mapcat #(simp-theorems/mk-simp-entry-of-decl-to-unfold env %)
+                          (remove (set (map (comp str :name) base-lemmas)) (map str all-names)))
+          eqn-lemmas (mapcat (fn [{:keys [kind name priority]}]
+                               (when (= kind :thm)
+                                 (extract-simp-lemma env (env/lookup! env name) priority))) entries)
+          to-unfold (into #{} (keep #(when (= :to-unfold (:kind %)) (str (:name %)))) entries)
           inst-index (delay (inst/index-for env))
            ;; an entry a previous round already simplified stays in the context (its original
            ;; form keeps rewriting the goal: `(<= x y)` in code is `Nat.ble x y`, which the
@@ -3656,7 +3645,10 @@
                      hyp-lemmas (make-hyp-lemmas st (apply dissoc lctx superseded) :exclude-id id)
                      all-lemmas (concat base-lemmas eqn-lemmas hyp-lemmas)
                      lemma-index (build-lemma-index st env all-lemmas)
-                     config {:max-depth 20 :single-pass? false :decide? true
+                     config {:max-depth 20 :single-pass? false :decide? (get opts :decide? false)
+                             :ground? (get opts :ground? false)
+                             :simprocs? (get opts :simprocs? (not (:only? opts)))
+                             :simproc-names (set (map str lemma-names))
                              :max-steps (atom 0) :cache (atom {})
                              :to-unfold to-unfold :discharge-depth 0
                              :ext-trie ext-trie :inst-index inst-index}

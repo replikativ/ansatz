@@ -1,7 +1,8 @@
 (ns ansatz.eqns
   "Equation inventory following Lean/Meta/Eqns.lean (registerEqnThms/getEqnsFor?)
    and Lean/Elab/PreDefinition/Eqns.lean, checkout v4.33.1.
-   The eager surface elaborator records admitted equations; lookup never scans names."
+   The eager surface elaborator records admitted equations; direct inventories keep
+   auxiliary ownership separate."
   (:require [ansatz.kernel.env :as env]
             [ansatz.kernel.name :as name]))
 
@@ -9,7 +10,7 @@
   (if (instance? ansatz.kernel.Name n) n (name/from-string (str n))))
 
 (defn eqns-for
-  "Ordered admitted equation names, including the definition's matcher equations.
+  "Ordered admitted equations owned by this declaration (not its auxiliary matchers).
    nil means no inventory; [] is a recorded empty inventory. Inspect errors-for too."
   [env n]
   (get (env/get-extension env :eqns {}) (decl-name n)))
@@ -41,3 +42,24 @@
           (let [eqn (name/from-string (str (name/->string (decl-name n)) suffix))]
             (when (env/lookup environment eqn) eqn)))
         [".eq_def" ".eq_unfold"]))
+
+(defn already-generated?
+  "Lean Meta/Eqns.lean alreadyGenerated?: imported sequential eq_1, eq_2, ….
+   Never includes auxiliary matcher equations or guesses conditional variants."
+  [environment n]
+  (let [n (decl-name n)]
+    (loop [i 1 equations []]
+      (let [equation (name/mk-str n (str "eq_" i))
+            ci (env/lookup environment equation)]
+        (if (and ci (= :thm (env/ci-tag ci)))
+          (recur (inc i) (conj equations equation))
+          (when (seq equations) equations))))))
+
+(defn get-eqns-for?
+  "Lean getEqnsFor?Core: prefer the eager local inventory; recognize imported equations."
+  [environment n]
+  (when-let [errors (seq (errors-for environment n))]
+    (throw (ex-info "Tactic error: definition has equation generation errors"
+                    {:kind :tactic-error :definition (decl-name n) :errors (vec errors)})))
+  (let [equations (eqns-for environment n)]
+    (if (some? equations) equations (already-generated? environment n))))
