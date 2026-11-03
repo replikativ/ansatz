@@ -29,7 +29,7 @@ local closure observations against original source rows. New compilation
 baselines bind used defining products before compilation and preserve their
 custody through helper calls, cache reuse and artifact reopening. A defining
 product edit rejects old values even when their apparent layout matches.
-Callback FFI, public forks and permissive semantic reload identity remain later.
+Function-valued callbacks, public forks and permissive semantic reload identity remain later.
 
 ## Outcome and scope
 

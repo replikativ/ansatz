@@ -10,9 +10,9 @@ World backend.
 This guide describes the general interop and preparation APIs in the current
 source tree. These APIs are available starting with SDK `0.2.580`. Earlier
 releases expose only Nat-to-Nat, String-to-String and IO Unit convenience APIs.
-The new v3 datatype boundary described below is implemented in this source tree;
-its reviewed producer archive has not yet been published. This is not a claim
-that a released SDK or the published v2 bundle exposes those types.
+The datatype boundary described below uses its separately
+[published producer](producer/README.md#datatype-v3-producer). Use a coordinated
+SDK containing that integration; the older v2 producer does not expose those types.
 The opt-in [regular-file filesystem context](FILESYSTEM.md) and v3 datatype
 support below are later additions; this paragraph does not put them in 0.2.580.
 
