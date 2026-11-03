@@ -713,7 +713,11 @@
         ;;
         ;; Strategy A: structural matching (fast path for simple cases)
         ;; Strategy B: Java TC isDefEq (handles def-eq like sorted vs List.rec)
-         (let [resolved-ty (instantiate-solved-mvars ps ty)
+         (let [;; Apply.lean forallMetaTelescopeReducing and isDefEqApply
+               ;; share Meta's fresh supply. Matching must start above the
+               ;; telescope just allocated, including pending instance holes.
+               st (mk-tc ps (:lctx goal))
+               resolved-ty (instantiate-solved-mvars ps ty)
                goal-whnf (whnf-in-goal ps (:lctx goal) (:type goal))
                resolved-whnf (meta-whnf-in-goal ps (:lctx goal) resolved-ty)
               ;; LAZY: `normalize-for-match` deeply WHNF-normalizes every subnode, which DIVERGES on a
@@ -819,7 +823,8 @@
                             {:expected (:type goal) :actual resolved-ty :term term}))
 
           ;; Assign solved mvars from the substitution
-           (let [ps (assoc ps :meta-mctx @real-mctx)
+           (let [ps (assoc ps :meta-mctx @real-mctx
+                           :next-id (max (:next-id ps) (inc @(:next-id st))))
                  real-term-mvars (meta/expr-mvars-no-delayed (:meta-mctx ps) term)
                  ps (zonk-mvar-decl-types ps real-term-mvars)
                  ps (reduce (fn [ps mvar-id]
@@ -1055,7 +1060,6 @@
   ([ps term reverse? hyp-id fresh-start]
    (let [goal (proof/current-goal ps)
          _ (when-not goal (tactic-error! "No goals" {}))
-         st (mk-tc ps (:lctx goal))
          ty (infer-in-goal ps (:lctx goal) term)
          ;; Lean Meta/Tactic/Rewrite.lean: forallMetaTelescope and kabstract
          ;; share the elaborator's context, including its pending universe holes.
@@ -1083,6 +1087,8 @@
                (recur ps (e/instantiate1 (e/forall-body t) (e/mvar id))
                       (conj xs (e/mvar id)) (conj infos info)))
              [ps xs infos t]))
+         ;; Rewrite.lean's telescope and kabstract share Meta's fresh supply too.
+         st (mk-tc ps (:lctx goal))
          heq (reduce e/app term mvars)
          [head args] (e/get-app-fn-args body)
          hname (when (e/const? head) (name/->string (e/const-name head)))
@@ -1140,7 +1146,8 @@
              (when (not= before @mctx) (recur (inc i))))))
        (let [;; Rewrite.lean postprocessAppMVars calls Apply.lean
              ;; synthAppInstances before exposing residual non-instance goals.
-             ps (synth-app-instances (assoc ps :meta-mctx @mctx)
+             ps (synth-app-instances (assoc ps :meta-mctx @mctx
+                                           :next-id (max (:next-id ps) (inc @(:next-id st))))
                                      (mapv e/mvar-id mvars) binder-infos
                                      {:synth-assigned-instances? true
                                       :allow-synth-failures? false :tactic-name "rewrite"})
