@@ -73,6 +73,7 @@ javac -J-Xmx192m --release 17 -cp target/ansatz-lean-jvm.jar -d target/ci-resour
   test-java/FrozenStorageChecks.java \
   test-java/TypedStorageChecks.java \
   test-java/PublicDatatypeChecks.java \
+  test-java/PureHostCallChecks.java \
   test-java/SharingTraceChecks.java \
   test-java/StringSearchChecks.java \
   test-java/FilesystemLayoutChecks.java \
@@ -87,10 +88,11 @@ java -Xmx128m -cp target/ci-resource-checks:target/ansatz-lean-jvm.jar ansatz.le
 java -Xmx128m -cp target/ci-resource-checks:target/ansatz-lean-jvm.jar FrozenStorageChecks
 java -Xmx128m -cp target/ci-resource-checks:target/ansatz-lean-jvm.jar TypedStorageChecks target/ci-resource-checks/typed-storage-digests.json
 java -Xmx128m -cp target/ci-resource-checks:target/ansatz-lean-jvm.jar ansatz.lean.jvm.PublicDatatypeChecks
+java -Xmx128m -cp target/ci-resource-checks:target/ansatz-lean-jvm.jar ansatz.lean.jvm.PureHostCallChecks
 java -Xmx128m -cp "target/ansatz-lean-jvm.jar:$runtime_path" clojure.main \
   test/typed_storage_digest_checks.clj target/ci-resource-checks/typed-storage-digests.json
 java -Xmx256m -cp "target/ci-resource-checks:target/ansatz-lean-jvm.jar:$runtime_path" clojure.main \
-  -e '(load-file "test/typed_value_checks.clj") (let [result (clojure.test/run-tests (quote typed-value-checks))] (assert (= {:test 8 :fail 0 :error 0} (select-keys result [:test :fail :error]))))'
+  -e '(load-file "test/typed_value_checks.clj") (load-file "test/host_checks.clj") (let [result (clojure.test/run-tests (quote typed-value-checks) (quote host-checks))] (assert (= {:test 11 :fail 0 :error 0} (select-keys result [:test :fail :error]))))'
 java -Xmx192m -cp target/ci-resource-checks:target/ansatz-lean-jvm.jar SharingTraceChecks
 java -Xmx192m -cp target/ci-resource-checks:target/ansatz-lean-jvm.jar StringSearchChecks
 java -Xmx128m -cp target/ci-resource-checks:target/ansatz-lean-jvm.jar ansatz.lean.jvm.internal.exec.FilesystemLayoutChecks

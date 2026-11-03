@@ -152,6 +152,7 @@ public final class Interpreter implements AutoCloseable {
         private final HostCall call;
         private HostRequest(Object owner,HostCall call) { this.owner=owner; this.call=call; }
         public String symbol() { return call.function.hostExtern.symbol; }
+        public HostExtern descriptor() { return call.function.hostExtern; }
         public String[] paramTypes() { return call.function.hostExtern.paramTypes(); }
         public boolean[] borrowed() { return call.function.hostExtern.borrowed(); }
         public String resultType() { return call.function.hostExtern.resultType; }
@@ -9919,6 +9920,7 @@ public final class Interpreter implements AutoCloseable {
     private static Object valueConstruct(Object schema,int rootPlan,Object tape) { return FrozenValues.construct(schema,rootPlan,tape); }
     private static Object valueCopyBytes(byte[] source) { return FrozenValues.copyBytes(source); }
     private static Object valueFreeze(Object schema,int rootPlan,Object result,String lane) { return FrozenValues.freezeTyped(schema,rootPlan,result,lane); }
+    private static Object valuePrepareReply(Object schema,int rootPlan,Object value,String lane) { return FrozenValues.prepareReply(schema,rootPlan,value,lane); }
     private static Object valueReadChild(Object capability,int index) { return FrozenValues.readChild(capability,index); }
     private static int valueConstructorIndex(Object capability) { return FrozenValues.constructorIndex(capability); }
     private static int valueSize(Object capability) { return FrozenValues.size(capability); }
@@ -10650,6 +10652,28 @@ public final class Interpreter implements AutoCloseable {
             hostCompletion=call.previousCompletion;
         } catch(Throwable failure) { markHostFailure(request,failure); throw failure; }
         finally { advancing=false; }
+    }
+    /** Trusted typed adapter completion, not source/signature admission. All
+     * object inputs must already be certified pure persistent storage. Their
+     * owned occurrences require no DEC; borrowed occurrences remain untouched.
+     * Separate reply tokens prevent importing raw scalars as object roots. */
+    public void validateFrozenHostRequest(HostRequest request) {
+        requireHostRequest(request);
+        require(taskRuntime==null&&runtimeAction==null&&hostGuestRecord==null,
+                "Frozen host completion requires task-free execution");
+    }
+    public void resumeFrozenHost(HostRequest request,Object preparedReply) {
+        validateFrozenHostRequest(request);
+        HostCall call=requireHostRequest(request);
+        require(preparedReply!=null&&preparedReply.getClass()==FrozenReply.class,
+                "Actual prepared frozen reply required");
+        FrozenReply reply=(FrozenReply)preparedReply;
+        require(reply.lane.equals(call.function.hostExtern.resultType),"Frozen reply ABI differs");
+        for(Object argument:call.arguments) if(argument instanceof Node) {
+            Node value=node(argument);
+            require(value.frozen!=null&&value.rc==0,"Host input was not certified frozen");
+        }
+        resumeHost(request,reply.value);
     }
     /** Terminal external failure preserves all outstanding argument/facade
      * obligations and frames. No host effect, argument release, or replay occurs. */

@@ -12,6 +12,7 @@
            {:path "ansatz/lean/jvm/entry.clj" :namespace ansatz.lean.jvm.entry}
            {:path "ansatz/lean/jvm/entry_v3.clj" :namespace ansatz.lean.jvm.entry-v3}
            {:path "ansatz/lean/jvm/ir.clj" :namespace ansatz.lean.jvm.ir}
+           {:path "ansatz/lean/jvm/host.clj" :namespace ansatz.lean.jvm.host}
            {:path "ansatz/lean/jvm/installed.clj" :namespace ansatz.lean.jvm.installed}
            {:path "ansatz/lean/jvm/original.clj" :namespace ansatz.lean.jvm.original}
            {:path "ansatz/lean/jvm/preparation.clj" :namespace ansatz.lean.jvm.preparation}
@@ -33,18 +34,19 @@
              "META-INF/ansatz-lean-jvm/filesystem-layouts.jsonl"
              "META-INF/ansatz-lean-jvm/NOTICE"]
  :engine-class "ansatz.lean.jvm.internal.exec.Interpreter"
- :engine-closure-sha256 "b8a0ea50698279b3fafb507c0a38608c32cd6aa98372c190c02d08d2d71c1193"
- :java-engine [{:path "ansatz/lean/jvm/internal/exec/FrozenValues.java" :class "ansatz.lean.jvm.internal.exec.FrozenValues" :sha256 "9319a63de7c87e3f8c68feea5ada9ee3c5b893e75c0ed043828db1e2fa4c0f7f"}
+ :engine-closure-sha256 "bb961acba39fb01a2a4083dd00de4ebf8d7314169897e0eaab6cc3a12681f206"
+ :java-engine [{:path "ansatz/lean/jvm/internal/exec/FrozenValues.java" :class "ansatz.lean.jvm.internal.exec.FrozenValues" :sha256 "f20d71cf0eb64c8c16686661dbaa59de7d6cf398c8e8915bbc45065ef4f0127c"}
               {:path "ansatz/lean/jvm/internal/fs/FileSession.java" :class "ansatz.lean.jvm.internal.fs.FileSession" :sha256 "af5d13b527fb420f53dccc550fe877982fe7b1ef8e3d98c2e53f798ede1aeaa9"}
               {:path "ansatz/lean/jvm/internal/exec/FilesystemLayouts.java" :class "ansatz.lean.jvm.internal.exec.FilesystemLayouts" :sha256 "f4f2889a57ebf535aa76cdf2728fcb542017d4ababc2fc41c99513f72a70dbe9"}
-              {:path "ansatz/lean/jvm/internal/exec/Interpreter.java" :class "ansatz.lean.jvm.internal.exec.Interpreter" :sha256 "336ba82cbedbdeee1806e60f0ff990012c7da2f59d67086f93fe2d75c3937457"}
+              {:path "ansatz/lean/jvm/internal/exec/Interpreter.java" :class "ansatz.lean.jvm.internal.exec.Interpreter" :sha256 "4ccdff245d20e13e91a37265a71239cc133e2e129ab9cc5f4dae3a1c9c5f5a4c"}
                {:path "ansatz/lean/jvm/internal/exec/ScalarBits.java" :class "ansatz.lean.jvm.internal.exec.ScalarBits" :sha256 "f7f105354cb7c66c3aa1834254113738ed52d14a47fe92308d1dd4e9db5f6fe9"}
                {:path "ansatz/lean/jvm/internal/exec/Utf8Bytes.java" :class "ansatz.lean.jvm.internal.exec.Utf8Bytes" :sha256 "74eb7745542b95b40ad166517fd79bf60500363792f771a34a2bd4c52a64fb18"}]
  :java-api [
+              {:path "ansatz/lean/jvm/PureHostCall.java" :class "ansatz.lean.jvm.PureHostCall" :sha256 "3e862c6c4d5fc04174b21178df8e022322b9e1818ac85c1bc2b9558fc164b39e"}
               {:path "ansatz/lean/jvm/LeanType.java" :class "ansatz.lean.jvm.LeanType" :sha256 "a04b02cea786e1a6328d9f9516bf5f3a3bc35e51149408493d912084b0a1330f"}
               {:path "ansatz/lean/jvm/LeanData.java" :class "ansatz.lean.jvm.LeanData" :sha256 "392b12c00e94205aa6df4507b3b7dc21f749d28db0db22b19d6eede478f1cf62"}
               {:path "ansatz/lean/jvm/LeanBytes.java" :class "ansatz.lean.jvm.LeanBytes" :sha256 "23c83f2b8008f62ba2e6dfde984e944b636467c8d5572b15faffc1002be5d1b8"}
-              {:path "ansatz/lean/jvm/ValueBridge.java" :class "ansatz.lean.jvm.ValueBridge" :sha256 "ba02072d49b855046d63b5eb0ea160d2411d504baaf7a2fed93cef0d25a63d25"}
+              {:path "ansatz/lean/jvm/ValueBridge.java" :class "ansatz.lean.jvm.ValueBridge" :sha256 "5282326ba3370c1c6cca96ea4b6bc35f44e5c785599bf9092b85e53026dcae60"}
               {:path "ansatz/lean/jvm/LeanName.java" :class "ansatz.lean.jvm.LeanName" :sha256 "71cb4ea3e027d3504f39fa3cb538d17876f61fce7798afd558d288e3ba573af3"}
               {:path "ansatz/lean/jvm/LeanTypeId.java" :class "ansatz.lean.jvm.LeanTypeId" :sha256 "f90153d5253c18ff2f59ebe73fe54f1dfd9299189e3cdb061993348a44f0587f"}
               {:path "ansatz/lean/jvm/FileAccess.java" :class "ansatz.lean.jvm.FileAccess" :sha256 "8677eb2d31f854f32991e06460e045681bd4310f9141d2383bafdccd684677d6"}

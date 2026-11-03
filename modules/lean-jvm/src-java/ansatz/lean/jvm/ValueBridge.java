@@ -33,7 +33,7 @@ final class ValueBridge {
     };
     private final Class<?> cohort;
     private final MethodHandle compile, describe, construct, copyBytes, freeze, child, constructorIndex,
-            size, scalar, byteAt, copyBytesOut, prepare, validateArguments;
+            size, scalar, byteAt, copyBytesOut, prepare, prepareReply, validateArguments;
     private ValueBridge(Class<?> cohort) {
         this.cohort = cohort;
         if (!cohort.getName().equals("ansatz.lean.jvm.internal.exec.Interpreter"))
@@ -52,6 +52,7 @@ final class ValueBridge {
             byteAt = lookup.findStatic(cohort, "valueByteAt", MethodType.methodType(int.class, Object.class, int.class));
             copyBytesOut = lookup.findStatic(cohort, "valueCopyByteArray", MethodType.methodType(byte[].class, Object.class));
             prepare = lookup.findStatic(cohort, "valuePrepareArgument", MethodType.methodType(Object.class, Object.class, int.class, Object.class, String.class));
+            prepareReply = lookup.findStatic(cohort, "valuePrepareReply", MethodType.methodType(Object.class, Object.class, int.class, Object.class, String.class));
             validateArguments = lookup.findStatic(cohort, "valueValidateArguments", MethodType.methodType(void.class, Object[].class));
         } catch (ReflectiveOperationException failure) {
             throw new IllegalStateException("Typed storage protocol is unavailable in this cohort", failure);
@@ -76,6 +77,12 @@ final class ValueBridge {
     }
     static Object exportValue(LeanType type, Object raw, String lane) {
         return view(type, type.bridge().freezeBorrowed(type, raw, lane));
+    }
+    static Object prepareReply(LeanType type, Object host, String lane) {
+        ValueBridge bridge = type.bridge();
+        Object capability = bridge.build(type, host, null);
+        try { return (Object) bridge.prepareReply.invokeExact(type.registry.schema, type.plan, capability, lane); }
+        catch (Throwable failure) { throw failure(failure); }
     }
     static void validateArguments(LeanType type, Object[] arguments) {
         try { type.bridge().validateArguments.invokeExact(arguments); }

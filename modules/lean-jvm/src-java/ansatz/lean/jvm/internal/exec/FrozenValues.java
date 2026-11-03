@@ -722,6 +722,31 @@ final class FrozenValues {
         final FrozenInput input;final String lane;
         FrozenArgument(FrozenInput input,String lane) { this.input=input;this.lane=lane; }
     }
+    /** Separate from construction arguments: raw reply lanes must never become
+     * object roots through constructDataArguments. Only this class issues it. */
+    static final class FrozenReply {
+        final Object value;final String lane;
+        private FrozenReply(Object value,String lane) { this.value=value;this.lane=lane; }
+    }
+    static FrozenReply prepareReply(Object schema,int root,Object value,String lane) {
+        FrozenPlan expected=schema(schema).plan(root);FrozenInput input=capability(value);
+        dataRequire(compatible(expected,input.cert.plan),"Reply type/layout/cohort mismatch");
+        if(OBJECT_LANES.contains(lane)) {
+            FrozenArgument argument=prepareArgument(schema,root,value,lane);
+            return new FrozenReply(argument.input.acquire(),lane);
+        }
+        dataRequire(lane.equals(expected.row.closedIR)&&lane.equals(expected.schema.rawLanes.get(expected.row.id)),
+                    "Raw reply ABI/type mismatch");
+        long bits=scalarBits(input.value,input.cert.plan);
+        Object raw=lane.equals("float")?Double.valueOf(Double.longBitsToDouble(bits))
+            :lane.equals("float32")?(Object)Float.valueOf(Float.intBitsToFloat((int)bits)):Long.valueOf(bits);
+        // Apply the same raw scalar validation as guest exports before issuing
+        // the reply token; never authorize arbitrary host scalar carriers.
+        freezeTyped(schema,root,raw,lane);
+        if((lane.equals("uint64")||lane.equals("usize"))&&bits<0)
+            raw=BigInteger.valueOf(bits&Long.MAX_VALUE).setBit(63);
+        return new FrozenReply(raw,lane);
+    }
     private static Object canonicalScalar(FrozenPlan plan,Object storage) {
         String lane=plan.schema.rawLanes.get(plan.row.id);dataRequire(lane!=null,"Raw-to-object adaptation requires scalar type");
         long bits=scalarBits(storage,plan.raw(lane));FrozenPlan terminal=plan;

@@ -136,6 +136,12 @@ See [FILESYSTEM.md](FILESYSTEM.md) for the bounded Linux provider contract.
 
 ## Research boundary
 
+Typed host bindings are being implemented behind a private adapter. It reuses
+the engine's host-request protocol and the existing detached value bridge;
+public source/artifact admission does not yet accept application bindings.
+The [FFI plan](FFI_PLAN.md) records the compiler evidence gate, pure-function
+contract, ownership protocol and remaining sequence.
+
 The former hosting experiments and unpublished World facade are preserved at
 Git tag `lean-jvm-research-2026-11-01` (commit `4ace73f0`) and removed from the active
 tree. Maintained runtime and kernel contracts live in [test-engine](test-engine/README.md),
