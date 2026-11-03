@@ -127,6 +127,22 @@ example (P : Int → Prop) (h : P 5) : P ((2 : Int) + 3) := by
   simp only [Int.reduceAdd]
   guard_target =ₛ P 5
   exact h
+-- Int `/` and `%` are Euclidean (Int.ediv / Int.emod)
+example (P : Int → Prop) (h : P (-2)) : P ((-3 : Int) / 2) := by
+  simp only [Int.reduceDiv]
+  exact h
+example (P : Int → Prop) (h : P 1) : P ((3 : Int) % (-2)) := by
+  simp only [Int.reduceMod]
+  exact h
+example (P : Int → Prop) (h : P 2) : P ((-12 : Int) % (-7)) := by
+  simp only [Int.reduceMod]
+  exact h
+example (P : Int → Prop) (h : P 0) : P ((5 : Int) / 0) := by
+  simp only [Int.reduceDiv]
+  exact h
+example (P : Int → Prop) (h : P (-5)) : P ((-5 : Int) % 0) := by
+  simp only [Int.reduceMod]
+  exact h
 example (P : Nat → Prop) (h : P 2) : P (if _h : True then 2 else 3) := by
   simp only [reduceDIte]
   guard_target =ₛ P 2

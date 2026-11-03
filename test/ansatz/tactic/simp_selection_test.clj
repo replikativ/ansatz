@@ -214,6 +214,25 @@
     (is (= [expr] (normal-form expr [] {:result-type (c "Int")})))
     (is (= [(v 5)] (normal-form expr ["Int.reduceAdd"] {:result-type (c "Int")})))))
 
+(deftest int-division-simprocs-are-euclidean
+  ;; Lean Int `/` and `%` are Int.ediv / Int.emod (Init/Data/Int/DivMod/Basic.lean): the
+  ;; remainder is non-negative, so (-3) / 2 = -2 and 3 % (-2) = 1, x / 0 = 0, x % 0 = x.
+  (let [int (c "Int")
+        v (fn [n] (if (neg? n)
+                    (e/app (c "Int.negSucc") (e/lit-nat (dec (- n))))
+                    (e/app (c "Int.ofNat") (e/lit-nat n))))
+        op (fn [h cls inst a b]
+             (e/app* (e/const' (name/from-string h) [lvl/zero lvl/zero lvl/zero]) int int int
+                     (e/app* (e/const' (name/from-string cls) [lvl/zero]) int (c inst))
+                     (v a) (v b)))
+        div (fn [a b] (op "HDiv.hDiv" "instHDiv" "Int.instDiv" a b))
+        mod (fn [a b] (op "HMod.hMod" "instHMod" "Int.instMod" a b))
+        nf (fn [expr proc] (normal-form expr [proc] {:result-type int}))]
+    (doseq [[a b q r] [[-3 2 -2 1] [3 -2 -1 1] [-12 7 -2 2] [12 -7 -1 5] [-12 -7 2 2]
+                       [7 2 3 1] [5 0 0 5] [-5 0 0 -5]]]
+      (is (= [(v q)] (nf (div a b) "Int.reduceDiv")) (str a " / " b))
+      (is (= [(v r)] (nf (mod a b) "Int.reduceMod")) (str a " % " b)))))
+
 (deftest imported-equations-use-recursion-and-smart-unfolding-metadata
   (let [before (a/env) n (name/from-string "imported-bool-match")]
     (try
