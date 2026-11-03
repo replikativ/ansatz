@@ -106,15 +106,14 @@
                 (e/app (c "selected-amount") (e/fvar 104))
                 (e/lam "_" (c "Unit") (e/lit-nat 0) :default)
                 (e/lam "n" (c "Nat")
-                       (e/app* (e/const' (name/from-string "selected-spendN.match_2") [(lvl/succ lvl/zero)])
-                               (e/lam "_x" (c "SelectedStore") (c "Nat") :default) (e/fvar 102)
-                               (e/lam "wallet" (c "Nat")
-                                      (e/lam "live" (c "Nat")
-                                             (e/app* (c "selected-spendH")
-                                                     (e/app* (c "SelectedStore.mk") (e/bvar 1) (e/bvar 0))
-                                                     (e/fvar 103) (e/bvar 2)
-                                                     (e/app* (c "selected-held") (e/fvar 100) (e/bvar 0) (e/fvar 103)))
-                                             :default) :default)) :default))]
+                       (e/app* (c "selected-spendH")
+                               (e/app* (c "SelectedStore.mk")
+                                       (e/proj (name/from-string "SelectedStore") 0 (e/fvar 102))
+                                       (e/proj (name/from-string "SelectedStore") 1 (e/fvar 102)))
+                               (e/fvar 103) (e/bvar 0)
+                               (e/app* (c "selected-held") (e/fvar 100)
+                                       (e/proj (name/from-string "SelectedStore") 1 (e/fvar 102))
+                                       (e/fvar 103))) :default))]
     (is (= expected result))
     (doseq [callee ["selected-amount" "selected-held" "selected-spendH"]]
       (is (contains? constants (name/from-string callee)))

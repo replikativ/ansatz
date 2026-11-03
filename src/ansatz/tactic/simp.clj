@@ -2010,7 +2010,8 @@
                   probe (apply e/app* value (into (subvec args 0 prefix)
                                                   (map #(e/fvar (+ base %)) (range nalts))))
                   reduced (red/whnf env probe (:lctx st)
-                                    {:can-unfold? #(can-unfold-at-matcher? env %)})
+                                    {:can-unfold? #(can-unfold-at-matcher? env %)
+                                     :infer-fn #(tc/infer-type st %)})
                   [rhead rargs] (when reduced (e/get-app-fn-args reduced))]
               (when (and rhead (e/fvar? rhead)
                          (<= base (e/fvar-id rhead) (+ base nalts -1)))
@@ -2332,20 +2333,37 @@
   ;; Lean Simp/Main.lean dsimpImpl / Meta/Transform.lean transformWithCache:
   ;; cache hits precede guarded visits. Cache identity preserves DAG sharing;
   ;; it is local to this traversal's environment and local context.
-  (let [cache (java.util.IdentityHashMap.)]
-    (letfn [(visit [expr]
+  (let [cache (java.util.IdentityHashMap.)
+        st (tc/attach-lctx (tc/mk-tc-state env) lctx)
+        _ (swap! (:next-id st) max (max-fvar-id lctx expr))]
+    (letfn [(visit-binder [st expr]
+              ;; Lean Meta/Transform.lean visitLambda/visitForall: inference and
+              ;; structure eta require opened binders in the local context.
+              (let [lam? (e/lam? expr)
+                    domain (if lam? (e/lam-type expr) (e/forall-type expr))
+                    body (if lam? (e/lam-body expr) (e/forall-body expr))
+                    nm (if lam? (e/lam-name expr) (e/forall-name expr))
+                    info (if lam? (e/lam-info expr) (e/forall-info expr))
+                    domain' (visit st domain)
+                    id (swap! (:next-id st) inc)
+                    st' (assoc st :lctx (red/lctx-add-local (:lctx st) id nm domain'))
+                    body' (e/abstract1 (visit st' (e/instantiate1 body (e/fvar id))) id)]
+                (if (and (= domain domain') (= body body')) expr
+                    ((if lam? e/lam e/forall') nm domain' body' info))))
+            (visit [st expr]
               (if-let [hit (.get cache expr)]
                 hit
                 (with-inc-rec-depth 1 expr
                   (if-not (instance? ansatz.kernel.Expr expr)
                     expr
-                    (let [original expr
+                    (let [lctx (:lctx st)
+                          original expr
                           reduced (red/whnf-no-delta env expr lctx)
                           expr (if (= reduced expr) expr reduced)
                           result
                           (case (e/tag expr)
-                            :app (let [f (visit (e/app-fn expr))
-                                       a (visit (e/app-arg expr))
+                            :app (let [f (visit st (e/app-fn expr))
+                                       a (visit st (e/app-arg expr))
                                        rebuilt (if (and (identical? f (e/app-fn expr))
                                                         (identical? a (e/app-arg expr)))
                                                  expr (e/app f a))
@@ -2354,29 +2372,21 @@
                                    ;; step on a constructor discriminant. Keep the
                                    ;; selected branch opaque until selection, as simp's
                                    ;; reduceRecMatcher? does, then visit that branch.
-                                   (if-let [step (try-reduce-matcher {:env env :lctx lctx} reduced)]
-                                     (visit (:expr step))
+                                   (if-let [step (try-reduce-matcher st reduced)]
+                                     (visit st (:expr step))
                                      reduced))
-                            :lam (let [t (visit (e/lam-type expr)) b (visit (e/lam-body expr))]
-                                   (if (and (identical? t (e/lam-type expr))
-                                            (identical? b (e/lam-body expr)))
-                                     expr (e/lam (e/lam-name expr) t b (e/lam-info expr))))
-                            :forall (let [t (visit (e/forall-type expr))
-                                          b (visit (e/forall-body expr))]
-                                      (if (and (identical? t (e/forall-type expr))
-                                               (identical? b (e/forall-body expr)))
-                                        expr (e/forall' (e/forall-name expr) t b (e/forall-info expr))))
-                            :let (visit (e/instantiate1 (e/let-body expr) (e/let-value expr)))
-                            :proj (let [v (visit (e/proj-struct expr))]
+                            (:lam :forall) (visit-binder st expr)
+                            :let (visit st (e/instantiate1 (e/let-body expr) (e/let-value expr)))
+                            :proj (let [v (visit st (e/proj-struct expr))]
                                     (if (identical? v (e/proj-struct expr)) expr
                                         (red/whnf-no-delta env
                                                            (e/proj (e/proj-type-name expr)
                                                                    (e/proj-idx expr) v) lctx)))
-                            :mdata (visit (e/mdata-expr expr))
+                            :mdata (visit st (e/mdata-expr expr))
                             expr)]
                       (.put cache original result)
                       result)))))]
-      (visit expr))))
+      (visit st expr))))
 
 ;; ============================================================
 ;; Simplification engine — Lean 4's simpLoop
@@ -3258,9 +3268,6 @@
   ([ps goal st result lemma-names target-core? may-close-goal?]
    (let [simplified (:expr result)
          simplified-whnf (#'tc/cached-whnf st simplified)
-        ;; For Eq.mpr, goal-type must match the eq-proof's LHS exactly.
-        ;; simp-expr* may start from a WHNF'd or rewritten form, so the eq-proof's
-        ;; LHS might differ from (:type goal). Extract the actual LHS from the proof.
          raw-goal-type (:type goal)
         ;; A proof-free simp step must be definitional equality. Check both
         ;; endpoints before assigning a goal or constructing Eq.mpr transport.
@@ -3273,22 +3280,10 @@
                  (tactic-error! "simp: invalid equality proof" {:proof-construction true :goal raw-goal-type})))
              (when-not (tc/is-def-eq st raw-goal-type simplified)
                (tactic-error! "simp: uncertified simplification" {:proof-construction true :goal raw-goal-type})))
-        ;; Extract actual LHS/RHS from eq-proof for Eq.mpr consistency.
-        ;; simp-expr* may WHNF before rewriting, so the proof's type endpoints
-        ;; might differ from the raw input/output expressions.
-         [goal-type simplified-from-proof]
-         (if-let [proof (:proof? result)]
-           (let [proof-type (tc/infer-type st proof)
-                 proof-whnf (when proof-type (#'tc/cached-whnf st proof-type))
-                 [head args] (when proof-whnf (e/get-app-fn-args proof-whnf))]
-             (if (and head (e/const? head)
-                      (= (e/const-name head) (name/from-string "Eq"))
-                      (= 3 (count args)))
-               [(nth args 1) (nth args 2)]
-               [raw-goal-type nil]))
-           [raw-goal-type nil])
-        ;; Use proof-extracted simplified if available, otherwise the raw simp result
-         simplified (or simplified-from-proof simplified)]
+         ;; Lean 4.33.1 Simp/Main.lean applySimpResultToTarget uses r.expr.
+         ;; Definitional steps after a rewrite need not change the proof's RHS;
+         ;; recovering the target from that RHS would restore an unreduced matcher.
+         goal-type raw-goal-type]
      (cond
        ;; Lean SplitIf.lean simpIfTarget uses simpTarget (mayCloseGoal := false).
        ;; Keep even True and reflexive targets available to the branch tactics.
