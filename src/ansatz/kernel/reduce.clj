@@ -3,9 +3,11 @@
 (ns ansatz.kernel.reduce
   "WHNF reduction: beta, delta, iota (recursor), zeta (let),
    projection reduction, nat/string literal reduction, and quotient reduction.
-   Follows Lean 4's kernel type_checker.cpp reduction strategy."
+   Follows Lean 4's kernel type_checker.cpp reduction strategy and Lean 4.33.1
+   Meta/WHNF.lean toCtorWhenStructure for meta reduction."
   (:require [ansatz.kernel.expr :as e]
             [ansatz.kernel.env :as env]
+            [ansatz.kernel.level :as lvl]
             [ansatz.config :as config])
   (:import [ansatz.kernel Name ConstantInfo ConstantInfo$RecursorRule Env]))
 
@@ -132,9 +134,52 @@
               (let [params (subvec (vec type-args) 0 num-params)]
                 (reduce e/app (e/const' ctor-name (e/const-levels type-head)) params)))))))))
 
+(defn- use-eta-struct [env induct-name opts]
+  ;; Lean 4.33.1 Meta/Basic.lean useEtaStruct.
+  (case (:eta-struct opts :all)
+    :none false
+    :not-classes (not (or (contains? (env/get-extension env :classes #{}) (str induct-name))
+                          (contains? (env/get-extension env :instances {}) induct-name)))
+    :all true))
+
+(defn- to-ctor-when-structure
+  "Lean 4.33.1 Meta/WHNF.lean toCtorWhenStructure (raw projections when no
+   structure projection declarations are registered, as for structure-like inductives)."
+  [env ^ConstantInfo rec-ci major whnf-fn infer-fn opts]
+  (if-not (and infer-fn whnf-fn) major
+          (let [major-idx (+ (.numParams rec-ci) (.numMotives rec-ci)
+                             (.numMinors rec-ci) (.numIndices rec-ci))
+                domain (loop [ty (.type rec-ci) n major-idx]
+                         (when (e/forall? ty)
+                           (if (zero? n) (e/forall-type ty)
+                               (recur (e/forall-body ty) (dec n)))))
+                ind-head (when domain (e/get-app-fn domain))
+                ind-name (when (and ind-head (e/const? ind-head)) (e/const-name ind-head))
+                ^ConstantInfo ind-ci (when ind-name (env/lookup env ind-name))
+                head (e/get-app-fn major)
+                ^ConstantInfo head-ci (when (e/const? head) (env/lookup env (e/const-name head)))]
+            (if-not (and ind-ci (.isInduct ind-ci) (= 1 (alength (.ctors ind-ci)))
+                         (zero? (.numIndices ind-ci)) (not (.isRec ind-ci))
+                         (use-eta-struct env ind-name opts)
+                         (not (and head-ci (.isCtor head-ci))))
+              major
+              (let [major-type (whnf-fn env (infer-fn major))
+                    [type-head params] (e/get-app-fn-args major-type)]
+                (if-not (and (e/const? type-head) (= ind-name (e/const-name type-head))) major
+                        (let [sort (whnf-fn env (infer-fn major-type))]
+                          (when-not (e/sort? sort)
+                            (throw (ex-info "Type expected during structure eta reduction"
+                                            {:kind :type-error :expr major-type :type sort})))
+                          (if (= lvl/zero (e/sort-level sort)) major
+                              (let [ctor-name (aget (.ctors ind-ci) 0)
+                                    ^ConstantInfo ctor-ci (env/lookup! env ctor-name)]
+                                (reduce e/app (e/const' ctor-name (e/const-levels type-head))
+                                        (concat (take (.numParams ctor-ci) params)
+                                                (map #(e/proj ind-name % major) (range (.numFields ctor-ci))))))))))))))
+
 (defn- try-reduce-recursor
   "Try iota reduction: apply a recursor to a constructor."
-  [^Env env head args whnf-fn infer-fn is-def-eq-fn]
+  [^Env env head args whnf-fn infer-fn is-def-eq-fn opts]
   (when (e/const? head)
     (when-let [^ConstantInfo ci (env/lookup env (e/const-name head))]
       (when (.isRecursor ci)
@@ -148,6 +193,7 @@
           (when (>= (count args) expected-args)
             (let [major-idx (+ num-params num-motives num-minors num-indices)
                   major (if whnf-fn (whnf-fn env (nth args major-idx)) (nth args major-idx))
+                  major (to-ctor-when-structure env ci major whnf-fn infer-fn opts)
                   extra-args (subvec (vec args) (inc major-idx))
                   [ctor-head ctor-args] (e/get-app-fn-args major)
                   ctor-head (if (e/lit-nat? major)
@@ -318,7 +364,7 @@
                                   (reduce e/app f args)))]
                    (recur env result lctx opts)))
              :else
-             (if-let [reduced (or (try-reduce-recursor env head' args nil nil nil)
+             (if-let [reduced (or (try-reduce-recursor env head' args nil nil nil opts)
                                   (try-reduce-quot env head' args))]
                (do (check-fuel!) (recur env reduced lctx opts))
                (if (and (e/const? head')
@@ -488,7 +534,7 @@
                    (do (check-fuel!)
                        (recur (whnf-core env (reduce e/app unfolded args) lctx opts)))
                    (let [iota-result (try-reduce-recursor env head args
-                                                          whnf-fn infer-fn is-def-eq-fn)]
+                                                          whnf-fn infer-fn is-def-eq-fn opts)]
                      (if iota-result
                        (do (check-fuel!) (recur (whnf-core env iota-result lctx opts)))
                        (if (and (e/const? head)
