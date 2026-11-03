@@ -279,7 +279,7 @@
           (let [loaded (-> (bundled-medium-env verify?)
                            (env/with-extension :bundled-artifacts manifest)
                            (env/with-extension artifact-profile/extension-key
-                                               (artifact-profile/bundled manifest verify?)))]
+                             (artifact-profile/bundled manifest verify?)))]
             (setup-env! loaded)
             @ansatz-env))))))
 

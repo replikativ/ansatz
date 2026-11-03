@@ -31,9 +31,9 @@
   (swap! @(ns-resolve 'ansatz.core 'synth-cache) assoc :local :cached)
   (let [current (session/capture)]
     (session/activate!
-      (assoc current :store {:store-path "borrowed" :branch "init" :store-map {}}
-                     :recall-store-path "borrowed" :instance-caches {:local :cached}
-                     :simp-caches {:env (:env current) :entries {:local :cached}})))
+     (assoc current :store {:store-path "borrowed" :branch "init" :store-map {}}
+            :recall-store-path "borrowed" :instance-caches {:local :cached}
+            :simp-caches {:env (:env current) :entries {:local :cached}})))
   (let [before (snapshot)]
     (is (identical? (:env before) (a/load-init!)))
     (is (= before (snapshot)))
@@ -43,7 +43,7 @@
   (a/load-init!)
   ;; This proof requires both retained declarations and passes check-constant.
   (a/theorem retainedModels [] (And True True)
-    (exact (And.intro retainedModelA retainedModelB)))
+             (exact (And.intro retainedModelA retainedModelB)))
   (is (some? (env/lookup (a/env) (name/from-string "retainedModels")))))
 
 (deftest explicit-verification-rechecks-trusted-base-without-replacing-session
@@ -58,7 +58,7 @@
     (is (= [true] @modes))
     (is (= before (snapshot)))
     (is (= :trust (get-in (env/get-extension (a/env) :artifact-profile)
-                         [:base :kernel-admission])))))
+                          [:base :kernel-admission])))))
 
 (deftest failed-isolated-recheck-keeps-the-complete-session
   (a/load-init!)
@@ -105,10 +105,10 @@
   (a/load-init!)
   (is (nil? (env/lookup (a/env) (name/from-string "oldSessionModel"))))
   (let [store-base (env/with-extension (env/empty-env) :artifact-profile
-                                     {:base {:kind :prepared-store}})
+                     {:base {:kind :prepared-store}})
         descriptor {:store-map {:fixture :borrowed} :store-path "fixture" :branch "init"}]
     ((ns-resolve 'ansatz.core 'setup-env!) store-base descriptor nil
-     {:attrs [] :instances {} :matchers {}})
+                                           {:attrs [] :instances {} :matchers {}})
     (is (identical? descriptor @state/ansatz-store))
     (a/load-init!)
     (is (nil? @state/ansatz-store))
