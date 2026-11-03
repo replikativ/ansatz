@@ -99,3 +99,38 @@ example (n : Nat) (_dep : n = n) (_unused : True) : n = n := by
   rfl
 
 example (hh : True ∧ False) : False := by simp at hh
+
+example (rule : ∀ {α : Type}, [HAdd Nat Nat α] → 1 + 0 = (1 : Nat)) : 1 + 0 = (1 : Nat) := by
+  rw [rule]
+example (rule : ∀ {α : Type}, [HAdd Nat Nat α] → 1 + 0 = (1 : Nat)) : 1 + 0 = (1 : Nat) := by
+  apply rule
+example (_bad : [Inhabited False] → True) (good : [Inhabited Nat] → True) : True := by
+  first | apply _bad | apply good
+example (_bad : [Inhabited False] → 1 + 0 = (1 : Nat))
+    (good : [Inhabited Nat] → 1 + 0 = (1 : Nat)) : 1 + 0 = (1 : Nat) := by
+  first | rw [_bad] | rw [good]
+example (p : Prop) (d : Decidable p) (hh : @ite Nat p d 0 1 = 0) : p := by
+  split at hh
+  · assumption
+  · cases hh
+example (p q : Prop) (dp : Decidable p) (dq : Decidable q)
+    (hh : @ite Prop p dp True True) (_other : @ite Prop q dq True True) : hh = hh := by
+  split at *
+  all_goals
+    guard_hyp hh : @ite Prop p dp True True
+    guard_hyp _other : True
+    rfl
+
+example (i j x y : Nat) : ((if i = j then x else y) = (if i = j then x else y)) ∧ True := by
+  constructor
+  · split
+    · guard_target = x = x
+      rfl
+    · guard_target = y = y
+      rfl
+  · exact True.intro
+
+example [_boolAdd : HAdd Nat Nat Bool]
+    (_rule : ∀ {α : Type}, [HAdd Nat Nat α] → α → α) : Nat := by
+  fail_if_success apply _rule
+  exact 0

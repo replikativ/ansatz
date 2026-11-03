@@ -8,6 +8,7 @@
             [ansatz.meta :as meta]
             [ansatz.surface.elaborate :as elab]
             [ansatz.tactic.basic :as basic]
+            [ansatz.tactic.instance :as inst]
             [ansatz.tactic.extract :as extract]
             [ansatz.tactic.proof :as proof]))
 
@@ -91,7 +92,7 @@
   (proves 'split_decidable_local
           (into '[p :- Prop, d :- (Decidable p)]
                 ['hh ':- (list '= (list (symbol "@ite") 'Nat 'p 'd 0 1) 0)])
-          'p '[(split at hh) (cases hh) (exact h)]))
+          'p '[(split at hh) (exact h) (cases hh)]))
 
 (deftest split-at-local-preserves-dependent-hypothesis
   (proves 'split_bool_local_dependent
@@ -276,3 +277,119 @@
 
 (deftest simp-local-false-closes-after-clearing-original
   (proves 'simp_local_false_closes '[hh :- (And True False)] 'False '[(simp at hh)]))
+
+(defn- out-param-rewrite-proof []
+  (let [c #(e/const' (name/from-string %) [])
+        nat (c "Nat")
+        eqn (e/app* (e/const' (name/from-string "Eq") [(lvl/succ lvl/zero)])
+                     nat (e/app* (c "Nat.add") (e/lit-nat 1) (e/lit-nat 0)) (e/lit-nat 1))
+        hadd (e/app* (e/const' (name/from-string "HAdd") [lvl/zero lvl/zero lvl/zero])
+                      nat nat (e/bvar 0))
+        rule (e/forall' "alpha" (e/sort' (lvl/succ lvl/zero))
+                       (e/forall' "inst" hadd eqn :inst-implicit) :implicit)
+        [ps _] (proof/start-proof (a/env) (e/forall' "rule" rule eqn :default))]
+    (basic/intro ps "rule")))
+
+(deftest rewrite-synthesis-assigns-output-parameters
+  (let [ps (out-param-rewrite-proof)
+        rewritten (a/run-tactic ps '(rewrite rule))
+        alpha (first (for [[id d] (get-in rewritten [:meta-mctx :decls])
+                           :when (= "alpha" (some-> (:user-name d) name/->string))] id))]
+    (is (= 1 (count (:goals rewritten))))
+    (is (= (e/const' (name/from-string "Nat") [])
+           (meta/zonk-expr (:meta-mctx rewritten) (e/mvar alpha))))
+    (is (some? (extract/verify (a/run-tactic rewritten '(rfl)))))
+    (let [closed (a/run-tactic ps '(rw [rule]))]
+      (is (proof/solved? closed))
+      (is (some? (extract/verify closed))))))
+
+(deftest apply-synthesis-retains-output-parameter-assignments
+  (let [ps (a/run-tactic (out-param-rewrite-proof) '(apply rule))]
+    (is (proof/solved? ps))
+    (is (some? (extract/verify ps)))))
+
+(deftest instance-search-skips-inapplicable-rule-before-applicable-rule
+  (let [nat (e/const' (name/from-string "Nat") [])
+        truth (e/const' (name/from-string "True") [])
+        falsehood (e/const' (name/from-string "False") [])
+        inhabited #(e/app (e/const' (name/from-string "Inhabited") [%1]) %2)
+        eqn (e/app* (e/const' (name/from-string "Eq") [(lvl/succ lvl/zero)])
+                     nat (e/app* (e/const' (name/from-string "Nat.add") []) (e/lit-nat 1) (e/lit-nat 0)) (e/lit-nat 1))]
+    (doseq [[goal tactic] [[truth '(first (apply bad) (apply good))]
+                          [eqn '(first (rw [bad]) (rw [good]))]]]
+      (let [bad (e/forall' "inst" (inhabited lvl/zero falsehood) goal :inst-implicit)
+            good (e/forall' "inst" (inhabited (lvl/succ lvl/zero) nat) goal :inst-implicit)
+            ty (e/forall' "bad" bad (e/forall' "good" good goal :default) :default)
+            [ps _] (proof/start-proof (a/env) ty)
+            ps (a/run-tactic (basic/intros ps ["bad" "good"]) tactic)]
+        (is (proof/solved? ps))
+        (is (some? (extract/verify ps)))))))
+
+(deftest synthesis-programming-errors-propagate
+  (with-redefs [inst/synth-instance (fn [& _] (throw (IllegalStateException. "synthesis bug")))]
+    (doseq [tactic '[(apply rule) (rewrite rule)]]
+      (is (thrown-with-msg? IllegalStateException #"synthesis bug"
+                            (a/run-tactic (out-param-rewrite-proof) tactic))))))
+
+(deftest synthesized-instance-must-unify-with-its-full-type
+  (with-redefs [inst/synth-instance (fn [mctx & _]
+                                   [mctx (e/const' (name/from-string "Bool.true") [])])]
+    (doseq [tactic '[(apply rule) (rewrite rule)]]
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"failed to assign synthesized instance"
+                            (a/run-tactic (out-param-rewrite-proof) tactic))))))
+
+(deftest split-decidable-local-is-positive-first
+  (let [hyp (list '= (list (symbol "@ite") 'Nat 'p 'd 0 1) 0)
+        params (into '[p :- Prop, d :- (Decidable p)] ['hh ':- hyp])
+        ty (elab/elaborate (a/env) (list 'forall params 'p))
+        [ps _] (proof/start-proof (a/env) ty)
+        ps (basic/intros ps ["p" "d" "hh"])
+        pid (first (for [[id d] (:lctx (proof/current-goal ps)) :when (= "p" (:name d))] id))
+        ps (a/run-tactic ps '(split at hh))]
+    (is (= [(e/fvar pid) (e/app (e/const' (name/from-string "Not") []) (e/fvar pid))]
+           (mapv (fn [g] (:type (first (filter #(= "h" (:name %)) (vals (:lctx g)))))) (proof/goals ps))))
+    (is (some? (extract/verify (reduce a/run-tactic ps '[(exact h) (cases hh)]))))))
+
+(deftest wildcard-split-skips-local-used-by-target
+  (let [ite #(list (symbol "@ite") 'Prop %1 %2 'True 'True)
+        params (into '[p :- Prop, q :- Prop, dp :- (Decidable p), dq :- (Decidable q)]
+                     ['hh ':- (ite 'p 'dp) 'other ':- (ite 'q 'dq)])
+        ty (elab/elaborate (a/env) (list 'forall params '(= hh hh)))
+        [ps _] (proof/start-proof (a/env) ty)
+        ps (basic/intros ps ["p" "q" "dp" "dq" "hh" "other"])
+        before (proof/current-goal ps)
+        locals (into {} (map (fn [[id d]] [(:name d) id]) (:lctx before)))
+        ps (a/run-tactic ps '(split at *))]
+    (is (= 2 (count (:goals ps))))
+    (is (= [(e/fvar (locals "q"))
+            (e/app (e/const' (name/from-string "Not") []) (e/fvar (locals "q")))]
+           (mapv (fn [g] (:type (first (filter #(= "h" (:name %)) (vals (:lctx g)))))) (proof/goals ps))))
+    (doseq [g (proof/goals ps)]
+      (is (context-closed? g))
+      (is (= (:type before) (:type g)))
+      (is (= [(get-in before [:lctx (locals "hh")])]
+             (vec (filter #(= "hh" (:name %)) (vals (:lctx g))))))
+      (is (= ["True"] (mapv (comp e/->string :type)
+                                   (filter #(= "other" (:name %)) (vals (:lctx g)))))))
+    (is (some? (extract/verify (a/run-tactic ps '(all_goals (rfl))))))))
+
+(deftest apply-constrains-instance-output-type-before-synthesis
+  (let [c #(e/const' (name/from-string %) [])
+        hadd #(e/app* (e/const' (name/from-string "HAdd") [lvl/zero lvl/zero lvl/zero])
+                       (c "Nat") (c "Nat") %)
+        rule (e/forall' "alpha" (e/sort' (lvl/succ lvl/zero))
+                       (e/forall' "inst" (hadd (e/bvar 0))
+                                  (e/forall' "x" (e/bvar 1) (e/bvar 2) :default)
+                                  :inst-implicit) :implicit)
+        ty (e/forall' "boolAdd" (hadd (c "Bool"))
+                     (e/forall' "rule" rule (c "Nat") :default) :inst-implicit)
+        [ps _] (proof/start-proof (a/env) ty)
+        ps (basic/intros ps ["boolAdd" "rule"])
+        ex (try (a/run-tactic ps '(apply rule)) nil
+                (catch clojure.lang.ExceptionInfo ex
+                  (if (= :tactic-error (:kind (ex-data ex))) ex (throw ex))))]
+    ;; Lean rejects the conflicting local out-param instance after constraining alpha.
+    (is (some? ex))
+    (is (re-find #"failed to synthesize instance" (or (some-> ex .getMessage) "")))
+    (is (= (hadd (c "Nat")) (:type (ex-data ex))))
+    (is (some? (extract/verify (basic/exact ps (e/lit-nat 0)))))))

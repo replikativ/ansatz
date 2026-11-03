@@ -78,10 +78,13 @@
                         (e/forall' "h" (expr 'True) (expr 'True) :default)
                         :inst-implicit)
         [ps head] (with-local-head type)
-        inst (:next-id ps) h (inc inst)
-        ps (basic/apply-tac ps head)]
-    (is (proof/mvar-assigned? ps inst))
-    (is (= [[h (expr 'True) "h"]] (vector-of-goals ps)))))
+        ps (basic/apply-tac ps head)
+        ids (into {} (keep (fn [id]
+                             (when-let [tag (proof/mvar-user-name ps id)]
+                               [(name/->string tag) id])) (proof/mvar-ids ps)))]
+    (is (proof/mvar-assigned? ps (ids "inst")))
+    (is (= [[(ids "h") (expr 'True) "h"]] (vector-of-goals ps)))
+    (is (some? (extract/verify (basic/exact ps (expr 'True.intro)))))))
 
 (deftest head-expression-holes-are-appended-once
   (let [[ps _] (proof/start-proof @test-env/checked-bundled-init-env (expr 'True))
