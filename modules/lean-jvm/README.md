@@ -223,8 +223,8 @@ Application authors supply entry names, not handwritten datatype bindings. The
 three-file [expression application](examples/datatypes/README.md) defines an enum,
 recursive tree and mixed record across `Syntax`, `Eval` and `Main`; see
 [value examples](VALUE_EXAMPLES.md#automatic-datatype-values-v3) for Java and Clojure.
-This path requires the new reviewed v3 producer, whose archive publication is
-still pending. Published v1/v2 conventions and byte-array copies remain unchanged.
+This path requires the reviewed [v3 producer](producer/README.md#datatype-v3-producer).
+Published v1/v2 conventions and byte-array copies remain unchanged.
 
 V3 handles expose detached `LeanType` metadata through `argumentTypes()` and
 `resultType()` when `hasTypeMetadata()` is true. Their public `descriptor()` also
@@ -255,7 +255,8 @@ This is not a zero-allocation or zero-first-crossing-cost guarantee.
 All explicit arguments share one preflight budget outside the execution lease.
 Bad host arguments fail with `InvalidArgument`; aggregate limits fail with
 `ResourceLimit`, before guest effects, leaving the Project reusable. Shared
-certified payload counts once. IO custom-data success freezes only its pure
+certified root frontier counts once; distinct overlapping frontiers can be
+conservatively overcounted. IO custom-data success freezes only its pure
 payload and releases the IO envelope. Uncaught guest IO errors retain the
 existing terminal Project policy; immutable returned values remain readable.
 

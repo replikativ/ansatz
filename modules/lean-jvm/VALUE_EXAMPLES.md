@@ -88,8 +88,7 @@ ordinary tagged data. An outer `IO.error` instead fails the call with
 These examples use the three-file [datatype application](examples/datatypes/README.md)
 with root `Main`, selecting `DatatypeExample.sample`, `eval`, `simplify`,
 `summarize`, `readStats` and `ioEcho` by their fully qualified names. Source
-preparation needs the reviewed v3 producer; publication of that archive is still
-pending. A v3 prepared artifact subsequently needs only the JVM SDK.
+preparation needs the reviewed [v3 producer](producer/README.md#datatype-v3-producer). A v3 prepared artifact subsequently needs only the JVM SDK.
 
 Java receives native-derived metadata and immutable values:
 

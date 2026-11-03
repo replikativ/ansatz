@@ -82,3 +82,40 @@ official Lean 4.33.1 sysroot at the pinned commit and a writable cache directory
 The SDK checks the actual source and executable bytes again before use. It does
 not download or install this bundle automatically. The reviewed binaries contain
 debug information and remain outside Maven runtime dependencies.
+
+
+## Datatype v3 producer
+
+Automatic closed datatype discovery uses the independently pinned v3 entry
+producer and the [bundle/2 descriptor](producer-bundle-v3.example.json). This
+adds complete helper source-closure and build-receipt custody; it is not a
+replacement for the existing v1/v2 entry contracts. Older SDKs without the
+[datatype integration](https://github.com/replikativ/ansatz/pull/385) reject this
+bundle. Use a coordinated SDK release containing that integration.
+
+The [v3 release](https://github.com/replikativ/ansatz-stores/releases/tag/lean-native-producer-4.33.1-v3)
+contains the three executable helpers, exact original sources, build receipt,
+file inventory and licenses. The archive is 132,643,271 bytes with SHA-256
+`f72a632f97c611c89e7eec60d31a246114a863bd91d1449ebeae30326438efea`.
+The archive was fully extracted and checked against its file inventory; the
+relocated bundle passed ordinary public source loading. See the
+[publication record](candidate-v3.json) for independent identities.
+
+```sh
+curl --fail --location --output lean-producer-v3.tar.zst https://github.com/replikativ/ansatz-stores/releases/download/lean-native-producer-4.33.1-v3/ansatz-lean-native-producer-4.33.1-linux-x86_64-v3.tar.zst
+printf '%s  %s\n' 'f72a632f97c611c89e7eec60d31a246114a863bd91d1449ebeae30326438efea' 'lean-producer-v3.tar.zst' | sha256sum --check
+mkdir lean-native-producer-4.33.1-v3
+tar --zstd -xf lean-producer-v3.tar.zst -C lean-native-producer-4.33.1-v3
+```
+
+Pass that extracted directory as `NativeCompilerOptions.producerBundle`; source
+loading invokes the helpers without a manual export step. New v3 preparations
+capture used defining products before compilation, reconcile native entry IR
+with source rows and retain those identities in versioned artifacts. Existing
+v2 caches cannot be upgraded retrospectively. First v3 preparation therefore
+performs advisory discovery followed by compilation under the new baseline;
+subsequent identical preparations use the corresponding caches.
+
+JVM-only artifact deployment needs none of this archive or the native toolchain.
+The build receipt retains its historical `entry-built-not-published` stage text;
+publication is a separate archive record, not a rewrite of the pinned receipt.

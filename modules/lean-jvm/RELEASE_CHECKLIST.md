@@ -51,14 +51,12 @@ checks do not replace these gates or establish a performance claim.
 
 ## Publication order
 
-The existing published v2 bundle retains its supported scope. The new reviewed
-v3 datatype producer is implemented but its archive has not yet been published.
-The user has authorized landing datatype support before the later FFI discussion;
-that authorization does not establish archive publication or acceptance of
-uncompleted gates. Before claiming a released v3 workflow, publish and verify
-the exact reviewed producer archive, update its [setup instructions](producer/README.md),
-and complete SDK acceptance against those bytes. Main still automatically
-publishes coordinated SDK artifacts, so review that consequence before merging.
+The published v1/v2 bundles retain their supported scopes. The independently
+pinned v3 producer is published separately with its source closure and build
+receipt; its [publication record](producer/candidate-v3.json) records the exact
+archive. Source support must be checked against those actual bytes before
+landing. Main automatically publishes coordinated SDK artifacts; the user's
+landing authorization includes that consequence. FFI is a later design discussion.
 Use the actual coordinated release version; do not assign a release claim from
 a local build. The deployment job must verify and publish the exact checked JAR/POM
 bytes without rebuilding them.

@@ -55,8 +55,8 @@ a graph rescan. Clojure map/indexed views adapt this storage lazily. Explicit
 materialization copies to ordinary host collections and bytes. All argument
 preflight shares aggregate budgets outside the execution lease; IO success
 freezes its pure payload and retires the envelope. V1/v2 codecs and artifacts
-retain their established carriers. The new v3 producer archive is not yet
-published; this implementation is not a released-version claim.
+retain their established carriers. The [v3 producer archive](producer/README.md#datatype-v3-producer)
+is published separately; use a coordinated SDK release containing this integration.
 
 Ownership-sensitive sharing diagnostics check actual values in the canonical
 engine. Managed objects and nonnegative immediate scalars are supported;
