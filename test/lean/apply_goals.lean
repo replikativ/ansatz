@@ -61,3 +61,12 @@ example (n : Nat)
   first
   | apply _bad <;> rfl
   | apply good <;> rfl
+
+example (rule : ∀ n : Nat, True → Nat.add n 0 = n) : (1 : Nat) = 1 := by
+  apply rule
+  guard_target = True
+  exact True.intro
+
+example (rule : ∀ n : Nat, True → Nat.add n 0 = n) : Nat.add 1 0 = 1 := by
+  rw [rule]
+  exact True.intro

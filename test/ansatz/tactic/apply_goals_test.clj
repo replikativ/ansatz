@@ -1,6 +1,7 @@
 (ns ansatz.tactic.apply-goals-test
   (:require [clojure.test :refer [deftest is]]
             [ansatz.test-env :as test-env]
+            [ansatz.meta :as meta]
             [ansatz.kernel.expr :as e]
             [ansatz.kernel.level :as lvl]
             [ansatz.kernel.name :as name]
@@ -78,10 +79,13 @@
                         (e/forall' "h" (expr 'True) (expr 'True) :default)
                         :inst-implicit)
         [ps head] (with-local-head type)
-        inst (:next-id ps) h (inc inst)
-        ps (basic/apply-tac ps head)]
-    (is (proof/mvar-assigned? ps inst))
-    (is (= [[h (expr 'True) "h"]] (vector-of-goals ps)))))
+        ps (basic/apply-tac ps head)
+        ids (into {} (keep (fn [id]
+                             (when-let [tag (proof/mvar-user-name ps id)]
+                               [(name/->string tag) id])) (proof/mvar-ids ps)))]
+    (is (proof/mvar-assigned? ps (ids "inst")))
+    (is (= [[(ids "h") (expr 'True) "h"]] (vector-of-goals ps)))
+    (is (some? (extract/verify (basic/exact ps (expr 'True.intro)))))))
 
 (deftest head-expression-holes-are-appended-once
   (let [[ps _] (proof/start-proof @test-env/checked-bundled-init-env (expr 'True))
@@ -126,3 +130,37 @@
         (is (some? (extract/verify
                     (-> ps (basic/exact (expr 'True.intro))
                         (basic/exact (expr 'True.intro))))))))))
+
+(deftest telescope-tactics-reserve-identifiers-before-matching
+  (doseq [mode [:apply :rewrite]]
+    (let [c #(e/const' (name/from-string %) [])
+          eq (fn [a b] (e/app* (e/const' (name/from-string "Eq") [(lvl/succ lvl/zero)]) (c "Nat") a b))
+          rule-type (e/forall' "n" (c "Nat")
+                               (e/forall' "h" (c "True")
+                                          (eq (e/app* (c "Nat.add") (e/bvar 1) (e/lit-nat 0)) (e/bvar 1))
+                                          :default) :default)
+          one (e/lit-nat 1)
+          target (if (= mode :apply) (eq one one)
+                     (eq (e/app* (c "Nat.add") one (e/lit-nat 0)) one))
+          [ps _] (proof/start-proof @test-env/checked-bundled-init-env
+                                    (e/forall' "rule" rule-type target :default))
+          ps (basic/intro ps "rule")
+          rule (e/fvar (ffirst (:lctx (proof/current-goal ps))))
+          observed (atom [])
+          unify meta/is-def-eq
+          ps (with-redefs [meta/is-def-eq
+                           (fn [mctx st & args]
+                             ;; Lean's telescope and matcher share a fresh supply.
+                             (when (and (empty? @observed) (= 2 (count args)))
+                               (reset! observed [@(:next-id st)
+                                                 (reduce max 0 (concat (keys (:decls mctx))
+                                                                       (keys (:level-depth mctx))))]))
+                             (apply unify mctx st args))]
+               (if (= mode :apply) (basic/apply-tac ps rule) (basic/rewrite-lemma ps rule)))]
+      (is (= 2 (count @observed)))
+      (is (>= (first @observed) (second @observed)))
+      (is (= (if (= mode :apply) [(c "True")] [(eq one one) (c "True")])
+             (mapv :type (proof/goals ps))))
+      (let [ps (if (= mode :rewrite) (basic/rfl ps) ps)]
+        (is (= "h" (name/->string (:user-name (proof/current-goal ps)))))
+        (is (some? (extract/verify (basic/exact ps (c "True.intro")))))))))

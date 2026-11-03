@@ -324,7 +324,7 @@
                                 (e/const' (name/from-string "Nat") []) x x))
         ps (basic/split-tac (basic/constructor ps))]
     ;; Check the targets before reflexivity can close an unreduced conditional.
-    (is (= [(eq-self (local "y")) (eq-self (local "x"))
+    (is (= [(eq-self (local "x")) (eq-self (local "y"))
             (e/const' (name/from-string "True") [])]
            (mapv #(proof/mvar-type ps %) (:goals ps))))
     (let [done (-> ps basic/rfl basic/rfl basic/constructor)]
