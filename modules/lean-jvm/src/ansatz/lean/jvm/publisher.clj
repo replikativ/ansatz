@@ -45,7 +45,8 @@
                         (entry-v3/validate-document!
                          {:root (get request "module") :request request
                           :module-products (get document "moduleProducts")
-                          :local-modules locals :installed-imports installed} document)) documents)
+                          :local-modules locals :installed-imports installed
+                          :entry-imports (when (get-in payload [:build-inputs "workspace"]) installed)} document)) documents)
         entries (vec (mapcat :entries checked))]
     (need (= entries (:entries payload)) "Nominal entries differ from authenticated documents")
     (doseq [entry entries role ["raw" "callable"]]

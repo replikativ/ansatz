@@ -4,7 +4,8 @@
   (:import [java.nio.file Files StandardOpenOption] [java.security MessageDigest]))
 
 (def engine-class "ansatz.lean.jvm.internal.exec.Interpreter")
-(def runtime-resources ["META-INF/ansatz-lean-jvm/runtime.edn"
+(def runtime-resources ["META-INF/ansatz-lean-jvm/LakeInventory.lean"
+                        "META-INF/ansatz-lean-jvm/runtime.edn"
                         "META-INF/ansatz-lean-jvm/user-error.json"
                         "META-INF/ansatz-lean-jvm/filesystem-layouts.jsonl"
                         "META-INF/ansatz-lean-jvm/NOTICE"])

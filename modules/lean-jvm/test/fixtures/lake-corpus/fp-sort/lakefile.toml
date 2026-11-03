@@ -1,0 +1,7 @@
+name = "fp_sort_probe"
+defaultTargets = ["App"]
+[[require]]
+name = "examples"
+path = "../fp-lean/examples"
+[[lean_lib]]
+name = "App"

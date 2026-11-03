@@ -46,6 +46,7 @@
               "test/compiler_v3_reconciliation_checks.clj"
               "test/nominal_artifact_checks.clj"
               "test/native_transport_checks.clj"
+              "test/lake_workspace_checks.clj"
               "test/io_error_checks.clj"
               "test-engine/source-contracts/source_authority_contracts.clj"]]
   (load-file file))
@@ -93,6 +94,7 @@
               ['ansatz-lean-jvm-nominal-artifact-checks ["test/fixtures/nominal-entry-v3/oracle-entry-evidence.json"
                                                       "test/fixtures/nominal-entry-v3/producer-build-receipt.json"]]
               ['ansatz-lean-jvm-native-transport-checks []]
+              ['lake-workspace-checks []]
               ['ansatz-lean-jvm-io-error-checks []]
               ['source-authority-contracts ["."]]]
       results (mapv

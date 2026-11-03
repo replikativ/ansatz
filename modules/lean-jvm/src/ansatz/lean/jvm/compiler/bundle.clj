@@ -5,7 +5,7 @@
             [ansatz.lean.jvm.entry :as checked-entry]
             [ansatz.lean.jvm.entry-v3 :as entry-v3]
             [ansatz.lean.jvm.producer :as producer]
-            [clojure.data.json :as json])
+            [clojure.data.json :as json] [clojure.string])
   (:import [java.nio.file Path Files LinkOption]
            [java.nio.charset StandardCharsets] [java.security MessageDigest]))
 
@@ -223,3 +223,16 @@
          :evidence-options {:entry-schema version :entry-helper (:entry-binary inspected) :entry-helper-source source
                             :entry-helper-sha256 (:binary cohort) :entry-helper-source-sha256 (:source cohort)
                             :producer-custody custody :producer-files (:file-records inspected)}}))))
+
+(defn source-configuration!
+  "Select the existing source DAG or an explicitly requested built Lake workspace.
+   Compiler discovery and artifacts remain separate; this never opens a Project."
+  [compiler base source-root options]
+  (let [name (fn [text] (reduce (fn [parent part] ["str" parent part]) ["anonymous"]
+                               (clojure.string/split text #"\." -1)))
+        root (name (.rootModule ^ansatz.lean.jvm.ProjectOptions options))]
+    (if (.builtLakeWorkspace ^ansatz.lean.jvm.ProjectOptions options)
+      (merge base ((requiring-resolve 'ansatz.lean.jvm.compiler.workspace/configure!) compiler source-root root))
+      (cond-> (assoc base :project source-root :source-root (.sourceRoot ^ansatz.lean.jvm.ProjectOptions options) :roots [root])
+        (seq (.installedImports ^ansatz.lean.jvm.ProjectOptions options))
+        (assoc :installed-imports (mapv name (.installedImports ^ansatz.lean.jvm.ProjectOptions options)))))))

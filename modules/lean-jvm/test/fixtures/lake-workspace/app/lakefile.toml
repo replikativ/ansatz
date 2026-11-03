@@ -1,0 +1,8 @@
+name = "app"
+version = "0.1.0"
+defaultTargets = ["App"]
+[[require]]
+name = "domain"
+path = "../domain"
+[[lean_lib]]
+name = "App"

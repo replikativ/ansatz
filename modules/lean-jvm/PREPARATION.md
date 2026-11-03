@@ -99,6 +99,14 @@ On success stdout contains one JSON object with `manifest-sha256` and `archive-s
 
 The CLI never replaces an existing destination. It prepares a sibling temporary file, closes it, then publishes the completed file using an atomic no-replace hard link. This requires hard-link support on the output filesystem, alongside the existing Linux native compilation profile. Temporary-file cleanup is attempted on success and failure. The stream API remains available when an application supplies its own storage transaction.
 
+## Built Lake workspaces
+
+Use `ProjectOptions.Builder.builtLakeWorkspace()`, Clojure
+`:built-lake-workspace? true`, or CLI `--source-mode built-lake` for an already
+resolved and built workspace. See [the Lake scope and validation guide](LAKE.md).
+Preparation verifies the built root and captures original dependency products;
+it does not issue build/update commands or expand interpreter capabilities.
+
 ## Validation boundary
 
 Preparation collects native checked-entry, module, and ordinary-startup evidence. Export revalidates the actual issued receipt and captured files before returning digests. It does not claim Java kernel checking, execution readiness, runtime intrinsic coverage, successful initialization, or a successful `main` call. Those checks happen when a later `loadArtifact` opens a JVM project and when an admitted function is invoked.

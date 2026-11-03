@@ -1,0 +1,7 @@
+name = "cli_probe"
+defaultTargets = ["App"]
+[[require]]
+name = "Cli"
+path = "../lean4-cli"
+[[lean_lib]]
+name = "App"

@@ -87,7 +87,7 @@
         total (atom 0)
         modules
         (mapv (fn [module]
-                (let [local (get locals module) root (if local build library)
+                (let [local (get locals module) root (if (or local (contains? (get-in state [:workspace :products]) module)) build library)
                       selected (selected-root! [build library] module)
                       _ (need (= root selected) :native-resolution-shadow {:module module})
                       products (roles! root module total)

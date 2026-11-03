@@ -60,6 +60,8 @@ python3 consumer/project_check.py --sdk-jar target/ansatz-lean-jvm.jar \
   "${dependency_args[@]}" --main-class PureFFISmoke --output target/ci-pure-ffi-consumer
 python3 consumer/project_check.py --sdk-jar target/ansatz-lean-jvm.jar \
   "${dependency_args[@]}" --main-class ForeignFFISmoke --output target/ci-foreign-ffi-consumer
+python3 consumer/project_check.py --sdk-jar target/ansatz-lean-jvm.jar \
+  "${dependency_args[@]}" --main-class LakeWorkspaceSmoke --output target/ci-lake-workspace-consumer
 
 
 echo "Checking atomic resource limits against the same compiled SDK engine"

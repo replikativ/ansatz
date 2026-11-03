@@ -25,6 +25,14 @@ ordinary Maven dependencies. It validates the independently expected manifest
 hash, prepares code and executes supported initialization before returning the
 Project. The native frontend remains necessary when compiling new source.
 
+Optional [built Lake workspace mode](LAKE.md) checks a resolved workspace with
+pinned Lake and reads compiled import headers. It freezes workspace-owned
+products unchanged and compiles only an empty import adapter. Selected entries
+can belong to imported dependencies. Existing producer checks authenticate their
+signatures, implementation IR, layouts and startup plan. Official library
+products retain the existing toolchain custody policy. This adds workspace
+preparation without a second interpreter or a deployed Lake dependency.
+
 The frontend supplies Lean compiler IR, rather than generated Clojure source or
 LLVM code. The Java engine executes that IR and the supported runtime operations.
 The JVM JIT can optimize the Java engine; this release does not provide a dedicated

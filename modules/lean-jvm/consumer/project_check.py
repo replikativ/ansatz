@@ -16,7 +16,7 @@ def main():
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--java", default="java")
     parser.add_argument("--javac", default="javac")
-    parser.add_argument("--main-class", default="ProjectSmoke", choices=["ProjectSmoke", "GeneralInteropSmoke", "ScalarInteropSmoke", "SortSmoke", "StdIOSmoke", "MonadsSmoke", "PersistentMapSmoke", "FelineSmoke", "WriterSmoke", "NominalSmoke", "PureFFISmoke", "ForeignFFISmoke", "JarSmoke"])
+    parser.add_argument("--main-class", default="ProjectSmoke", choices=["ProjectSmoke", "GeneralInteropSmoke", "ScalarInteropSmoke", "SortSmoke", "StdIOSmoke", "MonadsSmoke", "PersistentMapSmoke", "FelineSmoke", "WriterSmoke", "NominalSmoke", "PureFFISmoke", "ForeignFFISmoke", "LakeWorkspaceSmoke", "JarSmoke"])
     args = parser.parse_args()
     consumer = Path(__file__).resolve().parent
     sdk = args.sdk_jar.resolve()

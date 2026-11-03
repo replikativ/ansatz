@@ -26,6 +26,7 @@ public final class ProjectOptions {
         private final List<Entry> entries = new ArrayList<>();
         private final List<String> installedImports = new ArrayList<>();
         private String sourceRoot = ".";
+        private boolean builtLakeWorkspace;
         private Builder(NativeCompilerOptions compiler) {
             this.compiler = Objects.requireNonNull(compiler, "compiler");
         }
@@ -45,6 +46,8 @@ public final class ProjectOptions {
             installedImports.add(module);
             return this;
         }
+        /** Consume an already resolved and built Lake workspace; never issue a build/update. */
+        public Builder builtLakeWorkspace() { builtLakeWorkspace = true; return this; }
         public Builder main(String name) { entries.add(new Entry(name, "io-unit")); return this; }
         /** Ask a v2 native producer to discover and check the closed signature. */
         public Builder function(String name) { entries.add(new Entry(name, "auto")); return this; }
@@ -53,19 +56,23 @@ public final class ProjectOptions {
         public ProjectOptions build() {
             if (entries.isEmpty() || entries.size() > MAX_SELECTED_ENTRIES)
                 throw new IllegalArgumentException("Request one to " + MAX_SELECTED_ENTRIES + " checked entries");
-            return new ProjectOptions(compiler, sourceRoot, module, entries, installedImports);
+            if (builtLakeWorkspace && (!sourceRoot.equals(".") || !installedImports.isEmpty()))
+                throw new IllegalArgumentException("Lake mode discovers roots/imports; sourceRoot and installedImport overrides are unsupported");
+            return new ProjectOptions(compiler, sourceRoot, module, entries, installedImports, builtLakeWorkspace);
         }
     }
 
     private final NativeCompilerOptions compiler;
     private final String sourceRoot;
+    private final boolean builtLakeWorkspace;
     private final String module;
     private final List<Entry> entries;
     private final List<String> installedImports;
 
     private ProjectOptions(NativeCompilerOptions compiler, String sourceRoot, String module, List<Entry> entries,
-                           List<String> installedImports) {
+                           List<String> installedImports, boolean builtLakeWorkspace) {
         this.compiler = compiler;
+        this.builtLakeWorkspace = builtLakeWorkspace;
         this.sourceRoot = sourceRoot;
         this.module = module;
         this.entries = List.copyOf(entries);
@@ -75,6 +82,7 @@ public final class ProjectOptions {
     public static Builder builder(NativeCompilerOptions compiler) { return new Builder(compiler); }
     public NativeCompilerOptions compiler() { return compiler; }
     public String sourceRoot() { return sourceRoot; }
+    public boolean builtLakeWorkspace() { return builtLakeWorkspace; }
     public String rootModule() { return module; }
     public List<Entry> entries() { return entries; }
     public List<String> installedImports() { return installedImports; }

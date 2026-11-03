@@ -194,3 +194,10 @@ bounded guest error details, aggregate refusal without poisoning the Project,
 shared immutable bytes, detached descriptors after close, and concurrent reuse
 in two Projects. It checks that native compiler namespaces never load. The
 canonical SDK runner includes this consumer alongside the existing corpus.
+
+`LakeWorkspaceSmoke.java` consumes the authored two-package
+[Lake fixture](../test/fixtures/lake-workspace/README.md). Its artifact exercises
+dependency initialization, nominal values and dependency host bindings from Java
+and Clojure, then checks that the Lake source compiler was never loaded. The
+[fixture provenance](../test/fixtures/lake-workspace/provenance.json) records the
+source, native output and archive identities.

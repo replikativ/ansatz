@@ -74,17 +74,28 @@
   (doseq [name names]
     (require! (Files/notExists (source-path! root (module-relative name)) no-links)
               "ModulePathConflict" {:module name :stage :installed-source-shadow})))
+(defn- import-library [state name]
+  (or (get-in state [:workspace :products name]) (.resolve ^Path (:sysroot state) "lib/lean")))
+(defn- verify-workspace! [state]
+  (when-let [verify (get-in state [:workspace :verify!])] (verify)))
+(defn- copy-workspace-products! [state build]
+  (doseq [[name root] (get-in state [:workspace :products]) relative (installed/product-paths name)]
+    (let [source (source-path! root relative) target (.resolve ^Path build relative)]
+      (when (Files/exists source no-links)
+        (Files/createDirectories (.getParent target) attrs)
+        (Files/copy source target (make-array java.nio.file.CopyOption 0))))))
 (defn- installed-snapshot! [state names]
+  (verify-workspace! state)
   (when (seq names)
     (let [total (atom 0)
           snapshot
-          {"profile" installed/profile
+          {"profile" (if (:workspace state) installed/workspace-profile installed/profile)
            "modules"
            (mapv (fn [name]
                    {"module" name
                     "products"
                     (mapv (fn [relative]
-                            (let [path (source-path! (:sysroot state) (str "lib/lean/" relative))]
+                            (let [path (source-path! (import-library state name) relative)]
                               (if (Files/exists path no-links)
                                 (let [record (#'compiler/file-record path installed/max-product-bytes)]
                                   (swap! total + (get record "bytes"))
@@ -121,7 +132,7 @@
          (mapv (fn [name]
                  (let [products
                        (mapv (fn [suffix relative]
-                               (let [path (source-path! (:sysroot state) (str "lib/lean/" relative))]
+                               (let [path (source-path! (import-library state name) relative)]
                                  (if (Files/exists path no-links)
                                    (let [_ (require! (Files/isRegularFile path no-links) "ArtifactConflict" {:path relative})
                                          size (Files/size path)
@@ -309,6 +320,7 @@
             stage (Files/createTempDirectory ^Path (:cache state) ".local-project-" attrs)
             copied (.resolve stage "project") build (.resolve stage "build")
             _ (Files/createDirectory copied attrs) _ (Files/createDirectory build attrs)
+            _ (copy-workspace-products! state build)
             env (#'compiler/environment state (str build ":" (.resolve ^Path (:sysroot state) "lib/lean")))
             execution (assoc state :working-directory copied)]
         (swap! journal assoc :status :capturing :stage-directory (str stage) :processes [] :process-slot (object-array 1) :process-handles (atom []))
@@ -343,6 +355,7 @@
                         "typedExporter" exporter-record "typedExporterSource" exporter-source-record "maxBuildSeconds" 600}
                 inputs (cond-> inputs installed-products
                          (assoc "profile" installed/preparation-profile "installedImports" installed-products))
+                inputs (cond-> inputs (:workspace state) (assoc "workspace" (installed/validate-workspace! (get-in state [:workspace :metadata]) installed-products)))
                 inputs (cond-> inputs compilation-products
                          (assoc "profile" nominal-profile "compilationProducts" compilation-products))
                 inputs (json/read-str (String. ^bytes (#'compiler/canonical inputs) StandardCharsets/UTF_8))

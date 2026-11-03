@@ -94,16 +94,20 @@
           (let [row (get index n)]
             (need row "MissingDependency" {:name n})
             (recur (into pending (get row "dependencies")) (assoc selected n row))))))))
-(defn- reconcile-callables! [entries index modules source-index]
+(defn- reconcile-callables! ([entries index modules source-index] (reconcile-callables! entries index modules source-index #{}))
+  ([entries index modules source-index entry-imports]
   (doseq [entry entries]
     (let [owner (get entry "compiledModule")]
-      (need (contains? modules owner) "EntryRejected" {:name (get entry "name")})
+      (need (or (contains? modules owner) (contains? entry-imports owner)) "EntryRejected" {:name (get entry "name")})
       (doseq [role ["raw" "callable"]]
         (let [name (get-in entry [role "name"]) row (get index name) source (get source-index name)]
-          (need (and source (true? (get source "sourceLocal"))
-                     (= owner (get source "sourceModule")) (= (get row "ir") (get source "ir")))
-                "EntryRejected" {:name name :stage :original-callable})))))
-  true)
+          (if (contains? entry-imports owner)
+            (need (and row (false? (get row "sourceLocal")) (= owner (get row "sourceModule")))
+                  "EntryRejected" {:name name :stage :compiled-workspace-callable})
+            (need (and source (true? (get source "sourceLocal"))
+                       (= owner (get source "sourceModule")) (= (get row "ir") (get source "ir")))
+                  "EntryRejected" {:name name :stage :original-callable}))))))
+  true))
 (defn- reconcile-v3-description!
   "Private description check only. The future source issuer supplies context and
    source rows from its own verified build, then authenticates producer custody.
@@ -118,7 +122,7 @@
         _ (doseq [[name row] (:declarations checked)]
             (when (contains? modules (get row "sourceModule"))
               (need (contains? source-index name) "ArtifactConflict" {:name name :stage :missing-local-source-row})))
-        _ (reconcile-callables! (:entries checked) (:declarations checked) modules source-index)
+        _ (reconcile-callables! (:entries checked) (:declarations checked) modules source-index (set (:entry-imports context)))
         reconciled (merge-source (:declarations checked) source-index)]
     (assoc checked :declarations reconciled :source-reconciliation :matched-source-rows)))
 (defn- admit-entries!
@@ -228,7 +232,9 @@
         admitted (reconcile-v3-description!
                   {:root root :request request :module-products manifest
                    :local-modules (vec (keys (:modules build)))
-                   :installed-imports (mapv #(get % "module") (get-in build [:inputs "installedImports" "modules"]))}
+                   :installed-imports (mapv #(get % "module") (get-in build [:inputs "installedImports" "modules"]))
+                   :entry-imports (when (get-in build [:inputs "workspace"])
+                                    (mapv #(get % "module") (get-in build [:inputs "installedImports" "modules"])))}
                   document source-rows)]
     {:request request :receipt emitted :document document
      :admitted (assoc admitted :index (:declarations admitted)) :product-capture capture
