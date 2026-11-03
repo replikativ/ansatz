@@ -271,7 +271,7 @@
       (is true "theorem proved")))
   (testing "`have h : T proof` rejects proof holes"
     (binding [a/*verbose* false]
-      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"exact: unresolved holes"
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"exact: don't know how to synthesize placeholder"
                             (a/prove-theorem 'have-inline-hole-test
                                              '[^Nat n]
                                              '(= Nat n n)

@@ -31,7 +31,8 @@
             [ansatz.meta :as meta]
             [ansatz.meta.match.matcher-info :as matcher-info]
             [ansatz.surface.match :as match]
-            [ansatz.surface.ingest :as ingest])
+            [ansatz.surface.ingest :as ingest]
+            [ansatz.surface.diagnostics :as diagnostics])
   (:import [ansatz.kernel Env Expr]))
 
 ;; ============================================================
@@ -217,7 +218,7 @@
   (let [mctx @(:meta-mctx est)]
     (->> (:decls mctx)
          (remove (fn [[id _]] (meta/expr-assigned-or-delayed? mctx id)))
-         (sort-by first)
+         (sort-by (comp :index second))
          (mapv (fn [[id decl]]
                  [id (cond-> {:kind (:kind decl)
                               :index (:index decl)
@@ -242,11 +243,14 @@
         unsolved (unsolved-mvars est)
         unsolved-levels (unsolved-levels est)]
     (when (seq unsolved)
-      (elab-error! "Unsolved metavariables"
-                   {:count (count unsolved)
-                    :mvars (mapv (fn [[id _]]
-                                   {:id id :type (surface-mvar-type est id)})
-                                 unsolved)}))
+      (let [diagnostic (or (diagnostics/first-instance-diagnostic @(:meta-mctx est) (map first unsolved))
+                           (diagnostics/mvar-diagnostic @(:meta-mctx est) (ffirst unsolved)))]
+        (elab-error! (:message diagnostic)
+                     (merge diagnostic
+                            {:count (count unsolved)
+                             :mvars (mapv (fn [[id _]]
+                                            {:id id :type (surface-mvar-type est id)})
+                                          unsolved)}))))
     (when (seq unsolved-levels)
       (elab-error! "Unsolved universe level metavariables"
                    {:count (count unsolved-levels)
