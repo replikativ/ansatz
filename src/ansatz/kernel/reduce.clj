@@ -46,7 +46,7 @@
   "Lean introNP preserves the original complete user name across reintroduction."
   [decl original]
   (cond-> (assoc (dissoc decl :user-name-scope)
-                :name (:name original) :inaccessible (boolean (:inaccessible original)))
+                 :name (:name original) :inaccessible (boolean (:inaccessible original)))
     (:inaccessible original)
     (assoc :user-name-scope (second (user-name-key original)))))
 

@@ -45,10 +45,10 @@
       (doseq [nm ["heq" "h" "hc"]]
         (is (nil? (red/find-from-user-name? (:lctx g) nm)))))
     (basic/all-goals ps
-      (fn [p]
-        (let [p (a/run-tactic p '(rename_i equation))]
-          (is (some? (red/find-from-user-name? (:lctx (proof/current-goal p)) "equation")))
-          p)))))
+                     (fn [p]
+                       (let [p (a/run-tactic p '(rename_i equation))]
+                         (is (some? (red/find-from-user-name? (:lctx (proof/current-goal p)) "equation")))
+                         p)))))
 
 (deftest split-cond-bool
   ;; ∀ (c : Bool) (x : Nat), cond Nat c x x = x   — needs split on the Bool c
