@@ -25,7 +25,8 @@ import ansatz.lean.jvm.internal.exec.ExternRegistry.*;
 import static ansatz.lean.jvm.internal.exec.FrozenValues.*;
 
 public final class Interpreter implements AutoCloseable {
-    private static final int OBJ=0, U8=1, U32=2, USIZE=3, U64=4, F64=5, U16=6, F32=7;
+    final ScalarIntrinsics scalars=new ScalarIntrinsics(this);
+    static final int OBJ=0, U8=1, U32=2, USIZE=3, U64=4, F64=5, U16=6, F32=7;
     private static final int VDECL=0,JDECL=1,SET=2,SSET=3,INC=4,DEC=5,DEL=6,CASE=7,RET=8,JMP=9,UNREACHABLE=10,SETTAG=11,USET=12;
     private static final int MAP_APPLY=13,MAP_WRAP=14;
     private static final int CTOR=0,PROJ=1,SPROJ=2,FAP=3,PAP=4,AP=5,BOX=6,UNBOX=7,LIT=8,SHARED=9,UPROJ=10;
@@ -104,7 +105,7 @@ public final class Interpreter implements AutoCloseable {
             USIZE_NOT=WSIZE+W_NOT,USIZE_NEG=WSIZE+W_NEG,USIZE_LOG2=WSIZE+W_LOG2,USIZE_TO_U8=WSIZE+W_TO_U8,
             USIZE_TO_U16=WSIZE+W_TO_U16,USIZE_TO_U32=WSIZE+W_TO_U32,USIZE_OWNED_NAT=WSIZE+W_OWNED_NAT,BOOL_USIZE=WSIZE+W_FROM_BOOL;
     static final String[] WORD_TYPES={"uint8","uint16","uint32","uint64","usize"};
-    private static final int[] WORD_BITS={8,16,32,64,64};
+    static final int[] WORD_BITS={8,16,32,64,64};
     static final String[] WORD_SUFFIXES={"add","sub","mul","div","mod","land","lor","xor","complement","neg",
             "shift_left","shift_right","log2","dec_eq","dec_lt","dec_le","to_uint8","to_uint16","to_uint32","to_uint64",
             "to_usize",null,"of_nat_mk"};
@@ -114,8 +115,8 @@ public final class Interpreter implements AutoCloseable {
     static final int POINTER_IDENTITY=93, NAME_EQ=94, BUILD_GITHASH=95, BUILD_TARGET=96;
     static final int FLOAT_BITS=240,FLOAT_U64=241,FLOAT_SUB=242,FLOAT_MUL=243,FLOAT_DIV=244,FLOAT_EQ=245,FLOAT_LT=246,FLOAT_STRING=247;
     private static final int MAX_NAME_COMPARISON_STEPS=1_000_000;
-    private static final int MAX_NAT_RESULT_BITS=16*1024*1024;
-    private static final int MAX_SHIFT_RESULT_BITS=MAX_NAT_RESULT_BITS;
+    static final int MAX_NAT_RESULT_BITS=16*1024*1024;
+    static final int MAX_SHIFT_RESULT_BITS=MAX_NAT_RESULT_BITS;
     // Conservative schoolbook bit-product accounting; not a JVM heap bound.
     private static final long MAX_NAT_MULTIPLY_WORK=1L<<40;
     public static final class RuntimeLimitException extends RuntimeException {
@@ -123,7 +124,7 @@ public final class Interpreter implements AutoCloseable {
         private RuntimeLimitException(String code,String message) { super(message); this.code=code; }
         public String code() { return code; }
     }
-    private static void resource(boolean admitted,String message) {
+    static void resource(boolean admitted,String message) {
         if(!admitted) throw new RuntimeLimitException("ResourceLimit",message);
     }
     private static final int MAX_ARRAY_CAPACITY=1_000_000;
@@ -133,7 +134,7 @@ public final class Interpreter implements AutoCloseable {
     private static final int CAPTURE_FLUSH=568,CAPTURE_READ=569,CAPTURE_WRITE=570,CAPTURE_LINE=571,CAPTURE_PUT=572,CAPTURE_TTY=573;
     private static final int STREAM_FLUSH=100,STREAM_READ=101,STREAM_WRITE=102,STREAM_LINE=103,STREAM_PUT=104,STREAM_TTY=105;
     private static final BigInteger SMALL_MAX=BigInteger.valueOf(Long.MAX_VALUE);
-    private static final Object ERASED=Long.valueOf(0);
+    static final Object ERASED=Long.valueOf(0);
     private static final int MAX_IMPORT_NODES=100_000, MAX_IMPORT_ROOTS=100_000, MAX_IMPORT_EDGES=1_000_000;
     private static final long MAX_IMPORT_SCALAR_BYTES=16L*1024*1024, MAX_IMPORT_CARRIER_BYTES=16L*1024*1024;
 
@@ -4034,8 +4035,8 @@ public final class Interpreter implements AutoCloseable {
     private long[] numbers=new long[1024];
     private Body[] joins=new Body[256];
     private int bp,sp,jbp,jsp;
-    private Object result;
-    private long scalarResult;
+    Object result;
+    long scalarResult;
     private Object[] constants;
     private boolean[] constantReady;
     private boolean[] constantRetired;
@@ -6581,7 +6582,7 @@ public final class Interpreter implements AutoCloseable {
                     case SPROJ: require((b.type==U8||b.type==U16||b.type==U32||b.type==U64||b.type==F64||b.type==F32)&&lane(env,e.a)==OBJ,"Scalar projection lane mismatch"); break;
                     case UPROJ: require(b.type==USIZE&&lane(env,e.a)==OBJ,"USize projection lane mismatch"); break;
                     case FAP: requireExecutableAbi(e.target); checkArgs(env,e.args,e.target.paramTypes); require(b.type==e.target.resultType,"Call result lane mismatch"); break;
-                    case PAP: requireExecutableAbi(e.target); require(e.target.intrinsic!=PROFILE_IT,"Borrowed profiling primitive requires an owned guest wrapper"); require(!borrowedTaskPrimitive(e.target.intrinsic),"Borrowed task primitive requires owned closure wrapper"); require(b.type==OBJ&&e.args.length<e.target.params.length,"Invalid partial application"); require(!borrowedArrayPrimitive(e.target.intrinsic),"Borrowed array primitive requires owned closure wrapper"); require(!borrowedIntPrimitive(e.target.intrinsic),"Borrowed Int primitive requires owned closure wrapper"); require(!borrowedStringPositionPrimitive(e.target.intrinsic),"Borrowed String position primitive requires owned closure wrapper"); require(!borrowedStringCompletionPrimitive(e.target.intrinsic),"Borrowed String range primitive requires owned closure wrapper"); require(!borrowedBytePrimitive(e.target.intrinsic),"Borrowed ByteArray primitive requires owned closure wrapper"); require(!e.target.borrowedUtf8,"Borrowed UTF8 conversion requires owned closure wrapper"); require(e.target.intrinsic!=NAME_EQ,"Borrowed Name equality requires an owned guest wrapper"); require(e.target.intrinsic!=EXPR_CACHE,"Borrowed Expr data requires an owned guest wrapper"); require(!borrowedExprEquality(e.target.intrinsic),"Borrowed Expr equality requires an owned guest wrapper"); require(e.target.intrinsic!=LEVEL_EQUAL,"Borrowed Level equality requires an owned guest wrapper"); require(!borrowedExprLooseQuery(e.target.intrinsic),"Borrowed Expr loose search requires an owned guest wrapper"); require(!borrowedExprOrder(e.target.intrinsic),"Borrowed Expr quick ordering requires an owned guest wrapper"); require(!findPrimitive(e.target.intrinsic),"Borrowed Expr.find requires an owned guest wrapper"); require(e.target.intrinsic!=SHARECOMMON_QUICK,"Borrowed ShareCommon requires an owned guest wrapper"); require(e.target.intrinsic!=EXPR_REPLACE,"Borrowed Expr.replace requires an owned guest wrapper"); require(!abstractPrimitive(e.target.intrinsic),"Borrowed Expr abstraction requires an owned guest wrapper"); require(!pureExprTransform(e.target.intrinsic),"Borrowed Expr instantiation/lift requires an owned guest wrapper"); require(e.target.intrinsic!=POINTER_IDENTITY,"Pointer identity requires a certified direct FAP site"); require(!borrowedRefPrimitive(e.target.intrinsic),"Borrowed ref primitive requires owned closure wrapper"); for(int i=0;i<e.target.paramTypes.length;i++) require(e.target.paramTypes[i]==OBJ,"Unboxed partial target unsupported; boxed wrapper required"); for(int a:e.args) require(lane(env,a)==OBJ,"Partial argument must be boxed"); break;
+                    case PAP: requireExecutableAbi(e.target); require(e.target.intrinsic!=PROFILE_IT,"Borrowed profiling primitive requires an owned guest wrapper"); require(!borrowedTaskPrimitive(e.target.intrinsic),"Borrowed task primitive requires owned closure wrapper"); require(b.type==OBJ&&e.args.length<e.target.params.length,"Invalid partial application"); require(!borrowedArrayPrimitive(e.target.intrinsic),"Borrowed array primitive requires owned closure wrapper"); require(!ScalarIntrinsics.borrowedIntPrimitive(e.target.intrinsic),"Borrowed Int primitive requires owned closure wrapper"); require(!borrowedStringPositionPrimitive(e.target.intrinsic),"Borrowed String position primitive requires owned closure wrapper"); require(!borrowedStringCompletionPrimitive(e.target.intrinsic),"Borrowed String range primitive requires owned closure wrapper"); require(!borrowedBytePrimitive(e.target.intrinsic),"Borrowed ByteArray primitive requires owned closure wrapper"); require(!e.target.borrowedUtf8,"Borrowed UTF8 conversion requires owned closure wrapper"); require(e.target.intrinsic!=NAME_EQ,"Borrowed Name equality requires an owned guest wrapper"); require(e.target.intrinsic!=EXPR_CACHE,"Borrowed Expr data requires an owned guest wrapper"); require(!borrowedExprEquality(e.target.intrinsic),"Borrowed Expr equality requires an owned guest wrapper"); require(e.target.intrinsic!=LEVEL_EQUAL,"Borrowed Level equality requires an owned guest wrapper"); require(!borrowedExprLooseQuery(e.target.intrinsic),"Borrowed Expr loose search requires an owned guest wrapper"); require(!borrowedExprOrder(e.target.intrinsic),"Borrowed Expr quick ordering requires an owned guest wrapper"); require(!findPrimitive(e.target.intrinsic),"Borrowed Expr.find requires an owned guest wrapper"); require(e.target.intrinsic!=SHARECOMMON_QUICK,"Borrowed ShareCommon requires an owned guest wrapper"); require(e.target.intrinsic!=EXPR_REPLACE,"Borrowed Expr.replace requires an owned guest wrapper"); require(!abstractPrimitive(e.target.intrinsic),"Borrowed Expr abstraction requires an owned guest wrapper"); require(!pureExprTransform(e.target.intrinsic),"Borrowed Expr instantiation/lift requires an owned guest wrapper"); require(e.target.intrinsic!=POINTER_IDENTITY,"Pointer identity requires a certified direct FAP site"); require(!borrowedRefPrimitive(e.target.intrinsic),"Borrowed ref primitive requires owned closure wrapper"); for(int i=0;i<e.target.paramTypes.length;i++) require(e.target.paramTypes[i]==OBJ,"Unboxed partial target unsupported; boxed wrapper required"); for(int a:e.args) require(lane(env,a)==OBJ,"Partial argument must be boxed"); break;
                     case AP: require(b.type==OBJ&&lane(env,e.a)==OBJ&&e.args.length>0,"Unsupported closure application"); for(int a:e.args) require(lane(env,a)==OBJ,"Closure argument must be boxed"); break;
                     case BOX: require(b.type==OBJ&&e.b!=OBJ&&lane(env,e.a)==e.b,"Box lane mismatch"); break;
                     case UNBOX: require(b.type!=OBJ&&lane(env,e.a)==OBJ,"Unbox lane mismatch"); break;
@@ -6740,7 +6741,7 @@ public final class Interpreter implements AutoCloseable {
     }
     /** Finalizer-free/local quiet-proof path. Active arbitrary releases use an
      * action; this helper must never become a callback dispatcher. */
-    private void releaseQuiet(Object o,int n) {
+    void releaseQuiet(Object o,int n) {
         if(releaseTransaction!=null||(releaseRoot&&taskRuntime==null))
             throw new IllegalStateException("Synchronous DEC cannot overlap a release transaction");
         if(n<0) throw error("Negative reference decrement");
@@ -6868,13 +6869,13 @@ public final class Interpreter implements AutoCloseable {
         require(!n.ref&&!n.array&&!n.readyTask&&!isPromise(n)&&!isByteArray(n),"Reference/array/task/byte-array is not a constructor");
         if(!exclusive(n)) throw error("Expected exclusive object");
     }
-    private static BigInteger nat(Object x) {
+    static BigInteger nat(Object x) {
         if(x instanceof Long&&((Long)x)>=0) return BigInteger.valueOf((Long)x);
         if(x instanceof BigInteger&&((BigInteger)x).signum()>=0) return (BigInteger)x;
         throw error("Invalid Nat");
     }
-    private static Object normalize(BigInteger n) { if(n.signum()<0) throw error("Negative Nat"); return n.compareTo(SMALL_MAX)<=0?Long.valueOf(n.longValue()):n; }
-    private static long inputScalar(Object value,int type) {
+    static Object normalize(BigInteger n) { if(n.signum()<0) throw error("Negative Nat"); return n.compareTo(SMALL_MAX)<=0?Long.valueOf(n.longValue()):n; }
+    static long inputScalar(Object value,int type) {
         if(type==F32) {
             require(value instanceof Float,"Expected Float Float32 scalar");
             return Integer.toUnsignedLong(Float.floatToRawIntBits((Float)value));
@@ -6892,7 +6893,7 @@ public final class Interpreter implements AutoCloseable {
         if(n.signum()<0||n.bitLength()>bits) throw error("Unsigned scalar outside "+bits+"-bit range");
         return n.longValue();
     }
-    private static Object externalScalar(long value,int type) {
+    static Object externalScalar(long value,int type) {
         if(type==F32) return Float.valueOf(Float.intBitsToFloat((int)value));
         if(type==F64) return Double.valueOf(Double.longBitsToDouble(value));
         if((type==USIZE||type==U64)&&value<0) return BigInteger.valueOf(value&Long.MAX_VALUE).setBit(63);
@@ -6975,8 +6976,8 @@ public final class Interpreter implements AutoCloseable {
         if(f.intrinsic==MARK_PERSISTENT) { persistentIntrinsic(obj(slots[0]),obj(slots[1]),obj(slots[2])); return; }
         if(f.intrinsic==VOID_MK) { voidIntrinsic(obj(slots[0]),obj(slots[1])); return; }
         require(f.intrinsic!=TASK_MAP,"Task.map requires its runtime frame");
-        if(floatPrimitive(f.intrinsic)) {
-            floatIntrinsic(f,numbers[bp+slots[0]],slots.length<2?0:numbers[bp+slots[1]]); return;
+        if(ScalarIntrinsics.floatPrimitive(f.intrinsic)) {
+            scalars.floatIntrinsic(f,numbers[bp+slots[0]],slots.length<2?0:numbers[bp+slots[1]]); return;
         }
         require(f.intrinsic!=POINTER_IDENTITY,"Pointer identity requires a certified direct FAP site");
         if(borrowedExprEquality(f.intrinsic)) { scalarResult=new ExprEquality(f.intrinsic==EXPR_EQUAL).apply(obj(slots[0]),obj(slots[1]))?1:0; return; }
@@ -7009,16 +7010,16 @@ public final class Interpreter implements AutoCloseable {
             refPlaceholders(obj(slots[0]),obj(slots[1]),obj(slots[slots.length-1]));
             refIntrinsic(f,obj(slots[2]),slots.length==5?obj(slots[3]):ERASED); return;
         }
-        if(natPrimitive(f.intrinsic)) {
+        if(ScalarIntrinsics.natPrimitive(f.intrinsic)) {
             if(f.intrinsic==NAT_DIV_EXACT) require(ERASED.equals(obj(slots[2])),"Nat.divExact proof requires erased placeholder");
             intrinsic(f,obj(slots[0]),slots.length<2?ERASED:obj(slots[1])); return;
         }
         Object a=f.paramTypes[0]==OBJ?obj(slots[0]):Long.valueOf(numbers[bp+slots[0]]);
         Object b=slots.length<2?ERASED:f.paramTypes[1]==OBJ?obj(slots[1]):Long.valueOf(numbers[bp+slots[1]]);
-        if(f.intrinsic>=STR_PUSH&&!(f.intrinsic>=USIZE_LT&&f.intrinsic<=USIZE_MUL)&&!u64ScalarPrimitive(f.intrinsic)) {
+        if(f.intrinsic>=STR_PUSH&&!(f.intrinsic>=USIZE_LT&&f.intrinsic<=USIZE_MUL)&&!ScalarIntrinsics.u64ScalarPrimitive(f.intrinsic)) {
             Object c=slots.length<3?ERASED:f.paramTypes[2]==OBJ?obj(slots[2]):Long.valueOf(numbers[bp+slots[2]]);
             runtimeIntrinsic(f,a,b,c);
-        } else scalarIntrinsic(f,a,b);
+        } else scalars.scalarIntrinsic(f,a,b);
     }
     private void intrinsicExternal(Function f,Object[] args) {
         if(f.intrinsic==STR_ANY) { stringAnyRecursive(args); return; }
@@ -7030,8 +7031,8 @@ public final class Interpreter implements AutoCloseable {
         if(f.intrinsic==MARK_PERSISTENT) { persistentIntrinsic(args[0],args[1],args[2]); return; }
         if(f.intrinsic==VOID_MK) { voidIntrinsic(args[0],args[1]); return; }
         require(f.intrinsic!=TASK_MAP,"Task.map requires its runtime frame");
-        if(floatPrimitive(f.intrinsic)) {
-            floatIntrinsic(f,readSavedScalar(args[0],f.paramTypes[0]),args.length<2?0:readSavedScalar(args[1],f.paramTypes[1])); return;
+        if(ScalarIntrinsics.floatPrimitive(f.intrinsic)) {
+            scalars.floatIntrinsic(f,readSavedScalar(args[0],f.paramTypes[0]),args.length<2?0:readSavedScalar(args[1],f.paramTypes[1])); return;
         }
         require(f.intrinsic!=POINTER_IDENTITY,"Pointer identity requires a certified direct FAP site");
         if(borrowedExprEquality(f.intrinsic)) { scalarResult=new ExprEquality(f.intrinsic==EXPR_EQUAL).apply(args[0],args[1])?1:0; return; }
@@ -7064,61 +7065,16 @@ public final class Interpreter implements AutoCloseable {
             refPlaceholders(args[0],args[1],args[args.length-1]);
             refIntrinsic(f,args[2],args.length==5?args[3]:ERASED); return;
         }
-        if(natPrimitive(f.intrinsic)) {
+        if(ScalarIntrinsics.natPrimitive(f.intrinsic)) {
             if(f.intrinsic==NAT_DIV_EXACT) require(ERASED.equals(args[2]),"Nat.divExact proof requires erased placeholder");
             intrinsic(f,args[0],args.length<2?ERASED:args[1]); return;
         }
         Object a=f.paramTypes[0]==OBJ?args[0]:Long.valueOf(inputScalar(args[0],f.paramTypes[0]));
         Object b=args.length<2?ERASED:f.paramTypes[1]==OBJ?args[1]:Long.valueOf(inputScalar(args[1],f.paramTypes[1]));
-        if(f.intrinsic>=STR_PUSH&&!(f.intrinsic>=USIZE_LT&&f.intrinsic<=USIZE_MUL)&&!u64ScalarPrimitive(f.intrinsic)) {
+        if(f.intrinsic>=STR_PUSH&&!(f.intrinsic>=USIZE_LT&&f.intrinsic<=USIZE_MUL)&&!ScalarIntrinsics.u64ScalarPrimitive(f.intrinsic)) {
             Object c=args.length<3?ERASED:f.paramTypes[2]==OBJ?args[2]:Long.valueOf(inputScalar(args[2],f.paramTypes[2]));
             runtimeIntrinsic(f,a,b,c);
-        } else scalarIntrinsic(f,a,b);
-    }
-    private static boolean floatPrimitive(int op) { return op>=FLOAT_BITS&&op<=FLOAT_STRING||op==FLOAT_LE||op==FLOAT_ADD||op==FLOAT32_ADD
-            ||op==FLOAT32_BITS||op==FLOAT32_DIV||op==FLOAT32_MUL||op==U64_FLOAT32
-            ||op==FLOAT_TO_BITS||op==FLOAT32_TO_BITS; }
-    private strictfp void floatIntrinsic(Function f,long a,long b) {
-        // Pinned object.cpp: both directions preserve non-NaN bits and canonicalize NaNs.
-        if(f.intrinsic==FLOAT32_BITS||f.intrinsic==FLOAT32_TO_BITS) {
-            int bits=(int)a;
-            scalarResult=ScalarBits.isNaN32Bits(bits)
-                    ?0x7fc00000L:Integer.toUnsignedLong(bits); return;
-        }
-        if(f.intrinsic==U64_FLOAT32) {
-            BigInteger unsigned=BigInteger.valueOf(a&Long.MAX_VALUE); if(a<0) unsigned=unsigned.setBit(63);
-            // A direct integer-to-float conversion: routing through double would double-round.
-            scalarResult=Integer.toUnsignedLong(Float.floatToRawIntBits(unsigned.floatValue())); return;
-        }
-        if(f.intrinsic==FLOAT32_ADD||f.intrinsic==FLOAT32_DIV||f.intrinsic==FLOAT32_MUL) {
-            float x=Float.intBitsToFloat((int)a),y=Float.intBitsToFloat((int)b);
-            float out=f.intrinsic==FLOAT32_ADD?x+y:f.intrinsic==FLOAT32_DIV?x/y:x*y;
-            scalarResult=Integer.toUnsignedLong(Float.floatToRawIntBits(out)); return;
-        }
-        if(f.intrinsic==FLOAT_BITS||f.intrinsic==FLOAT_TO_BITS) { scalarResult=ScalarBits.isNaN64Bits(a)?0x7ff8000000000000L:a; return; }
-        if(f.intrinsic==FLOAT_U64) {
-            BigInteger unsigned=BigInteger.valueOf(a&Long.MAX_VALUE); if(a<0) unsigned=unsigned.setBit(63);
-            scalarResult=Double.doubleToRawLongBits(unsigned.doubleValue()); return;
-        }
-        double x=Double.longBitsToDouble(a),y=Double.longBitsToDouble(b);
-        switch(f.intrinsic) {
-            case FLOAT_ADD: scalarResult=Double.doubleToRawLongBits(x+y); break;
-            case FLOAT_SUB: scalarResult=Double.doubleToRawLongBits(x-y); break;
-            case FLOAT_MUL: scalarResult=Double.doubleToRawLongBits(x*y); break;
-            case FLOAT_DIV: scalarResult=Double.doubleToRawLongBits(x/y); break;
-            case FLOAT_EQ: scalarResult=x==y?1:0; break;
-            case FLOAT_LT: scalarResult=x<y?1:0; break;
-            case FLOAT_LE: scalarResult=x<=y?1:0; break;
-            case FLOAT_STRING:
-                if(ScalarBits.isNaN64Bits(a)) result="NaN";
-                else if(Double.isInfinite(x)) result=x<0?"-inf":"inf";
-                else {
-                    BigDecimal rounded=new BigDecimal(x).setScale(6,RoundingMode.HALF_EVEN);
-                    result=(a<0&&rounded.signum()==0?"-":"")+rounded.toPlainString();
-                }
-                break;
-            default: throw error("Unsupported Float intrinsic");
-        }
+        } else scalars.scalarIntrinsic(f,a,b);
     }
     private static boolean advancedArrayPrimitive(int op) { return op>=ARRAY_EMPTY&&op<=ARRAY_REPLICATE||op==ARRAY_CHECKED_GET||op==ARRAY_CHECKED_BORROWED||op==ARRAY_CHECKED_SET; }
     private static boolean borrowedArrayPrimitive(int op) {
@@ -7461,99 +7417,6 @@ public final class Interpreter implements AutoCloseable {
         for(int i=0;i<count;i++) output.appendCodePoint(cp);
         result=output.toString(); releaseQuiet(a,1); releaseQuiet(c,1);
     }
-    private static boolean borrowedIntPrimitive(int op) { return op>=INT_NEG&&op<=INT_NONNEG; }
-    private static BigInteger signedInteger(Object value) {
-        if(value instanceof Long) return BigInteger.valueOf((Long)value);
-        if(value instanceof BigInteger) return (BigInteger)value;
-        throw error("Expected exact signed Int carrier");
-    }
-    private static Object normalizeSigned(BigInteger value) {
-        return value.bitLength()<=63?Long.valueOf(value.longValue()):value;
-    }
-    private void intIntrinsic(Function f,Object a,Object b,Object c) {
-        // Int carriers are mathematical values. Native small-object thresholds and
-        // raw tagged object words are deliberately not part of this profile.
-        if(f.intrinsic==INT_NONNEG) { scalarResult=signedInteger(a).signum()>=0?1:0; return; }
-        if(f.intrinsic==INT_DIV_EXACT) require(ERASED.equals(c),"Int.divExact proof requires erased placeholder");
-        if(a instanceof Long) {
-            long x=(Long)a;
-            if(f.intrinsic==INT_OF_NAT||f.intrinsic==INT_NEG_SUCC) {
-                require(x>=0,"Invalid Nat"); result=f.intrinsic==INT_OF_NAT?a:Long.valueOf(-x-1); return;
-            }
-            if(f.intrinsic==INT_NEG||f.intrinsic==INT_ABS) {
-                if(x!=Long.MIN_VALUE) { result=Long.valueOf(f.intrinsic==INT_NEG?-x:Math.abs(x)); return; }
-            } else if(b instanceof Long) {
-                long y=(Long)b;
-                switch(f.intrinsic) {
-                    case INT_EQ: scalarResult=x==y?1:0; return;
-                    case INT_LT: scalarResult=x<y?1:0; return;
-                    case INT_LE: scalarResult=x<=y?1:0; return;
-                    case INT_ADD:
-                        try { result=Long.valueOf(Math.addExact(x,y)); return; }
-                        catch(ArithmeticException overflow) { break; }
-                    case INT_SUB:
-                        try { result=Long.valueOf(Math.subtractExact(x,y)); return; }
-                        catch(ArithmeticException overflow) { break; }
-                    case INT_MUL:
-                        try { result=Long.valueOf(Math.multiplyExact(x,y)); return; }
-                        catch(ArithmeticException overflow) { break; }
-                    // Pinned lean.h/object.cpp: T-division truncates, T-modulus takes the
-                    // dividend's sign; E-modulus is nonnegative. x/0=0 and x%0=x for all four.
-                    case INT_DIV: case INT_DIV_EXACT:
-                        if(y==0) { result=Long.valueOf(0); return; }
-                        if(x==Long.MIN_VALUE&&y==-1) break;
-                        result=Long.valueOf(x/y); return;
-                    case INT_MOD: result=y==0?a:Long.valueOf(x%y); return;
-                    case INT_EDIV: {
-                        if(y==0) { result=Long.valueOf(0); return; }
-                        if(x==Long.MIN_VALUE&&y==-1) break;
-                        long q=x/y; if(x%y<0) q=y>0?q-1:q+1;
-                        result=Long.valueOf(q); return;
-                    }
-                    case INT_EMOD: {
-                        if(y==0) { result=a; return; }
-                        long r=x%y;
-                        // r-y cannot overflow: r<0 and |r|<|y| keep r+|y| within (0,2^63).
-                        if(r<0) r=y>0?r+y:r-y;
-                        result=Long.valueOf(r); return;
-                    }
-                    default: throw error("Invalid signed Int intrinsic");
-                }
-            }
-        }
-        if(f.intrinsic==INT_OF_NAT) { result=normalizeSigned(nat(a)); return; }
-        if(f.intrinsic==INT_NEG_SUCC) { result=normalizeSigned(boundedAdd(nat(a),BigInteger.ONE,false).negate()); return; }
-        BigInteger x=signedInteger(a);
-        if(f.intrinsic==INT_NEG) { boundedMagnitude(x); result=normalizeSigned(x.negate()); return; }
-        if(f.intrinsic==INT_ABS) { boundedMagnitude(x); result=normalize(x.abs()); return; }
-        BigInteger y=signedInteger(b);
-        switch(f.intrinsic) {
-            case INT_ADD: result=normalizeSigned(boundedAdd(x,y,false)); return;
-            case INT_SUB: result=normalizeSigned(boundedAdd(x,y,true)); return;
-            case INT_EQ: scalarResult=x.equals(y)?1:0; return;
-            case INT_LT: scalarResult=x.compareTo(y)<0?1:0; return;
-            case INT_LE: scalarResult=x.compareTo(y)<=0?1:0; return;
-            case INT_MUL: {
-                BigInteger magnitude=natMultiply(x.abs(),y.abs());
-                result=normalizeSigned(x.signum()*y.signum()<0?magnitude.negate():magnitude); return;
-            }
-            case INT_DIV: case INT_DIV_EXACT:
-                result=y.signum()==0?Long.valueOf(0):normalizeSigned(x.divide(y)); return;
-            case INT_MOD: result=normalizeSigned(y.signum()==0?x:x.remainder(y)); return;
-            case INT_EDIV: {
-                if(y.signum()==0) { result=Long.valueOf(0); return; }
-                BigInteger[] qr=x.divideAndRemainder(y); BigInteger q=qr[0];
-                if(qr[1].signum()<0) q=y.signum()>0?q.subtract(BigInteger.ONE):q.add(BigInteger.ONE);
-                result=normalizeSigned(q); return;
-            }
-            case INT_EMOD: {
-                if(y.signum()==0) { result=normalizeSigned(x); return; }
-                BigInteger r=x.remainder(y);
-                result=normalizeSigned(r.signum()<0?r.add(y.abs()):r); return;
-            }
-            default: throw error("Invalid signed Int intrinsic");
-        }
-    }
     private static boolean borrowedBytePrimitive(int op) {
         return op==BYTE_GET||op==BYTE_GET_DEFAULT||op==BYTE_SIZE||op==BYTE_EMPTY||op==STR_VALIDATE_UTF8||op==BYTE_COPY_SLICE;
     }
@@ -7683,7 +7546,7 @@ public final class Interpreter implements AutoCloseable {
         setByteArraySize(out,next); stores++; result=out;
     }
     private String text(Object value) { require(value instanceof String,"Expected immutable String"); return (String)value; }
-    private byte[] utf8(Object value) {
+    byte[] utf8(Object value) {
         String s=text(value); utf8Extent(s);
         if(utf8Key!=null&&utf8Key.get()==s) return utf8Bytes;
         byte[] bytes=s.getBytes(StandardCharsets.UTF_8);
@@ -8244,7 +8107,7 @@ public final class Interpreter implements AutoCloseable {
             return left.equals(right);
         }
         boolean number(Object left,Object right,boolean signed) {
-            BigInteger a=signed?signedInteger(left):nat(left),b=signed?signedInteger(right):nat(right);
+            BigInteger a=signed?ScalarIntrinsics.signedInteger(left):nat(left),b=signed?ScalarIntrinsics.signedInteger(right):nat(right);
             charge(1L+(a.bitLength()+63L)/64+(b.bitLength()+63L)/64); return a.equals(b);
         }
         Node ctor(Object value,int fields,int scalarBytes) {
@@ -9027,7 +8890,7 @@ public final class Interpreter implements AutoCloseable {
             Node bytes=byteArray(a); scalarResult=Utf8Bytes.validPrefix(bytes.scalars,((ByteArrayState)kindMetadata(bytes)).size)?1:0; return;
         }
         if(f.intrinsic>=STR_SUBSTRING_EQ&&f.intrinsic<=STR_PUSHN) { stringCompletionIntrinsic(f,a,b,c); return; }
-        if(f.intrinsic>=INT_OF_NAT&&f.intrinsic<=INT_NONNEG) { intIntrinsic(f,a,b,c); return; }
+        if(f.intrinsic>=INT_OF_NAT&&f.intrinsic<=INT_NONNEG) { scalars.intIntrinsic(f,a,b,c); return; }
         if(f.intrinsic==NAME_EQ) { scalarResult=nameEquals(a,b)?1:0; return; }
         if(buildIdentityPrimitive(f.intrinsic)) {
             requireBuildIdentity(); requireBuildUnit(a);
@@ -9149,12 +9012,12 @@ public final class Interpreter implements AutoCloseable {
         long range=Math.max(fData>>>44,aData>>>44);
         scalarResult=((fData|aData)&(15L<<40))|(mixHash(fData,aData)&0xffffffffL)|(depth<<32)|(range<<44);
     }
-    private static long mixHash(long hash,long key) {
+    static long mixHash(long hash,long key) {
         long m=0xc6a4a7935bd1e995L;
         key*=m; key^=key>>>47; key^=m; // Deliberately XOR, unlike Murmur's second multiply.
         return (hash^key)*m;
     }
-    private static long stringHash(byte[] bytes) {
+    static long stringHash(byte[] bytes) {
         long m=0xc6a4a7935bd1e995L,hash=11L^((long)bytes.length*m);
         int end=bytes.length&~7;
         for(int offset=0;offset<end;offset+=8) {
@@ -9168,105 +9031,12 @@ public final class Interpreter implements AutoCloseable {
         }
         hash^=hash>>>47; hash*=m; hash^=hash>>>47; return hash;
     }
-    /** Explicit membership: later IDs need not lie beside the original scalar group. */
-    private static boolean u64ScalarPrimitive(int op) {
-        switch(op) {
-            case U16_EQ: case U16_NAT: case U8_ADD: case U32_OWNED_NAT:
-            case U8_FROM_NAT: case U16_FROM_NAT: case U8_OWNED_NAT: case U16_OWNED_NAT:
-            case LAYOUT_FIELDS: case LAYOUT_SCALARS: case LAYOUT_TAG: case LAYOUT_USIZE: case U32_LT: case U64_TO_NAT:
-            case STR_HASH: case U64_MIX: case U64_NAT: case U64_SHR: case U64_XOR: case U64_USIZE:
-            case U64_LT: case U64_EQ: case U64_OWNED_NAT: case U64_TO_U32:
-            case BOOL_U64: case U64_ADD: case U64_SUB: case U64_MUL: case U64_DIV: case U64_MOD:
-            case U64_AND: case U64_OR: case U64_NOT: case U64_NEG: case U64_LOG2: case U64_SHL: case U64_LE:
-            case U8_TO_U64: case U32_TO_U64: case USIZE_TO_U64: case U8_TO_U32: case U64_TO_U8:
-                return true;
-            default: return wordPrimitive(op);
-        }
-    }
-    private static void requireBoolScalar(Object value) {
-        require(inputScalar(value,U8)<=1,"Bool.toUInt64 requires canonical Bool 0 or 1");
-    }
-    private void scalarIntrinsic(Function f,Object a,Object b) {
-        if(wordPrimitive(f.intrinsic)) { wordIntrinsic(f,a,b); return; }
-        switch(f.intrinsic) {
-            case USIZE_NAT:
-                if(f.params.length>1) require(ERASED.equals(b),"USize conversion proof requires erased placeholder");
-                scalarResult=nat(a).longValue(); break;
-            case USIZE_REPR: result=Long.toUnsignedString((Long)a); break;
-            case U16_NAT: case U32_NAT: result=a; break;
-            case U8_ADD: scalarResult=((Long)a+(Long)b)&255L; break;
-            case U16_EQ: case U32_EQ: scalarResult=((Long)a).longValue()==((Long)b).longValue()?1:0; break;
-            case U32_LT: scalarResult=(Long)a<(Long)b?1:0; break;
-            case U64_TO_NAT: result=externalScalar((Long)a,U64); break;
-            case LAYOUT_FIELDS: case LAYOUT_SCALARS: case LAYOUT_TAG: case LAYOUT_USIZE:
-                requireLayoutUnit(a);
-                result=Long.valueOf(f.intrinsic==LAYOUT_FIELDS?256:f.intrinsic==LAYOUT_SCALARS?1024:f.intrinsic==LAYOUT_TAG?243:8); break;
-            case U32_LE: scalarResult=(Long)a<=(Long)b?1:0; break;
-            case PLATFORM_BITS: require(a instanceof Long&&(Long)a==0,"Expected Unit for platform bits"); result=Long.valueOf(64); break;
-            case USIZE_LT: scalarResult=Long.compareUnsigned((Long)a,(Long)b)<0?1:0; break;
-            case USIZE_LE: scalarResult=Long.compareUnsigned((Long)a,(Long)b)<=0?1:0; break;
-            case USIZE_EQ: case U8_EQ: scalarResult=((Long)a).longValue()==((Long)b).longValue()?1:0; break;
-            case USIZE_ADD: scalarResult=(Long)a+(Long)b; break;
-            case USIZE_SUB: scalarResult=(Long)a-(Long)b; break;
-            case USIZE_MUL: scalarResult=(Long)a*(Long)b; break;
-            case USIZE_TO_NAT: result=externalScalar((Long)a,USIZE); break;
-            case USIZE_SHR: scalarResult=(Long)a>>>(Long)b; break;
-            case USIZE_SHL: scalarResult=(Long)a<<(Long)b; break;
-            case USIZE_AND: case U8_AND: scalarResult=(Long)a&(Long)b; break;
-            case U8_NAT: result=a; break;
-            case U8_LE: scalarResult=(Long)a<=(Long)b?1:0; break;
-            // Pinned lean.h: borrowed and consuming forms use modulo 2^width;
-            // the optional ofNatLT proof is erased by the native C ABI.
-            case U8_FROM_NAT: case U16_FROM_NAT:
-                require(ERASED.equals(b),"Unsigned conversion proof requires erased placeholder");
-                scalarResult=nat(a).longValue()&(f.intrinsic==U8_FROM_NAT?255L:65535L); break;
-            case U8_OWNED_NAT: case U16_OWNED_NAT:
-                scalarResult=nat(a).longValue()&(f.intrinsic==U8_OWNED_NAT?255L:65535L); releaseQuiet(a,1); break;
-            case U32_FROM_NAT:
-                require(ERASED.equals(b),"UInt32 conversion proof requires erased placeholder");
-                scalarResult=nat(a).longValue()&0xffffffffL; break;
-            case U32_TO_U8: scalarResult=(Long)a&255; break;
-            case U32_ADD: scalarResult=((Long)a+(Long)b)&0xffffffffL; break;
-            case STR_HASH: scalarResult=stringHash(utf8(a)); break;
-            case U8_TO_U64: case U32_TO_U64: case USIZE_TO_U64: case U8_TO_U32: scalarResult=(Long)a; break;
-            case U64_TO_U8: scalarResult=(Long)a&255L; break;
-            case BOOL_U64: requireBoolScalar(a); scalarResult=(Long)a; break;
-            case U64_ADD: scalarResult=(Long)a+(Long)b; break;
-            case U64_SUB: scalarResult=(Long)a-(Long)b; break;
-            case U64_MUL: scalarResult=(Long)a*(Long)b; break;
-            case U64_DIV: scalarResult=(Long)b==0?0:Long.divideUnsigned((Long)a,(Long)b); break;
-            case U64_MOD: scalarResult=(Long)b==0?(Long)a:Long.remainderUnsigned((Long)a,(Long)b); break;
-            case U64_AND: scalarResult=(Long)a&(Long)b; break;
-            case U64_OR: scalarResult=(Long)a|(Long)b; break;
-            case U64_NOT: scalarResult=~(Long)a; break;
-            case U64_NEG: scalarResult=-(Long)a; break;
-            case U64_LOG2: scalarResult=(Long)a==0?0:63-Long.numberOfLeadingZeros((Long)a); break;
-            case U64_SHL: scalarResult=(Long)a<<(Long)b; break;
-            case U64_LE: scalarResult=Long.compareUnsigned((Long)a,(Long)b)<=0?1:0; break;
-            case U64_MIX: scalarResult=mixHash((Long)a,(Long)b); break;
-            case U64_NAT:
-                if(f.params.length>1) require(ERASED.equals(b),"UInt64 conversion proof requires erased placeholder");
-                scalarResult=nat(a).longValue(); break;
-            case U64_OWNED_NAT: scalarResult=nat(a).longValue(); releaseQuiet(a,1); break;
-            case U32_OWNED_NAT: scalarResult=nat(a).longValue()&0xffffffffL; releaseQuiet(a,1); break;
-            case U64_SHR: scalarResult=(Long)a>>>(Long)b; break;
-            case U64_XOR: scalarResult=(Long)a^(Long)b; break;
-            case U64_USIZE: scalarResult=(Long)a; break;
-            case U64_TO_U32: scalarResult=(Long)a&0xffffffffL; break;
-            case U64_LT: scalarResult=Long.compareUnsigned((Long)a,(Long)b)<0?1:0; break;
-            case U64_EQ: scalarResult=((Long)a).longValue()==((Long)b).longValue()?1:0; break;
-            default: throw error("Invalid scalar intrinsic");
-        }
-    }
     // Negative BigInteger.bitLength omits the sign extension; +1 safely bounds
     // absolute magnitude without allocating abs()/negate() just to inspect it.
-    private static long magnitudeBits(BigInteger value) {
+    static long magnitudeBits(BigInteger value) {
         return (long)value.bitLength()+(value.signum()<0?1:0);
     }
-    private static void boundedMagnitude(BigInteger value) {
-        resource(magnitudeBits(value)<=MAX_NAT_RESULT_BITS,"Integer magnitude outside bounded runtime bit limit");
-    }
-    private static BigInteger boundedAdd(BigInteger left,BigInteger right,boolean subtract) {
+    static BigInteger boundedAdd(BigInteger left,BigInteger right,boolean subtract) {
         if(right.signum()==0) return left;
         if(!subtract&&left.signum()==0) return right;
         if(subtract&&left.equals(right)) return BigInteger.ZERO;
@@ -9280,7 +9050,7 @@ public final class Interpreter implements AutoCloseable {
         resource(right==0||left<=MAX_NAT_MULTIPLY_WORK/right,"Nat multiplication outside bounded runtime work limit");
         return left*right;
     }
-    private BigInteger natMultiply(BigInteger left,BigInteger right) {
+    BigInteger natMultiply(BigInteger left,BigInteger right) {
         atomicPoll();
         if(left.signum()==0||right.signum()==0) return BigInteger.ZERO;
         if(left.equals(BigInteger.ONE)) { resource(right.bitLength()<=MAX_NAT_RESULT_BITS,"Nat product outside bounded runtime bit limit"); return right; }
@@ -9320,57 +9090,11 @@ public final class Interpreter implements AutoCloseable {
         }
         atomicPoll(); return normalize(answer);
     }
-    private static Object natShiftLeft(BigInteger value,BigInteger exponent) {
-        if(value.signum()==0) return ERASED;
-        if(exponent.signum()==0) return normalize(value);
-        resource(exponent.compareTo(BigInteger.valueOf(MAX_SHIFT_RESULT_BITS))<=0
-                &&(long)value.bitLength()+exponent.longValue()<=MAX_SHIFT_RESULT_BITS,
-                "Nat.shiftLeft result outside bounded runtime bit limit");
-        return normalize(value.shiftLeft(exponent.intValue()));
-    }
-    private static boolean natPrimitive(int op) {
-        return op<=POW||(op>=NAT_LE&&op<=NAT_SHR)||(op>=NAT_AND&&op<=NAT_DIV_EXACT);
-    }
     private static long gcd(long x,long y) {
         while(y!=0) { long r=x%y; x=y; y=r; }
         return x;
     }
     static boolean wordPrimitive(int op) { return op>=WORD_BASE&&op<WORD_BASE+WORD_LANES*WORD_STRIDE&&(op-WORD_BASE)%WORD_STRIDE<=W_OWNED_NAT; }
-    private static boolean boolWordPrimitive(int op) {
-        return op==BOOL_U64||(wordPrimitive(op)&&(op-WORD_BASE)%WORD_STRIDE==W_FROM_BOOL);
-    }
-    /** Pinned lean.h semantics: arithmetic wraps modulo 2^width, x/0=0, x%0=x,
-     * shift distances reduce modulo the width, log2 0=0, and narrowing truncates. */
-    private void wordIntrinsic(Function f,Object a,Object b) {
-        int lane=(f.intrinsic-WORD_BASE)/WORD_STRIDE,code=(f.intrinsic-WORD_BASE)%WORD_STRIDE,bits=WORD_BITS[lane];
-        long mask=bits==64?-1L:(1L<<bits)-1;
-        if(code==W_OWNED_NAT) { scalarResult=nat(a).longValue()&mask; releaseQuiet(a,1); return; }
-        if(code==W_FROM_BOOL) { requireBoolScalar(a); scalarResult=(Long)a; return; }
-        long x=(Long)a&mask,y=b instanceof Long?(Long)b&mask:0;
-        switch(code) {
-            case W_ADD: scalarResult=(x+y)&mask; break;
-            case W_SUB: scalarResult=(x-y)&mask; break;
-            case W_MUL: scalarResult=(x*y)&mask; break;
-            case W_DIV: scalarResult=y==0?0:Long.divideUnsigned(x,y); break;
-            case W_MOD: scalarResult=y==0?x:Long.remainderUnsigned(x,y); break;
-            case W_AND: scalarResult=x&y; break;
-            case W_OR: scalarResult=x|y; break;
-            case W_XOR: scalarResult=x^y; break;
-            case W_NOT: scalarResult=~x&mask; break;
-            case W_NEG: scalarResult=-x&mask; break;
-            case W_SHL: scalarResult=(x<<(int)(y&(bits-1)))&mask; break;
-            case W_SHR: scalarResult=x>>>(int)(y&(bits-1)); break;
-            case W_LOG2: scalarResult=x==0?0:63-Long.numberOfLeadingZeros(x); break;
-            case W_EQ: scalarResult=x==y?1:0; break;
-            case W_LT: scalarResult=Long.compareUnsigned(x,y)<0?1:0; break;
-            case W_LE: scalarResult=Long.compareUnsigned(x,y)<=0?1:0; break;
-            case W_TO_U8: case W_TO_U16: case W_TO_U32: case W_TO_U64: case W_TO_USIZE: {
-                int target=WORD_BITS[code-W_TO_U8];
-                scalarResult=target==64?x:x&((1L<<target)-1); break;
-            }
-            default: throw error("Invalid word intrinsic");
-        }
-    }
     private void intrinsic(Function f,Object a,Object b) {
         if(a instanceof Long && b instanceof Long && (Long)a>=0 && (Long)b>=0) {
             long x=(Long)a,y=(Long)b;
@@ -9386,7 +9110,7 @@ public final class Interpreter implements AutoCloseable {
                 case NAT_LE: scalarResult=x<=y?1:0; break;
                 case NAT_LOG2: result=Long.valueOf(Math.max(0,63-Long.numberOfLeadingZeros(x))); break;
                 case NAT_OR: result=Long.valueOf(x|y); break;
-                case NAT_SHL: result=natShiftLeft(BigInteger.valueOf(x),BigInteger.valueOf(y)); break;
+                case NAT_SHL: result=ScalarIntrinsics.natShiftLeft(BigInteger.valueOf(x),BigInteger.valueOf(y)); break;
                 case NAT_SHR: result=Long.valueOf(y>=63?0:x>>>y); break;
                 case NAT_AND: result=Long.valueOf(x&y); break;
                 case NAT_XOR: result=Long.valueOf(x^y); break;
@@ -9410,7 +9134,7 @@ public final class Interpreter implements AutoCloseable {
                 case NAT_LE: scalarResult=x.compareTo(y)<=0?1:0; break;
                 case NAT_LOG2: result=Long.valueOf(Math.max(0,x.bitLength()-1)); break;
                 case NAT_OR: result=normalize(x.or(y)); break;
-                case NAT_SHL: result=natShiftLeft(x,y); break;
+                case NAT_SHL: result=ScalarIntrinsics.natShiftLeft(x,y); break;
                 case NAT_SHR: result=y.compareTo(BigInteger.valueOf(x.bitLength()))>=0?ERASED:normalize(x.shiftRight(y.intValue())); break;
                 case NAT_AND: result=normalize(x.and(y)); break;
                 case NAT_XOR: result=normalize(x.xor(y)); break;
@@ -9444,7 +9168,7 @@ public final class Interpreter implements AutoCloseable {
     }
     /** Pinned 64-bit Lean target layout, not Java object dimensions. */
     private static boolean layoutPrimitive(int op) { return op>=LAYOUT_FIELDS&&op<=LAYOUT_USIZE; }
-    private static void requireLayoutUnit(Object value) {
+    static void requireLayoutUnit(Object value) {
         require(value instanceof Long&&((Long)value).longValue()==0,"Layout query requires canonical Unit zero");
     }
     private static boolean buildIdentityPrimitive(int op) { return op==BUILD_GITHASH||op==BUILD_TARGET; }
@@ -9535,7 +9259,7 @@ public final class Interpreter implements AutoCloseable {
             called=preflightCallable(f);
             if(buildIdentityPrimitive(f.intrinsic)) requireBuildUnit(closure.fields.length==0?args[0]:closure.fields[0]);
             if(layoutPrimitive(f.intrinsic)) requireLayoutUnit(closure.fields.length==0?args[0]:closure.fields[0]);
-            if(boolWordPrimitive(f.intrinsic)) requireBoolScalar(closure.fields.length==0?args[0]:closure.fields[0]);
+            if(ScalarIntrinsics.boolWordPrimitive(f.intrinsic)) ScalarIntrinsics.requireBoolScalar(closure.fields.length==0?args[0]:closure.fields[0]);
         }
         Object[] combined=new Object[closure.fields.length+args.length];
         System.arraycopy(closure.fields,0,combined,0,closure.fields.length);
@@ -9997,7 +9721,7 @@ public final class Interpreter implements AutoCloseable {
                 require(!borrowedTaskPrimitive(target.intrinsic),"Borrowed task primitive requires owned guest wrapper");
                 require(!borrowedArrayPrimitive(target.intrinsic),
                         "Borrowed array primitive requires owned closure wrapper");
-                require(!borrowedIntPrimitive(target.intrinsic),"Borrowed Int primitive requires owned closure wrapper");
+                require(!ScalarIntrinsics.borrowedIntPrimitive(target.intrinsic),"Borrowed Int primitive requires owned closure wrapper");
                 require(!borrowedStringPositionPrimitive(target.intrinsic),"Borrowed String position primitive requires owned closure wrapper");
                 require(target.intrinsic!=PROFILE_IT,"Borrowed profiling primitive requires an owned guest wrapper");
                 require(!borrowedStringCompletionPrimitive(target.intrinsic),"Borrowed String range primitive requires owned closure wrapper");
@@ -10083,7 +9807,7 @@ public final class Interpreter implements AutoCloseable {
         require(!borrowedTaskPrimitive(target.intrinsic),"Borrowed task primitive requires owned guest wrapper");
                 require(!borrowedArrayPrimitive(target.intrinsic),
                 "Borrowed array primitive requires owned closure wrapper");
-        require(!borrowedIntPrimitive(target.intrinsic),"Borrowed Int primitive requires owned closure wrapper");
+        require(!ScalarIntrinsics.borrowedIntPrimitive(target.intrinsic),"Borrowed Int primitive requires owned closure wrapper");
         require(!borrowedStringPositionPrimitive(target.intrinsic),"Borrowed String position primitive requires owned closure wrapper");
         require(target.intrinsic!=PROFILE_IT,"Borrowed profiling primitive requires an owned guest wrapper");
         require(!borrowedStringCompletionPrimitive(target.intrinsic),"Borrowed String range primitive requires owned closure wrapper");
@@ -10563,7 +10287,7 @@ public final class Interpreter implements AutoCloseable {
         if(function.intrinsic==DBG_TRACE_SHARED) validateTraceShared(args[0],args[1],args[2]);
         if(buildIdentityPrimitive(function.intrinsic)) requireBuildUnit(args[0]);
         if(layoutPrimitive(function.intrinsic)) requireLayoutUnit(args[0]);
-        if(boolWordPrimitive(function.intrinsic)) requireBoolScalar(args[0]);
+        if(ScalarIntrinsics.boolWordPrimitive(function.intrinsic)) ScalarIntrinsics.requireBoolScalar(args[0]);
         if(function.intrinsic==STR_TO_UTF8) utf8Extent(args[0]);
         if(function.intrinsic==STR_FROM_UTF8) validateFromUtf8(args[0],args[1]);
         if(function.intrinsic==TASK_MAP&&taskRuntime==null) validateTaskMap(args);
@@ -10670,7 +10394,7 @@ public final class Interpreter implements AutoCloseable {
             called=preflightCallable(f,true);
             if(buildIdentityPrimitive(f.intrinsic)) requireBuildUnit(closure.fields.length==0?args[0]:closure.fields[0]);
             if(layoutPrimitive(f.intrinsic)) requireLayoutUnit(closure.fields.length==0?args[0]:closure.fields[0]);
-            if(boolWordPrimitive(f.intrinsic)) requireBoolScalar(closure.fields.length==0?args[0]:closure.fields[0]);
+            if(ScalarIntrinsics.boolWordPrimitive(f.intrinsic)) ScalarIntrinsics.requireBoolScalar(closure.fields.length==0?args[0]:closure.fields[0]);
         }
         Object[] combined=new Object[closure.fields.length+args.length];
         System.arraycopy(closure.fields,0,combined,0,closure.fields.length);
@@ -10892,7 +10616,7 @@ public final class Interpreter implements AutoCloseable {
             throw new UnsupportedOperationException("Borrowed String position primitive requires owned guest wrapper at external entry");
         if(borrowedStringCompletionPrimitive(f.intrinsic))
             throw new UnsupportedOperationException("Borrowed String range primitive requires owned guest wrapper at external entry");
-        if(borrowedIntPrimitive(f.intrinsic))
+        if(ScalarIntrinsics.borrowedIntPrimitive(f.intrinsic))
             throw new UnsupportedOperationException("Borrowed Int primitive requires owned guest wrapper at external entry");
         require(f.intrinsic!=NAME_EQ,"Borrowed Name equality requires an owned guest wrapper");
         require(f.intrinsic!=EXPR_CACHE,"Borrowed Expr data requires an owned guest wrapper"); require(!borrowedExprEquality(f.intrinsic),"Borrowed Expr equality requires an owned guest wrapper"); require(f.intrinsic!=LEVEL_EQUAL,"Borrowed Level equality requires an owned guest wrapper"); require(!borrowedExprLooseQuery(f.intrinsic),"Borrowed Expr loose search requires an owned guest wrapper"); require(!borrowedExprOrder(f.intrinsic),"Borrowed Expr quick ordering requires an owned guest wrapper"); require(!findPrimitive(f.intrinsic),"Borrowed Expr.find requires an owned guest wrapper"); require(f.intrinsic!=SHARECOMMON_QUICK,"Borrowed ShareCommon requires an owned guest wrapper"); require(f.intrinsic!=EXPR_REPLACE,"Borrowed Expr.replace requires an owned guest wrapper"); require(!abstractPrimitive(f.intrinsic),"Borrowed Expr abstraction requires an owned guest wrapper"); require(!pureExprTransform(f.intrinsic),"Borrowed Expr instantiation/lift requires an owned guest wrapper");
