@@ -36,13 +36,10 @@
                    (e/sort' result-level))
         type (term/elaborate-in-context environment {} form nil {:type-position true})
         [params rest-type] (telescope type (map first param-pairs))
-        [indices _] (telescope rest-type (map first index-pairs))
-        ;; Constructor parameter occurrences are implicit, as in Lean's
-        ;; withExplicitToImplicit. The family local retains the entire header.
-        header (reduce (fn [body p]
-                         (e/forall' (:name p) (:compiled-type p) body :implicit))
-                       rest-type (reverse params))]
-    {:params params :indices indices :type header}))
+        [indices _] (telescope rest-type (map first index-pairs))]
+    ;; Lean elabHeadersAux preserves the family's explicit binders. elabCtors'
+    ;; withExplicitToImplicit changes the constructor parameters, not the family.
+    {:params params :indices indices :type type}))
 
 (defn- open-params [type params]
   (loop [type type ps params lctx {} ids []]
