@@ -904,6 +904,7 @@
    each rule runs at each selected local, then the target; wildcard skips mismatches."
   [ps args]
   (let [[cfg args] (if (map? (first args)) [(first args) (rest args)] [{} args])
+        cfg (basic/check-rewrite-config cfg)
         [rules location] (split-with #(not= 'at %) args)
         locs (when (seq location) (vec (rest location)))
         _ (when (and location (seq location) (empty? locs))

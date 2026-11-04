@@ -132,3 +132,25 @@
              (rewrite {:occs {:pos [2]}} [h] at hx)
              (exact hx))
   (is (verified? "rewrite_second_occurrence_local")))
+
+(deftest rewrite-rejects-unsupported-configuration
+  (doseq [tactic '[(rw {:transparency :reducible} [h])
+                   (rw {:transparency :instances} [h])
+                   (rw {:instances true} [h])
+                   (rw {:transparency :default} [h] at *)]]
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo
+                          #"rewrite: unsupported configuration option"
+                          (a/prove-theorem 'rewrite_unsupported_configuration
+                                           '[n :- Nat, m :- Nat, h :- (= n m)]
+                                           '(= n m) [tactic])))))
+
+(deftest ^:wip rewrite-default-keeps-ordinary-definitions-opaque
+  ;; Lean Rewrite.Config defaults to .reducible; closed Meta defeq still unfolds this definition.
+  (a/defn hidden-id [n :- Nat] Nat n)
+  (is (thrown-with-msg? clojure.lang.ExceptionInfo
+                        #"Did not find an occurrence of the pattern"
+                        (a/theorem hidden_match
+                                   [f :- (=> Nat Nat), n :- Nat,
+                                    h :- (= (f (hidden-id n)) 7)]
+                                   (= (f n) 7)
+                                   (rw [h])))))

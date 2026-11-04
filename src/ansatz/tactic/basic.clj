@@ -956,6 +956,16 @@
 ;; rewrite
 ;; ============================================================
 
+(defn check-rewrite-config
+  "Only occurrence selection is supported by the public rewrite configuration."
+  [cfg]
+  (doseq [option (keys cfg)]
+    (when-not (= option :occs)
+      (tactic-error! (str "rewrite: unsupported configuration option " option
+                          "; only :occs is supported")
+                     {:option option :supported-options [:occs]})))
+  cfg)
+
 (defn rewrite
   "Rewrite the goal using an equality hypothesis.
    eq-term should have type @Eq T lhs rhs.
@@ -1051,7 +1061,8 @@
   ([ps term reverse? hyp-id fresh-start]
    (rewrite-lemma ps term reverse? hyp-id fresh-start {}))
   ([ps term reverse? hyp-id fresh-start cfg]
-   (let [goal (proof/current-goal ps)
+   (let [cfg (check-rewrite-config cfg)
+         goal (proof/current-goal ps)
          _ (when-not goal (tactic-error! "No goals" {}))
          ty (infer-in-goal ps (:lctx goal) term)
          ;; Lean Meta/Tactic/Rewrite.lean: forallMetaTelescope and kabstract
@@ -1099,7 +1110,10 @@
            _ (when (e/mvar? (e/get-app-fn (meta/zonk-expr @mctx pat)))
                (tactic-error! "rewrite: pattern is a metavariable" {:pattern pat}))
            target (if hyp-id (:type (get (:lctx goal) hyp-id)) (:type goal))
-           abstraction (ka/kabstract st target pat (merge {:transparency :reducible} cfg {:mctx mctx}))]
+           ;; Keep Lean's requested mode internally for the restricted backend.
+           ;; Closed comparisons currently use unrestricted kernel defeq.
+           abstraction (ka/kabstract st target pat {:transparency :reducible
+                                                    :occs (get cfg :occs :all) :mctx mctx})]
        (when-not (e/has-loose-bvars? abstraction)
          (tactic-error! (str "Tactic `rewrite` failed: Did not find an occurrence of the pattern\n  "
                              pat "\nin the target expression\n  " target)

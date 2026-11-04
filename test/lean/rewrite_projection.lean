@@ -46,3 +46,8 @@ example (rule : ∀ n : Nat, Nat.succ n = 0) :
     Nat.succ 1 + Nat.succ 2 = Nat.succ 1 + 0 := by
   rewrite (occs := .pos [2]) [rule]
   rfl
+
+def hiddenId (n : Nat) := n
+example (f : Nat → Nat) (n : Nat) (h : f (hiddenId n) = 7) : f n = 7 := by
+  fail_if_success rw [h]
+  rw (transparency := .default) [h]
