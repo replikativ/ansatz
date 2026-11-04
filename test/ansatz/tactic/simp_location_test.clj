@@ -4,7 +4,9 @@
             [ansatz.core :as a]
             [ansatz.kernel.expr :as e]
             [ansatz.surface.elaborate :as elab]
-            [ansatz.tactic.proof :as proof]))
+            [ansatz.tactic.proof :as proof]
+            [ansatz.tactic.extract :as extract]
+            [ansatz.tactic.simp :as simp]))
 
 (use-fixtures :once
   (fn [t]
@@ -55,13 +57,17 @@
                            [P :- Prop, h :- False] P (dsimp at h ⊢))))
   (is (proves? '(a/theorem contradictory-dsimp-wildcard
                            [P :- Prop, h :- False] P (dsimp at *))))
-  (is (proves? '(a/theorem mixed-dsimp-locations
-                           [P :- Prop, Q :- Prop, h1 :- P,
-                            h2 :- (match true [true Q] [false True])]
-                           Q (dsimp at h1 h2) (exact h2))))
   (is (thrown-with-msg? clojure.lang.ExceptionInfo #"made no progress"
                         (eval '(a/theorem unchanged-dsimp-locations
                                           [P :- Prop, h :- P] P (dsimp at h) (exact h))))))
+
+(deftest dsimp-matcher-location-closure-only
+  ;; Acceptance/closure coverage only: exact accepts definitionally equal types.
+  ;; The structural reducer can leave Bool.casesOn here, unlike Lean's guard_hyp.
+  (is (proves? '(a/theorem dsimp-matcher-location-closure
+                           [P :- Prop, Q :- Prop, h1 :- P,
+                            h2 :- (match true [true Q] [false True])]
+                           Q (dsimp at h1 h2) (exact h2)))))
 
 (deftest closing-a-location-preserves-sibling-goals
   (is (proves? '(a/theorem simp-location-siblings
@@ -92,3 +98,20 @@
     (is (= h2 (id-of after "h2")))
     (is (not= (get-in before [h2 :type]) (get-in after [h2 :type])))
     (is (= (e/fvar q) (get-in after [h2 :type])))))
+
+(deftest wildcard-ignores-implementation-detail-dependencies
+  (let [type (elab/elaborate (a/env)
+                             '(forall [P :- Prop, h :- False, k :- (= False h h)] P))
+        [ps _] (proof/start-proof (a/env) type)
+        ps (a/run-tactic ps '(intro P h k))
+        g (proof/current-goal ps)
+        id-of (fn [n] (first (for [[id d] (:lctx g) :when (= n (:name d))] id)))
+        h (id-of "h")
+        k (id-of "k")]
+    (is (= [k] (simp/get-nondep-prop-hyps ps)))
+    (let [ps (assoc-in ps [:meta-mctx :decls (:id g) :lctx k :implementation-detail] true)]
+      (is (= [h] (simp/get-nondep-prop-hyps ps)))
+      (doseq [tactic ['(simp at *) '(dsimp at *)]]
+        (let [closed (a/run-tactic ps tactic)]
+          (is (empty? (:goals closed)))
+          (is (some? (extract/verify closed))))))))

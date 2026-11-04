@@ -1,3 +1,5 @@
+import Lean
+
 set_option linter.unusedVariables false
 
 -- Lean Elab.Tactic.Simp.simpLocation/dsimpLocation and Meta.simpGoal/dsimpGoal.
@@ -64,3 +66,21 @@ example (P Q : Prop) (h1 : P) (h2 : (let R := Q; R)) : Q := by
   dsimp at h1 h2
   guard_hyp h2 :ₛ Q
   exact h2
+
+-- Set the same LocalDecl kind that getNondepPropHyps skips in Meta/Tactic/Util.lean.
+open Lean Meta Elab Tactic in
+elab "mark_impl_detail " n:ident : tactic => withMainContext do
+  let some decl := (← getLCtx).findFromUserName? n.getId
+    | throwError "unknown local {n}"
+  let goal ← getMainGoal
+  let replacement ← mkFreshExprMVarAt ((← getLCtx).setKind decl.fvarId .implDetail)
+    (← getLocalInstances) (← goal.getType)
+  goal.assign replacement
+  replaceMainGoal [replacement.mvarId!]
+
+example (P : Prop) (h : False) (k : h = h) : P := by
+  mark_impl_detail k
+  simp at *
+example (P : Prop) (h : False) (k : h = h) : P := by
+  mark_impl_detail k
+  dsimp at *

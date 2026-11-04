@@ -3540,7 +3540,8 @@
                                 (is-prop-type? st (:type d))
                                 (not (depends? (:type goal) id))
                                 (not (some (fn [[other-id other]]
-                                             (and (not= id other-id)
+                                             (and (not (:implementation-detail other))
+                                                  (not= id other-id)
                                                   (or (depends? (:type other) id)
                                                       (depends? (:value other) id))))
                                            (:lctx goal))))
