@@ -13,15 +13,22 @@ import xml.etree.ElementTree as ET
 import zipfile
 
 POM = "META-INF/maven/org.replikativ/ansatz-lean-jvm/pom.xml"
-ADAPTER = "ansatz/lean/jvm/ir.clj"
+ADAPTER = "ansatz/lean/jvm/ir__init.class"
 METADATA = "META-INF/ansatz-lean-jvm/runtime.edn"
 SOURCES = {"ansatz/lean/jvm/" + name + ".clj" for name in
            ["ir", "installed", "preparation", "argument", "construction", "producer", "scalar_buffer", "artifact", "original", "capabilities", "startup", "publisher", "project", "signature", "codec", "entry", "entry_v3", "value", "type_graph", "typed_value", "used_products", "representation", "compiler/products",
             "compiler/workspace", "compiler/encoding", "compiler/transport", "compiler/local", "compiler/evidence", "compiler/bundle"]}
 SOURCES.add("ansatz/lean/jvm.clj")
 SOURCES.add("ansatz/lean/jvm/host.clj")
+# Source preparation only; shipped as .clj. Every other runtime namespace ships AOT classes only.
+SOURCE_LOADED = {"ansatz/lean/jvm/" + name + ".clj" for name in
+                 ["preparation", "compiler/bundle", "compiler/encoding", "compiler/evidence", "compiler/local",
+                  "compiler/products", "compiler/transport", "compiler/workspace"]}
+AOT_SOURCES = SOURCES - SOURCE_LOADED
 CLASS_INVENTORY = "META-INF/ansatz-lean-jvm/java-classes.json"
-SDK_RESOURCES = {"META-INF/ansatz-lean-jvm/LakeInventory.lean", CLASS_INVENTORY, METADATA, "META-INF/ansatz-lean-jvm/user-error.json", "META-INF/ansatz-lean-jvm/filesystem-layouts.jsonl", "META-INF/ansatz-lean-jvm/NOTICE"}
+CLOJURE_INVENTORY = "META-INF/ansatz-lean-jvm/clojure-classes.json"
+CLOJURE_AOT = {"clojureVersion": "1.12.0", "directLinking": False}
+SDK_RESOURCES = {"META-INF/ansatz-lean-jvm/LakeInventory.lean", CLASS_INVENTORY, CLOJURE_INVENTORY, METADATA, "META-INF/ansatz-lean-jvm/user-error.json", "META-INF/ansatz-lean-jvm/filesystem-layouts.jsonl", "META-INF/ansatz-lean-jvm/NOTICE"}
 API_CLASSES = {"InvocationOptions", "LeanPreparation", "PreparedArtifact", "Bridge", "Lean", "LeanException", "LeanProject", "LeanFunction", "LeanUnit", "LeanChoice", "IOResult", "MainResult", "NativeCompilerOptions", "ProjectOptions", "HostServices", "ReadOnlyFiles", "FileAccess", "LeanName", "LeanTypeId", "LeanType", "LeanData", "LeanBytes", "ValueBridge"}
 API_CLASSES.update({"HostCall", "LeanIOError"})
 API_CLASSES.add("HostBindings")
@@ -81,6 +88,79 @@ def reviewed_engine_sources():
     return sources, closure_sha, primary[0]["sha256"]
 
 
+def reviewed_namespaces():
+    """The reviewed runtime namespace inventory and its explicit source-loaded subset."""
+    path = Path(__file__).resolve().parent.parent / "runtime-closure.edn"
+    text = path.read_text(encoding="utf-8")
+    blocks = re.findall(r":sources\s*\[([^\[\]]*)\]", text)
+    require(len(blocks) == 1, "One explicit reviewed namespace source block required")
+    sources = dict(re.findall(r'\{\s*:path\s+"([^"\\]+)"\s+:namespace\s+([a-z][a-z0-9.\-]*)\s*\}', blocks[0]))
+    loaded_blocks = re.findall(r":source-loaded\s*\[([^\[\]]*)\]", text)
+    require(len(loaded_blocks) == 1, "One explicit reviewed source-loaded block required")
+    loaded = loaded_blocks[0].split()
+    by_namespace = {namespace: source for source, namespace in sources.items()}
+    require(len(loaded) == len(set(loaded)) and all(namespace in by_namespace for namespace in loaded),
+            "Reviewed source-loaded namespace is not inventoried")
+    require(set(sources) == SOURCES and {by_namespace[n] for n in loaded} == SOURCE_LOADED,
+            "Reviewed namespace inventory differs from the audited expectation")
+    return sources, path.parent / "src"
+
+
+def clojure_class_namespace(roots, name):
+    """Attribute an AOT class: ns__init, ns$fn.., or a deftype/proxy/reify in the ns package."""
+    head = name.removesuffix(".class").split("$", 1)[0]
+    init = head.endswith("__init")
+    root = head.removesuffix("__init")
+    if root in roots:
+        return roots[root]
+    return None if init or "/" not in root else roots.get(root.rsplit("/", 1)[0])
+
+
+def audit_clojure_classes(archive, names, java_classes, java_roots):
+    """AOT classes are exactly the reviewed namespaces' output, bound to reviewed source bytes."""
+    sources, source_root = reviewed_namespaces()
+    require(CLOJURE_INVENTORY in names, "Missing Clojure class inventory")
+    inventory = json.loads(archive.read(CLOJURE_INVENTORY))
+    require(set(inventory) == {"schema", "clojureVersion", "directLinking", "compiled", "sourceLoaded", "classes"}
+            and inventory["schema"] == "ansatz-clojure-class-inventory/1", "Unknown Clojure class inventory")
+    require({k: inventory[k] for k in CLOJURE_AOT} == CLOJURE_AOT, "AOT Clojure version or linking differs")
+    def check_records(records, expected, init):
+        require(isinstance(records, list) and {r.get("path") for r in records} == expected
+                and len(records) == len(expected), "Clojure namespace inventory differs")
+        for record in records:
+            require(set(record) == {"namespace", "path", "sourceSHA256"} | ({"init"} if init else set())
+                    and sources[record["path"]] == record["namespace"], "Malformed Clojure namespace record")
+            require(record["sourceSHA256"] == digest((source_root / record["path"]).read_bytes()),
+                    "Packaged namespace was not built from the reviewed source")
+            if init:
+                require(record["init"] == record["path"][:-4] + "__init.class" and record["init"] in names,
+                        "Missing AOT init class")
+            else:
+                require(digest(archive.read(record["path"])) == record["sourceSHA256"], "Packaged source changed")
+    check_records(inventory["compiled"], AOT_SOURCES, True)
+    check_records(inventory["sourceLoaded"], SOURCE_LOADED, False)
+    roots = {path[:-4]: namespace for path, namespace in sources.items() if path in AOT_SOURCES}
+    pins = inventory["classes"]
+    classes = {name for name in names if name.endswith(".class")} - java_classes
+    require(isinstance(pins, dict) and set(pins) == classes and not (set(pins) & java_classes),
+            "Uninventoried or missing AOT class")
+    emitted = set()
+    for name in sorted(classes):
+        namespace = clojure_class_namespace(roots, name)
+        require(namespace is not None and pins[name] == {"namespace": namespace, "sha256": pins[name].get("sha256")},
+                "AOT class outside the reviewed namespaces (dependency or unreviewed class)")
+        require(name.removesuffix(".class").split("$", 1)[0] not in java_roots, "AOT class collides with Java class")
+        data = archive.read(name)
+        require(digest(data) == pins[name]["sha256"], "AOT class byte pin differs")
+        require(data[:4] == b"\xca\xfe\xba\xbe" and 52 <= int.from_bytes(data[6:8], "big") <= 61,
+                "AOT class is not loadable by Java 17")
+        # The engine is reached only reflectively (ir/linked-basis), never linked from Clojure classes.
+        require(b"ansatz/lean/jvm/internal/" not in data, "AOT class links an engine class directly")
+        emitted.add(namespace)
+    require(emitted == set(roots.values()), "AOT namespace emitted no classes")
+    return len(classes)
+
+
 def audit_jar(path, expected_engine_sha=None):
     expected_sources, expected_closure_sha, reviewed_primary_sha = reviewed_engine_sources()
     path = Path(path)
@@ -92,10 +172,10 @@ def audit_jar(path, expected_engine_sha=None):
         require(sum(entry.file_size for entry in entries) <= 32 * 1024 * 1024, "Jar expansion exceeds bound")
         require(all(not name.startswith("/") and ".." not in name.split("/") for name in names), "Unsafe jar path")
         resources = sorted(name for name in names if name.endswith((".clj", ".cljc")))
-        require(set(resources) == SOURCES, "Research/legacy or missing runtime namespace resource")
+        require(set(resources) == SOURCE_LOADED, "Research/legacy, AOT-shadowing or missing runtime namespace resource")
         require(POM in names and METADATA in names, "Missing POM/runtime metadata")
         classes = sorted(name for name in names if name.endswith(".class"))
-        allowed_resources = SOURCES | SDK_RESOURCES | {POM, "META-INF/MANIFEST.MF",
+        allowed_resources = SOURCE_LOADED | SDK_RESOURCES | {POM, "META-INF/MANIFEST.MF",
                              "META-INF/maven/org.replikativ/ansatz-lean-jvm/pom.properties"}
         require(all(name.endswith("/") or name in allowed_resources or name in classes for name in names),
                 "Uninventoried runtime file or research source in jar")
@@ -125,9 +205,11 @@ def audit_jar(path, expected_engine_sha=None):
         require(closure_sha == inventory.get("engineClosureSHA256") == expected_closure_sha,
                 "Java engine source closure differs")
         class_pins = inventory.get("classes", {})
-        require(set(classes) == set(class_pins), "Uninventoried or missing compiled class")
-        require(roots <= set(classes), "Captured source has no compiled top-level class")
-        for name in classes:
+        require(isinstance(class_pins, dict) and set(class_pins) <= set(classes), "Missing compiled Java class")
+        java_classes = set(class_pins)
+        require(roots <= java_classes, "Captured source has no compiled top-level class")
+        aot_class_count = audit_clojure_classes(archive, names, java_classes, {r[:-6] for r in roots})
+        for name in sorted(java_classes):
             top_level = name.split("$", 1)[0].removesuffix(".class") + ".class"
             require(top_level in roots and digest(archive.read(name)) == class_pins[name],
                     "Compiled class source association or byte pin differs")
@@ -135,7 +217,7 @@ def audit_jar(path, expected_engine_sha=None):
             require("ansatz/lean/jvm/" + api_class + ".class" in classes, "Missing Java facade class " + api_class)
         for nested in ["", "$Program", "$Node", "$Header", "$SourceBinding", "$HostExtern"]:
             require("ansatz/lean/jvm/internal/exec/Interpreter" + nested + ".class" in classes, "Missing engine class " + nested)
-        for name in classes:
+        for name in sorted(java_classes):
             data = archive.read(name)
             require(data[:4] == b"\xca\xfe\xba\xbe" and int.from_bytes(data[6:8], "big") == 61,
                     "Engine class is not Java release 17")
@@ -155,6 +237,8 @@ def audit_jar(path, expected_engine_sha=None):
                            (b"native-compiler-included", b"false")]:
             require(re.search(rb":" + key + rb"\s+" + value + rb"(?:[,\s}]|$)", metadata) is not None,
                     "Unsupported runtime metadata promise")
+        require(re.search(rb':clojure-aot\s+\{:compiled-with\s+"1\.12\.0"[,\s]+:direct-linking\s+false\}', metadata)
+                is not None, "Unsupported Clojure AOT metadata promise")
         public_match = re.search(rb":public-project-api\s+(true|false)(?:[,\s}]|$)", metadata)
         require(public_match is not None, "Missing public API acceptance flag")
         require(set(SDK_RESOURCES).issubset(names), "Missing SDK codec or attribution resource")
@@ -166,8 +250,9 @@ def audit_jar(path, expected_engine_sha=None):
         require(engine_sha == reviewed_primary_sha, "Runtime metadata/primary reviewed source pin differs")
         require(expected_engine_sha is None or engine_sha == expected_engine_sha, "Jar engine source pin differs")
         return {"jarBytes": path.stat().st_size, "jarSHA256": digest(path.read_bytes()),
-                "entryCount": len(names), "engineClassCount": sum(name.startswith("ansatz/lean/jvm/internal/exec/") for name in classes),
-                "javaAPIClassCount": sum(name.startswith("ansatz/lean/jvm/") and "/" not in name[len("ansatz/lean/jvm/"):] for name in classes),
+                "entryCount": len(names), "engineClassCount": sum(name.startswith("ansatz/lean/jvm/internal/exec/") for name in java_classes),
+                "javaAPIClassCount": sum(name.startswith("ansatz/lean/jvm/") and "/" not in name[len("ansatz/lean/jvm/"):] for name in java_classes),
+                "aotClassCount": aot_class_count,
                 "publicProjectAPIAccepted": public_match.group(1) == b"true", "javaRelease": 17,
                 "engineSourceSHA256": engine_sha, "engineClosureSHA256": closure_sha, "runtimeResources": resources,
                 "pomDependencies": [list(item) for item in dependencies],

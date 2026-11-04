@@ -30,6 +30,18 @@
            {:path "ansatz/lean/jvm/compiler/products.clj" :namespace ansatz.lean.jvm.compiler.products}
            {:path "ansatz/lean/jvm/used_products.clj" :namespace ansatz.lean.jvm.used-products}
            {:path "ansatz/lean/jvm/value.clj" :namespace ansatz.lean.jvm.value}]
+ ;; Every other :sources namespace ships AOT-compiled (classes only, no .clj).
+ ;; These ship as source: transport, workspace and local hash their own loaded
+ ;; source file (*file*) as a guard, which an AOT load cannot provide, and the
+ ;; rest of source preparation requires them. None is on the artifact path.
+ :source-loaded [ansatz.lean.jvm.preparation
+                 ansatz.lean.jvm.compiler.bundle
+                 ansatz.lean.jvm.compiler.encoding
+                 ansatz.lean.jvm.compiler.evidence
+                 ansatz.lean.jvm.compiler.local
+                 ansatz.lean.jvm.compiler.products
+                 ansatz.lean.jvm.compiler.transport
+                 ansatz.lean.jvm.compiler.workspace]
  :resources ["META-INF/ansatz-lean-jvm/LakeInventory.lean"
              "META-INF/ansatz-lean-jvm/runtime.edn"
              "META-INF/ansatz-lean-jvm/user-error.json"

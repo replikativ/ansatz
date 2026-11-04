@@ -5,7 +5,9 @@
             [ansatz-lean-jvm-build-audit :as audit]
             [ansatz-lean-jvm-release :as release]))
 (def lib 'org.replikativ/ansatz-lean-jvm)
-(def class-dir "target/classes")
+(def class-dir "target/classes")       ; javac output + copied sources: also a dev path (deps.edn)
+(def aot-dir "target/aot-classes")     ; Clojure AOT output: never on a dev path
+(def jar-dir "target/jar-classes")     ; the exact JAR contents
 (def jar-file "target/ansatz-lean-jvm.jar")
 (def java-source-dir "target/java-source")
 (defn check-package [options] (audit/verify! options))
@@ -32,7 +34,25 @@
       (spit metadata (pr-str (assoc (edn/read-string (slurp metadata)) :artifact-version version))))
     (b/javac {:src-dirs [java-source-dir] :class-dir class-dir :basis basis :javac-opts ["--release" "17"]})
     (audit/write-class-inventory! closure class-dir)
-    (b/write-pom {:class-dir class-dir :lib lib :version version :basis pom-basis :src-dirs ["src"]
+    ;; AOT the SDK's own runtime namespaces so the first Lean call does not compile
+    ;; them (~2-3 s). Only ansatz.lean.jvm classes are kept: Clojure/data.json load
+    ;; from the user's resolved jars. Direct linking stays off so compiled calls go
+    ;; through Vars, not 1.12.0's clojure.core class layout. The AOT output stays
+    ;; out of target/classes, where a stale class could shadow an edited source.
+    (b/delete {:path aot-dir})
+    (b/delete {:path jar-dir})
+    (b/compile-clj {:basis basis :class-dir aot-dir :src-dirs ["src"]
+                    :ns-compile (audit/aot-namespaces closure) :filter-nses '[ansatz.lean.jvm]
+                    :compile-opts {:direct-linking false}
+                    :java-opts ["-Xmx384m"]})
+    ;; AOT namespaces ship classes only, so Clojure never chooses a .clj by entry
+    ;; timestamp (repackagers often normalize them); source-loaded ones ship .clj.
+    (b/copy-dir {:src-dirs [class-dir aot-dir] :target-dir jar-dir})
+    (doseq [namespace (audit/aot-namespaces closure)]
+      (b/delete {:path (str jar-dir "/" (:path (first (filter #(= namespace (:namespace %)) (:sources closure)))))}))
+    (let [aot (audit/write-clojure-class-inventory! closure jar-dir "." (get-in basis [:libs 'org.clojure/clojure :mvn/version]))]
+      (println "AOT" aot))
+    (b/write-pom {:class-dir jar-dir :lib lib :version version :basis pom-basis :src-dirs ["src"]
                   :scm {:url "https://github.com/replikativ/ansatz"
                         :connection "scm:git:git://github.com/replikativ/ansatz.git"
                         :developerConnection "scm:git:ssh://git@github.com/replikativ/ansatz.git"
@@ -41,9 +61,12 @@
                              [:url "https://github.com/replikativ/ansatz"]
                              [:licenses [:license [:name "Apache License 2.0"]
                                          [:url "https://www.apache.org/licenses/LICENSE-2.0"]]]]})
-    (b/jar {:class-dir class-dir :jar-file jar-file})
+    (b/jar {:class-dir jar-dir :jar-file jar-file})
     {:jar jar-file :version version :java-release 17 :engine-compilations 1
-     :source-loaded-namespaces 1 :public-project-api (:public-project-api (edn/read-string (slurp (io/file class-dir "META-INF/ansatz-lean-jvm/runtime.edn"))))}))
+     :aot-namespaces (count (audit/aot-namespaces closure))
+     :source-loaded-namespaces (count (:source-loaded closure))
+     :clojure-aot (audit/clojure-aot-promise)
+     :public-project-api (:public-project-api (edn/read-string (slurp (io/file jar-dir "META-INF/ansatz-lean-jvm/runtime.edn"))))}))
 
 
 (defn prepare-release
@@ -52,7 +75,7 @@
    keep independently built optional modules aligned with one release commit."
   [options]
   (let [result (jar options)
-        pom-file (b/pom-path {:lib lib :class-dir class-dir})]
+        pom-file (b/pom-path {:lib lib :class-dir jar-dir})]
     (release/prepare! {:jar-file jar-file :pom-file pom-file
                        :version (:version result)
                        :output "target/release.edn"})))

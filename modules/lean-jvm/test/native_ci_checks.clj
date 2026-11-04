@@ -4,8 +4,8 @@
          '[lake-corpus :as corpus])
 
 ;; Exercise the packaged runtime/preparation code, not source or target/classes.
-(doseq [resource ["ansatz/lean/jvm.clj" "ansatz/lean/jvm/compiler/workspace.clj"
-                  "ansatz/lean/jvm/compiler/evidence.clj" "ansatz/lean/jvm/artifact.clj"]]
+(doseq [resource ["ansatz/lean/jvm__init.class" "ansatz/lean/jvm/compiler/workspace.clj"
+                  "ansatz/lean/jvm/compiler/evidence.clj" "ansatz/lean/jvm/artifact__init.class"]]
   (assert (= "jar" (.getProtocol (io/resource resource))) (str "Non-JAR SDK resource: " resource)))
 (assert (.endsWith (-> ansatz.lean.jvm.Lean .getProtectionDomain .getCodeSource .getLocation .getPath)
                    "/ansatz-lean-jvm.jar"))

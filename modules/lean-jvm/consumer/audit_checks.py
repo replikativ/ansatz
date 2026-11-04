@@ -29,6 +29,25 @@ def changed_inventory(originals, change):
     return list(files.items())
 
 
+CLOJURE_INVENTORY = "META-INF/ansatz-lean-jvm/clojure-classes.json"
+
+
+def changed_clojure_inventory(originals, change):
+    """Model a candidate that tampers with AOT output and re-pins its own Clojure inventory."""
+    files = dict(originals)
+    inventory = json.loads(files[CLOJURE_INVENTORY])
+    change(files, inventory)
+    files[CLOJURE_INVENTORY] = json.dumps(inventory).encode("utf-8")
+    return list(files.items())
+
+
+def add_aot_class(name, namespace, data):
+    def change(files, inventory):
+        files[name] = data
+        inventory["classes"][name] = {"namespace": namespace, "sha256": hashlib.sha256(data).hexdigest()}
+    return change
+
+
 def add_self_inventoried_helper(files, inventory):
     name = "ansatz/lean/jvm/internal/exec/HiddenBits.class"
     # Same-length class rename preserves a valid compiled class structure;
@@ -60,7 +79,21 @@ def main():
                                              for name, data in originals],
         "missing-class-inventory": [(name, data) for name, data in originals if name != "META-INF/ansatz-lean-jvm/java-classes.json"],
         "changed-class-bytes": [(name, data + b"changed") if name == "ansatz/lean/jvm/internal/exec/Interpreter.class" else (name, data) for name, data in originals],
-        "missing-adapter": [(name, data) for name, data in originals if name != "ansatz/lean/jvm/ir.clj"],
+        "missing-adapter": [(name, data) for name, data in originals if name != "ansatz/lean/jvm/ir__init.class"],
+        "aot-shadowing-source": originals + [("ansatz/lean/jvm/ir.clj", b"(ns ansatz.lean.jvm.ir)")],
+        "changed-aot-class-bytes": [(name, data + b"changed") if name == "ansatz/lean/jvm/project__init.class" else (name, data) for name, data in originals],
+        "uninventoried-aot-class": originals + [("ansatz/lean/jvm/ir$hidden.class", dict(originals)["ansatz/lean/jvm/ir__init.class"])],
+        "missing-aot-init": changed_clojure_inventory(
+            [(name, data) for name, data in originals if name != "ansatz/lean/jvm/startup__init.class"],
+            lambda files, inventory: inventory["classes"].pop("ansatz/lean/jvm/startup__init.class")),
+        "self-inventoried-dependency-class": changed_clojure_inventory(originals, add_aot_class(
+            "clojure/data/json__init.class", "clojure.data.json", dict(originals)["ansatz/lean/jvm/ir__init.class"])),
+        "self-inventoried-engine-linking-class": changed_clojure_inventory(originals, add_aot_class(
+            "ansatz/lean/jvm/ir$linked.class", "ansatz.lean.jvm.ir",
+            dict(originals)["ansatz/lean/jvm/ir__init.class"] + b"ansatz/lean/jvm/internal/exec/Interpreter")),
+        "self-inventoried-direct-linking": changed_clojure_inventory(
+            originals, lambda files, inventory: inventory.update(directLinking=True)),
+        "changed-source-loaded-namespace": [(name, data + b"\n") if name == "ansatz/lean/jvm/compiler/transport.clj" else (name, data) for name, data in originals],
         "legacy-namespace": originals + [("prototype/machine.cljc", b"(ns prototype.machine)")],
         "duplicate-class": originals + [("ansatz/lean/jvm/internal/exec/Interpreter.class", b"duplicate")],
         "extra-java-source": originals + [("research/Interpreter.java", b"class Interpreter {}")],

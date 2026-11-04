@@ -5,7 +5,7 @@
 (import '[java.nio.charset StandardCharsets]
         '[java.util Arrays] '[java.util.concurrent TimeUnit]
         '[ansatz.lean.jvm InvocationOptions LeanException])
-(assert (= "jar" (.getProtocol (io/resource "ansatz/lean/jvm.clj"))))
+(assert (= "jar" (.getProtocol (io/resource "ansatz/lean/jvm__init.class"))))
 (assert (= 3 (count *command-line-args*)))
 (def sysroot (first *command-line-args*))
 (def bundle (second *command-line-args*))

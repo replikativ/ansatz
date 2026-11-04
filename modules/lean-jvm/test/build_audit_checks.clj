@@ -11,6 +11,7 @@
   (let [result (audit/verify! {:module-root *module-root*})]
     (is (= 31 (:sources result))) (is (= 5 (:resources result)))
     (is (= 32 (:java-sources result)))
+    (is (= [23 8] [(:aot-namespaces result) (:source-loaded-namespaces result)]))
     (is (= '{org.clojure/clojure {:mvn/version "1.12.0"}
              org.clojure/data.json {:mvn/version "2.5.1"}} (:runtime-dependencies result)))))
 (deftest source-paths-and-dependency-closure-cannot-drift
@@ -22,6 +23,26 @@
                      (assoc original :resources ["research/repl.clj"])
                      (assoc-in original [:runtime-dependencies 'org.replikativ/pattern] {:mvn/version "1.0.452"})]]
       (is (rejected? #(audit/validate-manifest! changed))))))
+(deftest source-loaded-subset-and-aot-boundary-are-explicit
+  (let [original (closure)]
+    (doseq [changed [(dissoc original :source-loaded)
+                     (assoc original :source-loaded '[ansatz.lean.jvm.research])
+                     (update original :source-loaded conj (first (:source-loaded original)))
+                     (assoc original :source-loaded (mapv :namespace (:sources original)))]]
+      (is (rejected? #(audit/validate-manifest! changed))))
+    (is (rejected? #(audit/check-aot-boundary! original
+                      '{ansatz.lean.jvm.project (ns ansatz.lean.jvm.project
+                                                  (:require [ansatz.lean.jvm.compiler.transport :as t]))})))
+    (is (= original (audit/check-aot-boundary! original
+                      '{ansatz.lean.jvm.preparation (ns ansatz.lean.jvm.preparation
+                                                      (:require [ansatz.lean.jvm.artifact :as a]))}))))
+  (let [roots {"ansatz/lean/jvm" 'ansatz.lean.jvm "ansatz/lean/jvm/project" 'ansatz.lean.jvm.project}]
+    (is (= ['ansatz.lean.jvm 'ansatz.lean.jvm 'ansatz.lean.jvm.project 'ansatz.lean.jvm.project
+            'ansatz.lean.jvm.project nil nil]
+           (mapv #(audit/class-namespace roots %)
+                 ["ansatz/lean/jvm__init.class" "ansatz/lean/jvm$call.class" "ansatz/lean/jvm/project$fn__1.class"
+                  "ansatz/lean/jvm/project/Services.class" "ansatz/lean/jvm/project/proxy$java/io/X$ff.class"
+                  "clojure/data/json__init.class" "ansatz/lean/jvm/project/x__init.class"])))))
 (deftest runtime-ns-admission-checks-actual-requires
   (is (audit/check-namespace! 'ansatz.lean.jvm.ir
         '(ns ansatz.lean.jvm.ir (:import [java.lang.reflect Method]))))
