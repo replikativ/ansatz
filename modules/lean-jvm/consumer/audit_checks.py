@@ -48,10 +48,10 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--sdk-jar", type=Path, required=True)
     args = parser.parse_args()
-    audit_jar(args.sdk_jar)
+    baseline = audit_jar(args.sdk_jar)
     with zipfile.ZipFile(args.sdk_jar) as archive:
         originals = [(entry.filename, archive.read(entry)) for entry in archive.infolist()]
-    primary_sha = audit_jar(args.sdk_jar)["engineSourceSHA256"]
+    primary_sha = baseline["engineSourceSHA256"]
     cases = {
         "self-inventoried-unreviewed-helper": changed_inventory(originals, add_self_inventoried_helper),
         "self-inventoried-primary-source-relabel": changed_inventory(originals, relabel_primary_source),
