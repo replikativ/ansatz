@@ -19,6 +19,10 @@ javac -J-Xmx384m --release 17 -g -d "$contract_root/engine-classes" \
   "$repo_root/modules/lean-jvm/src-java/ansatz/lean/jvm/internal/exec/ScalarIntrinsics.java" \
   "$repo_root/modules/lean-jvm/src-java/ansatz/lean/jvm/internal/exec/StringIntrinsics.java" \
   "$repo_root/modules/lean-jvm/src-java/ansatz/lean/jvm/internal/exec/StdioCapture.java" \
+  "$repo_root/modules/lean-jvm/src-java/ansatz/lean/jvm/internal/exec/ExprDelayedInstantiation.java" \
+  "$repo_root/modules/lean-jvm/src-java/ansatz/lean/jvm/internal/exec/ExprDirectInstantiation.java" \
+  "$repo_root/modules/lean-jvm/src-java/ansatz/lean/jvm/internal/exec/ExprTransforms.java" \
+  "$repo_root/modules/lean-jvm/src-java/ansatz/lean/jvm/internal/exec/LevelInstantiation.java" \
   "$repo_root/modules/lean-jvm/src-java/ansatz/lean/jvm/internal/fs/FileSession.java"
 javac -J-Xmx256m --release 11 -d "$contract_root/classes" \
   "$engine_tests/kernel-support/java/prototype/TypedLongMemo.java"

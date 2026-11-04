@@ -255,7 +255,7 @@ final class ExternRegistry {
                 new String[]{"erased","object","object","tobject","tobject"},new boolean[]{false,true,true,false,false}));
         register(registry,new ExternSpec("lean_instantiate_level_mvars",LEVEL_INSTANTIATE,"object",
                 new String[]{"object","tobject"},new boolean[]{false,false}));
-        if(EXPR_INSTANTIATION_NATIVE_READY) register(registry,new ExternSpec("lean_instantiate_expr_mvars",EXPR_INSTANTIATE_MVARS,"object",
+        if(ExprDelayedInstantiation.EXPR_INSTANTIATION_NATIVE_READY) register(registry,new ExternSpec("lean_instantiate_expr_mvars",EXPR_INSTANTIATE_MVARS,"object",
                 new String[]{"object","object"},new boolean[]{false,false}));
         register(registry,new ExternSpec("lean_void_mk",VOID_MK,"void",
                 new String[]{"erased","tobject"},new boolean[]{false,false}));
