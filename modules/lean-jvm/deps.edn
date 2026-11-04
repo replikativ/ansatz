@@ -5,4 +5,5 @@
  {:build {:deps {io.github.clojure/tools.build {:mvn/version "0.10.6"}
                  slipset/deps-deploy {:mvn/version "0.2.2"}}
           :ns-default build}
-  :audit {:extra-paths ["."] :exec-fn ansatz-lean-jvm-build-audit/verify!}}}
+  :audit {:extra-paths ["."] :exec-fn ansatz-lean-jvm-build-audit/verify!}
+  :repin {:extra-paths ["."] :exec-fn ansatz-lean-jvm-build-audit/repin!}}}

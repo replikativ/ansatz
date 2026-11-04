@@ -142,3 +142,37 @@
     {:sources (count (:sources closure)) :resources (count (:resources closure))
      :java-sources (+ (count (:java-engine closure)) (count (:java-api closure))) :engine-source-sha256 (:engine-source-sha256 metadata)
      :runtime-dependencies runtime-dependencies :closure closure}))
+
+(defn repin!
+  "Developer task: recompute the SHA-256 pins of every inventoried Java source and
+   the engine closure, rewriting only the hash strings in runtime-closure.edn and
+   the packaged runtime.edn. Adding or removing a Java source still requires
+   editing the inventory by hand. Run from modules/lean-jvm, then `verify!`."
+  [{:keys [module-root] :or {module-root "."}}]
+  (let [root (io/file module-root)
+        closure-file (io/file root "runtime-closure.edn")
+        metadata-file (io/file root "resources/META-INF/ansatz-lean-jvm/runtime.edn")
+        closure (edn/read-string (slurp closure-file))
+        repinned (fn [sources]
+                   (mapv #(assoc % :sha256 (sha256 (io/file root "src-java" (:path %)))) sources))
+        engine' (repinned (:java-engine closure))
+        api' (repinned (:java-api closure))
+        closure-sha' (engine-closure-sha256 engine')
+        engine-sha' (:sha256 (first (filter #(= engine-class (:class %)) engine')))
+        replacements (into {(:engine-closure-sha256 closure) closure-sha'}
+                           (map (fn [old new] [(:sha256 old) (:sha256 new)])
+                                (concat (:java-engine closure) (:java-api closure)) (concat engine' api')))
+        rewrite (fn [file pairs]
+                  (let [text (slurp file)
+                        text' (reduce-kv (fn [text old new]
+                                           (need (or (= old new) (= 1 (count (re-seq (re-pattern old) text))))
+                                                 (str "Pin is not unique in " file))
+                                           (str/replace text old new)) text pairs)]
+                    (when-not (= text text') (spit file text'))
+                    (not= text text')))
+        metadata (edn/read-string (slurp metadata-file))]
+    {:closure-changed (rewrite closure-file replacements)
+     :metadata-changed (rewrite metadata-file {(:engine-source-sha256 metadata) engine-sha'
+                                               (:engine-closure-sha256 metadata) closure-sha'})
+     :changed (vec (for [[old new] (map vector (concat (:java-engine closure) (:java-api closure)) (concat engine' api'))
+                         :when (not= (:sha256 old) (:sha256 new))] (:path new)))}))
