@@ -888,14 +888,14 @@
 (clojure.core/defn- do-rewrite-one
   "A SINGLE rewrite rule: a local hypothesis (by name), an env lemma (∀-quantified, instantiated by
    matching), or an applied Eq term. `reverse?` rewrites right-to-left."
-  [ps reverse? spec hyp-id]
+  [ps reverse? spec hyp-id cfg]
   (let [fresh-start (:next-id ps)
         g (proof/current-goal ps)
         hyp-fid (when (symbol? spec)
                   (latest-local-id-by-name (:lctx g) spec))
         [ps term] (if hyp-fid [ps (e/fvar hyp-fid)]
                       (elab-apply-arg ps (:lctx g) spec))]
-    (basic/rewrite-lemma ps term reverse? hyp-id fresh-start)))
+    (basic/rewrite-lemma ps term reverse? hyp-id fresh-start cfg)))
 
 (declare latest-local-id-by-name)
 
@@ -903,7 +903,9 @@
   "Lean Elab/Tactic/Rewrite.lean evalRewriteSeq and Location.lean withLocation:
    each rule runs at each selected local, then the target; wildcard skips mismatches."
   [ps args]
-  (let [[rules location] (split-with #(not= 'at %) args)
+  (let [[cfg args] (if (map? (first args)) [(first args) (rest args)] [{} args])
+        cfg (basic/check-rewrite-config cfg)
+        [rules location] (split-with #(not= 'at %) args)
         locs (when (seq location) (vec (rest location)))
         _ (when (and location (seq location) (empty? locs))
             (throw (ex-info "Tactic error: rewrite: empty location" {:kind :tactic-error})))
@@ -915,16 +917,16 @@
                              (when-not fid
                                (throw (ex-info (str "Tactic error: rewrite: unknown local " loc)
                                                {:kind :tactic-error})))
-                             (do-rewrite-one ps reverse? spec fid)))]
+                             (do-rewrite-one ps reverse? spec fid cfg)))]
             (if (= ['*] locs)
               (let [attempt (fn [ps f]
                               (try [(f ps) true]
                                    (catch clojure.lang.ExceptionInfo ex
                                      (if (= :tactic-error (:kind (ex-data ex))) [ps false] (throw ex)))))
                     ids (mapv key (reverse (red/lctx-decls (:lctx (proof/current-goal ps)))))
-                    [ps worked?] (attempt ps #(do-rewrite-one % reverse? spec nil))
+                    [ps worked?] (attempt ps #(do-rewrite-one % reverse? spec nil cfg))
                     [ps worked?] (reduce (fn [[ps worked?] fid]
-                                           (let [[ps ok?] (attempt ps #(do-rewrite-one % reverse? spec fid))]
+                                           (let [[ps ok?] (attempt ps #(do-rewrite-one % reverse? spec fid cfg))]
                                              [ps (or worked? ok?)]))
                                          [ps worked?] ids)]
                 (when-not worked?
@@ -932,7 +934,7 @@
                 ps)
               (let [ps (reduce at-local ps (remove #{'⊢ '|-} locs))]
                 (if (or (nil? locs) (some #{'⊢ '|-} locs))
-                  (do-rewrite-one ps reverse? spec nil) ps)))))]
+                  (do-rewrite-one ps reverse? spec nil cfg) ps)))))]
     (loop [ps ps toks toks]
       (if-not (seq toks) ps
               (let [rev? (boolean (#{'<- '←} (first toks)))

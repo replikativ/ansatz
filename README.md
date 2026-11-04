@@ -648,7 +648,8 @@ reports an error; it does not fall back to a kernel recursion encoding.
 | `(exfalso)` | Prove by contradiction (change goal to False) |
 | `(left)` / `(right)` | Choose disjunction branch |
 | `(have name type)` | Introduce intermediate lemma |
-| `(rewrite h)` / `(rw [h])` | Rewrite the goal; `rw` also attempts reflexivity |
+| `(rewrite h)` / `(rw [h])` | Rewrite the goal, including inside projections; fail if the pattern is absent. `rw` also attempts reflexivity |
+| `(rewrite {:occs {:pos [2]}} [h])` | Rewrite only the second matching occurrence (`:neg` excludes selected occurrences); supports `at h`. Only `:occs` is supported in this configuration map |
 | `(rw [h] at hx)` / `(rw [h] at h1 h2 ⊢)` / `(rw [h] at *)` | Rewrite selected hypotheses, optionally the target, or every matching location |
 | `(split)` | Split a conditional or matcher in the target and reduce the conditional in each branch |
 | `(split_ifs)` | Split all Boolean and propositional conditionals throughout the target and simplify each branch |
@@ -657,6 +658,25 @@ reports an error; it does not fall back to a kernel recursion encoding.
 | `(any_goals (tactic))` | Apply to each open goal, retaining failed goals; fail if none succeeds |
 | `(first (tac1) (tac2))` | Try tactics in order |
 | `(and_then (tac1) (tac2))` | Lean's `tac1 <;> tac2`: run `tac2` on every goal `tac1` produces; nest for `a <;> b <;> c` |
+
+`rw` and `rewrite` currently use unrestricted kernel definitional equality for
+metavariable-free matching comparisons. Ordinary definitions can therefore unfold inside
+matching arguments. This differs from Lean's `.reducible` default. For example, ansatz
+currently accepts:
+
+```clojure
+(a/defn hidden-id [n :- Nat] Nat n)
+(a/theorem hidden_match
+  [f :- (=> Nat Nat), n :- Nat, h :- (= (f (hidden-id n)) 7)]
+  (= (f n) 7)
+  (rw [h]))
+```
+
+Lean rejects the corresponding `rw [h]`; it needs `rw (transparency := .default) [h]`.
+Restricted matching is a known gap, tracked by a `:wip` regression. The rewrite
+configuration supports only `:occs`; `:transparency` and `:instances` settings are
+rejected until their semantics can be honored. Implicit instance arguments of rewrite
+lemmas are still synthesized automatically.
 
 A Lean script translates line by line. Lean's
 

@@ -144,7 +144,7 @@
                                                         List.singleton_append List.append_nil]))))
       (catch Throwable _ nil)))
   ;; foldl (· :: ·) [] l = reverse l — the empty-accumulator corollary (foldl_cons_acc at acc = [],
-  ;; `++ []` reduces by def-eq, so the trailing rw closes outright). The clean name for "a group_by
+  ;; `++ []` is discharged by append_nil). The clean name for "a group_by
   ;; bucket is its matched rows reversed".
   (when-not (has? "foldl_cons_nil")
     (try
@@ -153,7 +153,8 @@
                                   (= (List A)
                                      (List.foldl (List A) A (fn [a :- (List A) y :- A] (List.cons A y a)) (List.nil A) l)
                                      (List.reverse A l))
-                                  (rw (foldl_cons_acc A l (List.nil A)))))
+                                  (rw (foldl_cons_acc A l (List.nil A)))
+                                  (exact (List.append_nil A (List.reverse A l)))))
       (catch Throwable _ nil)))
   ;; ∑ (reverse l) = ∑ l over a COMMUTATIVE monoid — the big-operator is order-insensitive. The bridge
   ;; that lets the aggregate frame laws apply to a REAL `Map.join`: its group_by buckets are built by
