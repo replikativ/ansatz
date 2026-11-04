@@ -222,7 +222,7 @@ final class ScalarIntrinsics {
                 vm.scalarResult=nat(a).longValue()&0xffffffffL; break;
             case U32_TO_U8: vm.scalarResult=(Long)a&255; break;
             case U32_ADD: vm.scalarResult=((Long)a+(Long)b)&0xffffffffL; break;
-            case STR_HASH: vm.scalarResult=stringHash(vm.utf8(a)); break;
+            case STR_HASH: vm.scalarResult=StringIntrinsics.stringHash(vm.utf8(a)); break;
             case U8_TO_U64: case U32_TO_U64: case USIZE_TO_U64: case U8_TO_U32: vm.scalarResult=(Long)a; break;
             case U64_TO_U8: vm.scalarResult=(Long)a&255L; break;
             case BOOL_U64: requireBoolScalar(a); vm.scalarResult=(Long)a; break;
