@@ -603,6 +603,16 @@ public final class Interpreter implements AutoCloseable {
         private boolean array;
         private boolean ref;
         private boolean readyTask;
+        // Read-only views for engine families outside this nest. None of them
+        // returns a payload array or permits a header/ownership write.
+        int refCount() { return rc; }
+        Function closureFunction() { return closure; }
+        NodeMetadata metadataView() { return metadata; }
+        boolean isDead() { return dead; }
+        boolean isArray() { return array; }
+        boolean isRef() { return ref; }
+        boolean isReadyTask() { return readyTask; }
+        Object[] copyFields() { return fields.clone(); }
         /** Logical live size; fields.length is capacity and spare slots are null. */
         public int arraySize() {
             require(array,"Expected Array"); return ((ArrayState)kindMetadata(this)).size;
