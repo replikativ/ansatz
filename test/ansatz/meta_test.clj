@@ -648,3 +648,30 @@
           ps (basic/apply-tac ps (e/const' (name/from-string "Nat.le_trans") []))]
       (is (thrown-with-msg? clojure.lang.ExceptionInfo #"unassigned metavariables"
                             (basic/induction ps (local-id ps "a")))))))
+
+(deftest zonk-beta-reduces-only-assigned-metavariable-heads
+  (let [nat (e/const' (name/from-string "Nat") [])
+        identity (e/lam "x" nat (e/bvar 0) :default)
+        x (e/lit-nat 7)
+        ctx #(meta/assign-expr meta/empty-context 1 %)]
+    (testing "direct, chained and nested assigned heads"
+      (is (= x (meta/zonk-expr (ctx identity) (e/app (e/mvar 1) x))))
+      (is (= x (meta/zonk-expr (meta/assign-expr (ctx (e/mvar 2)) 2 identity)
+                               (e/app (e/mvar 1) x))))
+      (is (= x (meta/zonk-expr (ctx identity)
+                               (e/app (e/mvar 1) (e/app (e/mvar 1) x))))))
+    (testing "multiple binders, partial application and extra arguments"
+      (let [first-arg (e/lam "x" nat (e/lam "y" nat (e/bvar 1) :default) :default)]
+        (is (= x (meta/zonk-expr (ctx first-arg) (e/app* (e/mvar 1) x (e/lit-nat 8)))))
+        (is (= (e/lam "y" nat x :default)
+               (meta/zonk-expr (ctx first-arg) (e/app (e/mvar 1) x)))))
+      ;; apply_beta does not iterate reduction on a function returned by substitution.
+      (is (= (e/app identity x)
+             (meta/zonk-expr (ctx identity) (e/app* (e/mvar 1) identity x)))))
+    (testing "let and metadata heads are consumed by apply_beta"
+      (is (= x (meta/zonk-expr (ctx (e/let' "f" (e/arrow nat nat) identity (e/bvar 0)))
+                               (e/app (e/mvar 1) x))))
+      (is (= x (meta/zonk-expr (ctx (e/mdata {} identity)) (e/app (e/mvar 1) x)))))
+    (testing "literal lambda applications remain intact even when an argument changes"
+      (let [redex (e/app identity (e/mvar 1))]
+        (is (= (e/app identity x) (meta/zonk-expr (ctx x) redex)))))))

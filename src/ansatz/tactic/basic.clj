@@ -975,6 +975,8 @@
   ([ps eq-term reverse?] (rewrite ps eq-term reverse? nil))
   ([ps eq-term reverse? hyp-id] (rewrite ps eq-term reverse? hyp-id nil))
   ([ps eq-term reverse? hyp-id abstraction]
+   (rewrite ps eq-term reverse? hyp-id abstraction nil))
+  ([ps eq-term reverse? hyp-id abstraction e-new]
    (let [goal (proof/current-goal ps)
          _ (when-not goal (tactic-error! "No goals" {}))
          target-type (if hyp-id (:type (red/lctx-lookup (:lctx goal) hyp-id)) (:type goal))
@@ -1010,7 +1012,7 @@
                           (e/sort-level goal-sort-whnf)
                           lvl/zero)
            ;; New goal type: goal-type[lhs := rhs]
-           new-goal-type (e/instantiate1 motive-body rhs)
+           new-goal-type (or e-new (e/instantiate1 motive-body rhs))
            ;; Lean Meta/Tactic/Replace.lean replaceLocalDeclCore: assert the
            ;; transported value, clearing the old local only when unused.
            [ps' new-id] (if hyp-id (proof/alloc-id ps') [ps' nil])
@@ -1146,6 +1148,11 @@
              _ (reset! mctx (:meta-mctx ps))
              zonk* #(meta/zonk-expr @mctx %)
              eq-proof (zonk* eq-proof)
+             ;; Lean v4.33.1 Meta/Tactic/Rewrite.lean MVarId.rewrite:
+             ;; instantiate the replacement before resolving its metavariables.
+             ;; Reinferring the zonked proof type has already replaced ?p with
+             ;; a lambda, losing instantiateMVars' assigned-head beta reduction.
+             e-new (zonk* (e/instantiate1 abstraction (if reverse? lhs0 rhs0)))
              ;; Lean Meta/Tactic/Rewrite.lean rewrite: telescope holes first,
              ;; then holes from the input term. Elab/Tactic/Rewrite.lean
              ;; elabRewrite/finishElabRewrite keeps fresh holes and makes proof
@@ -1171,8 +1178,8 @@
                   (rewrite ps (e/app* (e/const' (name/from-string "Eq.symm")
                                                 (mapv #(meta/zonk-level @mctx %) eq-lvls))
                                       (zonk* eqT) (zonk* lhs0) (zonk* rhs0) eq-proof)
-                           false hyp-id (zonk* abstraction))
-                  (rewrite ps eq-proof false hyp-id (zonk* abstraction)))]
+                           false hyp-id (zonk* abstraction) e-new)
+                  (rewrite ps eq-proof false hyp-id (zonk* abstraction) e-new))]
          (update ps :goals #(vec (distinct (concat (take 1 %) holes (rest %))))))))))
 
 ;; ============================================================
