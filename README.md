@@ -572,6 +572,23 @@ right-nested, as Lean's `→`. `->` is always Clojure's threading macro, never a
   (cons [a α] [m Nat] [tail (Vec α m)] :where [(+ m 1)]))
 ```
 
+Verified structural and well-founded definitions execute their predefinition bodies,
+with direct recursive calls and `recur` for tail calls, following Lean's
+`_unsafe_rec` compilation. A code generation failure is reported instead of
+executing the kernel recursion encoding. This also applies to hoisted `loop` helpers.
+Native recursor elimination requires recursive minors to expose literal lambda
+binders through every induction hypothesis (IH). It substitutes recursive expressions
+at their uses and shares repeated uses lazily; an unused IH or unchosen branch does
+not force recursion. Passing an IH onward to an ordinary function is a strict use.
+Named or runtime-supplied recursive minors, including lambda prefixes ending before
+the IH binders, are rejected with a named codegen error. Nonrecursive minors may be
+ordinary function values. This is an extension to Lean's code generator, whose
+`ToImpure.lowerLet` rejects remaining recursors. Bare recursor values and partial
+applications before all motives, minors, and indices are supplied retain an executable
+compiler replacement when available (such as Lean's strict `Nat.recCompiled`). Once
+those arguments are supplied, native lowering either supports the minor shape or
+reports an error; it does not fall back to a kernel recursion encoding.
+
 ### Pattern Matching
 
 ```clojure

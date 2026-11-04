@@ -265,6 +265,9 @@
                                (rw body tail? boundary?)))
                    do (apply list 'do (concat (map #(rw % false boundary?) (butlast r))
                                               [(rw (last r) tail? boundary?)]))
+                   cond (apply list 'cond
+                               (map-indexed (fn [i x]
+                                              (rw x (and tail? (odd? i)) boundary?)) r))
                    case (let [[ce & br] r
                               n (count br)
                               paired (if (odd? n) (butlast br) br)
@@ -300,7 +303,7 @@
 
    Zero runtime parameters use the existing Decl value convention.
    Returns {:fn-form form :fn compiled-value} or nil when the shape is unsupported (arity
-   mismatch on a self-call or an erased binder that turns out runtime-relevant).
+   mismatch on a self-call or an unsupported parameter telescope).
    Emission/eval failures propagate. Callers own interning/registration."
   [env ^String cname term {:keys [erased arity]}]
   (let [total (+ erased arity)
@@ -308,17 +311,44 @@
               (ansatz->clj* env term cname))
         dsym (symbol cname)
         simplified (-> raw form-beta inline-single-letfn (collapse-head dsym))]
-    (when-let [[params body] (peel-fns simplified total)]
-      (let [rt-params (subvec params erased)
-            local-name (gensym "self_")
-            body' (rewrite-self body dsym local-name erased total)]
-        ;; nil/false are values too; a failed rewrite of a non-nil body returns nil.
-        (when (and (or (some? body') (nil? body))
-                   ;; erased binders must be runtime-irrelevant in the final body
-                   (not-any? #(occurs-sym? body' %) (subvec params 0 erased)))
-          (let [emitted (decl/emit-wrapper rt-params body' {:erased erased :local-name local-name
-                                                            :value? (zero? arity)})]
-            (assoc emitted :fn (eval (:fn-form emitted)))))))))
+    ;; ToLCNF.lean visit erases proofs/type formers as a whole. Preserve the
+    ;; declaration's parameter window around that erased artifact, as emit-classic!
+    ;; does, without compiling or invoking a kernel recursion encoding.
+    (let [erased-artifact? (and (nil? raw) (types/irrelevant? env term []))]
+      (when-let [[params body] (if erased-artifact?
+                                 [(vec (repeatedly total #(gensym "p"))) nil]
+                                 (peel-fns simplified total))]
+        (let [local-name (gensym "self_")
+              retained (loop [erased erased]
+                         (let [body' (rewrite-self body dsym local-name erased total)]
+                           ;; nil/false are values too; a failed rewrite of a non-nil body returns nil.
+                           (when (or (some? body') (nil? body))
+                             ;; ToLCNF.visitAppArg retains computational dictionaries.
+                             ;; Keeping a recursive argument can expose earlier parameters
+                             ;; supplying it, so close dependencies before emitting.
+                             (let [erased' (count (take-while #(not (occurs-sym? body' %))
+                                                              (subvec params 0 erased)))]
+                               (if (= erased erased')
+                                 {:body body' :erased erased}
+                                 (recur erased'))))))]
+          (when retained
+            (let [erased (:erased retained)
+                  rt-params (subvec params erased)
+                  emitted (decl/emit-wrapper rt-params (:body retained)
+                                             {:erased erased :local-name local-name
+                                              :value? (if erased-artifact?
+                                                        (zero? total)
+                                                        (empty? rt-params))})]
+              (assoc emitted :fn (eval (:fn-form emitted))))))))))
+
+(defn emit-direct-recursion!
+  "Terminal predefinition emission. Unsupported shapes are codegen errors; callers
+   must not fall back to executing a kernel recursion encoding."
+  [env cname term convention]
+  (or (emit-direct-recursion env cname term convention)
+      (throw (ex-info (str "Codegen error: cannot emit direct recursion for '" cname
+                           "': unsupported parameter erasure or recursive call arity")
+                      {:kind :codegen-error :declaration cname}))))
 
 ;; ── the store-def compiler ────────────────────────────────────────────────────
 
