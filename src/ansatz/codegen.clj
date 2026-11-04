@@ -400,28 +400,35 @@
    as plain decls, which a bare env/lookup let through — emitting an unrunnable symbol.
    An f that already has a NATIVE lowering keeps it: a csimp swap must not hijack e.g.
    List.length → count into a compiled loop."
-  [env h]
+  ([env h] (csimp-target env h 0))
+  ([env h num-args]
   ;; Compiler/CSimpAttr.lean replaceConstant? and LCNF/Simp/SimpValue.lean
   ;; applyImplementedBy? both replace the global constant, preserving arguments.
-  (when-let [g (or (get (env/get-extension env :csimp {}) h)
-                   (get (env/get-extension env :implemented-by {}) h))]
-    (when-not (or (builtin-app h) (contains? builtin-value h) (contains? @codegen-registry h)
-                  ;; A recursor already has a native, lazy-IH lowering. In particular,
-                  ;; Init/Data/Nat/Basic.lean recCompiled is strict in its IH; selecting
-                  ;; it here would force unused branches of match-derived eliminations.
-                  (when-let [ci (env/lookup env (name/from-string h))]
-                    (and (.isRecursor ^ConstantInfo ci) (.endsWith ^String h ".rec"))))
-      (when (or (builtin-app g) (contains? builtin-value g) (contains? @codegen-registry g)
-                (contains? @arity-registry g)
-                (when-let [ci (env/lookup env (name/from-string g))]
-                  (or (.isCtor ^ConstantInfo ci)
-                      (and (.isRecursor ^ConstantInfo ci) (.endsWith ^String g ".rec"))
-                      (= ConstantInfo/HINTS_ABBREV (.getHints ^ConstantInfo ci))))
-                (when *compile-store-defs*
+   (when-let [g (or (get (env/get-extension env :csimp {}) h)
+                    (get (env/get-extension env :implemented-by {}) h))]
+     (when-not (or (builtin-app h) (contains? builtin-value h) (contains? @codegen-registry h)
+                  ;; Init/Data/Nat/Basic.lean rec_eq_recCompiled supplies executable
+                  ;; values/partial applications. Keep lazy native elimination only
+                  ;; once its motives, minors and indices are available (the major
+                  ;; alone may be eta-expanded by the native lowering).
+                   (when-let [ci (env/lookup env (name/from-string h))]
+                     (and (.isRecursor ^ConstantInfo ci) (.endsWith ^String h ".rec")
+                          (pos? (.numMotives ^ConstantInfo ci))
+                          (>= num-args (+ (.numParams ^ConstantInfo ci)
+                                          (.numMotives ^ConstantInfo ci)
+                                          (.numMinors ^ConstantInfo ci)
+                                          (.numIndices ^ConstantInfo ci))))))
+       (when (or (builtin-app g) (contains? builtin-value g) (contains? @codegen-registry g)
+                 (contains? @arity-registry g)
+                 (when-let [ci (env/lookup env (name/from-string g))]
+                   (or (.isCtor ^ConstantInfo ci)
+                       (and (.isRecursor ^ConstantInfo ci) (.endsWith ^String g ".rec"))
+                       (= ConstantInfo/HINTS_ABBREV (.getHints ^ConstantInfo ci))))
+                 (when *compile-store-defs*
                   ;; An optional compiler replacement may use native machinery
                   ;; absent from this runtime. Keep the original definition then.
-                  (some? (storedef-compile? env g))))
-        g))))
+                   (some? (storedef-compile? env g))))
+         g)))))
 
 (def ^:private match-aux-re #"\.match_\d+$")
 (clojure.core/defn- match-aux?
@@ -888,7 +895,7 @@
         (let [h0 (name/->string (e/const-name head))
               ;; @[csimp]: rewrite the head to its verified replacement g before any lowering, so
               ;; everything downstream (builtin/registry/ctor/recursor) dispatches on g.
-              g (csimp-target env h0)
+              g (csimp-target env h0 (count args))
               head (if g (e/const' (name/from-string g) (e/const-levels head)) head)
               h (or g h0)
               cc (when-not (contains? *raw-constants* h) (get @arity-registry h))

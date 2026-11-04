@@ -61,3 +61,40 @@ def offsetSum {offset : Nat} (n : Nat) : Nat :=
   | k + 1 => offset + @offsetSum offset k
 
 example : @offsetSum 2 3 = 8 := by native_decide
+
+-- Type formers and proofs have erased runtime artifacts (ToLCNF.visit).
+def recursivePredicate (n : Nat) : Prop :=
+  match n with
+  | 0 => True
+  | k + 1 => recursivePredicate k
+
+theorem recursiveProof (n : Nat) : (0 : Nat) = 0 :=
+  match n with
+  | 0 => rfl
+  | k + 1 => recursiveProof k
+
+example : recursivePredicate 3 := by change True; trivial
+
+-- Retaining acc also requires retaining offset, used in its next recursive value.
+def chain {offset acc : Nat} (n : Nat) : Nat :=
+  match n with
+  | 0 => acc
+  | k + 1 => @chain offset offset k
+
+example : @chain 2 3 0 = 3 := by native_decide
+example : @chain 2 3 1 = 2 := by native_decide
+example : @chain 2 3 10000 = 2 := by native_decide
+
+example : (let r := @Nat.rec; @r (fun _ => Nat) 0 (fun _ ih => ih + 1) 5) = 5 := by native_decide
+example : (let r := @Nat.rec (fun _ => Nat); r 0 (fun _ ih => ih + 1) 5) = 5 := by native_decide
+
+
+def wfPredicate (n : Nat) : Prop :=
+  if n ≤ 0 then True else wfPredicate (n - 1)
+termination_by n
+decreasing_by omega
+
+theorem wfProof (n : Nat) : (0 : Nat) = 0 :=
+  if h : n ≤ 0 then rfl else wfProof (n - 1)
+termination_by n
+decreasing_by omega
