@@ -526,6 +526,21 @@
                     expr)))))
           expr)))))
 
+(defn- beta-rev
+  "Lean v4.33.1 kernel/instantiate.cpp apply_beta (preserve_data=false, zeta=true).
+   Arguments are in application order; consume syntactic binders before substitution."
+  [value args]
+  (let [args (vec args) sz (count args)]
+    (if (zero? sz) value
+        (loop [f value i 0]
+          (case (e/tag f)
+            :lam (if (< (inc i) sz)
+                   (recur (e/lam-body f) (inc i))
+                   (e/instantiate (e/lam-body f) args))
+            :let (recur (e/instantiate1 (e/let-body f) (e/let-value f)) i)
+            :mdata (recur (e/mdata-expr f) i)
+            (reduce e/app (e/instantiate f (subvec args 0 i)) (subvec args i)))))))
+
 (declare zonk-expr*)
 
 (defn zonk-expr
@@ -574,14 +589,9 @@
                                        (e/const' (e/const-name expr) levels')))
                             :app (let [h (e/get-app-fn expr)]
                                    (if (and (e/mvar? h) (expr-assignment mctx (e/mvar-id h)))
-                                     ;; Lean's instantiateMVars: an assigned mvar head is
-                                     ;; instantiated and beta-reduced with its arguments
-                                     (let [f (go h)
-                                           args (mapv go (e/get-app-args expr))]
-                                       (loop [f f args (seq args)]
-                                         (if (and args (e/lam? f))
-                                           (recur (e/instantiate1 (e/lam-body f) (first args)) (next args))
-                                           (reduce e/app f args))))
+                                     ;; Lean v4.33.1 library/instantiate_mvars.cpp:
+                                     ;; instantiate_direct_fn::visit_app_beta.
+                                     (beta-rev (go h) (mapv go (e/get-app-args expr)))
                                      (let [f (go (e/app-fn expr))
                                            a (go (e/app-arg expr))
                                            rebuilt (if (and (identical? f (e/app-fn expr))
