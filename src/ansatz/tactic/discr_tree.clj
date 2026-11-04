@@ -26,7 +26,7 @@
    - Proof terms → :star
    - Regular implicit args that are types → kept
    - Everything else → indexed normally"
-  (:require [ansatz.kernel.expr :as e]
+  (:require [ansatz.discr-key-encoding :as ke] [ansatz.kernel.expr :as e]
             [ansatz.kernel.env :as env]
             [ansatz.kernel.name :as name]
             [ansatz.kernel.level :as lvl]
@@ -94,8 +94,8 @@
 (defn reduce-dt
   "Lean Meta/DiscrTree/Main.lean reduceDT: unfold reducible heads, stopping
    before a bad root key. Class projections retain their accessor key.
-   Minimal surface-encoding deviation: surface.ingest/arith-lift emits raw
-   Nat.add for `+`; fold it to Lean's mkAddNat form so addition keys agree."
+   Retain compatibility with raw Nat.add in older declarations by folding it
+   to Lean's mkAddNat form, which surface addition now uses too."
   [env expr root?]
   (loop [expr (red/whnf-no-delta env expr) depth 0]
     (when (>= depth 512)
@@ -169,6 +169,34 @@
     ;; :default or unknown
     (is-proof? st arg)))
 
+(defn- to-nat-lit?
+  "Lean DiscrTree/Main.lean toNatLit?: constructor and OfNat numerals share keys."
+  [expr]
+  (loop [expr expr offset 0]
+    (let [[head args] (e/get-app-fn-args expr)
+          n (when (e/const? head) (name/->string (e/const-name head)))]
+      (cond
+        (e/lit-nat? expr) (+' offset (e/lit-nat-val expr))
+        (and (= n "Nat.zero") (empty? args)) offset
+        (and (= n "Nat.succ") (= 1 (count args))) (recur (first args) (inc' offset))
+        (and (= n "OfNat.ofNat") (= 3 (count args))) (recur (second args) offset)
+        :else nil))))
+
+(defn- is-offset?
+  "Lean DiscrTree/Main.lean isOffset / shouldAddAsStar: nested offset patterns
+   use a wildcard, leaving offset unification to isDefEq."
+  [environment expr]
+  (let [[head args] (e/get-app-fn-args expr)
+        n (when (e/const? head) (name/->string (e/const-name head)))
+        nat-type? (fn [x]
+                    (let [x (if environment (reduce-dt environment x false) x)]
+                      (and (e/const? x) (= "Nat" (name/->string (e/const-name x))))))]
+    (or (and (= n "Nat.succ") (= 1 (count args)))
+        (and (some? (when (seq args) (to-nat-lit? (peek args))))
+             (or (and (= n "Nat.add") (= 2 (count args)))
+                 (and (= n "Add.add") (= 4 (count args)) (nat-type? (first args)))
+                 (and (= n "HAdd.hAdd") (= 6 (count args)) (nat-type? (second args))))))))
+
 (defn expr->keys
   "Flatten an expression into a key sequence for the discrimination tree.
    Following Lean 4's mkPathAux / pushArgs.
@@ -179,7 +207,9 @@
 
    If st is nil, skips argument filtering (all args indexed)."
   ([expr] (expr->keys nil nil expr))
-  ([st env expr]
+  ([st env expr] (expr->keys st env expr {:key-encoding ke/write-version :pattern? true}))
+  ([st env expr {:keys [key-encoding pattern?] :or {key-encoding ke/write-version pattern? true}}]
+   (ke/encoding {:key-encoding key-encoding})
    (loop [todo (list {:expr expr :root? true}) keys (transient [])]
      (if (empty? todo)
        (persistent! keys)
@@ -194,6 +224,13 @@
            (cond
            ;; Star sentinel (from argument filtering)
              (= e ::star)
+             (recur rest-todo (conj! keys star-key))
+
+           ;; Lean pushArgs normalizes numerals before wildcarding nested offsets.
+             (and (= key-encoding 2) (not root?) (some? (to-nat-lit? e)))
+             (recur rest-todo (conj! keys (lit-key (to-nat-lit? e))))
+
+             (and (= key-encoding 2) pattern? (not root?) (is-offset? env e))
              (recur rest-todo (conj! keys star-key))
 
            ;; Application: get head + args
@@ -316,23 +353,26 @@
 ;; ============================================================
 
 (defn trie-insert
-  "Insert a value into the trie at the given key sequence."
+  "Insert a path, retaining the root's encoding. Newly built trees carry the
+   writer version; populated unversioned trees are legacy artifacts."
   [trie keys value]
-  (if (empty? keys)
-    (update trie :values (fnil conj []) value)
-    (let [k (first keys)
-          rest-keys (rest keys)
-          children (:children trie {})
-          child (get children k empty-trie)
-          child' (trie-insert child rest-keys value)]
-      (assoc trie :children (assoc children k child')))))
+  (let [version (if (or (contains? trie :key-encoding)
+                        (seq (:children trie)) (seq (:values trie)))
+                  (ke/encoding trie) ke/write-version)
+        keys (if (map? keys) (ke/checked-query version keys) keys)]
+    (letfn [(insert [node ks]
+              (if (empty? ks)
+                (update node :values (fnil conj []) value)
+                (let [k (first ks) child (get-in node [:children k] empty-trie)]
+                  (assoc-in node [:children k] (insert child (rest ks))))))]
+      (assoc (insert trie keys) :key-encoding version))))
 
 (defn build-tree
   "Build a discrimination tree from a sequence of (keys, value) pairs."
   [entries]
   (reduce (fn [tree [keys value]]
             (trie-insert tree keys value))
-          empty-trie
+          (assoc empty-trie :key-encoding ke/write-version)
           entries))
 
 ;; ============================================================
@@ -345,45 +385,46 @@
    branch. Returns all values at terminal nodes reached.
    Following Lean 4's getMatchLoop."
   [trie keys]
-  (if (empty? keys)
-    (:values trie [])
-    (let [k (first keys)
-          rest-keys (rest keys)
-          children (:children trie {})]
+  (let [keys (if (map? keys) (ke/checked-query (ke/encoding trie) keys) keys)]
+    (if (empty? keys)
+      (:values trie [])
+      (let [k (first keys)
+            rest-keys (rest keys)
+            children (:children trie {})]
       ;; Always explore star wildcard path (matches any key)
       ;; Star must skip a FULL sub-tree: 1 key + arity sub-trees (recursively).
       ;; Lean 4: getStarResult calls consume to skip the right number of keys.
-      (let [skip-subtree (fn skip-subtree [ks]
+        (let [skip-subtree (fn skip-subtree [ks]
                            ;; Skip one full argument from the key sequence.
                            ;; Returns remaining keys after skipping.
-                           (if (empty? ks)
-                             ks
-                             (let [k (first ks)
-                                   arity (or (:arity k) 0)
-                                   remaining (rest ks)]
+                             (if (empty? ks)
+                               ks
+                               (let [k (first ks)
+                                     arity (or (:arity k) 0)
+                                     remaining (rest ks)]
                                ;; Skip arity sub-arguments
-                               (loop [r remaining n arity]
-                                 (if (zero? n) r
-                                     (recur (skip-subtree r) (dec n)))))))
-            star-results (when-let [star-child (get children star-key)]
-                           (trie-match star-child (skip-subtree keys)))
+                                 (loop [r remaining n arity]
+                                   (if (zero? n) r
+                                       (recur (skip-subtree r) (dec n)))))))
+              star-results (when-let [star-child (get children star-key)]
+                             (trie-match star-child (skip-subtree keys)))
             ;; Also explore exact key match (unless query key is itself star)
-            exact-results (when (not= k star-key)
-                            (when-let [child (get children k)]
-                              (trie-match child rest-keys)))
+              exact-results (when (not= k star-key)
+                              (when-let [child (get children k)]
+                                (trie-match child rest-keys)))
             ;; If the query key IS star, we must explore ALL children
             ;; (star in query matches anything in the tree)
-            all-results (when (= k star-key)
-                          (mapcat (fn [[child-key child-trie]]
-                                    (when (not= child-key star-key) ;; already handled
-                                      (trie-match child-trie rest-keys)))
-                                  children))]
-        (into (vec (concat (or star-results [])
-                           (or exact-results [])
-                           (or all-results [])))
+              all-results (when (= k star-key)
+                            (mapcat (fn [[child-key child-trie]]
+                                      (when (not= child-key star-key) ;; already handled
+                                        (trie-match child-trie rest-keys)))
+                                    children))]
+          (into (vec (concat (or star-results [])
+                             (or exact-results [])
+                             (or all-results [])))
               ;; Also collect values at this node if we've consumed all keys
               ;; (this handles prefix matches / extra args)
-              )))))
+                ))))))
 
 (defn- skip-one-subtree
   "Skip one full argument (1 key + its arity sub-args, recursively) from a key
@@ -420,7 +461,7 @@
                     (reduce (fn [a [ck ct]]
                               (if (not= ck star-key) (go ct rest-keys score a) a))
                             acc children)))))]
-    (go trie keys 0 [])))
+    (go trie (if (map? keys) (ke/checked-query (ke/encoding trie) keys) keys) 0 [])))
 
 (defn trie-match-ranked
   "Values matching `keys`, most-specific FIRST (descending `trie-match-scored`
@@ -455,7 +496,7 @@
    (reduce (fn [tree lemma]
              (let [keys (expr->keys st env (:lhs-pattern lemma))]
                (trie-insert tree keys lemma)))
-           empty-trie
+           (assoc empty-trie :key-encoding ke/write-version)
            lemmas)))
 
 (defn- get-match-key-args [st env expr root?]
@@ -467,6 +508,8 @@
         (= expr ::star) [star-key []]
         (e/mdata? expr) (recur (e/mdata-expr expr))
         (e/let? expr) (recur (e/instantiate1 (e/let-body expr) (e/let-value expr)))
+        (and (not root?) (some? (to-nat-lit? expr)))
+        [(lit-key (to-nat-lit? expr)) []]
         (e/app? expr)
         (let [[head args] (e/get-app-fn-args expr) n (count args)]
           (cond
@@ -499,22 +542,24 @@
    stored wildcards skip whole expressions, preserving shared query DAGs."
   ([tree expr] (lookup-simp-tree nil nil tree expr))
   ([st env tree expr]
-   (loop [jobs [[tree [[expr true]]]] result []]
-     (if-let [[trie todo] (peek jobs)]
-       (let [jobs (pop jobs)]
-         (if (empty? todo)
-           (recur jobs (into result (:values trie)))
-           (let [children (:children trie)
-                 [expr root?] (peek todo)
-                 todo (pop todo)
-                 star (get children star-key)
-                 jobs (if (or (empty? children) (= (count children) (if star 1 0))) jobs
-                          (let [[key args] (get-match-key-args st env expr root?)]
-                            (if-let [exact (when (not= key star-key) (get children key))]
-                              (conj jobs [exact (into todo (map #(vector % false) (reverse args)))]) jobs)))
-                 jobs (if star (conj jobs [star todo]) jobs)]
-             (recur jobs result))))
-       result))))
+   (if (= 1 (ke/encoding tree))
+     (trie-match tree (expr->keys st env expr {:key-encoding 1 :pattern? false}))
+     (loop [jobs [[tree [[expr true]]]] result []]
+       (if-let [[trie todo] (peek jobs)]
+         (let [jobs (pop jobs)]
+           (if (empty? todo)
+             (recur jobs (into result (:values trie)))
+             (let [children (:children trie)
+                   [expr root?] (peek todo)
+                   todo (pop todo)
+                   star (get children star-key)
+                   jobs (if (or (empty? children) (= (count children) (if star 1 0))) jobs
+                            (let [[key args] (get-match-key-args st env expr root?)]
+                              (if-let [exact (when (not= key star-key) (get children key))]
+                                (conj jobs [exact (into todo (map #(vector % false) (reverse args)))]) jobs)))
+                   jobs (if star (conj jobs [star todo]) jobs)]
+               (recur jobs result))))
+         result)))))
 
 (defn tree-size
   "Count the number of values stored in the tree."

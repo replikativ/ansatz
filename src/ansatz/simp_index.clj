@@ -17,13 +17,22 @@
    ansatz.tactic.simp can require this namespace without a cycle; the disc-tree keying is
    `dt/expr->keys`, so stored keys match what `build-lemma-index`/`lookup-simp-tree` produce."
   (:require [ansatz.tactic.discr-tree :as dt]
+            [ansatz.discr-key-encoding :as ke]
             [ansatz.kernel.tc :as tc]
             [ansatz.kernel.env :as env]
             [ansatz.kernel.name :as nm]
             [ansatz.state :as state]
-            [ansatz.simp-sources :as sources]
-            [clojure.edn :as edn])
+            [ansatz.simp-sources :as sources])
   (:import [ansatz.kernel Name ConstantInfo]))
+
+(def write-key-encoding ke/write-version)
+(def readable-key-encodings ke/readable-versions)
+(def key-encoding ke/encoding)
+(def key-entries ke/entries)
+(def key-entries-artifact ke/entries-artifact)
+
+(defn read-simp-trie [trie]
+  (when trie (assoc trie :key-encoding (key-encoding trie))))
 
 (def extension-key
   "The Env extension naming the store whose derived simp index serves this env:
@@ -63,7 +72,7 @@
   (when-not (and (map? source) (map? trie))
     (throw (ex-info "Captured simp index requires a source and immutable trie" {})))
   (let [view (with-index-source env source)]
-    (env/with-extension view captured-index-key {:trie trie :view view})))
+    (env/with-extension view captured-index-key {:trie (read-simp-trie trie) :view view})))
 
 (defonce ^:private rule-cache
   ^{:doc "{:path env :rules {name-str → [rules]}}: extracted rules scoped to actual
@@ -129,10 +138,13 @@
 (defn build-simp-trie
   "The `LHS-key → name` disc-tree from `[name key-str]` entries — trie-insert only. The
    importer persists the RESULT as the store's `:simp-trie` blob, so a session loads a trie
-   (hundreds of ms) instead of rebuilding it (6 s for Mathlib's 90k keys)."
+   (hundreds of ms) instead of rebuilding it (6 s for Mathlib's 90k keys).
+   Bare legacy :simp-keys vectors use encoding 1; new writers pass key-entries-artifact."
   [entries]
-  (reduce (fn [trie [nam k]] (dt/trie-insert trie (edn/read-string k) nam))
-          dt/empty-trie entries))
+  (let [version (if (map? entries) (key-encoding entries) 1)
+        entries (key-entries entries)]
+    (reduce (fn [trie [nam k]] (dt/trie-insert trie (ke/checked-query version k) nam))
+            (assoc dt/empty-trie :key-encoding version) entries)))
 
 (defn ensure-simp-trie!
   "Use the Env's captured immutable base trie when present. Legacy sources keep
@@ -149,24 +161,28 @@
           (let [{:keys [source trie]} @state/ansatz-simp-trie]
             (if (= source src)
               trie
-              (let [trie ((requiring-resolve 'ansatz.export.storage/read-derived)
-                          (:store store-map) branch :simp-trie)]
+              (let [trie (read-simp-trie
+                          ((requiring-resolve 'ansatz.export.storage/read-derived)
+                           (:store store-map) branch :simp-trie))]
                 (reset! state/ansatz-simp-trie {:source src :trie trie})
                 trie))))))))
 
 ;; ---- lookup side: candidate names by goal-subterm key, lazy rule resolution ----
 
 (defn query-keys
-  "The edn-safe disc-tree key-path for a goal subterm — the stored LHS keys' encoding, so
-   `dt/trie-match` against the loaded trie compares equal."
-  [st env expr]
-  (edn-safe-keys (dt/expr->keys st env expr)))
+  "Versioned edn-safe query path for a goal subterm. Pass the stored LHS keys'
+   encoding so `dt/trie-match` against the loaded trie compares equal."
+  ([st env expr] (query-keys st env expr write-key-encoding))
+  ([st env expr version]
+   ;; Lean getKeyArgs: query offsets retain their structure; only patterns are stars.
+   (ke/path-artifact version
+                     (edn-safe-keys (dt/expr->keys st env expr {:key-encoding version :pattern? false})))))
 
 (defn candidate-names
   "Lemma NAMES whose LHS structurally matches `expr` (over-approximate — the disc tree; simp's
    own pattern match is the exact gate). Deduped."
   [trie st env expr]
-  (distinct (dt/trie-match trie (query-keys st env expr))))
+  (distinct (dt/trie-match trie (query-keys st env expr (key-encoding trie)))))
 
 (defn rules-for
   "The extracted simp rule(s) for lemma `name-str`, at its inherited @[simp] priority

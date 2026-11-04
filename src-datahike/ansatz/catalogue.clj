@@ -19,6 +19,9 @@
             [datahike.migrate.cbor :as mcbor]
             [datahike.migrate.digest :as dig]
             [ansatz.index.discr :as dti]
+            [ansatz.catalogue.scalars :as scalars]
+            [ansatz.discr-key-encoding :as ke]
+            [ansatz.simp-index :as si]
             [clojure.edn :as edn]
             [clojure.java.io :as io]))
 
@@ -63,32 +66,7 @@
   [{:db/ident :idx/dt :db.secondary/type :ansatz.index/discr-tree :db.secondary/attrs [:decl/dt-key]}
    {:db/ident :idx/simp :db.secondary/type :ansatz.index/discr-tree :db.secondary/attrs [:decl/simp-key]}])
 
-(defn- scalar-entities
-  "One entity map per declaration name from every source, scalars only (refs come second, once
-   the entities exist), in declaration order."
-  [{:keys [recall-keys simp-keys facts modules attrs instances]}]
-  ;; DECLARATION ORDER, deliberately: entities are transacted in this order, so their ids are
-  ;; contiguous per facts chunk, so each chunk's ref batch touches a contiguous range of the
-  ;; entity-sorted indices instead of every leaf (HashMap order scattered the ids and each
-  ;; 500k-datom commit rewrote the whole tree: 15 GB of superseded nodes for Mathlib).
-  (let [by-name (java.util.LinkedHashMap.)
-        ent! (fn [n f] (.put by-name n (f (or (.get by-name n) {:decl/name n}))))]
-    (doseq [f facts]
-      (ent! (:name f) #(cond-> (assoc % :decl/kind (:kind f) :decl/num-univs (:num-univs f)
-                                      :decl/num-binders (:num-binders f) :decl/type-id (:type-id f))
-                        (:concl-head f) (assoc :decl/concl-head (:concl-head f))
-                        (:value-id f) (assoc :decl/value-id (:value-id f)))))
-    (doseq [[n k] recall-keys] (ent! n #(assoc % :decl/dt-key k)))
-    (doseq [[n k] simp-keys] (ent! n #(update % :decl/simp-key (fnil conj #{}) k)))
-    (doseq [[n {:keys [module doc]}] modules :when (.containsKey by-name n)]
-      (ent! n #(cond-> (assoc % :decl/module module) doc (assoc :decl/doc doc))))
-    (doseq [[kind n _ prio] attrs]
-      (ent! n #(cond-> (update % :decl/attr (fnil conj #{}) kind)
-                 (and (= kind "simp") prio) (assoc :decl/simp-prio prio))))
-    (doseq [[_ insts] instances {:keys [name priority]} insts]
-      (ent! (str name) #(cond-> (update % :decl/attr (fnil conj #{}) "instance")
-                          priority (assoc :decl/instance-prio priority))))
-    (vec (.values by-name))))
+(def ^:private scalar-entities scalars/scalar-entities)
 
 (defn- ref-datoms
   "[:db/add e a v] for every ref, resolved through `eid-of`; refs to names outside the
@@ -158,6 +136,9 @@
                (not (contains? data :simp-keys)) (assoc :simp-keys (read-derived st branch :simp-keys))
                (not (contains? data :attrs)) (assoc :attrs (read-derived st branch :attrs))
                (not (contains? data :instances)) (assoc :instances (read-derived st branch :instances)))
+        ;; Validate before bulk IO, retaining envelopes until scalar conversion.
+        _ (ke/entries (:recall-keys data))
+        _ (ke/entries (:simp-keys data))
         chunks (facts-chunks sm branch)
         facts (fn [] (mapcat (fn [[_ f]] (f)) chunks))
         dump (io/file store-path "catalogue-dump")
@@ -167,14 +148,14 @@
     ;;    (`:reuse-dump? true` keeps a dump a previous run wrote and skips to the import)
     (doseq [d [scratch-dir]] (when (.exists d) (run! #(.delete ^java.io.File %) (reverse (file-seq d)))))
     (when-not (and reuse-dump? (.exists (io/file dump "manifest.edn")))
-     (when (.exists dump) (run! #(.delete ^java.io.File %) (reverse (file-seq dump))))
-     (let [scfg (assoc base-cfg :store {:backend :file :path (.getPath scratch-dir) :id (java.util.UUID/randomUUID)})]
-      (d/create-database scfg)
-      (let [conn (d/connect scfg)]
-        (try (d/transact conn schema-tx)
-             (migrate/export-db @conn (.getPath dump) {:compression :none})
-             (finally (d/release conn))))
-      (d/delete-database scfg)))
+      (when (.exists dump) (run! #(.delete ^java.io.File %) (reverse (file-seq dump))))
+      (let [scfg (assoc base-cfg :store {:backend :file :path (.getPath scratch-dir) :id (java.util.UUID/randomUUID)})]
+        (d/create-database scfg)
+        (let [conn (d/connect scfg)]
+          (try (d/transact conn schema-tx)
+               (migrate/export-db @conn (.getPath dump) {:compression :none})
+               (finally (d/release conn))))
+        (d/delete-database scfg)))
     (let [manifest (edn/read-string (slurp (io/file dump "manifest.edn")))
           sys-chunk (first (:chunks manifest))
           sys-bytes (java.nio.file.Files/readAllBytes (.toPath (io/file dump (:file sys-chunk))))
@@ -211,7 +192,9 @@
       (when-not reused? (spit (io/file dump "manifest.edn") (pr-str manifest')))
       (log (if reused? "    dump reused:" "    dump written:") total "datoms in" (count (:chunks manifest')) "chunks")
       ;; 4. one index build
-      (let [cfg (config store-path)
+      ;; Backfill owns one local build generation until both indices are ready.
+      ;; Ownership is connection-local; ordinary readers reconnect with config.
+      (let [cfg (assoc (config store-path) :writer {:backend :self :writer-ownership :exclusive})
             cat-dir (catalogue-dir store-path)]
         (when (d/database-exists? cfg) (d/delete-database cfg))
         ;; a killed build leaves a directory konserve calls a store and datahike does not call a
@@ -231,7 +214,7 @@
                       :else (do (Thread/sleep 5000) (recur (+ waited 5))))))
             (finally (d/release conn)))))
       (run! #(.delete ^java.io.File %) (reverse (file-seq dump)))
-      {:entities (if reused? (- (get-in manifest [:stats :max-eid]) base-eid -1) (count ents)) :datoms total :dt-keys (count (:recall-keys data)) :simp-keys (count (:simp-keys data))
+      {:entities (if reused? (- (get-in manifest [:stats :max-eid]) base-eid -1) (count ents)) :datoms total :dt-keys (count (ke/entries (:recall-keys data))) :simp-keys (count (ke/entries (:simp-keys data)))
        :facts-chunks (count chunks) :elapsed-ms (quot (- (System/nanoTime) t0) 1000000)})))
 
 (defn exists? [store-path] (d/database-exists? (config store-path)))
@@ -260,13 +243,25 @@
   (dti/search-eids (get (:secondary-indices db) idx) key-path))
 
 (defn recall-names
-  "Declarations whose CONCLUSION structurally matches `key-path` (a query key from
-   ansatz.recall/query-key or its EDN string), through the persisted `:idx/dt`."
+  "Declarations matching a precomputed query in the persisted `:idx/dt` encoding.
+   Expression callers should use recall-expr-names to select that encoding."
   [db key-path] (names-of db (search db :idx/dt key-path)))
+
+(defn recall-expr-names
+  "Recall using the actual persisted secondary index's key encoding."
+  [db expr]
+  (let [index (get (:secondary-indices db) :idx/dt)]
+    (recall-names db (dti/query-key index expr))))
 
 (defn simp-lemma-names
   "@[simp] lemmas whose LHS structurally matches `key-path`, through the persisted `:idx/simp`."
   [db key-path] (names-of db (search db :idx/simp key-path)))
+
+(defn simp-expr-names
+  "Simp LHS lookup using the actual persisted secondary index's encoding."
+  [db st env expr]
+  (let [index (get (:secondary-indices db) :idx/simp)]
+    (simp-lemma-names db (si/query-keys st env expr (dti/key-encoding index)))))
 
 ;; ---- the current store's catalogue, connected on first demand ----
 

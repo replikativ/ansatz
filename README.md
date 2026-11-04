@@ -939,3 +939,34 @@ CircleCI runs four independent `medium` containers (2 vCPU, 4 GiB), each with a
 experimental contracts via `bin/run-unittests contracts`. Both jobs gate deployment.
 Running `bin/run-unittests` locally runs all four groups and then the contracts.
 Use `ANSATZ_STORE_DIR` pointing at an empty directory to reproduce store-free CI.
+
+### Persisted discrimination keys
+
+All users of the shared discrimination-key encoder follow one wire policy:
+`ansatz.discr-key-encoding/write-version` is 2 and `readable-versions` is
+`#{1 2}`. Missing metadata means the pre-offset encoding 1. Unknown versions
+fail explicitly. Readers query the encoding recorded by the actual artifact;
+loading or rebuilding a catalogue never relabels old paths as new ones.
+
+The importer versions both `:recall-keys` and `:simp-keys` entry collections;
+materialized simp/recall trie roots carry `:key-encoding`. Catalogue key datoms
+are versioned paths and each durable secondary-index root records its encoding.
+Old unversioned catalogue roots and datoms remain encoding 1. An index rejects
+mixed encodings once it contains keys. For expression queries use
+`recall/recall-names`, `catalogue/recall-expr-names`,
+`catalogue/simp-expr-names`, or `index.discr/query-key` with its index argument;
+these select the stored encoding. Generated query envelopes carry the version
+so an incompatible precomputed query fails instead of silently losing results.
+
+Existing stores and catalogues need no re-import for compatibility. Re-import
+is recommended to obtain encoding 2's offset/numeral indexing for inherited
+rules; rebuild the catalogue from the newly imported artifacts too. Rebuilding
+only a catalogue from old artifacts deliberately retains encoding 1.
+
+Instance keys use a separate encoder and the existing `:dt-version` registry
+field (currently 2). Stale instance entries are recomputed from their declaration
+before use, and the bundle's instance TSV contains names/priorities, not keys.
+Grind/ematch indices and proof-session caches are built in memory; no shared
+DiscrTree key paths are present in their store or bundle inputs. ConstantInfo,
+expression/name/level PSS keys and bundle digests have their own store/bundle
+formats and do not use this search-key encoder.

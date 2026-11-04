@@ -2,7 +2,8 @@
   "The CIC discrimination tree as a DURABLE datahike secondary index: external
    registration, the transactor's signed-delta feed, star-aware search, and — the point —
    that the index survives `connect` without being rebuilt."
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [clojure.edn]
+            [clojure.test :refer [deftest is testing]]
             [datahike.api :as d]
             [datahike.gc :as gc]
             [konserve.core :as k]
@@ -70,6 +71,7 @@
 
 (defn- fresh-cfg []
   {:store {:backend :memory :id (java.util.UUID/randomUUID)}
+   :writer {:backend :self :writer-ownership :exclusive}
    :schema-flexibility :write :keep-history? false})
 
 (defn- declare-schema! [conn]
@@ -196,3 +198,30 @@
                 (is (= #{105 200} (set (dti/search-eids (sec/-sec-restore (dti/make-index {:attrs [:decl/dt-key]} nil) store key-map2)
                                                         (dti/query-key (head-const 5)))))))))
           (finally (d/release conn)))))))
+
+(deftest frozen-legacy-root-restores-with-its-original-encoding
+  (let [fixture (clojure.edn/read-string (slurp "test/fixtures/discr-keys-legacy.edn"))
+        cfg (fresh-cfg) _ (d/create-database cfg) conn (d/connect cfg)]
+    (try
+      (declare-schema! conn)
+      (let [store (:store @conn)
+            _ (k/assoc store (dti/node-key :legacy-root) (:catalogue-chunk fixture) {:sync? true})
+            ix (sec/-sec-restore (dti/make-index {:attrs [:decl/dt-key]} nil) store (:catalogue-key-map fixture))
+            succ #(e/app (e/const' (name/from-string "Nat.succ") []) %)
+            goal #(e/app* (e/const' (name/from-string "Nat.lt") []) (e/lit-nat 0) %)
+            numeral (succ (succ (succ (e/const' (name/from-string "Nat.zero") []))))
+            succ-hits (set (dti/search-eids ix (dti/query-key ix (goal (succ (e/fvar 100))))))
+            numeral-query (dti/query-key ix (goal numeral))]
+        (is (= 1 (dti/key-encoding ix)))
+        (is (contains? succ-hits 10))
+        (is (some #{11} (dti/search-eids ix numeral-query)))
+        (is (some #{11} (map first (dti/search-scored ix numeral-query))))
+        (is (= 1 (:key-encoding (sec/-sec-flush ix store "main"))))
+        (is (= 1 (dti/key-encoding (sec/-sec-branch ix store "main" "fork"))))
+        (is (thrown? clojure.lang.ExceptionInfo (dti/search-eids ix (dti/query-key (goal numeral)))))
+        (is (thrown? clojure.lang.ExceptionInfo
+                     (sec/-transact ix {:datom [12 :decl/dt-key (dti/conclusion-key (goal numeral)) 1]
+                                        :added? true})))
+        (is (thrown? clojure.lang.ExceptionInfo
+                     (sec/-sec-restore ix store (assoc (:catalogue-key-map fixture) :key-encoding 999)))))
+      (finally (d/release conn)))))

@@ -46,6 +46,22 @@ Or manually:
 ./scripts/setup-mathlib.sh /path/to/a/durable/dir/mathlib   # never /tmp or /var/tmp (systemd-tmpfiles erodes them)
 ```
 
+### Persisted simp index compatibility
+
+Simp key encoding is versioned separately from the store's ConstantInfo format. New
+`:simp-trie` roots and `:simp-keys` artifacts record `:key-encoding 2`. Unversioned
+artifacts are encoding 1; the loader retains their original query encoding, including
+constructor numeral keys, so existing candidates remain reachable. Unknown encodings
+fail explicitly. This compatibility path reads the existing trie without hydrating or
+re-keying the inherited theorem corpus.
+
+Existing stores remain readable without re-import. Re-import is recommended to obtain
+encoding 2's nested Nat offset/numeral indexing for inherited rules. Local and explicit
+equation rules use the current eager index regardless of the stored artifact version.
+`ansatz.simp-index/readable-key-encodings` and `write-key-encoding` follow the same reader/
+writer separation as `ansatz.store/readable-formats` and `write-format`; changing CI
+serialization is not required for a simp key encoding change.
+
 ## REPL Workflow (Mathlib)
 
 The full Mathlib store lives in the durable store root (`~/.local/share/ansatz/stores/mathlib`,
@@ -189,3 +205,10 @@ Single-threaded REPL use is safe. Fix: use `swap!` with
 - **Never reprocess all 707k declarations to test a fix.** Jump to the failing declaration directly with `skip-to!` or `verify-by-name!`.
 - **Full verification only as final validation** after individual fixes are confirmed.
 - Use `:reload` when requiring namespaces to pick up code changes.
+
+Persisted search keys must follow `ansatz.discr-key-encoding`: tag new artifacts,
+interpret absent tags as legacy encoding 1, and generate queries using the actual
+artifact's encoding. This applies to recall, simp, catalogue datoms and catalogue
+secondary roots. Never decode a key-entry envelope as a row sequence or strip its
+version before rebuilding an index. Instance registry keys have their separate
+`:dt-version` reader/recompute policy. See README's persisted-key inventory.

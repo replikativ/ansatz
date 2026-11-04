@@ -2480,34 +2480,54 @@
 (defn- delta-expand
   "Lean 4.33.1 Meta/Tactic/Delta.lean deltaExpand, using Core.transform's
    cached traversal and named recursion guard. Other definitions remain folded."
-  [^Expr expr def-name ^ConstantInfo ci]
-  (let [cache (java.util.IdentityHashMap.)
-        params (vec (.levelParams ci))]
-    (letfn [(walk [x depth]
-              (when (> depth *delta-max-rec-depth*)
-                (tactic-error! "delta: maximum recursion depth exceeded (maxRecDepth)"
-                               {:limit :max-rec-depth :max-rec-depth *delta-max-rec-depth*}))
-              (or (.get cache x)
-                  (let [w #(walk % (inc depth))
-                        [head args] (e/get-app-fn-args x)
-                        result
-                        (if (and (e/const? head) (= (e/const-name head) def-name)
-                                 (= (count params) (count (e/const-levels head))))
-                          (w (beta-rev (e/instantiate-level-params
-                                        (.value ci) (zipmap params (e/const-levels head))) args))
-                          (case (e/tag x)
-                            :app (apply e/app* (w head) (map w args))
-                            :lam (e/lam (e/lam-name x) (w (e/lam-type x)) (w (e/lam-body x)) (e/lam-info x))
-                            :forall (e/forall' (e/forall-name x) (w (e/forall-type x))
-                                               (w (e/forall-body x)) (e/forall-info x))
-                            :let (e/let' (e/let-name x) (w (e/let-type x))
-                                         (w (e/let-value x)) (w (e/let-body x)))
-                            :mdata (e/mdata (e/mdata-data x) (w (e/mdata-expr x)))
-                            :proj (e/proj (e/proj-type-name x) (e/proj-idx x) (w (e/proj-struct x)))
-                            x))]
-                    (.put cache x result)
-                    result)))]
-      (walk expr 0))))
+  ([expr def-name ci] (delta-expand expr {def-name ci}))
+  ([^Expr expr definitions]
+   (let [cache (java.util.IdentityHashMap.)]
+     (letfn [(walk [x depth]
+               (when (> depth *delta-max-rec-depth*)
+                 (tactic-error! "delta: maximum recursion depth exceeded (maxRecDepth)"
+                                {:limit :max-rec-depth :max-rec-depth *delta-max-rec-depth*}))
+               (or (.get cache x)
+                   (let [w #(walk % (inc depth))
+                         [head args] (e/get-app-fn-args x)
+                         ^ConstantInfo ci (when (e/const? head) (get definitions (e/const-name head)))
+                         params (when ci (vec (.levelParams ci)))
+                         result
+                         ;; Lean delta?: a selected declaration without a value is skipped.
+                         (if (and ci (.value ci) (= (count params) (count (e/const-levels head))))
+                           (w (beta-rev (e/instantiate-level-params
+                                         (.value ci) (zipmap params (e/const-levels head))) args))
+                           (case (e/tag x)
+                             :app (apply e/app* (w head) (map w args))
+                             :lam (e/lam (e/lam-name x) (w (e/lam-type x)) (w (e/lam-body x)) (e/lam-info x))
+                             :forall (e/forall' (e/forall-name x) (w (e/forall-type x))
+                                                (w (e/forall-body x)) (e/forall-info x))
+                             :let (e/let' (e/let-name x) (w (e/let-type x))
+                                          (w (e/let-value x)) (w (e/let-body x)))
+                             :mdata (e/mdata (e/mdata-data x) (w (e/mdata-expr x)))
+                             :proj (e/proj (e/proj-type-name x) (e/proj-idx x) (w (e/proj-struct x)))
+                             x))]
+                     (.put cache x result)
+                     result)))]
+       (walk expr 0)))))
+
+(defn delta-in-goal
+  "Lean Elab/Tactic/Delta.lean deltaTarget: expand the named definition and
+   replace the target by definitional equality."
+  [ps selected-names]
+  (let [selected-names (if (string? selected-names) [selected-names] (vec selected-names))
+        goal (proof/current-goal ps)
+        _ (when-not goal (tactic-error! "No goals" {}))
+        definitions (into {} (map (fn [n]
+                                    (let [n (name/from-string n)]
+                                      [n (env/lookup! (:env ps) n)])) selected-names))
+        target (delta-expand (:type goal) definitions)
+        _ (when (= target (:type goal))
+            (tactic-error! (str "delta: did not delta reduce " selected-names) {}))
+        [ps new-id] (proof/fresh-mvar-replacing ps target (:lctx goal) (:id goal))]
+    (-> (proof/assign-mvar ps (:id goal) {:kind :simp-reduce :eq-proof nil :child new-id
+                                          :goal-type (:type goal) :simplified target})
+        (proof/record-tactic :delta selected-names (:id goal)))))
 
 (defn unfold-in-goal
   "Unfold a definition in the goal type, following Lean `Meta.unfoldTarget`

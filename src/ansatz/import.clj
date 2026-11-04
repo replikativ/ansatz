@@ -32,6 +32,7 @@
             [ansatz.attrs :as attrs]
             [ansatz.matchers :as matchers]
             [ansatz.recall :as recall]
+            [ansatz.discr-key-encoding :as ke]
             [ansatz.simp-index :as si]
             [ansatz.export.facts :as facts]
             [ansatz.tactic.instance :as instance]
@@ -163,7 +164,7 @@
             recall-entries (parallel-keying decl-order parallelism
                                             #(storage/branch-resolver sm branch :value-policy :defs-only)
                                             (fn [resolve-fn names] (recall/decl-keys names resolve-fn)))
-            _ (storage/write-derived! kstore branch :recall-keys recall-entries)
+            _ (storage/write-derived! kstore branch :recall-keys (ke/entries-artifact recall-entries))
             _ (log! lw "  recall keys:" (count recall-entries) "in" (elapsed-s t-recall) "s")
             ;; 6. simp keys + the trie over them (lemma rfl-flags read the PROOF: keep values)
             t-simp (System/nanoTime)
@@ -172,8 +173,8 @@
                                           #(storage/branch-resolver sm branch :value-policy :defs-only
                                                                     :keep-value? simp-names)
                                           (fn [resolve-fn names] (si/lemma-keys names simp-env resolve-fn)))
-            _ (storage/write-derived! kstore branch :simp-keys simp-entries)
-            _ (storage/write-derived! kstore branch :simp-trie (si/build-simp-trie simp-entries))
+            _ (storage/write-derived! kstore branch :simp-keys (si/key-entries-artifact simp-entries))
+            _ (storage/write-derived! kstore branch :simp-trie (si/build-simp-trie (si/key-entries-artifact simp-entries)))
             _ (log! lw "  simp keys:" (count simp-entries) "for" (count simp-names) "lemmas in" (elapsed-s t-simp) "s")
             ;; 7. facts: kind/universes/binders/head + MENTIONS (statement) + DEPENDS-ON (value),
             ;;    by a raw walk of the expression records — no Expr objects (ansatz.export.facts);
@@ -189,8 +190,8 @@
             catalogue (try (let [build! (requiring-resolve 'ansatz.catalogue/build!)]
                              (storage/flush-writes! (:storage sm))
                              (let [r (build! store-path {:branch branch
-                                                         :recall-keys recall-entries
-                                                         :simp-keys simp-entries
+                                                         :recall-keys (ke/entries-artifact recall-entries)
+                                                         :simp-keys (si/key-entries-artifact simp-entries)
                                                          :store-map sm            ; facts read lazily from its chunks
                                                          :modules module-facts
                                                          :attrs attr-tuples
