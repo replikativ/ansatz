@@ -3,7 +3,7 @@
  :adapter-namespace ansatz.lean.jvm.ir
  :engine-class "ansatz.lean.jvm.internal.exec.Interpreter"
  :engine-source-sha256 "500e5467ab14e686cf0ee00dea3484909b62766918324cc9d23d0110e0aed622"
- :engine-closure-sha256 "e93c5d49600800cd4381f29e7253503bb268554d304c4940bd752d770df18516"
+ :engine-closure-sha256 "39581776ff0305de65a38998785b2752a4c749f9bf80fb9d9e34a64ee3c7a2c6"
  :upstream-lean-commit "819816b2e0a3bf405af45ae5c7af2491d8f5bee6"
  :java-release 17
  :precompiled-engine true
