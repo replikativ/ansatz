@@ -42,6 +42,7 @@
             [ansatz.kernel.env :as env]
             [ansatz.kernel.name :as name]
             [ansatz.tactic.discr-tree :as dt]
+            [ansatz.tactic.simp.simproc :as simproc]
             [ansatz.meta :as meta]
             [ansatz.meta.rec-ext :as rec-ext]
             [ansatz.kernel.level :as lvl]
@@ -1247,19 +1248,10 @@
     (e/app (e/const' int-ofnat-name []) (e/lit-nat n))
     (e/app (e/const' int-negsucc-name []) (e/lit-nat (dec (- n))))))
 
-(def ^:private builtin-simproc-names
-  ;; Lean Meta/Tactic/Simp/BuiltinSimprocs/{Core,Nat,Int,Char,String}.lean:
-  ;; these builtin procedures have no constant declaration in the bundled store.
-  (into #{"reduceCtorEq" "reduceIte" "reduceDIte"}
-        (concat (map #(str "Nat.reduce" %) ["Succ" "Add" "Mul" "Sub" "Div" "Mod" "Pow"
-                                            "BEq" "BNe" "LeDiff" "LT" "GT"])
-                (map #(str "Int.reduce" %) ["Neg" "Add" "Mul" "Sub" "Div" "Mod" "LE" "LT"
-                                            "GT" "GE" "Eq" "Ne" "BEq" "BNe"])
-                (for [carrier ["Char" "String"] op ["LE" "LT" "GT" "GE" "Eq" "Ne" "BEq" "BNe"]]
-                  (str carrier ".reduce" op)))))
-
 (defn builtin-simproc? [n]
-  (contains? builtin-simproc-names (str n)))
+  ;; Elab/Tactic/Simp.lean resolveSimpIdTheorem?: registry membership is
+  ;; independent of whether the simproc's execution has been ported.
+  (simproc/is-builtin-simproc n))
 
 (defn- simproc-enabled? [config proc-name]
   ;; Elab/Tactic/Simp.lean elabSimpArgs: explicit additions follow the

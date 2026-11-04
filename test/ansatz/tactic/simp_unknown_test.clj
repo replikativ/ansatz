@@ -4,7 +4,8 @@
             [ansatz.core :as a]
             [ansatz.surface.elaborate :as elab]
             [ansatz.tactic.basic :as basic]
-            [ansatz.tactic.proof :as proof]))
+            [ansatz.tactic.proof :as proof]
+            [ansatz.tactic.simp.simproc :as simproc]))
 
 (use-fixtures :once (fn [t] (a/load-init!) (binding [a/*verbose* false] (t))))
 
@@ -33,3 +34,19 @@
 (deftest on-demand-packing-lemmas-remain-valid
   (doseq [tactic '[(simp only [Nat.add_eq]) (simp only [Nat.le_eq])]]
     (is (true? (proves (gensym "packing_lemma") '[n :- Nat] '(= n n) [tactic])))))
+
+(deftest complete-builtin-registry-is-recognized-by-simp-and-dsimp
+  ;; The generated registry includes every module, *_decl, private and macro
+  ;; expansion in Lean 4.33.1; these tests claim argument acceptance only.
+  (is (= 423 (count simproc/builtin-simproc-names)))
+  (is (= 21 (count simproc/builtin-simproc-names-by-module)))
+  (is (simproc/is-builtin-simproc "Nat.reduceEqDiff"))
+  (is (simproc/is-builtin-simproc "Char.reduceToNat"))
+  (let [ty (elab/elaborate (a/env) '(forall [n :- Nat] (= n n)))
+        [ps _] (proof/start-proof (a/env) ty)
+        ps (basic/intro ps "n")]
+    (doseq [[module names] simproc/builtin-simproc-names-by-module
+            n names
+            tactic ['simp 'dsimp]]
+      (is (empty? (:goals (a/run-tactic ps (list tactic 'only [(symbol n)]))))
+          (str module ": " tactic " only [" n "]")))))

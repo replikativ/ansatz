@@ -19,3 +19,28 @@ example (n : Nat) : n = n := by
   simp only [Nat.add_eq]
 example (n : Nat) : n = n := by
   simp only [Nat.le_eq]
+example (n : Nat) : n = n := by
+  simp only [Nat.reduceEqDiff]
+example (n : Nat) : n = n := by
+  dsimp only [Nat.reduceEqDiff]
+example (n : Nat) : n = n := by
+  simp only [Char.reduceToNat]
+example (n : Nat) : n = n := by
+  dsimp only [Char.reduceToNat]
+
+-- Positive resolution pairs from every module contributing builtin registrations.
+-- Construct identifiers from the registered Names to preserve private/macro scopes.
+open Lean Elab Command in
+run_cmd do
+  let env ← getEnv
+  let registry ← Meta.Simp.builtinSimprocDeclsRef.get
+  let names := registry.keys.toList.map Prod.fst
+  let mut modules : Std.HashSet Name := {}
+  for n in names do
+    let some idx := env.getModuleIdxFor? n | throwError "missing simproc module"
+    let mod := env.header.moduleNames[idx]!
+    if modules.contains mod then continue
+    modules := modules.insert mod
+    elabCommand (← `(example (x : Nat) : x = x := by simp only [$(mkIdent n):ident]))
+    elabCommand (← `(example (x : Nat) : x = x := by dsimp only [$(mkIdent n):ident]))
+  unless modules.size == 21 do throwError "expected 21 builtin simproc modules"
