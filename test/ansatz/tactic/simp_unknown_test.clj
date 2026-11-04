@@ -50,3 +50,32 @@
             tactic ['simp 'dsimp]]
       (is (empty? (:goals (a/run-tactic ps (list tactic 'only [(symbol n)]))))
           (str module ": " tactic " only [" n "]")))))
+
+(defn- location-proof []
+  (let [ty (elab/elaborate (a/env) '(forall [P :- Prop, h :- False, k :- True] P))
+        [ps _] (proof/start-proof (a/env) ty)]
+    (a/run-tactic ps '(intro P h k))))
+
+(defn- location-tactics [lemma]
+  (for [tactic ['simp 'dsimp]
+        only? [false true]
+        locs '[(h) (h k) (h ⊢) (h k ⊢) (*)]]
+    (apply list (concat [tactic] (when only? ['only]) [[lemma] 'at] locs))))
+
+(deftest unknown-arguments-fail-before-location-closure
+  ;; Lean mkSimpContext precedes simpLocation/dsimpLocation: even a False
+  ;; hypothesis that would close the goal must not hide argument errors.
+  (let [ps (location-proof)]
+    (doseq [tactic (concat (location-tactics 'no-such-lemma)
+                           '[(simp_all [no-such-lemma]) (simp_all only [no-such-lemma])])]
+      (let [ex (try (a/run-tactic ps tactic) nil
+                    (catch clojure.lang.ExceptionInfo ex ex))]
+        (is (= :elab-error (some-> ex ex-cause ex-data :kind)) (str tactic))
+        (is (re-find #"Unknown constant: no-such-lemma" (or (some-> ex .getMessage) ""))
+            (str tactic))))))
+
+(deftest builtin-arguments-preserve-location-closure
+  (let [ps (location-proof)]
+    (doseq [lemma ['Nat.reduceEqDiff 'Char.reduceToNat]
+            tactic (location-tactics lemma)]
+      (is (empty? (:goals (a/run-tactic ps tactic))) (str tactic)))))

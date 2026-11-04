@@ -1,5 +1,6 @@
 import Lean
 set_option linter.unusedSimpArgs false
+set_option linter.unusedVariables false
 
 example (h : True) : True := by
   fail_if_success simp [no_such_lemma]
@@ -44,3 +45,21 @@ run_cmd do
     elabCommand (← `(example (x : Nat) : x = x := by simp only [$(mkIdent n):ident]))
     elabCommand (← `(example (x : Nat) : x = x := by dsimp only [$(mkIdent n):ident]))
   unless modules.size == 21 do throwError "expected 21 builtin simproc modules"
+
+-- Argument errors precede a location that would otherwise close the goal.
+example (P : Prop) (h : False) (k : True) : P := by
+  fail_if_success simp [no_such_lemma] at h k ⊢
+  fail_if_success simp only [no_such_lemma] at *
+  fail_if_success dsimp [no_such_lemma] at h k ⊢
+  fail_if_success dsimp only [no_such_lemma] at *
+  fail_if_success simp_all [no_such_lemma]
+  fail_if_success simp_all only [no_such_lemma]
+  exact False.elim h
+example (P : Prop) (h : False) (k : True) : P := by
+  simp only [Nat.reduceEqDiff] at h k ⊢
+example (P : Prop) (h : False) (k : True) : P := by
+  dsimp only [Char.reduceToNat] at h k ⊢
+example (P : Prop) (h : False) : P := by
+  simp only [Nat.reduceEqDiff] at *
+example (P : Prop) (h : False) : P := by
+  dsimp only [Char.reduceToNat] at *
