@@ -2956,6 +2956,9 @@
    ^Type is the simple-type shorthand; ^{:- T} carries compound types. The legacy :- separator form
    is still accepted (auto-detected):
      (a/defn double [n :- Nat] Nat (+ n n))
+   Runtime names escape `.` as `$dot$` and `$` as `$dollar$`: call Reach.mem as
+   Reach$dot$mem from Clojure; verified bodies keep Reach.mem. Qualified dotted vars
+   remain available as compatibility aliases (my.ns/Reach.mem).
    Well-founded recursion: put  :termination-by <measure>  before the body."
   [fn-name params & more]
   (let [meta?    (metadata-params? params)
@@ -2983,16 +2986,23 @@
                       [{} (first body-and-opts)])
         partial? (:partial (meta fn-name))
         nm (vary-meta fn-name dissoc :- :tag :partial)
-        runtime-sym (symbol (str (ns-name *ns*)) (str nm))]
+        runtime-name (decl/runtime-name nm)
+        runtime-sym (symbol (str (ns-name *ns*)) (str runtime-name))]
     ;; the compiled fn carries its kernel constant name as metadata — runtimes use it
     ;; to find the definition from the VALUE (e.g. generative checkers)
-    (cond
-      partial?
-      `(def ~nm (tag-kernel-name (define-partial '~nm '~params '~ret-type '~body) '~nm '~runtime-sym))
-      (:termination-by opts)
-      `(def ~nm (tag-kernel-name (define-verified-wf '~nm '~params '~ret-type '~body '~(:termination-by opts)) '~nm '~runtime-sym))
-      :else
-      `(def ~nm (tag-kernel-name (define-verified '~nm '~params '~ret-type '~body) '~nm '~runtime-sym)))))
+    (let [definition
+          (cond
+            partial?
+            `(def ~runtime-name (tag-kernel-name (define-partial '~nm '~params '~ret-type '~body) '~nm '~runtime-sym))
+            (:termination-by opts)
+            `(def ~runtime-name (tag-kernel-name (define-verified-wf '~nm '~params '~ret-type '~body '~(:termination-by opts)) '~nm '~runtime-sym))
+            :else
+            `(def ~runtime-name (tag-kernel-name (define-verified '~nm '~params '~ret-type '~body) '~nm '~runtime-sym)))]
+      ;; Qualified Clojure callers can already resolve dotted vars. Preserve
+      ;; that spelling as an alias; generated references use the escaped name.
+      (if (.contains (str nm) ".")
+        `(do ~definition (def ~nm ~runtime-name) (var ~runtime-name))
+        definition))))
 
 (defmacro foreign
   "Declare a TRUSTED FOREIGN function — an arbitrary Clojure fn asserted at a kernel type,
@@ -3196,7 +3206,9 @@
    (a/structure Pair [α Type β Type] (fst α) (snd β))
 
    Fields are specified as (name type) pairs. The constructor is always 'mk'.
-   Projection functions are automatically generated.
+   Projection functions are automatically generated. Kernel names stay unchanged; runtime
+   record names escape `.` as `$dot$` and `$` as `$dollar$` (Gap.Pair → Gap$dot$Pair,
+   constructed in Clojure with ->Gap$dot$Pair).
 
    Inheritance (Lean-4 subobject model):
      (a/structure WSemiring [S Type] :extends (WAddMonoid S)
@@ -3205,7 +3217,8 @@
    projection and inherited accessors `Child.<parentField>` are generated (see EXTENDS_DESIGN.md).
    Single inheritance only for now — multiple `:extends` parents are rejected."
   [type-name params & fields]
-  (let [;; Consume leading option pairs (:in, :extends) in any order
+  (let [runtime-name (decl/runtime-name type-name)
+        ;; Consume leading option pairs (:in, :extends) in any order
         [opts fields] (loop [o {} fs fields]
                         (if (and (keyword? (first fs)) (#{:in :extends :class} (first fs)))
                           (recur (assoc o (first fs) (second fs)) (drop 2 fs))
@@ -3310,14 +3323,14 @@
        ;; Idempotent across namespaces/re-installs: a record class cannot be re-imported into a
        ;; namespace, so a second definition of the same structure (e.g. an env reset then re-install)
        ;; would throw "already refers to". Skip the defrecord if the class is already defined.
-       (when-not (instance? Class (resolve '~type-name))
-         (defrecord ~type-name ~(mapv (fn [[fname _]] (symbol (str fname))) field-specs)))
+       (when-not (instance? Class (resolve '~runtime-name))
+         (defrecord ~runtime-name ~(mapv (fn [[fname _]] (symbol (str fname))) field-specs)))
 
        ;; Register in structure-registry for ansatz->clj compilation
        (swap! @(requiring-resolve 'ansatz.core/structure-registry)
               assoc ~(str type-name)
               {:fields ~(mapv (fn [[fname _]] (str fname)) field-specs)
-               :ctor-sym '~(symbol (str "->" type-name))})
+               :ctor-sym '~(symbol (str (ns-name *ns*)) (str "->" runtime-name))})
 
        nil)))
 

@@ -8,6 +8,14 @@
             [ansatz.codegen.types :as types]
             [ansatz.surface.ingest :refer [arity-registry]]))
 
+(defn runtime-name
+  "Clojure spelling of a Lean name; kernel names are never changed."
+  [n]
+  ;; Like Lean Compiler/NameMangling.lean Name.mangle, escape components
+  ;; before joining them. Clojure needs dots escaped to avoid class resolution.
+  (with-meta (symbol (apply str (map #(case % \. "$dot$" \$ "$dollar$" (str %)) (str n))))
+    (meta n)))
+
 (defn convention [params erased value?]
   {:params (vec params) :arity (count params) :erased erased :value? value?})
 

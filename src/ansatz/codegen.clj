@@ -1195,6 +1195,10 @@
                                          (cond
                                            (contains? builtin-value cn) (get builtin-value cn)
                                            (contains? @codegen-registry cn) ((get @codegen-registry cn) env expr names)
+                                           ;; Lean ToLCNF.visit / etaIfUnderApplied: expose the
+                                           ;; projection's binders before lowering its Expr.proj.
+                                           (own-proj-info env cn)
+                                           (ansatz->clj env (.value ^ConstantInfo (env/lookup env (e/const-name expr))) names)
                                            :else
                         ;; Check if it's a constructor
                                            (if-let [ci (env/lookup env (e/const-name expr))]
