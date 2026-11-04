@@ -10,6 +10,7 @@
             [ansatz.kernel.env :as env]
             [ansatz.kernel.expr :as e]
             [ansatz.kernel.level :as lvl]
+            [ansatz.kernel.tc :as tc]
             [ansatz.kernel.name :as name])
   (:import [java.nio.file Files]
            [java.nio.file.attribute FileAttribute]))
@@ -127,6 +128,29 @@
                      (e/const' (name/from-string "instAddNat") []) (e/lit-nat 0) (e/lit-nat 1))
         normalize (fn [environment mode]
                     (meta/whnf-at meta/empty-context {:env environment :lctx {}} expr mode))]
-    (is (not= expr (normalize base :instances)))
-    (is (= expr (normalize hidden :instances)))
-    (is (not= expr (normalize hidden :all)))))
+    (doseq [mode [:instances :implicit]]
+      (is (not= expr (normalize base mode)))
+      (is (tc/is-def-eq (tc/mk-tc-state base) (normalize base mode) (e/lit-nat 1)))
+      (is (= (normalize base :instances) (normalize base mode)))
+      (is (= expr (normalize hidden mode))))
+    (is (not= expr (normalize hidden :all)))
+    (let [wrapper (name/from-string "projectionImplicitWrapper")
+          wrapped (e/const' wrapper [])
+          base (env/check-constant base (env/mk-def wrapper [] (e/const' (name/from-string "Nat") []) expr))
+          [base _] (attrs/import-attr-tuples base [["reducibility" "projectionImplicitWrapper" "implicitReducible" nil]] {})]
+      (is (= wrapped (meta/whnf-at meta/empty-context {:env base :lctx {}} wrapped :instances)))
+      (is (= (normalize base :implicit)
+             (meta/whnf-at meta/empty-context {:env base :lctx {}} wrapped :implicit))))))
+
+(deftest implicit-projection-keeps-instance-reduction-at-instances
+  (let [instance-name (name/from-string "projectionImplicitInstance")
+        nat (e/const' (name/from-string "Nat") [])
+        base (env/check-constant (a/env)
+                                (env/mk-def instance-name []
+                                            (e/app (e/const' (name/from-string "Add") [lvl/zero]) nat)
+                                            (e/const' (name/from-string "instAddNat") [])))
+        [base _] (attrs/import-attr-tuples base [["reducibility" "projectionImplicitInstance" "implicitReducible" nil]] {})
+        expr (e/app* (e/const' (name/from-string "Add.add") [lvl/zero])
+                     nat (e/const' instance-name []) (e/lit-nat 0) (e/lit-nat 1))]
+    (doseq [mode [:instances :implicit]]
+      (is (= expr (meta/whnf-at meta/empty-context {:env base :lctx {}} expr mode))))))

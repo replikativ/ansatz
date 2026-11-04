@@ -234,3 +234,24 @@ retain their existing reducible interpretation. There is currently no general
 Lean-style declaration attribute surface for annotating an `a/defn`; adding one
 is a follow-up. Closed Meta comparisons still use the existing kernel shortcut;
 this metadata change does not alter that transparency policy.
+
+Reducibility rows and custom-eliminator rows can share the four-slot persisted
+attrs format. Reducibility uses a status string in slot three; induction/cases
+eliminators use a vector of explicit target type names there. The kind selects
+validation and installation, so neither requires changing the tuple arity.
+When combining these producers/readers, retain both kind registrations and
+validation branches. The common row-to-tuple helper must select `status` for
+`reducibility`, `types` for eliminators, and `theorems` for `unfold-thms`, in both
+the file parser and verified-bundle path. Eliminators install target-vector to
+name mappings; reducibility installs name to status mappings.
+
+After combining the source changes, regenerate the complete bundle candidate
+with the command above using the combined dumper and reader. Preserve both the
+custom-eliminator global-entry loop and the per-constant reducibility export,
+including loaded extension state. Validate and promote the six generated
+resources and their matching manifest together. Selecting either previous attrs
+gzip or merging manifest hashes by hand would lose one producer's metadata.
+For Mathlib imports, prefer a cache filename keyed by the combined dumper's
+source hash so neither single-producer dump can be reused. If retaining a static
+`attrs-v2` filename, discard its earlier dump before exporting with the combined
+dumper. Import into a fresh destination to rebuild indices and attributes together.

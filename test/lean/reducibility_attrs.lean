@@ -37,14 +37,39 @@ run_meta do
       unless (← canUnfoldDefault { transparency := mode } info) == expectedUnfold do
         throwError "unexpected unfolding permission: {n}"
 
+@[implicit_reducible] def projectionImplicitInstance : Add Nat := instAddNat
+@[implicit_reducible] def projectionImplicitWrapper : Nat := @Add.add Nat instAddNat 0 1
+
+open Lean Meta in
+run_meta do
+  let e := mkAppN (mkConst ``Add.add [Level.zero])
+    #[mkConst ``Nat, mkConst ``instAddNat, mkNatLit 0, mkNatLit 1]
+  for mode in [TransparencyMode.instances, .implicit] do
+    let unfolded ← withTransparency mode (whnf e)
+    if unfolded == e then
+      throwError "projection failed to unfold"
+    unless (← withTransparency .all (isDefEq unfolded (mkNatLit 1))) do
+      throwError "projection unfolded to an incorrect value"
+  let wrapper := mkConst ``projectionImplicitWrapper
+  unless (← withTransparency .instances (whnf wrapper)) == wrapper do
+    throwError "implicit wrapper unfolded at instances transparency"
+  unless (← withTransparency .implicit (whnf wrapper)) == (← withTransparency .implicit (whnf e)) do
+    throwError "implicit wrapper failed to reduce its projection"
+  let wrappedInstance := mkAppN (mkConst ``Add.add [Level.zero])
+    #[mkConst ``Nat, mkConst ``projectionImplicitInstance, mkNatLit 0, mkNatLit 1]
+  for mode in [TransparencyMode.instances, .implicit] do
+    unless (← withTransparency mode (whnf wrappedInstance)) == wrappedInstance do
+      throwError "projection instance reduction exceeded instances transparency"
+
 section
 attribute [local irreducible] Add.add
 open Lean Meta in
 run_meta do
   let e := mkAppN (mkConst ``Add.add [Level.zero])
     #[mkConst ``Nat, mkConst ``instAddNat, mkNatLit 0, mkNatLit 1]
-  unless (← withTransparency .instances (whnf e)) == e do
-    throwError "irreducible projection unfolded at instances transparency"
+  for mode in [TransparencyMode.instances, .implicit] do
+    unless (← withTransparency mode (whnf e)) == e do
+      throwError "irreducible projection unfolded"
   let unfolded ← withTransparency .all (whnf e)
   if unfolded == e then
     throwError "projection failed to unfold at all transparency"

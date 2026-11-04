@@ -1409,8 +1409,8 @@
           (reduce e/app f args))))))
 
 (defn- unfold-proj-inst
-  "Lean's `unfoldProjInst?` (WHNF.lean): at `.instances` transparency a class projection applied
-   to an instance unfolds when the instance projection reduces (`instLENat.1` → `Nat.le`)."
+  "Lean's `unfoldProjInst?` (WHNF.lean): at `.instances` or `.implicit` a class projection
+   unfolds when its instance projection reduces at `.instances` (`instLENat.1` → `Nat.le`)."
   [mctx st x instance-name?]
   (let [env (:env st)
         [h args] (e/get-app-fn-args x)]
@@ -1432,7 +1432,8 @@
    mode allows it, until nothing applies. `:none` is `whnfCore` alone; `:reducible` unfolds
    `reducible-const?` constants;
    `:instances` additionally unfolds the instances accepted by `instance-name?` and class
-   projections of instances (`unfoldProjInst?`)."
+   projections of instances (`unfoldProjInst?`). `:implicit` also permits implicitReducible
+   definitions and uses the same instance-projection path."
   ([mctx st expr mode] (whnf-at mctx st expr mode nil))
   ([mctx st expr mode instance-name?]
    (let [env (:env st)
@@ -1450,7 +1451,8 @@
                       (= mode :none) nil
                       (can-unfold-default? env n mode instance-name?)
                       (unfold-const-app env x)
-                      (= mode :instances) (unfold-proj-inst mctx st x instance-name?))]
+                      ;; Lean 4.33.1 WHNF.lean:unfoldProjInstWhenInstances?.
+                      (#{:instances :implicit} mode) (unfold-proj-inst mctx st x instance-name?))]
              (if x' (recur x' (dec fuel)) x))
            x))))))
 
