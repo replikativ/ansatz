@@ -1271,7 +1271,7 @@
   "Under `:instances` transparency: which constants are instances (set by instance synthesis)."
   nil)
 
-(declare whnf-at reducible-const?)
+(declare whnf-at reducible-const? can-unfold-default?)
 
 (defn- unfoldable-head?
   "May the head constant of `x` (or of the structure a projection head is stuck on) be unfolded
@@ -1282,7 +1282,7 @@
             h (if (e/proj? h) (e/get-app-fn (e/proj-struct h)) h)]
         (and (e/const? h)
              (let [n (e/const-name h)]
-               (or (reducible-const? env n) (and *instance-name?* (*instance-name?* n))))))))
+               (can-unfold-default? env n *transparency* *instance-name?*))))))
 
 (defn- whnf-t
   "`whnf` at the current transparency."
@@ -1362,16 +1362,39 @@
         (.put ^java.util.concurrent.ConcurrentHashMap cache n (or info ::none))
         info))))
 
-(defn reducible-const?
-  "Lean's `@[reducible]` status, as far as the exported environment records it: `abbrev`
-   reducibility hints, except class projection functions (Lean generates projections with abbrev
-   hints but marks only non-class ones `@[reducible]`; class projections stay folded — the
-   DiscrTree's \"reducible canonical form\"). A `@[reducible] def` with regular hints is not
-   recognised: the exported store carries no reducibility attribute."
+(defn get-reducibility-status
+  "Lean 4.33.1 ReducibilityAttrs.lean:getReducibilityStatus. Imported metadata
+   overrides hints. Legacy stores and local declarations retain the abbrev/class
+   projection fallback; ordinary definitions default to semireducible."
   [env n]
-  (when-let [ci (env/lookup env n)]
-    (and (= :abbrev (env/get-reducibility-hints ci))
-         (not (:from-class? (projection-fn-info env n))))))
+  (or (get (env/get-extension env :reducibility-status {}) (name/->string n))
+      (when-let [ci (env/lookup env n)]
+        (when (and (= :abbrev (env/get-reducibility-hints ci))
+                   (not (:from-class? (projection-fn-info env n))))
+          "reducible"))
+      "semireducible"))
+
+(defn reducible-const?
+  "Lean 4.33.1 ReducibilityAttrs.lean:isReducible."
+  [env n]
+  (= "reducible" (get-reducibility-status env n)))
+
+(defn can-unfold-default?
+  "Lean 4.33.1 Meta/GetUnfoldableConst.lean:canUnfoldDefault. An instance
+   predicate is only a compatibility fallback for stores without status metadata."
+  ([env n mode] (can-unfold-default? env n mode nil))
+  ([env n mode instance-name?]
+   (let [status (get-reducibility-status env n)]
+     (case mode
+       :none false
+       :all true
+       :default (not= status "irreducible")
+       (or (= status "reducible")
+           (and (#{:instances :implicit} mode)
+                (or (= status "instanceReducible")
+                    (and (nil? (get (env/get-extension env :reducibility-status {}) (name/->string n)))
+                         instance-name? (instance-name? n))))
+           (and (= mode :implicit) (= status "implicitReducible")))))))
 
 (declare whnf-at)
 
@@ -1386,13 +1409,16 @@
           (reduce e/app f args))))))
 
 (defn- unfold-proj-inst
-  "Lean's `unfoldProjInst?` (WHNF.lean): at `.instances` transparency a class projection applied
-   to an instance unfolds when the instance projection reduces (`instLENat.1` → `Nat.le`)."
+  "Lean's `unfoldProjInst?` (WHNF.lean): at `.instances` or `.implicit` a class projection
+   unfolds when its instance projection reduces at `.instances` (`instLENat.1` → `Nat.le`)."
   [mctx st x instance-name?]
   (let [env (:env st)
         [h args] (e/get-app-fn-args x)]
     (when-let [{:keys [num-params idx]} (and (e/const? h) (projection-fn-info env (e/const-name h)))]
-      (when (> (count args) num-params)
+      ;; WHNF.lean:unfoldProjInst? uses withDefault getUnfoldableConst?,
+      ;; so an explicit irreducible status also blocks this special path.
+      (when (and (> (count args) num-params)
+                 (can-unfold-default? env (e/const-name h) :default))
         (let [struct (whnf-at mctx st (nth args num-params) :instances instance-name?)
               [sh sargs] (e/get-app-fn-args struct)
               sci (when (e/const? sh) (env/lookup env (e/const-name sh)))]
@@ -1401,12 +1427,27 @@
               (when (> (count sargs) (+ nparams idx))
                 (reduce e/app (nth sargs (+ nparams idx)) (drop (inc num-params) args))))))))))
 
+(defn- unfold-default
+  "Lean 4.33.1 WHNF.lean:unfoldDefault, with the default enabled
+   backward.whnf.reducibleClassField option. A reducible class field may reduce
+   its instance projection at instances transparency; a stuck projection keeps
+   the ordinary delta-beta result."
+  [mctx st x mode instance-name?]
+  (let [env (:env st)
+        unfolded (unfold-const-app env x)]
+    (when unfolded
+      (if (and (= mode :reducible)
+               (:from-class? (projection-fn-info env (e/const-name (e/get-app-fn x)))))
+        (or (unfold-proj-inst mctx st x instance-name?) unfolded)
+        unfolded))))
+
 (defn whnf-at
   "Lean's `whnf` at a restricted transparency: `whnfCore`, then unfold the head constant when the
    mode allows it, until nothing applies. `:none` is `whnfCore` alone; `:reducible` unfolds
    `reducible-const?` constants;
    `:instances` additionally unfolds the instances accepted by `instance-name?` and class
-   projections of instances (`unfoldProjInst?`)."
+   projections of instances (`unfoldProjInst?`). `:implicit` also permits implicitReducible
+   definitions and uses the same instance-projection path."
   ([mctx st expr mode] (whnf-at mctx st expr mode nil))
   ([mctx st expr mode instance-name?]
    (let [env (:env st)
@@ -1422,10 +1463,10 @@
            (let [n (e/const-name h)
                  x' (cond
                       (= mode :none) nil
-                      (or (reducible-const? env n)
-                          (and (= mode :instances) instance-name? (instance-name? n)))
-                      (unfold-const-app env x)
-                      (= mode :instances) (unfold-proj-inst mctx st x instance-name?))]
+                      (can-unfold-default? env n mode instance-name?)
+                      (unfold-default mctx st x mode instance-name?)
+                      ;; Lean 4.33.1 WHNF.lean:unfoldProjInstWhenInstances?.
+                      (#{:instances :implicit} mode) (unfold-proj-inst mctx st x instance-name?))]
              (if x' (recur x' (dec fuel)) x))
            x))))))
 

@@ -9,6 +9,9 @@
            [java.util.zip GZIPInputStream]))
 
 (def roles #{:attrs :matchers :instances})
+;; Lean 4.33.1 Lean/ReducibilityAttrs.lean:ReducibilityStatus.
+(def reducibility-statuses
+  #{"reducible" "semireducible" "irreducible" "implicitReducible" "instanceReducible"})
 (def max-priority 4294967295)
 (defn- fail [message data] (throw (ex-info message data)))
 (defn- name? [value] (and (string? value) (not (str/blank? value))))
@@ -27,6 +30,8 @@
                          (and (boolean? (:post row)) (boolean? (:inv row)))))
          ("unfold" "extern" "class" "recursive" "smart-unfolding") (keys? row #{:kind :name} #{})
          ("csimp" "impl") (and (keys? row #{:kind :name :target} #{}) (name? target))
+         "reducibility" (and (keys? row #{:kind :name :status} #{})
+                             (contains? reducibility-statuses (:status row)))
          "unfold-thms" (and (keys? row #{:kind :name :theorems} #{})
                             (vector? theorems) (every? name? theorems))
          false)))

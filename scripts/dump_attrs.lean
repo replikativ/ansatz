@@ -35,8 +35,8 @@ def emit (kind : String) (name : Name) (target : Option Name := none)
   if let some i := inv then fields := fields ++ [("inv", toJson i)]
   IO.println (Json.mkObj fields).compress
 
--- scoped extensions (simp, csimp): getState only sees activated scopes, which importModules does
--- not activate — so fold the raw per-module imported entries instead.
+-- Scoped extensions (simp, csimp): fold global per-module entries to exclude
+-- namespace-dependent scoped rows, independent of which scopes are activated.
 def foldModuleEntries [Inhabited σ] (ext : PersistentEnvExtension α β σ)
     (f : α → IO Unit) : CoreM Unit := do
   let env ← getEnv
@@ -68,11 +68,22 @@ def dumpAttrs : CoreM Unit := do
   let stderr ← IO.getStderr
   stderr.putStrLn s!"dump_attrs: excluded scoped simp={← excludedSimp.get}, csimp={← excludedCSimp.get}"
   -- Class.lean:classExtension includes classes with no registered instances.
-  -- importModules leaves extension state unloaded; consume imported entries directly.
+  -- Consume the raw imported class inventory, as for the global simp entries.
   foldModuleEntries classExtension fun entry => emit "class" entry.name
   -- @[extern] / @[implemented_by] (ParametricAttributes — getParam? works post-import)
   let env ← getEnv
   for (n, _) in env.constants.toList do
+    -- Lean 4.33.1 ReducibilityAttrs.lean:getReducibilityStatus includes both
+    -- core and extra extensions; kernel hints alone do not encode this status.
+    let status ← getReducibilityStatus n
+    let statusName := match status with
+      | .reducible => "reducible"
+      | .semireducible => "semireducible"
+      | .irreducible => "irreducible"
+      | .implicitReducible => "implicitReducible"
+      | .instanceReducible => "instanceReducible"
+    IO.println (Json.mkObj [("kind", Json.str "reducibility"), ("name", Json.str n.toString),
+                           ("status", Json.str statusName)]).compress
     -- Meta/RecExt.lean and Meta/WHNF.lean: preserve the producer's unfolding
     -- metadata, rather than reconstructing recursion from declaration bodies.
     if recExt.isTagged env n then emit "recursive" n
@@ -82,10 +93,14 @@ def dumpAttrs : CoreM Unit := do
     | some impl => emit "impl" n (some impl)
     | none => pure ()
 
-def main (args : List String) : IO Unit := do
+unsafe def main (args : List String) : IO Unit := do
+  enableInitializersExecution
   initSearchPath (← findSysroot)
   let modNames := if args.isEmpty then ["Init"] else args
   let mods := modNames.toArray.map (fun m => ({ module := m.toName } : Import))
-  let env ← importModules mods {}
+  -- Lean 4.33.1 Environment.lean:importModules defaults loadExts to false.
+  -- ReducibilityAttrs.getReducibilityStatus needs the imported extra extension
+  -- state as well as the core per-module entries (including global overrides).
+  let env ← importModules (loadExts := true) mods {}
   let _ ← dumpAttrs.toIO { fileName := "<dump_attrs>", fileMap := default } { env := env }
   pure ()

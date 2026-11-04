@@ -154,7 +154,7 @@ fi
 # under <store>/inputs/ for regeneration. Co-generating here means the attrs can never drift
 # from the store across a toolchain bump.
 
-ATTRS_GZ="$PROJECT_DIR/test-data/mathlib-$MATHLIB_TAG-attrs.ndjson.gz"
+ATTRS_GZ="$PROJECT_DIR/test-data/mathlib-$MATHLIB_TAG-attrs-v2.ndjson.gz"
 if [ -f "$ATTRS_GZ" ]; then
     echo ""
     echo ">>> attrs already dumped at $ATTRS_GZ ($(zcat "$ATTRS_GZ" | wc -l) lines). Delete it to re-dump."

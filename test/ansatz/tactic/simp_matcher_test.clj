@@ -2,6 +2,8 @@
   "Lean pairs: test/lean/simp_matcher.lean."
   (:require [clojure.test :refer [deftest is use-fixtures]]
             [ansatz.core :as a]
+            [ansatz.meta :as meta]
+            [ansatz.attrs :as attrs]
             [ansatz.kernel.env :as env]
             [ansatz.kernel.expr :as e]
             [ansatz.kernel.name :as name]
@@ -94,3 +96,39 @@
         expected (e/lam "s" store (e/proj (name/from-string "MatcherStore") 0 (e/bvar 0)) :default)]
     (is (= expected (#'simp/dsimp-expr (a/env) {} expr 20)))
     (is (tc/is-def-eq (tc/mk-tc-state (a/env)) expr expected))))
+
+(deftest matcher-discriminant-reduces-class-arithmetic
+  (eval '(a/defn matcher-arithmetic [n :- Nat] Bool
+           (match (+ n 1) [zero false] [(succ k) true])))
+  (let [environment (a/env)
+        unfolded (meta/unfold-const-app environment (e/app (c "matcher-arithmetic") (e/lit-nat 0)))
+        result (#'simp/try-reduce-matcher (tc/mk-tc-state environment) unfolded)]
+    (is (= (c "Bool.true") (:expr result))))
+  (eval '(a/theorem matcher-arithmetic-zero [] (= Bool (matcher-arithmetic 0) true)
+                    (simp only [matcher-arithmetic]))))
+
+(deftest matcher-numeric-fields-unfold-despite-irreducible-status
+  (eval '(a/defn matcher-numeric [n :- Nat] Bool
+           (match n [zero false] [(succ k) true])))
+  (let [nat (c "Nat")
+        cases [["OfNat.ofNat"
+                (e/app* (e/const' (name/from-string "OfNat.ofNat") [lvl/zero])
+                        nat (e/lit-nat 1) (e/app (c "instOfNatNat") (e/lit-nat 1))) "Bool.true"]
+               ["NatCast.natCast"
+                (e/app* (e/const' (name/from-string "NatCast.natCast") [lvl/zero])
+                        nat (c "instNatCastNat") (e/lit-nat 1)) "Bool.true"]
+               ["Zero.zero"
+                (e/app* (e/const' (name/from-string "Zero.zero") [lvl/zero])
+                        nat (e/app* (e/const' (name/from-string "Zero.mk") [lvl/zero]) nat (e/lit-nat 0))) "Bool.false"]]]
+    (doseq [[field numeric expected] cases]
+      (let [[environment _] (attrs/import-attr-tuples (a/env) [["reducibility" field "irreducible" nil]] {})
+            st (tc/mk-tc-state environment)
+            unfolded (meta/unfold-const-app environment (e/app (c "matcher-numeric") numeric))]
+        (is (tc/is-def-eq st (tc/infer-type st numeric) nat))
+        (is (false? (meta/can-unfold-default? environment (name/from-string field) :instances)))
+        (is (#'simp/can-unfold-at-matcher? environment (name/from-string field)))
+        (is (= (c expected) (:expr (#'simp/try-reduce-matcher st unfolded))))))
+    ;; One is outside the shipped dependency closure; keep its native exception too.
+    (is (contains? @#'simp/match-unfold-whitelist "One.one"))
+    (let [[environment _] (attrs/import-attr-tuples (a/env) [["reducibility" "Add.add" "irreducible" nil]] {})]
+      (is (false? (#'simp/can-unfold-at-matcher? environment (name/from-string "Add.add")))))))
