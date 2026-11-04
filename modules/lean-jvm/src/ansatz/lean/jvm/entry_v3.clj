@@ -298,13 +298,13 @@
         (vector! pair 2) (need (= 2 (count pair)) :initializer-pair)
         (doseq [name pair] (name! name)))))
   inventory)
-(defn- entry! [entry roots root-irs index local-modules imported work binding-profile?]
+(defn- entry! [entry roots root-irs index local-modules imported work binding-profile? entry-imports]
   (exact! entry (cond-> #{"name" "kind" "levelParams" "compiledModule" "actualType" "typeCheck" "semanticArity"
                          "runtimeArity" "argumentPlan" "resultABI" "raw" "callable" "selection"}
                  binding-profile? (conj "hostBinding")))
   (name! (get entry "name")) (module! (get entry "compiledModule"))
   (need (and (#{"definition" "opaque"} (get entry "kind")) (= [] (get entry "levelParams"))
-             (contains? local-modules (get entry "compiledModule")) (contains? imported (get entry "compiledModule"))) :entry-origin)
+             (or (contains? local-modules (get entry "compiledModule")) (contains? entry-imports (get entry "compiledModule"))) (contains? imported (get entry "compiledModule"))) :entry-origin)
   (let [check (get entry "typeCheck") _ (exact! check #{"algorithm" "transparency" "signature" "expectedType"})
         signature (signature! (get check "signature") (count roots))
         arguments (get signature "arguments") result (get signature "result") io? (= "io" (get signature "effect"))
@@ -370,7 +370,8 @@
    require future authenticated producer+source/IR+product custody; this pure
    function never proves DefEq, selects a cohort or issues runtime authority."
   [context document]
-  (exact! context #{:root :request :module-products :local-modules :installed-imports})
+  (exact! context (cond-> #{:root :request :module-products :local-modules :installed-imports}
+                    (contains? context :entry-imports) (conj :entry-imports)))
   (data-bound! document (* 16 1048576))
   (exact! document top-keys)
   (let [{:keys [root request module-products local-modules installed-imports]} context
@@ -400,6 +401,8 @@
         _ (products/authorize! module-products required local-modules installed-imports)
         _ (products/bind-graph! module-products g)
         locals (set local-modules) declared (set installed-imports)
+        entry-imports (set (:entry-imports context))
+        _ (need (and (<= (count entry-imports) 128) (every? declared entry-imports)) :entry-imports)
         allowed? #(or (locals %) (declared %) (installed/init? %))
         _ (need (locals root) :root-module-authorization)
         modules (vector! (get document "importedModuleOrder") 4096)
@@ -424,7 +427,7 @@
         _ (need (= (mapv #(get % "name") requested) (mapv #(get % "name") entries)) :entry-request-order)
         work (volatile! 0)
         _ (doseq [type roots] (closed-type! type 0 work))
-        checked (mapv #(entry! % roots root-irs (:index rows) locals imported work (= version 4)) entries)
+        checked (mapv #(entry! % roots root-irs (:index rows) locals imported work (= version 4) entry-imports) entries)
         start (vec (mapcat #(map (fn [role] (get-in % [role "name"])) ["raw" "callable"]) checked))
         reachable (loop [todo start seen #{}]
                     (if (empty? todo) seen

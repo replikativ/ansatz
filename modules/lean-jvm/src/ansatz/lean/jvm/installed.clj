@@ -3,6 +3,7 @@
   (:require [clojure.string :as str]))
 
 (def profile "explicit-installed-imports/1")
+(def workspace-profile "explicit-built-workspace-imports/1")
 (def preparation-profile "native-local-installed-project-prepare/1")
 (def artifact-profile "legacy-local-installed-v1")
 (def max-modules 128)
@@ -31,7 +32,7 @@
   (doseq [name names] (need (not (init? name)) {:module name :reason :init-is-implicit})) names)
 (defn validate! [snapshot]
   (need (and (map? snapshot) (= #{"profile" "modules"} (set (keys snapshot)))
-             (= profile (get snapshot "profile")) (vector? (get snapshot "modules"))
+             (#{profile workspace-profile} (get snapshot "profile")) (vector? (get snapshot "modules"))
              (<= 1 (count (get snapshot "modules")) max-modules)) {})
   (declared! (mapv #(get % "module") (get snapshot "modules")))
   (let [total (volatile! 0)]
@@ -60,3 +61,44 @@
       (doseq [module order] (need (allowed? module) {:module module :reason :undeclared-import})))
     (doseq [row rows]
       (need (allowed? (get row "sourceModule")) {:name (get row "name") :reason :undeclared-owner}))) true)
+
+(defn validate-workspace!
+  "Check the built-workspace extent and its correspondence to captured imports.
+   Native issuers and the independently trusted artifact hash retain authority."
+  [workspace snapshot]
+  (validate! snapshot)
+  (let [modules (get workspace "modules") packages (get workspace "packages")
+        names (mapv #(get % "module") modules) known (set names)
+        record? (fn [r maximum]
+                  (and (map? r) (= #{"bytes" "sha256"} (set (keys r)))
+                       (integer? (get r "bytes")) (<= 0 (get r "bytes") maximum)
+                       (string? (get r "sha256")) (re-matches #"[0-9a-f]{64}" (get r "sha256"))))]
+    (need (and (= workspace-profile (get snapshot "profile")) (map? workspace)
+               (= #{"profile" "rootModule" "implementation" "lake" "probeSHA256" "packages" "modules"} (set (keys workspace)))
+               (= "built-lake-workspace/1" (get workspace "profile"))
+               (record? (get workspace "implementation") 1048576)
+               (record? (get workspace "lake") (* 256 1048576))
+               (string? (get workspace "probeSHA256")) (re-matches #"[0-9a-f]{64}" (get workspace "probeSHA256"))
+               (vector? modules) (<= 1 (count modules) max-modules)
+               (= names (mapv #(get % "module") (get snapshot "modules")))
+               (known (get workspace "rootModule"))) {:reason :workspace-extent})
+    (doseq [module modules]
+      (need (and (= #{"module" "isModule" "imports" "origin"} (set (keys module)))
+                 (boolean? (get module "isModule")) (#{"workspace" "toolchain"} (get module "origin"))
+                 (vector? (get module "imports")) (<= (count (get module "imports")) 4096)) {:reason :workspace-module})
+      (doseq [dependency (get module "imports")]
+        (components dependency)
+        (need (or (init? dependency) (known dependency)) {:reason :workspace-import})))
+    (need (and (vector? packages) (<= 1 (count packages) 129)
+               (= (count packages) (count (set (map #(get % "name") packages))))) {:reason :workspace-packages})
+    (doseq [package packages]
+      (let [configuration (get package "configuration")]
+        (need (and (= #{"name" "configuration"} (set (keys package)))
+                   (string? (get package "name")) (<= 1 (count (get package "name")) 255)
+                   (map? configuration) (<= 1 (count configuration) 8)) {:reason :workspace-package})
+        (doseq [[path record] configuration]
+          (need (and (string? path) (<= 1 (count path) 4096) (not (str/starts-with? path "/"))
+                     (not (str/includes? path "\\")) (not (str/includes? path (str (char 0))))
+                     (every? #(and (seq %) (not (#{"." ".."} %))) (str/split path #"/"))
+                     (or (nil? record) (record? record 1048576))) {:reason :workspace-configuration}))))
+    workspace))

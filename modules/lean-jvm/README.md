@@ -123,6 +123,11 @@ cryptographic attestation of every library file. A separately hosted, hash-verif
 producer guide. Automatic installation and platform expansion remain separate
 work.
 
+For an already resolved and built Lake workspace, opt into the
+[built-workspace preparation path](LAKE.md). It captures application and dependency
+products without adding Lake to JVM deployment; general runtime coverage remains
+bounded.
+
 ## Values, resources and lifetime
 
 Entries have closed monomorphic signatures with up to 64 explicit value

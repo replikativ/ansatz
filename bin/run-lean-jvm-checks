@@ -36,30 +36,24 @@ for runtime_jar in "${runtime_jars[@]}"; do
   dependency_args+=(--dependency-jar "$runtime_jar")
 done
 python3 consumer/audit_checks.py --sdk-jar target/ansatz-lean-jvm.jar
-python3 consumer/project_check.py --sdk-jar target/ansatz-lean-jvm.jar \
-  "${dependency_args[@]}" --output target/ci-public-consumer
-python3 consumer/project_check.py --sdk-jar target/ansatz-lean-jvm.jar \
-  "${dependency_args[@]}" --main-class GeneralInteropSmoke --output target/ci-general-consumer
-python3 consumer/project_check.py --sdk-jar target/ansatz-lean-jvm.jar \
-  "${dependency_args[@]}" --main-class ScalarInteropSmoke --output target/ci-scalar-consumer
-python3 consumer/project_check.py --sdk-jar target/ansatz-lean-jvm.jar \
-  "${dependency_args[@]}" --main-class SortSmoke --output target/ci-sort-consumer
-python3 consumer/project_check.py --sdk-jar target/ansatz-lean-jvm.jar \
-  "${dependency_args[@]}" --main-class StdIOSmoke --output target/ci-stdio-consumer
-python3 consumer/project_check.py --sdk-jar target/ansatz-lean-jvm.jar \
-  "${dependency_args[@]}" --main-class MonadsSmoke --output target/ci-monads-consumer
-python3 consumer/project_check.py --sdk-jar target/ansatz-lean-jvm.jar \
-  "${dependency_args[@]}" --main-class PersistentMapSmoke --output target/ci-persistent-map-consumer
-python3 consumer/project_check.py --sdk-jar target/ansatz-lean-jvm.jar \
-  "${dependency_args[@]}" --main-class FelineSmoke --output target/ci-feline-consumer
-python3 consumer/project_check.py --sdk-jar target/ansatz-lean-jvm.jar \
-  "${dependency_args[@]}" --main-class WriterSmoke --output target/ci-writer-consumer
-python3 consumer/project_check.py --sdk-jar target/ansatz-lean-jvm.jar \
-  "${dependency_args[@]}" --main-class NominalSmoke --output target/ci-nominal-consumer
-python3 consumer/project_check.py --sdk-jar target/ansatz-lean-jvm.jar \
-  "${dependency_args[@]}" --main-class PureFFISmoke --output target/ci-pure-ffi-consumer
-python3 consumer/project_check.py --sdk-jar target/ansatz-lean-jvm.jar \
-  "${dependency_args[@]}" --main-class ForeignFFISmoke --output target/ci-foreign-ffi-consumer
+while read -r consumer_class consumer_output; do
+  python3 consumer/project_check.py --sdk-jar target/ansatz-lean-jvm.jar \
+    "${dependency_args[@]}" --main-class "$consumer_class" --output "target/ci-$consumer_output-consumer"
+done <<'CONSUMERS'
+ProjectSmoke public
+GeneralInteropSmoke general
+ScalarInteropSmoke scalar
+SortSmoke sort
+StdIOSmoke stdio
+MonadsSmoke monads
+PersistentMapSmoke persistent-map
+FelineSmoke feline
+WriterSmoke writer
+NominalSmoke nominal
+PureFFISmoke pure-ffi
+ForeignFFISmoke foreign-ffi
+LakeWorkspaceSmoke lake-workspace
+CONSUMERS
 
 
 echo "Checking atomic resource limits against the same compiled SDK engine"

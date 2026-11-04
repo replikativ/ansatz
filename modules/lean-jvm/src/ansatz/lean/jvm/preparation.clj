@@ -37,34 +37,30 @@
   (need (instance? Path source-root) "UnsupportedProjectConfig" "Source directory must be a Path")
   (need (= ProjectOptions (class options)) "UnsupportedProjectConfig" "Explicit ProjectOptions required")
   (need (instance? OutputStream output) "UnsupportedArgumentType" "Artifact OutputStream required")
-  (let [root (typed-name (.rootModule ^ProjectOptions options))
-        entries (mapv (fn [entry] {:root root :name (typed-name (.name entry)) :signature (.signature entry)})
-                      (.entries ^ProjectOptions options))]
-    (need (= (count entries) (count (set (map :name entries)))) "EntryRejected" "Duplicate requested entry name")
-    (let [{:keys [compiler project-options evidence-options]} (bundle/open! (.compiler ^ProjectOptions options))]
-      (with-cleanup
-        (fn []
-          (let [receipt (evidence/build! compiler
-                          (cond-> (assoc project-options :project source-root :source-root (.sourceRoot ^ProjectOptions options) :roots [root])
-                            (seq (.installedImports ^ProjectOptions options))
-                            (assoc :installed-imports (mapv typed-name (.installedImports ^ProjectOptions options))))
-                          evidence-options entries (atom {}))
-                exported (artifact/export! receipt output)]
-            ;; Receipt identity and source custody stay private and live through
-            ;; export validation. Never prepare a Program or issue a Project here.
-            (select-keys exported [:manifest-sha256 :archive-sha256])))
-        #(transport/close! compiler)))))
+  (let [requested (mapv (fn [entry] {:name (typed-name (.name entry)) :signature (.signature entry)})
+                        (.entries ^ProjectOptions options))
+        _ (need (= (count requested) (count (set (map :name requested)))) "EntryRejected" "Duplicate requested entry name")
+        {:keys [compiler project-options evidence-options]} (bundle/open! (.compiler ^ProjectOptions options))]
+    (with-cleanup
+      (fn []
+        (let [configuration ((requiring-resolve 'ansatz.lean.jvm.compiler.bundle/source-configuration!) compiler project-options source-root options)
+              root (first (:roots configuration))
+              entries (mapv #(assoc % :root root) requested)
+              receipt (evidence/build! compiler configuration evidence-options entries (atom {}))
+              exported (artifact/export! receipt output)]
+          (select-keys exported [:manifest-sha256 :archive-sha256])))
+      #(transport/close! compiler))))
 
 (def ^:private usage
   (str "Prepare a Lean JVM artifact without opening a JVM Project.\n"
        "--source DIR --sysroot DIR --producer-bundle DIR --cache DIR --output FILE\n"
-       "[--source-root RELATIVE-DIR] [--root-module NAME] [--installed-import MODULE] (repeat)\n"
+       "[--source-mode local|built-lake] [--source-root RELATIVE-DIR] [--root-module NAME] [--installed-import MODULE] (repeat)\n"
        "--entry NAME (repeat for native signature discovery), or\n"
        "--nat-function NAME | --string-function NAME | --main NAME\n"
        "Output must not exist. Native frontend execution is trusted; no implicit install.\n"))
 (def ^:private single-flags
   {"--source" :source "--sysroot" :sysroot "--producer-bundle" :producer-bundle
-   "--cache" :cache "--output" :output "--source-root" :source-root "--root-module" :root-module})
+   "--cache" :cache "--output" :output "--source-mode" :source-mode "--source-root" :source-root "--root-module" :root-module})
 (def ^:private entry-flags
   {"--entry" :auto "--nat-function" :nat-to-nat "--string-function" :string-to-string "--main" :io-unit})
 (defn- parse-cli [arguments]
@@ -100,6 +96,8 @@
   (let [compiler (NativeCompilerOptions. (path (:sysroot parsed)) (path (:producer-bundle parsed)) (path (:cache parsed)))
         builder (-> (ProjectOptions/builder compiler)
                     (.rootModule (get parsed :root-module "Main")) (.sourceRoot (get parsed :source-root ".")))]
+    (need (#{"local" "built-lake"} (get parsed :source-mode "local")) "InvalidArguments" "Unknown source mode")
+    (when (= "built-lake" (:source-mode parsed)) (.builtLakeWorkspace builder))
     (doseq [module (:installed-imports parsed)] (.installedImport builder module))
     (doseq [[name profile] (:entries parsed)]
       (case profile

@@ -1,0 +1,36 @@
+{
+  "schema": "lean-jvm-lake-corpus-validation/1",
+  "toolchain": "leanprover/lean4:v4.33.1",
+  "native-producer-release": "lean-native-producer-4.33.1-v4",
+  "scope": "Selected entry preparation and JVM artifact execution; not whole-project compatibility or a benchmark.",
+  "workloads": [
+    {
+      "workload": "fp-sort",
+      "prepared": true,
+      "artifact-loaded": true,
+      "executed": true,
+      "prepare-ms": 22782.4693,
+      "artifact-bytes": 278629,
+      "artifact": {
+        "manifest-sha256": "ec0834e709de0b64f1a90fe385971897024f80c0c5011a7fb075a1e140aa80c3",
+        "archive-sha256": "d2398c660f3014216823e946bf1c64c56ed2aaf8284d69863080254375d72192"
+      }
+    },
+    {
+      "workload": "cli",
+      "prepared": true,
+      "artifact-loaded": true,
+      "executed": true,
+      "prepare-ms": 32127.699784,
+      "artifact-bytes": 1636638,
+      "artifact": {
+        "manifest-sha256": "2a36fa205b8a63b9c4e180369d6191ea215e04fee9a4a8a1b938089d434559c1",
+        "archive-sha256": "d683d293df661f528ee3d380de84155ca24c059c8e4e60fdb05e2202c69a74d4"
+      }
+    }
+  ],
+  "sdk": {
+    "jarSHA256": "b66b018ad58ac0c7aed4de9871b0d42d0134e45ffba49a0b548733e581344290",
+    "nativeFreeConsumer": true
+  }
+}

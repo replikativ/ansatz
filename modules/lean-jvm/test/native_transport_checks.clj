@@ -30,4 +30,17 @@
       (is (= "ResourceLimit" (.code ^ansatz.lean.jvm.LeanException projected)))
       (is (re-find #"42 KiB available" (.getMessage ^Throwable projected)))
       (is (nil? (.getCause ^Throwable projected))))))
+(deftest exec-transition-needs-evidence-rather-than-a-fixed-three-sample-limit
+  (let [samples (atom 0) missing (ex-info "Transient mm transition" {:rss-unavailable true :kernel-state "R" :process-alive? true})]
+    (with-redefs-fn {#'transport/sample-handle-rss-kib (fn [_] (if (< (swap! samples inc) 6) (throw missing) 1234))
+                    #'transport/pause-rss-sample! (fn [] nil)}
+      #(is (= 1234 (#'transport/handle-rss-kib (java.lang.ProcessHandle/current)))))
+    (is (= 6 @samples))))
+(deftest permanently-unobservable-live-memory-remains-a-closed-failure
+  (let [missing (ex-info "No live RSS evidence" {:rss-unavailable true :kernel-state "R" :process-alive? true})
+        error (with-redefs-fn {#'transport/sample-handle-rss-kib (fn [_] (throw missing))}
+                #(failure (fn [] (#'transport/handle-rss-kib (java.lang.ProcessHandle/current)))))]
+    (is (:rss-unavailable (ex-data error)))
+    (is (>= (:resample-nanos (ex-data error)) 50000000))
+    (is (pos? (:status-samples (ex-data error))))))
 (defn check! [] (run-tests 'ansatz-lean-jvm-native-transport-checks))

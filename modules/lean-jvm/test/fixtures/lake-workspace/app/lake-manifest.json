@@ -1,0 +1,13 @@
+{"version": "1.2.0",
+ "packagesDir": ".lake/packages",
+ "packages":
+ [{"type": "path",
+   "scope": "",
+   "name": "domain",
+   "manifestFile": "lake-manifest.json",
+   "inherited": false,
+   "dir": "../domain",
+   "configFile": "lakefile.toml"}],
+ "name": "app",
+ "lakeDir": ".lake",
+ "fixedToolchain": false}

@@ -1,0 +1,54 @@
+{
+  "schema": "lean-jvm-lake-corpus/1",
+  "toolchain": "leanprover/lean4:v4.33.1",
+  "libraries": [
+    {
+      "repository": "https://github.com/leanprover/fp-lean",
+      "revision": "0abeea545d560a324e2561f7210fbd6ed154fa02",
+      "source": "examples/Examples/ProgramsProofs/InstrumentedInsertionSort.lean",
+      "sourceSHA256": "7102c8947e7fc0bfc8aaf3df1077a9d0937b9b3ce02f8a8a13525613e5ed7b10",
+      "modifications": false
+    },
+    {
+      "repository": "https://github.com/leanprover/lean4-cli",
+      "revision": "6130a47896ce867c6a4a55373441e59e565bad0f",
+      "source": "Cli/Basic.lean",
+      "sourceSHA256": "e325b55b12eca6a94bd44d591c10f019b7ba130c33d0c3c6680ba392c26654d7",
+      "modifications": false
+    }
+  ],
+  "resolvedBuildDependency": {
+    "repository": "https://github.com/leanprover/subverso",
+    "revision": "847084e80500726e4331dded5f17007ddaf89c31",
+    "role": "Resolved FP Lean package dependency; not imported by the selected sorting module."
+  },
+  "callers": {
+    "cli": {
+      "App.lean": "4984fb62d8177802beb0e4e56921bb96c4416833f385ce9943b68ebdc6a674e3",
+      "Oracle.lean": "62c1225620db53830eaf63d47fd2234896bcdf8fd829491fa3e808a676a1636d",
+      "lakefile.toml": "7884cf3f1ca6c96ab7cb09025855709c76d65722732709cd7c4dfabc1d2b814d",
+      "lean-toolchain": "3aac669c7a910ec2389f4e4f921b605adf6ebf2d1e0c9b9cd0be4d33f3f5db71",
+      "native.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "native.stdout": "0e6c953b0b6e3841733841d3219f2b623a74d3eb8cee6d90be34d489577af3e7",
+      "lake-manifest.json": "c31ae1a57fcc7707fe7522ebc50060a259c961d1ec743abe9347ae83a58721bb"
+    },
+    "fp-sort": {
+      "App.lean": "1c5cc26e893b90beae93fa1e9247039b61034d87d317093b6fc5f2104cf6dee9",
+      "Oracle.lean": "b3312269c71ab73d2a01bf5a1b63ae634d6a38afe793d80e96c224ad4c9313d3",
+      "lakefile.toml": "3982844b720214e89588a4af38062293c5fcbef973c894ee77328e8e4b0b5de1",
+      "lean-toolchain": "3aac669c7a910ec2389f4e4f921b605adf6ebf2d1e0c9b9cd0be4d33f3f5db71",
+      "native.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "native.stdout": "8dd1aabfc51251840c84b029d25066a4bb85b79a99da53eab081b04b10d570b8",
+      "lake-manifest.json": "d6192430fd2ab3baad5b69c7f4987950cdf5f322edaea16c9e9988d504b18867"
+    }
+  },
+  "outOfProfile": [
+    {
+      "project": "mcmc-lean",
+      "revision": "a5781f9649670b155608aa2ac0e5931c89afc5fb",
+      "inspectedProduct": ".lake/build/ir/Mcmc/Executable/Finite/TwoState.setup.json",
+      "importArtifactCount": 3279,
+      "assessment": "Existing build metadata inspected read-only. Exceeds 128-module profile. No SDK preparation/execution claimed."
+    }
+  ]
+}

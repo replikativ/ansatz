@@ -12,6 +12,22 @@ consumers, managed ownership, numeric behavior and resource limits. The consumer
 must use the SDK plus its ordinary dependency JARs without source directories or
 native tools on their runtime classpath.
 
+CircleCI also runs `test-lean-jvm-native` after the SDK job, against its retained
+JAR. This required deployment gate installs the hash-pinned native toolchain and
+published producer, builds a fresh two-package Lake fixture and pinned FP Lean
+and lean4-cli callers, checks native outputs, then exercises source preparation,
+Java/Clojure execution, artifacts and workspace mutation refusals. It does not
+replace the broader runtime-family gates below. To reproduce from the root:
+
+```sh
+./bin/lean-jvm-native-ci check --sysroot /path/to/lean --producer-bundle /path/to/producer --sdk modules/lean-jvm/target/ansatz-lean-jvm.jar --work target/native-check
+```
+
+The work directory must be new. The runner fetches exact dependency commits and
+never builds the supplied SDK. `install --directory target/native-tools
+--downloads target/native-downloads` provisions the native archives separately;
+cached downloads are hash-checked before every extraction.
+
 With the pinned native toolchain and supported producer bundle supplied explicitly,
 run both native gates documented in [consumer checks](consumer/README.md) and
 [preparation](PREPARATION.md). Cover cold/cache/edit/reload/artifact loading,

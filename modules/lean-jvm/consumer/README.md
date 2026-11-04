@@ -39,9 +39,8 @@ helpers, source relabeling, changed classes and dependency drift:
 python3 consumer/audit_checks.py --sdk-jar target/ansatz-lean-jvm.jar
 ```
 
-`JarSmoke.java` retains the initial lower-level adapter check. Run it with the same
-`project_check.py` launcher and `--main-class JarSmoke` when checking the adapter
-without the public Project facade. Published historical observations remain in
+Lower-level start/advance/result/reuse checks run in the packaged SDK
+[preparation checks](../test/prepare_checks.clj). Published historical observations remain in
 [validation.json](../validation.json) and [consumer receipts](receipts/).
 Current candidate results belong in CI/review artifacts; see
 [release checks](../RELEASE_CHECKLIST.md).
@@ -194,3 +193,10 @@ bounded guest error details, aggregate refusal without poisoning the Project,
 shared immutable bytes, detached descriptors after close, and concurrent reuse
 in two Projects. It checks that native compiler namespaces never load. The
 canonical SDK runner includes this consumer alongside the existing corpus.
+
+`LakeWorkspaceSmoke.java` consumes the authored two-package
+[Lake fixture](../test/fixtures/lake-workspace/README.md). Its artifact exercises
+dependency initialization, nominal values and dependency host bindings from Java
+and Clojure, then checks that the Lake source compiler was never loaded. The
+[fixture provenance](../test/fixtures/lake-workspace/provenance.json) records the
+source, native output and archive identities.

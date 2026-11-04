@@ -20,11 +20,14 @@
 (defn project-options
   "Explicit compiler configuration and requested entry names. A vector of names
    uses native signature discovery; a map can request legacy checked profiles."
-  [{:keys [compiler root-module source-root entries installed-imports]
+  [{:keys [compiler root-module source-root entries installed-imports built-lake-workspace?]
     :or {root-module "Main" source-root "."}}]
   (let [native (NativeCompilerOptions. (path (:sysroot compiler))
                                       (path (:producer-bundle compiler)) (path (:cache compiler)))
         builder (-> (ProjectOptions/builder native) (.rootModule root-module) (.sourceRoot source-root))]
+    (when (some? built-lake-workspace?)
+      (when-not (boolean? built-lake-workspace?) (throw (IllegalArgumentException. "built-lake-workspace? must be Boolean")))
+      (when built-lake-workspace? (.builtLakeWorkspace builder)))
     (when (some? installed-imports)
       (when-not (and (vector? installed-imports) (<= (count installed-imports) ProjectOptions/MAX_INSTALLED_IMPORTS)
                      (every? string? installed-imports) (= (count installed-imports) (count (set installed-imports))))

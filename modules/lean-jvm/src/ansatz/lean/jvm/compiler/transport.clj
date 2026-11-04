@@ -131,6 +131,19 @@
       (.put compilers token {:sysroot sysroot :producer producer :producer-sha256 (get producer-record "sha256")
                             :launcher launcher :cache (path! cache-path)
                             :native-reference? false :lock (Object.) :journal nil})) token))
+(defn configure-workspace!
+  "Internal preparation configuration, before compiling any workspace adapter.
+   The native producer still authenticates types and IR; this grants no entry authority."
+  [compiler workspace]
+  (guard-code!)
+  (let [state (issued compiler)]
+    (locking (:lock state)
+      (need (and (identical? state (issued compiler)) (nil? (:workspace state))
+                 (map? workspace) (map? (:products workspace)) (fn? (:verify! workspace)))
+            "Workspace compiler configuration requires a fresh source service")
+      ((:verify! workspace))
+      (locking compilers (.put compilers compiler (assoc state :workspace workspace)))))
+  compiler)
 (defn cache-root [compiler] (guard-code!) (:cache (issued compiler)))
 (defn close! [compiler]
   (let [state (issued compiler)]
@@ -195,21 +208,24 @@
          (.interrupt (Thread/currentThread))
          (throw error))))
 (defn- handle-rss-kib [^ProcessHandle process]
-  ;; proc_pid_status samples task state before obtaining mm. An exiting task
-  ;; can therefore have a live-looking state and no VmRSS in one snapshot.
-  ;; Resample evidence only; never retry the native command or infer zero.
-  (loop [sample 1 initial nil]
-    (let [result (try {:rss (sample-handle-rss-kib process)}
-                     (catch clojure.lang.ExceptionInfo error
-                       (if (:rss-unavailable (ex-data error)) {:missing error} (throw error))))]
-      (if (contains? result :rss) (:rss result)
-        (let [error (:missing result) latest (ex-data error) first-status (or initial (:status latest))]
-          (if (< sample 3)
-            (do (pause-rss-sample!) (recur (inc sample) first-status))
-            (throw (ex-info "Live process RSS unavailable after bounded status resampling"
-                            (assoc latest :first-status first-status :latest-status (:status latest)
-                                   :status-samples sample)
-                            error))))))))
+  ;; proc_pid_status samples task state before obtaining mm. Exec/exit can
+  ;; produce a live-looking state without VmRSS for several scheduler quanta.
+  ;; Require an actual measurement or observed death within a bounded 50 ms;
+  ;; never invent zero for a live task or retry the native command.
+  (let [start (System/nanoTime)]
+    (loop [sample 1 initial nil]
+      (let [result (try {:rss (sample-handle-rss-kib process)}
+                       (catch clojure.lang.ExceptionInfo error
+                         (if (:rss-unavailable (ex-data error)) {:missing error} (throw error))))]
+        (if (contains? result :rss) (:rss result)
+          (let [error (:missing result) latest (ex-data error) first-status (or initial (:status latest))
+                elapsed (- (System/nanoTime) start)]
+            (if (< elapsed 50000000)
+              (do (pause-rss-sample!) (recur (inc sample) first-status))
+              (throw (ex-info "Live process RSS unavailable after bounded status resampling"
+                              (assoc latest :first-status first-status :latest-status (:status latest)
+                                     :status-samples sample :resample-nanos elapsed)
+                              error)))))))))
 (defn- remember-process! [handles handle]
   ;; Publish each handle before a bound can fail, so cancellation retains it.
   (swap! handles #(if (some #{handle} %) % (conj % handle)))
@@ -270,7 +286,8 @@
                              ;; Only the independently pinned diagnostics-aware producer
                              ;; may write bounded stderr while returning structural data.
                              (and (= (str (:producer state)) (str (first arguments)))
-                                  (producer/diagnostics-supported? (:producer-sha256 state)))))
+                                  (producer/diagnostics-supported? (:producer-sha256 state)))
+                             (= (str (:diagnostics-executable state)) (str (first arguments)))))
             (let [text (String. ^bytes (bytes! stderr (* 1024 1024)) StandardCharsets/UTF_8)
                   detail (subs text 0 (min 1536 (count text)))]
               (throw (ex-info (str "Lean producer failed during " label

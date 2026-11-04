@@ -1,0 +1,20 @@
+{
+  "schema": "lean-jvm-lake-workspace-fixture/1",
+  "toolchain": "leanprover/lean4:v4.33.1",
+  "producerRelease": "lean-native-producer-4.33.1-v4",
+  "manifestSHA256": "c8b61e334e62e510880bc345f4f9f5754f7c6d364fbcd914ae9eee1ec11c99da",
+  "archiveSHA256": "9585b3b2deb0649e431de79b04b33fb842eee7ca407a9a99e6f3af25c2cb98e0",
+  "nativeStdout": "42\n42,true\n",
+  "sources": {
+    ".gitignore": "8ec9961f5d7d374fcd9dfa596062afb7ad83261cc7266e5d4f7b00d3f8ba9d5e",
+    "README.md": "ddad7ff3a6c1e82f43f16d61d634b0817815c95ec9889f917bf9a3e58c2c4278",
+    "app/App.lean": "f389f2eabe90d3e9d560a84e08bb20fdf40adeb2966a2679f4dabe8e44c26e6a",
+    "app/Oracle.lean": "5c1e956587d9375d0f8d29d7a02672e4852523d2da18608c4d9bab75afd8a7bc",
+    "app/lake-manifest.json": "7675e6f47e32fd43b67985590b7689d723fc5406b9a946d038ce4487326c585a",
+    "app/lakefile.toml": "46d93291d61c953e8c89a3954fa3fb25e8cd2a804414a0fd086019c7f6e75be0",
+    "app/lean-toolchain": "3aac669c7a910ec2389f4e4f921b605adf6ebf2d1e0c9b9cd0be4d33f3f5db71",
+    "domain/Domain.lean": "2bca59cc97d06fc35bd05f8e07cbd36d6f22879fc193e46b61f20518caa844b9",
+    "domain/lakefile.toml": "b33299037fae63ebadbe47850d6a7323679f5a457442f2f74215ca9f4511124e",
+    "domain/lean-toolchain": "3aac669c7a910ec2389f4e4f921b605adf6ebf2d1e0c9b9cd0be4d33f3f5db71"
+  }
+}

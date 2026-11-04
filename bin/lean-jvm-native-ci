@@ -1,0 +1,167 @@
+#!/usr/bin/env python3
+"""Install pinned native tools or check the exact SDK JAR against fresh Lake builds."""
+import argparse
+import hashlib
+import json
+import os
+from pathlib import Path
+import platform
+import shutil
+import subprocess
+
+ROOT = Path(__file__).resolve().parent.parent
+MODULE = ROOT / "modules/lean-jvm"
+CORPUS = MODULE / "test/fixtures/lake-corpus"
+
+
+def need(ok, message):
+    if not ok:
+        raise RuntimeError(message)
+
+
+def digest(path):
+    with path.open("rb") as source:
+        hasher = hashlib.sha256()
+        for chunk in iter(lambda: source.read(1048576), b""):
+            hasher.update(chunk)
+        return hasher.hexdigest()
+
+
+def command(args, cwd, logs, name, env=None, timeout=600):
+    print("NATIVE_CI_BEGIN", name, flush=True)
+    with (logs / (name + ".stdout")).open("wb") as out, (logs / (name + ".stderr")).open("wb") as err:
+        result = subprocess.run(list(map(str, args)), cwd=cwd, env=env, stdin=subprocess.DEVNULL,
+                                stdout=out, stderr=err, timeout=timeout)
+    need(result.returncode == 0, f"{name} failed ({result.returncode}); see {logs}")
+    print("NATIVE_CI_PASS", name, flush=True)
+    return (logs / (name + ".stdout")).read_text()
+
+
+def install(args):
+    need(platform.system() == "Linux" and platform.machine() == "x86_64", "Linux x86-64 required")
+    destination = args.directory.resolve()
+    destination.mkdir(parents=True, exist_ok=False)
+    downloads = args.downloads.resolve()
+    downloads.mkdir(parents=True, exist_ok=True)
+    lean = json.loads((MODULE / "test/native-ci-tools.json").read_text())
+    producer = json.loads((MODULE / "producer/candidate-v4.json").read_text())
+    archive = producer["archive"]
+    producer_url = ("https://github.com/replikativ/ansatz-stores/releases/download/"
+                    + producer["publication"]["release"] + "/" + archive["name"])
+    for label, url, size, sha, strip in [
+        ("lean", lean["url"], lean["bytes"], lean["sha256"], True),
+        ("producer", producer_url, archive["bytes"], archive["sha256"], False),
+    ]:
+        cached = downloads / (sha + ".tar.zst")
+        if not cached.exists():
+            partial = downloads / (sha + ".part")
+            subprocess.run(["curl", "--fail", "--location", "--retry", "3", "--output", str(partial), url], check=True)
+            need(partial.stat().st_size == size and digest(partial) == sha, f"{label} download identity mismatch")
+            partial.replace(cached)
+        need(cached.stat().st_size == size and digest(cached) == sha, f"{label} cached archive identity mismatch")
+        target = destination / label
+        target.mkdir()
+        subprocess.run(["tar", "--zstd", "--extract", "--no-same-owner", "--file", str(cached),
+                        "--directory", str(target)] + (["--strip-components=1"] if strip else []), check=True)
+        print("NATIVE_CI_INSTALLED", label, sha, flush=True)
+
+
+def checkout(record, directory, logs, label, env):
+    directory.mkdir(parents=True)
+    command(["git", "init", "--quiet"], directory, logs, label + "-init", env)
+    command(["git", "fetch", "--depth=1", record["repository"], record["revision"]], directory, logs, label + "-fetch", env)
+    command(["git", "checkout", "--quiet", "--detach", "FETCH_HEAD"], directory, logs, label + "-checkout", env)
+    actual = command(["git", "rev-parse", "HEAD"], directory, logs, label + "-revision", env).strip()
+    need(actual == record["revision"], label + " revision mismatch")
+    if "source" in record:
+        need(digest(directory / record["source"]) == record["sourceSHA256"], label + " source mismatch")
+
+
+def native_diagnostics(work):
+    """Retain process evidence without copying compiled products or source caches."""
+    cache = work / "cache"
+    target = work / "diagnostics"
+    total = 0
+    for receipt in sorted(cache.rglob("*.receipt.json")):
+        data = json.loads(receipt.read_text())
+        for path in [receipt] + [receipt.parent / data[key] for key in ["stdout", "stderr"] if key in data]:
+            size = path.stat().st_size
+            if size <= 4 * 1048576 and total + size <= 64 * 1048576:
+                destination = target / path.relative_to(cache)
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(path, destination)
+                total += size
+
+
+def check(args):
+    sdk, sysroot, producer = args.sdk.resolve(), args.sysroot.resolve(), args.producer_bundle.resolve()
+    need(sdk.is_file(), "Supply the already checked SDK JAR; this gate never rebuilds it")
+    work = args.work.resolve()
+    work.mkdir(parents=True, exist_ok=False)
+    logs = work / "logs"
+    logs.mkdir()
+    env = dict(os.environ, PATH=str(sysroot / "bin") + os.pathsep + os.environ.get("PATH", ""), GIT_TERMINAL_PROMPT="0")
+    pins = json.loads((MODULE / "test/native-ci-tools.json").read_text())
+    need(command([sysroot / "bin/lean", "--githash"], work, logs, "lean-identity", env).strip() == pins["commit"], "Lean commit mismatch")
+    provenance = json.loads((CORPUS / "provenance.json").read_text())
+    external = work / "external"
+    external.mkdir()
+    libraries = {r["repository"].split("/")[-1]: r for r in provenance["libraries"]}
+    for name, record in libraries.items():
+        checkout(record, external / name, logs, name, env)
+    for label in ["cli", "fp-sort"]:
+        shutil.copytree(CORPUS / label, external / label)
+        for file, expected in provenance["callers"][label].items():
+            need(digest(external / label / file) == expected, label + " caller mismatch: " + file)
+    checkout(provenance["resolvedBuildDependency"], external / "fp-sort/.lake/packages/subverso", logs, "subverso", env)
+    lake = sysroot / "bin/lake"
+    for label in ["cli", "fp-sort"]:
+        directory = external / label
+        command([lake, "--keep-toolchain", "--no-cache", "build", "App"], directory, logs, label + "-build", env)
+        manifest = json.loads((directory / "lake-manifest.json").read_text())
+        if label == "fp-sort":
+            locked = next(p for p in manifest["packages"] if p["name"] == "subverso")
+            need(locked["rev"] == provenance["resolvedBuildDependency"]["revision"], "Subverso lock changed")
+        native = command([lake, "--no-build", "--quiet", "env", sysroot / "bin/lean", "-M768", "-j1"]
+                         + (["--run"] if label == "cli" else []) + ["Oracle.lean"], directory, logs, label + "-oracle", env)
+        # Sharing trace counts depend on allocation; compare program values.
+        values = lambda text: [line for line in text.splitlines() if line != "shared RC array to swap"]
+        need(values(native) == values((CORPUS / label / "native.stdout").read_text()), label + " native reference mismatch")
+    config = {"compiler": {"sysroot": str(sysroot), "producer-bundle": str(producer), "cache": str(work / "cache")},
+              "cli-directory": str(external / "cli"), "fp-sort-directory": str(external / "fp-sort"),
+              "report": str(work / "report.json")}
+    config_file = work / "config.json"
+    config_file.write_text(json.dumps(config))
+    deps = json.dumps(str(sdk))  # Clojure string syntax for this explicit path.
+    sdk_before = digest(sdk)
+    try:
+        command(["clojure", "-J-Xmx384m", "-J-Xss4m", "-J-Dclojure.main.report=stderr", "-Srepro", "-Sdeps",
+                 '{:paths ["test"] :deps {org.replikativ/ansatz-lean-jvm {:local/root ' + deps + '}}}',
+                 "-M", "test/native_ci_checks.clj", config_file], MODULE, logs, "packaged-native-acceptance", env, timeout=900)
+    finally:
+        native_diagnostics(work)
+    need(digest(sdk) == sdk_before, "Checked SDK JAR changed during native acceptance")
+    report_file = work / "report.json"
+    report = json.loads(report_file.read_text())
+    report.update(sdkSHA256=sdk_before, leanCommit=pins["commit"])
+    report_file.write_text(json.dumps(report, indent=2) + "\n")
+    print("NATIVE_CI_COMPLETE", sdk_before, work / "report.json", flush=True)
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    actions = parser.add_subparsers(dest="action", required=True)
+    setup = actions.add_parser("install")
+    setup.add_argument("--directory", type=Path, required=True)
+    setup.add_argument("--downloads", type=Path, required=True)
+    run = actions.add_parser("check")
+    run.add_argument("--sysroot", type=Path, required=True)
+    run.add_argument("--producer-bundle", type=Path, required=True)
+    run.add_argument("--sdk", type=Path, required=True)
+    run.add_argument("--work", type=Path, required=True)
+    args = parser.parse_args()
+    (install if args.action == "install" else check)(args)
+
+
+if __name__ == "__main__":
+    main()

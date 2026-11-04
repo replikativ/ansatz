@@ -13,7 +13,7 @@
            [java.util.zip ZipInputStream ZipOutputStream ZipEntry]))
 (def schema "lean-native-local-project/2")
 (def nominal-schema "lean-native-local-project/3")
-(def ^:private nominal-profiles #{"nominal-local-init-v3" "nominal-local-installed-v3"})
+(def ^:private nominal-profiles #{"nominal-local-init-v3" "nominal-local-installed-v3" "nominal-lake-workspace-v1"})
 (def max-bytes (* 64 1048576))
 (def lean-commit "819816b2e0a3bf405af45ae5c7af2491d8f5bee6")
 (deftype ArtifactReceipt [])
@@ -178,7 +178,9 @@
         declared (mapv #(get % "module") (get-in original-inputs ["installedImports" "modules"]))
         baseline-rows (get baseline "modules")
         baseline-index (into {} (map #(vector (get % "module") %) baseline-rows))
-        local? (set locals)]
+        local? (set locals)
+        workspace-modules (set (map #(get % "module")
+                                   (filter #(= "workspace" (get % "origin")) (get-in original-inputs ["workspace" "modules"]))))]
     (need (= "native-local-nominal-project-prepare/3" (get original-inputs "profile"))
           "ArtifactConflict" {:stage :nominal-compilation-profile})
     (used-products/authorize! baseline (mapv #(get % "module") baseline-rows) [] declared)
@@ -191,7 +193,7 @@
             "ArtifactConflict" {:stage :nominal-installed-products}))
     (doseq [{:keys [document]} documents m (get-in document ["moduleProducts" "modules"])]
       (let [module (get m "module")]
-        (if (local? module)
+        (if (or (local? module) (contains? workspace-modules module))
           (doseq [[relative role] (map vector (installed/product-paths module) (get m "products"))]
             (let [data (get files (str "modules/build/" relative))]
               (need (and (= (some? data) (get role "present"))
@@ -230,8 +232,14 @@
         original-inputs (json! (path-ref! files (get-in manifest ["inputs" "originalBuildInputs"])) (* 4 1048576))
         installed-products (get original-inputs "installedImports")
         _ (need (= (boolean installed-products)
-                   (boolean (#{installed/artifact-profile "nominal-local-installed-v3"} (get manifest "profile"))))
+                   (boolean (#{installed/artifact-profile "nominal-local-installed-v3" "nominal-lake-workspace-v1"} (get manifest "profile"))))
                 "ArtifactConflict" {:stage :installed-profile})
+        _ (need (= (= "nominal-lake-workspace-v1" (get manifest "profile"))
+                   (boolean (get original-inputs "workspace"))) "ArtifactConflict" {:stage :workspace-profile})
+        _ (need (= (= installed/workspace-profile (get installed-products "profile"))
+                   (boolean (get original-inputs "workspace"))) "ArtifactConflict" {:stage :workspace-import-profile})
+        _ (when-let [workspace (get original-inputs "workspace")]
+            (installed/validate-workspace! workspace installed-products))
         _ (if (get original-inputs "installedImports")
             (do (need (= (if nominal? "native-local-nominal-project-prepare/3" installed/preparation-profile) (get original-inputs "profile"))
                       "ArtifactConflict" {:stage :installed-profile})
@@ -286,7 +294,9 @@
                                               {:root (get e "rootModule") :request request
                                                :module-products (get d "moduleProducts")
                                                :local-modules (mapv #(get % "name") modules)
-                                               :installed-imports (mapv #(get % "module") (get installed-products "modules"))} d)
+                                               :installed-imports (mapv #(get % "module") (get installed-products "modules"))
+                                               :entry-imports (when (get original-inputs "workspace")
+                                                                (mapv #(get % "module") (get installed-products "modules")))} d)
                                              (do (checked-entry/validate-document! (get e "rootModule") request d) nil))]
                               {:document d :request request :admitted admitted}))) (vector! (get manifest "entryEvidence") checked-entry/max-selected-entries))
         entries (vec (mapcat #(get-in % [:document "entries"]) documents))
@@ -298,7 +308,9 @@
         (vals imported)))
     (need (and (<= 1 (count entries) checked-entry/max-selected-entries) (= (count entries) (count (set (map #(get % "name") entries))))) "EntryRejected" {})
     (doseq [entry entries]
-      (need (module-names (get entry "compiledModule")) "EntryRejected" {:stage :entry-module})
+      (need (or (module-names (get entry "compiledModule"))
+                (and (get original-inputs "workspace")
+                     (some #(= (get entry "compiledModule") (get % "module")) (get installed-products "modules")))) "EntryRejected" {:stage :entry-module})
       (if nominal?
         (doseq [role ["raw" "callable"]]
           (need (= (get entry role) (abi (get index (get-in entry [role "name"]))))
@@ -405,7 +417,8 @@
                            "raw" (descriptor (str "evidence/" (get-in document [:receipt "stdout"])))})) (:entry-documents payload))]
     {"schema" (if (checked-entry/nominal-schema? (:entry-schema payload)) nominal-schema schema)
      "profile" (if (checked-entry/nominal-schema? (:entry-schema payload))
-                 (if (get inputs "installedImports") "nominal-local-installed-v3" "nominal-local-init-v3")
+                 (cond (get inputs "workspace") "nominal-lake-workspace-v1"
+                       (get inputs "installedImports") "nominal-local-installed-v3" :else "nominal-local-init-v3")
                  (if (get inputs "installedImports") installed/artifact-profile "legacy-local-init-v2"))
      "producer" (cond-> {"leanCommit" lean-commit "leanVersion" "4.33.1" "target" "x86_64-unknown-linux-gnu" "wordBits" 64
                  "entryHelper" (:entry-helper payload) "entryHelperSource" (:entry-helper-source payload)

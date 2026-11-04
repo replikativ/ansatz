@@ -165,23 +165,22 @@
   ([services source-root options bindings]
   ;; Resolve and retire native services before any runtime Project is opened.
   (let [binding-names (host/binding-names bindings)
+        requested (mapv (fn [entry] {:name (typed-name (.name entry)) :signature (.signature entry)}) (.entries options))
+        _ (need (= (count requested) (count (set (map :name requested)))) "EntryRejected" "Duplicate requested entry name")
         bundle-open (requiring-resolve 'ansatz.lean.jvm.compiler.bundle/open!)
         build (requiring-resolve 'ansatz.lean.jvm.compiler.evidence/build!)
         compiler-close (requiring-resolve 'ansatz.lean.jvm.compiler.transport/close!)
         {:keys [compiler project-options evidence-options]} (bundle-open (.compiler options))
         receipt
         (try
-          (let [roots [(typed-name (.rootModule options))]
-                entries (mapv (fn [entry] {:root (first roots) :name (typed-name (.name entry))
-                                          :signature (.signature entry)}) (.entries options))
+          (let [configuration ((requiring-resolve 'ansatz.lean.jvm.compiler.bundle/source-configuration!) compiler project-options source-root options)
+                roots (:roots configuration)
+                entries (mapv #(assoc % :root (first roots)) requested)
                 selected (set (map :name entries))
                 entries (into entries (for [name binding-names :when (not (selected name))]
                                         {:root (first roots) :name name :signature "auto"}))
                 _ (need (<= (count entries) 1024) "EntryRejected" "Combined entries and bindings exceed selection limit")]
-            (build compiler (cond-> (assoc project-options :project source-root
-                                    :source-root (.sourceRoot options) :roots roots)
-                             (seq (.installedImports options))
-                             (assoc :installed-imports (mapv typed-name (.installedImports options))))
+            (build compiler configuration
                    evidence-options entries (atom {})))
           (finally (compiler-close compiler)))
         basis (.-basis ^Services services)]
