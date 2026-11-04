@@ -1388,7 +1388,7 @@
                   (if (seq alts) (eval-alts ps (rest alts) tail original-fids) ps)))
    'whnf      (fn [ps _args] (basic/whnf-goal ps))
    'delta     (fn [ps args]
-                (reduce (fn [ps n] (basic/delta-in-goal ps (str n))) ps args))
+                (basic/delta-in-goal ps (mapv str args)))
    'unfold    (fn [ps args]
                 (basic/unfold-in-goal ps (str (first args))))
    'by_cases  (fn [ps args]

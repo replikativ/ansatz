@@ -1,13 +1,15 @@
 (ns ansatz.elab.structural-eqns
   "Constructor equation fast path for `brecOn` definitions. Lean Structural/Eqns
    starts with reflexivity before unfolding and splitting; use that first when
-   the matcher has one unindexed structural discriminant."
+   the matcher has one structural discriminant. Leaf splitting follows general
+   Elab/PreDefinition/Eqns.lean mkEqnTypes (55f80e10a3)."
   (:require [ansatz.kernel.env :as env]
             [ansatz.kernel.expr :as e]
             [ansatz.kernel.level :as lvl]
             [ansatz.kernel.name :as name]
             [ansatz.kernel.tc :as tc]
             [ansatz.kernel.reduce :as red]
+            [ansatz.elab.eqns :as eqns]
             [ansatz.meta.constructions.util :as u]
             [ansatz.meta.match.matcher-app :as matcher-app])
   (:import [ansatz.kernel TypeChecker]))
@@ -97,7 +99,7 @@
                       (e/get-app-fn
                        (red/whnf-no-delta environment source-body (:lctx @ctx))))]
     (reduce
-     (fn [{:keys [env names errors]} [i ctor-name]]
+     (fn [{:keys [env names errors]} ctor-name]
        (try
          (u/set-env! ctx env)
          (let [ctor (env/lookup! env ctor-name)
@@ -138,20 +140,25 @@
                                                            [major ctor-app]]
                                                           substitutions))
                                    matcher-name (e/const-name head))
-               result-type (u/infer-type ctx lhs)
-               level (u/get-level ctx result-type)
-               eq-type (u/app (u/const' "Eq" [level]) [result-type lhs rhs])
                binders (vec (concat unchanged-params fields specialized-params))
-               theorem-type (u/mk-forall-fvars ctx binders eq-type)
-               proof (or (prove-by-splitting ctx lhs rhs binders 2)
-                         (throw (ex-info "Structural equation needs Lean's general proof pass"
-                                         {:equation (str fn-name ".eq_" (inc i))})))
-               theorem-value (u/mk-lambda-fvars ctx binders proof)
-               eq-name (name/from-string (str fn-name ".eq_" (inc i)))
-               env (env/check-constant env (env/mk-thm eq-name [] theorem-type theorem-value))]
-           {:env env :names (conj names eq-name) :errors errors})
+               leaves (eqns/mk-eqn-types ctx lhs rhs binders #{(name/from-string (str fn-name))})]
+           (reduce
+            (fn [{:keys [env names errors]} {:keys [lhs rhs binders]}]
+              (u/set-env! ctx env)
+              (let [result-type (u/infer-type ctx lhs)
+                    level (u/get-level ctx result-type)
+                    eq-type (u/app (u/const' "Eq" [level]) [result-type lhs rhs])
+                    theorem-type (u/mk-forall-fvars ctx binders eq-type)
+                    eq-name (name/from-string (str fn-name ".eq_" (inc (+ (count names) (count errors)))))
+                    proof (or (prove-by-splitting ctx lhs rhs binders 2)
+                              (throw (ex-info "Structural equation needs Lean's general proof pass"
+                                              {:equation (str eq-name)})))
+                    theorem-value (u/mk-lambda-fvars ctx binders proof)
+                    env (env/check-constant env (env/mk-thm eq-name [] theorem-type theorem-value))]
+                {:env env :names (conj names eq-name) :errors errors}))
+            {:env env :names names :errors errors} leaves))
          (catch Exception ex
            {:env env :names names
-            :errors (conj errors [(name/from-string (str fn-name ".eq_" (inc i))) ex])})))
+            :errors (conj errors [(name/from-string (str fn-name ".eq_" (inc (+ (count names) (count errors))))) ex])})))
      {:env environment :names [] :errors []}
-     (map-indexed vector (.ctors ind)))))
+     (.ctors ind))))

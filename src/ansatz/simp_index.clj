@@ -25,6 +25,28 @@
             [clojure.edn :as edn])
   (:import [ansatz.kernel Name ConstantInfo]))
 
+(def write-key-encoding
+  "Encoding emitted by the importer. Independent of the store's ConstantInfo format."
+  2)
+
+(def readable-key-encodings
+  "Like store/readable-formats: unversioned artifacts use encoding 1; retain its
+   query generator instead of interpreting its keys using the current encoding."
+  #{1 2})
+
+(defn key-encoding [trie]
+  (let [version (get trie :key-encoding 1)]
+    (when-not (contains? readable-key-encodings version)
+      (throw (ex-info "Unsupported persisted simp key encoding; update ansatz or re-import the store"
+                      {:kind :simp-key-encoding-error :found version :readable readable-key-encodings})))
+    version))
+
+(defn read-simp-trie [trie]
+  (when trie (assoc trie :key-encoding (key-encoding trie))))
+
+(defn key-entries-artifact [entries]
+  {:key-encoding write-key-encoding :entries entries})
+
 (def extension-key
   "The Env extension naming the store whose derived simp index serves this env:
    `{:store-path p :branch b}`, set by ansatz.core/init!. It rides on the immutable Env like
@@ -63,7 +85,7 @@
   (when-not (and (map? source) (map? trie))
     (throw (ex-info "Captured simp index requires a source and immutable trie" {})))
   (let [view (with-index-source env source)]
-    (env/with-extension view captured-index-key {:trie trie :view view})))
+    (env/with-extension view captured-index-key {:trie (read-simp-trie trie) :view view})))
 
 (defonce ^:private rule-cache
   ^{:doc "{:path env :rules {name-str → [rules]}}: extracted rules scoped to actual
@@ -129,10 +151,13 @@
 (defn build-simp-trie
   "The `LHS-key → name` disc-tree from `[name key-str]` entries — trie-insert only. The
    importer persists the RESULT as the store's `:simp-trie` blob, so a session loads a trie
-   (hundreds of ms) instead of rebuilding it (6 s for Mathlib's 90k keys)."
+   (hundreds of ms) instead of rebuilding it (6 s for Mathlib's 90k keys).
+   Bare legacy :simp-keys vectors use encoding 1; new writers pass key-entries-artifact."
   [entries]
-  (reduce (fn [trie [nam k]] (dt/trie-insert trie (edn/read-string k) nam))
-          dt/empty-trie entries))
+  (let [version (if (map? entries) (key-encoding entries) 1)
+        entries (if (map? entries) (:entries entries) entries)]
+    (reduce (fn [trie [nam k]] (dt/trie-insert trie (edn/read-string k) nam))
+            (assoc dt/empty-trie :key-encoding version) entries)))
 
 (defn ensure-simp-trie!
   "Use the Env's captured immutable base trie when present. Legacy sources keep
@@ -149,8 +174,9 @@
           (let [{:keys [source trie]} @state/ansatz-simp-trie]
             (if (= source src)
               trie
-              (let [trie ((requiring-resolve 'ansatz.export.storage/read-derived)
-                          (:store store-map) branch :simp-trie)]
+              (let [trie (read-simp-trie
+                          ((requiring-resolve 'ansatz.export.storage/read-derived)
+                           (:store store-map) branch :simp-trie))]
                 (reset! state/ansatz-simp-trie {:source src :trie trie})
                 trie))))))))
 
@@ -159,14 +185,16 @@
 (defn query-keys
   "The edn-safe disc-tree key-path for a goal subterm — the stored LHS keys' encoding, so
    `dt/trie-match` against the loaded trie compares equal."
-  [st env expr]
-  (edn-safe-keys (dt/expr->keys st env expr)))
+  ([st env expr] (query-keys st env expr write-key-encoding))
+  ([st env expr version]
+   ;; Lean getKeyArgs: query offsets retain their structure; only patterns are stars.
+   (edn-safe-keys (dt/expr->keys st env expr {:key-encoding version :pattern? false}))))
 
 (defn candidate-names
   "Lemma NAMES whose LHS structurally matches `expr` (over-approximate — the disc tree; simp's
    own pattern match is the exact gate). Deduped."
   [trie st env expr]
-  (distinct (dt/trie-match trie (query-keys st env expr))))
+  (distinct (dt/trie-match trie (query-keys st env expr (key-encoding trie)))))
 
 (defn rules-for
   "The extracted simp rule(s) for lemma `name-str`, at its inherited @[simp] priority

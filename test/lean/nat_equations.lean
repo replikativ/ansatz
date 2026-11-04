@@ -32,3 +32,12 @@ def offsetCount : Nat → Nat
   | n+1 => Nat.succ (offsetCount n)
 example : offsetCount 3 = 3 := by simp only [offsetCount]
 example : offsetCount 0 = 0 := by simp only [offsetCount]
+
+def deltaPresent (n : Nat) := n+1
+def deltaAbsent (n : Nat) := n+2
+example (P : Nat → Prop) (n : Nat) (h : P (n+1)) : P (deltaPresent n) := by
+  delta deltaPresent deltaAbsent
+  exact h
+example (P : Nat → Prop) (n : Nat) (h : P (n+1)) : P (deltaPresent n) := by
+  delta deltaAbsent deltaPresent
+  exact h

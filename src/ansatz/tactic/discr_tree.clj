@@ -207,7 +207,8 @@
 
    If st is nil, skips argument filtering (all args indexed)."
   ([expr] (expr->keys nil nil expr))
-  ([st env expr]
+  ([st env expr] (expr->keys st env expr {:key-encoding 2 :pattern? true}))
+  ([st env expr {:keys [key-encoding pattern?] :or {key-encoding 2 pattern? true}}]
    (loop [todo (list {:expr expr :root? true}) keys (transient [])]
      (if (empty? todo)
        (persistent! keys)
@@ -225,10 +226,10 @@
              (recur rest-todo (conj! keys star-key))
 
            ;; Lean pushArgs normalizes numerals before wildcarding nested offsets.
-             (and (not root?) (some? (to-nat-lit? e)))
+             (and (= key-encoding 2) (not root?) (some? (to-nat-lit? e)))
              (recur rest-todo (conj! keys (lit-key (to-nat-lit? e))))
 
-             (and (not root?) (is-offset? env e))
+             (and (= key-encoding 2) pattern? (not root?) (is-offset? env e))
              (recur rest-todo (conj! keys star-key))
 
            ;; Application: get head + args

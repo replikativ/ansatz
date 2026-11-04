@@ -92,9 +92,7 @@
     (is (= (c "offset-pair") (e/get-app-fn result)))
     (is (= n (first (e/get-app-args result))))))
 
-;; Lean WHNF.canUnfoldAtMatcher needs the exported match_pattern attribute
-;; to reduce the inner matcher on the offset produced by unification.
-(deftest ^:wip nested-nat-offset-pattern-reduces-at-two
+(deftest nested-nat-offset-pattern-reduces-at-two
   (let [n (e/fvar 100) a (e/fvar 101)
         expr (e/app* (c "offset-pair") (add n 2) a)
         result (normal-form expr true "offset-pair")]
@@ -102,6 +100,15 @@
     (is (= n (first (e/get-app-args result))))
     (is (tc/is-def-eq (tc/mk-tc-state (a/env))
                       (second (e/get-app-args result)) (add a 2)))))
+
+(deftest delta-selected-set-allows-absent-names
+  (let [expr (e/app (c "offset-count") (e/fvar 100))
+        expanded (transformed-argument expr #(a/run-tactic % '(delta offset-count)))]
+    (doseq [tactic ['(delta offset-count offset-loop) '(delta offset-loop offset-count)]]
+      (is (= expanded (transformed-argument expr #(a/run-tactic % tactic)))))
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"did not delta reduce"
+                          (transformed-argument (e/fvar 100)
+                                                #(a/run-tactic % '(delta offset-count offset-loop)))))))
 
 (deftest offset-keys-preserve-root-and-numeral-discrimination
   (let [n (e/bvar 0) wrap #(e/app (c "offset-loop") %)
@@ -116,6 +123,8 @@
               (dt/expr->keys (wrap (e/lit-nat 3)))))))
 
 (deftest equation-inventory-and-surface-tactics
+  (is (= ["offset-pair.eq_1" "offset-pair.eq_2" "offset-pair.eq_3"]
+         (mapv name/->string (eqns/eqns-for (a/env) (name/from-string "offset-pair")))))
   (is (= ["offset-loop.eq_1" "offset-loop.eq_2"]
          (mapv name/->string (eqns/eqns-for (a/env) (name/from-string "offset-loop")))))
   (doseq [tactics ['((simp only [offset-loop])) '((simp [offset-loop]))
@@ -126,6 +135,9 @@
       (is (true? (do (eval (list* 'a/theorem (gensym "offset-step-")
                                   '[n :- Nat, acc :- Nat]
                                   (list '= (list 'offset-loop arg 'acc) rhs) tactics)) true)))))
+  (is (true? (do (eval '(a/theorem offset-pair-two [n :- Nat, acc :- Nat]
+                                   (= (offset-pair (+ n 2) acc) (offset-pair n (+ acc 2)))
+                                   (simp only [offset-pair]))) true)))
   (is (true? (do (eval '(a/theorem offset-list-control [x :- Nat, xs :- (List Nat), acc :- Nat]
                                    (= (offset-list (List.cons Nat x xs) acc) (offset-list xs (+ acc x)))
                                    (simp only [offset-list]))) true))))
