@@ -805,6 +805,25 @@
                       :else [(elab/elaborate-in-context (:env ps) (:lctx g) a)]))
                   args))))
 
+(clojure.core/defn- simp-location
+  ;; Lean Elab/Tactic/Simp.lean simpLocation/dsimpLocation resolve every name
+  ;; before simpGoal/dsimpGoal processes hypotheses, followed by the target.
+  [ps args locs opts]
+  (let [g (or (proof/current-goal ps)
+              (throw (ex-info "Tactic error: No goals" {:kind :tactic-error})))
+        wildcard? (= ['*] (vec locs))
+        target? (or (nil? locs) wildcard? (some #{'⊢} locs))
+        ids (if wildcard?
+              (simp/get-nondep-prop-hyps ps)
+              (mapv (fn [loc]
+                      (or (latest-local-id-by-name (:lctx g) loc)
+                          (throw (ex-info (str "Tactic error: simp at: no hypothesis named " loc)
+                                          {:kind :tactic-error :name loc}))))
+                    (remove #{'⊢} locs)))]
+    (if (:dsimp? opts)
+      (simp/dsimp-goal ps ids target?)
+      (simp/simp-goal ps (simp-lemma-args ps args) opts ids target?))))
+
 (clojure.core/defn- elab-apply-arg
   "Lean Elab/Tactic/ElabTerm.lean elabTermForApply: suppress implicit insertion
    for identifiers; postpone term and universe holes until result-type matching."
@@ -1158,22 +1177,11 @@
                   (throw (ex-info "Tactic error: simp +arith: arithmetic normalization simprocs are not implemented"
                                   {:kind :tactic-error :config '+arith})))
                 (let [only? (= 'only (first args))
-                      args  (if only? (rest args) args)
-                      ;; Lean's `simp [...] at h₁ h₂`: simplify those hypotheses, not the goal
-                      [args locs] (split-with #(not= 'at %) args)
-                      locs (rest locs)]
-                  (cond
-                    (seq locs)
-                    (reduce (fn [ps loc]
-                              (let [fid (latest-local-id-by-name (:lctx (proof/current-goal ps)) loc)]
-                                (when-not fid
-                                  (throw (ex-info (str "simp at: no hypothesis named " loc)
-                                                  {:kind :tactic-error :name loc})))
-                                (simp/simp-at ps fid (simp-lemma-args ps args) {:only? only?})))
-                            ps locs)
-                    only?      (simp/simp ps (simp-lemma-args ps args) {:only? true})
-                    (seq args) (simp/simp ps (simp-lemma-args ps args))
-                    :else      (simp/simp ps))))
+                      args (if only? (rest args) args)
+                      [args locs] (split-with #(not= 'at %) args)]
+                  (if (seq locs)
+                    (simp-location ps args (rest locs) {:only? only?})
+                    (simp/simp ps (simp-lemma-args ps args) {:only? only?}))))
    'simp_all  (fn [ps args]
                 (let [only? (= 'only (first args))
                       args  (if only? (rest args) args)
@@ -1183,7 +1191,13 @@
                     only?      (simp/simp-all ps (simp-lemma-args ps args) {:only? true})
                     (seq args) (simp/simp-all ps (simp-lemma-args ps args))
                     :else      (simp/simp-all ps))))
-   'dsimp     (fn [ps _args] (simp/dsimp ps))
+   'dsimp     (fn [ps args]
+                (let [args (if (= 'only (first args)) (rest args) args)
+                      [args locs] (split-with #(not= 'at %) args)]
+                  (when (seq args)
+                    (throw (ex-info "Tactic error: dsimp lemma arguments are not implemented"
+                                    {:kind :tactic-error :args args})))
+                  (simp-location ps [] (when (seq locs) (rest locs)) {:dsimp? true})))
    'intro     (fn [ps args] (if (seq args) (intro-names ps args) (intro-inaccessible ps)))
    'intros    (fn [ps args]
                 (if (seq args) (intro-names ps args)
