@@ -1464,9 +1464,10 @@
                   (basic/revert ps fid)))
    'subst     (fn [ps args]
                 ;; (subst h) — Lean's `subst h`: given `h : x = e` / `e = x`, eliminate the variable.
-                (let [nm (str (first args))
-                      fid (latest-local-id-by-name (:lctx (proof/current-goal ps)) nm)]
-                  (basic/subst ps fid)))
+                (reduce (fn [ps arg]
+                          (let [fid (latest-local-id-by-name (:lctx (proof/current-goal ps)) (str arg))]
+                            (basic/subst ps fid)))
+                        ps args))
    'subst_vars (fn [ps _args]
                  ;; (subst_vars) — Lean's `subst_vars`: subst every variable-equality hypothesis.
                  (basic/subst-vars ps))})

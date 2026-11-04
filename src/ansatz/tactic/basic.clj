@@ -1777,11 +1777,11 @@
 ;; subst (substitute equality into context)
 ;; ============================================================
 
-(defn subst
+(defn- subst-eq
   "Eliminate a variable equality, reverting all forward dependents.
-   The rcases arity follows Lean Meta/Tactic/Subst.lean substEq's WHNF/RHS
-   preference; both arities use substCore's dependent Eq.rec elimination."
-  ([ps hyp-fvar-id] (subst ps hyp-fvar-id false))
+   Lean Meta/Tactic/Subst.lean substEq/substCore: WHNF/RHS preference
+   and dependent Eq.rec elimination."
+  ([ps hyp-fvar-id] (subst-eq ps hyp-fvar-id true))
   ([ps hyp-fvar-id prefer-rhs?]
    (let [goal (proof/current-goal ps)
          _ (when-not goal (tactic-error! "No goals" {}))
@@ -1872,35 +1872,45 @@
                 (proof/record-tactic :subst [hyp-fvar-id] (:id goal)))]
      (reduce intro-preserving-name ps (mapv #(get lctx %) dependent-fids)))))
 
+(defn subst
+  "Lean Meta/Tactic/Subst.lean subst/substVar: equality proofs select the RHS;
+   a variable argument searches local equations in declaration order."
+  ([ps fid]
+   (let [g (proof/current-goal ps)
+         d (red/lctx-lookup (:lctx g) fid)
+         _ (when-not d (tactic-error! "subst: hypothesis not in context" {:id fid}))
+         eq-args (fn [d]
+                   (let [[h args] (e/get-app-fn-args (whnf-in-goal ps (:lctx g) (:type d)))]
+                     (when (and (e/const? h) (= (str (e/const-name h)) "Eq") (= 3 (count args)))
+                       args)))]
+     (if (eq-args d)
+       (subst-eq ps fid)
+       (if-let [[hid symm?]
+                (some (fn [[hid hd]]
+                        (when-let [[_ lhs rhs] (eq-args hd)]
+                          (cond
+                            (and (e/fvar? rhs) (= fid (e/fvar-id rhs))
+                                 (= lhs (e/abstract1 lhs fid))) [hid true]
+                            (and (e/fvar? lhs) (= fid (e/fvar-id lhs))
+                                 (= rhs (e/abstract1 rhs fid))) [hid false])))
+                      (sort-by key (:lctx g)))]
+         (subst-eq ps hid symm?)
+         (tactic-error! "subst: did not find equation for eliminating variable" {:id fid})))))
+  ([ps fid prefer-rhs?] (subst-eq ps fid prefer-rhs?)))
+
 (defn subst-vars
-  "Lean 4 `subst_vars`: repeatedly substitute every hypothesis that is a *variable*
-   equality — `h : x = e` or `h : e = x` where `x` is a local fvar that does NOT
-   occur in `e` (occurs-check) — until no such hypothesis remains. Each substitution
-   reuses `subst`, which reverts/re-intros all dependents (Lean substCore). Robust:
-   a candidate that `subst` rejects is skipped, so the loop always terminates."
+  "Lean Meta/Tactic/Subst.lean substSomeVar?/substVars: try locals in order,
+   repeating after each successful elimination. Only tactic failures are skipped."
   [ps]
-  (let [eq-name (name/from-string "Eq")
-        var-eq? (fn [d]
-                  (and (= :local (:tag d))
-                       (e/has-fvar-flag (:type d))
-                       (let [[h args] (e/get-app-fn-args (:type d))]
-                         (and (e/const? h) (= (e/const-name h) eq-name) (= 3 (count args))
-                              (let [lhs (nth args 1) rhs (nth args 2)]
-                                (or (and (e/fvar? lhs) (= (e/abstract1 rhs (e/fvar-id lhs)) rhs))
-                                    (and (e/fvar? rhs) (= (e/abstract1 lhs (e/fvar-id rhs)) lhs))))))))]
-    (loop [ps ps, skip #{}, guard 0]
-      (if (> guard 500)
-        ps
-        (let [goal (proof/current-goal ps)
-              cand (when goal
-                     (some (fn [[fid d]] (when (and (not (skip fid)) (var-eq? d)) fid))
-                           (:lctx goal)))]
-          (if (nil? cand)
-            ps
-            (let [ps' (try (subst ps cand) (catch Throwable _ nil))]
-              (if ps'
-                (recur ps' #{} (inc guard))
-                (recur ps (conj skip cand) (inc guard))))))))))
+  (loop [ps ps]
+    (if-let [next-ps
+             (some (fn [[fid _]]
+                     (try (subst ps fid)
+                          (catch clojure.lang.ExceptionInfo ex
+                            (if (= :tactic-error (:kind (ex-data ex))) nil (throw ex)))))
+                   (sort-by key (:lctx (proof/current-goal ps))))]
+      (recur next-ps)
+      ps)))
 
 ;; ============================================================
 ;; clear (remove hypothesis from context)
