@@ -17,6 +17,7 @@
             [ansatz.kernel.expr :as e]
             [ansatz.kernel.env :as env]
             [ansatz.meta.rec-ext :as rec-ext]
+            [ansatz.meta.structure :as meta-structure]
             [ansatz.eqns :as eqns]
             [ansatz.kernel.name :as name]
             [ansatz.kernel.level :as lvl]
@@ -3274,48 +3275,11 @@
           `(inductive/define-inductive (env) ~(str type-name) '~params '~[ctor-spec]
              ~@(when (:in opts) [:in `'~(:in opts)])))
 
-       ;; Generate projection functions
-       ;; Each projection is: λ {params...} (x : T params) => proj T.name idx x
-       ;; Following Lean 4: use Expr.proj (kernel primitive) with TC-inferred types.
-       ~@(map-indexed
-          (fn [idx [fname _ftype]]
-            (let [proj-name (str type-name "." fname)
-                  n-params (/ (count params) 2)]
-              `(let [env# (env)
-                     type-name# (name/from-string ~(str type-name))
-                     proj-name# (name/from-string ~proj-name)
-                     _# (when-not (env/lookup env# proj-name#)
-                          (let [ci# (env/lookup env# type-name#)
-                                ind-type# (.type ci#)
-                                lvl-params# (vec (.levelParams ci#))
-                                lvl-levels# (mapv lvl/param lvl-params#)
-                                n-params# ~n-params
-                                 ;; Extract param types from the inductive type forall telescope
-                                param-types# (loop [t# ind-type# i# 0 types# []]
-                                               (if (and (< i# n-params#) (e/forall? t#))
-                                                 (recur (e/forall-body t#) (inc i#) (conj types# (e/forall-type t#)))
-                                                 types#))
-                                 ;; Build the applied inductive type at depth n-params
-                                ind-applied# (reduce (fn [acc# i#]
-                                                       (e/app acc# (e/bvar (- n-params# i# 1))))
-                                                     (e/const' type-name# lvl-levels#)
-                                                     (range n-params#))
-                                 ;; Build value: λ {params...} (x : T params) => proj T idx x
-                                proj-val# (e/proj type-name# ~idx (e/bvar 0))
-                                proj-val# (e/lam "self" ind-applied# proj-val# :default)
-                                proj-val# (loop [i# (dec n-params#) body# proj-val#]
-                                            (if (< i# 0) body#
-                                                (recur (dec i#)
-                                                       (e/lam "p" (nth param-types# i#) body# :implicit))))
-                                 ;; Infer type from value using TC (avoids manual bvar computation)
-                                st# (tc/mk-tc-state env#)
-                                proj-type# (tc/infer-type st# proj-val#)
-                                 ;; Add as abbrev definition
-                                proj-ci# (env/mk-def proj-name# lvl-params# proj-type# proj-val#
-                                                     :hints :abbrev)]
-                            (reset! @(requiring-resolve 'ansatz.core/ansatz-env)
-                                    (env/check-constant env# proj-ci#))))])))
-          field-specs)
+       ;; Lean Meta/Structure.lean:mkProjections threads named projections through
+       ;; the constructor telescope, preserving them in dependent accessor types.
+       (swap! ansatz-env meta-structure/mk-projections ~(str type-name)
+              ~(mapv (fn [[fname _]] (str type-name "." fname)) field-specs)
+              ~(/ (count params) 2))
 
        ;; Inherited accessors for the embedded parent (Lean subobject `fromSubobject` access).
        ;; Runs after the projection loop so Child.to{Parent} exists.
