@@ -10,7 +10,7 @@
 (deftest actual-package-is-explicit-and-source-only
   (let [result (audit/verify! {:module-root *module-root*})]
     (is (= 31 (:sources result))) (is (= 5 (:resources result)))
-    (is (= 32 (:java-sources result)))
+    (is (= 33 (:java-sources result)))
     (is (= [23 8] [(:aot-namespaces result) (:source-loaded-namespaces result)]))
     (is (= '{org.clojure/clojure {:mvn/version "1.12.0"}
              org.clojure/data.json {:mvn/version "2.5.1"}} (:runtime-dependencies result)))))

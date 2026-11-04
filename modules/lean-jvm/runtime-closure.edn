@@ -48,13 +48,14 @@
              "META-INF/ansatz-lean-jvm/filesystem-layouts.jsonl"
              "META-INF/ansatz-lean-jvm/NOTICE"]
  :engine-class "ansatz.lean.jvm.internal.exec.Interpreter"
- :engine-closure-sha256 "39581776ff0305de65a38998785b2752a4c749f9bf80fb9d9e34a64ee3c7a2c6"
+ :engine-closure-sha256 "7ba14d43775a29af7774219731dba6d2a43bf7f10c89e327c43a596464d8c710"
  :java-engine [{:path "ansatz/lean/jvm/internal/exec/FrozenValues.java" :class "ansatz.lean.jvm.internal.exec.FrozenValues" :sha256 "c970ed4396b90ca19ced6a1f1b823a508dc8d5b10f228db49c9c909d43d38b46"}
               {:path "ansatz/lean/jvm/internal/fs/FileSession.java" :class "ansatz.lean.jvm.internal.fs.FileSession" :sha256 "af5d13b527fb420f53dccc550fe877982fe7b1ef8e3d98c2e53f798ede1aeaa9"}
               {:path "ansatz/lean/jvm/internal/exec/FilesystemLayouts.java" :class "ansatz.lean.jvm.internal.exec.FilesystemLayouts" :sha256 "f4f2889a57ebf535aa76cdf2728fcb542017d4ababc2fc41c99513f72a70dbe9"}
-              {:path "ansatz/lean/jvm/internal/exec/Interpreter.java" :class "ansatz.lean.jvm.internal.exec.Interpreter" :sha256 "500e5467ab14e686cf0ee00dea3484909b62766918324cc9d23d0110e0aed622"}
+              {:path "ansatz/lean/jvm/internal/exec/Interpreter.java" :class "ansatz.lean.jvm.internal.exec.Interpreter" :sha256 "b6431531b757ebe77ecc2cd536640d5411f9605937bfc8f5f641630428e88200"}
                {:path "ansatz/lean/jvm/internal/exec/ScalarBits.java" :class "ansatz.lean.jvm.internal.exec.ScalarBits" :sha256 "f7f105354cb7c66c3aa1834254113738ed52d14a47fe92308d1dd4e9db5f6fe9"}
-               {:path "ansatz/lean/jvm/internal/exec/Utf8Bytes.java" :class "ansatz.lean.jvm.internal.exec.Utf8Bytes" :sha256 "74eb7745542b95b40ad166517fd79bf60500363792f771a34a2bd4c52a64fb18"}]
+               {:path "ansatz/lean/jvm/internal/exec/Utf8Bytes.java" :class "ansatz.lean.jvm.internal.exec.Utf8Bytes" :sha256 "74eb7745542b95b40ad166517fd79bf60500363792f771a34a2bd4c52a64fb18"}
+              {:path "ansatz/lean/jvm/internal/exec/ExternRegistry.java" :class "ansatz.lean.jvm.internal.exec.ExternRegistry" :sha256 "8bb09842474f1dcf02e4331531708d1d8013b9fbda957d1d865319c4843f5859"}]
  :java-api [
               {:path "ansatz/lean/jvm/LeanIOError.java" :class "ansatz.lean.jvm.LeanIOError" :sha256 "f9d09e98bdb66e01fd5e36c7472c8f1d3b2e7e5be96548103012aab72cbe6490"}
               {:path "ansatz/lean/jvm/HostBindings.java" :class "ansatz.lean.jvm.HostBindings" :sha256 "0ea1e2da29706393d862ab04b7b6282b04baaa562e600f56eaecbd670775d2c7"}
