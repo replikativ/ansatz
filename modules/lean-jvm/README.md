@@ -126,7 +126,12 @@ same native tools as preparation.
 | Enums, records, recursive datatypes (v3 producer) | immutable `LeanData` | tagged map views |
 
 Machine integers reject out-of-range inputs rather than truncate; arithmetic inside
-Lean keeps Lean's wrapping semantics. Conversions are bounded: 4,096-bit integer
+Lean keeps Lean's own semantics. The runtime implements Lean 4.33.1's Nat, Int and
+unsigned fixed-width (UInt8–64, USize) operations natively, including both Int
+division conventions, bitwise operations, shifts and width conversions; integer
+values are bounded at 16M bits. Signed fixed-width types (Int8–64, ISize) are not
+yet admitted; a program needing an unadmitted runtime operation is refused before
+startup, never run partially. Conversions are bounded: 4,096-bit integer
 leaves, 65,536 UTF-16 units per string, 100,000 visited values, depth 128 (1,024 for
 v3 typed values), 1 MiB of scalar/buffer bytes per conversion. Detached v3 values
 can be materialized with `LeanType.materialize` / `lean/materialize` and reused in
