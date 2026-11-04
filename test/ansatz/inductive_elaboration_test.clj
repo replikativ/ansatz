@@ -147,3 +147,46 @@
                  (apply ind/define-inductive (a/env) family params ctors opts))))
   (doseq [n ["BadIndex" "WrongIndex" "BadIndexCount" "BadField" "Varying" "Negative"]]
     (is (nil? (env/lookup (a/env) (name/from-string n))))))
+
+(deftest partial-family-applications-are-predicate-arguments
+  ;; Paired with test/lean/partial_inductive_application.lean.
+  (a/inductive PartialR [roots (List Nat)] :in Prop :indices [x Nat]
+               (mk [x Nat] [h (List.Mem Nat x roots)] :where [x]))
+  (a/theorem use-predicate [P :- (=> Nat Prop) x :- Nat h :- (P x)] (P x)
+             (exact h))
+  (a/theorem partial-family-exact
+             [roots :- (List Nat) x :- Nat h :- (PartialR roots x)] (PartialR roots x)
+             (exact (use-predicate (PartialR roots) x h)))
+  (a/theorem partial-family-apply
+             [roots :- (List Nat) x :- Nat h :- (PartialR roots x)] (PartialR roots x)
+             (apply (use-predicate (PartialR roots) x)) (exact h))
+  (a/theorem partial-family-have
+             [roots :- (List Nat) x :- Nat h :- (PartialR roots x)] (PartialR roots x)
+             (have hx (PartialR roots x) := (use-predicate (PartialR roots) x h)) (exact hx))
+  (a/defn partial-family-body [roots :- (List Nat)] (=> Nat Prop) (PartialR roots))
+  (a/theorem partial-family-eta [roots :- (List Nat)]
+             (= (=> Nat Prop) (partial-family-body roots) (fn [x :- Nat] (PartialR roots x)))
+             (rfl))
+  (is (= :default (e/forall-info (ctor-type "PartialR")))))
+
+(deftest partial-types-functions-and-constructors-are-arguments
+  (a/structure PartialBox [A Type B Type] (left A) (right B))
+  (a/defn use-type [F :- (=> Type Type)] Type (F Nat))
+  (a/defn partial-structure [] Type (use-type (PartialBox Nat)))
+  (a/theorem partial-structure-equality []
+             (= Type (partial-structure) (PartialBox Nat Nat)) (rfl))
+  (a/defn use-function [f :- (=> Nat Nat) x :- Nat] Nat (f x))
+  (a/theorem partial-function-equality []
+             (= Nat (use-function (Nat.add 1) 2) 3) (rfl))
+  (a/defn use-constructor [f :- (=> (List Nat) (List Nat)) xs :- (List Nat)]
+    (List Nat) (f xs))
+  (a/theorem partial-constructor-equality [xs :- (List Nat)]
+             (= (List Nat) (use-constructor (List.cons 1) xs) (List.cons Nat 1 xs)) (rfl))
+  ;; Construct the @-prefixed symbol because Clojure reads @ as deref.
+  (a/prove-theorem 'partial-explicit-constructor-equality '[xs :- (List Nat)]
+                   (list '= '(List Nat)
+                         (list 'use-constructor (list (symbol "@List.cons") 'Nat 1) 'xs)
+                         '(List.cons Nat 1 xs))
+                   '[(rfl)])
+  (is (= :implicit (e/forall-info (ctor-type "PartialBox.mk"))))
+  (is (= :default (e/forall-info (ctor-type "PartialBox")))))

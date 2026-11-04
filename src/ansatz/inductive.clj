@@ -162,11 +162,12 @@
                    (recur (dec i) (e/forall' (:name (nth indices i))
                                              (:compiled-type (nth indices i))
                                              body :default))))]
-    ;; Wrap param foralls — implicit like Lean 4 (enables auto-elaborate inference)
+    ;; Lean Elab/MutualInductive.lean elabHeadersAux preserves the header binders.
+    ;; Explicit family parameters become implicit only in constructor types.
     (loop [i (dec (count params)) body body]
       (if (< i 0) body
           (recur (dec i) (e/forall' (:name (nth params i)) (:compiled-type (nth params i))
-                                    body :implicit))))))
+                                    body :default))))))
 
 (defn- elim-only-at-universe-zero?
   ;; Lean src/kernel/inductive.cpp (55f80e10a3), elim_only_at_universe_zero.
