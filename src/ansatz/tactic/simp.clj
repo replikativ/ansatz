@@ -1,6 +1,7 @@
 ;; Tactic layer — simp: simplification by term rewriting.
 ;;
-;; Implements a simplification tactic following Lean 4's simp architecture:
+;; Follows Lean 4.33.1 (55f80e10a3) Lean/Meta/Tactic/Simp/Main.lean (simpGoal, dsimpGoal),
+;; Lean/Elab/Tactic/Simp.lean (simpLocation), and the simp architecture:
 ;;
 ;; Core concepts:
 ;; - SimpResult: {:expr Expr, :proof? (Option Expr)} where proof? is an
@@ -3462,6 +3463,49 @@
     (close-goal-with-proof ps goal st result lemma-names true
                            (get opts :may-close-goal? true))))
 
+(defn- apply-simp-result-to-local-decl
+  ;; Lean Meta/Tactic/Simp/Main.lean applySimpResultToLocalDeclCore.
+  [ps hyp-id result opts lemma-names]
+  (let [goal (proof/current-goal ps)
+        decl (red/lctx-lookup (:lctx goal) hyp-id)
+        st (tc/attach-lctx (tc/mk-tc-state (:env ps)) (:lctx goal))
+        old-type (:type decl)
+        new-type (:expr result)
+        [proof-old proof-new]
+        (if-let [pf (:proof? result)]
+          (let [pw (#'tc/cached-whnf st (tc/infer-type st pf))
+                [h a] (e/get-app-fn-args pw)]
+            (if (and (e/const? h) (= (e/const-name h) eq-name) (= 3 (count a)))
+              [(nth a 1) (nth a 2)]
+              [old-type new-type]))
+          [old-type new-type])
+        [ps new-id] (proof/alloc-id ps)
+        rep {:old-fvar-id hyp-id :new-fvar-id new-id :name (:name decl)
+             :old-type old-type :new-type new-type
+             :proof-old-type proof-old :proof-new-type proof-new
+             :eq-proof (:proof? result)}
+         ;; Lean Main.lean applySimpResultToLocalDeclCore: assert, tryClear,
+         ;; then introduce the named replacement. The original remains in scope
+         ;; when used by the target or later local types/values.
+        child-lctx (assoc (:lctx goal) new-id
+                          (red/preserve-user-name {:tag :local :id new-id :type new-type} decl))
+        [ps child-id] (proof/fresh-mvar ps (:type goal) child-lctx)
+        ps (-> (update ps :goals #(into [child-id] (remove #{child-id} %)))
+               (proof/assign-mvar (:id goal) {:kind :simp-all-hyps :replacements [rep] :child child-id})
+               (proof/record-tactic :simp-at (vec lemma-names) (:id goal)))
+        ps (if (:defer-clear? opts) ps
+               ((requiring-resolve 'ansatz.tactic.basic/try-clear) ps hyp-id))]
+    (if (and (not= false (:may-close-goal? opts)) (false-const? new-type))
+      (let [goal (proof/current-goal ps)
+            st' (tc/attach-lctx (tc/mk-tc-state (:env ps)) (:lctx goal))
+            s (#'tc/cached-whnf st' (tc/infer-type st' (:type goal)))
+            u (if (and s (e/sort? s)) (e/sort-level s) lvl/zero)]
+        (proof/assign-mvar ps (:id goal)
+                           {:kind :exact
+                            :term (e/app* (e/const' (name/from-string "False.elim") [u])
+                                          (:type goal) (e/fvar new-id))}))
+      ps)))
+
 (defn simp-at
   "Lean's `simp [lemmas] at h` (Meta/Tactic/Simp/Main.lean `simpLocalDecl`/`applySimpResultToLocalDecl`):
    simplify the TYPE of hypothesis `hyp-id` with the simp set (not containing `h` itself).
@@ -3481,40 +3525,111 @@
          result (simp-expr* st env lemma-index old-type config)
          new-type (:expr result)
          _ (when (or (identical? new-type old-type) (= new-type old-type))
-             (tactic-error! "simp at: made no progress" {:hyp (:name decl)}))
-         [proof-old proof-new]
-         (if-let [pf (:proof? result)]
-           (let [pw (#'tc/cached-whnf st (tc/infer-type st pf))
-                 [h a] (e/get-app-fn-args pw)]
-             (if (and (e/const? h) (= (e/const-name h) eq-name) (= 3 (count a)))
-               [(nth a 1) (nth a 2)]
-               [old-type new-type]))
-           [old-type new-type])
-         [ps new-id] (proof/alloc-id ps)
-         rep {:old-fvar-id hyp-id :new-fvar-id new-id :name (:name decl)
-              :old-type old-type :new-type new-type
-              :proof-old-type proof-old :proof-new-type proof-new
-              :eq-proof (:proof? result)}
-         ;; Lean Main.lean applySimpResultToLocalDeclCore: assert, tryClear,
-         ;; then introduce the named replacement. The original remains in scope
-         ;; when used by the target or later local types/values.
-         child-lctx (assoc (:lctx goal) new-id
-                           (red/preserve-user-name {:tag :local :id new-id :type new-type} decl))
-         [ps child-id] (proof/fresh-mvar ps (:type goal) child-lctx)
-         ps (-> (update ps :goals #(into [child-id] (remove #{child-id} %)))
-                (proof/assign-mvar (:id goal) {:kind :simp-all-hyps :replacements [rep] :child child-id})
-                (proof/record-tactic :simp-at (vec lemma-names) (:id goal)))
-         ps ((requiring-resolve 'ansatz.tactic.basic/try-clear) ps hyp-id)]
-     (if (and (not= false (:may-close-goal? opts)) (false-const? new-type))
-       (let [goal (proof/current-goal ps)
-             st' (tc/attach-lctx (tc/mk-tc-state (:env ps)) (:lctx goal))
-             s (#'tc/cached-whnf st' (tc/infer-type st' (:type goal)))
-             u (if (and s (e/sort? s)) (e/sort-level s) lvl/zero)]
-         (proof/assign-mvar ps (:id goal)
-                            {:kind :exact
-                             :term (e/app* (e/const' (name/from-string "False.elim") [u])
-                                           (:type goal) (e/fvar new-id))}))
-       ps))))
+             (tactic-error! "simp at: made no progress" {:hyp (:name decl)}))]
+     (apply-simp-result-to-local-decl ps hyp-id result opts lemma-names))))
+
+(defn get-nondep-prop-hyps
+  "Lean Meta/Tactic/Util.lean getNondepPropHyps, in local context order."
+  [ps]
+  (let [goal (proof/current-goal ps)
+        st (tc/attach-lctx (tc/mk-tc-state (:env ps)) (:lctx goal))
+        depends? (fn [expr id] (and expr (not= expr (e/abstract1 expr id))))]
+    (into [] (keep (fn [[id d]]
+                     (when (and (= :local (:tag d)) (not (:value d))
+                                (not (:implementation-detail d))
+                                (is-prop-type? st (:type d))
+                                (not (depends? (:type goal) id))
+                                (not (some (fn [[other-id other]]
+                                             (and (not (:implementation-detail other))
+                                                  (not= id other-id)
+                                                  (or (depends? (:type other) id)
+                                                      (depends? (:value other) id))))
+                                           (:lctx goal))))
+                       id)))
+          (sort-by key (:lctx goal)))))
+
+(defn- replace-local-decl-def-eq
+  ;; Lean Meta/Tactic/Replace.lean replaceLocalDeclDefEq preserves the fvar id.
+  [ps id type]
+  (let [g (proof/current-goal ps)
+        old-type (get-in g [:lctx id :type])
+        st (tc/attach-lctx (tc/mk-tc-state (:env ps)) (:lctx g))]
+    (when-not (tc/is-def-eq st old-type type)
+      (tactic-error! "simp: uncertified hypothesis simplification" {:id id}))
+    (let [lctx (assoc-in (:lctx g) [id :type] type)
+          [ps child] (proof/fresh-mvar-replacing ps (:type g) lctx (:id g))]
+      (proof/assign-mvar ps (:id g) {:kind :change-local :child child}))))
+
+(declare dsimp)
+
+(defn simp-goal
+  "Lean Meta/Tactic/Simp/Main.lean simpGoal: hypotheses, target, then assertions.
+   Check progress across the entire location list and stop at a closed focused goal."
+  [ps lemma-names opts hyp-ids simplify-target?]
+  (let [goal (proof/current-goal ps)
+        original-id (:id goal)
+        goal-count (count (:goals ps))]
+    (when-not goal (tactic-error! "No goals" {}))
+    (loop [ps ps ids (seq hyp-ids) to-assert []]
+      (if-let [id (first ids)]
+        (let [g (proof/current-goal ps)
+              decl (red/lctx-lookup (:lctx g) id)
+              names (remove #(and (instance? ansatz.kernel.Expr %) (e/fvar? %)
+                                  (= id (e/fvar-id %))) lemma-names)
+              [ps st env index config] (simp-setup ps g names opts)
+              result (simp-expr* st env index (:type decl) config)]
+          (cond
+            (false-const? (:expr result))
+            (apply-simp-result-to-local-decl ps id result opts names)
+
+            (and (nil? (:proof? result)) (= (:type decl) (:expr result)))
+            (recur ps (next ids) to-assert)
+
+            ;; Definitional changes are visible to subsequent locations in Lean.
+            (nil? (:proof? result))
+            (recur (replace-local-decl-def-eq ps id (:expr result)) (next ids) to-assert)
+
+            :else (recur ps (next ids) (conj to-assert [id result]))))
+        (let [ps (if simplify-target?
+                   (simp-target ps lemma-names opts) ps)]
+          (if (< (count (:goals ps)) goal-count)
+            ps
+            (let [ps (reduce (fn [ps [id result]]
+                               (apply-simp-result-to-local-decl ps id result
+                                                                (assoc opts :defer-clear? true) lemma-names)) ps to-assert)
+                  ps (reduce (fn [ps [id _]]
+                               ((requiring-resolve 'ansatz.tactic.basic/try-clear) ps id))
+                             ps (reverse to-assert))]
+              (when (and (get opts :fail-if-unchanged? true)
+                         (= original-id (:id (proof/current-goal ps))))
+                (tactic-error! "simp made no progress" {}))
+              ps)))))))
+
+(defn dsimp-goal
+  "Lean Meta/Tactic/Simp/Main.lean dsimpGoal: replace definitionally equal locals
+   immediately, then simplify the target, and check progress once."
+  [ps hyp-ids simplify-target?]
+  (let [goal (proof/current-goal ps)
+        original-id (:id goal)
+        goal-count (count (:goals ps))]
+    (when-not goal (tactic-error! "No goals" {}))
+    (loop [ps ps ids (seq hyp-ids)]
+      (if-let [id (first ids)]
+        (let [g (proof/current-goal ps)
+              type (get-in g [:lctx id :type])
+              type-new (dsimp-expr (:env ps) (:lctx g) type 100)]
+          (cond
+            (false-const? type-new)
+            (apply-simp-result-to-local-decl ps id {:expr type-new} {} [])
+
+            (= type type-new) (recur ps (next ids))
+
+            :else (recur (replace-local-decl-def-eq ps id type-new) (next ids))))
+        (let [ps (if simplify-target? (dsimp ps {:fail-if-unchanged? false}) ps)]
+          (when (and (= goal-count (count (:goals ps)))
+                     (= original-id (:id (proof/current-goal ps))))
+            (tactic-error! "dsimp made no progress" {}))
+          ps)))))
 
 (defn- hyp-type->lemmas
   "Extract simp lemma(s) from a single hypothesis type.
@@ -3893,38 +4008,40 @@
    Unlike the previous closing-only stub (single head whnf, errored when it couldn't
    close), this is the transforming tactic: after simp rewrites a match scrutinee to a
    literal, `dsimp` fires the iota step the rewrite pass leaves pending."
-  [ps]
-  (let [goal (proof/current-goal ps)
-        _ (when-not goal (tactic-error! "No goals" {}))
-        env (:env ps)
+  ([ps] (dsimp ps {}))
+  ([ps opts]
+   (let [goal (proof/current-goal ps)
+         _ (when-not goal (tactic-error! "No goals" {}))
+         env (:env ps)
         ;; attach-lctx bumps :next-id above the goal's fvars (see note at simp entry).
-        st (tc/attach-lctx (tc/mk-tc-state env) (:lctx goal))
-        goal-type (:type goal)
+         st (tc/attach-lctx (tc/mk-tc-state env) (:lctx goal))
+         goal-type (:type goal)
         ;; dsimpReduce: recursive structural reduction of the whole target.
-        simplified (dsimp-expr env (:lctx goal) goal-type 100)
-        simplified-whnf (#'tc/cached-whnf st simplified)
-        [head args] (e/get-app-fn-args simplified-whnf)]
-    (cond
+         simplified (dsimp-expr env (:lctx goal) goal-type 100)
+         simplified-whnf (#'tc/cached-whnf st simplified)
+         [head args] (e/get-app-fn-args simplified-whnf)]
+     (cond
       ;; targetNew.isTrue → True.intro
-      (and (e/const? head) (= (e/const-name head) true-name))
-      (-> (proof/assign-mvar ps (:id goal) {:kind :exact :term (e/const' true-intro-name [])})
-          (proof/record-tactic :dsimp [] (:id goal)))
+       (and (e/const? head) (= (e/const-name head) true-name))
+       (-> (proof/assign-mvar ps (:id goal) {:kind :exact :term (e/const' true-intro-name [])})
+           (proof/record-tactic :dsimp [] (:id goal)))
 
       ;; targetNew is `Eq α a b` with isDefEq a b → Eq.refl
-      (and (e/const? head) (= (e/const-name head) eq-name) (= 3 (count args))
-           (tc/is-def-eq st (nth args 1) (nth args 2)))
-      (let [proof (e/app* (e/const' eq-refl-name (e/const-levels head)) (nth args 0) (nth args 1))]
-        (-> (proof/assign-mvar ps (:id goal) {:kind :exact :term proof})
-            (proof/record-tactic :dsimp [] (:id goal))))
+       (and (e/const? head) (= (e/const-name head) eq-name) (= 3 (count args))
+            (tc/is-def-eq st (nth args 1) (nth args 2)))
+       (let [proof (e/app* (e/const' eq-refl-name (e/const-levels head)) (nth args 0) (nth args 1))]
+         (-> (proof/assign-mvar ps (:id goal) {:kind :exact :term proof})
+             (proof/record-tactic :dsimp [] (:id goal))))
 
       ;; failIfUnchanged (config default)
-      (= simplified goal-type)
-      (tactic-error! "dsimp made no progress" {:goal goal-type})
+       (= simplified goal-type)
+       (if (get opts :fail-if-unchanged? true)
+         (tactic-error! "dsimp made no progress" {:goal goal-type}) ps)
 
       ;; replaceTargetDefEq — leave the reduced goal open (def-eq, no proof term)
-      :else
-      (let [[ps' new-id] (proof/fresh-mvar-replacing ps simplified (:lctx goal) (:id goal))]
-        (-> (proof/assign-mvar ps' (:id goal)
-                               {:kind :simp-reduce :eq-proof nil :child new-id
-                                :mpr-level lvl/zero :goal-type goal-type :simplified simplified})
-            (proof/record-tactic :dsimp [] (:id goal)))))))
+       :else
+       (let [[ps' new-id] (proof/fresh-mvar-replacing ps simplified (:lctx goal) (:id goal))]
+         (-> (proof/assign-mvar ps' (:id goal)
+                                {:kind :simp-reduce :eq-proof nil :child new-id
+                                 :mpr-level lvl/zero :goal-type goal-type :simplified simplified})
+             (proof/record-tactic :dsimp [] (:id goal))))))))
