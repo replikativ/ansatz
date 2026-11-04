@@ -209,3 +209,54 @@
       (finally
         (reset! a/codegen-registry saved-codegen)
         (reset! a/arity-registry saved-arity)))))
+
+(defn- native-minor-error [env term]
+  (try
+    (cg/ansatz->clj env term [])
+    nil
+    (catch clojure.lang.ExceptionInfo ex
+      (if (= :codegen-error (:kind (ex-data ex)))
+        (ex-data ex)
+        (throw ex)))))
+
+(deftest native-recursive-minors-require-literal-ih-binders
+  (install! '(ansatz.core/defn runtime-ignore-ih [k :- Nat, ih :- Nat] Nat 7))
+  (let [en (env/update-extension (a/env) :csimp {} assoc "Nat.rec" "Nat.recCompiled")
+        rec (symbol "@Nat.rec.{1}")
+        application (fn [minor]
+                      (list rec '(fn [_ :- Nat] Nat) 0 minor 10000))
+        tc (TypeChecker. en)]
+    ;; These are valid kernel terms. Native emission must refuse the strict minor
+    ;; boundary before an ordinary call can force the unused recursive value.
+    (doseq [form [(application 'runtime-ignore-ih)
+                  (application '(fn [k :- Nat] (runtime-ignore-ih k)))
+                  (list 'fn '[minor :- (=> Nat (=> Nat Nat))] (application 'minor))]]
+      (let [term (elab/elaborate en form)]
+        (is (some? (.inferType tc term)))
+        (is (= {:kind :codegen-error :recursor "Nat.rec" :reason :strict-recursive-minor}
+               (native-minor-error en term)))))
+    (is (thrown-with-msg?
+         clojure.lang.ExceptionInfo #"literal lambda binders through every induction hypothesis"
+         (let [form (list 'fn '[minor :- (=> Nat (=> Nat Nat))] (application 'minor))
+               f (eval (cg/ansatz->clj en (elab/elaborate en form) []))]
+           (f (fn [_k] (fn [_ih] 7))))))
+    ;; A literal minor exposes the unused IH and succeeds immediately at the same depth.
+    (let [term (elab/elaborate en (application '(fn [k :- Nat, ih :- Nat] 7)))]
+      (is (= 7 (eval (cg/ansatz->clj en term [])))))))
+
+(deftest nested-recursive-minors-require-literal-ih-binders
+  (install! '(ansatz.core/inductive RuntimeMinorRose []
+                                    (leaf [n Nat]) (node [kids (List RuntimeMinorRose)])))
+  (install! '(ansatz.core/defn runtime-ignore-rose-ih
+               [kids :- (List RuntimeMinorRose), ih :- Nat] Nat 7))
+  (let [form (list (symbol "@RuntimeMinorRose.rec.{1}")
+                   '(fn [_ :- RuntimeMinorRose] Nat) '(fn [_ :- (List RuntimeMinorRose)] Nat)
+                   '(fn [n :- Nat] n) 'runtime-ignore-rose-ih 0
+                   '(fn [h :- RuntimeMinorRose, t :- (List RuntimeMinorRose), hh :- Nat, th :- Nat]
+                      (+ hh th))
+                   '(RuntimeMinorRose.node (List.nil RuntimeMinorRose)))
+        term (elab/elaborate (a/env) form)
+        error (native-minor-error (a/env) term)]
+    (is (some? (.inferType (TypeChecker. (a/env)) term)))
+    (is (= :strict-recursive-minor (:reason error)))
+    (is (= "RuntimeMinorRose.rec" (:recursor error)))))

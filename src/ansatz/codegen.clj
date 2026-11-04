@@ -668,7 +668,23 @@
         :proj   (e/proj (e/proj-type-name expr) (e/proj-idx expr) (coll (e/proj-struct expr)))
         expr))))
 
-(clojure.core/defn- compile-minor [env minor names actuals]
+(clojure.core/defn- ensure-lazy-minor!
+  [minor positions recursor]
+  ;; ToImpure.lean lowerLet rejects unsupported recursors. Native elimination is
+  ;; an extension: only literal binders let us substitute an IH at its uses,
+  ;; rather than pass an eagerly evaluated IH to an ordinary strict function.
+  (loop [minor minor remaining (if (seq positions) (inc (apply max positions)) 0)]
+    (when (pos? remaining)
+      (if (e/lam? minor)
+        (recur (e/lam-body minor) (dec remaining))
+        (throw (ex-info (str "Codegen: native recursor '" recursor
+                             "' requires literal lambda binders through every induction hypothesis; "
+                             "use match or structural recursion")
+                        {:kind :codegen-error :recursor recursor
+                         :reason :strict-recursive-minor}))))))
+
+(clojure.core/defn- compile-minor [env minor names actuals lazy-positions recursor]
+  (ensure-lazy-minor! minor lazy-positions recursor)
   (let [n (count actuals)]
     ;; Apply in Expr space so eta-reduced builtins and flat-arity functions use
     ;; the same application lowering as explicitly written applications.
@@ -808,7 +824,15 @@
                                           (recur (types/bind-type ctx (str (first fs)) (e/forall-type t))
                                                  (e/forall-body t) (rest fs))))
                                 body (share-lazy-arguments
-                                      (compile-minor env minor ctx actual-syms)
+                                      (compile-minor
+                                       env minor ctx actual-syms
+                                       (keep-indexed
+                                        (fn [i actual]
+                                          (when (some #(and (e/const? %)
+                                                            (contains? group (name/->string (e/const-name %))))
+                                                      (tree-seq #(seq (children %)) children actual))
+                                            i)) actuals)
+                                       n)
                                       (zipmap actual-syms (map #(ansatz->clj env % ctx) actuals)))]
                             {:cidx (.cidx ctor) :ind ind :tagged? tagged? :nf nf
                              :body (if (seq bindings) (list 'let bindings body) body)}))
@@ -1041,7 +1065,8 @@
                               apply-minor
                               (fn [{:keys [minor-ansatz field-syms ih-syms rec-indices]}]
                                 (let [actuals (into field-syms ih-syms)
-                                      compiled (compile-minor env minor-ansatz names actuals)
+                                      compiled (compile-minor env minor-ansatz names actuals
+                                                              (range (count field-syms) (count actuals)) h)
                                       calls (zipmap ih-syms
                                                     (map #(list self-sym (nth field-syms %)) rec-indices))]
                                 ;; Share repeated IHs without forcing unused branches.

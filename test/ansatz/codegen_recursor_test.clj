@@ -60,10 +60,10 @@
                             (case uses 0 9 1 'il 2 '(+ il il)))
                       0 't))))
   (eval '(ansatz.core/defn cg-step [p :- Nat, ih :- Nat] Nat (+ 1 ih)))
-  (eval (list 'ansatz.core/defn 'cg-nat-eta '[n :- Nat] 'Nat
-              (list (symbol "Nat.rec.{1}") '(fn [_ :- Nat] Nat) 0 'cg-step 'n)))
+  (eval (list 'ansatz.core/defn 'cg-nat-forward '[n :- Nat] 'Nat
+              (list (symbol "Nat.rec.{1}") '(fn [_ :- Nat] Nat) 0 '(fn [p :- Nat, ih :- Nat] (cg-step p ih)) 'n)))
   (eval (list 'ansatz.core/defn 'cg-nat-add '[n :- Nat] 'Nat
-              (list (symbol "Nat.rec.{1}") '(fn [_ :- Nat] Nat) 0 'Nat.add 'n)))
+              (list (symbol "Nat.rec.{1}") '(fn [_ :- Nat] Nat) 0 '(fn [p :- Nat, ih :- Nat] (Nat.add p ih)) 'n)))
   (eval (list 'ansatz.core/defn 'cg-nat-double '[n :- Nat] 'Nat
               (list (symbol "Nat.rec.{1}") '(fn [_ :- Nat] Nat) 1
                     '(fn [p :- Nat, ih :- Nat] (+ ih ih)) 'n)))
@@ -71,11 +71,11 @@
               (list (symbol "List.rec.{1,0}") 'Nat '(fn [_ :- (List Nat)] Nat) 1
                     '(fn [h :- Nat, t :- (List Nat), ih :- Nat] (+ ih ih)) 'xs)))
   (eval '(ansatz.core/defn cg-bstep [l :- Bt, r :- Bt, il :- Nat, ir :- Nat] Nat (+ il il)))
-  (eval (list 'ansatz.core/defn 'cg-tag-eta '[t :- Bt] 'Nat
-              (list (symbol "Bt.rec.{1}") '(fn [_ :- Bt] Nat) 1 'cg-bstep 0 't)))
-  (eval (list 'ansatz.core/defn 'cg-tag-partial '[t :- Bt] 'Nat
+  (eval (list 'ansatz.core/defn 'cg-tag-forward '[t :- Bt] 'Nat
+              (list (symbol "Bt.rec.{1}") '(fn [_ :- Bt] Nat) 1 '(fn [l :- Bt, r :- Bt, il :- Nat, ir :- Nat] (+ il il)) 0 't)))
+  (eval (list 'ansatz.core/defn 'cg-tag-forward-all '[t :- Bt] 'Nat
               (list (symbol "Bt.rec.{1}") '(fn [_ :- Bt] Nat) 1
-                    '(fn [l :- Bt] (cg-bstep l)) 0 't)))
+                    '(fn [l :- Bt, r :- Bt, il :- Nat, ir :- Nat] (cg-bstep l r il ir)) 0 't)))
   (eval (list 'ansatz.core/defn 'cg-rose '[r :- CGRose] 'Nat
               (list (symbol "CGRose.rec.{1}")
                     '(fn [_ :- CGRose] Nat) '(fn [_ :- (List CGRose)] Nat)
@@ -726,7 +726,7 @@
                     [['cg-peano [peano] :int]
                      ['cg-rose [(list 'CGRose.node roses) (list 'CGRose.node (list 'List.cons 'CGRose (list 'CGRose.node roses) '(List.nil CGRose)))] :int]
                      ['cg-nat [n] :int]
-                     ['cg-nat-eta [n] :int]
+                     ['cg-nat-forward [n] :int]
                      ['cg-nat-add [n] :int]
                      ['cg-nat-double [n] :int]
                      ['cg-list-double [xs] :int]
@@ -745,8 +745,8 @@
                      ['cg-ih1 [spine] :int]
                      ['cg-ih2 [spine] :int]
                      ['dbl [spine] :int]
-                     ['cg-tag-eta [spine] :int]
-                     ['cg-tag-partial [spine] :int]]]
+                     ['cg-tag-forward [spine] :int]
+                     ['cg-tag-forward-all [spine] :int]]]
               (differential! f inputs schema))))
         (testing "#113: eta-reduced minor applies in the outer context"
           (is (= [6] ((deref (ns-resolve *ns* 'ob5)) 5)))

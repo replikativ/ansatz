@@ -98,3 +98,14 @@ theorem wfProof (n : Nat) : (0 : Nat) = 0 :=
   if h : n ≤ 0 then rfl else wfProof (n - 1)
 termination_by n
 decreasing_by omega
+
+-- Lean compiles these through rec_eq_recCompiled. Native elimination without a
+-- compatible lazy minor ABI must reject the named/runtime minor boundary.
+def ignoreIH (_k _ih : Nat) : Nat := 7
+
+def runtimeMinor (minor : Nat → Nat → Nat) : Nat :=
+  @Nat.rec (fun _ => Nat) 0 minor 10000
+
+example : (@Nat.rec (fun _ => Nat) 0 ignoreIH 10000) = 7 := by native_decide
+example : runtimeMinor ignoreIH = 7 := by native_decide
+example : (@Nat.rec (fun _ => Nat) 0 (fun k => ignoreIH k) 10000) = 7 := by native_decide
