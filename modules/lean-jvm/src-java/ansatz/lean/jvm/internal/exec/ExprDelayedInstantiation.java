@@ -917,10 +917,6 @@ final class ExprDelayedInstantiation {
         }
         frame.completed=true;
     }
-    private void startResolver(DelayedSession session,Object input) {
-        require(session.phase==DELAYED_IDLE&&session.resolver.isEmpty()&&session.call==null&&session.constructorCall==null,"Resolvable session is not idle");
-        Node root=vm.exprNode(input); session.phase=DELAYED_RUNNING; pushResolver(session,new ResolvableExprFrame(root));
-    }
     private void stepResolver(RuntimeAction action,DelayedSession session) {
         delayedWork(session,1); resumeDelayedRetiring(action,session);
         require(session.phase==DELAYED_RUNNING&&session.constructorCall==null,"No running resolver or unsupported delayed constructor packet");

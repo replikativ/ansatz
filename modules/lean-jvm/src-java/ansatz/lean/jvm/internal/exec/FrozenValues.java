@@ -1623,9 +1623,6 @@ final class FrozenValues {
         dataRequire(compatible(expected,actual),"Build child type/layout/cohort mismatch");
         return value;
     }
-    private static FrozenPlan valuePlan(Object value) {
-        return value instanceof Build?((Build)value).plan:((FrozenInput)value).cert.plan;
-    }
     private static RawBits rawValue(Object value) {
         if(value instanceof Build) {
             RawBits raw=((Build)value).raw;

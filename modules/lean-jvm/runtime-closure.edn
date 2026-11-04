@@ -48,8 +48,8 @@
              "META-INF/ansatz-lean-jvm/filesystem-layouts.jsonl"
              "META-INF/ansatz-lean-jvm/NOTICE"]
  :engine-class "ansatz.lean.jvm.internal.exec.Interpreter"
- :engine-closure-sha256 "109c1bdf308875639d0b4346ba70c98cd2d1cf1cd87c88d27106d59b7ea2529d"
- :java-engine [{:path "ansatz/lean/jvm/internal/exec/FrozenValues.java" :class "ansatz.lean.jvm.internal.exec.FrozenValues" :sha256 "c970ed4396b90ca19ced6a1f1b823a508dc8d5b10f228db49c9c909d43d38b46"}
+ :engine-closure-sha256 "56f29c9b5b065abf20d35192dac6744694d452fc8d9f8cea1b70fdac5a95f1df"
+ :java-engine [{:path "ansatz/lean/jvm/internal/exec/FrozenValues.java" :class "ansatz.lean.jvm.internal.exec.FrozenValues" :sha256 "48e235df819508af2b66c9eaa9ecf1290c116e1e5b6ec4a604fdfc7f1442b711"}
               {:path "ansatz/lean/jvm/internal/fs/FileSession.java" :class "ansatz.lean.jvm.internal.fs.FileSession" :sha256 "af5d13b527fb420f53dccc550fe877982fe7b1ef8e3d98c2e53f798ede1aeaa9"}
               {:path "ansatz/lean/jvm/internal/exec/FilesystemLayouts.java" :class "ansatz.lean.jvm.internal.exec.FilesystemLayouts" :sha256 "f4f2889a57ebf535aa76cdf2728fcb542017d4ababc2fc41c99513f72a70dbe9"}
               {:path "ansatz/lean/jvm/internal/exec/Interpreter.java" :class "ansatz.lean.jvm.internal.exec.Interpreter" :sha256 "85a32e5fbd977635f97688b850cf0fd177876451efbbe46d178d071163ffb8ee"}
@@ -59,7 +59,7 @@
               {:path "ansatz/lean/jvm/internal/exec/ScalarIntrinsics.java" :class "ansatz.lean.jvm.internal.exec.ScalarIntrinsics" :sha256 "783ca46fcc553fe3609868a20547da2c381f6d9868892f6c6eea048791211a4d"}
               {:path "ansatz/lean/jvm/internal/exec/StringIntrinsics.java" :class "ansatz.lean.jvm.internal.exec.StringIntrinsics" :sha256 "04bce17c5e82d32e389f1f616fbcb2b42d9e7215a4ecf76167b4e6df29838f9d"}
               {:path "ansatz/lean/jvm/internal/exec/StdioCapture.java" :class "ansatz.lean.jvm.internal.exec.StdioCapture" :sha256 "1092e462f2519747c770063cb3c4c2acd017b8879658ab7b8c870cebddbe85f5"}
-              {:path "ansatz/lean/jvm/internal/exec/ExprDelayedInstantiation.java" :class "ansatz.lean.jvm.internal.exec.ExprDelayedInstantiation" :sha256 "0c289fac6fc1a8dd968999a017748aa170f9893c601f5f21b6857e0d1c4e2204"}
+              {:path "ansatz/lean/jvm/internal/exec/ExprDelayedInstantiation.java" :class "ansatz.lean.jvm.internal.exec.ExprDelayedInstantiation" :sha256 "305d8baa0216b8ee3f9c516213a2e859dca0ee72cfb6b49a1407a60f65151e23"}
               {:path "ansatz/lean/jvm/internal/exec/ExprDirectInstantiation.java" :class "ansatz.lean.jvm.internal.exec.ExprDirectInstantiation" :sha256 "1b2dff3a057fd3501b737dc083c0169a80e0b7700c289b55ee90df881e331392"}
               {:path "ansatz/lean/jvm/internal/exec/ExprTransforms.java" :class "ansatz.lean.jvm.internal.exec.ExprTransforms" :sha256 "438687b15b4a1bc786c05e427df7c3bd2368762ef5b21f84d223f8a267c0cac9"}
               {:path "ansatz/lean/jvm/internal/exec/LevelInstantiation.java" :class "ansatz.lean.jvm.internal.exec.LevelInstantiation" :sha256 "eae9264cc2a8b9653c8d45681547b0433b4f3a48f613745b27cb8a59274d1ccc"}]
