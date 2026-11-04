@@ -42,6 +42,22 @@ example (P : Nat → Prop) (n : Nat) (h : P (n+1)) : P (deltaPresent n) := by
   delta deltaAbsent deltaPresent
   exact h
 
+example (P : Nat → Prop) (n : Nat) (h : P (n+1)) : P (deltaPresent n) := by
+  delta deltaPresent Nat
+  exact h
+example (P : Nat → Prop) (n : Nat) (h : P (n+1)) : P (deltaPresent n) := by
+  delta Nat deltaPresent
+  exact h
+example (P : Nat → Prop) (n : Nat) (h : P (n+1)) : P (deltaPresent n) := by
+  delta deltaPresent Nat.add_comm
+  exact h
+example (P : Nat → Prop) (n : Nat) (h : P (n+1)) : P (deltaPresent n) := by
+  delta Nat.add_comm deltaPresent
+  exact h
+example : Nat := by
+  fail_if_success delta Nat Nat.add_comm
+  exact 0
+
 example (P : Nat → Prop) (x a : Nat) (xs : List Nat) (h : P (offsetList xs (a+x))) :
     P (offsetList (x::xs) a) := by
   simp only [offsetList]

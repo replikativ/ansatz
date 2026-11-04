@@ -2493,7 +2493,8 @@
                          ^ConstantInfo ci (when (e/const? head) (get definitions (e/const-name head)))
                          params (when ci (vec (.levelParams ci)))
                          result
-                         (if (and ci (= (count params) (count (e/const-levels head))))
+                         ;; Lean delta?: a selected declaration without a value is skipped.
+                         (if (and ci (.value ci) (= (count params) (count (e/const-levels head))))
                            (w (beta-rev (e/instantiate-level-params
                                          (.value ci) (zipmap params (e/const-levels head))) args))
                            (case (e/tag x)
@@ -2518,11 +2519,8 @@
         goal (proof/current-goal ps)
         _ (when-not goal (tactic-error! "No goals" {}))
         definitions (into {} (map (fn [n]
-                                    (let [n (name/from-string n)
-                                          ci (env/lookup! (:env ps) n)]
-                                      (when (or (.isThm ci) (not (.value ci)))
-                                        (tactic-error! (str "delta: " n " has no unfoldable value") {}))
-                                      [n ci])) selected-names))
+                                    (let [n (name/from-string n)]
+                                      [n (env/lookup! (:env ps) n)])) selected-names))
         target (delta-expand (:type goal) definitions)
         _ (when (= target (:type goal))
             (tactic-error! (str "delta: did not delta reduce " selected-names) {}))

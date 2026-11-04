@@ -116,6 +116,21 @@
                           (transformed-argument (e/fvar 100)
                                                 #(a/run-tactic % '(delta offset-count offset-loop)))))))
 
+(deftest delta-selected-set-allows-value-and-no-value-declarations
+  (let [expr (e/app (c "offset-count") (e/fvar 100))
+        expanded (transformed-argument expr #(basic/delta-in-goal % "offset-count"))]
+    (is (not= expr expanded))
+    (doseq [other ["Nat" "Nat.add_comm"]
+            selected [["offset-count" other] [other "offset-count"]]]
+      (is (= expanded (transformed-argument expr #(basic/delta-in-goal % selected))))
+      (is (= expanded (transformed-argument expr #(a/run-tactic % (cons 'delta (map symbol selected)))))))
+    ;; The selected inductive occurs in this target, but has no delta value.
+    ;; No usable selected value changed the whole target, so collective progress fails.
+    (let [[ps _] (proof/start-proof (a/env) (c "Nat"))]
+      (doseq [selected [["Nat"] ["Nat" "Nat.add_comm"]]]
+        (is (thrown-with-msg? clojure.lang.ExceptionInfo #"did not delta reduce"
+                              (basic/delta-in-goal ps selected)))))))
+
 (deftest offset-keys-preserve-root-and-numeral-discrimination
   (let [n (e/bvar 0) wrap #(e/app (c "offset-loop") %)
         pattern (wrap (e/app (c "Nat.succ") n))
