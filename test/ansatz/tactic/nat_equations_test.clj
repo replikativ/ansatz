@@ -31,17 +31,20 @@
                (match xs [nil acc] [(cons x tail) (offset-list tail (+ acc x))])))
       (t))))
 
-(defn- transformed-argument [expr transform]
+(defn- transformed-argument
+  ([expr transform] (transformed-argument expr transform {}))
+  ([expr transform extra-lctx]
   ;; Inspect P's argument: reflexivity cannot hide a missing equation rewrite.
-  (let [nat (c "Nat")
-        lctx {100 {:tag :local :id 100 :name "n" :type nat}
-              101 {:tag :local :id 101 :name "a" :type nat}
-              102 {:tag :local :id 102 :name "P" :type (e/arrow nat (e/sort' lvl/zero))}}
-        [ps _] (proof/start-proof (a/env) (e/app (e/fvar 102) expr))
-        goal (proof/current-goal ps)
-        ps (assoc-in ps [:meta-mctx :decls (:id goal) :lctx] lctx)
-        ps (transform ps)]
-    (e/app-arg (:type (proof/current-goal ps)))))
+   (let [nat (c "Nat")
+         lctx {100 {:tag :local :id 100 :name "n" :type nat}
+               101 {:tag :local :id 101 :name "a" :type nat}
+               102 {:tag :local :id 102 :name "P" :type (e/arrow nat (e/sort' lvl/zero))}}
+         lctx (merge lctx extra-lctx)
+         [ps _] (proof/start-proof (a/env) (e/app (e/fvar 102) expr))
+         goal (proof/current-goal ps)
+         ps (assoc-in ps [:meta-mctx :decls (:id goal) :lctx] lctx)
+         ps (transform ps)]
+     (e/app-arg (:type (proof/current-goal ps))))))
 
 (defn- normal-form [expr only? & [definition]]
   (transformed-argument expr #(simp/simp % [(or definition "offset-loop")] {:only? only?})))
@@ -121,6 +124,47 @@
            (dt/expr->keys (wrap (e/app (c "Nat.succ") (e/lit-nat 2))))))
     (is (not= (dt/expr->keys (wrap (e/lit-nat 2)))
               (dt/expr->keys (wrap (e/lit-nat 3)))))))
+
+(deftest list-constructor-equation-rewrites-predicate-argument
+  (let [x (e/fvar 100) acc (e/fvar 101) xs (e/fvar 103)
+        list-nat (e/app (e/const' (name/from-string "List") [lvl/zero]) (c "Nat"))
+        cons-nat (e/app* (e/const' (name/from-string "List.cons") [lvl/zero]) (c "Nat") x xs)
+        expr (e/app* (c "offset-list") cons-nat acc)
+        lctx {103 {:tag :local :id 103 :name "xs" :type list-nat}}
+        simplify (fn [names] (transformed-argument expr #(simp/simp % names {:only? true}) lctx))
+        expected (e/app* (c "offset-list") xs (#'dt/mk-add-nat acc x))]
+    (is (= expr (simplify [])))
+    (is (= expected (simplify ["offset-list"])))))
+
+(deftest offset-matching-respects-theorem-priority
+  (let [environment (a/env) nat (c "Nat")
+        succ #(e/app (c "Nat.succ") %)
+        eq (fn [x y] (e/app* (e/const' (name/from-string "Eq") [(lvl/succ lvl/zero)]) nat x y))
+        n (e/fvar 100) g (e/fvar 101)
+        query-arg (add n 1)
+        expr (e/app g query-arg)]
+    (doseq [[opaque? high-priority low-priority offset expected-proof]
+            [[false 2000 1000 1 102] [true 2000 1000 1 102]
+             [true 1000 2000 1 103] [true 2000 1000 2 103]]]
+      (let [high-pattern (nth (iterate succ (e/bvar 0)) offset)
+            high-rhs (if opaque? (e/app (e/fvar 104) (e/bvar 0)) (succ (e/bvar 0)))
+            low-rhs (if opaque? (e/app (e/fvar 105) (e/bvar 0)) (e/bvar 0))
+            high-type (e/forall' "x" nat (eq (e/app g high-pattern) high-rhs) :default)
+            low-type (e/forall' "x" nat (eq (e/app g (e/bvar 0)) low-rhs) :default)
+            lctx {100 {:name "n" :type nat} 101 {:name "g" :type (e/arrow nat nat)}
+                  102 {:name "high" :type high-type} 103 {:name "low" :type low-type}
+                  104 {:name "highResult" :type (e/arrow nat nat)}
+                  105 {:name "lowResult" :type (e/arrow nat nat)}}
+            st (tc/mk-tc-state-with-locals environment lctx)
+            high (first (#'simp/extract-simp-lemma-term environment high-type high-priority (e/fvar 102)))
+            low (first (#'simp/extract-simp-lemma-term environment low-type low-priority (e/fvar 103)))
+            index (simp/build-lemma-index st environment [low high])
+            result (#'simp/try-rewrite-step st environment index expr {})
+            expected (if (= expected-proof 102)
+                       (if opaque? (e/app (e/fvar 104) n) (succ n))
+                       (if opaque? (e/app (e/fvar 105) query-arg) query-arg))]
+        (is (= expected (:expr result)))
+        (is (= (e/fvar expected-proof) (e/get-app-fn (:proof? result))))))))
 
 (deftest equation-inventory-and-surface-tactics
   (is (= ["offset-pair.eq_1" "offset-pair.eq_2" "offset-pair.eq_3"]

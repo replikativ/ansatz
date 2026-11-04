@@ -7,6 +7,7 @@
             [clojure.java.io :as io]
             [datahike.api :as d]
             [ansatz.catalogue :as cat]
+            [ansatz.simp-index :as si]
             [ansatz.recall :as recall]
             [ansatz.state :as state]
             [ansatz.export.storage :as storage]
@@ -42,7 +43,7 @@
 (deftest build-connect-and-query-both-indices
   (let [dir (fresh-store-dir) p (.getPath dir)]
     (testing "one entity per name, keys merged from both sources"
-      (let [stats (cat/build! p {:branch "main" :recall-keys recall-entries :simp-keys simp-entries})]
+      (let [stats (cat/build! p {:branch "main" :recall-keys recall-entries :simp-keys (si/key-entries-artifact simp-entries)})]
         (is (= 4 (:entities stats)))
         (is (= 3 (:dt-keys stats)))
         (is (= 3 (:simp-keys stats)))))

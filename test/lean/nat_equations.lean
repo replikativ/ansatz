@@ -41,3 +41,17 @@ example (P : Nat → Prop) (n : Nat) (h : P (n+1)) : P (deltaPresent n) := by
 example (P : Nat → Prop) (n : Nat) (h : P (n+1)) : P (deltaPresent n) := by
   delta deltaAbsent deltaPresent
   exact h
+
+example (P : Nat → Prop) (x a : Nat) (xs : List Nat) (h : P (offsetList xs (a+x))) :
+    P (offsetList (x::xs) a) := by
+  simp only [offsetList]
+  exact h
+
+namespace Priority
+axiom g : Nat → Nat
+axiom highResult : Nat → Nat
+axiom lowResult : Nat → Nat
+@[simp 2000] axiom high (x : Nat) : g (Nat.succ x) = highResult x
+@[simp 1000] axiom low (x : Nat) : g x = lowResult x
+example (n : Nat) : g (n+1) = highResult n := by simp
+end Priority

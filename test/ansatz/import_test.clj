@@ -11,6 +11,7 @@
             [ansatz.store :as store]
             [ansatz.state :as state]
             [ansatz.simp-index :as si]
+            [ansatz.catalogue.scalars :as scalars]
             [ansatz.session :as session]
             [ansatz.recall :as recall]
             [ansatz.export.storage :as storage]
@@ -81,6 +82,15 @@
       (is (pos? (count @a/ansatz-instance-index)))
       (is (some? (:store-path ((requiring-resolve 'ansatz.simp-index/index-source) (a/env))))
           "the env carries its simp-index source"))
+    (testing "the catalogue consumes the actual persisted versioned simp artifact"
+      (let [kstore (:store (:store-map @state/ansatz-store))
+            artifact (storage/read-derived kstore "init" :simp-keys)
+            entries (si/key-entries artifact)
+            entities (scalars/scalar-entities {:simp-keys artifact})]
+        (is (= si/write-key-encoding (:key-encoding artifact)))
+        (is (= (set entries)
+               (into #{} (mapcat (fn [entity]
+                                   (map #(vector (:decl/name entity) %) (:decl/simp-key entity)))) entities)))))
     (testing "simp resolves inherited rules LAZILY from the captured store trie"
       (is (nil? (si/capture-caches)) "no inherited rules resolved before the first simp")
       (binding [a/*verbose* false]

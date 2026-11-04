@@ -44,6 +44,25 @@
 (defn read-simp-trie [trie]
   (when trie (assoc trie :key-encoding (key-encoding trie))))
 
+(defn key-entries
+  "Validate and unwrap persisted simp entries. Unversioned sequences are the
+   legacy encoding; nil means no artifact. Consumers share this reader."
+  [artifact]
+  (when (map? artifact)
+    (when-not (contains? artifact :key-encoding)
+      (throw (ex-info "Malformed persisted simp key entries: missing key encoding"
+                      {:kind :simp-key-encoding-error :artifact-kind :simp-keys})))
+    (key-encoding artifact))
+  (let [entries (if (map? artifact) (:entries artifact) artifact)]
+    (when-not (or (nil? artifact)
+                  (and (sequential? entries)
+                       (every? (fn [entry]
+                                 (and (sequential? entry) (= 2 (count entry))
+                                      (string? (first entry)) (string? (second entry)))) entries)))
+      (throw (ex-info "Malformed persisted simp key entries"
+                      {:kind :simp-key-encoding-error :artifact-kind :simp-keys})))
+    (or entries [])))
+
 (defn key-entries-artifact [entries]
   {:key-encoding write-key-encoding :entries entries})
 
@@ -155,7 +174,7 @@
    Bare legacy :simp-keys vectors use encoding 1; new writers pass key-entries-artifact."
   [entries]
   (let [version (if (map? entries) (key-encoding entries) 1)
-        entries (if (map? entries) (:entries entries) entries)]
+        entries (key-entries entries)]
     (reduce (fn [trie [nam k]] (dt/trie-insert trie (edn/read-string k) nam))
             (assoc dt/empty-trie :key-encoding version) entries)))
 
