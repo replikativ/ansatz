@@ -79,6 +79,7 @@
 (load-file (str source-root "/checks/expr-quick-order-control-checks.clj"))
 (load-file (str source-root "/checks/array-set-checks.clj"))
 (load-file (str source-root "/checks/int-checks.clj"))
+(load-file (str source-root "/checks/arithmetic-checks.clj"))
 (load-file (str source-root "/checks/name-equality-checks.clj"))
 (load-file (str source-root "/checks/build-identity-checks.clj"))
 (load-file (str source-root "/checks/layout-scalar-checks.clj"))
@@ -213,6 +214,8 @@
           ["java-ir-kernel-projection-host-guest-checks" (fn [] (java-ir-kernel-projection-host-guest-checks/check! basis))]
           ["java-ir-int-checks" (fn [] (java-ir-int-checks/check! basis))]
           ["java-ir-int-checks" (fn [] (java-ir-int-checks/check! (assoc basis :explicit true)))]
+          ["java-ir-arithmetic-checks" (fn [] (java-ir-arithmetic-checks/check! basis))]
+          ["java-ir-arithmetic-checks" (fn [] (java-ir-arithmetic-checks/check! (assoc basis :explicit true)))]
           ["java-ir-name-equality-checks" (fn [] (java-ir-name-equality-checks/check! basis))]
           ["java-ir-name-equality-checks" (fn [] (java-ir-name-equality-checks/check! (assoc basis :explicit true)))]
           ["java-ir-build-identity-checks" (fn [] (java-ir-build-identity-checks/check! basis))]
