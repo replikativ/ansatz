@@ -962,7 +962,7 @@
                   :else nil)]
     (when val
       (let [type (tc/infer-type st val)]
-        (when (and type (e/forall? type))
+        (when type
           ;; Lean's withNewMCtxDepth: lemma-parameter mvars at depth 1; the
           ;; context is discarded once the zonked proof is extracted.
           (let [mctx (atom (meta/inc-depth meta/empty-context))
@@ -970,7 +970,8 @@
                 [head args] (e/get-app-fn-args body)]
             (when (and (e/const? head) (= (e/const-name head) eq-name) (= 3 (count args)))
               (let [lhs (nth args 1) rhs (nth args 2)]
-                (when (when-let [m (meta/is-def-eq @mctx st lhs expr)]
+                (when (when-let [m (binding [meta/*transparency* :reducible]
+                                     (meta/is-def-eq @mctx st lhs expr))]
                         (reset! mctx m)
                         true)
                   (let [proof (meta/zonk-expr @mctx (reduce e/app val xs))
@@ -1152,19 +1153,10 @@
                                                   raw-proof)]
                                  (mk-result rhs proof-term))))))))))))
            candidates)
-        ;; Fallback: Lean's isDefEq-based tryTheoremCore. The structural match-lemma above is a
-        ;; syntactic approximation; when it fails on a candidate the disc-tree DID return (e.g. a
-        ;; goal in named-accessor spelling vs a projection-spelled typeclass lemma), retry that
-        ;; candidate via reduction-aware metavariable unification. The hasAssignableMVar guard in
-        ;; try-theorem makes this strictly sound — it only adds matches, never corrupts one.
+        ;; Lean Simp/Rewrite.lean tryTheoremCore uses reducible isDefEq for
+        ;; every equation candidate, including Nat offsets returned as stars.
      (some (fn [lemma]
-             (when (and (= (:kind lemma) :eq) (not (:perm lemma))
-                           ;; Only rescue PROJECTION-spelled lemmas — the exact case the structural
-                           ;; match-lemma cannot handle (a typeclass accessor goal vs a lemma whose
-                           ;; LHS head is `.proj`). Ordinary const-headed lemmas already go through
-                           ;; match-lemma; keeping them off this path avoids perturbing rewrite
-                           ;; selection elsewhere (e.g. the optimizer's cost-based strategy choice).
-                        (e/proj? (e/get-app-fn (:lhs-pattern lemma))))
+             (when (and (= (:kind lemma) :eq) (not (:perm lemma)))
                (try-theorem st env expr lemma)))
            candidates))))
 

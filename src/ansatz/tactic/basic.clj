@@ -2509,6 +2509,24 @@
                     result)))]
       (walk expr 0))))
 
+(defn delta-in-goal
+  "Lean Elab/Tactic/Delta.lean deltaTarget: expand the named definition and
+   replace the target by definitional equality."
+  [ps def-name-str]
+  (let [goal (proof/current-goal ps)
+        _ (when-not goal (tactic-error! "No goals" {}))
+        n (name/from-string def-name-str)
+        ci (env/lookup! (:env ps) n)
+        _ (when (or (.isThm ci) (not (.value ci)))
+            (tactic-error! (str "delta: " def-name-str " has no unfoldable value") {}))
+        target (delta-expand (:type goal) n ci)
+        _ (when (= target (:type goal))
+            (tactic-error! (str "delta: did not delta reduce " def-name-str) {}))
+        [ps new-id] (proof/fresh-mvar-replacing ps target (:lctx goal) (:id goal))]
+    (-> (proof/assign-mvar ps (:id goal) {:kind :simp-reduce :eq-proof nil :child new-id
+                                          :goal-type (:type goal) :simplified target})
+        (proof/record-tactic :delta [def-name-str] (:id goal)))))
+
 (defn unfold-in-goal
   "Unfold a definition in the goal type, following Lean `Meta.unfoldTarget`
    (Meta/Tactic/Unfold.lean).

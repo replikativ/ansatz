@@ -886,16 +886,31 @@
     (f ps :only? only? :extra extra :nonlinear? nonlinear?)))
 
 (clojure.core/defn- do-rewrite-one
-  "A SINGLE rewrite rule: a local hypothesis (by name), an env lemma (∀-quantified, instantiated by
-   matching), or an applied Eq term. `reverse?` rewrites right-to-left."
+  "Lean Elab/Tactic/Rewrite.lean withRWRulesSeq: local identifiers take
+   precedence; definition identifiers try their equation theorems in order."
   [ps reverse? spec hyp-id cfg]
-  (let [fresh-start (:next-id ps)
-        g (proof/current-goal ps)
+  (let [g (proof/current-goal ps)
         hyp-fid (when (symbol? spec)
                   (latest-local-id-by-name (:lctx g) spec))
-        [ps term] (if hyp-fid [ps (e/fvar hyp-fid)]
-                      (elab-apply-arg ps (:lctx g) spec))]
-    (basic/rewrite-lemma ps term reverse? hyp-id fresh-start cfg)))
+        equations (when (and (symbol? spec) (not hyp-fid))
+                    (eqns/get-eqns-for? (:env ps) (name/from-string (str spec))))
+        rewrite-one (fn [spec]
+                      (let [fresh-start (:next-id ps)
+                            [ps term] (if hyp-fid [ps (e/fvar hyp-fid)]
+                                          (elab-apply-arg ps (:lctx g) spec))]
+                        (basic/rewrite-lemma ps term reverse? hyp-id fresh-start cfg)))]
+    (if-not (some? equations)
+      (rewrite-one spec)
+      (loop [remaining equations]
+        (if-let [equation (first remaining)]
+          (let [attempt (try {:state (binding [meta/*transparency* :reducible]
+                                       (rewrite-one (symbol (name/->string equation))))}
+                             (catch clojure.lang.ExceptionInfo ex
+                               (if (= :tactic-error (:kind (ex-data ex)))
+                                 {:error ex} (throw ex))))]
+            (if-let [state (:state attempt)] state (recur (next remaining))))
+          (throw (ex-info (str "Tactic error: failed to rewrite using equation theorems for " spec)
+                          {:kind :tactic-error :definition spec})))))))
 
 (declare latest-local-id-by-name)
 
@@ -1372,6 +1387,8 @@
                       ps (basic/induction ps (find-fid ps (str (first args))) gen-ids)]
                   (if (seq alts) (eval-alts ps (rest alts) tail original-fids) ps)))
    'whnf      (fn [ps _args] (basic/whnf-goal ps))
+   'delta     (fn [ps args]
+                (reduce (fn [ps n] (basic/delta-in-goal ps (str n))) ps args))
    'unfold    (fn [ps args]
                 (basic/unfold-in-goal ps (str (first args))))
    'by_cases  (fn [ps args]

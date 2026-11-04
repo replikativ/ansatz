@@ -94,8 +94,8 @@
 (defn reduce-dt
   "Lean Meta/DiscrTree/Main.lean reduceDT: unfold reducible heads, stopping
    before a bad root key. Class projections retain their accessor key.
-   Minimal surface-encoding deviation: surface.ingest/arith-lift emits raw
-   Nat.add for `+`; fold it to Lean's mkAddNat form so addition keys agree."
+   Retain compatibility with raw Nat.add in older declarations by folding it
+   to Lean's mkAddNat form, which surface addition now uses too."
   [env expr root?]
   (loop [expr (red/whnf-no-delta env expr) depth 0]
     (when (>= depth 512)
@@ -169,6 +169,34 @@
     ;; :default or unknown
     (is-proof? st arg)))
 
+(defn- to-nat-lit?
+  "Lean DiscrTree/Main.lean toNatLit?: constructor and OfNat numerals share keys."
+  [expr]
+  (loop [expr expr offset 0]
+    (let [[head args] (e/get-app-fn-args expr)
+          n (when (e/const? head) (name/->string (e/const-name head)))]
+      (cond
+        (e/lit-nat? expr) (+' offset (e/lit-nat-val expr))
+        (and (= n "Nat.zero") (empty? args)) offset
+        (and (= n "Nat.succ") (= 1 (count args))) (recur (first args) (inc' offset))
+        (and (= n "OfNat.ofNat") (= 3 (count args))) (recur (second args) offset)
+        :else nil))))
+
+(defn- is-offset?
+  "Lean DiscrTree/Main.lean isOffset / shouldAddAsStar: nested offset patterns
+   use a wildcard, leaving offset unification to isDefEq."
+  [environment expr]
+  (let [[head args] (e/get-app-fn-args expr)
+        n (when (e/const? head) (name/->string (e/const-name head)))
+        nat-type? (fn [x]
+                    (let [x (if environment (reduce-dt environment x false) x)]
+                      (and (e/const? x) (= "Nat" (name/->string (e/const-name x))))))]
+    (or (and (= n "Nat.succ") (= 1 (count args)))
+        (and (some? (when (seq args) (to-nat-lit? (peek args))))
+             (or (and (= n "Nat.add") (= 2 (count args)))
+                 (and (= n "Add.add") (= 4 (count args)) (nat-type? (first args)))
+                 (and (= n "HAdd.hAdd") (= 6 (count args)) (nat-type? (second args))))))))
+
 (defn expr->keys
   "Flatten an expression into a key sequence for the discrimination tree.
    Following Lean 4's mkPathAux / pushArgs.
@@ -194,6 +222,13 @@
            (cond
            ;; Star sentinel (from argument filtering)
              (= e ::star)
+             (recur rest-todo (conj! keys star-key))
+
+           ;; Lean pushArgs normalizes numerals before wildcarding nested offsets.
+             (and (not root?) (some? (to-nat-lit? e)))
+             (recur rest-todo (conj! keys (lit-key (to-nat-lit? e))))
+
+             (and (not root?) (is-offset? env e))
              (recur rest-todo (conj! keys star-key))
 
            ;; Application: get head + args
@@ -467,6 +502,8 @@
         (= expr ::star) [star-key []]
         (e/mdata? expr) (recur (e/mdata-expr expr))
         (e/let? expr) (recur (e/instantiate1 (e/let-body expr) (e/let-value expr)))
+        (and (not root?) (some? (to-nat-lit? expr)))
+        [(lit-key (to-nat-lit? expr)) []]
         (e/app? expr)
         (let [[head args] (e/get-app-fn-args expr) n (count args)]
           (cond
