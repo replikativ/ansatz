@@ -1247,6 +1247,20 @@
     (e/app (e/const' int-ofnat-name []) (e/lit-nat n))
     (e/app (e/const' int-negsucc-name []) (e/lit-nat (dec (- n))))))
 
+(def ^:private builtin-simproc-names
+  ;; Lean Meta/Tactic/Simp/BuiltinSimprocs/{Core,Nat,Int,Char,String}.lean:
+  ;; these builtin procedures have no constant declaration in the bundled store.
+  (into #{"reduceCtorEq" "reduceIte" "reduceDIte"}
+        (concat (map #(str "Nat.reduce" %) ["Succ" "Add" "Mul" "Sub" "Div" "Mod" "Pow"
+                                            "BEq" "BNe" "LeDiff" "LT" "GT"])
+                (map #(str "Int.reduce" %) ["Neg" "Add" "Mul" "Sub" "Div" "Mod" "LE" "LT"
+                                            "GT" "GE" "Eq" "Ne" "BEq" "BNe"])
+                (for [carrier ["Char" "String"] op ["LE" "LT" "GT" "GE" "Eq" "Ne" "BEq" "BNe"]]
+                  (str carrier ".reduce" op)))))
+
+(defn builtin-simproc? [n]
+  (contains? builtin-simproc-names (str n)))
+
 (defn- simproc-enabled? [config proc-name]
   ;; Elab/Tactic/Simp.lean elabSimpArgs: explicit additions follow the
   ;; (possibly empty) default simproc set.
@@ -3217,7 +3231,7 @@
             (.inferType tc full-proof))
           (env/check-constant env (env/mk-thm ble-eq-name [] full-type full-proof)))))))
 
-(defn- ensure-nat-packing
+(defn ensure-nat-packing
   "Init/Data/Nat/Basic.lean add_eq/sub_eq/mul_eq/le_eq (Lean 55f80e10a3).
    Older Init exports omit these packing theorems. Derive their exact rfl
    statements so default simp and explicit `simp only` retain Lean's normal forms."

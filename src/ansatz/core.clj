@@ -792,7 +792,20 @@
               ;; A symbol naming a local hypothesis (newest wins, as Lean's name lookup) is that
               ;; hypothesis — `simp [h]` rewrites with `h`. Otherwise it is a lemma/def NAME
               ;; (resolved by simp). This is the ONE canonical way to name things in the tactic DSL.
-                      (symbol? a) (if-let [fid (latest-local-id-by-name lctx a)] [(e/fvar fid)] [a])
+                      (symbol? a) (if-let [fid (latest-local-id-by-name lctx a)]
+                                    [(e/fvar fid)]
+                                    (do
+                                      ;; Lean Elab/Tactic/Simp.lean elabSimpArg resolves
+                                      ;; identifiers before constructing the simp context.
+                                      ;; Older Init exports derive these Lean declarations on demand.
+                                      (when-not (or (env/lookup (:env ps) (name/from-string (str a)))
+                                                    (simp/builtin-simproc? a)
+                                                    (env/lookup (simp/ensure-nat-packing
+                                                                 (or (simp/ensure-ble-eq (:env ps)) (:env ps)) [a])
+                                                                (name/from-string (str a))))
+                                        (throw (ex-info (str "Elaboration error: Unknown constant: " a)
+                                                        {:kind :elab-error :name (str a)})))
+                                      [a]))
               ;; A string is NOT a name — the surface elaborator turns it into a `String` literal
               ;; (a value), which is useless as a simp lemma and silently makes simp a no-op. This
               ;; is a footgun (esp. for programmatically-built tactics that stringify const names):
@@ -812,6 +825,8 @@
   [ps args locs opts]
   (let [g (or (proof/current-goal ps)
               (throw (ex-info "Tactic error: No goals" {:kind :tactic-error})))
+        ;; Lean mkSimpContext elaborates arguments before simpLocation/dsimpLocation.
+        lemma-args (simp-lemma-args ps args)
         wildcard? (= ['*] (vec locs))
         target? (or (nil? locs) wildcard? (some #{'⊢} locs))
         ids (if wildcard?
@@ -823,7 +838,7 @@
                     (remove #{'⊢} locs)))]
     (if (:dsimp? opts)
       (simp/dsimp-goal ps ids target?)
-      (simp/simp-goal ps (simp-lemma-args ps args) opts ids target?))))
+      (simp/simp-goal ps lemma-args opts ids target?))))
 
 (clojure.core/defn- elab-apply-arg
   "Lean Elab/Tactic/ElabTerm.lean elabTermForApply: suppress implicit insertion
@@ -1195,10 +1210,7 @@
    'dsimp     (fn [ps args]
                 (let [args (if (= 'only (first args)) (rest args) args)
                       [args locs] (split-with #(not= 'at %) args)]
-                  (when (seq args)
-                    (throw (ex-info "Tactic error: dsimp lemma arguments are not implemented"
-                                    {:kind :tactic-error :args args})))
-                  (simp-location ps [] (when (seq locs) (rest locs)) {:dsimp? true})))
+                  (simp-location ps args (when (seq locs) (rest locs)) {:dsimp? true})))
    'intro     (fn [ps args] (if (seq args) (intro-names ps args) (intro-inaccessible ps)))
    'intros    (fn [ps args]
                 (if (seq args) (intro-names ps args)
