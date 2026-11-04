@@ -162,4 +162,4 @@ The [reference example](examples/pure-ffi/README.md) includes an independent nat
 oracle. The [foreign-import example](examples/foreign-ffi/README.md) covers bodyless
 imports and synchronous IO. Their prepared application-JAR consumers exercise the
 SDK independently of source directories and native tools. See the
-[release checks](RELEASE_CHECKLIST.md) for acceptance and publication gates.
+[release checks](dev/RELEASE_CHECKLIST.md) for acceptance and publication gates.

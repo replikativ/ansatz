@@ -41,10 +41,11 @@ public final class MonadsSmoke {
                 try { error.details().put("owner", new Object()); throw new AssertionError("Mutable details"); }
                 catch (UnsupportedOperationException expectedFailure) { checks++; }
             }
-            try { failed.call("retainedRead"); throw new AssertionError("Failed project reusable"); }
-            catch (LeanException expected) { check(expected.code().equals("RuntimeBoundary")); }
+            // A returned IO error is a result: the engine completed, so the Project stays ready.
+            check(!failed.isFailed());
+            io(failed.call("retainedRead"));
         }
-        checks++; // terminal branch must still close successfully
+        checks++; // the Project must still close successfully
     }
     public static void main(String[] args) throws Exception {
         LeanFunction retained;
@@ -108,8 +109,8 @@ public final class MonadsSmoke {
                     check(error.code().equals("GuestIOError") && error.details().isEmpty());
                     check(error.getCause() == null && error.getSuppressed().length == 0);
                 }
-                try { failed.call("retainedRead"); throw new AssertionError("Failed project reusable"); }
-                catch (LeanException expected) { check(expected.code().equals("RuntimeBoundary")); }
+                check(!failed.isFailed());
+                io(failed.call("retainedRead"));
             }
             checks++;
             check(io(retained.invoke()).equals(n(45)));

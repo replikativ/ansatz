@@ -53,6 +53,7 @@ NominalSmoke nominal
 PureFFISmoke pure-ffi
 ForeignFFISmoke foreign-ffi
 LakeWorkspaceSmoke lake-workspace
+ServiceSemanticsSmoke service-semantics
 CONSUMERS
 
 

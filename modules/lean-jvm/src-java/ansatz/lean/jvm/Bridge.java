@@ -27,6 +27,8 @@ final class Bridge {
     static final IFn CALL_WITH;
     static final IFn MAIN;
     static final IFn CLOSE;
+    static final IFn RESTART;
+    static final IFn STATUS;
 
     static {
         Clojure.var("clojure.core", "require").invoke(Clojure.read(NS));
@@ -43,6 +45,8 @@ final class Bridge {
         CALL_WITH = Clojure.var(NS, "invoke-arguments-with-options!");
         MAIN = Clojure.var(NS, "run-main!");
         CLOSE = Clojure.var(NS, "close!");
+        RESTART = Clojure.var(NS, "restart!");
+        STATUS = Clojure.var(NS, "status!");
     }
 
     /** Preparation linkage does not initialize the outer execution bridge. */
@@ -101,6 +105,10 @@ final class Bridge {
                     } catch (ReflectiveOperationException ignored) {
                         // Failure projection must not retain another reflective cause.
                     }
+                } else if (!cancelled && cursor.getClass().getName().equals(
+                        "ansatz.lean.jvm.internal.exec.Interpreter$LeanPanic")) {
+                    selected = cursor;
+                    code = "LeanPanic";
                 } else if (!cancelled && cursor.getClass().getName().equals(
                         "ansatz.lean.jvm.internal.fs.FileSession$Terminal")) {
                     try {

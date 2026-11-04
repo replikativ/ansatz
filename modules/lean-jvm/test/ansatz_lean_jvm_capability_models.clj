@@ -36,10 +36,9 @@
     (is (= :bounded-stdio-read-line-write-flush-tty (:dynamic-io-profile d)))
     (is (= :native-like-finite-byte-input (:stdin-profile d)))
     (is (contains? (:runtime-unsupported d) :host-filesystem))))
-(deftest panic-is-a-declared-terminal-trap-not-a-fake-result
+(deftest panic-is-admitted-with-native-default-return
   (let [d (caps/check-rows! *basis* [(row "lean_panic_fn_borrowed" ["erased" "tobject" "object"] [false true false] "tobject")])]
-    (is (= :terminal-trap (:family (first (vals (:externs d))))))
-    (is (contains? (:runtime-unsupported d) :panic-default-return))))
+    (is (= :panic (:family (first (vals (:externs d))))))))
 (deftest descriptor-is-bound-to-actual-program-and-canonical-headers
   (let [d (caps/check-rows! *basis* [nat-row]) base (j/prepare-host-program *basis* [] [])
         source (j/source-binding base {"test-only-capability-model" true})

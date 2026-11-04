@@ -11,22 +11,25 @@
             [clojure.java.io :as io] [clojure.string :as str])
   (:import [java.math BigInteger] [java.nio.charset StandardCharsets]
            [java.util WeakHashMap] [ansatz.lean.jvm MainResult IOResult LeanUnit LeanType InvocationOptions HostServices FileAccess HostBindings]))
-(deftype Services [basis capability files])
+(deftype Services [basis capability files startup-instructions startup-nanos])
 (deftype Project [])
 (deftype Handle [owner name signature types])
 (defonce ^:private projects (WeakHashMap.))
 ;; Only an actual lifetime invariant refusal enters quarantine. It never counts
 ;; as successful cleanup; keep actual private custody instead of losing owners.
 (defonce ^:private quarantine (atom []))
-(def ^:private duration-nanos 5000000000)
-(def ^:private instruction-limit 2000000)
+(def ^:private quarantine-limit 256)
+(def ^:private default-startup-instructions InvocationOptions/DEFAULT_INSTRUCTIONS)
+(def ^:private default-startup-nanos (.toNanos InvocationOptions/DEFAULT_TIME))
 (defn- need [ok code message]
   (when-not ok (throw (ex-info message {:code code}))))
 (defn- cell! [project]
   (need (= Project (class project)) "RuntimeBoundary" "Actual Project issuer required")
   (locking projects (or (.get projects project) (throw (ex-info "Expired Project" {:code "RuntimeBoundary"})))))
 (defn- live! [cell]
-  (need (= :ready (:status @cell)) "RuntimeBoundary" "Project is closed or its branch failed"))
+  (need (not= :failed (:status @cell)) "ProjectFailed"
+        "An earlier call failed during execution; restart() the Project or load a new one")
+  (need (= :ready (:status @cell)) "RuntimeBoundary" "Project is closed"))
 (defn- typed-name [value]
   (need (and (string? value) (<= 1 (count value) 16384)) "EntryRejected" "Bounded dotted entry name required")
   (let [parts (str/split value #"\." -1)]
@@ -61,9 +64,12 @@
            (throw (ex-info (.getMessage ^Throwable (.getCause failure))
                            {:code (if (= :validate operation) "ResourceLimit" "InvalidArgument")} failure))
            (throw failure)))))
-(defn- deadline! [engine]
+(defn- deadline! [engine nanos]
   (.invoke (.getMethod (class engine) "configureAtomicDeadlineAfterNanos" (into-array Class [Long/TYPE]))
-           engine (object-array [(long duration-nanos)])))
+           engine (object-array [(long nanos)])))
+(defn- panic-policy! [engine fail?]
+  (.invoke (.getMethod (class engine) "configurePanicPolicy" (into-array Class [Boolean/TYPE]))
+           engine (object-array [(boolean fail?)])))
 (defn- drain! [engine] (vec (invoke-zero engine "drainCapturedBytes")))
 (defn- begin-invocation! [engine ^InvocationOptions options stdout-prefix stderr-prefix]
   (.invoke (.getMethod (class engine) "beginInvocation"
@@ -87,10 +93,13 @@
                       ["DRBG" "" (int 1048576)])))
 (defn runtime-service!
   "One shared JDK DRBG service per Java Lean scope, initialized lazily."
-  ([] (let [basis (ir/linked-basis)] (Services. basis (entropy basis) nil)))
+  ([] (let [basis (ir/linked-basis)]
+        (Services. basis (entropy basis) nil default-startup-instructions default-startup-nanos)))
   ([configuration]
    (need (= HostServices (class configuration)) "RuntimeBoundary" "Actual HostServices configuration required")
-   (let [basis (ir/linked-basis)] (Services. basis (entropy basis) (.fileAccess ^HostServices configuration)))))
+   (let [basis (ir/linked-basis) ^HostServices configuration configuration]
+     (Services. basis (entropy basis) (.fileAccess configuration)
+                (.startupInstructionBudget configuration) (.startupTimeBudgetNanos configuration)))))
 (defn- startup-from-failure [failure]
   (loop [failure failure left 8]
     (when (and failure (pos? left))
@@ -119,42 +128,73 @@
               failure)))]
     (when slot (dotimes [i (alength ^objects slot)] (aset ^objects slot i nil)))
     (when (and (nil? run) (:files @cell)) (.close ^java.lang.AutoCloseable (:files @cell)))
-    (reset! cell {:status :closed})
+    ;; Keep the verified prepared evidence so a retired Project can restart.
+    (reset! cell (assoc (select-keys @cell [:services :prepared]) :status :closed))
     (when failure (throw failure))))
 (defn- project-files [services prepared]
   (when (startup/filesystem-required? prepared)
     (let [files (.-files ^Services services)]
       (need (= FileAccess (class files)) "CapabilityMissing" "Project requires explicit filesystem services")
       (ir/file-session (.-basis ^Services services) files))))
+(defn- start! [cell services prepared]
+  ;; A fresh engine and filesystem session for already verified prepared evidence.
+  (let [files (project-files services prepared)
+        _ (swap! cell assoc :files files :slot (object-array 3))
+        run (startup/open! prepared (.-capability ^Services services) files)
+        instructions (long (.-startup-instructions ^Services services))
+        nanos (long (.-startup-nanos ^Services services))]
+    (swap! cell assoc :run run)
+    (deadline! (:engine (startup/owner-packet run)) nanos)
+    (let [deadline (+ (System/nanoTime) nanos)]
+      (loop [left instructions]
+        (when (.isInterrupted (Thread/currentThread))
+          (throw (ex-info "Project startup interrupted" {:code "Cancelled"})))
+        (need (and (pos? left) (< (System/nanoTime) deadline)) "ResourceLimit" "Project startup cooperative budget exhausted")
+        (case (:status (startup/status run))
+          :ready nil
+          :running (do (startup/poll! run (min 128 left)) (recur (- left (min 128 left))))
+          :io-error (throw (ex-info "Project initialization returned an IO error" {:code "InitializationFailed"}))
+          (throw (ex-info "Project initialization stopped" {:code "InitializationFailed"})))))
+    (let [[output types] (startup/with-ready-engine! run
+                   (fn [{:keys [engine types]}]
+                     (invoke-zero engine "clearAtomicDeadline")
+                     [(drain! engine) types]))]
+      (swap! cell assoc :status :ready :prefix output :types types))))
+(defn- abandon-start! [cell failure]
+  (when-not (:run @cell)
+    (when-let [run (startup-from-failure failure)] (swap! cell assoc :run run)))
+  (try (retire! cell) (catch Throwable _ nil)))
 (defn- open-prepared! [services prepared]
-  (let [cell (atom {:status :opening :slot (object-array 3)}) token (Project.)]
+  (need (< (count @quarantine) quarantine-limit) "RuntimeBoundary"
+        "Too many Projects whose cleanup was refused are retained; restart the JVM")
+  (let [cell (atom {:status :opening :services services :prepared prepared}) token (Project.)]
     (try
-      (let [files (project-files services prepared)
-            _ (swap! cell assoc :files files)
-            run (startup/open! prepared (.-capability ^Services services) files)]
-        (swap! cell assoc :run run)
-        (deadline! (:engine (startup/owner-packet run)))
-        (let [deadline (+ (System/nanoTime) duration-nanos)]
-          (loop [left instruction-limit]
-            (when (.isInterrupted (Thread/currentThread))
-              (throw (ex-info "Project startup interrupted" {:code "Cancelled"})))
-            (need (and (pos? left) (< (System/nanoTime) deadline)) "ResourceLimit" "Project startup cooperative budget exhausted")
-            (case (:status (startup/status run))
-              :ready nil
-              :running (do (startup/poll! run (min 128 left)) (recur (- left (min 128 left))))
-              :io-error (throw (ex-info "Project initialization returned an IO error" {:code "InitializationFailed"}))
-              (throw (ex-info "Project initialization stopped" {:code "InitializationFailed"})))))
-        (let [[output types] (startup/with-ready-engine! run
-                       (fn [{:keys [engine types]}]
-                         (invoke-zero engine "clearAtomicDeadline")
-                         [(drain! engine) types]))]
-          (swap! cell assoc :status :ready :prefix output :types types))
-        (locking projects (.put projects token cell)) token)
+      (start! cell services prepared)
+      (locking projects (.put projects token cell)) token
       (catch Throwable failure
-        (when-not (:run @cell)
-          (when-let [run (startup-from-failure failure)] (swap! cell assoc :run run)))
-        (try (retire! cell) (catch Throwable _ nil))
+        (abandon-start! cell failure)
         (throw failure)))))
+(defn status!
+  "Public Project state: \"ready\", \"failed\" or \"closed\"."
+  [project]
+  (let [cell (cell! project)]
+    (locking cell
+      (case (:status @cell) :ready "ready" :failed "failed" "closed"))))
+(defn restart!
+  "Retire the current engine and initialize a fresh one from the same verified
+   prepared artifact. Function handles stay valid; globals and IO.Ref state are
+   reinitialized. Allowed after a failed call or on a ready Project."
+  [project]
+  (let [cell (cell! project)]
+    (locking cell
+      (need (and (#{:ready :failed :closed} (:status @cell)) (not (:closed-by-owner @cell)) (:prepared @cell))
+            "RuntimeBoundary" "Only an open Project can restart")
+      (let [{:keys [services prepared]} @cell]
+        (when-not (= :closed (:status @cell)) (retire! cell))
+        (swap! cell assoc :status :opening)
+        (try (start! cell services prepared)
+             (catch Throwable failure (abandon-start! cell failure) (throw failure))))
+      nil)))
 (defn open-artifact!
   ([services input expected-manifest-sha] (open-artifact! services input expected-manifest-sha (HostBindings/empty)))
   ([services input expected-manifest-sha bindings]
@@ -241,9 +281,10 @@
                                   (assoc (get-in entry ["typeCheck" "signature"]) "schema" "lean-jvm-function/3")
                                   (descriptor (get-in entry ["typeCheck" "signature"])))) "EntryRejected" "Checked entry signature changed")
     [(get headers (get-in entry ["callable" "name"])) (label (get-in entry ["callable" "name"])) entry]))
-(defn- drive! [ctx engine callable args slot host-calls]
-  (deadline! engine)
-  (let [deadline (+ (System/nanoTime) duration-nanos)]
+(defn- drive! [ctx engine callable args slot host-calls ^InvocationOptions options]
+  (deadline! engine (.timeBudgetNanos options))
+  (let [deadline (+ (System/nanoTime) (.timeBudgetNanos options))
+        instruction-limit (.instructionBudget options)]
     (aset ^objects slot 1 :start-pending)
     (ir/start! ctx engine callable args)
     ;; Successful owned call adopts the argument roots. A thrown start keeps
@@ -331,18 +372,24 @@
         (need (and (<= stdout-prefix (.stdoutLimitBytes options))
                    (<= stderr-prefix (.stderrLimitBytes options)))
               "ResourceLimit" "Initialization output exceeds invocation limits")
+        ;; Once the engine has returned, released the result and ended the
+        ;; invocation it is idle and consistent: later refusals (a returned IO
+        ;; error, unexpected pure output) leave the Project ready. A failure
+        ;; inside execution leaves guest state unknown and retires it.
+        (let [completed (volatile! false)]
         (try
           (let [{:keys [decoded output]}
                 (startup/with-ready-engine! (:run @cell)
                   (fn [{:keys [ctx engine entries headers host-calls]}]
                     (let [[header callable entry] (entry! entries headers (.-name ^Handle handle) descriptor)
                           _ (need (some? header) "RuntimeBoundary" "Actual callable Header absent")
+                          _ (panic-policy! engine (.failOnPanic options))
                           _ (begin-invocation! engine options stdout-prefix stderr-prefix)
                           _ (aset ^objects slot 2 header)
                           runtime-arguments (construction/materialize! ctx engine planned)
                           _ (aset ^objects slot 0 runtime-arguments)
                           _ (aset ^objects slot 1 :constructed)
-                          raw (drive! ctx engine callable runtime-arguments slot host-calls)
+                          raw (drive! ctx engine callable runtime-arguments slot host-calls options)
                           decoded
                           (if types
                             (if io? (typed-io-result! ctx (:result types) raw)
@@ -361,7 +408,8 @@
                               (value/decode ctx (get descriptor "result") (get entry "codecWitnesses") raw))))
                           output (finish-result! ctx engine raw slot)
                           _ (invoke-zero engine "endInvocation")]
-                      {:decoded decoded :output output})))]
+                      {:decoded decoded :output output})))
+                _ (vreset! completed true)]
             (if io?
               (do
                 (when-not (= :ok (:kind decoded))
@@ -370,9 +418,15 @@
                 (let [[out err] output]
                   (swap! cell assoc :prefix [(byte-array 0) (byte-array 0)])
                   (IOResult. (:value decoded) (join-bytes prefix-out out) (join-bytes prefix-err err))))
-              (do (need (every? #(zero? (alength ^bytes %)) output) "RuntimeBoundary" "Pure checked entry produced captured output")
-                  decoded)))
-          (catch Throwable failure (swap! cell assoc :status :failed) (throw failure)))))))
+              (let [[^bytes out ^bytes err] output]
+                (need (zero? (alength out)) "RuntimeBoundary" "Pure checked entry produced captured stdout")
+                ;; As in native Lean, a pure function's panic messages reach the
+                ;; process stderr; IO entries return them in IOResult.stderr.
+                (when (pos? (alength err)) (.write System/err err 0 (alength err)) (.flush System/err))
+                decoded)))
+          (catch Throwable failure
+            (when-not @completed (swap! cell assoc :status :failed))
+            (throw failure))))))))
 (defn invoke-arguments! [project handle arguments]
   (invoke-arguments-with-options! project handle arguments (InvocationOptions/empty)))
 (defn invoke-function! [project handle input]
@@ -403,6 +457,11 @@
 (defn close! [project]
   (let [cell (cell! project)]
     (locking cell
-      (when-not (= :closed (:status @cell))
-        (swap! cell assoc :status :closing)
-        (retire! cell))) nil))
+      (try
+        (when-not (= :closed (:status @cell))
+          (swap! cell assoc :status :closing)
+          (retire! cell))
+        ;; Drop the prepared evidence; a quarantined cell keeps its custody.
+        (finally (if (= :closed (:status @cell))
+                   (reset! cell {:status :closed :closed-by-owner true})
+                   (swap! cell assoc :closed-by-owner true))))) nil))

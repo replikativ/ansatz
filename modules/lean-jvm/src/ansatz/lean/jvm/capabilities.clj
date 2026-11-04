@@ -32,9 +32,10 @@
    :managed-sharing-diagnostic ["DBG_TRACE_SHARED"]
    :filesystem ["FS_METADATA" "FS_OPEN" "FS_READ" "FS_LINE" "FS_WRITE" "FS_PUT" "FS_FLUSH" "FS_TTY" "FS_REWIND" "FS_TRUNCATE"]
    :entropy ["IO_RANDOM_BYTES"]
-   ;; Existing Interpreter PANIC terminates with an unsupported-operation
-   ;; failure; it never invents Lean's default-return result.
-   :terminal-trap ["PANIC"]})
+   ;; lean_panic_fn: message to captured stderr, then the caller's default value
+   ;; (silent during module initialization), or a LeanPanic failure under the
+   ;; per-invocation fail-on-panic policy.
+   :panic ["PANIC"]})
 (defn- need [p message] (when-not p (throw (ex-info message {:code "CapabilityMissing" :profile :task-free-captured-output-v1}))))
 (defn- field [object name]
   (let [f (.getDeclaredField (class object) name)] (.setAccessible f true) (.get f object)))
@@ -98,8 +99,8 @@
      :dynamic-io-profile :bounded-stdio-read-line-write-flush-tty
      :stdin-profile :native-like-finite-byte-input
      :runtime-unsupported (if (some #(= :filesystem (:family %)) (vals externs))
-                            #{:panic-default-return :heap-leaf-sharing-observation :stdio-redirection :filesystem-directories :filesystem-initialization :arbitrary-host-filesystem}
-                            #{:panic-default-return :heap-leaf-sharing-observation :stdio-redirection :host-filesystem})
+                            #{:heap-leaf-sharing-observation :stdio-redirection :filesystem-directories :filesystem-initialization :arbitrary-host-filesystem}
+                            #{:heap-leaf-sharing-observation :stdio-redirection :host-filesystem})
      :task-runtime false :host-handlers false :guest-export-aliases false :code-demand false})))
 (defn check-program!
   "Bind the requirements to the actual fully prepared canonical Program. No engine exists."

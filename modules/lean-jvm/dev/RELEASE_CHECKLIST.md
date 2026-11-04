@@ -29,18 +29,18 @@ never builds the supplied SDK. `install --directory target/native-tools
 cached downloads are hash-checked before every extraction.
 
 With the pinned native toolchain and supported producer bundle supplied explicitly,
-run both native gates documented in [consumer checks](consumer/README.md) and
-[preparation](PREPARATION.md). Cover cold/cache/edit/reload/artifact loading,
+run both native gates documented in [consumer checks](../consumer/README.md) and
+[preparation](../PREPARATION.md). Cover cold/cache/edit/reload/artifact loading,
 frontend diagnostics, unsupported types/capabilities, both public preparation APIs
 and CLI refusal to replace an existing output. Run the scalar corpus's
-[official Lean oracle](consumer/resources/lean/scalar-interop-source/Oracle.lean).
-Review the supported carrier, import and IO limits in [the SDK guide](README.md).
+[official Lean oracle](../consumer/resources/lean/scalar-interop-source/Oracle.lean).
+Review the supported carrier, import and IO limits in [the SDK guide](../README.md).
 
 For supplied-stdio changes, also run the native differential/source/artifact
-gate in [STDIO.md](STDIO.md). Verify finite input, exact raw captures, malformed
+gate in [STDIO.md](../STDIO.md). Verify finite input, exact raw captures, malformed
 UTF-8, repeat invocation, limits and expected admission refusals. The JVM-only
 gate must include the prepared stdio application-JAR consumer. Keep the
-[compatibility ledger](COMPATIBILITY.md) aligned with completed evidence.
+[compatibility ledger](../COMPATIBILITY.md) aligned with completed evidence.
 
 Record the exact candidate JAR/POM, producer archive identity and observed checks
 as review or CI artifacts. Keep historical validation/source receipts unchanged;
@@ -55,7 +55,7 @@ nominal/builtin nesting, `Option Unit`, immutable bytes, explicit materializatio
 source reconciliation and defining-product custody. Changed defining products,
 wrong identities, malformed host fields and unsupported families must fail.
 
-Run the independent three-file [datatype application](examples/datatypes/README.md)
+Run the independent three-file [datatype application](../examples/datatypes/README.md)
 through public Java and Clojure calls, including transformation, records, custom
 IO payloads and reuse in a new Project after close. Check aggregate input budgets
 before execution, healthy reuse after host refusal, shared certified payloads,
@@ -67,22 +67,22 @@ checks do not replace these gates or establish a performance claim.
 
 ## Publication order
 
-For the [host bindings](FFI.md), run both prepared application-JAR
+For the [host bindings](../FFI.md), run both prepared application-JAR
 consumers, metadata refusal models, actual initializer/call/String.any failure
 retirement checks, and the reference corpus's independent Lean oracle. Cover
 required bodyless imports, missing bindings before factories, pure/IO effect
 mismatches, catchable explicit IO errors and terminal unexpected failures. Exercise the
 source API with automatic binding-name selection using the exact v4 bundle.
 Record the independently built source closure, receipt and executable in the
-[producer publication record](producer/candidate-v4.json). Do not infer publication from
+[producer publication record](../producer/candidate-v4.json). Do not infer publication from
 local tests or from the existing v3 release.
 
 The published v1/v2 bundles retain their supported scopes. The independently
 pinned v3 producer is published separately with its source closure and build
-receipt; its [publication record](producer/candidate-v3.json) records the exact
+receipt; its [publication record](../producer/candidate-v3.json) records the exact
 archive. Source support must be checked against those actual bytes before
 landing. Main automatically publishes coordinated SDK artifacts; the user's
-landing authorization includes that consequence. The host-binding producer is also [published and verified](producer/candidate-v4.json).
+landing authorization includes that consequence. The host-binding producer is also [published and verified](../producer/candidate-v4.json).
 Any changed producer must be published and public-download verified before
 landing the corresponding SDK release.
 Use the actual coordinated release version; do not assign a release claim from

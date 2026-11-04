@@ -71,7 +71,7 @@ engine. Managed objects and nonnegative immediate scalars are supported;
 immutable Java String/BigInteger leaves have no logical RC and throw if reached.
 This explicit runtime-domain contract replaces mandatory static provenance
 analysis. Earlier guest effects may occur before a domain failure; the failed
-branch is terminal. Full source/artifact/ABI authority remains independent of
+engine is retired until `LeanProject.restart()` reinitializes a fresh one. Full source/artifact/ABI authority remains independent of
 this check, and no invented heap-leaf sharing counts are reported.
 
 Core Ansatz supplies the kernel, elaboration DSL and stores in its own JAR. Both
@@ -166,4 +166,4 @@ consumers, archive rejection, explicit ownership and resource limits. The broade
 contract gate exercises the canonical engine's fork, graph, host, code-demand and
 frontend foundations. The explicit source gate additionally checks the native
 frontend cold/cache/edit/reload/artifact paths with a supplied supported toolchain
-and bundle. See [release checks](RELEASE_CHECKLIST.md) for the acceptance sequence.
+and bundle. See [release checks](dev/RELEASE_CHECKLIST.md) for the acceptance sequence.

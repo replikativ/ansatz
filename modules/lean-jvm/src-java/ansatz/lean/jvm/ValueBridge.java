@@ -204,12 +204,19 @@ final class ValueBridge {
         private final int length;
         Sequence(LeanType type, Object cap) { this.type = type; this.cap = cap; length = type.bridge().size(cap); }
         @Override public int size() { return length; }
+        /** Cons cells of a List view, indexed on the first get so indexed loops stay linear. */
+        private volatile Object[] cells;
         @Override public Object get(int index) {
             Objects.checkIndex(index, length);
-            Object cursor = cap;
             if (type.kind() == LeanType.Kind.LIST) {
-                for (int i = 0; i < index; i++) cursor = type.bridge().child(cursor, 1);
-                return view(type.arguments().get(0), type.bridge().child(cursor, 0));
+                Object[] indexed = cells;
+                if (indexed == null) {
+                    indexed = new Object[length];
+                    Object cursor = cap;
+                    for (int i = 0; i < length; i++) { indexed[i] = cursor; cursor = type.bridge().child(cursor, 1); }
+                    cells = indexed;
+                }
+                return view(type.arguments().get(0), type.bridge().child(indexed[index], 0));
             }
             return view(type.arguments().get(0), type.bridge().child(cap, index));
         }

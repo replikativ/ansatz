@@ -32,9 +32,9 @@
     (is (instance? LeanException e))
     (when e (is (= code (.code ^LeanException e))) (is (nil? (.getCause ^LeanException e))))))
 (defn- observe-drive [original observation]
-  (fn [ctx engine callable args slot host-calls]
+  (fn [ctx engine callable args slot host-calls options]
     (swap! observation assoc :session (#'startup/engine-field engine "fileSession"))
-    (original ctx engine callable args slot host-calls)))
+    (original ctx engine callable args slot host-calls options)))
 (defn- closed-session [observation]
   (let [session (:session @observation)]
     (is (some? session))
@@ -94,9 +94,9 @@
           (is (= before (quarantine-count))))))))
 
 (defn- cancel-after-physical-write [observations]
-  (fn [ctx engine callable args slot host-calls]
+  (fn [ctx engine callable args slot host-calls options]
     (assert (empty? host-calls))
-    (#'project/deadline! engine)
+    (#'project/deadline! engine (.timeBudgetNanos ^ansatz.lean.jvm.InvocationOptions options))
     (aset ^objects slot 1 :start-pending)
     (ir/start! ctx engine callable args)
     (aset ^objects slot 0 nil) (aset ^objects slot 1 :running)

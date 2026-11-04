@@ -83,14 +83,21 @@
       (j/release! ctx child changed) (j/close! ctx child)
       (j/release! ctx parent answer) (j/close! ctx parent))))
 
-(deftest raw-preflight-rejects-panic-domains-and-invalid-carriers-before-effects
-  (let [ctx (context) engine (j/machine ctx) old (fresh ctx engine 7) replacement (fresh ctx engine 8)
+(defn- drained-stderr [engine]
+  (String. ^bytes (second (.invoke (.getMethod (class engine) "drainCapturedBytes" (make-array Class 0))
+                                   engine (object-array 0))) "UTF-8"))
+(deftest raw-preflight-follows-native-set-panic-and-rejects-invalid-carriers-before-effects
+  (let [ctx (context) engine (j/machine ctx) old (fresh ctx engine 7)
         source (a/push! ctx engine (a/empty! ctx engine 4) old)]
+    ;; lean_array_set_panic: report on stderr, drop the value, keep the array.
     (doseq [index [1 Long/MAX_VALUE (.shiftLeft java.math.BigInteger/ONE 80)]]
-      (let [before (counters engine)]
-        (is (re-find #"Array.set! panic path" (c/failure #(update! ctx engine source index replacement false))))
-        (is (= before (counters engine))) (is (= "idle" (j/phase ctx engine)))
-        (is (= [old] (a/elements ctx source))) (is (= 1 (c/rc ctx replacement)))))
+      (let [replacement (fresh ctx engine 8)]
+        (j/retain! ctx engine replacement) (j/retain! ctx engine source)
+        (is (identical? source (update! ctx engine source index replacement false)))
+        (is (= "idle" (j/phase ctx engine))) (is (= "Error: index out of bounds\n" (drained-stderr engine)))
+        (is (= [old] (a/elements ctx source))) (is (= 1 (c/rc ctx replacement))) (is (= 2 (c/rc ctx source)))
+        (j/release! ctx engine source) (j/release! ctx engine replacement)))
+    (let [replacement (fresh ctx engine 8)]
     (doseq [args [[1 source 0 replacement] [0 source -1 replacement]
                   [0 source (biginteger -1) replacement] [0 old 0 replacement]
                   [0 source 0 (Double/valueOf 0.5)] [0 source 0 (object-array 0)]]]
@@ -106,22 +113,19 @@
     (is (= 1 (c/rc ctx old)))
     (is (identical? source (update! ctx engine source 0 replacement false)))
     (is (host/private-value old "dead"))
-    (j/release! ctx engine source) (j/close! ctx engine)))
+    (j/release! ctx engine source) (j/close! ctx engine))))
 
-(deftest owning-ap-range-preflight-preserves-captures-and-replacement-before-transfer
+(deftest owning-ap-out-of-range-set-follows-native-set-panic
   (doseq [index [1 (.shiftLeft java.math.BigInteger/ONE 80)]]
     (let [ctx (context) engine (j/machine ctx) old (fresh ctx engine 7) replacement (fresh ctx engine 8)
           source (a/push! ctx engine (a/empty! ctx engine 1) old)
-          closure (j/make-closure! ctx engine "Array.set!" [0 source]) before (counters engine)]
-      (is (re-find #"Array.set! panic path"
-                   (c/failure #(j/call ctx engine "apply-set" [closure index replacement]))))
-      (is (= before (counters engine)))
-      (is (false? (host/private-value closure "dead")))
-      (is (= 1 (c/rc ctx closure) (c/rc ctx source) (c/rc ctx replacement)))
-      (is (= [old] (a/elements ctx source)))
-      ;; The inactive failed invocation is discarded. This does not claim a
-      ;; general failed-frame cleanup/rollback contract for the legacy driver.
-      )))
+          closure (j/make-closure! ctx engine "Array.set!" [0 source])
+          result (j/call ctx engine "apply-set" [closure index replacement])]
+      (is (identical? source result))
+      (is (= [old] (a/elements ctx result)))
+      (is (host/private-value replacement "dead"))
+      (is (= "Error: index out of bounds\n" (drained-stderr engine)))
+      (j/release! ctx engine result) (j/close! ctx engine))))
 
 (deftest active-native-replacement-waits-for-promise-callback-and-forks-once
   (let [spec (host/spec "watch" ["object" "object"] [false false] "object")

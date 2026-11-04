@@ -4727,6 +4727,25 @@ public final class Interpreter implements AutoCloseable {
     public void clearAtomicDeadline() {
         requireAtomicIdle("Atomic deadline configuration"); atomicDeadlineEnabled=false;
     }
+    /** Native Lean prints a panic message and continues with the caller's default
+     * value; failOnPanic instead fails the invocation, like LEAN_ABORT_ON_PANIC. */
+    public void configurePanicPolicy(boolean failOnPanic) {
+        requireAtomicIdle("Panic policy configuration"); this.failOnPanic=failOnPanic;
+    }
+    private boolean failOnPanic;
+    /** lean_panic_fn without process effects: the message goes to captured stderr,
+     * except during module initialization, where compiled executables disable
+     * panic messages (lean_set_panic_messages(false) around initialize_*). */
+    private void panic(String message) {
+        if(failOnPanic) throw new LeanPanic(message);
+        if(initializing) return;
+        String line=message+"\n"; int size=utf8Extent(line); captureBudget(size,true);
+        appendRaw(line.getBytes(StandardCharsets.UTF_8),0,size,true); stderrOutput.append(line);
+    }
+    /** A reached panic under the fail-on-panic policy. */
+    public static final class LeanPanic extends RuntimeException {
+        LeanPanic(String message) { super("Lean panic: "+message); }
+    }
     private boolean atomicDeadlineEnabled;
     private void requireAtomicIdle(String operation) {
         if(closed||disposed||advancing||phase!=IDLE||pendingOwnedResult||taskRuntime!=null
@@ -7553,19 +7572,16 @@ public final class Interpreter implements AutoCloseable {
         require(n.compareTo(BigInteger.valueOf(arrayState(a).size))<0,"Array index outside bounds");
         return n.intValue();
     }
-    /** Native set! has a distinct panic path; the current profile rejects it
-     * before claims instead of executing the pure source fallback. */
+    /** Index for native lean_array_set, or -1 for its lean_array_set_panic path. */
     private static int checkedArraySetIndex(Node array,Object index) {
         BigInteger n=nat(index);
-        require(n.compareTo(BigInteger.valueOf(arrayState(array).size))<0,
-                "Array.set! panic path outside bounded runtime profile");
-        return n.intValue();
+        return n.compareTo(BigInteger.valueOf(arrayState(array).size))<0?n.intValue():-1;
     }
     private void validateCheckedArraySet(Object[] args) {
         require(args!=null&&args.length==4,"Array.set! native arity mismatch");
         require(ERASED.equals(args[0]),"Array erased parameter requires erased placeholder");
         Node source=array(args[1]); int index=checkedArraySetIndex(source,args[2]);
-        validateHostObject(args[3]); refIncomingAlias(source.fields[index],args[3]);
+        validateHostObject(args[3]); if(index>=0) refIncomingAlias(source.fields[index],args[3]);
     }
     private Node newArray(int size,int capacity) {
         require(size>=0&&capacity>=size&&capacity<=MAX_ARRAY_CAPACITY,"Array capacity outside bounded runtime profile");
@@ -7592,8 +7608,12 @@ public final class Interpreter implements AutoCloseable {
         if(f.intrinsic==ARRAY_CHECKED_GET||f.intrinsic==ARRAY_CHECKED_BORROWED) {
             validateHostObject(a);
             Node array=array(b); BigInteger index=nat(c);
-            require(index.compareTo(BigInteger.valueOf(arrayState(array).size))<0,
-                    "Array.get! panic path outside bounded runtime profile");
+            if(index.compareTo(BigInteger.valueOf(arrayState(array).size))>=0) {
+                // lean_array_get_panic: the borrowed default becomes the result.
+                panic("Error: index out of bounds");
+                if(f.intrinsic==ARRAY_CHECKED_GET) inc(a,1);
+                result=a; return;
+            }
             Object value=array.fields[index.intValue()];
             if(f.intrinsic==ARRAY_CHECKED_GET) inc(value,1);
             result=value; return;
@@ -7624,6 +7644,10 @@ public final class Interpreter implements AutoCloseable {
             }
             case ARRAY_FSET: case ARRAY_USET: case ARRAY_CHECKED_SET: {
                 int index=f.intrinsic==ARRAY_CHECKED_SET?checkedArraySetIndex(n,b):arrayIndex(n,b); validateHostObject(c);
+                if(index<0) {
+                    // lean_array_set_panic: drop the value, keep the array unchanged.
+                    panic("Error: index out of bounds"); releaseQuiet(c,1); result=n; return;
+                }
                 refIncomingAlias(n.fields[index],c);
                 Node out=exclusiveArray(n,false); Object old=out.fields[index];
                 out.fields[index]=c; stores++; releaseQuiet(old,1); result=out; return;
@@ -9458,7 +9482,10 @@ public final class Interpreter implements AutoCloseable {
             case STREAM_TTY: result=ERASED; break;
             case STREAM_READ: case STREAM_WRITE: case STREAM_LINE:
                 throw new UnsupportedOperationException("Captured-output stream operation not implemented: "+f.label);
-            case PANIC: throw new UnsupportedOperationException("panicCore default-return policy outside captured-output profile: "+text(c));
+            case PANIC: {
+                // lean_panic_fn(default, msg): msg is owned, the default is borrowed.
+                validateHostObject(b); panic(text(c)); releaseQuiet(c,1); inc(b,1); result=b; break;
+            }
             default: throw error("Invalid runtime intrinsic");
         }
     }
