@@ -124,7 +124,7 @@
                                   (case' [cons head tail ih_tail])
                                   (all_goals (simp_all [List.cons_append List.nil_append wsum.eq_1 wsum.eq_2
                                                         (WAddMonoid.zero_add m)]))
-                                  (all_goals (simp only [(WAddMonoid.add_assoc m)]))))
+                                  (all_goals (try (rw (WAddMonoid.add_assoc m head (wsum tail) (wsum l2)))))))
       (catch Throwable _ nil)))
   ;; foldl (· :: ·) acc l = (reverse l) ++ acc — the accumulator-generalized reverse identity. A REAL
   ;; `Map.join` builds its group_by buckets by `foldl (· :: ·) []` (the matched rows in reverse); this

@@ -42,11 +42,6 @@ example {α : Type} (l : List α)
   rw [h]
   exact List.append_nil l.reverse
 
-example {S : Type} (op : S → S → S)
-    (assoc : ∀ a b c, op (op a b) c = op a (op b c)) (a b c : S) :
-    op a (op b c) = op (op a b) c := by
-  simp only [assoc]
-
 example (rule : ∀ n : Nat, Nat.succ n = 0) :
     Nat.succ 1 + Nat.succ 2 = Nat.succ 1 + 0 := by
   rewrite (occs := .pos [2]) [rule]
