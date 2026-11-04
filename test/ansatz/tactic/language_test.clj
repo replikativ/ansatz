@@ -288,7 +288,8 @@
 (deftest rewrite-instantiates-universe-from-matched-conditional
   (proves 'rewrite_if_pos_universe
           '[i :- Nat, j :- Nat, h :- (= i j), p :- (=> Nat Prop), hp :- (p i)]
-          '(p (if (== i j) i j))
+          ;; Surface `if` elaborates to dite; if_pos rewrites the explicit ite encoding.
+          '(p (ite (= i j) i j))
           '[(rw [(if_pos h)]) (exact hp)])
   ;; The lemma's universe occurs only in the pending implicit branch arguments.
   (proves 'rewrite_if_neg_universe

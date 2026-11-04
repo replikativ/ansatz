@@ -631,7 +631,8 @@ right-nested, as Lean's `→`. `->` is always Clojure's threading macro, never a
 | `(exfalso)` | Prove by contradiction (change goal to False) |
 | `(left)` / `(right)` | Choose disjunction branch |
 | `(have name type)` | Introduce intermediate lemma |
-| `(rewrite h)` / `(rw [h])` | Rewrite the goal; `rw` also attempts reflexivity |
+| `(rewrite h)` / `(rw [h])` | Rewrite the goal, including inside projections; fail if the pattern is absent. `rw` also attempts reflexivity |
+| `(rewrite {:occs {:pos [2]}} [h])` | Rewrite only the second matching occurrence (`:neg` excludes selected occurrences); supports `at h` |
 | `(rw [h] at hx)` / `(rw [h] at h1 h2 ⊢)` / `(rw [h] at *)` | Rewrite selected hypotheses, optionally the target, or every matching location |
 | `(split)` | Split a conditional or matcher in the target and reduce the conditional in each branch |
 | `(split_ifs)` | Split all Boolean and propositional conditionals throughout the target and simplify each branch |

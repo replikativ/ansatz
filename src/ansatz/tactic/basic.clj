@@ -963,7 +963,8 @@
    If reverse? is true, rewrites right-to-left (rhs → lhs)."
   ([ps eq-term] (rewrite ps eq-term false))
   ([ps eq-term reverse?] (rewrite ps eq-term reverse? nil))
-  ([ps eq-term reverse? hyp-id]
+  ([ps eq-term reverse? hyp-id] (rewrite ps eq-term reverse? hyp-id nil))
+  ([ps eq-term reverse? hyp-id abstraction]
    (let [goal (proof/current-goal ps)
          _ (when-not goal (tactic-error! "No goals" {}))
          target-type (if hyp-id (:type (red/lctx-lookup (:lctx goal) hyp-id)) (:type goal))
@@ -981,45 +982,16 @@
            lhs (if reverse? (nth args 2) (nth args 1))
            rhs (if reverse? (nth args 1) (nth args 2))
            eq-levels (e/const-levels head)
-           ;; Build the motive: λ x, goal-type[lhs := x]
-           ;; We need to abstract lhs from the goal type
-           [ps' motive-fvar-id] (proof/alloc-id ps)
-           motive-fvar (e/fvar motive-fvar-id)
-           ;; Replace occurrences of lhs in the goal type with motive-fvar (later
-           ;; abstract1'd to the motive's bound var). Faithful to Lean's kabstract:
-           ;; descend UNDER binders — open each with a fresh fvar (so is-def-eq has the
-           ;; binder in context), replace in the opened body, then re-abstract. Without
-           ;; this, occurrences under a λ/∀ (e.g. the foldl accumulator, or a Subtype
-           ;; predicate) are missed and the resulting Eq.ndrec motive is ill-typed.
-           ;; Fresh ids come from st's :next-id, already bumped above the lctx + motive id.
-           goal-type-replaced (let [_ (swap! (:next-id st) (fn [v] (max v (inc motive-fvar-id))))
-                                    open-binder
-                                    (fn [replace-in st nm dom body mk]
-                                      (let [d (replace-in st dom)
-                                            fid (swap! (:next-id st) inc)
-                                            st' (update st :lctx add-local fid nm dom)
-                                            b (replace-in st' (e/instantiate1 body (e/fvar fid)))]
-                                        (mk d (e/abstract1 b fid))))
-                                    replace-in
-                                    (fn replace-in [st expr]
-                                      (if (try (tc/is-def-eq st expr lhs) (catch Exception _ false))
-                                        motive-fvar
-                                        (case (e/tag expr)
-                                          :app (let [f (replace-in st (e/app-fn expr))
-                                                     a (replace-in st (e/app-arg expr))]
-                                                 (if (and (identical? f (e/app-fn expr))
-                                                          (identical? a (e/app-arg expr)))
-                                                   expr
-                                                   (e/app f a)))
-                                          :lam (open-binder replace-in st (e/lam-name expr)
-                                                            (e/lam-type expr) (e/lam-body expr)
-                                                            (fn [d b] (e/lam (e/lam-name expr) d b (e/lam-info expr))))
-                                          :forall (open-binder replace-in st (e/forall-name expr)
-                                                               (e/forall-type expr) (e/forall-body expr)
-                                                               (fn [d b] (e/forall' (e/forall-name expr) d b (e/forall-info expr))))
-                                          expr)))]
-                                (replace-in st target-type))
-           motive-body (e/abstract1 goal-type-replaced motive-fvar-id)
+           ;; Lean Meta/Tactic/Rewrite.lean rewrite uses KAbstract.kabstract for
+           ;; both targets and local declarations, including projections and lets.
+           ps' ps
+           motive-body (or abstraction
+                           (ka/kabstract st target-type lhs
+                                         {:mctx (atom (or (:meta-mctx ps) meta/empty-context))}))
+           _ (when-not (e/has-loose-bvars? motive-body)
+               (tactic-error! (str "Tactic `rewrite` failed: Did not find an occurrence of the pattern\n  "
+                                   lhs "\nin the target expression\n  " target-type)
+                              {:pattern lhs :target target-type}))
            motive (e/lam "x" ty motive-body :default)
            ;; Compute the motive output sort level
            goal-sort (infer-in-goal ps (:lctx goal) target-type)
@@ -1077,6 +1049,8 @@
   ([ps term reverse? hyp-id]
    (rewrite-lemma ps term reverse? hyp-id (:next-id ps)))
   ([ps term reverse? hyp-id fresh-start]
+   (rewrite-lemma ps term reverse? hyp-id fresh-start {}))
+  ([ps term reverse? hyp-id fresh-start cfg]
    (let [goal (proof/current-goal ps)
          _ (when-not goal (tactic-error! "No goals" {}))
          ty (infer-in-goal ps (:lctx goal) term)
@@ -1124,27 +1098,12 @@
      (let [pat (if reverse? rhs0 lhs0)   ; match the side we'll FIND in the goal
            _ (when (e/mvar? (e/get-app-fn (meta/zonk-expr @mctx pat)))
                (tactic-error! "rewrite: pattern is a metavariable" {:pattern pat}))
-           found (atom false)
-           try-match (fn [e]
-                       (try
-                         (when-let [m (meta/is-def-eq @mctx st pat e)]
-                           (reset! mctx m)
-                           true)
-                         (catch Exception _ false)))
-           scan (fn scan [e]
-                  (when-not @found
-                    (if (try-match e)
-                      (reset! found true)
-                      (case (e/tag e)
-                        :app (do (scan (e/app-fn e)) (scan (e/app-arg e)))
-                        :lam (do (scan (e/lam-type e)) (scan (e/lam-body e)))
-                        :forall (do (scan (e/forall-type e)) (scan (e/forall-body e)))
-                        :let (do (scan (e/let-value e)) (scan (e/let-body e)))
-                        :proj (scan (e/proj-struct e))
-                        nil))))]
-       (scan (if hyp-id (:type (get (:lctx goal) hyp-id)) (:type goal)))
-       (when-not @found
-         (tactic-error! "rewrite: no subterm of the goal matches the lemma's LHS" {:lemma-type ty}))
+           target (if hyp-id (:type (get (:lctx goal) hyp-id)) (:type goal))
+           abstraction (ka/kabstract st target pat (merge {:transparency :reducible} cfg {:mctx mctx}))]
+       (when-not (e/has-loose-bvars? abstraction)
+         (tactic-error! (str "Tactic `rewrite` failed: Did not find an occurrence of the pattern\n  "
+                             pat "\nin the target expression\n  " target)
+                        {:pattern pat :target target}))
        ;; postprocessAppMVars: a param mvar not pinned by the match (e.g. the TYPE S in
        ;; `m : WAddMonoid S`, erased when an accessor reduces to a projection) is recovered by
        ;; unifying each ASSIGNED mvar's solution type against its declared type. Iterate for chains.
@@ -1198,8 +1157,8 @@
                   (rewrite ps (e/app* (e/const' (name/from-string "Eq.symm")
                                                 (mapv #(meta/zonk-level @mctx %) eq-lvls))
                                       (zonk* eqT) (zonk* lhs0) (zonk* rhs0) eq-proof)
-                           false hyp-id)
-                  (rewrite ps eq-proof false hyp-id))]
+                           false hyp-id (zonk* abstraction))
+                  (rewrite ps eq-proof false hyp-id (zonk* abstraction)))]
          (update ps :goals #(vec (distinct (concat (take 1 %) holes (rest %))))))))))
 
 ;; ============================================================
