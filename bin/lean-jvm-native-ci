@@ -27,14 +27,38 @@ def digest(path):
         return hasher.hexdigest()
 
 
+HEARTBEAT_SECONDS = 60
+
+
 def command(args, cwd, logs, name, env=None, timeout=600):
+    """Run one phase with its output in log files. While it runs, echo its
+    NATIVE_* progress markers and a periodic heartbeat, so CI output-silence
+    limits only catch real hangs; `timeout` still bounds the whole phase."""
     print("NATIVE_CI_BEGIN", name, flush=True)
-    with (logs / (name + ".stdout")).open("wb") as out, (logs / (name + ".stderr")).open("wb") as err:
-        result = subprocess.run(list(map(str, args)), cwd=cwd, env=env, stdin=subprocess.DEVNULL,
-                                stdout=out, stderr=err, timeout=timeout)
-    need(result.returncode == 0, f"{name} failed ({result.returncode}); see {logs}")
+    stdout_log = logs / (name + ".stdout")
+    with stdout_log.open("wb") as out, (logs / (name + ".stderr")).open("wb") as err:
+        process = subprocess.Popen(list(map(str, args)), cwd=cwd, env=env, stdin=subprocess.DEVNULL,
+                                   stdout=out, stderr=err)
+        elapsed, echoed = 0, 0
+        while True:
+            try:
+                process.wait(timeout=min(HEARTBEAT_SECONDS, timeout - elapsed))
+                break
+            except subprocess.TimeoutExpired:
+                elapsed += min(HEARTBEAT_SECONDS, timeout - elapsed)
+                lines = stdout_log.read_text(errors="replace").splitlines()
+                for line in lines[echoed:]:
+                    if line.startswith("NATIVE_"):
+                        print("NATIVE_CI_PROGRESS", name, line[:200], flush=True)
+                echoed = len(lines)
+                if elapsed >= timeout:
+                    process.kill()
+                    process.wait()
+                    raise RuntimeError(f"{name} exceeded {timeout} s; see {logs}")
+                print("NATIVE_CI_RUNNING", name, f"{elapsed}s", flush=True)
+    need(process.returncode == 0, f"{name} failed ({process.returncode}); see {logs}")
     print("NATIVE_CI_PASS", name, flush=True)
-    return (logs / (name + ".stdout")).read_text()
+    return stdout_log.read_text()
 
 
 def install(args):
