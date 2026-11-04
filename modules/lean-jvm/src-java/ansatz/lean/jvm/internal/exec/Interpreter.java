@@ -12,8 +12,6 @@ package ansatz.lean.jvm.internal.exec;
 
 import java.io.ByteArrayOutputStream;
 import java.math.BigInteger;
-import java.math.BigDecimal;
-import java.math.RoundingMode;
 import java.lang.ref.WeakReference;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
@@ -21,100 +19,115 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.security.SecureRandom;
 import java.security.ProviderException;
 import ansatz.lean.jvm.internal.fs.FileSession;
+import ansatz.lean.jvm.internal.exec.ExternRegistry.*;
+import ansatz.lean.jvm.internal.exec.ExprTransforms.*;
+import ansatz.lean.jvm.internal.exec.ExprDirectInstantiation.*;
+import ansatz.lean.jvm.internal.exec.ExprDelayedInstantiation.*;
+import ansatz.lean.jvm.internal.exec.LevelInstantiation.*;
 import static ansatz.lean.jvm.internal.exec.FrozenValues.*;
 
 public final class Interpreter implements AutoCloseable {
-    private static final int OBJ=0, U8=1, U32=2, USIZE=3, U64=4, F64=5, U16=6, F32=7;
+    // Package-private engine families. Each holds this interpreter and keeps no
+    // state of its own; every engine field stays declared on Interpreter.
+    final ScalarIntrinsics scalars=new ScalarIntrinsics(this);
+    final StringIntrinsics strings=new StringIntrinsics(this);
+    final StdioCapture stdio=new StdioCapture(this);
+    final ExprTransforms exprTransforms=new ExprTransforms(this);
+    final ExprDirectInstantiation exprDirect=new ExprDirectInstantiation(this);
+    final ExprDelayedInstantiation exprDelayed=new ExprDelayedInstantiation(this);
+    final LevelInstantiation levels=new LevelInstantiation(this);
+
+    static final int OBJ=0, U8=1, U32=2, USIZE=3, U64=4, F64=5, U16=6, F32=7;
     private static final int VDECL=0,JDECL=1,SET=2,SSET=3,INC=4,DEC=5,DEL=6,CASE=7,RET=8,JMP=9,UNREACHABLE=10,SETTAG=11,USET=12;
     private static final int MAP_APPLY=13,MAP_WRAP=14;
     private static final int CTOR=0,PROJ=1,SPROJ=2,FAP=3,PAP=4,AP=5,BOX=6,UNBOX=7,LIT=8,SHARED=9,UPROJ=10;
-    private static final int ADD=1,SUB=2,MOD=3,EQ=4,LT=5,MUL=6,DIV=7,POW=8;
-    private static final int U16_EQ=540,U16_NAT=541,MARK_PERSISTENT=542;
+    static final int ADD=1,SUB=2,MOD=3,EQ=4,LT=5,MUL=6,DIV=7,POW=8;
+    static final int U16_EQ=540,U16_NAT=541,MARK_PERSISTENT=542;
     private static final int MAX_PERSISTENT_NODES=300_000,MAX_PERSISTENT_EDGES=1_000_000;
-    private static final int LAYOUT_FIELDS=531,LAYOUT_SCALARS=532,LAYOUT_TAG=533,LAYOUT_USIZE=534,U32_LT=535,U64_TO_NAT=536;
-    private static final int USIZE_NAT=9,USIZE_REPR=10,U32_NAT=11,U32_EQ=12,U32_LE=13,PLATFORM_BITS=14;
-    private static final int FLOAT_LE=543,BYTE_EMPTY=544;
-    private static final int GET_STDIN=545,GET_STDERR=546,SET_STDIN=547,SET_STDOUT=548,SET_STDERR=549,STDERR_PUT=550;
-    private static final int STR_TO_UTF8=553,STR_FROM_UTF8=554,STR_VALIDATE_UTF8=555,BYTE_COPY_SLICE=556;
-    private static final int DBG_TRACE_SHARED=567;
-    private static final int STR_ANY=574,STR_IS_PREFIX=575;
-    private static final int FS_METADATA=576,FS_OPEN=577,FS_READ=578,FS_LINE=579,
+    static final int LAYOUT_FIELDS=531,LAYOUT_SCALARS=532,LAYOUT_TAG=533,LAYOUT_USIZE=534,U32_LT=535,U64_TO_NAT=536;
+    static final int USIZE_NAT=9,USIZE_REPR=10,U32_NAT=11,U32_EQ=12,U32_LE=13,PLATFORM_BITS=14;
+    static final int FLOAT_LE=543,BYTE_EMPTY=544;
+    static final int GET_STDIN=545,GET_STDERR=546,SET_STDIN=547,SET_STDOUT=548,SET_STDERR=549,STDERR_PUT=550;
+    static final int STR_TO_UTF8=553,STR_FROM_UTF8=554,STR_VALIDATE_UTF8=555,BYTE_COPY_SLICE=556;
+    static final int DBG_TRACE_SHARED=567;
+    static final int STR_ANY=574,STR_IS_PREFIX=575;
+    static final int FS_METADATA=576,FS_OPEN=577,FS_READ=578,FS_LINE=579,
             FS_WRITE=580,FS_PUT=581,FS_FLUSH=582,FS_TTY=583,FS_REWIND=584,FS_TRUNCATE=585;
-    private static final int STR_POS_SET=260;
-    private static final int VOID_MK=516,LEVEL_INSTANTIATE=517,EXPR_FIND_EXT=519;
-    private static final int ARRAY_CHECKED_SET=518,SHARECOMMON_QUICK=520,EXPR_REPLACE=521,EXPR_ABSTRACT_RANGE=522,EXPR_ABSTRACT=523;
-    private static final int EXPR_INSTANTIATE=524,EXPR_INSTANTIATE1=525,EXPR_INSTANTIATE_RANGE=526,EXPR_INSTANTIATE_REV=527,EXPR_INSTANTIATE_REV_RANGE=528,EXPR_LIFT=529,EXPR_INSTANTIATE_MVARS=530;
-    private static final int EXPR_HAS_LOOSE=537,EXPR_LOWER=538,EXPR_QUICK_LT=539;
-    private static final int EXPR_DATA=400,EXPR_APP_DATA=401,LEVEL_DATA=402,EXPR_CACHE=403,EXPR_EQV=404,EXPR_EQUAL=405,U8_TO_U32=406,U64_TO_U8=407,EXPR_FIND=408,LEVEL_EQUAL=409;
-    private static final int PROFILE_IT=410;
-    private static final int STR_PUSH=15,STR_LIST=16,STR_GET=17,STR_NEXT=18,STR_APPEND=19,STR_SIZE=20,
+    static final int STR_POS_SET=260;
+    static final int VOID_MK=516,LEVEL_INSTANTIATE=517,EXPR_FIND_EXT=519;
+    static final int ARRAY_CHECKED_SET=518,SHARECOMMON_QUICK=520,EXPR_REPLACE=521,EXPR_ABSTRACT_RANGE=522,EXPR_ABSTRACT=523;
+    static final int EXPR_INSTANTIATE=524,EXPR_INSTANTIATE1=525,EXPR_INSTANTIATE_RANGE=526,EXPR_INSTANTIATE_REV=527,EXPR_INSTANTIATE_REV_RANGE=528,EXPR_LIFT=529,EXPR_INSTANTIATE_MVARS=530;
+    static final int EXPR_HAS_LOOSE=537,EXPR_LOWER=538,EXPR_QUICK_LT=539;
+    static final int EXPR_DATA=400,EXPR_APP_DATA=401,LEVEL_DATA=402,EXPR_CACHE=403,EXPR_EQV=404,EXPR_EQUAL=405,U8_TO_U32=406,U64_TO_U8=407,EXPR_FIND=408,LEVEL_EQUAL=409;
+    static final int PROFILE_IT=410;
+    static final int STR_PUSH=15,STR_LIST=16,STR_GET=17,STR_NEXT=18,STR_APPEND=19,STR_SIZE=20,
                              ARRAY_MK=21,ARRAY_SIZE=22,ARRAY_GET=23,GET_STDOUT=24,PANIC=25;
-    private static final int REF_MK=26,REF_GET=27,REF_SET=28,REF_SWAP=29,REF_TAKE=30,REF_PTR_EQ=31;
-    private static final int ARRAY_EMPTY=32,ARRAY_PUSH=33,ARRAY_POP=34,ARRAY_USIZE=35,
+    static final int REF_MK=26,REF_GET=27,REF_SET=28,REF_SWAP=29,REF_TAKE=30,REF_PTR_EQ=31;
+    static final int ARRAY_EMPTY=32,ARRAY_PUSH=33,ARRAY_POP=34,ARRAY_USIZE=35,
                              ARRAY_FGET=36,ARRAY_UGET=37,ARRAY_UGET_BORROWED=38,
                              ARRAY_FSET=39,ARRAY_USET=40,ARRAY_SWAP=41,ARRAY_LIST=42,ARRAY_REPLICATE=43;
-    private static final int STR_END=44,STR_SAFE_GET=45,STR_SAFE_NEXT=46,STR_PREV=47,STR_VALID=48,
+    static final int STR_END=44,STR_SAFE_GET=45,STR_SAFE_NEXT=46,STR_PREV=47,STR_VALID=48,
                              STR_EXTRACT=49,STR_EQ=50,STR_LT=51,STR_COMPARE=52,STR_BYTE=53,
                              STR_CONTAINS=54,STR_LENGTH=55,STR_SET=56;
-    private static final int NAT_LE=57,NAT_LOG2=58,NAT_OR=59,NAT_SHL=60,NAT_SHR=61,TASK_PURE=62,TASK_GET=63,TASK_MAP=97;
-    private static final int ARRAY_CHECKED_GET=64,ARRAY_CHECKED_BORROWED=65;
-    private static final int IO_INITIALIZING=66;
-    private static final int USIZE_LT=67,USIZE_ADD=68,USIZE_EQ=69,USIZE_SUB=70,USIZE_TO_NAT=71,
+    static final int NAT_LE=57,NAT_LOG2=58,NAT_OR=59,NAT_SHL=60,NAT_SHR=61,TASK_PURE=62,TASK_GET=63,TASK_MAP=97;
+    static final int ARRAY_CHECKED_GET=64,ARRAY_CHECKED_BORROWED=65;
+    static final int IO_INITIALIZING=66;
+    static final int USIZE_LT=67,USIZE_ADD=68,USIZE_EQ=69,USIZE_SUB=70,USIZE_TO_NAT=71,
                              USIZE_SHR=72,USIZE_SHL=73,USIZE_AND=74,U8_NAT=75,U8_EQ=76,U8_AND=77,
                              U8_LE=78,U32_FROM_NAT=79,U32_TO_U8=80,U32_ADD=81,USIZE_LE=82,USIZE_MUL=83;
-    private static final int STR_HASH=84,U64_MIX=85,U64_NAT=86,U64_SHR=87,U64_XOR=88,U64_USIZE=89,
+    static final int STR_HASH=84,U64_MIX=85,U64_NAT=86,U64_SHR=87,U64_XOR=88,U64_USIZE=89,
                              U64_LT=90,U64_EQ=91,U64_OWNED_NAT=92,U64_TO_U32=98;
-    private static final int BOOL_U64=500,U64_ADD=501,U64_SUB=502,U64_MUL=503,U64_DIV=504,U64_MOD=505,
+    static final int BOOL_U64=500,U64_ADD=501,U64_SUB=502,U64_MUL=503,U64_DIV=504,U64_MOD=505,
                              U64_AND=506,U64_OR=507,U64_NOT=508,U64_NEG=509,U64_LOG2=510,U64_SHL=511,U64_LE=512;
-    private static final int U8_TO_U64=513,U32_TO_U64=514,USIZE_TO_U64=515;
-    private static final int BYTE_MK=200,BYTE_GET=201,BYTE_SIZE=202,BYTE_PUSH=203;
-    private static final int BYTE_GET_DEFAULT=557;
-    private static final int IO_RANDOM_BYTES=558;
-    private static final int U8_ADD=559,FLOAT_ADD=560,FLOAT32_ADD=561;
-    private static final int FLOAT32_BITS=562,FLOAT32_DIV=563,FLOAT32_MUL=564,
+    static final int U8_TO_U64=513,U32_TO_U64=514,USIZE_TO_U64=515;
+    static final int BYTE_MK=200,BYTE_GET=201,BYTE_SIZE=202,BYTE_PUSH=203;
+    static final int BYTE_GET_DEFAULT=557;
+    static final int IO_RANDOM_BYTES=558;
+    static final int U8_ADD=559,FLOAT_ADD=560,FLOAT32_ADD=561;
+    static final int FLOAT32_BITS=562,FLOAT32_DIV=563,FLOAT32_MUL=564,
             U64_FLOAT32=565,U32_OWNED_NAT=566;
-    private static final int FLOAT_TO_BITS=586,FLOAT32_TO_BITS=587;
-    private static final int U8_FROM_NAT=588,U16_FROM_NAT=589,U8_OWNED_NAT=590,U16_OWNED_NAT=591;
-    private static final int INT_OF_NAT=210,INT_NEG_SUCC=211,INT_NEG=212,INT_ABS=213,INT_ADD=214,INT_SUB=215,INT_EQ=216,INT_LT=217,INT_LE=218;
+    static final int FLOAT_TO_BITS=586,FLOAT32_TO_BITS=587;
+    static final int U8_FROM_NAT=588,U16_FROM_NAT=589,U8_OWNED_NAT=590,U16_OWNED_NAT=591;
+    static final int INT_OF_NAT=210,INT_NEG_SUCC=211,INT_NEG=212,INT_ABS=213,INT_ADD=214,INT_SUB=215,INT_EQ=216,INT_LT=217,INT_LE=218;
     // Contiguous with INT_LE: every Int primitive from INT_NEG through INT_NONNEG borrows its Int operands.
-    private static final int INT_MUL=219,INT_DIV=220,INT_MOD=221,INT_EDIV=222,INT_EMOD=223,INT_DIV_EXACT=224,INT_NONNEG=225;
-    private static final int NAT_AND=592,NAT_XOR=593,NAT_GCD=594,NAT_PRED=595,NAT_DIV_EXACT=596;
+    static final int INT_MUL=219,INT_DIV=220,INT_MOD=221,INT_EDIV=222,INT_EMOD=223,INT_DIV_EXACT=224,INT_NONNEG=225;
+    static final int NAT_AND=592,NAT_XOR=593,NAT_GCD=594,NAT_PRED=595,NAT_DIV_EXACT=596;
     /* Generic fixed-width unsigned family: WORD_BASE+lane*WORD_STRIDE+code, lanes UInt8,
      * UInt16, UInt32, UInt64, USize (pinned 64-bit target). Older scattered word IDs keep
      * their own cases; this block carries every operation they did not already cover. */
-    private static final int WORD_BASE=600,WORD_STRIDE=24,WORD_LANES=5;
-    private static final int W_ADD=0,W_SUB=1,W_MUL=2,W_DIV=3,W_MOD=4,W_AND=5,W_OR=6,W_XOR=7,W_NOT=8,W_NEG=9,
+    static final int WORD_BASE=600,WORD_STRIDE=24,WORD_LANES=5;
+    static final int W_ADD=0,W_SUB=1,W_MUL=2,W_DIV=3,W_MOD=4,W_AND=5,W_OR=6,W_XOR=7,W_NOT=8,W_NEG=9,
             W_SHL=10,W_SHR=11,W_LOG2=12,W_EQ=13,W_LT=14,W_LE=15,W_TO_U8=16,W_TO_U16=17,W_TO_U32=18,W_TO_U64=19,
             W_TO_USIZE=20,W_FROM_BOOL=21,W_OWNED_NAT=22;
     private static final int W8=WORD_BASE,W16=WORD_BASE+WORD_STRIDE,W32=WORD_BASE+2*WORD_STRIDE,
             W64=WORD_BASE+3*WORD_STRIDE,WSIZE=WORD_BASE+4*WORD_STRIDE;
-    private static final int U8_SUB=W8+W_SUB,U8_MUL=W8+W_MUL,U8_DIV=W8+W_DIV,U8_MOD=W8+W_MOD,U8_OR=W8+W_OR,
+    static final int U8_SUB=W8+W_SUB,U8_MUL=W8+W_MUL,U8_DIV=W8+W_DIV,U8_MOD=W8+W_MOD,U8_OR=W8+W_OR,
             U8_XOR=W8+W_XOR,U8_NOT=W8+W_NOT,U8_NEG=W8+W_NEG,U8_SHL=W8+W_SHL,U8_SHR=W8+W_SHR,U8_LOG2=W8+W_LOG2,
             U8_LT=W8+W_LT,U8_TO_U16=W8+W_TO_U16,U8_TO_USIZE=W8+W_TO_USIZE,BOOL_U8=W8+W_FROM_BOOL;
-    private static final int U16_ADD=W16+W_ADD,U16_SUB=W16+W_SUB,U16_MUL=W16+W_MUL,U16_DIV=W16+W_DIV,U16_MOD=W16+W_MOD,
+    static final int U16_ADD=W16+W_ADD,U16_SUB=W16+W_SUB,U16_MUL=W16+W_MUL,U16_DIV=W16+W_DIV,U16_MOD=W16+W_MOD,
             U16_AND=W16+W_AND,U16_OR=W16+W_OR,U16_XOR=W16+W_XOR,U16_NOT=W16+W_NOT,U16_NEG=W16+W_NEG,U16_SHL=W16+W_SHL,
             U16_SHR=W16+W_SHR,U16_LOG2=W16+W_LOG2,U16_LT=W16+W_LT,U16_LE=W16+W_LE,U16_TO_U8=W16+W_TO_U8,
             U16_TO_U32=W16+W_TO_U32,U16_TO_U64=W16+W_TO_U64,U16_TO_USIZE=W16+W_TO_USIZE,BOOL_U16=W16+W_FROM_BOOL;
-    private static final int U32_SUB=W32+W_SUB,U32_MUL=W32+W_MUL,U32_DIV=W32+W_DIV,U32_MOD=W32+W_MOD,U32_AND=W32+W_AND,
+    static final int U32_SUB=W32+W_SUB,U32_MUL=W32+W_MUL,U32_DIV=W32+W_DIV,U32_MOD=W32+W_MOD,U32_AND=W32+W_AND,
             U32_OR=W32+W_OR,U32_XOR=W32+W_XOR,U32_NOT=W32+W_NOT,U32_NEG=W32+W_NEG,U32_SHL=W32+W_SHL,U32_SHR=W32+W_SHR,
             U32_LOG2=W32+W_LOG2,U32_TO_U16=W32+W_TO_U16,U32_TO_USIZE=W32+W_TO_USIZE,BOOL_U32=W32+W_FROM_BOOL;
-    private static final int U64_TO_U16=W64+W_TO_U16;
-    private static final int USIZE_DIV=WSIZE+W_DIV,USIZE_MOD=WSIZE+W_MOD,USIZE_OR=WSIZE+W_OR,USIZE_XOR=WSIZE+W_XOR,
+    static final int U64_TO_U16=W64+W_TO_U16;
+    static final int USIZE_DIV=WSIZE+W_DIV,USIZE_MOD=WSIZE+W_MOD,USIZE_OR=WSIZE+W_OR,USIZE_XOR=WSIZE+W_XOR,
             USIZE_NOT=WSIZE+W_NOT,USIZE_NEG=WSIZE+W_NEG,USIZE_LOG2=WSIZE+W_LOG2,USIZE_TO_U8=WSIZE+W_TO_U8,
             USIZE_TO_U16=WSIZE+W_TO_U16,USIZE_TO_U32=WSIZE+W_TO_U32,USIZE_OWNED_NAT=WSIZE+W_OWNED_NAT,BOOL_USIZE=WSIZE+W_FROM_BOOL;
-    private static final String[] WORD_TYPES={"uint8","uint16","uint32","uint64","usize"};
-    private static final int[] WORD_BITS={8,16,32,64,64};
-    private static final String[] WORD_SUFFIXES={"add","sub","mul","div","mod","land","lor","xor","complement","neg",
+    static final String[] WORD_TYPES={"uint8","uint16","uint32","uint64","usize"};
+    static final int[] WORD_BITS={8,16,32,64,64};
+    static final String[] WORD_SUFFIXES={"add","sub","mul","div","mod","land","lor","xor","complement","neg",
             "shift_left","shift_right","log2","dec_eq","dec_lt","dec_le","to_uint8","to_uint16","to_uint32","to_uint64",
             "to_usize",null,"of_nat_mk"};
-    private static final int STR_MEMCMP=230,STR_SUBSTRING_EQ=231,STR_POS_OF=232,STR_OFFSET_OF_POS=233,STR_PUSHN=234;
-    private static final int MAX_STRING_OUTPUT_BYTES=16*1024*1024;
+    static final int STR_MEMCMP=230,STR_SUBSTRING_EQ=231,STR_POS_OF=232,STR_OFFSET_OF_POS=233,STR_PUSHN=234;
+    static final int MAX_STRING_OUTPUT_BYTES=16*1024*1024;
     private static final int MAX_BYTE_CAPACITY=16*1024*1024;
-    private static final int POINTER_IDENTITY=93, NAME_EQ=94, BUILD_GITHASH=95, BUILD_TARGET=96;
-    private static final int FLOAT_BITS=240,FLOAT_U64=241,FLOAT_SUB=242,FLOAT_MUL=243,FLOAT_DIV=244,FLOAT_EQ=245,FLOAT_LT=246,FLOAT_STRING=247;
+    static final int POINTER_IDENTITY=93, NAME_EQ=94, BUILD_GITHASH=95, BUILD_TARGET=96;
+    static final int FLOAT_BITS=240,FLOAT_U64=241,FLOAT_SUB=242,FLOAT_MUL=243,FLOAT_DIV=244,FLOAT_EQ=245,FLOAT_LT=246,FLOAT_STRING=247;
     private static final int MAX_NAME_COMPARISON_STEPS=1_000_000;
-    private static final int MAX_NAT_RESULT_BITS=16*1024*1024;
-    private static final int MAX_SHIFT_RESULT_BITS=MAX_NAT_RESULT_BITS;
+    static final int MAX_NAT_RESULT_BITS=16*1024*1024;
+    static final int MAX_SHIFT_RESULT_BITS=MAX_NAT_RESULT_BITS;
     // Conservative schoolbook bit-product accounting; not a JVM heap bound.
     private static final long MAX_NAT_MULTIPLY_WORK=1L<<40;
     public static final class RuntimeLimitException extends RuntimeException {
@@ -122,17 +135,17 @@ public final class Interpreter implements AutoCloseable {
         private RuntimeLimitException(String code,String message) { super(message); this.code=code; }
         public String code() { return code; }
     }
-    private static void resource(boolean admitted,String message) {
+    static void resource(boolean admitted,String message) {
         if(!admitted) throw new RuntimeLimitException("ResourceLimit",message);
     }
-    private static final int MAX_ARRAY_CAPACITY=1_000_000;
-    private static final int PROMISE_NEW=300,PROMISE_RESOLVE=301,PROMISE_RESULT=302,TASK_BIND=303,
+    static final int MAX_ARRAY_CAPACITY=1_000_000;
+    static final int PROMISE_NEW=300,PROMISE_RESOLVE=301,PROMISE_RESULT=302,TASK_BIND=303,
                              IO_TASK_MAP=304,IO_TASK_BIND=305,TASK_STATE=306,TASK_WAIT=307,
                              TASK_CANCEL=308,TASK_CANCELED=309,OPTION_BLOCK=310,TASK_SPAWN=311,IO_AS_TASK=312;
     private static final int CAPTURE_FLUSH=568,CAPTURE_READ=569,CAPTURE_WRITE=570,CAPTURE_LINE=571,CAPTURE_PUT=572,CAPTURE_TTY=573;
     private static final int STREAM_FLUSH=100,STREAM_READ=101,STREAM_WRITE=102,STREAM_LINE=103,STREAM_PUT=104,STREAM_TTY=105;
-    private static final BigInteger SMALL_MAX=BigInteger.valueOf(Long.MAX_VALUE);
-    private static final Object ERASED=Long.valueOf(0);
+    static final BigInteger SMALL_MAX=BigInteger.valueOf(Long.MAX_VALUE);
+    static final Object ERASED=Long.valueOf(0);
     private static final int MAX_IMPORT_NODES=100_000, MAX_IMPORT_ROOTS=100_000, MAX_IMPORT_EDGES=1_000_000;
     private static final long MAX_IMPORT_SCALAR_BYTES=16L*1024*1024, MAX_IMPORT_CARRIER_BYTES=16L*1024*1024;
 
@@ -325,522 +338,11 @@ public final class Interpreter implements AutoCloseable {
         boolean claimed;
     }
 
-    /** Exact captured ABI, deliberately distinct from physical JVM lanes. */
-    private static final class ExternSpec {
-        final String symbol,resultType;
-        final int intrinsic;
-        final String[] paramTypes;
-        final boolean[] borrowed;
-        ExternSpec(String symbol,int intrinsic,String resultType,String[] paramTypes,boolean[] borrowed) {
-            this.symbol=symbol; this.intrinsic=intrinsic; this.resultType=resultType;
-            this.paramTypes=paramTypes.clone(); this.borrowed=borrowed.clone();
-            if(paramTypes.length!=borrowed.length) throw new IllegalArgumentException("Invalid extern registry entry");
-        }
-        boolean matches(Map<String,Object> declaration) {
-            List<Object> params=list(declaration.get("xs"));
-            if(!resultType.equals(declaration.get("type"))||params.size()!=paramTypes.length) return false;
-            for(int i=0;i<params.size();i++) {
-                Map<String,Object> p=map(params.get(i));
-                if(!paramTypes[i].equals(p.get("ty"))||!Boolean.valueOf(borrowed[i]).equals(p.get("borrow"))) return false;
-            }
-            return true;
-        }
-    }
-    private static final Map<String,List<ExternSpec>> EXTERNS=externRegistry();
-    private static Map<String,List<ExternSpec>> externRegistry() {
-        Map<String,List<ExternSpec>> registry=new LinkedHashMap<>();
-        String[] symbols={"lean_nat_add","lean_nat_sub","lean_nat_mod","lean_nat_dec_eq","lean_nat_dec_lt",
-                          "lean_nat_mul","lean_nat_div","lean_nat_pow"};
-        int[] ops={ADD,SUB,MOD,EQ,LT,MUL,DIV,POW};
-        for(int i=0;i<symbols.length;i++) register(registry,new ExternSpec(symbols[i],ops[i],
-                ops[i]==EQ||ops[i]==LT?"uint8":"tobject",new String[]{"tobject","tobject"},new boolean[]{true,true}));
-        register(registry,new ExternSpec("lean_usize_of_nat",USIZE_NAT,"usize",new String[]{"tobject"},new boolean[]{true}));
-        register(registry,new ExternSpec("lean_usize_of_nat",USIZE_NAT,"usize",new String[]{"tobject","erased"},new boolean[]{true,false}));
-        register(registry,new ExternSpec("lean_string_of_usize",USIZE_REPR,"object",new String[]{"usize"},new boolean[]{true}));
-        register(registry,new ExternSpec("lean_uint32_to_nat",U32_NAT,"tobject",new String[]{"uint32"},new boolean[]{false}));
-        register(registry,new ExternSpec("lean_uint32_dec_eq",U32_EQ,"uint8",new String[]{"uint32","uint32"},new boolean[]{false,false}));
-        register(registry,new ExternSpec("lean_uint32_dec_le",U32_LE,"uint8",new String[]{"uint32","uint32"},new boolean[]{false,false}));
-        register(registry,new ExternSpec("lean_system_platform_nbits",PLATFORM_BITS,"tobject",new String[]{"tagged"},new boolean[]{false}));
-        register(registry,new ExternSpec("lean_get_max_ctor_fields",LAYOUT_FIELDS,"tobject",new String[]{"tagged"},new boolean[]{false}));
-        register(registry,new ExternSpec("lean_get_max_ctor_scalars_size",LAYOUT_SCALARS,"tobject",new String[]{"tagged"},new boolean[]{false}));
-        register(registry,new ExternSpec("lean_get_max_ctor_tag",LAYOUT_TAG,"tobject",new String[]{"tagged"},new boolean[]{false}));
-        register(registry,new ExternSpec("lean_get_usize_size",LAYOUT_USIZE,"tobject",new String[]{"tagged"},new boolean[]{false}));
-        register(registry,new ExternSpec("lean_uint32_dec_lt",U32_LT,"uint8",new String[]{"uint32","uint32"},new boolean[]{false,false}));
-        register(registry,new ExternSpec("lean_uint64_to_nat",U64_TO_NAT,"tobject",new String[]{"uint64"},new boolean[]{false}));
-        register(registry,new ExternSpec("lean_uint16_dec_eq",U16_EQ,"uint8",new String[]{"uint16","uint16"},new boolean[]{false,false}));
-        register(registry,new ExternSpec("lean_uint16_to_nat",U16_NAT,"tagged",new String[]{"uint16"},new boolean[]{false}));
-        register(registry,new ExternSpec("lean_string_push",STR_PUSH,"object",new String[]{"object","uint32"},new boolean[]{false,false}));
-        register(registry,new ExternSpec("lean_string_mk",STR_LIST,"object",new String[]{"tobject"},new boolean[]{false}));
-        register(registry,new ExternSpec("lean_string_any",STR_ANY,"uint8",new String[]{"object","object"},new boolean[]{false,false}));
-        register(registry,new ExternSpec("lean_io_metadata",FS_METADATA,"object",new String[]{"object","void"},new boolean[]{true,false}));
-        register(registry,new ExternSpec("lean_io_prim_handle_mk",FS_OPEN,"object",new String[]{"object","uint8","void"},new boolean[]{true,false,false}));
-        register(registry,new ExternSpec("lean_io_prim_handle_read",FS_READ,"object",new String[]{"tobject","usize","void"},new boolean[]{true,false,false}));
-        register(registry,new ExternSpec("lean_io_prim_handle_get_line",FS_LINE,"object",new String[]{"tobject","void"},new boolean[]{true,false}));
-        register(registry,new ExternSpec("lean_io_prim_handle_write",FS_WRITE,"object",new String[]{"tobject","object","void"},new boolean[]{true,true,false}));
-        register(registry,new ExternSpec("lean_io_prim_handle_put_str",FS_PUT,"object",new String[]{"tobject","object","void"},new boolean[]{true,true,false}));
-        register(registry,new ExternSpec("lean_io_prim_handle_flush",FS_FLUSH,"object",new String[]{"tobject","void"},new boolean[]{true,false}));
-        register(registry,new ExternSpec("lean_io_prim_handle_rewind",FS_REWIND,"object",new String[]{"tobject","void"},new boolean[]{true,false}));
-        register(registry,new ExternSpec("lean_io_prim_handle_truncate",FS_TRUNCATE,"object",new String[]{"tobject","void"},new boolean[]{true,false}));
-        register(registry,new ExternSpec("lean_io_prim_handle_is_tty",FS_TTY,"uint8",new String[]{"tobject","void"},new boolean[]{true,false}));
-        register(registry,new ExternSpec("lean_string_isprefixof",STR_IS_PREFIX,"uint8",new String[]{"object","object"},new boolean[]{false,false}));
-        register(registry,new ExternSpec("lean_string_utf8_get_fast",STR_GET,"uint32",new String[]{"object","tobject","erased"},new boolean[]{true,true,false}));
-        register(registry,new ExternSpec("lean_string_utf8_next_fast",STR_NEXT,"tagged",new String[]{"object","tobject","erased"},new boolean[]{true,true,false}));
-        register(registry,new ExternSpec("lean_string_append",STR_APPEND,"object",new String[]{"object","object"},new boolean[]{false,true}));
-        register(registry,new ExternSpec("lean_string_utf8_byte_size",STR_SIZE,"tagged",new String[]{"object"},new boolean[]{true}));
-        register(registry,new ExternSpec("lean_array_mk",ARRAY_MK,"object",new String[]{"erased","tobject"},new boolean[]{false,false}));
-        register(registry,new ExternSpec("lean_array_get_size",ARRAY_SIZE,"tagged",new String[]{"erased","object"},new boolean[]{false,true}));
-        register(registry,new ExternSpec("lean_array_fget_borrowed",ARRAY_GET,"tobject",new String[]{"erased","object","tobject","erased"},new boolean[]{false,true,true,false}));
-        register(registry,new ExternSpec("lean_get_stdout",GET_STDOUT,"object",new String[]{"void"},new boolean[]{false}));
-        register(registry,new ExternSpec("lean_dbg_trace_if_shared",DBG_TRACE_SHARED,"tobject",
-                new String[]{"erased","object","tobject"},new boolean[]{false,true,false}));
-        register(registry,new ExternSpec("lean_get_stdin",GET_STDIN,"object",new String[]{"void"},new boolean[]{false}));
-        register(registry,new ExternSpec("lean_get_stderr",GET_STDERR,"object",new String[]{"void"},new boolean[]{false}));
-        register(registry,new ExternSpec("lean_get_set_stdin",SET_STDIN,"object",new String[]{"object","void"},new boolean[]{false,false}));
-        register(registry,new ExternSpec("lean_get_set_stdout",SET_STDOUT,"object",new String[]{"object","void"},new boolean[]{false,false}));
-        register(registry,new ExternSpec("lean_get_set_stderr",SET_STDERR,"object",new String[]{"object","void"},new boolean[]{false,false}));
-        register(registry,new ExternSpec("lean_panic_fn_borrowed",PANIC,"tobject",new String[]{"erased","tobject","object"},new boolean[]{false,true,false}));
-        register(registry,new ExternSpec("lean_st_mk_ref",REF_MK,"tobject",
-                new String[]{"erased","erased","tobject","void"},new boolean[]{false,false,false,false}));
-        register(registry,new ExternSpec("lean_st_ref_get",REF_GET,"tobject",
-                new String[]{"erased","erased","tobject","void"},new boolean[]{false,false,true,false}));
-        register(registry,new ExternSpec("lean_st_ref_set",REF_SET,"tagged",
-                new String[]{"erased","erased","tobject","tobject","void"},new boolean[]{false,false,true,false,false}));
-        register(registry,new ExternSpec("lean_st_ref_swap",REF_SWAP,"tobject",
-                new String[]{"erased","erased","tobject","tobject","void"},new boolean[]{false,false,true,false,false}));
-        register(registry,new ExternSpec("lean_st_ref_take",REF_TAKE,"tobject",
-                new String[]{"erased","erased","tobject","void"},new boolean[]{false,false,true,false}));
-        register(registry,new ExternSpec("lean_st_ref_ptr_eq",REF_PTR_EQ,"uint8",
-                new String[]{"erased","erased","tobject","tobject","void"},new boolean[]{false,false,true,true,false}));
-        register(registry,new ExternSpec("lean_mk_empty_array_with_capacity",ARRAY_EMPTY,"object",
-                new String[]{"erased","tobject"},new boolean[]{false,true}));
-        register(registry,new ExternSpec("lean_array_push",ARRAY_PUSH,"object",
-                new String[]{"erased","object","tobject"},new boolean[]{false,false,false}));
-        register(registry,new ExternSpec("lean_array_pop",ARRAY_POP,"object",
-                new String[]{"erased","object"},new boolean[]{false,false}));
-        register(registry,new ExternSpec("lean_array_size",ARRAY_USIZE,"usize",
-                new String[]{"erased","object"},new boolean[]{false,true}));
-        register(registry,new ExternSpec("lean_array_fget",ARRAY_FGET,"tobject",
-                new String[]{"erased","object","tobject","erased"},new boolean[]{false,true,true,false}));
-        register(registry,new ExternSpec("lean_array_uget",ARRAY_UGET,"tobject",
-                new String[]{"erased","object","usize","erased"},new boolean[]{false,true,false,false}));
-        register(registry,new ExternSpec("lean_array_uget_borrowed",ARRAY_UGET_BORROWED,"tobject",
-                new String[]{"erased","object","usize","erased"},new boolean[]{false,true,false,false}));
-        register(registry,new ExternSpec("lean_array_fset",ARRAY_FSET,"object",
-                new String[]{"erased","object","tobject","tobject","erased"},new boolean[]{false,false,true,false,false}));
-        register(registry,new ExternSpec("lean_array_set",ARRAY_CHECKED_SET,"object",
-                new String[]{"erased","object","tobject","tobject"},new boolean[]{false,false,true,false}));
-        register(registry,new ExternSpec("lean_array_uset",ARRAY_USET,"object",
-                new String[]{"erased","object","usize","tobject","erased"},new boolean[]{false,false,false,false,false}));
-        register(registry,new ExternSpec("lean_array_fswap",ARRAY_SWAP,"object",
-                new String[]{"erased","object","tobject","tobject","erased","erased"},new boolean[]{false,false,true,true,false,false}));
-        register(registry,new ExternSpec("lean_array_to_list",ARRAY_LIST,"tobject",
-                new String[]{"erased","object"},new boolean[]{false,false}));
-        register(registry,new ExternSpec("lean_mk_array",ARRAY_REPLICATE,"object",
-                new String[]{"erased","tobject","tobject"},new boolean[]{false,false,false}));
-        register(registry,new ExternSpec("lean_string_utf8_at_end",STR_END,"uint8",
-                new String[]{"object","tobject"},new boolean[]{true,true}));
-        register(registry,new ExternSpec("lean_string_utf8_get",STR_SAFE_GET,"uint32",
-                new String[]{"object","tobject"},new boolean[]{true,true}));
-        register(registry,new ExternSpec("lean_string_utf8_next",STR_SAFE_NEXT,"tobject",
-                new String[]{"object","tobject"},new boolean[]{true,true}));
-        register(registry,new ExternSpec("lean_string_utf8_prev",STR_PREV,"tobject",
-                new String[]{"object","tobject"},new boolean[]{true,true}));
-        register(registry,new ExternSpec("lean_string_is_valid_pos",STR_VALID,"uint8",
-                new String[]{"object","tobject"},new boolean[]{true,true}));
-        register(registry,new ExternSpec("lean_string_utf8_extract",STR_EXTRACT,"object",
-                new String[]{"object","tobject","tobject"},new boolean[]{true,true,true}));
-        register(registry,new ExternSpec("lean_string_dec_eq",STR_EQ,"uint8",
-                new String[]{"object","object"},new boolean[]{true,true}));
-        register(registry,new ExternSpec("lean_string_dec_lt",STR_LT,"uint8",
-                new String[]{"object","object"},new boolean[]{true,true}));
-        register(registry,new ExternSpec("lean_string_compare",STR_COMPARE,"uint8",
-                new String[]{"object","object"},new boolean[]{true,true}));
-        register(registry,new ExternSpec("lean_string_get_byte_fast",STR_BYTE,"uint8",
-                new String[]{"object","tobject","erased"},new boolean[]{true,false,false}));
-        register(registry,new ExternSpec("lean_string_contains",STR_CONTAINS,"uint8",
-                new String[]{"object","uint32"},new boolean[]{false,false}));
-        register(registry,new ExternSpec("lean_string_length",STR_LENGTH,"tobject",
-                new String[]{"object"},new boolean[]{true}));
-        register(registry,new ExternSpec("lean_string_length",STR_LENGTH,"tagged",
-                new String[]{"object"},new boolean[]{true}));
-        register(registry,new ExternSpec("lean_string_utf8_set",STR_SET,"object",
-                new String[]{"object","tobject","uint32"},new boolean[]{false,true,false}));
-        register(registry,new ExternSpec("lean_string_utf8_set",STR_POS_SET,"object",
-                new String[]{"object","tobject","uint32","erased"},new boolean[]{false,false,false,false}));
-        register(registry,new ExternSpec("lean_nat_dec_le",NAT_LE,"uint8",
-                new String[]{"tobject","tobject"},new boolean[]{true,true}));
-        register(registry,new ExternSpec("lean_nat_log2",NAT_LOG2,"tobject",
-                new String[]{"tobject"},new boolean[]{true}));
-        register(registry,new ExternSpec("lean_nat_lor",NAT_OR,"tobject",
-                new String[]{"tobject","tobject"},new boolean[]{true,true}));
-        register(registry,new ExternSpec("lean_nat_shiftl",NAT_SHL,"tobject",
-                new String[]{"tobject","tobject"},new boolean[]{true,true}));
-        register(registry,new ExternSpec("lean_nat_shiftr",NAT_SHR,"tobject",
-                new String[]{"tobject","tobject"},new boolean[]{true,true}));
-        register(registry,new ExternSpec("lean_task_map",TASK_MAP,"object",
-                new String[]{"erased","erased","tobject","object","tobject","uint8"},
-                new boolean[]{false,false,false,false,false,false}));
-        register(registry,new ExternSpec("lean_task_pure",TASK_PURE,"object",
-                new String[]{"erased","tobject"},new boolean[]{false,false}));
-        register(registry,new ExternSpec("lean_task_get_own",TASK_GET,"tobject",
-                new String[]{"erased","object"},new boolean[]{false,false}));
-        register(registry,new ExternSpec("lean_io_promise_new",PROMISE_NEW,"tobject",
-                new String[]{"erased","erased","void"},new boolean[]{false,false,false}));
-        register(registry,new ExternSpec("lean_io_promise_resolve",PROMISE_RESOLVE,"tagged",
-                new String[]{"erased","tobject","tobject","void"},new boolean[]{false,false,true,false}));
-        register(registry,new ExternSpec("lean_io_promise_result_opt",PROMISE_RESULT,"object",
-                new String[]{"erased","tobject"},new boolean[]{false,true}));
-        register(registry,new ExternSpec("lean_task_bind",TASK_BIND,"object",
-                new String[]{"erased","erased","object","object","tobject","uint8"},new boolean[]{false,false,false,false,false,false}));
-        register(registry,new ExternSpec("lean_io_map_task",IO_TASK_MAP,"object",
-                new String[]{"erased","erased","object","object","tobject","uint8","void"},new boolean[]{false,false,false,false,false,false,false}));
-        register(registry,new ExternSpec("lean_io_bind_task",IO_TASK_BIND,"object",
-                new String[]{"erased","erased","object","object","tobject","uint8","void"},new boolean[]{false,false,false,false,false,false,false}));
-        register(registry,new ExternSpec("lean_io_get_task_state",TASK_STATE,"uint8",
-                new String[]{"erased","object","void"},new boolean[]{false,true,false}));
-        register(registry,new ExternSpec("lean_io_wait",TASK_WAIT,"tobject",
-                new String[]{"erased","object","void"},new boolean[]{false,false,false}));
-        register(registry,new ExternSpec("lean_io_cancel",TASK_CANCEL,"tagged",
-                new String[]{"erased","object","void"},new boolean[]{false,true,false}));
-        register(registry,new ExternSpec("lean_io_check_canceled",TASK_CANCELED,"uint8",
-                new String[]{"void"},new boolean[]{false}));
-        register(registry,new ExternSpec("lean_option_get_or_block",OPTION_BLOCK,"tobject",
-                new String[]{"erased","erased","tobject"},new boolean[]{false,false,false}));
-        register(registry,new ExternSpec("lean_task_spawn",TASK_SPAWN,"object",
-                new String[]{"erased","tobject","tobject"},new boolean[]{false,false,false}));
-        register(registry,new ExternSpec("lean_io_as_task",IO_AS_TASK,"object",
-                new String[]{"erased","object","tobject","void"},new boolean[]{false,false,false,false}));
-        register(registry,new ExternSpec("lean_array_get",ARRAY_CHECKED_GET,"tobject",
-                new String[]{"erased","tobject","object","tobject"},new boolean[]{false,true,true,true}));
-        register(registry,new ExternSpec("lean_array_get_borrowed",ARRAY_CHECKED_BORROWED,"tobject",
-                new String[]{"erased","tobject","object","tobject"},new boolean[]{false,true,true,true}));
-        register(registry,new ExternSpec("lean_io_initializing",IO_INITIALIZING,"uint8",
-                new String[]{"void"},new boolean[]{false}));
-        register(registry,new ExternSpec("lean_usize_dec_lt",USIZE_LT,"uint8",
-                new String[]{"usize","usize"},new boolean[]{false,false}));
-        register(registry,new ExternSpec("lean_usize_add",USIZE_ADD,"usize",
-                new String[]{"usize","usize"},new boolean[]{false,false}));
-        register(registry,new ExternSpec("lean_usize_dec_eq",USIZE_EQ,"uint8",
-                new String[]{"usize","usize"},new boolean[]{false,false}));
-        register(registry,new ExternSpec("lean_usize_sub",USIZE_SUB,"usize",
-                new String[]{"usize","usize"},new boolean[]{false,false}));
-        register(registry,new ExternSpec("lean_usize_to_nat",USIZE_TO_NAT,"tobject",
-                new String[]{"usize"},new boolean[]{false}));
-        register(registry,new ExternSpec("lean_usize_shift_right",USIZE_SHR,"usize",
-                new String[]{"usize","usize"},new boolean[]{false,false}));
-        register(registry,new ExternSpec("lean_usize_shift_left",USIZE_SHL,"usize",
-                new String[]{"usize","usize"},new boolean[]{false,false}));
-        register(registry,new ExternSpec("lean_usize_land",USIZE_AND,"usize",
-                new String[]{"usize","usize"},new boolean[]{false,false}));
-        register(registry,new ExternSpec("lean_uint8_to_nat",U8_NAT,"tagged",
-                new String[]{"uint8"},new boolean[]{false}));
-        register(registry,new ExternSpec("lean_uint8_of_nat",U8_FROM_NAT,"uint8",
-                new String[]{"tobject"},new boolean[]{true}));
-        register(registry,new ExternSpec("lean_uint8_of_nat",U8_FROM_NAT,"uint8",
-                new String[]{"tobject","erased"},new boolean[]{true,false}));
-        register(registry,new ExternSpec("lean_uint8_of_nat_mk",U8_OWNED_NAT,"uint8",
-                new String[]{"tobject"},new boolean[]{false}));
-        register(registry,new ExternSpec("lean_uint16_of_nat",U16_FROM_NAT,"uint16",
-                new String[]{"tobject"},new boolean[]{true}));
-        register(registry,new ExternSpec("lean_uint16_of_nat",U16_FROM_NAT,"uint16",
-                new String[]{"tobject","erased"},new boolean[]{true,false}));
-        register(registry,new ExternSpec("lean_uint16_of_nat_mk",U16_OWNED_NAT,"uint16",
-                new String[]{"tobject"},new boolean[]{false}));
-        register(registry,new ExternSpec("lean_uint8_dec_eq",U8_EQ,"uint8",
-                new String[]{"uint8","uint8"},new boolean[]{false,false}));
-        register(registry,new ExternSpec("lean_uint8_land",U8_AND,"uint8",
-                new String[]{"uint8","uint8"},new boolean[]{false,false}));
-        register(registry,new ExternSpec("lean_uint8_dec_le",U8_LE,"uint8",
-                new String[]{"uint8","uint8"},new boolean[]{false,false}));
-        register(registry,new ExternSpec("lean_uint32_of_nat",U32_FROM_NAT,"uint32",
-                new String[]{"tobject","erased"},new boolean[]{true,false}));
-        register(registry,new ExternSpec("lean_uint32_of_nat",U32_FROM_NAT,"uint32",
-                new String[]{"tobject"},new boolean[]{true}));
-        register(registry,new ExternSpec("lean_uint32_to_uint8",U32_TO_U8,"uint8",
-                new String[]{"uint32"},new boolean[]{false}));
-        register(registry,new ExternSpec("lean_uint32_add",U32_ADD,"uint32",
-                new String[]{"uint32","uint32"},new boolean[]{false,false}));
-        register(registry,new ExternSpec("lean_usize_dec_le",USIZE_LE,"uint8",
-                new String[]{"usize","usize"},new boolean[]{false,false}));
-        register(registry,new ExternSpec("lean_usize_mul",USIZE_MUL,"usize",
-                new String[]{"usize","usize"},new boolean[]{false,false}));
-        register(registry,new ExternSpec("lean_string_hash",STR_HASH,"uint64",
-                new String[]{"object"},new boolean[]{true}));
-        register(registry,new ExternSpec("lean_runtime_mark_persistent",MARK_PERSISTENT,"tobject",
-                new String[]{"erased","tobject","void"},new boolean[]{false,false,false}));
-        register(registry,new ExternSpec("lean_profileit",PROFILE_IT,"tobject",
-                new String[]{"erased","object","object","tobject","tobject"},new boolean[]{false,true,true,false,false}));
-        register(registry,new ExternSpec("lean_instantiate_level_mvars",LEVEL_INSTANTIATE,"object",
-                new String[]{"object","tobject"},new boolean[]{false,false}));
-        if(EXPR_INSTANTIATION_NATIVE_READY) register(registry,new ExternSpec("lean_instantiate_expr_mvars",EXPR_INSTANTIATE_MVARS,"object",
-                new String[]{"object","object"},new boolean[]{false,false}));
-        register(registry,new ExternSpec("lean_void_mk",VOID_MK,"void",
-                new String[]{"erased","tobject"},new boolean[]{false,false}));
-        register(registry,new ExternSpec("lean_find_ext_expr",EXPR_FIND_EXT,"tobject",
-                new String[]{"object","object"},new boolean[]{true,true}));
-        register(registry,new ExternSpec("lean_sharecommon_quick",SHARECOMMON_QUICK,"tobject",
-                new String[]{"erased","tobject"},new boolean[]{false,true}));
-        register(registry,new ExternSpec("lean_expr_instantiate",EXPR_INSTANTIATE,"object",
-                new String[]{"object","object"},new boolean[]{true,true}));
-        register(registry,new ExternSpec("lean_expr_instantiate1",EXPR_INSTANTIATE1,"object",
-                new String[]{"object","object"},new boolean[]{true,true}));
-        register(registry,new ExternSpec("lean_expr_instantiate_range",EXPR_INSTANTIATE_RANGE,"object",
-                new String[]{"object","tobject","tobject","object"},new boolean[]{true,true,true,true}));
-        register(registry,new ExternSpec("lean_expr_instantiate_rev",EXPR_INSTANTIATE_REV,"object",
-                new String[]{"object","object"},new boolean[]{true,true}));
-        register(registry,new ExternSpec("lean_expr_instantiate_rev_range",EXPR_INSTANTIATE_REV_RANGE,"object",
-                new String[]{"object","tobject","tobject","object"},new boolean[]{true,true,true,true}));
-        register(registry,new ExternSpec("lean_expr_lift_loose_bvars",EXPR_LIFT,"object",
-                new String[]{"object","tobject","tobject"},new boolean[]{true,true,true}));
-        register(registry,new ExternSpec("lean_replace_expr",EXPR_REPLACE,"object",
-                new String[]{"object","object"},new boolean[]{true,true}));
-        register(registry,new ExternSpec("lean_expr_abstract_range",EXPR_ABSTRACT_RANGE,"object",
-                new String[]{"object","tobject","object"},new boolean[]{true,true,true}));
-        register(registry,new ExternSpec("lean_expr_abstract",EXPR_ABSTRACT,"object",
-                new String[]{"object","object"},new boolean[]{true,true}));
-        register(registry,new ExternSpec("lean_find_expr",EXPR_FIND,"tobject",
-                new String[]{"object","object"},new boolean[]{true,true}));
-        register(registry,new ExternSpec("lean_expr_eqv",EXPR_EQV,"uint8",
-                new String[]{"object","object"},new boolean[]{true,true}));
-        register(registry,new ExternSpec("lean_level_eq",LEVEL_EQUAL,"uint8",
-                new String[]{"tobject","tobject"},new boolean[]{true,true}));
-        register(registry,new ExternSpec("lean_expr_equal",EXPR_EQUAL,"uint8",
-                new String[]{"object","object"},new boolean[]{true,true}));
-        register(registry,new ExternSpec("lean_expr_quick_lt",EXPR_QUICK_LT,"uint8",
-                new String[]{"object","object"},new boolean[]{true,true}));
-        register(registry,new ExternSpec("lean_expr_has_loose_bvar",EXPR_HAS_LOOSE,"uint8",
-                new String[]{"object","tobject"},new boolean[]{true,true}));
-        register(registry,new ExternSpec("lean_expr_lower_loose_bvars",EXPR_LOWER,"object",
-                new String[]{"object","tobject","tobject"},new boolean[]{true,true,true}));
-        register(registry,new ExternSpec("lean_expr_data",EXPR_CACHE,"uint64",
-                new String[]{"object"},new boolean[]{true}));
-        register(registry,new ExternSpec("lean_expr_mk_data",EXPR_DATA,"uint64",
-                new String[]{"uint64","tobject","uint32","uint8","uint8","uint8","uint8"},
-                new boolean[]{false,false,false,false,false,false,false}));
-        register(registry,new ExternSpec("lean_expr_mk_app_data",EXPR_APP_DATA,"uint64",
-                new String[]{"uint64","uint64"},new boolean[]{false,false}));
-        register(registry,new ExternSpec("lean_level_mk_data",LEVEL_DATA,"uint64",
-                new String[]{"uint64","tobject","uint8","uint8"},new boolean[]{false,false,false,false}));
-        register(registry,new ExternSpec("lean_uint8_to_uint32",U8_TO_U32,"uint32",
-                new String[]{"uint8"},new boolean[]{false}));
-        register(registry,new ExternSpec("lean_uint64_to_uint8",U64_TO_U8,"uint8",
-                new String[]{"uint64"},new boolean[]{false}));
-        register(registry,new ExternSpec("lean_uint8_to_uint64",U8_TO_U64,"uint64",
-                new String[]{"uint8"},new boolean[]{false}));
-        register(registry,new ExternSpec("lean_uint32_to_uint64",U32_TO_U64,"uint64",
-                new String[]{"uint32"},new boolean[]{false}));
-        register(registry,new ExternSpec("lean_usize_to_uint64",USIZE_TO_U64,"uint64",
-                new String[]{"usize"},new boolean[]{false}));
-        register(registry,new ExternSpec("lean_bool_to_uint64",BOOL_U64,"uint64",
-                new String[]{"uint8"},new boolean[]{false}));
-        register(registry,new ExternSpec("lean_uint64_add",U64_ADD,"uint64",
-                new String[]{"uint64","uint64"},new boolean[]{false,false}));
-        register(registry,new ExternSpec("lean_uint64_sub",U64_SUB,"uint64",
-                new String[]{"uint64","uint64"},new boolean[]{false,false}));
-        register(registry,new ExternSpec("lean_uint64_mul",U64_MUL,"uint64",
-                new String[]{"uint64","uint64"},new boolean[]{false,false}));
-        register(registry,new ExternSpec("lean_uint64_div",U64_DIV,"uint64",
-                new String[]{"uint64","uint64"},new boolean[]{false,false}));
-        register(registry,new ExternSpec("lean_uint64_mod",U64_MOD,"uint64",
-                new String[]{"uint64","uint64"},new boolean[]{false,false}));
-        register(registry,new ExternSpec("lean_uint64_land",U64_AND,"uint64",
-                new String[]{"uint64","uint64"},new boolean[]{false,false}));
-        register(registry,new ExternSpec("lean_uint64_lor",U64_OR,"uint64",
-                new String[]{"uint64","uint64"},new boolean[]{false,false}));
-        register(registry,new ExternSpec("lean_uint64_complement",U64_NOT,"uint64",
-                new String[]{"uint64"},new boolean[]{false}));
-        register(registry,new ExternSpec("lean_uint64_neg",U64_NEG,"uint64",
-                new String[]{"uint64"},new boolean[]{false}));
-        register(registry,new ExternSpec("lean_uint64_log2",U64_LOG2,"uint64",
-                new String[]{"uint64"},new boolean[]{false}));
-        register(registry,new ExternSpec("lean_uint64_shift_left",U64_SHL,"uint64",
-                new String[]{"uint64","uint64"},new boolean[]{false,false}));
-        register(registry,new ExternSpec("lean_uint64_dec_le",U64_LE,"uint8",
-                new String[]{"uint64","uint64"},new boolean[]{false,false}));
-        register(registry,new ExternSpec("lean_uint64_mix_hash",U64_MIX,"uint64",
-                new String[]{"uint64","uint64"},new boolean[]{false,false}));
-        register(registry,new ExternSpec("lean_uint64_of_nat",U64_NAT,"uint64",
-                new String[]{"tobject"},new boolean[]{true}));
-        register(registry,new ExternSpec("lean_uint64_of_nat",U64_NAT,"uint64",
-                new String[]{"tobject","erased"},new boolean[]{true,false}));
-        register(registry,new ExternSpec("lean_uint64_shift_right",U64_SHR,"uint64",
-                new String[]{"uint64","uint64"},new boolean[]{false,false}));
-        register(registry,new ExternSpec("lean_uint64_xor",U64_XOR,"uint64",
-                new String[]{"uint64","uint64"},new boolean[]{false,false}));
-        register(registry,new ExternSpec("lean_uint64_to_uint32",U64_TO_U32,"uint32",
-                new String[]{"uint64"},new boolean[]{false}));
-        register(registry,new ExternSpec("lean_uint64_to_usize",U64_USIZE,"usize",
-                new String[]{"uint64"},new boolean[]{false}));
-        register(registry,new ExternSpec("lean_uint64_dec_lt",U64_LT,"uint8",
-                new String[]{"uint64","uint64"},new boolean[]{false,false}));
-        register(registry,new ExternSpec("lean_uint64_dec_eq",U64_EQ,"uint8",
-                new String[]{"uint64","uint64"},new boolean[]{false,false}));
-        register(registry,new ExternSpec("lean_uint64_of_nat_mk",U64_OWNED_NAT,"uint64",
-                new String[]{"tobject"},new boolean[]{false}));
-        register(registry,new ExternSpec("lean_string_to_utf8",STR_TO_UTF8,"object",
-                new String[]{"object"},new boolean[]{false}));
-        register(registry,new ExternSpec("lean_string_to_utf8",STR_TO_UTF8,"object",
-                new String[]{"object"},new boolean[]{true}));
-        register(registry,new ExternSpec("lean_string_from_utf8_unchecked",STR_FROM_UTF8,"object",
-                new String[]{"object","erased"},new boolean[]{false,false}));
-        register(registry,new ExternSpec("lean_string_validate_utf8",STR_VALIDATE_UTF8,"uint8",
-                new String[]{"object"},new boolean[]{true}));
-        register(registry,new ExternSpec("lean_byte_array_copy_slice",BYTE_COPY_SLICE,"object",
-                new String[]{"object","tobject","object","tobject","tobject","uint8"},
-                new boolean[]{true,false,false,false,false,false}));
-        register(registry,new ExternSpec("lean_mk_empty_byte_array",BYTE_EMPTY,"object",
-                new String[]{"tobject"},new boolean[]{true}));
-        register(registry,new ExternSpec("lean_byte_array_mk",BYTE_MK,"object",
-                new String[]{"object"},new boolean[]{false}));
-        register(registry,new ExternSpec("lean_byte_array_fget",BYTE_GET,"uint8",
-                new String[]{"object","tobject","erased"},new boolean[]{true,true,false}));
-        register(registry,new ExternSpec("lean_byte_array_get",BYTE_GET_DEFAULT,"uint8",
-                new String[]{"object","tobject"},new boolean[]{true,true}));
-        register(registry,new ExternSpec("lean_io_get_random_bytes",IO_RANDOM_BYTES,"object",
-                new String[]{"usize","void"},new boolean[]{false,false}));
-        register(registry,new ExternSpec("lean_byte_array_size",BYTE_SIZE,"tagged",
-                new String[]{"object"},new boolean[]{true}));
-        register(registry,new ExternSpec("lean_byte_array_push",BYTE_PUSH,"object",
-                new String[]{"object","uint8"},new boolean[]{false,false}));
-        register(registry,new ExternSpec("lean_ptr_addr",POINTER_IDENTITY,"usize",
-                new String[]{"erased","tobject"},new boolean[]{false,true}));
-        register(registry,new ExternSpec("lean_nat_to_int",INT_OF_NAT,"tobject",
-                new String[]{"tobject"},new boolean[]{false}));
-        register(registry,new ExternSpec("lean_int_neg_succ_of_nat",INT_NEG_SUCC,"tobject",
-                new String[]{"tobject"},new boolean[]{false}));
-        register(registry,new ExternSpec("lean_int_neg",INT_NEG,"tobject",
-                new String[]{"tobject"},new boolean[]{true}));
-        register(registry,new ExternSpec("lean_nat_abs",INT_ABS,"tobject",
-                new String[]{"tobject"},new boolean[]{true}));
-        register(registry,new ExternSpec("lean_int_add",INT_ADD,"tobject",
-                new String[]{"tobject","tobject"},new boolean[]{true,true}));
-        register(registry,new ExternSpec("lean_int_sub",INT_SUB,"tobject",
-                new String[]{"tobject","tobject"},new boolean[]{true,true}));
-        register(registry,new ExternSpec("lean_int_dec_eq",INT_EQ,"uint8",
-                new String[]{"tobject","tobject"},new boolean[]{true,true}));
-        register(registry,new ExternSpec("lean_int_dec_lt",INT_LT,"uint8",
-                new String[]{"tobject","tobject"},new boolean[]{true,true}));
-        register(registry,new ExternSpec("lean_int_dec_le",INT_LE,"uint8",
-                new String[]{"tobject","tobject"},new boolean[]{true,true}));
-        register(registry,new ExternSpec("lean_name_eq",NAME_EQ,"uint8",
-                new String[]{"tobject","tobject"},new boolean[]{true,true}));
-        register(registry,new ExternSpec("lean_get_githash",BUILD_GITHASH,"object",
-                new String[]{"tagged"},new boolean[]{false}));
-        register(registry,new ExternSpec("lean_system_platform_target",BUILD_TARGET,"object",
-                new String[]{"tagged"},new boolean[]{false}));
-        register(registry,new ExternSpec("lean_string_memcmp",STR_MEMCMP,"uint8",
-                new String[]{"object","object","tobject","tobject","tobject","erased","erased"},new boolean[]{true,true,true,true,true,false,false}));
-        register(registry,new ExternSpec("lean_substring_beq",STR_SUBSTRING_EQ,"uint8",
-                new String[]{"object","object"},new boolean[]{false,false}));
-        register(registry,new ExternSpec("lean_string_posof",STR_POS_OF,"tobject",
-                new String[]{"object","uint32"},new boolean[]{false,false}));
-        register(registry,new ExternSpec("lean_string_offsetofpos",STR_OFFSET_OF_POS,"tobject",
-                new String[]{"object","tobject"},new boolean[]{false,false}));
-        register(registry,new ExternSpec("lean_string_pushn",STR_PUSHN,"object",
-                new String[]{"object","uint32","tobject"},new boolean[]{false,false,false}));
-        register(registry,new ExternSpec("lean_float_of_bits",FLOAT_BITS,"float",new String[]{"uint64"},new boolean[]{false}));
-        register(registry,new ExternSpec("lean_float_to_bits",FLOAT_TO_BITS,"uint64",new String[]{"float"},new boolean[]{false}));
-        register(registry,new ExternSpec("lean_uint64_to_float",FLOAT_U64,"float",new String[]{"uint64"},new boolean[]{false}));
-        register(registry,new ExternSpec("lean_float_sub",FLOAT_SUB,"float",new String[]{"float","float"},new boolean[]{false,false}));
-        register(registry,new ExternSpec("lean_float_mul",FLOAT_MUL,"float",new String[]{"float","float"},new boolean[]{false,false}));
-        register(registry,new ExternSpec("lean_float_div",FLOAT_DIV,"float",new String[]{"float","float"},new boolean[]{false,false}));
-        register(registry,new ExternSpec("lean_float_beq",FLOAT_EQ,"uint8",new String[]{"float","float"},new boolean[]{false,false}));
-        register(registry,new ExternSpec("lean_float_decLt",FLOAT_LT,"uint8",new String[]{"float","float"},new boolean[]{false,false}));
-        register(registry,new ExternSpec("lean_float_decLe",FLOAT_LE,"uint8",new String[]{"float","float"},new boolean[]{false,false}));
-        register(registry,new ExternSpec("lean_float_to_string",FLOAT_STRING,"object",new String[]{"float"},new boolean[]{false}));
-        register(registry,new ExternSpec("lean_uint8_add",U8_ADD,"uint8",new String[]{"uint8","uint8"},new boolean[]{false,false}));
-        // Signed Int64 is a trivial two's-complement wrapper over the exact UInt64 lane.
-        register(registry,new ExternSpec("lean_int64_neg",U64_NEG,"uint64",new String[]{"uint64"},new boolean[]{false}));
-        register(registry,new ExternSpec("lean_float_add",FLOAT_ADD,"float",new String[]{"float","float"},new boolean[]{false,false}));
-        register(registry,new ExternSpec("lean_float32_add",FLOAT32_ADD,"float32",new String[]{"float32","float32"},new boolean[]{false,false}));
-        register(registry,new ExternSpec("lean_float32_of_bits",FLOAT32_BITS,"float32",new String[]{"uint32"},new boolean[]{false}));
-        register(registry,new ExternSpec("lean_float32_to_bits",FLOAT32_TO_BITS,"uint32",new String[]{"float32"},new boolean[]{false}));
-        register(registry,new ExternSpec("lean_uint32_of_nat_mk",U32_OWNED_NAT,"uint32",new String[]{"tobject"},new boolean[]{false}));
-        register(registry,new ExternSpec("lean_float32_div",FLOAT32_DIV,"float32",new String[]{"float32","float32"},new boolean[]{false,false}));
-        register(registry,new ExternSpec("lean_float32_mul",FLOAT32_MUL,"float32",new String[]{"float32","float32"},new boolean[]{false,false}));
-        register(registry,new ExternSpec("lean_uint64_to_float32",U64_FLOAT32,"float32",new String[]{"uint64"},new boolean[]{false}));
-        // Pinned Lean 4.33.1 Init IR ABIs: Nat/Int operands are borrowed, proofs erased.
-        String[] natBinary={"lean_nat_land","lean_nat_lxor","lean_nat_gcd"};
-        int[] natBinaryOps={NAT_AND,NAT_XOR,NAT_GCD};
-        for(int i=0;i<natBinary.length;i++) register(registry,new ExternSpec(natBinary[i],natBinaryOps[i],"tobject",
-                new String[]{"tobject","tobject"},new boolean[]{true,true}));
-        register(registry,new ExternSpec("lean_nat_pred",NAT_PRED,"tobject",new String[]{"tobject"},new boolean[]{true}));
-        register(registry,new ExternSpec("lean_nat_div_exact",NAT_DIV_EXACT,"tobject",
-                new String[]{"tobject","tobject","erased"},new boolean[]{true,true,false}));
-        String[] intBinary={"lean_int_mul","lean_int_div","lean_int_mod","lean_int_ediv","lean_int_emod"};
-        int[] intBinaryOps={INT_MUL,INT_DIV,INT_MOD,INT_EDIV,INT_EMOD};
-        for(int i=0;i<intBinary.length;i++) register(registry,new ExternSpec(intBinary[i],intBinaryOps[i],"tobject",
-                new String[]{"tobject","tobject"},new boolean[]{true,true}));
-        register(registry,new ExternSpec("lean_int_div_exact",INT_DIV_EXACT,"tobject",
-                new String[]{"tobject","tobject","erased"},new boolean[]{true,true,false}));
-        register(registry,new ExternSpec("lean_int_dec_nonneg",INT_NONNEG,"uint8",new String[]{"tobject"},new boolean[]{true}));
-        // UInt8/UInt16.toBitVec share the Nat conversion symbol with an untagged result type.
-        register(registry,new ExternSpec("lean_uint8_to_nat",U8_NAT,"tobject",new String[]{"uint8"},new boolean[]{false}));
-        register(registry,new ExternSpec("lean_uint16_to_nat",U16_NAT,"tobject",new String[]{"uint16"},new boolean[]{false}));
-        for(int op:new int[]{U8_SUB,U8_MUL,U8_DIV,U8_MOD,U8_OR,U8_XOR,U8_NOT,U8_NEG,U8_SHL,U8_SHR,U8_LOG2,U8_LT,
-                U8_TO_U16,U8_TO_USIZE,BOOL_U8,
-                U16_ADD,U16_SUB,U16_MUL,U16_DIV,U16_MOD,U16_AND,U16_OR,U16_XOR,U16_NOT,U16_NEG,U16_SHL,U16_SHR,
-                U16_LOG2,U16_LT,U16_LE,U16_TO_U8,U16_TO_U32,U16_TO_U64,U16_TO_USIZE,BOOL_U16,
-                U32_SUB,U32_MUL,U32_DIV,U32_MOD,U32_AND,U32_OR,U32_XOR,U32_NOT,U32_NEG,U32_SHL,U32_SHR,U32_LOG2,
-                U32_TO_U16,U32_TO_USIZE,BOOL_U32,U64_TO_U16,
-                USIZE_DIV,USIZE_MOD,USIZE_OR,USIZE_XOR,USIZE_NOT,USIZE_NEG,USIZE_LOG2,USIZE_TO_U8,USIZE_TO_U16,
-                USIZE_TO_U32,USIZE_OWNED_NAT,BOOL_USIZE}) registerWord(registry,op);
-        // Narrower unsigned lanes reuse the exact UInt64 conversions: each source value is
-        // already its unsigned 64-bit pattern, and those conversions round exactly once.
-        for(String type:new String[]{"uint8","uint16","uint32","usize"}) {
-            register(registry,new ExternSpec("lean_"+type+"_to_float",FLOAT_U64,"float",new String[]{type},new boolean[]{false}));
-            register(registry,new ExternSpec("lean_"+type+"_to_float32",U64_FLOAT32,"float32",new String[]{type},new boolean[]{false}));
-        }
-        registry.replaceAll((symbol,entries)->Collections.unmodifiableList(entries));
-        return Collections.unmodifiableMap(registry);
-    }
-    private static void register(Map<String,List<ExternSpec>> registry,ExternSpec spec) {
-        registry.computeIfAbsent(spec.symbol,ignored->new ArrayList<>()).add(spec);
-    }
-    /** Symbol and ABI follow from the generic word ID; scalar operands are never borrowed. */
-    private static void registerWord(Map<String,List<ExternSpec>> registry,int op) {
-        require(wordPrimitive(op),"Invalid word extern registry entry");
-        int lane=(op-WORD_BASE)/WORD_STRIDE,code=(op-WORD_BASE)%WORD_STRIDE;
-        String type=WORD_TYPES[lane],result=type,symbol;
-        String[] params;
-        if(code==W_FROM_BOOL) { symbol="lean_bool_to_"+type; params=new String[]{"uint8"}; }
-        else {
-            symbol="lean_"+type+"_"+WORD_SUFFIXES[code];
-            if(code==W_OWNED_NAT) params=new String[]{"tobject"};
-            else if(code>=W_TO_U8&&code<=W_TO_USIZE) { params=new String[]{type}; result=WORD_TYPES[code-W_TO_U8]; }
-            else if(code==W_NOT||code==W_NEG||code==W_LOG2) params=new String[]{type};
-            else { params=new String[]{type,type}; if(code>=W_EQ&&code<=W_LE) result="uint8"; }
-        }
-        register(registry,new ExternSpec(symbol,op,result,params,new boolean[params.length]));
-    }
-    private static Object externSymbol(Map<String,Object> declaration) {
-        List<Object> entries=list(map(declaration.get("ext")).get("entries"));
-        if(entries.isEmpty()) throw error("Missing extern");
-        Map<String,Object> entry=null;
-        for(Object raw:entries) {
-            Map<String,Object> candidate=map(raw);
-            if(candidate.size()!=1) throw error("Invalid extern entry");
-            String kind=candidate.keySet().iterator().next(); Map<String,Object> data=map(candidate.get(kind));
-            String backend=name(data.get("backend"));
-            if(backend.equals("all")||backend.equals("c")) {
-                if(!kind.equals("standard")) throw error("Inline extern outside baseline profile");
-                entry=data; break;
-            }
-        }
-        if(entry==null) throw error("No supported extern backend");
-        return entry.get("fn");
-    }
-    private static ExternSpec resolveExtern(Map<String,Object> declaration) {
-        Object symbol=externSymbol(declaration);
-        List<ExternSpec> allowed=EXTERNS.get(symbol);
-        if(allowed==null) throw error("Unsupported baseline extern: "+symbol);
-        for(ExternSpec spec:allowed) if(spec.matches(declaration)) return spec;
-        throw error("Captured extern ABI mismatch: "+symbol);
-    }
+    static final Map<String,List<ExternSpec>> EXTERNS=ExternRegistry.externRegistry();
     /** Research-only validation; known ABI does not imply executable coverage. */
     public static String validateExternAbi(Map<String,Object> exportedRow) {
         require("decl".equals(exportedRow.get("kind")),"Expected extern declaration row");
-        return resolveExtern(map(map(exportedRow.get("ir")).get("extern"))).symbol;
+        return ExternRegistry.resolveExtern(map(map(exportedRow.get("ir")).get("extern"))).symbol;
     }
 
     /** Kind-specific metadata owns no guest values. Mutable state is branch-local;
@@ -902,9 +404,9 @@ public final class Interpreter implements AutoCloseable {
         return node.metadata instanceof PointerMetadata?((PointerMetadata)node.metadata).inner:node.metadata;
     }
     private static boolean logicalMT(Node node) { return sharingMetadata(node) instanceof SharingMetadata; }
-    private static boolean exclusive(Node node) { return node.rc==1&&!logicalMT(node); }
+    static boolean exclusive(Node node) { return node.rc==1&&!logicalMT(node); }
     private static boolean refMaybeMT(Node node) { return node.rc==0||logicalMT(node); }
-    private static NodeMetadata kindMetadata(Node node) {
+    static NodeMetadata kindMetadata(Node node) {
         NodeMetadata metadata=sharingMetadata(node);
         return metadata instanceof SharingMetadata?((SharingMetadata)metadata).inner:metadata;
     }
@@ -1027,7 +529,7 @@ public final class Interpreter implements AutoCloseable {
         }
         scalarResult=pointerWord(obj(slots[1]));
     }
-    private static final class ArrayState implements NodeMetadata {
+    static final class ArrayState implements NodeMetadata {
         int size;
         ArrayState(int size) { this.size=size; }
         public ArrayState copyForFork(Object childOwner) { return new ArrayState(size); }
@@ -1110,6 +612,16 @@ public final class Interpreter implements AutoCloseable {
         private boolean array;
         private boolean ref;
         private boolean readyTask;
+        // Read-only views for engine families outside this nest. None of them
+        // returns a payload array or permits a header/ownership write.
+        int refCount() { return rc; }
+        Function closureFunction() { return closure; }
+        NodeMetadata metadataView() { return metadata; }
+        boolean isDead() { return dead; }
+        boolean isArray() { return array; }
+        boolean isRef() { return ref; }
+        boolean isReadyTask() { return readyTask; }
+        Object[] copyFields() { return fields.clone(); }
         /** Logical live size; fields.length is capacity and spare slots are null. */
         public int arraySize() {
             require(array,"Expected Array"); return ((ArrayState)kindMetadata(this)).size;
@@ -1228,13 +740,13 @@ public final class Interpreter implements AutoCloseable {
     /** Immutable original ABI issued by one actual trusted source binding.
      * A supplied SHA is descriptive; the source adapter authenticates bytes. */
     public static final class Header {
-        private final SourceBinding source;
-        private final String originalSha256,kind,resultType;
-        private final Object exactName;
+        final SourceBinding source;
+        final String originalSha256,kind,resultType;
+        final Object exactName;
         private final int[] params;
         private final String[] paramTypes;
         private final boolean[] borrowed;
-        private final Map<String,Object> declaration,evidence;
+        final Map<String,Object> declaration,evidence;
         private Header(SourceBinding source,Map<String,Object> row,String digest) {
             require(row!=null&&"decl".equals(row.get("kind")),"Expected declaration header row");
             require(digest!=null&&digest.matches("[0-9a-f]{64}"),"Expected original SHA-256 identity");
@@ -1614,7 +1126,7 @@ public final class Interpreter implements AutoCloseable {
         final Map<Object,Function> typedNames;
         final Map<String,List<HostExtern>> hostRegistry;
         final Generation generation;
-        private final Function[] guestExports;
+        final Function[] guestExports;
         private Program(Function[] functions,PreparedBody[] preparedBodies,Map<String,Function> labels,Map<Object,Function> typedNames,
                         Map<String,List<HostExtern>> hostRegistry,Generation generation,Function[] guestExports) {
             this.guestExports=guestExports;
@@ -1700,7 +1212,7 @@ public final class Interpreter implements AutoCloseable {
             require(from!=to&&origin.source==target.source,"Guest export source binding differs");
             require(from.params.length>0&&!origin.initialized()&&!target.initialized(),
                     "Nullary or initialized guest exports are outside this profile");
-            Object symbol=externSymbol(origin.declaration);
+            Object symbol=ExternRegistry.externSymbol(origin.declaration);
             require(symbol instanceof String&&!((String)symbol).isEmpty()&&((String)symbol).length()<=4096
                     &&((String)symbol).indexOf('\0')<0,"Invalid guest export symbol");
             require(!EXTERNS.containsKey(symbol),"Guest export cannot shadow builtin: "+symbol);
@@ -1720,7 +1232,7 @@ public final class Interpreter implements AutoCloseable {
     private static void hostExportConflict(Program base,String symbol) {
         if(base==null) return;
         for(int i=0;i<base.guestExports.length;i++) if(base.guestExports[i]!=null)
-            require(!symbol.equals(externSymbol(base.functions[i].header.declaration)),
+            require(!symbol.equals(ExternRegistry.externSymbol(base.functions[i].header.declaration)),
                     "Host extern conflicts with guest export: "+symbol);
     }
     private static Map<String,List<HostExtern>> extendedHostRegistry(Program base,HostExtern[] additional) {
@@ -1744,7 +1256,7 @@ public final class Interpreter implements AutoCloseable {
         for(int i=0;i<lanes.length;i++) lanes[i]=metadataLane(header.paramTypes[i]);
         int intrinsic=0; HostExtern host=null;
         if(header.kind.equals("extern")) {
-            Object symbol=externSymbol(header.declaration);
+            Object symbol=ExternRegistry.externSymbol(header.declaration);
             if(EXTERNS.containsKey(symbol)) {
                 for(ExternSpec spec:EXTERNS.get(symbol)) if(spec.matches(header.declaration)) { intrinsic=spec.intrinsic; break; }
             } else if(registry.containsKey(symbol)) {
@@ -1915,13 +1427,13 @@ public final class Interpreter implements AutoCloseable {
     }
     /** All links here are NONOWNING guest references. Keepalive is a real
      * separately counted Task credit, never supplied by registration reachability. */
-    private static final class TaskRecord {
+    static final class TaskRecord {
         Node task;
         DependencyList dependents=new DependencyList();
         Registration waiting;
         boolean canceled,deactivated,keepalive,bind,io,forward,running;
     }
-    private IdentityHashMap<Node,TaskRecord> taskRecords=new IdentityHashMap<>();
+    IdentityHashMap<Node,TaskRecord> taskRecords=new IdentityHashMap<>();
     private TaskRecord currentTask;
     /** Explicit disabled-only native profiling gate. Header bytes are
      * authenticated by the trusted source adapter; this checks its pinned role.
@@ -1943,43 +1455,6 @@ public final class Interpreter implements AutoCloseable {
             return new ProfilingPolicy(getter);
         }
     }
-    /** Private stage-one policy. Source authentication is the research loader's
-     * obligation; this immutable object only binds exact ordinary constructor roles. */
-    private static final class ExprConstructorPolicy {
-        final Header[] helpers;
-        private ExprConstructorPolicy(Header[] helpers) { this.helpers=helpers.clone(); }
-        static ExprConstructorPolicy originalHeaders(Header[] helpers) {
-            require(helpers!=null&&helpers.length==9,"Nine original Expr constructor Headers required");
-            String[] names={"Lean.Expr.bvar._override","Lean.Expr.sort._override","Lean.Expr.const._override","Lean.Expr.app._override","Lean.Expr.lam._override._boxed","Lean.Expr.forallE._override._boxed","Lean.Expr.letE._override._boxed","Lean.Expr.mdata._override","Lean.Expr.proj._override"};
-            String[] hashes={"65c182e597519411555771e582645ee70b608f98413158d2cf3e525eaa689be1","7ef9c9c1c18da89d2811e3c31a516e05106d3ab6e0ac9a972cbe9eb6dde68f6d","729dc14162f591752d010053a082eedfb8d39d3c12db845d49ba2361a6e0bfe3","80d03ae09c95edb7d931e5f36dd67e6d0452a7efb9002b4cff43f5d7cc0d4ef4","6549605db438808e61e47fc97321040ecba177aa36bdf7146656d625f535b40f","93904f8bf3678937186f334bc847b417487ab0132964b32914497b30219bb9ad","3131e7471a4cb37f4cf7b468a3fcc8910ba1026c0f19d9e50b56689765e2dc5e","b0c8524c099135bec06dacbf9abc3eb0ab4b413ffc6004d55ac782290179a7f4","cf155c3f689c3251707318535264965a5482ed40177d2d255d6076331bc668ab"};
-            String[][] parameters={new String[]{"tobject"},new String[]{"tobject"},new String[]{"tobject","tobject"},new String[]{"object","object"},new String[]{"tobject","object","object","tagged"},new String[]{"tobject","object","object","tagged"},new String[]{"tobject","object","object","object","tagged"},new String[]{"tobject","object"},new String[]{"tobject","tobject","object"}};
-            for(int role=0;role<9;role++) {
-                Header h=helpers[role];
-                require(h!=null&&h.kind.equals("fdecl")&&h.originalSha256.equals(hashes[role]),"Expr constructor role/source hash differs");
-                if(role!=0) require(h.source==helpers[0].source,"Expr constructors have different source bindings");
-                Object name=Arrays.asList("anonymous");
-                for(String segment:names[role].split("\\.")) name=Arrays.asList("str",name,segment);
-                require(h.exactName.equals(frozenName(name)),"Expr constructor typed Name differs");
-                Map<String,Object> d=h.declaration;
-                require(d.keySet().equals(new HashSet<>(Arrays.asList("f","info","type","xs")))
-                        &&map(d.get("info")).isEmpty()&&d.get("f").equals(h.exactName)
-                        &&"object".equals(d.get("type")),"Expr constructor declaration differs");
-                List<Object> xs=list(d.get("xs"));
-                require(xs.size()==parameters[role].length,"Expr constructor raw arity differs");
-                for(int i=0;i<xs.size();i++) {
-                    Map<String,Object> p=map(xs.get(i)),x=map(p.get("x"));
-                    require(p.keySet().equals(new HashSet<>(Arrays.asList("borrow","ty","x")))
-                            &&x.keySet().equals(Collections.singleton("idx"))&&number(x.get("idx"))==i+1
-                            &&Boolean.FALSE.equals(p.get("borrow"))&&parameters[role][i].equals(p.get("ty")),
-                            "Expr constructor raw parameter differs");
-                }
-                Map<String,Object> runtime=map(h.evidence.get("runtime"));
-                require(runtime.keySet().equals(new HashSet<>(Arrays.asList("initializer","role")))
-                        &&runtime.get("initializer")==null&&"ordinary".equals(runtime.get("role")),"Expr constructor is not ordinary");
-            }
-            return new ExprConstructorPolicy(helpers);
-        }
-    }
     /** Immutable constructor-role binding for native expression transformations.
      * Source bytes remain the trusted loader's obligation, not a caller flag. */
     public static final class ExprTransformPolicy {
@@ -1998,230 +1473,17 @@ public final class Interpreter implements AutoCloseable {
                 ||releaseTransaction!=null||releaseRoot)
             throw new IllegalStateException("Expr transform configuration requires an open idle engine");
         require(exprTransformPolicy==null,"Expr transform policy is already configured");
-        for(int i=0;i<9;i++) exprConstructor(policy.constructors,i);
+        for(int i=0;i<9;i++) exprTransforms.exprConstructor(policy.constructors,i);
         exprTransformPolicy=policy;
     }
-    private ExprConstructorPolicy exprTransformsProfile(Function nativeFunction) {
+    ExprConstructorPolicy exprTransformsProfile(Function nativeFunction) {
         require(explicit&&taskRuntime!=null&&exprTransformPolicy!=null,
                 "Expr transforms require active explicit runtime and original constructor policy");
         ExprConstructorPolicy policy=exprTransformPolicy.constructors;
         require(nativeFunction!=null&&nativeFunction.header!=null
                 &&nativeFunction.header.source==policy.helpers[0].source,"Expr transform native/constructor source differs");
-        for(int i=0;i<9;i++) exprConstructor(policy,i);
+        for(int i=0;i<9;i++) exprTransforms.exprConstructor(policy,i);
         return policy;
-    }
-    private Function exprConstructor(ExprConstructorPolicy policy,int role) {
-        Header header=policy.helpers[role]; int id=program.functionId(header); Function f=program.functions[id];
-        require(f.header==header&&f.intrinsic==0&&f.hostExtern==null&&program.guestExports[id]==null,
-                "Expr constructor is not the current exact ordinary Function");
-        requireExecutableAbi(f); require(f.resultType==OBJ,"Expr constructor requires OBJ result");
-        for(int lane:f.paramTypes) require(lane==OBJ,"Expr constructor requires OBJ parameters");
-        return preflightCallable(f,true);
-    }
-    private static final int EXPR_LIFT_JOB=0,EXPR_SUBST_JOB=1,EXPR_BETA_JOB=2,EXPR_ABSTRACT_JOB=3,EXPR_CALLBACK_JOB=4,EXPR_LOWER_JOB=5;
-    private static final int MAX_EXPR_JOB_FRAMES=100_000,MAX_EXPR_JOB_CACHE=100_000,MAX_EXPR_JOB_OFFSET=1_048_575;
-    private static final class ExprCredit {
-        Object value; boolean owned;
-        ExprCredit(Object value,boolean owned) { this.value=value; this.owned=owned; }
-    }
-    private abstract static class ExprJob {
-        ExprCredit result,childResult; boolean completed; int cleanup;
-    }
-    private static final class ReplaceJob extends ExprJob {
-        Object input; int mode,cutoff; long amount; Object[] substitutions;
-        ExprSubstSlice slice;
-        Node abstractArray; int prefixLength;
-        final ArrayDeque<ExprReplaceFrame> frames=new ArrayDeque<>();
-        final IdentityHashMap<Node,HashMap<Integer,ExprCredit>> cache=new IdentityHashMap<>();
-        final IdentityHashMap<Node,ExprCredit> callbackCache=new IdentityHashMap<>();
-        final ArrayList<ExprCredit> cacheValues=new ArrayList<>();
-        final IdentityHashMap<Node,Boolean> active=new IdentityHashMap<>();
-        int stage,reservedCacheEntries;
-    }
-    private static final class ExprReplaceFrame {
-        Node original; int offset,stage,cursor,cleanup,abstractScan; boolean shared,active;
-        ExprCredit[] children=new ExprCredit[3]; ExprCredit result;
-        ExprReplaceFrame(Node original,int offset) { this.original=original; this.offset=offset; }
-    }
-    private static final class BetaJob extends ExprJob {
-        ExprCredit function,temporary,accumulator,replacement;
-        Object[] reverseArgs; int consumed,remaining,stage;
-        final ArrayDeque<ExprBetaFrame> frames=new ArrayDeque<>();
-    }
-    private static final class ExprBetaFrame {
-        ExprCredit expression;
-        ExprBetaFrame(ExprCredit expression) { this.expression=expression; }
-    }
-    private static final class ExprPacket {
-        Function function; Object[] arguments,expectedFields; boolean[] owned;
-        int role,expectedTag,expectedFlag; boolean started,entered;
-        ExprReplaceFrame replaceFrame; BetaJob beta; ExprDirectTask directTarget; DelayedTransformTask delayedTarget;
-    }
-    private static final int MAX_INSTANTIATION_WORK=1_000_000;
-    private static final class InstantiationBudget { long work; }
-    private static final class MVarContextCell { LevelCredit current; }
-    private void instantiationWork(InstantiationBudget budget,long amount,String bound,String interrupted) {
-        require(budget!=null,"Missing instantiation budget");
-        require(amount>=0&&amount<=MAX_INSTANTIATION_WORK-budget.work,bound);
-        long before=budget.work; budget.work+=amount;
-        if((before>>>10)!=(budget.work>>>10)&&Thread.currentThread().isInterrupted()) throw error(interrupted);
-    }
-    private static final class ExprMachineryState {
-        ExprConstructorPolicy policy;
-        final ArrayDeque<ExprJob> jobs=new ArrayDeque<>();
-        ExprCredit input,result,retiring; final ArrayList<ExprCredit> arguments=new ArrayList<>();
-        Node borrowedPredicate; ExprCallbackPacket callback;
-        ExprPacket call; InstantiationBudget budget; int stage,cleanup,liveFrames,liveCacheEntries;
-    }
-    private void exprJobWork(ExprMachineryState state,long amount) {
-        instantiationWork(state.budget,amount,"Expr machinery work outside bounded profile","Expr machinery interrupted");
-    }
-    private static final int XR_ENTER=0,XR_CHILDREN=1,XR_LIFT_WAIT=2,XR_BUILD=3,XR_HELPER=4,XR_FINISH=5,XR_CLEAN=6,XR_ABSTRACT_SCAN=7,XR_CALLBACK_WAIT=8,XR_CALLBACK_NONE=9;
-    private static int exprChildCount(int tag) {
-        return tag==5||tag==6||tag==7?2:tag==8?3:tag==10||tag==11?1:0;
-    }
-    private static int exprChildField(int tag,int child) {
-        return tag==5?child:tag==6||tag==7||tag==8?child+1:tag==10?1:2;
-    }
-    private static int exprCtorRole(int tag) {
-        switch(tag) { case 0:return 0; case 3:return 1; case 4:return 2; case 5:return 3;
-            case 6:return 4; case 7:return 5; case 8:return 6; case 10:return 7; case 11:return 8;
-            default:throw error("Expr tag has no rebuilding constructor role"); }
-    }
-    private static final int[] EXPR_CTOR_TAGS={0,3,4,5,6,7,8,10,11};
-    private ExprCredit exprCredit(Object value) { return new ExprCredit(value,false); }
-    private void acquireExpr(ExprCredit credit) {
-        require(credit!=null&&!credit.owned,"Expr credit already acquired"); inc(credit.value,1); credit.owned=true;
-    }
-    private void selectExpr(ExprReplaceFrame frame,Object value) {
-        frame.result=exprCredit(value); acquireExpr(frame.result); frame.stage=XR_FINISH;
-    }
-    private boolean releaseExprCredit(RuntimeAction action,ExprMachineryState state,ExprCredit credit) {
-        if(credit==null||!credit.owned) return false;
-        state.retiring=credit; action.retiring=credit.value; action.releaseClaimed=false;
-        boolean dispatch;
-        try { dispatch=beginRelease(credit.value,1,ACTION_BODY); credit.owned=false; }
-        finally { if(action.releaseClaimed) credit.owned=false; }
-        if(!dispatch) { state.retiring=null; action.retiring=null; action.releaseClaimed=false; }
-        return dispatch;
-    }
-    private void pushExprFrame(ExprMachineryState state,ReplaceJob job,Object input,int offset) {
-        require(offset>=0&&offset<=MAX_EXPR_JOB_OFFSET,"Expr binder offset outside bounded profile");
-        require(state.liveFrames<MAX_EXPR_JOB_FRAMES,"Expr machinery frame limit");
-        Node node=exprNode(input); job.frames.addLast(new ExprReplaceFrame(node,offset)); state.liveFrames++;
-    }
-    private void pushReplaceJob(ExprMachineryState state,int mode,Object input,int cutoff,long amount,Object[] substitutions) {
-        require(state.jobs.size()<MAX_EXPR_JOB_FRAMES,"Expr machinery job limit");
-        ReplaceJob job=new ReplaceJob(); job.input=input; job.mode=mode; job.cutoff=cutoff; job.amount=amount;
-        job.substitutions=substitutions; state.jobs.addLast(job);
-    }
-    private static boolean sameExprField(Object left,Object right) {
-        return left==right||!(left instanceof Node)&&left!=null&&left.equals(right);
-    }
-    private ExprPacket prepareExprConstructorPacket(ExprConstructorPolicy policy,int role,Object[] values) {
-        Function helper=exprConstructor(policy,role);
-        require(helper.params.length==values.length,"Expr constructor packet arity differs");
-        ExprPacket packet=new ExprPacket(); packet.function=helper; packet.role=role;
-        packet.arguments=values.clone(); packet.owned=new boolean[values.length]; packet.expectedTag=EXPR_CTOR_TAGS[role]; packet.expectedFlag=-1;
-        int fields=packet.expectedTag==6||packet.expectedTag==7?3:packet.expectedTag==8?4:values.length;
-        packet.expectedFields=Arrays.copyOf(values,fields);
-        if(packet.expectedTag>=6&&packet.expectedTag<=8) {
-            require(values[fields] instanceof Long,"Expr constructor boxed flag requires Long");
-            long flag=(Long)values[fields]; require(flag>=0&&flag<=(packet.expectedTag==8?1:4),"Expr constructor flag outside profile");
-            packet.expectedFlag=(int)flag;
-        }
-        return packet;
-    }
-    private void acquireExprConstructorPacket(ExprPacket packet) {
-        IdentityHashMap<Node,Integer> owners=new IdentityHashMap<>();
-        for(int i=0;i<packet.arguments.length;i++) {
-            Object value=packet.arguments[i]; validateHostObject(value); inc(value,1); packet.owned[i]=true;
-            if(value instanceof Node) owners.merge((Node)value,1,Integer::sum);
-        }
-        for(Map.Entry<Node,Integer> entry:owners.entrySet())
-            require(entry.getKey().rc==0||entry.getKey().rc>=entry.getValue(),"Expr constructor packet owner occurrences differ");
-    }
-    private ExprCredit takeExprConstructorResult(RuntimeAction action,ExprPacket packet) {
-        Object value=objects[action.slot]; Node node=exprNode(value);
-        require(node.tag==packet.expectedTag&&node.fields.length==packet.expectedFields.length,"Expr constructor returned unexpected head");
-        for(int i=0;i<node.fields.length;i++) require(sameExprField(node.fields[i],packet.expectedFields[i]),"Expr constructor returned unexpected child");
-        if(packet.expectedFlag>=0) require((node.scalars[8]&255)==packet.expectedFlag,"Expr constructor returned unexpected flag");
-        ExprCredit credit=new ExprCredit(value,true); objects[action.slot]=null; return credit;
-    }
-    private void callExprConstructor(RuntimeAction action,ExprMachineryState state,int role,Object[] values,ExprReplaceFrame frame,BetaJob beta) {
-        exprJobWork(state,1); require(state.call==null&&objects[action.slot]==null,"Expr constructor receiver occupied");
-        ExprPacket packet=prepareExprConstructorPacket(state.policy,role,values); packet.replaceFrame=frame; packet.beta=beta;
-        state.call=packet; acquireExprConstructorPacket(packet); packet.started=true;
-        enterExplicit(packet.function,null,packet.arguments,ACTION_BODY,action.slot,ASSIGN,null);
-        require(packet.entered,"Expr constructor did not publish frame or CodeRequest");
-    }
-    private void receiveExprConstructor(RuntimeAction action,ExprMachineryState state) {
-        ExprPacket packet=state.call; require(packet.entered,"Expr constructor receiver precedes entry");
-        require(packet.replaceFrame!=null||packet.beta!=null&&packet.beta.replacement==null,"Missing Expr beta receiver");
-        ExprCredit credit=takeExprConstructorResult(action,packet);
-        if(packet.replaceFrame!=null) { packet.replaceFrame.result=credit; packet.replaceFrame.stage=XR_FINISH; }
-        else packet.beta.replacement=credit;
-        state.call=null;
-    }
-    private void requestBVar(RuntimeAction action,ExprMachineryState state,ExprReplaceFrame frame,BigInteger index) {
-        exprJobWork(state,1+(index.bitLength()+63L)/64);
-        require(index.signum()>=0&&index.compareTo(BigInteger.valueOf(MAX_EXPR_JOB_OFFSET-1))<=0,"Expr bvar constructor range outside bounded profile");
-        Object logical=index.bitLength()<=63?Long.valueOf(index.longValue()):index;
-        frame.stage=XR_HELPER; callExprConstructor(action,state,0,new Object[]{logical},frame,null);
-    }
-    private void rebuildExpr(RuntimeAction action,ExprMachineryState state,ExprReplaceFrame frame) {
-        Node original=frame.original; int count=exprChildCount(original.tag); boolean changed=false;
-        Object[] fields=original.fields.clone();
-        for(int i=0;i<count;i++) {
-            require(frame.children[i]!=null&&frame.children[i].owned,"Expr replacement child result missing");
-            int at=exprChildField(original.tag,i); fields[at]=frame.children[i].value;
-            changed|=!sameExprField(fields[at],original.fields[at]);
-        }
-        if(!changed) { selectExpr(frame,original); return; }
-        Object[] values=fields;
-        if(original.tag>=6&&original.tag<=8) {
-            values=Arrays.copyOf(fields,fields.length+1); values[fields.length]=Long.valueOf(original.scalars[8]&255);
-        }
-        frame.stage=XR_HELPER; callExprConstructor(action,state,exprCtorRole(original.tag),values,frame,null);
-    }
-    private void completeReplaceFrame(ExprMachineryState state,ReplaceJob job,ExprReplaceFrame frame) {
-        require(frame.result!=null&&frame.result.owned,"Missing Expr replacement result owner");
-        require(job.frames.peekLast()==frame,"Expr replacement frame order differs");
-        Iterator<ExprReplaceFrame> ancestors=job.frames.descendingIterator(); ancestors.next();
-        ExprReplaceFrame parent=ancestors.hasNext()?ancestors.next():null;
-        if(parent!=null) require(parent.stage==XR_CHILDREN&&parent.cursor<parent.children.length&&parent.children[parent.cursor]==null,
-                "Expr parent is not waiting for an empty child receiver");
-        if(frame.active) job.active.remove(frame.original);
-        if(parent==null) { job.result=frame.result; job.stage=2; job.cache.clear(); job.callbackCache.clear(); job.active.clear(); job.cleanup=0; }
-        else parent.children[parent.cursor++]=frame.result;
-        frame.result=null; job.frames.removeLast(); state.liveFrames--;
-    }
-    /** Borrowed view of caller-owned substitutions, never a guest Array or owner.
-     * Direction is explicit: native reverse-empty still visits loose bvars. */
-    private static final class ExprSubstSlice {
-        final Node array;
-        final Object single;
-        final int begin,end;
-        final boolean reverse;
-        ExprSubstSlice(Node array,Object single,int begin,int end,boolean reverse) {
-            this.array=array; this.single=single; this.begin=begin; this.end=end; this.reverse=reverse;
-        }
-        int size() { return end-begin; }
-        Object at(int relative) {
-            require(relative>=0&&relative<size(),"Expr substitution index outside selected slice");
-            return array==null?single:array.fields[reverse?end-1-relative:begin+relative];
-        }
-    }
-    private static int exprSubstitutionCount(ReplaceJob job) { return job.slice==null?job.substitutions.length:job.slice.size(); }
-    private static Object exprSubstitutionAt(ReplaceJob job,int relative) { return job.slice==null?job.substitutions[relative]:job.slice.at(relative); }
-    private static boolean pureExprTransform(int op) {
-        return op==EXPR_INSTANTIATE||op==EXPR_INSTANTIATE1||op==EXPR_INSTANTIATE_RANGE
-                ||op==EXPR_INSTANTIATE_REV||op==EXPR_INSTANTIATE_REV_RANGE||op==EXPR_LIFT||op==EXPR_LOWER;
-    }
-    private static final int MAX_EXPR_LOOSE_WORK=1_000_000,MAX_EXPR_LOOSE_STACK=100_000,MAX_EXPR_LOOSE_KEYS=100_000;
-    private static final class LooseSearchFrame {
-        final Node node; final int offset; final boolean exit;
-        LooseSearchFrame(Node node,int offset,boolean exit) { this.node=node; this.offset=offset; this.exit=exit; }
     }
     /** Borrowed atomic search: no helper call, RC change or persisted memo.
      * Native likely-unshared is rc==1, deliberately ignoring logical MT. */
@@ -2230,17 +1492,17 @@ public final class Interpreter implements AutoCloseable {
         final IdentityHashMap<Node,HashSet<Integer>> visited=new IdentityHashMap<>(),active=new IdentityHashMap<>();
         long work; int keys;
         void charge(long amount) {
-            require(amount>=0&&amount<=MAX_EXPR_LOOSE_WORK-work,"Expr loose search work outside bounded runtime profile");
+            require(amount>=0&&amount<=ExprTransforms.MAX_EXPR_LOOSE_WORK-work,"Expr loose search work outside bounded runtime profile");
             long before=work; work+=amount;
             if((before>>>10)!=(work>>>10)&&Thread.currentThread().isInterrupted()) throw error("Expr loose search interrupted");
         }
         void push(Node node,int offset,boolean exit) {
-            require(offset>=0&&offset<=MAX_EXPR_JOB_OFFSET,"Expr loose search binder offset outside profile");
-            require(stack.size()<MAX_EXPR_LOOSE_STACK,"Expr loose search stack outside profile");
+            require(offset>=0&&offset<=ExprTransforms.MAX_EXPR_JOB_OFFSET,"Expr loose search binder offset outside profile");
+            require(stack.size()<ExprTransforms.MAX_EXPR_LOOSE_STACK,"Expr loose search stack outside profile");
             stack.push(new LooseSearchFrame(node,offset,exit));
         }
         boolean apply(Object value,Object indexValue) {
-            Node root=exprNode(value); BigInteger index=pureExprNat(indexValue);
+            Node root=exprNode(value); BigInteger index=ExprTransforms.pureExprNat(indexValue);
             charge(1);
             if(index.compareTo(SMALL_MAX)>0||(exprCachedData(root)>>>44)==0) return false;
             long wanted=index.longValue()&0xffffffffL; push(root,0,false);
@@ -2256,115 +1518,32 @@ public final class Interpreter implements AutoCloseable {
                 if(node.tag!=0&&node.tag!=3&&node.tag!=4&&node.rc!=1) {
                     HashSet<Integer> offsets=visited.get(node);
                     if(offsets!=null&&offsets.contains(offset)) continue;
-                    require(keys<MAX_EXPR_LOOSE_KEYS,"Expr loose search visited key bound"); keys++; charge(1);
+                    require(keys<ExprTransforms.MAX_EXPR_LOOSE_KEYS,"Expr loose search visited key bound"); keys++; charge(1);
                     if(offsets==null) { offsets=new HashSet<>(); visited.put(node,offsets); }
                     offsets.add(offset);
                 }
                 long target=(wanted+offset)&0xffffffffL;
                 if(target<wanted||target>=(exprCachedData(node)>>>44)) continue;
                 if(node.tag==0) {
-                    BigInteger actual=pureExprNat(node.fields[0]); charge(1+(actual.bitLength()+63L)/64);
+                    BigInteger actual=ExprTransforms.pureExprNat(node.fields[0]); charge(1+(actual.bitLength()+63L)/64);
                     if(actual.equals(BigInteger.valueOf(target))) return true;
                     continue;
                 }
-                int count=exprChildCount(node.tag); if(count==0) continue;
+                int count=ExprTransforms.exprChildCount(node.tag); if(count==0) continue;
                 if(current==null) { current=new HashSet<>(); active.put(node,current); }
                 require(current.add(offset),"Expr loose search active duplicate");
                 push(node,offset,true);
                 for(int i=count-1;i>=0;i--) {
                     boolean body=(node.tag==6||node.tag==7)&&i==1||node.tag==8&&i==2;
-                    require(!body||offset<MAX_EXPR_JOB_OFFSET,"Expr loose search binder offset bound");
-                    push(exprNode(node.fields[exprChildField(node.tag,i)]),offset+(body?1:0),false);
+                    require(!body||offset<ExprTransforms.MAX_EXPR_JOB_OFFSET,"Expr loose search binder offset bound");
+                    push(exprNode(node.fields[ExprTransforms.exprChildField(node.tag,i)]),offset+(body?1:0),false);
                 }
             }
             return false;
         }
     }
-    private static boolean borrowedExprLooseQuery(int op) { return op==EXPR_HAS_LOOSE; }
-    /** Preserve the full immediate comparison before C++ unsigned32 narrowing.
-     * Only the continued assertion domain is rejected; earlier source identity
-     * shortcuts remain identity even if narrowed cutoff<delta. */
-    private long[] lowerExprParameters(Object input,Object cutoffValue,Object deltaValue) {
-        BigInteger cutoff=pureExprNat(cutoffValue),delta=pureExprNat(deltaValue);
-        long s=0,d=0;
-        if(cutoff.compareTo(SMALL_MAX)<=0&&delta.compareTo(SMALL_MAX)<=0&&cutoff.compareTo(delta)>=0) {
-            s=cutoff.longValue()&0xffffffffL; d=delta.longValue()&0xffffffffL;
-            if(d==0||s>=(exprCachedData(input)>>>44)) { s=0; d=0; }
-            else require(s>=d,"Expr lower narrowed assertion domain outside bounded profile");
-        }
-        return new long[]{s,d};
-    }
 
-    private static BigInteger pureExprNat(Object value) {
-        require(!(value instanceof BigInteger)||value.getClass()==BigInteger.class,"Expr transform Nat requires exact immutable BigInteger");
-        return nat(value);
-    }
-    private Node pureExprArray(Object value) {
-        Node node=array(value);
-        require(node.tag==246&&!node.readyTask&&node.scalars.length==0&&kindMetadata(node) instanceof ArrayState,
-                "Invalid Expr substitution Array storage");
-        int size=arrayState(node).size;
-        require(size>=0&&size<=node.fields.length&&node.fields.length<=MAX_ARRAY_CAPACITY,"Invalid Expr substitution Array live extent");
-        return node;
-    }
-    private ExprSubstSlice pureExprSlice(Function function,Object[] args) {
-        int op=function.intrinsic;
-        if(op==EXPR_INSTANTIATE1) return new ExprSubstSlice(null,exprNode(args[1]),0,1,false);
-        boolean range=op==EXPR_INSTANTIATE_RANGE||op==EXPR_INSTANTIATE_REV_RANGE;
-        Node substitutions=pureExprArray(args[range?3:1]); int begin=0,end=arrayState(substitutions).size;
-        if(range) {
-            BigInteger b=pureExprNat(args[1]),e=pureExprNat(args[2]);
-            require(b.compareTo(SMALL_MAX)<=0&&e.compareTo(SMALL_MAX)<=0&&b.compareTo(e)<=0
-                    &&e.compareTo(BigInteger.valueOf(end))<=0,"Expr instantiation range panic path outside bounded profile");
-            begin=b.intValue(); end=e.intValue();
-        }
-        return new ExprSubstSlice(substitutions,null,begin,end,op==EXPR_INSTANTIATE_REV||op==EXPR_INSTANTIATE_REV_RANGE);
-    }
-    private void validatePureExprTransform(Function function,Object[] args) {
-        exprTransformsProfile(function);
-        int op=function.intrinsic,arity=op==EXPR_LIFT||op==EXPR_LOWER?3:op==EXPR_INSTANTIATE_RANGE||op==EXPR_INSTANTIATE_REV_RANGE?4:2;
-        require(args!=null&&args.length==arity,"Pure Expr transform native arity mismatch");
-        exprNode(args[0]);
-        if(op==EXPR_LOWER) lowerExprParameters(args[0],args[1],args[2]);
-        else if(op==EXPR_LIFT) { pureExprNat(args[1]); pureExprNat(args[2]); }
-        else pureExprSlice(function,args);
-    }
-    private void preparePureExprTransform(RuntimeAction action,Function function,Object[] args) {
-        ExprMachineryState state=new ExprMachineryState(); state.policy=exprTransformsProfile(function);
-        state.budget=new InstantiationBudget();
-        if(function.intrinsic==EXPR_LOWER) {
-            long[] parameters=lowerExprParameters(args[0],args[1],args[2]);
-            require(parameters[0]<=MAX_EXPR_JOB_OFFSET,"Expr lower continued cutoff outside profile");
-            pushReplaceJob(state,EXPR_LOWER_JOB,args[0],(int)parameters[0],parameters[1],new Object[0]);
-        } else if(function.intrinsic==EXPR_LIFT) {
-            BigInteger cutoff=pureExprNat(args[1]),delta=pureExprNat(args[2]);
-            long s=0,d=0;
-            // Typed canonical Nat values above signed63 are native heap Nats.
-            // Immediates narrow to unsigned32 in the pinned C++ function call.
-            if(cutoff.compareTo(SMALL_MAX)<=0&&delta.compareTo(SMALL_MAX)<=0) {
-                s=cutoff.longValue()&0xffffffffL; d=delta.longValue()&0xffffffffL;
-                if(d==0||s>=(exprCachedData(args[0])>>>44)) { s=0; d=0; }
-            }
-            // Any continued cutoff is below the source20-bit cached range.
-            require(s<=MAX_EXPR_JOB_OFFSET,"Expr lift cutoff exceeds continued visitor profile");
-            pushReplaceJob(state,EXPR_LIFT_JOB,args[0],(int)s,d,new Object[0]);
-        } else {
-            ReplaceJob job=new ReplaceJob(); job.mode=EXPR_SUBST_JOB; job.input=args[0];
-            job.substitutions=new Object[0]; job.slice=pureExprSlice(function,args); state.jobs.addLast(job);
-        }
-        action.exprMachinery=state; objects[action.slot]=null;
-    }
-
-    /** Borrowed original/current aliases; only flagged acquired credits and the
-     * owned receiver/Option packet can own. AP becomes authoritative at start. */
-    private static final class ExprCallbackPacket {
-        ExprReplaceFrame frame;
-        Object[] arguments;
-        ExprCredit current,predicate,option;
-        int stage;
-        boolean started,receiverOwned;
-    }
-    private void validateExprReplaceCallback(Object value) {
+    void validateExprReplaceCallback(Object value) {
         Node predicate=node(value); acceptsClosure(predicate);
         Function target=predicate.closure; rootEntry(target); requireExecutableAbi(target);
         require(predicate.tag==245&&!predicate.array&&!predicate.ref&&!predicate.readyTask&&predicate.scalars.length==0
@@ -2373,297 +1552,6 @@ public final class Interpreter implements AutoCloseable {
         require(target.resultType==OBJ,"Expr.replace callback requires boxed Option Expr result");
         for(Object capture:predicate.fields) validateHostObject(capture);
         preflightCallable(target,true);
-    }
-    private void validateExprReplace(Function function,Object[] args) {
-        exprTransformsProfile(function);
-        require(args!=null&&args.length==2,"Expr.replace native arity mismatch");
-        validateExprReplaceCallback(args[0]);
-        require(node(args[0]).rc>=0&&exprNode(args[1]).rc>=0,"Invalid Expr.replace borrowed owner count");
-    }
-    private void prepareExprReplaceCallback(ExprMachineryState state,ExprReplaceFrame frame) {
-        require(state.callback==null&&state.borrowedPredicate!=null,"Expr.replace callback packet already occupied");
-        validateExprReplaceCallback(state.borrowedPredicate);
-        ExprCallbackPacket packet=new ExprCallbackPacket(); packet.frame=frame;
-        packet.arguments=new Object[]{frame.original};
-        packet.current=exprCredit(frame.original); packet.predicate=exprCredit(state.borrowedPredicate);
-        state.callback=packet; frame.stage=XR_CALLBACK_WAIT;
-    }
-    private void stepExprReplaceCallback(RuntimeAction action,ExprMachineryState state) {
-        ExprCallbackPacket packet=state.callback; require(packet!=null,"Missing Expr.replace callback packet");
-        if(packet.stage==0) {
-            // Pinned replace_fn, unlike Find: Expr INC precedes predicate INC.
-            acquireExpr(packet.current); acquireExpr(packet.predicate);
-            packet.stage=1; packet.started=true;
-            packet.current.owned=false; packet.predicate.owned=false;
-            applyExplicit(packet.predicate.value,packet.arguments,ACTION_BODY,action.slot); return;
-        }
-        if(packet.stage==1) {
-            Object value=objects[action.slot]; packet.receiverOwned=true;
-            if(ERASED.equals(value)) {
-                objects[action.slot]=null; packet.receiverOwned=false;
-                packet.frame.stage=XR_CALLBACK_NONE; state.callback=null; return;
-            }
-            Node option=constructorNode(value);
-            require(option.closure==null&&option.tag==1&&option.fields.length==1&&option.scalars.length==0&&option.rc>=0,
-                    "Expr.replace callback did not return canonical Option Expr");
-            Node replacement=exprNode(option.fields[0]);
-            // Allocate both escrows before acquiring or moving any owner.
-            packet.frame.result=exprCredit(replacement); packet.option=exprCredit(option);
-            acquireExpr(packet.frame.result);
-            packet.option.owned=true; objects[action.slot]=null; packet.receiverOwned=false;
-            packet.stage=2;
-        }
-        if(packet.stage==2) {
-            packet.stage=3;
-            if(releaseExprCredit(action,state,packet.option)) return;
-        }
-        require(packet.stage==3&&!packet.option.owned,"Expr.replace returned before Option cleanup");
-        packet.frame.stage=XR_FINISH; state.callback=null;
-    }
-
-    private void stepReplaceJob(RuntimeAction action,ExprMachineryState state,ReplaceJob job) {
-        if(job.stage==0) {
-            if(job.mode==EXPR_CALLBACK_JOB) { job.stage=1; pushExprFrame(state,job,job.input,0); return; }
-            Node input=exprNode(job.input); long range=exprCachedData(input)>>>44;
-            boolean shortcut=job.mode==EXPR_ABSTRACT_JOB?!abstractFlags(input):
-                    (job.mode==EXPR_LIFT_JOB||job.mode==EXPR_LOWER_JOB)?(job.amount==0||job.cutoff>=range):((exprSubstitutionCount(job)==0&&(job.slice==null||!job.slice.reverse))||range==0);
-            if(shortcut) {
-                job.result=exprCredit(input); acquireExpr(job.result); job.stage=2; return;
-            }
-            job.stage=1; pushExprFrame(state,job,input,0); return;
-        }
-        if(job.stage==2) {
-            if(job.cleanup<job.cacheValues.size()) {
-                ExprCredit credit=job.cacheValues.get(job.cacheValues.size()-1-job.cleanup++); releaseExprCredit(action,state,credit); return;
-            }
-            require(job.reservedCacheEntries==job.cacheValues.size()&&state.liveCacheEntries>=job.reservedCacheEntries,"Expr cache reservation ledger differs");
-            state.liveCacheEntries-=job.reservedCacheEntries; job.reservedCacheEntries=0;
-            job.cacheValues.clear(); job.input=null; job.substitutions=null; job.slice=null; job.abstractArray=null; job.completed=true; return;
-        }
-        ExprReplaceFrame frame=job.frames.peekLast(); require(frame!=null,"Missing Expr replacement frame"); Node node=frame.original;
-        if(frame.stage==XR_ENTER) {
-            // Public callback replace uses !exclusive; offset jobs retain the
-            // distinct native likely-unshared RC hint, intentionally ignoring MT.
-            frame.shared=job.mode==EXPR_CALLBACK_JOB?!exclusive(node):node.rc!=1;
-            HashMap<Integer,ExprCredit> offsets=frame.shared&&job.mode!=EXPR_CALLBACK_JOB?job.cache.get(node):null;
-            ExprCredit cached=frame.shared&&job.mode==EXPR_CALLBACK_JOB?job.callbackCache.get(node):offsets==null?null:offsets.get(frame.offset);
-            if(cached!=null) { require(cached.owned,"Expr replacement cache owner missing"); selectExpr(frame,cached.value); frame.shared=false; return; }
-            if(job.mode==EXPR_CALLBACK_JOB) { prepareExprReplaceCallback(state,frame); return; }
-            if(job.mode==EXPR_ABSTRACT_JOB) {
-                if(!abstractFlags(node)) { selectExpr(frame,node); return; }
-                if(node.tag==1||node.tag==2) {
-                    frame.abstractScan=job.prefixLength; frame.stage=XR_ABSTRACT_SCAN; return;
-                }
-            } else {
-                long threshold=(long)job.cutoff+frame.offset;
-                if(job.mode==EXPR_LOWER_JOB&&threshold>0xffffffffL) { selectExpr(frame,node); return; }
-                if(threshold>=(exprCachedData(node)>>>44)) { selectExpr(frame,node); return; }
-                if(node.tag==0) {
-                    BigInteger index=nat(node.fields[0]); exprJobWork(state,1+(index.bitLength()+63L)/64);
-                    if(index.compareTo(BigInteger.valueOf(threshold))>=0) {
-                        if(job.mode==EXPR_LIFT_JOB) { requestBVar(action,state,frame,index.add(BigInteger.valueOf(job.amount))); return; }
-                        if(job.mode==EXPR_LOWER_JOB) { requestBVar(action,state,frame,index.subtract(BigInteger.valueOf(job.amount))); return; }
-                        BigInteger at=index.subtract(BigInteger.valueOf(frame.offset));
-                        if(at.compareTo(BigInteger.valueOf(exprSubstitutionCount(job)))<0) {
-                            frame.stage=XR_LIFT_WAIT;
-                            pushReplaceJob(state,EXPR_LIFT_JOB,exprSubstitutionAt(job,at.intValue()),0,frame.offset,new Object[0]); return;
-                        }
-                        requestBVar(action,state,frame,index.subtract(BigInteger.valueOf(exprSubstitutionCount(job)))); return;
-                    }
-                }
-            }
-            startExprReplaceChildren(job,frame); return;
-        }
-        if(frame.stage==XR_CALLBACK_NONE) { startExprReplaceChildren(job,frame); return; }
-        if(frame.stage==XR_ABSTRACT_SCAN) {
-            if(frame.abstractScan==0) { selectExpr(frame,node); return; }
-            int i=--frame.abstractScan; exprJobWork(state,1);
-            Node candidate=exprNode(job.abstractArray.fields[i]);
-            if(candidate.tag==node.tag&&abstractNamesEqual(state,node.fields[0],candidate.fields[0]))
-                requestBVar(action,state,frame,BigInteger.valueOf((long)frame.offset+job.prefixLength-i-1));
-            return;
-        }
-        if(frame.stage==XR_LIFT_WAIT) {
-            require(job.childResult!=null&&job.childResult.owned,"Missing substituted lifted result");
-            frame.result=job.childResult; job.childResult=null; frame.stage=XR_FINISH; return;
-        }
-        if(frame.stage==XR_CHILDREN) {
-            int count=exprChildCount(node.tag);
-            if(frame.cursor<count) {
-                int offset=frame.offset;
-                if(job.mode!=EXPR_CALLBACK_JOB&&((node.tag==6||node.tag==7)&&frame.cursor==1||node.tag==8&&frame.cursor==2)) offset=Math.addExact(offset,1);
-                pushExprFrame(state,job,node.fields[exprChildField(node.tag,frame.cursor)],offset); return;
-            }
-            frame.stage=XR_BUILD;
-        }
-        if(frame.stage==XR_BUILD) { rebuildExpr(action,state,frame); return; }
-        if(frame.stage==XR_FINISH) {
-            if(frame.shared) {
-                require(state.liveCacheEntries<MAX_EXPR_JOB_CACHE,"Expr machinery live cache entries outside bounded profile");
-                state.liveCacheEntries++; job.reservedCacheEntries++;
-                ExprCredit stored=exprCredit(frame.result.value); job.cacheValues.add(stored); acquireExpr(stored);
-                if(job.mode==EXPR_CALLBACK_JOB) require(job.callbackCache.putIfAbsent(node,stored)==null,"Duplicate callback Expr cache entry");
-                else {
-                    HashMap<Integer,ExprCredit> offsets=job.cache.computeIfAbsent(node,key->new HashMap<>());
-                    require(offsets.putIfAbsent(frame.offset,stored)==null,"Duplicate Expr replacement cache entry");
-                }
-            }
-            frame.stage=XR_CLEAN; frame.cleanup=0;
-        }
-        if(frame.stage==XR_CLEAN) {
-            if(frame.cleanup<3) { ExprCredit credit=frame.children[2-frame.cleanup++]; releaseExprCredit(action,state,credit); return; }
-            completeReplaceFrame(state,job,frame); return;
-        }
-        throw error("Expr replacement constructor continuation did not return");
-    }
-    private void startExprReplaceChildren(ReplaceJob job,ExprReplaceFrame frame) {
-        Node node=frame.original; int count=exprChildCount(node.tag);
-        if(count==0) { selectExpr(frame,node); return; }
-        require(!job.active.containsKey(node),"Expr replacement structural cycle outside profile");
-        job.active.put(node,Boolean.TRUE); frame.active=true; frame.stage=XR_CHILDREN; frame.cursor=0;
-    }
-    private static final int XB_INIT=0,XB_DESCEND=1,XB_ZETA_WAIT=2,XB_LAST_WAIT=3,XB_BASE_WAIT=4,
-            XB_APP=5,XB_APP_WAIT=6,XB_DRAIN_TEMP=7,XB_DRAIN_FRAMES=8,XB_DRAIN_FUNCTION=9,XB_DONE=10;
-    private void pushBetaFrame(ExprMachineryState state,BetaJob job,ExprCredit credit,boolean acquire) {
-        require(state.liveFrames<MAX_EXPR_JOB_FRAMES,"Expr machinery frame limit");
-        job.frames.addLast(new ExprBetaFrame(credit)); state.liveFrames++;
-        if(acquire) acquireExpr(credit); else require(credit.owned,"Beta child parameter lacks moved result owner");
-    }
-    private void stepBetaJob(RuntimeAction action,ExprMachineryState state,BetaJob job) {
-        if(job.stage==XB_INIT) {
-            require(job.function!=null&&job.function.owned,"Beta wrapper function owner missing");
-            if(job.reverseArgs.length==0) { job.result=job.function; job.function=null; job.completed=true; return; }
-            pushBetaFrame(state,job,exprCredit(job.function.value),true); job.stage=XB_DESCEND; return;
-        }
-        if(job.stage==XB_DESCEND) {
-            ExprBetaFrame frame=job.frames.peekLast(); require(frame!=null&&frame.expression.owned,"Beta recursive parameter owner missing");
-            Node expression=exprNode(frame.expression.value);
-            if(expression.tag==6) {
-                if(job.consumed+1<job.reverseArgs.length) {
-                    job.consumed++; pushBetaFrame(state,job,exprCredit(expression.fields[2]),true); return;
-                }
-                job.stage=XB_LAST_WAIT; pushReplaceJob(state,EXPR_SUBST_JOB,expression.fields[2],0,0,job.reverseArgs); return;
-            }
-            if(expression.tag==8&&job.consumed<job.reverseArgs.length) {
-                job.stage=XB_ZETA_WAIT;
-                pushReplaceJob(state,EXPR_SUBST_JOB,expression.fields[3],0,0,new Object[]{expression.fields[2]}); return;
-            }
-            if(expression.tag==10) { pushBetaFrame(state,job,exprCredit(expression.fields[1]),true); return; }
-            job.remaining=job.reverseArgs.length-job.consumed;
-            job.stage=XB_BASE_WAIT;
-            pushReplaceJob(state,EXPR_SUBST_JOB,expression,0,0,Arrays.copyOfRange(job.reverseArgs,job.remaining,job.reverseArgs.length)); return;
-        }
-        if(job.stage==XB_ZETA_WAIT) {
-            require(job.childResult!=null&&job.childResult.owned,"Beta zeta replacement owner missing");
-            ExprCredit child=job.childResult;
-            // C++20 prvalue initializes the next by-value parameter directly.
-            // Keep its receiver owner until the frame-cap preflight succeeds.
-            pushBetaFrame(state,job,child,false); job.childResult=null; job.stage=XB_DESCEND; return;
-        }
-        if(job.stage==XB_LAST_WAIT) {
-            require(job.childResult!=null&&job.childResult.owned,"Beta final substitution owner missing");
-            job.result=job.childResult; job.childResult=null; job.stage=XB_DRAIN_FRAMES; return;
-        }
-        if(job.stage==XB_BASE_WAIT) {
-            require(job.childResult!=null&&job.childResult.owned,"Beta application base owner missing");
-            // The instantiate full-expression temporary anchors mk_rev_app's f,
-            // independently from that function's owned accumulator r.
-            job.temporary=job.childResult; job.childResult=null;
-            job.accumulator=exprCredit(job.temporary.value); acquireExpr(job.accumulator); job.stage=XB_APP; return;
-        }
-        if(job.stage==XB_APP) {
-            require(job.accumulator!=null&&job.accumulator.owned,"Beta application accumulator missing");
-            if(job.remaining==0) { job.result=job.accumulator; job.accumulator=null; job.stage=XB_DRAIN_TEMP; return; }
-            job.stage=XB_APP_WAIT;
-            callExprConstructor(action,state,3,new Object[]{job.accumulator.value,job.reverseArgs[job.remaining-1]},null,job); return;
-        }
-        if(job.stage==XB_APP_WAIT) {
-            require(job.replacement!=null&&job.replacement.owned,"Beta application constructor owner missing");
-            ExprCredit old=job.accumulator; job.accumulator=job.replacement; job.replacement=null;
-            job.remaining--; job.stage=XB_APP; releaseExprCredit(action,state,old); return;
-        }
-        if(job.stage==XB_DRAIN_TEMP) { job.stage=XB_DRAIN_FRAMES; releaseExprCredit(action,state,job.temporary); return; }
-        if(job.stage==XB_DRAIN_FRAMES) {
-            if(!job.frames.isEmpty()) {
-                ExprBetaFrame frame=job.frames.removeLast(); state.liveFrames--;
-                releaseExprCredit(action,state,frame.expression); return;
-            }
-            job.stage=XB_DRAIN_FUNCTION;
-        }
-        if(job.stage==XB_DRAIN_FUNCTION) { job.stage=XB_DONE; releaseExprCredit(action,state,job.function); return; }
-        require(job.stage==XB_DONE&&job.result!=null&&job.result.owned,"Incomplete beta job result");
-        job.function=null; job.temporary=null; job.accumulator=null; job.replacement=null; job.reverseArgs=null; job.completed=true;
-    }
-    private void stepExprMachinery(RuntimeAction action) {
-        ExprMachineryState state=action.exprMachinery; require(state!=null,"Missing private Expr machinery state"); exprJobWork(state,1);
-        if(state.retiring!=null) {
-            require(!state.retiring.owned,"Expr cleanup returned without retiring owner claim");
-            state.retiring=null; action.retiring=null; action.releaseClaimed=false;
-        }
-        if(state.call!=null) { receiveExprConstructor(action,state); return; }
-        if(state.callback!=null) { stepExprReplaceCallback(action,state); return; }
-        if(state.stage==0) {
-            ExprJob job=state.jobs.peekLast(); require(job!=null,"Missing private Expr job");
-            if(!job.completed) {
-                if(job instanceof ReplaceJob) stepReplaceJob(action,state,(ReplaceJob)job);
-                else stepBetaJob(action,state,(BetaJob)job);
-                return;
-            }
-            require(job.result!=null&&job.result.owned,"Private Expr job completed without result owner");
-            Iterator<ExprJob> ancestors=state.jobs.descendingIterator(); ancestors.next();
-            ExprJob parent=ancestors.hasNext()?ancestors.next():null;
-            if(parent!=null) require(parent.childResult==null,"Private Expr child receiver occupied");
-            if(parent==null) { state.result=job.result; state.stage=1; }
-            else parent.childResult=job.result;
-            job.result=null; state.jobs.removeLast();
-            return;
-        }
-        if(state.stage==1) { state.stage=2; state.cleanup=0; releaseExprCredit(action,state,state.input); return; }
-        if(state.stage==2) {
-            if(state.cleanup<state.arguments.size()) {
-                ExprCredit credit=state.arguments.get(state.arguments.size()-1-state.cleanup++); releaseExprCredit(action,state,credit); return;
-            }
-            state.stage=3;
-        }
-        require(state.stage==3&&state.result!=null&&state.result.owned&&state.liveFrames==0&&state.liveCacheEntries==0,"Incomplete private Expr output");
-        Object result=state.result.value; action.output=result; state.result.owned=false;
-        state.input=null; state.result=null; state.arguments.clear(); state.borrowedPredicate=null; state.callback=null; action.arguments=null; action.exprMachinery=null;
-        finishAction(action,result);
-    }
-
-    private static boolean abstractPrimitive(int op) { return op==EXPR_ABSTRACT_RANGE||op==EXPR_ABSTRACT; }
-    private boolean abstractFlags(Node node) { return (exprCachedData(node)&(7L<<40))!=0; }
-    private boolean abstractNamesEqual(ExprMachineryState state,Object left,Object right) {
-        ExprEquality comparison=new ExprEquality(false); comparison.work=state.budget.work;
-        try { return nameEquals(left,right,comparison); }
-        finally { state.budget.work=comparison.work; }
-    }
-    private int abstractPrefix(Function function,Object[] args) {
-        int arity=function.intrinsic==EXPR_ABSTRACT_RANGE?3:2;
-        require(args!=null&&args.length==arity,"Expr abstraction native arity differs");
-        exprNode(args[0]); Node values=array(args[arity-1]); int size=arrayState(values).size;
-        int prefix=size;
-        if(function.intrinsic==EXPR_ABSTRACT_RANGE) {
-            Object count=args[1];
-            require(count instanceof Long&&((Long)count)>=0||count instanceof BigInteger&&((BigInteger)count).signum()>=0,
-                    "Expr abstraction requires nonnegative Nat range");
-            // Native heap-Nat branch selects the whole array, even for a small MPZ.
-            if(count instanceof Long) prefix=(int)Math.min((Long)count,(long)size);
-        }
-        require(prefix<=MAX_EXPR_JOB_FRAMES,"Expr abstraction prefix outside bounded profile");
-        return prefix;
-    }
-    private void validateAbstractArguments(Function function,Object[] args) {
-        exprTransformsProfile(function); abstractPrefix(function,args);
-    }
-    private void prepareAbstractAction(RuntimeAction action,Function function,Object[] args) {
-        ExprMachineryState state=new ExprMachineryState(); state.policy=exprTransformsProfile(function);
-        state.budget=new InstantiationBudget();
-        ReplaceJob job=new ReplaceJob(); job.mode=EXPR_ABSTRACT_JOB; job.input=args[0];
-        job.abstractArray=array(args[args.length-1]); job.prefixLength=abstractPrefix(function,args);
-        state.jobs.addLast(job); action.exprMachinery=state; objects[action.slot]=null;
-        // The parked native caller backs every borrowed input; no owned research
-        // entry, argument vector, root reset or additional input INC is used.
     }
 
     /** Complete nineteen-role source binding for expression instantiation.
@@ -2707,742 +1595,17 @@ public final class Interpreter implements AutoCloseable {
             return new ExprInstantiationPolicy(levels,ctor,helpers);
         }
     }
-    private Function exprInstantiationHelper(ExprInstantiationPolicy policy,int role) {
-        Header header=policy.helpers[role]; int id=program.functionId(header); Function f=program.functions[id];
-        require(f.header==header&&f.intrinsic==0&&f.hostExtern==null&&program.guestExports[id]==null,
-                "Expr helper is not the current exact ordinary Function");
-        requireExecutableAbi(f); require(f.resultType==OBJ,"Expr helper requires OBJ result");
-        for(int lane:f.paramTypes) require(lane==OBJ,"Expr helper requires OBJ parameters");
-        return preflightCallable(f,true);
-    }
-    private static final int DS_IDLE=0,DS_RUNNING=1,DS_RESULT=2,DS_SEALED=3,DS_DRAINING=4,DS_DRAINED=5;
-    private static final int MAX_DIRECT_FRAMES=100_000,MAX_DIRECT_CACHE=100_000,MAX_DIRECT_SAVED=100_000,
-            MAX_DIRECT_NAMES=100_000,MAX_DIRECT_ARGUMENTS=100_000,MAX_DIRECT_LEVELS=100_000;
-    private abstract static class ExprDirectTask {
-        ExprDirectTask child;
-        ExprCredit result,received;
-        int stage,cleanup;
-        boolean completed,helperDone;
-    }
-    private static final class DirectVisitFrame extends ExprDirectTask {
-        Node original; boolean shared; int cursor;
-        ExprCredit cacheTemporary;
-        final ExprCredit[] children=new ExprCredit[3];
-        LevelCredit level; ExprCredit levels;
-        DirectVisitFrame(Node original) { this.original=original; }
-    }
-    private static final class DirectMVarFrame extends ExprDirectTask {
-        Node original; Object name; ExprCredit assigned,delayed;
-        DirectMVarFrame(Node original) { this.original=original; }
-    }
-    private static final class DirectAssignmentFrame extends ExprDirectTask {
-        Object name; ExprCredit option,assigned,newValue;
-        boolean present;
-        DirectAssignmentFrame(Object name) { this.name=name; }
-    }
-    private static final class DirectDelayedFrame extends ExprDirectTask {
-        Object name; ExprCredit option,recordTemporary,pendingName,conditionResult;
-        DirectDelayedFrame(Object name) { this.name=name; }
-    }
-    private static final class DirectAppFrame extends ExprDirectTask {
-        Node original; Object cursor,name; ExprCredit assigned,delayed;
-        DirectAppFrame(Node original) { this.original=original; }
-    }
-    private static final class DirectNonMvarAppFrame extends ExprDirectTask {
-        Node original; ExprCredit argument,function;
-        DirectNonMvarAppFrame(Node original) { this.original=original; }
-    }
-    private static final class DirectAppBetaFrame extends ExprDirectTask {
-        Object cursor; ExprCredit functionOptional,betaParameter,argumentTemporary;
-        final ArrayList<ExprCredit> arguments=new ArrayList<>();
-        DirectAppBetaFrame(Object input,ExprCredit function) { this.cursor=input; this.functionOptional=function; }
-    }
-    private static final class DirectLevelFrame extends ExprDirectTask {
-        Object input; LevelCredit levelResult;
-        DirectLevelFrame(Object input) { this.input=input; }
-    }
-    private static final class DirectLevelsFrame extends ExprDirectTask {
-        Object original,cursor; final ArrayList<Node> cells=new ArrayList<>();
-        LevelCredit firstChanged,currentHead,headLoan;
-        ExprCredit list,replacement,tailLoan,consCredit;
-        Node building; int index,builtFields;
-        DirectLevelsFrame(Object original) { this.original=original; }
-    }
-    private static final class DirectNameEntry {
-        int hash; ExprCredit name;
-        DirectNameEntry(int hash,ExprCredit name) { this.hash=hash; this.name=name; }
-    }
-    private static final class DirectHelperPacket {
-        Function function; int role; Object[] arguments; boolean[] owned;
-        boolean started,entered;
-        ExprDirectTask target;
-    }
-    private static final class ExprDirectSession {
-        MVarContextCell context; InstantiationBudget budget; LevelSession levels; ExprInstantiationPolicy policy;
-        final ArrayDeque<ExprDirectTask> tasks=new ArrayDeque<>();
-        final IdentityHashMap<Node,ExprCredit> cache=new IdentityHashMap<>();
-        final ArrayList<ExprCredit> cacheValues=new ArrayList<>(),saved=new ArrayList<>();
-        final HashMap<Integer,ArrayList<DirectNameEntry>> normalized=new HashMap<>();
-        final ArrayList<DirectNameEntry> nameOwners=new ArrayList<>();
-        DirectHelperPacket call; ExprPacket constructorCall;
-        ExprCredit result,retiring;
-        boolean hasUpdateableDelayed; int phase,drainStage,drainCursor;
-    }
-    private void directHelperEntry(Function function,Object[] arguments) {
-        RuntimeAction action=runtimeAction;
-        ExprDirectSession session=currentDirectSession(action);
-        if(session==null||session.phase!=DS_RUNNING) return;
-        DirectHelperPacket packet=session.call;
-        if(packet==null||packet.entered||packet.function!=function||packet.arguments!=arguments) return;
-        require(packet.started,"Direct Expr helper entered before packet publication");
-        packet.entered=true; Arrays.fill(packet.owned,false);
-    }
-    private void directWork(ExprDirectSession session,long amount) {
-        instantiationWork(session.budget,amount,"Direct Expr work outside bounded profile","Direct Expr interrupted");
-    }
-    private void pushDirect(ExprDirectSession session,ExprDirectTask task) {
-        require(session.phase==DS_RUNNING&&session.tasks.size()<MAX_DIRECT_FRAMES,"Direct Expr task/frame limit outside profile");
-        session.tasks.addLast(task);
-    }
-    private void directSelect(ExprDirectTask task,Object value) { task.result=exprCredit(value); acquireExpr(task.result); }
-    private boolean releaseDirect(RuntimeAction action,ExprDirectSession session,ExprCredit credit) {
-        if(credit==null||!credit.owned) return false;
-        require(session.levels.retiring==null,"Simultaneous direct/Level retiring owners");
-        session.retiring=credit; action.retiring=credit.value; action.releaseClaimed=false;
-        boolean dispatch;
-        try { dispatch=beginRelease(credit.value,1,ACTION_BODY); credit.owned=false; }
-        finally { if(action.releaseClaimed) credit.owned=false; }
-        if(!dispatch) { session.retiring=null; action.retiring=null; action.releaseClaimed=false; }
-        return dispatch;
-    }
-    private void resumeDirectRetiring(RuntimeAction action,ExprDirectSession session) {
-        require(session.retiring==null||session.levels.retiring==null,"Simultaneous direct/Level retiring owners");
-        if(session.retiring!=null) {
-            require(!session.retiring.owned,"Direct Expr retiring owner was not claimed");
-            session.retiring=null; action.retiring=null; action.releaseClaimed=false;
-        }
-        resumeLevelRetiring(action,session.levels);
-    }
-    private ExprDirectTask takeDirectChild(ExprDirectTask parent,Class<?> expected) {
-        require(parent.child!=null&&parent.child.completed&&expected.isInstance(parent.child),"Direct Expr child completion kind differs");
-        return parent.child;
-    }
-    private ExprCredit takeDirectExprChild(ExprDirectTask parent,Class<?> expected) {
-        ExprDirectTask child=takeDirectChild(parent,expected);
-        require(child.result!=null&&child.result.owned,"Direct Expr child result owner missing");
-        ExprCredit result=child.result; child.result=null; parent.child=null; return result;
-    }
-    private boolean directNameEqual(ExprDirectSession session,Object left,Object right) {
-        return mvarNameEqual(session.budget,left,right);
-    }
-    private int directNameHash(ExprDirectSession session,Object value) {
-        directWork(session,1); Node node=nameNode(value); return (int)(node==null?1723:readScalar(node,0,U64));
-    }
-    private boolean directNameContains(ExprDirectSession session,Object value) {
-        int hash=directNameHash(session,value); ArrayList<DirectNameEntry> bucket=session.normalized.get(hash);
-        if(bucket==null) return false;
-        for(DirectNameEntry entry:bucket) {
-            directWork(session,1); require(entry.name.owned,"Normalized Name key owner missing");
-            if(directNameEqual(session,value,entry.name.value)) return true;
-        }
-        return false;
-    }
-    private void directNameInsert(ExprDirectSession session,Object value) {
-        int hash=directNameHash(session,value); ArrayList<DirectNameEntry> bucket=session.normalized.get(hash);
-        if(bucket!=null) for(DirectNameEntry entry:bucket) {
-            directWork(session,1); if(directNameEqual(session,value,entry.name.value)) return;
-        }
-        require(session.nameOwners.size()<MAX_DIRECT_NAMES,"Direct Expr normalized Name limit");
-        DirectNameEntry entry=new DirectNameEntry(hash,exprCredit(value)); session.nameOwners.add(entry);
-        if(bucket==null) { bucket=new ArrayList<>(); session.normalized.put(hash,bucket); }
-        bucket.add(entry); acquireExpr(entry.name);
-    }
-    private static boolean exprHasMVars(long word) { return (word&((1L<<41)|(1L<<42)))!=0; }
-    private void requireDirectReceiverFree(RuntimeAction action,ExprDirectSession session) {
-        require(session.call==null&&session.constructorCall==null&&session.levels.call==null&&objects[action.slot]==null,
-                "Multiple outstanding direct/constructor/Level packets");
-    }
-    private void callDirectHelper(RuntimeAction action,ExprDirectSession session,ExprDirectTask target,int role) {
-        directWork(session,1); require(role!=2,"Pass one does not call delayed fvars accessor"); requireDirectReceiverFree(action,session);
-        Function helper=exprInstantiationHelper(session.policy,role);
-        DirectHelperPacket packet=new DirectHelperPacket(); packet.function=helper; packet.role=role; packet.target=target;
-        packet.arguments=new Object[helper.params.length]; packet.owned=new boolean[packet.arguments.length]; session.call=packet;
-        if(role==3) {
-            DirectDelayedFrame frame=(DirectDelayedFrame)target;
-            require(frame.recordTemporary!=null&&frame.recordTemporary.owned,"Delayed accessor temporary owner missing");
-            packet.arguments[0]=frame.recordTemporary.value; validateHostObject(packet.arguments[0]); inc(packet.arguments[0],1); packet.owned[0]=true;
-        } else {
-            LevelCredit context=session.context.current;
-            require(context!=null&&context.owned,"Direct Expr current context owner missing"); packet.arguments[0]=context.value;
-            if(role==4) { packet.owned[0]=true; context.owned=false; session.context.current=null; }
-            else { inc(packet.arguments[0],1); packet.owned[0]=true; }
-            Object name=role==1?((DirectDelayedFrame)target).name:((DirectAssignmentFrame)target).name;
-            packet.arguments[1]=name; nameNode(name); inc(name,1); packet.owned[1]=true;
-            if(role==4) {
-                DirectAssignmentFrame frame=(DirectAssignmentFrame)target; require(frame.newValue!=null&&frame.newValue.owned,"Direct assignment result missing");
-                packet.arguments[2]=frame.newValue.value; exprNode(packet.arguments[2]); inc(packet.arguments[2],1); packet.owned[2]=true;
-            }
-        }
-        IdentityHashMap<Node,Integer> known=new IdentityHashMap<>();
-        for(int i=0;i<packet.arguments.length;i++) {
-            require(packet.owned[i],"Direct Expr helper argument not owned"); validateHostObject(packet.arguments[i]);
-            if(packet.arguments[i] instanceof Node) known.merge((Node)packet.arguments[i],1,Integer::sum);
-        }
-        for(Map.Entry<Node,Integer> entry:known.entrySet()) require(entry.getKey().rc==0||entry.getKey().rc>=entry.getValue(),"Direct Expr helper alias credits differ");
-        packet.started=true; enterExplicit(helper,null,packet.arguments,ACTION_BODY,action.slot,ASSIGN,null);
-        require(packet.entered,"Direct Expr helper did not publish frame or CodeRequest");
-    }
-    private void validateDirectOption(Object value,boolean expression) {
-        if(ERASED.equals(value)) return;
-        Node option=constructorNode(value);
-        require(option.tag==1&&option.fields.length==1&&option.scalars.length==0,"Direct Expr helper returned malformed Option");
-        if(expression) exprNode(option.fields[0]); else validateHostObject(option.fields[0]);
-    }
-    private void receiveDirectHelper(RuntimeAction action,ExprDirectSession session) {
-        DirectHelperPacket packet=session.call; require(packet.entered,"Direct Expr helper returned before entry");
-        Object value=objects[action.slot]; ExprDirectTask target=packet.target;
-        if(packet.role==4) {
-            validateHostObject(value); require(session.context.current==null,"Direct Expr setter replaces a live context owner");
-            session.context.current=new LevelCredit(value,true); objects[action.slot]=null; target.helperDone=true;
-        } else {
-            require(target.received==null,"Direct Expr helper result receiver occupied");
-            if(packet.role==0||packet.role==1) validateDirectOption(value,packet.role==0);
-            else if(packet.role==3) nameNode(value); else throw error("Unsupported direct Expr helper role");
-            target.received=new ExprCredit(value,true); objects[action.slot]=null;
-        }
-        session.call=null;
-    }
-    private void callDirectConstructor(RuntimeAction action,ExprDirectSession session,ExprDirectTask target,int role,Object[] values) {
-        directWork(session,1); requireDirectReceiverFree(action,session);
-        ExprPacket packet=prepareExprConstructorPacket(session.policy.constructors,role,values); packet.directTarget=target;
-        session.constructorCall=packet; acquireExprConstructorPacket(packet); packet.started=true;
-        enterExplicit(packet.function,null,packet.arguments,ACTION_BODY,action.slot,ASSIGN,null);
-        require(packet.entered,"Direct Expr constructor did not publish frame or CodeRequest");
-    }
-    private void receiveDirectConstructor(RuntimeAction action,ExprDirectSession session) {
-        ExprPacket packet=session.constructorCall;
-        require(packet.entered&&packet.directTarget!=null&&packet.directTarget.received==null,"Direct Expr constructor completion differs");
-        ExprCredit result=takeExprConstructorResult(action,packet);
-        packet.directTarget.received=result; session.constructorCall=null;
-    }
-    private void stepDirectAssignment(RuntimeAction action,ExprDirectSession session,DirectAssignmentFrame frame) {
-        if(frame.stage==0) { frame.stage=1; callDirectHelper(action,session,frame,0); return; }
-        if(frame.stage==1) {
-            require(frame.received!=null&&frame.received.owned,"Direct getter Option missing"); frame.option=frame.received; frame.received=null;
-            if(ERASED.equals(frame.option.value)) { frame.present=false; frame.stage=10; return; }
-            frame.assigned=exprCredit(((Node)frame.option.value).fields[0]); acquireExpr(frame.assigned);
-            if(!exprHasMVars(exprCachedData(frame.assigned.value))||directNameContains(session,frame.name)) {
-                directSelect(frame,frame.assigned.value); frame.present=true; frame.stage=10; return;
-            }
-            directNameInsert(session,frame.name); frame.stage=2; pushDirect(session,new DirectVisitFrame(exprNode(frame.assigned.value))); return;
-        }
-        if(frame.stage==2) {
-            frame.newValue=takeDirectExprChild(frame,DirectVisitFrame.class);
-            if(frame.newValue.value!=frame.assigned.value) {
-                require(session.saved.size()<MAX_DIRECT_SAVED,"Direct Expr saved assignment limit");
-                ExprCredit saved=exprCredit(frame.assigned.value); session.saved.add(saved); acquireExpr(saved);
-                frame.stage=3; callDirectHelper(action,session,frame,4); return;
-            }
-            frame.stage=4;
-        }
-        if(frame.stage==3) { require(frame.helperDone,"Direct setter has no completed return"); frame.helperDone=false; frame.stage=4; }
-        if(frame.stage==4) { directSelect(frame,frame.newValue.value); frame.present=true; frame.stage=10; }
-        require(frame.stage==10,"Invalid direct assignment continuation");
-        if(frame.cleanup<3) {
-            ExprCredit credit=frame.cleanup==0?frame.newValue:frame.cleanup==1?frame.assigned:frame.option;
-            frame.cleanup++; releaseDirect(action,session,credit); return;
-        }
-        frame.option=null; frame.assigned=null; frame.newValue=null; frame.completed=true;
-    }
-    private void stepDirectDelayed(RuntimeAction action,ExprDirectSession session,DirectDelayedFrame frame) {
-        if(frame.stage==0) { frame.stage=1; callDirectHelper(action,session,frame,1); return; }
-        if(frame.stage==1) {
-            require(frame.received!=null&&frame.received.owned,"Delayed getter Option missing"); frame.option=frame.received; frame.received=null;
-            if(ERASED.equals(frame.option.value)) { frame.result=frame.option; frame.option=null; frame.completed=true; return; }
-            // option_ref::get_val returns by value; accessor then receives its own copy.
-            frame.recordTemporary=exprCredit(((Node)frame.option.value).fields[0]); acquireExpr(frame.recordTemporary);
-            frame.stage=2; callDirectHelper(action,session,frame,3); return;
-        }
-        if(frame.stage==2) {
-            require(frame.received!=null&&frame.received.owned,"Delayed pending Name missing"); frame.pendingName=frame.received; frame.received=null;
-            frame.stage=3; releaseDirect(action,session,frame.recordTemporary); return;
-        }
-        if(frame.stage==3) { frame.stage=4; pushDirect(session,new DirectAssignmentFrame(frame.pendingName.value)); return; }
-        if(frame.stage==4) {
-            DirectAssignmentFrame assignment=(DirectAssignmentFrame)takeDirectChild(frame,DirectAssignmentFrame.class);
-            if(assignment.present) { require(assignment.result!=null&&assignment.result.owned,"Pending optional Expr owner missing");
-                frame.conditionResult=assignment.result; assignment.result=null; session.hasUpdateableDelayed=true; }
-            frame.child=null; frame.stage=5; releaseDirect(action,session,frame.conditionResult); return;
-        }
-        if(frame.stage==5) { frame.stage=6; releaseDirect(action,session,frame.pendingName); return; }
-        require(frame.stage==6&&frame.option!=null&&frame.option.owned,"Delayed probe Option lifetime differs");
-        frame.result=frame.option; frame.option=null; frame.recordTemporary=null; frame.pendingName=null; frame.conditionResult=null; frame.completed=true;
-    }
-    private void stepDirectMVar(RuntimeAction action,ExprDirectSession session,DirectMVarFrame frame) {
-        if(frame.stage==0) { frame.name=frame.original.fields[0]; frame.stage=1; pushDirect(session,new DirectAssignmentFrame(frame.name)); return; }
-        if(frame.stage==1) {
-            DirectAssignmentFrame assignment=(DirectAssignmentFrame)takeDirectChild(frame,DirectAssignmentFrame.class);
-            if(assignment.present) {
-                require(assignment.result!=null&&assignment.result.owned,"Direct optional Expr missing"); frame.assigned=assignment.result; assignment.result=null;
-                frame.child=null; directSelect(frame,frame.assigned.value); frame.stage=10;
-            } else { frame.child=null; frame.stage=2; pushDirect(session,new DirectDelayedFrame(frame.name)); return; }
-        }
-        if(frame.stage==2) {
-            frame.delayed=takeDirectExprChild(frame,DirectDelayedFrame.class); directSelect(frame,frame.original); frame.stage=10;
-        }
-        require(frame.stage==10,"Invalid direct MVar continuation");
-        if(frame.cleanup<2) { ExprCredit credit=frame.cleanup++==0?frame.assigned:frame.delayed; releaseDirect(action,session,credit); return; }
-        frame.assigned=null; frame.delayed=null; frame.completed=true;
-    }
-    private void stepDirectApp(RuntimeAction action,ExprDirectSession session,DirectAppFrame frame) {
-        if(frame.stage==0) {
-            if(frame.cursor==null) frame.cursor=frame.original;
-            Node head=exprNode(frame.cursor);
-            if(head.tag==5) { frame.cursor=head.fields[0]; return; }
-            if(head.tag!=2) { frame.stage=5; pushDirect(session,new DirectNonMvarAppFrame(frame.original)); return; }
-            frame.name=head.fields[0]; frame.stage=1; pushDirect(session,new DirectAssignmentFrame(frame.name)); return;
-        }
-        if(frame.stage==1) {
-            DirectAssignmentFrame assignment=(DirectAssignmentFrame)takeDirectChild(frame,DirectAssignmentFrame.class);
-            if(assignment.present) {
-                require(assignment.result!=null&&assignment.result.owned,"Assigned function optional owner missing");
-                ExprCredit function=assignment.result;
-                DirectAppBetaFrame beta=new DirectAppBetaFrame(frame.original,function);
-                pushDirect(session,beta); assignment.result=null; frame.child=null; frame.stage=4; return;
-            }
-            frame.child=null; frame.stage=2; pushDirect(session,new DirectDelayedFrame(frame.name)); return;
-        }
-        if(frame.stage==2) {
-            frame.delayed=takeDirectExprChild(frame,DirectDelayedFrame.class);
-            frame.stage=5; pushDirect(session,new DirectNonMvarAppFrame(frame.original)); return;
-        }
-        if(frame.stage==4) { frame.result=takeDirectExprChild(frame,DirectAppBetaFrame.class); frame.completed=true; return; }
-        if(frame.stage==5) { frame.result=takeDirectExprChild(frame,DirectNonMvarAppFrame.class); frame.stage=6; releaseDirect(action,session,frame.delayed); return; }
-        require(frame.stage==6,"Invalid direct App continuation"); frame.delayed=null; frame.completed=true;
-    }
-    private void stepDirectNonMvarApp(RuntimeAction action,ExprDirectSession session,DirectNonMvarAppFrame frame) {
-        if(frame.stage==0) { frame.stage=1; pushDirect(session,new DirectVisitFrame(exprNode(frame.original.fields[1]))); return; }
-        if(frame.stage==1) {
-            frame.argument=takeDirectExprChild(frame,DirectVisitFrame.class); Node function=exprNode(frame.original.fields[0]); frame.stage=2;
-            pushDirect(session,function.tag==5?new DirectNonMvarAppFrame(function):new DirectVisitFrame(function)); return;
-        }
-        if(frame.stage==2) {
-            frame.function=takeDirectExprChild(frame,exprNode(frame.original.fields[0]).tag==5?DirectNonMvarAppFrame.class:DirectVisitFrame.class);
-            if(frame.function.value==frame.original.fields[0]&&frame.argument.value==frame.original.fields[1]) { directSelect(frame,frame.original); frame.stage=4; }
-            else { frame.stage=3; callDirectConstructor(action,session,frame,3,new Object[]{frame.function.value,frame.argument.value}); return; }
-        }
-        if(frame.stage==3) { require(frame.received!=null&&frame.received.owned,"App constructor result missing"); frame.result=frame.received; frame.received=null; frame.stage=4; }
-        if(frame.stage==4) {
-            if(frame.cleanup<2) { ExprCredit credit=frame.cleanup++==0?frame.function:frame.argument; releaseDirect(action,session,credit); return; }
-            frame.function=null; frame.argument=null; frame.completed=true; return;
-        }
-        throw error("Invalid non-MVar App continuation");
-    }
-    private void enterDirectBetaChild(RuntimeAction parent,ExprDirectSession session,DirectAppBetaFrame frame) {
-        require(runtimeAction==parent&&frame.stage==3&&objects[parent.slot]==null&&session.call==null&&session.constructorCall==null
-                &&session.levels.call==null&&session.levels.retiring==null&&session.retiring==null,"Direct beta parent is not ready");
-        require(frame.betaParameter!=null&&frame.betaParameter.owned,"Direct beta parameter owner missing");
-        for(int role=0;role<9;role++) exprConstructor(session.policy.constructors,role);
-        RuntimeAction child=newAction(ACTION_EXPR_MACHINERY,null,ACTION_BODY,parent.slot,ASSIGN,null);
-        ExprMachineryState worker=new ExprMachineryState(); worker.policy=session.policy.constructors; worker.budget=session.budget;
-        BetaJob beta=new BetaJob(); beta.function=frame.betaParameter; beta.reverseArgs=new Object[frame.arguments.size()];
-        for(int i=0;i<beta.reverseArgs.length;i++) { require(frame.arguments.get(i).owned,"Direct reverse argument owner missing"); beta.reverseArgs[i]=frame.arguments.get(i).value; }
-        worker.jobs.addLast(beta); child.exprMachinery=worker; objects[child.slot]=null;
-        publishAction(child); frame.betaParameter=null;
-    }
-    private void stepDirectAppBeta(RuntimeAction action,ExprDirectSession session,DirectAppBetaFrame frame) {
-        if(frame.stage==0) {
-            Node cursor=exprNode(frame.cursor);
-            if(cursor.tag==5) { frame.stage=1; pushDirect(session,new DirectVisitFrame(exprNode(cursor.fields[1]))); return; }
-            require(frame.functionOptional!=null&&frame.functionOptional.owned,"Assigned optional function owner missing");
-            frame.betaParameter=exprCredit(frame.functionOptional.value); acquireExpr(frame.betaParameter);
-            frame.stage=3; enterDirectBetaChild(action,session,frame); return;
-        }
-        if(frame.stage==1) {
-            frame.argumentTemporary=takeDirectExprChild(frame,DirectVisitFrame.class);
-            require(frame.arguments.size()<MAX_DIRECT_ARGUMENTS,"Direct Expr argument buffer limit");
-            ExprCredit entry=exprCredit(frame.argumentTemporary.value); frame.arguments.add(entry); acquireExpr(entry);
-            frame.stage=2; releaseDirect(action,session,frame.argumentTemporary); return;
-        }
-        if(frame.stage==2) { frame.argumentTemporary=null; frame.cursor=exprNode(frame.cursor).fields[0]; frame.stage=0; return; }
-        if(frame.stage==3) {
-            Object result=objects[action.slot]; exprNode(result); frame.result=new ExprCredit(result,true); objects[action.slot]=null;
-            frame.stage=4; frame.cleanup=0;
-        }
-        if(frame.stage==4) {
-            // runtime::buffer destroys forward, including its outermost-first args.
-            if(frame.cleanup<frame.arguments.size()) { ExprCredit entry=frame.arguments.get(frame.cleanup++); releaseDirect(action,session,entry); return; }
-            frame.stage=5; releaseDirect(action,session,frame.functionOptional); return;
-        }
-        require(frame.stage==5,"Invalid assigned App beta continuation"); frame.arguments.clear(); frame.functionOptional=null; frame.completed=true;
-    }
-    private void stepDirectLevel(RuntimeAction action,ExprDirectSession session,DirectLevelFrame frame) {
-        if(frame.stage==0) { requireDirectReceiverFree(action,session); startLevelJob(session.levels,frame.input); frame.stage=1; return; }
-        stepLevelJob(action,session.levels);
-        if(session.levels.phase==LS_RESULT) { frame.levelResult=takeLevelJobResult(session.levels); frame.completed=true; }
-    }
-    private ExprCredit buildDirectCons(ExprDirectSession session,DirectLevelsFrame frame,Object head,Object tail) {
-        directWork(session,1); require(frame.consCredit==null,"Direct list cons escrow occupied");
+    ExprCredit buildDirectCons(ExprDirectSession session,DirectLevelsFrame frame,Object head,Object tail) {
+        exprDirect.directWork(session,1); require(frame.consCredit==null,"Direct list cons escrow occupied");
         Node cons=new Node(1,2,0); frame.building=cons; frame.consCredit=new ExprCredit(cons,true); frame.builtFields=0; allocations++;
-        frame.headLoan=new LevelCredit(head,false); ownLevelCredit(frame.headLoan);
+        frame.headLoan=new LevelCredit(head,false); levels.ownLevelCredit(frame.headLoan);
         cons.fields[0]=head; frame.headLoan.owned=false; frame.builtFields=1;
-        frame.tailLoan=exprCredit(tail); acquireExpr(frame.tailLoan);
+        frame.tailLoan=exprTransforms.exprCredit(tail); exprTransforms.acquireExpr(frame.tailLoan);
         cons.fields[1]=tail; frame.tailLoan.owned=false; frame.builtFields=2;
         ExprCredit result=frame.consCredit; frame.consCredit=null; frame.building=null; frame.headLoan=null; frame.tailLoan=null; return result;
     }
-    private void stepDirectLevels(RuntimeAction action,ExprDirectSession session,DirectLevelsFrame frame) {
-        if(frame.stage==0) {
-            if(frame.cursor==null) frame.cursor=frame.original;
-            if(ERASED.equals(frame.cursor)) { frame.index=frame.cells.size()-1; frame.stage=1; return; }
-            Node cell=constructorNode(frame.cursor);
-            require(cell.tag==1&&cell.fields.length==2&&cell.scalars.length==0,"Invalid Const Level list layout");
-            require(frame.cells.size()<MAX_DIRECT_LEVELS,"Direct Const Level list length/cycle outside profile");
-            levelNode(cell.fields[0]); frame.cells.add(cell); frame.cursor=cell.fields[1]; return;
-        }
-        if(frame.stage==1) {
-            if(frame.index<0) {
-                if(frame.list==null) directSelect(frame,frame.original);
-                else { frame.result=frame.list; frame.list=null; }
-                frame.stage=8; releaseLevelCredit(action,session.levels,frame.firstChanged); return;
-            }
-            frame.stage=2; pushDirect(session,new DirectLevelFrame(frame.cells.get(frame.index).fields[0])); return;
-        }
-        if(frame.stage==2) {
-            DirectLevelFrame child=(DirectLevelFrame)takeDirectChild(frame,DirectLevelFrame.class);
-            require(child.levelResult!=null&&child.levelResult.owned,"Const Level result missing");
-            frame.currentHead=child.levelResult; child.levelResult=null; frame.child=null;
-            Node cell=frame.cells.get(frame.index);
-            if(frame.list==null) {
-                if(sameLevel(frame.currentHead.value,cell.fields[0])) {
-                    frame.stage=3; releaseLevelCredit(action,session.levels,frame.currentHead); return;
-                }
-                frame.firstChanged=frame.currentHead; frame.currentHead=null;
-                frame.list=buildDirectCons(session,frame,frame.firstChanged.value,cell.fields[1]);
-                frame.index--; frame.stage=1; return;
-            }
-            frame.replacement=buildDirectCons(session,frame,frame.currentHead.value,frame.list.value);
-            frame.stage=4; releaseDirect(action,session,frame.list); return;
-        }
-        if(frame.stage==3) { frame.currentHead=null; frame.index--; frame.stage=1; return; }
-        if(frame.stage==4) {
-            require(frame.replacement!=null&&frame.replacement.owned,"Const prefix replacement list missing");
-            frame.list=frame.replacement; frame.replacement=null; frame.stage=5;
-            releaseLevelCredit(action,session.levels,frame.currentHead); return;
-        }
-        if(frame.stage==5) { frame.currentHead=null; frame.index--; frame.stage=1; return; }
-        require(frame.stage==8&&frame.result!=null&&frame.result.owned,"Invalid Const Level list completion");
-        frame.firstChanged=null; frame.currentHead=null; frame.cells.clear(); frame.cursor=null; frame.original=null; frame.completed=true;
-    }
-    private void stepDirectVisit(RuntimeAction action,ExprDirectSession session,DirectVisitFrame frame) {
-        Node original=frame.original;
-        if(frame.stage==0) {
-            if(!exprHasMVars(exprCachedData(original))) { directSelect(frame,original); frame.stage=91; return; }
-            frame.shared=!exclusive(original);
-            ExprCredit cached=frame.shared?session.cache.get(original):null;
-            if(cached!=null) { require(cached.owned,"Direct Expr cache owner missing"); directSelect(frame,cached.value); frame.shared=false; frame.stage=91; return; }
-            switch(original.tag) {
-                case 2: frame.shared=false; frame.stage=10; pushDirect(session,new DirectMVarFrame(original)); return;
-                case 3: frame.stage=11; pushDirect(session,new DirectLevelFrame(original.fields[0])); return;
-                case 4: frame.stage=12; pushDirect(session,new DirectLevelsFrame(original.fields[1])); return;
-                case 5: frame.stage=10; pushDirect(session,new DirectAppFrame(original)); return;
-                case 6: case 7: case 8: case 10: case 11: frame.stage=1; break;
-                default: throw error("Inconsistent cached mvars on atomic Expr outside profile");
-            }
-        }
-        if(frame.stage==1) {
-            if(frame.child!=null) {
-                require(frame.cursor<frame.children.length,"Direct Expr child cursor exceeds profile layout");
-                frame.children[frame.cursor]=takeDirectExprChild(frame,DirectVisitFrame.class); frame.cursor++;
-            }
-            int count=exprChildCount(original.tag);
-            if(frame.cursor<count) { pushDirect(session,new DirectVisitFrame(exprNode(original.fields[exprChildField(original.tag,frame.cursor)]))); return; }
-            Object[] values=original.fields.clone(); boolean changed=false;
-            for(int i=0;i<count;i++) {
-                require(frame.children[i]!=null&&frame.children[i].owned,"Direct Expr child result missing");
-                int at=exprChildField(original.tag,i); values[at]=frame.children[i].value; changed|=values[at]!=original.fields[at];
-            }
-            if(!changed) { directSelect(frame,original); frame.stage=90; }
-            else {
-                if(original.tag>=6&&original.tag<=8) { values=Arrays.copyOf(values,values.length+1); values[values.length-1]=Long.valueOf(original.scalars[8]&255); }
-                frame.stage=3; callDirectConstructor(action,session,frame,exprCtorRole(original.tag),values); return;
-            }
-        }
-        if(frame.stage==3) {
-            require(frame.received!=null&&frame.received.owned,"Direct Expr constructor result missing"); frame.result=frame.received; frame.received=null; frame.stage=90;
-        }
-        if(frame.stage==10) { frame.result=takeDirectExprChild(frame,original.tag==2?DirectMVarFrame.class:DirectAppFrame.class); frame.stage=90; }
-        if(frame.stage==11) {
-            DirectLevelFrame child=(DirectLevelFrame)takeDirectChild(frame,DirectLevelFrame.class);
-            require(child.levelResult!=null&&child.levelResult.owned,"Sort Level result missing"); frame.level=child.levelResult; child.levelResult=null; frame.child=null;
-            if(sameLevel(frame.level.value,original.fields[0])) { directSelect(frame,original); frame.stage=90; }
-            else { frame.stage=3; callDirectConstructor(action,session,frame,1,new Object[]{frame.level.value}); return; }
-        }
-        if(frame.stage==12) {
-            frame.levels=takeDirectExprChild(frame,DirectLevelsFrame.class);
-            if(sameExprField(frame.levels.value,original.fields[1])) { directSelect(frame,original); frame.stage=90; }
-            else { frame.stage=3; callDirectConstructor(action,session,frame,2,new Object[]{original.fields[0],frame.levels.value}); return; }
-        }
-        if(frame.stage==90) {
-            require(frame.result!=null&&frame.result.owned,"Direct Expr computed result missing"); frame.stage=91;
-            if(frame.shared) {
-                // Reentrant assignment normalization may already have inserted
-                // this key: native insert keeps the first value, returns our r.
-                ExprCredit copy=exprCredit(frame.result.value);
-                if(session.cache.containsKey(original)) {
-                    frame.cacheTemporary=copy; acquireExpr(copy); releaseDirect(action,session,copy); return;
-                }
-                require(session.cacheValues.size()<MAX_DIRECT_CACHE,"Direct Expr cache limit");
-                session.cacheValues.add(copy); session.cache.put(original,copy); acquireExpr(copy);
-            }
-        }
-        require(frame.stage==91,"Invalid direct Expr visit continuation");
-        if(frame.cleanup<5) {
-            int at=frame.cleanup++;
-            if(at<3) releaseDirect(action,session,frame.children[2-at]);
-            else if(at==3) releaseLevelCredit(action,session.levels,frame.level);
-            else releaseDirect(action,session,frame.levels);
-            return;
-        }
-        Arrays.fill(frame.children,null); frame.level=null; frame.levels=null; frame.cacheTemporary=null; frame.completed=true;
-    }
-    private void stepExprDirectJob(RuntimeAction action,ExprDirectSession session) {
-        require(session.phase==DS_RUNNING,"Direct Expr session has no running job"); directWork(session,1); resumeDirectRetiring(action,session);
-        int packets=(session.call==null?0:1)+(session.constructorCall==null?0:1)+(session.levels.call==null?0:1);
-        require(packets<=1,"Multiple outstanding direct/constructor/Level packets");
-        if(session.call!=null) { receiveDirectHelper(action,session); return; }
-        if(session.constructorCall!=null) { receiveDirectConstructor(action,session); return; }
-        ExprDirectTask task=session.tasks.peekLast(); require(task!=null,"Missing direct Expr task");
-        if(!task.completed) {
-            if(task instanceof DirectVisitFrame) stepDirectVisit(action,session,(DirectVisitFrame)task);
-            else if(task instanceof DirectAssignmentFrame) stepDirectAssignment(action,session,(DirectAssignmentFrame)task);
-            else if(task instanceof DirectDelayedFrame) stepDirectDelayed(action,session,(DirectDelayedFrame)task);
-            else if(task instanceof DirectMVarFrame) stepDirectMVar(action,session,(DirectMVarFrame)task);
-            else if(task instanceof DirectAppFrame) stepDirectApp(action,session,(DirectAppFrame)task);
-            else if(task instanceof DirectNonMvarAppFrame) stepDirectNonMvarApp(action,session,(DirectNonMvarAppFrame)task);
-            else if(task instanceof DirectAppBetaFrame) stepDirectAppBeta(action,session,(DirectAppBetaFrame)task);
-            else if(task instanceof DirectLevelFrame) stepDirectLevel(action,session,(DirectLevelFrame)task);
-            else stepDirectLevels(action,session,(DirectLevelsFrame)task);
-            return;
-        }
-        Iterator<ExprDirectTask> ancestors=session.tasks.descendingIterator(); ancestors.next();
-        ExprDirectTask parent=ancestors.hasNext()?ancestors.next():null;
-        if(parent==null) {
-            require(task instanceof DirectVisitFrame&&task.result!=null&&task.result.owned&&session.result==null
-                    &&session.context.current!=null&&session.context.current.owned&&session.levels.phase==LS_IDLE,
-                    "Direct root completion ownership differs");
-            session.result=task.result; task.result=null; session.phase=DS_RESULT;
-        } else { require(parent.child==null,"Direct Expr child receiver occupied"); parent.child=task; }
-        session.tasks.removeLast();
-    }
-    private ExprCredit takeExprDirectResult(ExprDirectSession session) {
-        require(session.phase==DS_RESULT&&session.tasks.isEmpty()&&session.result!=null&&session.result.owned
-                &&session.call==null&&session.constructorCall==null&&session.retiring==null&&session.levels.retiring==null,
-                "Direct Expr result is not ready");
-        ExprCredit result=session.result; session.result=null; session.phase=DS_IDLE; return result;
-    }
-    private void sealExprDirectSession(ExprDirectSession session) {
-        require(session.phase==DS_IDLE&&session.result==null&&session.tasks.isEmpty()&&session.call==null
-                &&session.constructorCall==null&&session.retiring==null&&session.levels.retiring==null,
-                "Direct Expr session is not idle with result taken");
-        sealLevelSession(session.levels); session.cache.clear(); session.phase=DS_SEALED;
-    }
-    private void stepExprDirectDrain(RuntimeAction action,ExprDirectSession session) {
-        require(session.phase==DS_SEALED||session.phase==DS_DRAINING,"Direct Expr session is not sealed for drain");
-        directWork(session,1); resumeDirectRetiring(action,session); session.phase=DS_DRAINING;
-        if(session.drainStage<3) {
-            int size=session.drainStage==0?session.saved.size():session.drainStage==1?session.cacheValues.size():session.nameOwners.size();
-            if(session.drainStage==2) session.normalized.clear();
-            if(session.drainCursor<size) {
-                int at=size-1-session.drainCursor++;
-                ExprCredit credit=session.drainStage==0?session.saved.get(at):session.drainStage==1?session.cacheValues.get(at):session.nameOwners.get(at).name;
-                releaseDirect(action,session,credit); return;
-            }
-            session.drainStage++; session.drainCursor=0; return;
-        }
-        stepLevelSessionDrain(action,session.levels);
-        if(session.levels.phase!=LS_DRAINED) return;
-        session.saved.clear(); session.cacheValues.clear(); session.nameOwners.clear(); session.normalized.clear(); session.phase=DS_DRAINED;
-    }
 
-    /* Scoped cache, resolver and substitution state for delayed expression
-     * instantiation. Source authority remains with the trusted adapter. */
-    private static final int DC_LOOKUP=2,DC_INSERT=3;
-    private static final int MAX_DELAYED_KEYS=100_000,MAX_DELAYED_ENTRIES=100_000,MAX_DELAYED_GENERATIONS=100_000;
-    private static final int MAX_DELAYED_FRAMES=100_000,MAX_DELAYED_NAMES=100_000;
-    private static final int PENDING_IN_PROGRESS=0,PENDING_YES=1,PENDING_NO=2;
-    private static final int DELAYED_IDLE=0,DELAYED_RUNNING=1,DELAYED_RESULT=2,DELAYED_SEALED=3,DELAYED_DRAINED=4;
-    /** Immutable and guest-reference-free. Fork may share these chains. */
-    private static final class ScopeGeneration {
-        final int serial; final ScopeGeneration parent;
-        ScopeGeneration(int serial,ScopeGeneration parent) { this.serial=serial; this.parent=parent; }
-    }
-    private static final class ScopedEntry {
-        ExprCredit result; ScopeGeneration generation;
-        int validLevel,resultScope; boolean reserved;
-    }
-    private static final class ScopedBucket {
-        Node key; int depth; final ArrayList<ScopedEntry> entries=new ArrayList<>();
-    }
-    private static final class ScopedExprCache {
-        final IdentityHashMap<Node,HashMap<Integer,ScopedBucket>> index=new IdentityHashMap<>();
-        final ArrayList<ScopedBucket> buckets=new ArrayList<>();
-        ScopeGeneration current=new ScopeGeneration(0,null);
-        int scope,generationCounter,generationCount=1,liveEntries;
-        boolean sealed; int drainBucket,drainEntry; ScopedEntry retiringEntry;
-    }
-    /** computed aliases its caller's one owner flag; it is NOT another credit.
-     * optional/shared/returned and retiringEntry each represent literal copies
-     * or moved occurrences with distinct, resumable disposition. */
-    private static final class ScopedCacheOperation {
-        ScopedBucket bucket; ScopedEntry top,retiringEntry,newEntry;
-        ScopeGeneration currentCursor,entryCursor;
-        ExprCredit computed,shared,optional,returned,replacement;
-        Node key; int kind,depth,resultScope,stage,walkLevel,rewindStage; boolean hit,completed,rewound;
-    }
-    private static final class PendingNameEntry {
-        ExprCredit name; int hash,state;
-    }
-    private static final class SubstitutionEntry {
-        ExprCredit name,value; int hash,depth,scope; boolean live;
-    }
-    private static final class SavedSubstitution {
-        ExprCredit name,oldValue; int oldDepth,oldScope; boolean hadOld;
-    }
-    /** Shared production maintenance frame. saved records own independent old
-     * copies and survive restoration; oldValue drains before its Name key. */
-    private static final class SubstitutionFrame {
-        Object fvars,sourceArguments; final ArrayList<ExprCredit> arguments=new ArrayList<>();
-        final ArrayList<SavedSubstitution> saved=new ArrayList<>();
-        SubstitutionEntry existing,replacement; ExprCredit newName,newValue,retiringName,retiringValue;
-        int depth,index,stage,cleanup; boolean scopePushed,restored,completed,ownsArguments,erasing;
-    }
-    /** Lookup/lift borrows the map entry value; a nested existing ReplaceJob
-     * has no root input credit and must not INC merely to start the lift. */
-    private static final class SubstitutionLookup {
-        Object name; SubstitutionEntry entry; ExprCredit optional,returned;
-        int depth,stage; boolean present,completed;
-    }
-    private abstract static class ResolverTask {
-        ResolverTask child; ExprCredit received; int stage,cursor,cleanup;
-        boolean result,completed;
-    }
-    private static final class ResolvableExprFrame extends ResolverTask {
-        Node original; boolean entryShared;
-        ResolvableExprFrame(Node original) { this.original=original; }
-    }
-    private static final class ResolvablePendingFrame extends ResolverTask {
-        Object name; PendingNameEntry entry; ExprCredit option,temporary;
-        ResolvablePendingFrame(Object name) { this.name=name; }
-    }
-    private static final class ResolvableAppFrame extends ResolverTask {
-        Node original; Object head,cursor; int argumentCount;
-        ExprCredit option,recordTemporary,fvars,pendingName;
-        ResolvableAppFrame(Node original) { this.original=original; }
-    }
-    private static final class DelayedHelperPacket {
-        Function function; Object[] arguments; boolean[] owned;
-        ResolverTask target; DelayedTransformTask transformTarget; int role; boolean started,entered;
-    }
-    private static final class DelayedSession {
-        MVarContextCell context; InstantiationBudget budget; ExprInstantiationPolicy policy;
-        ScopedExprCache cache=new ScopedExprCache();
-        final IdentityHashMap<Node,Boolean> resolvableExpressions=new IdentityHashMap<>();
-        final HashMap<Integer,ArrayList<PendingNameEntry>> pending=new HashMap<>();
-        final ArrayList<PendingNameEntry> pendingOwners=new ArrayList<>();
-        final ArrayList<ExprCredit> saved=new ArrayList<>();
-        final HashMap<Integer,ArrayList<DirectNameEntry>> normalized=new HashMap<>();
-        final ArrayList<DirectNameEntry> nameOwners=new ArrayList<>();
-        final HashMap<Integer,ArrayList<SubstitutionEntry>> substitutions=new HashMap<>();
-        final ArrayList<SubstitutionEntry> substitutionOwners=new ArrayList<>();
-        final ArrayDeque<ResolverTask> resolver=new ArrayDeque<>();
-        DelayedHelperPacket call; ExprPacket constructorCall;
-        ScopedCacheOperation cacheOperation; SubstitutionFrame substitution; SubstitutionLookup lookup;
-        final ArrayDeque<SubstitutionFrame> substitutionFrames=new ArrayDeque<>();
-        ExprCredit retiring,result; int depth,resultScope,phase,drainStage,drainCursor;
-        boolean booleanResult;
-    }
-    /* Complete two-pass expression instantiation, entered through the checked
-     * native ABI and its configured source-bound helper policy. */
-    private static final boolean EXPR_INSTANTIATION_NATIVE_READY=true;
-    private static final int DT_IDLE=0,DT_RUNNING=1,DT_RESULT=2,DT_SEALED=3,DT_DRAINED=4;
-    private abstract static class DelayedTransformTask {
-        DelayedTransformTask child;
-        ExprCredit result,received;
-        int stage,cleanup;
-        boolean completed,helperDone;
-    }
-    /** NORMAL snapshots sharing and the caller watermark before child work.
-     * Child occurrences stay owned until their literal case-block boundaries. */
-    private static final class DelayedVisitFrame extends DelayedTransformTask {
-        Node original;
-        int entryDepth,savedWatermark,cursor;
-        boolean shared,cacheHit,skipInsert;
-        final ExprCredit[] children=new ExprCredit[3];
-        DelayedVisitFrame(Node original) { this.original=original; }
-    }
-    private static final class DelayedFVarFrame extends DelayedTransformTask {
-        Node original; Object name;
-        DelayedFVarFrame(Node original) { this.original=original; }
-    }
-    /** A private optional result: present/result, never a fabricated guest Some. */
-    private static final class DelayedAssignmentFrame extends DelayedTransformTask {
-        Object name;
-        ExprCredit option,assigned,newValue;
-        boolean present,outer;
-        DelayedAssignmentFrame(Object name) { this.name=name; }
-    }
-    private static final class DelayedAppFrame extends DelayedTransformTask {
-        Node original; Object head,cursor;
-        int argumentCount;
-        ExprCredit option,recordTemporary,fvars,pendingName,discardedAssignment;
-        DelayedAppFrame(Node original) { this.original=original; }
-    }
-    /** Prefix function Apps bypass NORMAL cache in both lookup and insertion. */
-    private static final class DelayedPrefixFrame extends DelayedTransformTask {
-        Node original;
-        ExprCredit argument,function;
-        DelayedPrefixFrame(Node original) { this.original=original; }
-    }
-    private static final class DelayedResolveFrame extends DelayedTransformTask {
-        Node original;
-        Object cursor,fvars,pendingName;
-        final ArrayList<ExprCredit> arguments=new ArrayList<>();
-        ExprCredit argumentTemporary,option,expressionTemporary,newValue,betaParameter;
-        SubstitutionFrame substitutions;
-        int argumentCount,extraCount;
-        DelayedResolveFrame(Node original,Object fvars,Object pendingName) {
-            this.original=original; this.fvars=fvars; this.pendingName=pendingName;
-        }
-    }
-    /** This phase is independent of foundation.phase: the foundation may be
-     * running its resolver/cache/substitution operation inside a live transform. */
-    private static final class DelayedTransform {
-        DelayedSession foundation;
-        final ArrayDeque<DelayedTransformTask> tasks=new ArrayDeque<>();
-        Object input;
-        ExprCredit result;
-        int phase;
-    }
-    /** One cell and budget span both passes. Direct members survive through
-     * delayed work and pair construction; e1 and e2 are separate occurrences. */
-    private static final class ExprFullResearchState {
-        MVarContextCell context;
-        InstantiationBudget budget;
-        ExprDirectSession direct;
-        DelayedTransform delayed;
-        ExprCredit input,e1,e2,pair;
-        int stage,pairFields;
-    }
-    private void prepareExprFullAction(RuntimeAction action,ExprInstantiationPolicy policy,Object ownedContext,Node root) {
-        ExprFullResearchState state=new ExprFullResearchState(); action.exprFull=state;
-        state.context=new MVarContextCell(); state.context.current=new LevelCredit(ownedContext,true); state.budget=new InstantiationBudget();
-        state.input=new ExprCredit(root,true); ExprDirectSession direct=new ExprDirectSession(); state.direct=direct;
-        direct.context=state.context; direct.budget=state.budget; direct.policy=policy;
-        direct.levels=newLevelSession(state.context,state.budget,policy.levels);
-        direct.tasks.addLast(new DirectVisitFrame(root)); direct.phase=DS_RUNNING;
-        objects[action.slot]=null;
-    }
-    private ExprInstantiationPolicy exprInstantiationPolicy;
+    ExprInstantiationPolicy exprInstantiationPolicy;
     /** One actual configured Level policy plus nineteen exact ordinary Headers.
      * Source acceptance remains the caller's trusted-loader obligation. */
     public void configureExprInstantiation(ExprInstantiationPolicy policy) {
@@ -3452,463 +1615,40 @@ public final class Interpreter implements AutoCloseable {
                 ||releaseTransaction!=null||releaseRoot) throw new IllegalStateException("Expr instantiation configuration requires open idle engine");
         require(exprInstantiationPolicy==null,"Expr instantiation policy already configured");
         require(policy.levels==levelInstantiationPolicy,"Expr policy must use actual configured Level policy");
-        for(int role=0;role<5;role++) { levelInstantiationHelper(policy.levels,role); exprInstantiationHelper(policy,role); }
-        for(int role=0;role<9;role++) exprConstructor(policy.constructors,role);
+        for(int role=0;role<5;role++) { levels.levelInstantiationHelper(policy.levels,role); exprDirect.exprInstantiationHelper(policy,role); }
+        for(int role=0;role<9;role++) exprTransforms.exprConstructor(policy.constructors,role);
         exprInstantiationPolicy=policy;
-    }
-    private ExprInstantiationPolicy exprInstantiationProfile(Function function) {
-        require(EXPR_INSTANTIATION_NATIVE_READY,"Full Expr native is not yet enabled");
-        require(explicit&&taskRuntime!=null&&exprInstantiationPolicy!=null,"Expr instantiation requires active explicit runtime and configured original helpers");
-        ExprInstantiationPolicy policy=exprInstantiationPolicy;
-        require(policy.levels==levelInstantiationPolicy,"Expr/Level configured policy identity differs");
-        Header origin=function.header;
-        require(origin!=null&&origin.source==policy.helpers[0].source&&origin.kind.equals("extern")
-                &&origin.originalSha256.equals("7e53092b477181a60a5e66f6cf2e2f33827b9f05411b294359b860431fc8a9ef"),
-                "Expr instantiation native source Header differs");
-        Object name=Arrays.asList("str",Arrays.asList("str",Arrays.asList("anonymous"),"Lean"),"instantiateExprMVarsImp");
-        require(origin.exactName.equals(frozenName(name)),"Expr instantiation native typed Name differs");
-        for(int role=0;role<5;role++) { levelInstantiationHelper(policy.levels,role); exprInstantiationHelper(policy,role); }
-        for(int role=0;role<9;role++) exprConstructor(policy.constructors,role);
-        return policy;
-    }
-    private void validateExprInstantiationArguments(Function function,Object[] args) {
-        exprInstantiationProfile(function);
-        require(args!=null&&args.length==2,"Expr instantiation native arity differs");
-        validateHostObject(args[0]); Node root=exprNode(args[1]);
-        if(args[0]==args[1]) require(root.rc==0||root.rc>=2,"Expr instantiation input alias credits differ");
-    }
-    private ExprDirectSession currentDirectSession(RuntimeAction action) {
-        return action==null?null:action.exprFull!=null&&(action.exprFull.stage==0||action.exprFull.stage>=5)?action.exprFull.direct:null;
-    }
-    private DelayedSession currentDelayedSession(RuntimeAction action) {
-        return action==null?null:action.exprFull!=null&&action.exprFull.delayed!=null&&action.exprFull.stage>=3&&action.exprFull.stage<=4
-                        ?action.exprFull.delayed.foundation:null;
-    }
-    private boolean delayedOuterMode(DelayedSession session) { return session.substitutions.isEmpty(); }
-    private boolean delayedNormalizedContains(DelayedSession session,Object name) {
-        int hash=delayedNameHash(session,name); ArrayList<DirectNameEntry> bucket=session.normalized.get(hash);
-        if(bucket!=null) for(DirectNameEntry entry:bucket) {
-            delayedWork(session,1); require(entry.name.owned,"Delayed normalized Name owner missing");
-            if(mvarNameEqual(session.budget,name,entry.name.value)) return true;
-        }
-        return false;
-    }
-    private void delayedNormalizedInsert(DelayedSession session,Object name) {
-        int hash=delayedNameHash(session,name); ArrayList<DirectNameEntry> bucket=session.normalized.get(hash);
-        if(bucket!=null) for(DirectNameEntry entry:bucket) {
-            delayedWork(session,1); if(mvarNameEqual(session.budget,name,entry.name.value)) return;
-        }
-        require(session.nameOwners.size()<MAX_DELAYED_NAMES,"Delayed normalized Name bound");
-        DirectNameEntry entry=new DirectNameEntry(hash,exprCredit(name)); session.nameOwners.add(entry);
-        if(bucket==null) { bucket=new ArrayList<>(); session.normalized.put(hash,bucket); }
-        bucket.add(entry); acquireExpr(entry.name);
-    }
-    private void pushTransform(DelayedTransform transform,DelayedTransformTask task) {
-        require(transform.phase==DT_RUNNING&&transform.tasks.size()<MAX_DELAYED_FRAMES,"Delayed transform task bound");
-        transform.tasks.addLast(task);
-    }
-    private ExprCredit takeTransformChild(DelayedTransformTask parent,Class<?> expected) {
-        DelayedTransformTask child=parent.child;
-        require(child!=null&&child.completed&&expected.isInstance(child)&&child.result!=null&&child.result.owned,
-                "Delayed transform child receiver differs");
-        ExprCredit result=child.result; child.result=null; parent.child=null; return result;
-    }
-    private DelayedAssignmentFrame takeTransformAssignment(DelayedTransformTask parent) {
-        require(parent.child instanceof DelayedAssignmentFrame&&parent.child.completed,"Delayed optional assignment not ready");
-        DelayedAssignmentFrame child=(DelayedAssignmentFrame)parent.child; parent.child=null;
-        require(!child.present||child.result!=null&&child.result.owned,"Delayed private optional result owner missing"); return child;
-    }
-    private void transformSelect(DelayedTransformTask frame,Object value) { frame.result=exprCredit(value); acquireExpr(frame.result); }
-    private void callTransformHelper(RuntimeAction action,DelayedSession session,DelayedTransformTask target,int role,Object name,Object record,ExprCredit newValue) {
-        delayedWork(session,1); require(role>=0&&role<=4,"Delayed transform helper role differs"); requireDelayedReceiverFree(action,session);
-        Function helper=exprInstantiationHelper(session.policy,role);
-        DelayedHelperPacket packet=new DelayedHelperPacket(); packet.function=helper; packet.role=role; packet.transformTarget=target;
-        packet.arguments=new Object[helper.params.length]; packet.owned=new boolean[packet.arguments.length];
-        if(role==2||role==3) packet.arguments[0]=record;
-        else {
-            require(session.context.current!=null&&session.context.current.owned,"Delayed transform context absent");
-            packet.arguments[0]=session.context.current.value; packet.arguments[1]=name; nameNode(name);
-            if(role==4) { require(newValue!=null&&newValue.owned,"Delayed setter value absent"); packet.arguments[2]=newValue.value; exprNode(newValue.value); }
-        }
-        for(Object argument:packet.arguments) validateHostObject(argument);
-        session.call=packet;
-        for(int i=0;i<packet.arguments.length;i++) {
-            if(role==4&&i==0) { packet.owned[i]=true; session.context.current.owned=false; session.context.current=null; }
-            else { inc(packet.arguments[i],1); packet.owned[i]=true; }
-        }
-        IdentityHashMap<Node,Integer> known=new IdentityHashMap<>();
-        for(Object argument:packet.arguments) if(argument instanceof Node) known.merge((Node)argument,1,Integer::sum);
-        for(Map.Entry<Node,Integer> entry:known.entrySet()) require(entry.getKey().rc==0||entry.getKey().rc>=entry.getValue(),"Delayed helper owner aliases differ");
-        packet.started=true; enterExplicit(helper,null,packet.arguments,ACTION_BODY,action.slot,ASSIGN,null);
-        require(packet.entered,"Delayed transform helper did not publish frame/CodeRequest");
-    }
-    private void receiveTransformHelper(RuntimeAction action,DelayedSession session) {
-        DelayedHelperPacket packet=session.call;
-        require(packet!=null&&packet.entered&&packet.target==null&&packet.transformTarget!=null,"Delayed transform helper target differs");
-        Object value=objects[action.slot]; DelayedTransformTask target=packet.transformTarget;
-        if(packet.role==4) {
-            validateHostObject(value); require(session.context.current==null,"Delayed setter replaces owned context");
-            session.context.current=new LevelCredit(value,true); objects[action.slot]=null; target.helperDone=true;
-        } else {
-            require(target.received==null,"Delayed transform helper receiver occupied");
-            if(packet.role<=1) validateDirectOption(value,packet.role==0);
-            else if(packet.role==2) { Node array=pureExprArray(value); require(array.arraySize()<=MAX_DELAYED_NAMES,"Delayed fvars Array bound"); }
-            else nameNode(value);
-            target.received=new ExprCredit(value,true); objects[action.slot]=null;
-        }
-        session.call=null;
-    }
-    private void callTransformConstructor(RuntimeAction action,DelayedSession session,DelayedTransformTask target,int role,Object[] values) {
-        delayedWork(session,1); requireDelayedReceiverFree(action,session);
-        ExprPacket packet=prepareExprConstructorPacket(session.policy.constructors,role,values); packet.delayedTarget=target;
-        session.constructorCall=packet; acquireExprConstructorPacket(packet); packet.started=true;
-        enterExplicit(packet.function,null,packet.arguments,ACTION_BODY,action.slot,ASSIGN,null);
-        require(packet.entered,"Delayed constructor did not publish frame/CodeRequest");
-    }
-    private void receiveTransformConstructor(RuntimeAction action,DelayedSession session) {
-        ExprPacket packet=session.constructorCall;
-        require(packet!=null&&packet.entered&&packet.delayedTarget!=null&&packet.delayedTarget.received==null,"Delayed constructor receiver differs");
-        ExprCredit result=takeExprConstructorResult(action,packet); packet.delayedTarget.received=result; session.constructorCall=null;
-    }
-    private void stepTransformFVar(RuntimeAction action,DelayedTransform transform,DelayedFVarFrame frame) {
-        DelayedSession session=transform.foundation;
-        if(frame.stage==0) {
-            require(session.lookup==null,"Delayed FVar lookup occupied"); SubstitutionLookup lookup=new SubstitutionLookup();
-            lookup.name=frame.original.fields[0]; lookup.depth=session.depth; session.lookup=lookup; frame.stage=1; return;
-        }
-        SubstitutionLookup lookup=session.lookup; require(lookup!=null,"Delayed FVar lookup missing");
-        stepSubstitutionLookup(action,session,lookup); if(!lookup.completed) return;
-        if(lookup.present) { require(lookup.returned!=null&&lookup.returned.owned,"Delayed FVar returned owner absent"); frame.result=lookup.returned; lookup.returned=null; }
-        else transformSelect(frame,frame.original);
-        session.lookup=null; frame.completed=true;
-    }
-    private void stepTransformAssignment(RuntimeAction action,DelayedTransform transform,DelayedAssignmentFrame frame) {
-        DelayedSession session=transform.foundation;
-        if(frame.stage==0) { frame.stage=1; callTransformHelper(action,session,frame,0,frame.name,null,null); return; }
-        if(frame.stage==1) {
-            require(frame.received!=null&&frame.received.owned,"Delayed assignment Option absent"); frame.option=frame.received; frame.received=null;
-            if(ERASED.equals(frame.option.value)) { frame.present=false; frame.stage=20; return; }
-            frame.assigned=exprCredit(((Node)frame.option.value).fields[0]); acquireExpr(frame.assigned); frame.outer=delayedOuterMode(session);
-            if(frame.outer&&delayedNormalizedContains(session,frame.name)) {
-                transformSelect(frame,frame.assigned.value); frame.present=true; frame.stage=20; return;
-            }
-            if(frame.outer) delayedNormalizedInsert(session,frame.name);
-            frame.stage=2; pushTransform(transform,new DelayedVisitFrame(exprNode(frame.assigned.value))); return;
-        }
-        if(frame.stage==2) {
-            frame.newValue=takeTransformChild(frame,DelayedVisitFrame.class);
-            if(frame.outer&&frame.newValue.value!=frame.assigned.value) {
-                require(session.saved.size()<MAX_DIRECT_SAVED,"Delayed saved assignment bound");
-                ExprCredit saved=exprCredit(frame.assigned.value); session.saved.add(saved); acquireExpr(saved);
-                frame.stage=3; callTransformHelper(action,session,frame,4,frame.name,null,frame.newValue); return;
-            }
-            frame.stage=4;
-        }
-        if(frame.stage==3) { require(frame.helperDone,"Delayed setter completion absent"); frame.stage=4; }
-        if(frame.stage==4) {
-            if(frame.outer) transformSelect(frame,frame.newValue.value);
-            else { frame.result=frame.newValue; frame.newValue=null; }
-            frame.present=true; frame.stage=20;
-        }
-        if(frame.stage==20) { frame.stage=21; releaseDelayed(action,session,frame.newValue); return; }
-        if(frame.stage==21) { frame.stage=22; releaseDelayed(action,session,frame.assigned); return; }
-        if(frame.stage==22) { frame.stage=23; releaseDelayed(action,session,frame.option); return; }
-        require(frame.stage==23,"Delayed assignment continuation differs");
-        frame.newValue=null; frame.assigned=null; frame.option=null; frame.completed=true;
-    }
-    private void stepTransformPrefix(RuntimeAction action,DelayedTransform transform,DelayedPrefixFrame frame) {
-        DelayedSession session=transform.foundation;
-        if(frame.stage==0) { frame.stage=1; pushTransform(transform,new DelayedVisitFrame(exprNode(frame.original.fields[1]))); return; }
-        if(frame.stage==1) {
-            frame.argument=takeTransformChild(frame,DelayedVisitFrame.class); Node f=exprNode(frame.original.fields[0]); frame.stage=2;
-            pushTransform(transform,f.tag==5?new DelayedPrefixFrame(f):new DelayedVisitFrame(f)); return;
-        }
-        if(frame.stage==2) {
-            frame.function=takeTransformChild(frame,exprNode(frame.original.fields[0]).tag==5?DelayedPrefixFrame.class:DelayedVisitFrame.class);
-            if(frame.function.value==frame.original.fields[0]&&frame.argument.value==frame.original.fields[1]) { transformSelect(frame,frame.original); frame.stage=4; }
-            else { frame.stage=3; callTransformConstructor(action,session,frame,3,new Object[]{frame.function.value,frame.argument.value}); return; }
-        }
-        if(frame.stage==3) { require(frame.received!=null&&frame.received.owned,"Delayed App constructor result absent"); frame.result=frame.received; frame.received=null; frame.stage=4; }
-        if(frame.stage==4) { frame.stage=5; releaseDelayed(action,session,frame.function); return; }
-        if(frame.stage==5) { frame.stage=6; releaseDelayed(action,session,frame.argument); return; }
-        require(frame.stage==6,"Delayed prefix continuation differs"); frame.function=null; frame.argument=null; frame.completed=true;
-    }
-    private void stepTransformApp(RuntimeAction action,DelayedTransform transform,DelayedAppFrame frame) {
-        DelayedSession session=transform.foundation;
-        if(frame.stage==0) {
-            frame.head=frame.original; frame.argumentCount=0; frame.stage=1;
-        }
-        if(frame.stage==1) {
-            Node head=exprNode(frame.head);
-            if(head.tag==5) { require(frame.argumentCount<MAX_DIRECT_ARGUMENTS,"Delayed App spine bound"); frame.argumentCount++; frame.head=head.fields[0]; return; }
-            if(head.tag!=2) { frame.stage=20; pushTransform(transform,new DelayedPrefixFrame(frame.original)); return; }
-            frame.stage=2; callTransformHelper(action,session,frame,1,head.fields[0],null,null); return;
-        }
-        if(frame.stage==2) {
-            require(frame.received!=null&&frame.received.owned,"Delayed App Option absent"); frame.option=frame.received; frame.received=null;
-            if(ERASED.equals(frame.option.value)) { frame.stage=20; pushTransform(transform,new DelayedPrefixFrame(frame.original)); return; }
-            frame.recordTemporary=exprCredit(((Node)frame.option.value).fields[0]); acquireExpr(frame.recordTemporary);
-            frame.stage=3; callTransformHelper(action,session,frame,2,null,frame.recordTemporary.value,null); return;
-        }
-        if(frame.stage==3) {
-            require(frame.received!=null&&frame.received.owned,"Delayed App fvars absent"); frame.fvars=frame.received; frame.received=null;
-            frame.stage=4; releaseDelayed(action,session,frame.recordTemporary); return;
-        }
-        if(frame.stage==4) {
-            frame.recordTemporary=exprCredit(((Node)frame.option.value).fields[0]); acquireExpr(frame.recordTemporary);
-            frame.stage=5; callTransformHelper(action,session,frame,3,null,frame.recordTemporary.value,null); return;
-        }
-        if(frame.stage==5) {
-            require(frame.received!=null&&frame.received.owned,"Delayed App pending Name absent"); frame.pendingName=frame.received; frame.received=null;
-            frame.stage=6; releaseDelayed(action,session,frame.recordTemporary); return;
-        }
-        if(frame.stage==6) {
-            frame.recordTemporary=null;
-            if(((Node)frame.fvars.value).arraySize()>frame.argumentCount) { frame.stage=20; pushTransform(transform,new DelayedPrefixFrame(frame.original)); return; }
-            require(session.phase==DELAYED_IDLE&&session.resolver.isEmpty(),"Delayed pending resolver occupied");
-            session.phase=DELAYED_RUNNING; pushResolver(session,new ResolvablePendingFrame(frame.pendingName.value)); frame.stage=7; return;
-        }
-        if(frame.stage==7) {
-            stepResolver(action,session); if(session.phase!=DELAYED_RESULT) return;
-            if(takeResolverResult(session)) {
-                frame.stage=21; pushTransform(transform,new DelayedResolveFrame(frame.original,frame.fvars.value,frame.pendingName.value)); return;
-            }
-            require(delayedOuterMode(session),"Unresolvable delayed App in inner mode outside source profile");
-            frame.stage=8; pushTransform(transform,new DelayedAssignmentFrame(frame.pendingName.value)); return;
-        }
-        if(frame.stage==8) {
-            DelayedAssignmentFrame assignment=takeTransformAssignment(frame); frame.discardedAssignment=assignment.result; assignment.result=null;
-            frame.stage=9; releaseDelayed(action,session,frame.discardedAssignment); return;
-        }
-        if(frame.stage==9) { frame.discardedAssignment=null; frame.stage=20; pushTransform(transform,new DelayedPrefixFrame(frame.original)); return; }
-        if(frame.stage==20||frame.stage==21) { frame.result=takeTransformChild(frame,frame.stage==20?DelayedPrefixFrame.class:DelayedResolveFrame.class); frame.stage=30; }
-        if(frame.stage==30) { frame.stage=31; releaseDelayed(action,session,frame.pendingName); return; }
-        if(frame.stage==31) { frame.stage=32; releaseDelayed(action,session,frame.fvars); return; }
-        if(frame.stage==32) { frame.stage=33; releaseDelayed(action,session,frame.option); return; }
-        require(frame.stage==33,"Delayed App continuation differs"); frame.pendingName=null; frame.fvars=null; frame.option=null; frame.completed=true;
-    }
-    private void enterTransformBeta(RuntimeAction parent,DelayedTransform transform,DelayedResolveFrame frame) {
-        DelayedSession session=transform.foundation;
-        require(runtimeAction==parent&&objects[parent.slot]==null&&session.call==null&&session.constructorCall==null&&session.retiring==null,
-                "Delayed beta receiver occupied");
-        require(frame.betaParameter!=null&&frame.betaParameter.owned,"Delayed beta parameter absent");
-        for(int role=0;role<9;role++) exprConstructor(session.policy.constructors,role);
-        RuntimeAction child=newAction(ACTION_EXPR_MACHINERY,null,ACTION_BODY,parent.slot,ASSIGN,null);
-        ExprMachineryState worker=new ExprMachineryState(); worker.policy=session.policy.constructors; worker.budget=session.budget;
-        BetaJob beta=new BetaJob(); beta.function=frame.betaParameter; beta.reverseArgs=new Object[frame.extraCount];
-        for(int i=0;i<beta.reverseArgs.length;i++) {
-            ExprCredit arg=frame.arguments.get(i); require(arg.owned,"Delayed beta reverse argument backing absent"); beta.reverseArgs[i]=arg.value;
-        }
-        worker.jobs.addLast(beta); child.exprMachinery=worker; objects[child.slot]=null;
-        publishAction(child); frame.betaParameter=null;
-    }
-    private void stepTransformResolve(RuntimeAction action,DelayedTransform transform,DelayedResolveFrame frame) {
-        DelayedSession session=transform.foundation;
-        if(frame.stage==0) {
-            if(frame.cursor==null) frame.cursor=frame.original;
-            Node cursor=exprNode(frame.cursor);
-            if(cursor.tag==5) { frame.stage=1; pushTransform(transform,new DelayedVisitFrame(exprNode(cursor.fields[1]))); return; }
-            Node fvars=pureExprArray(frame.fvars); int n=fvars.arraySize();
-            require(n<=frame.arguments.size(),"Delayed resolve argument arity differs"); frame.extraCount=frame.arguments.size()-n;
-            require(session.substitution==null&&session.substitutionFrames.size()<MAX_DELAYED_FRAMES,"Delayed resolve substitution receiver occupied");
-            SubstitutionFrame install=new SubstitutionFrame(); frame.substitutions=install;
-            install.fvars=fvars; install.depth=session.depth; install.ownsArguments=false; install.arguments.addAll(frame.arguments);
-            install.stage=SF_ENTER; session.substitution=install; frame.stage=3; return;
-        }
-        if(frame.stage==1) {
-            frame.argumentTemporary=takeTransformChild(frame,DelayedVisitFrame.class);
-            require(frame.arguments.size()<MAX_DIRECT_ARGUMENTS,"Delayed reverse argument buffer bound");
-            ExprCredit copy=exprCredit(frame.argumentTemporary.value); frame.arguments.add(copy); acquireExpr(copy);
-            frame.stage=2; releaseDelayed(action,session,frame.argumentTemporary); return;
-        }
-        if(frame.stage==2) { frame.argumentTemporary=null; frame.cursor=exprNode(frame.cursor).fields[0]; frame.stage=0; return; }
-        if(frame.stage==3) {
-            SubstitutionFrame install=frame.substitutions; require(session.substitution==install,"Delayed install current frame differs");
-            stepSubstitutionInstall(action,session,install); if(!install.completed) return;
-            session.substitution=null; session.substitutionFrames.addLast(install);
-            frame.stage=4; callTransformHelper(action,session,frame,0,frame.pendingName,null,null); return;
-        }
-        if(frame.stage==4) {
-            require(frame.received!=null&&frame.received.owned,"Delayed pending Option absent"); frame.option=frame.received; frame.received=null;
-            require(!ERASED.equals(frame.option.value),"Resolvable pending assignment missing outside source profile");
-            frame.expressionTemporary=exprCredit(((Node)frame.option.value).fields[0]); acquireExpr(frame.expressionTemporary);
-            frame.stage=5; pushTransform(transform,new DelayedVisitFrame(exprNode(frame.expressionTemporary.value))); return;
-        }
-        if(frame.stage==5) {
-            frame.newValue=takeTransformChild(frame,DelayedVisitFrame.class); frame.stage=6;
-            releaseDelayed(action,session,frame.expressionTemporary); return;
-        }
-        if(frame.stage==6) {
-            frame.expressionTemporary=null;
-            require(session.substitution==null&&session.substitutionFrames.peekLast()==frame.substitutions,"Delayed scope restore order differs");
-            session.substitution=frame.substitutions; beginSubstitutionRestore(session,frame.substitutions); frame.stage=7; return;
-        }
-        if(frame.stage==7) {
-            stepSubstitutionRestore(action,session,frame.substitutions); if(!frame.substitutions.completed) return;
-            session.substitution=null; require(session.substitutionFrames.removeLast()==frame.substitutions,"Delayed restored scope differs");
-            frame.betaParameter=exprCredit(frame.newValue.value); acquireExpr(frame.betaParameter); frame.stage=8;
-            enterTransformBeta(action,transform,frame); return;
-        }
-        if(frame.stage==8) {
-            Object value=objects[action.slot]; exprNode(value); frame.result=new ExprCredit(value,true); objects[action.slot]=null;
-            frame.stage=9; releaseDelayed(action,session,frame.newValue); return;
-        }
-        if(frame.stage==9) { frame.newValue=null; frame.stage=10; releaseDelayed(action,session,frame.option); return; }
-        if(frame.stage==10) {
-            frame.option=null; stepSubstitutionFrameDrain(action,session,frame.substitutions);
-            if(!frame.substitutions.completed||frame.substitutions.stage!=SF_DRAINED) return;
-            frame.substitutions=null; frame.cleanup=0; frame.stage=11; return;
-        }
-        if(frame.stage==11) {
-            if(frame.cleanup<frame.arguments.size()) { ExprCredit arg=frame.arguments.get(frame.cleanup++); releaseDelayed(action,session,arg); return; }
-            frame.arguments.clear(); frame.fvars=null; frame.pendingName=null; frame.cursor=null; frame.completed=true; return;
-        }
-        throw error("Delayed resolution continuation differs");
-    }
-    private void transformCompositeResult(RuntimeAction action,DelayedTransform transform,DelayedVisitFrame frame) {
-        Node original=frame.original; Object[] values=original.fields.clone(); boolean changed=false;
-        int count=exprChildCount(original.tag);
-        for(int i=0;i<count;i++) {
-            require(frame.children[i]!=null&&frame.children[i].owned,"Delayed composite child owner absent");
-            int at=exprChildField(original.tag,i); values[at]=frame.children[i].value; changed|=values[at]!=original.fields[at];
-        }
-        if(!changed) { transformSelect(frame,original); frame.stage=30; return; }
-        if(original.tag>=6&&original.tag<=8) { values=Arrays.copyOf(values,values.length+1); values[values.length-1]=Long.valueOf(original.scalars[8]&255); }
-        frame.stage=21; callTransformConstructor(action,transform.foundation,frame,exprCtorRole(original.tag),values);
-    }
-    private void stepTransformVisit(RuntimeAction action,DelayedTransform transform,DelayedVisitFrame frame) {
-        DelayedSession session=transform.foundation; Node original=frame.original;
-        if(frame.stage==0) {
-            frame.entryDepth=session.depth; long word=exprCachedData(original);
-            if(((word&(1L<<40))==0||delayedOuterMode(session))&&(word&(1L<<41))==0) {
-                transformSelect(frame,original); frame.stage=51; return;
-            }
-            frame.shared=!exclusive(original);
-            if(frame.shared) { startScopedOperation(session,DC_LOOKUP,original,frame.entryDepth,null,0); frame.stage=1; return; }
-            frame.stage=2;
-        }
-        if(frame.stage==1) {
-            ScopedCacheOperation op=session.cacheOperation; require(op!=null,"Delayed lookup operation absent");
-            stepScopedCache(action,session); if(!op.completed) return;
-            session.cacheOperation=null;
-            if(op.hit) { require(op.returned!=null&&op.returned.owned,"Delayed cache hit return absent"); frame.result=op.returned; op.returned=null; frame.cacheHit=true; frame.stage=51; return; }
-            frame.stage=2;
-        }
-        if(frame.stage==2) {
-            frame.savedWatermark=session.resultScope; session.resultScope=0;
-            switch(original.tag) {
-                case 1: frame.skipInsert=true; frame.stage=10; pushTransform(transform,new DelayedFVarFrame(original)); return;
-                case 2:
-                    require(delayedOuterMode(session),"Bare Expr MVar in inner mode outside source profile");
-                    frame.skipInsert=true; transformSelect(frame,original); frame.stage=40; return;
-                case 5: frame.stage=10; pushTransform(transform,new DelayedAppFrame(original)); return;
-                case 6: case 7: case 8: case 10: case 11: frame.stage=20; break;
-                default: throw error("Contradictory delayed Expr flags on atomic storage");
-            }
-        }
-        if(frame.stage==10) {
-            frame.result=takeTransformChild(frame,original.tag==1?DelayedFVarFrame.class:DelayedAppFrame.class); frame.stage=40;
-        }
-        if(frame.stage==20) {
-            int count=exprChildCount(original.tag);
-            if(frame.child!=null) {
-                require(frame.cursor<count,"Delayed child cursor outside layout"); frame.children[frame.cursor]=takeTransformChild(frame,DelayedVisitFrame.class); frame.cursor++;
-            }
-            if(frame.cursor<count) {
-                boolean body=original.tag>=6&&original.tag<=8&&frame.cursor==count-1;
-                require(frame.entryDepth<MAX_EXPR_JOB_OFFSET||!body,"Delayed binder depth bound");
-                session.depth=frame.entryDepth+(body?1:0);
-                pushTransform(transform,new DelayedVisitFrame(exprNode(original.fields[exprChildField(original.tag,frame.cursor)]))); return;
-            }
-            session.depth=frame.entryDepth; transformCompositeResult(action,transform,frame); return;
-        }
-        if(frame.stage==21) {
-            require(frame.received!=null&&frame.received.owned,"Delayed composite constructor return absent");
-            frame.result=frame.received; frame.received=null; frame.stage=30;
-        }
-        if(frame.stage==30) {
-            int count=exprChildCount(original.tag);
-            if(frame.cleanup<count) { ExprCredit child=frame.children[count-1-frame.cleanup++]; releaseDelayed(action,session,child); return; }
-            Arrays.fill(frame.children,null); frame.stage=40;
-        }
-        if(frame.stage==40) {
-            require(session.depth==frame.entryDepth&&frame.result!=null&&frame.result.owned,"Delayed insertion depth/result differs");
-            if(frame.shared&&!frame.skipInsert) {
-                ExprCredit computed=frame.result;
-                // The operation aliases this exact moved occurrence, not a new credit.
-                startScopedOperation(session,DC_INSERT,original,frame.entryDepth,computed,session.resultScope); frame.result=null; frame.stage=41; return;
-            }
-            frame.stage=50;
-        }
-        if(frame.stage==41) {
-            ScopedCacheOperation op=session.cacheOperation; require(op!=null,"Delayed insertion operation absent");
-            stepScopedCache(action,session); if(!op.completed) return;
-            require(op.returned!=null&&op.returned.owned,"Delayed insertion returned owner absent");
-            frame.result=op.returned; op.returned=null; session.cacheOperation=null; frame.stage=50;
-        }
-        if(frame.stage==50) { session.resultScope=Math.max(frame.savedWatermark,session.resultScope); frame.stage=51; }
-        require(frame.stage==51&&frame.result!=null&&frame.result.owned,"Delayed NORMAL result absent"); frame.completed=true;
-    }
-    private void stepDelayedTransform(RuntimeAction action,DelayedTransform transform) {
-        DelayedSession session=transform.foundation; delayedWork(session,1); resumeDelayedRetiring(action,session);
-        require(transform.phase==DT_RUNNING,"Delayed transform not running");
-        if(session.call!=null&&session.call.transformTarget!=null) { receiveTransformHelper(action,session); return; }
-        if(session.constructorCall!=null) { receiveTransformConstructor(action,session); return; }
-        DelayedTransformTask task=transform.tasks.peekLast(); require(task!=null,"Delayed transform frame absent");
-        if(!task.completed) {
-            if(task instanceof DelayedVisitFrame) stepTransformVisit(action,transform,(DelayedVisitFrame)task);
-            else if(task instanceof DelayedFVarFrame) stepTransformFVar(action,transform,(DelayedFVarFrame)task);
-            else if(task instanceof DelayedAssignmentFrame) stepTransformAssignment(action,transform,(DelayedAssignmentFrame)task);
-            else if(task instanceof DelayedAppFrame) stepTransformApp(action,transform,(DelayedAppFrame)task);
-            else if(task instanceof DelayedPrefixFrame) stepTransformPrefix(action,transform,(DelayedPrefixFrame)task);
-            else stepTransformResolve(action,transform,(DelayedResolveFrame)task);
-            return;
-        }
-        Iterator<DelayedTransformTask> iterator=transform.tasks.descendingIterator(); iterator.next();
-        DelayedTransformTask parent=iterator.hasNext()?iterator.next():null;
-        if(parent==null) {
-            require(task instanceof DelayedVisitFrame&&task.result!=null&&task.result.owned&&transform.result==null
-                    &&session.context.current!=null&&session.context.current.owned&&session.phase==DELAYED_IDLE,
-                    "Delayed transform root ownership differs");
-            transform.result=task.result; task.result=null; transform.phase=DT_RESULT;
-        } else { require(parent.child==null,"Delayed transform parent receiver occupied"); parent.child=task; }
-        transform.tasks.removeLast();
-    }
-    private ExprCredit takeDelayedTransformResult(DelayedTransform transform) {
-        require(transform.phase==DT_RESULT&&transform.tasks.isEmpty()&&transform.result!=null&&transform.result.owned,
-                "Delayed transform result unavailable");
-        ExprCredit result=transform.result; transform.result=null; transform.input=null; transform.phase=DT_IDLE; return result;
     }
     private void stepExprFullResearch(RuntimeAction action) {
         ExprFullResearchState state=action.exprFull; require(state!=null,"Complete Expr root state absent");
         ExprDirectSession direct=state.direct;
         if(state.stage==0) {
-            stepExprDirectJob(action,direct);
-            if(direct.phase==DS_RESULT) { state.e1=takeExprDirectResult(direct); sealExprDirectSession(direct); state.stage=1; }
+            exprDirect.stepExprDirectJob(action,direct);
+            if(direct.phase==ExprDirectInstantiation.DS_RESULT) { state.e1=exprDirect.takeExprDirectResult(direct); exprDirect.sealExprDirectSession(direct); state.stage=1; }
             return;
         }
         if(state.stage==3) {
-            stepDelayedTransform(action,state.delayed);
-            if(state.delayed.phase!=DT_RESULT) return;
-            state.e2=takeDelayedTransformResult(state.delayed); sealDelayedSession(state.delayed.foundation);
-            state.delayed.phase=DT_SEALED; state.stage=4; return;
+            exprDelayed.stepDelayedTransform(action,state.delayed);
+            if(state.delayed.phase!=ExprDelayedInstantiation.DT_RESULT) return;
+            state.e2=exprDelayed.takeDelayedTransformResult(state.delayed); exprDelayed.sealDelayedSession(state.delayed.foundation);
+            state.delayed.phase=ExprDelayedInstantiation.DT_SEALED; state.stage=4; return;
         }
         if(state.stage==4) {
-            stepDelayedDrain(action,state.delayed.foundation);
-            if(state.delayed.foundation.phase!=DELAYED_DRAINED) return;
-            state.delayed.phase=DT_DRAINED; state.stage=5; return;
+            exprDelayed.stepDelayedDrain(action,state.delayed.foundation);
+            if(state.delayed.foundation.phase!=ExprDelayedInstantiation.DELAYED_DRAINED) return;
+            state.delayed.phase=ExprDelayedInstantiation.DT_DRAINED; state.stage=5; return;
         }
-        if(state.stage==7) { stepExprDirectDrain(action,direct); if(direct.phase!=DS_DRAINED) return; state.stage=8; }
-        else { directWork(direct,1); resumeDirectRetiring(action,direct); }
-        if(state.stage==1) { state.stage=2; releaseDirect(action,direct,state.input); return; }
+        if(state.stage==7) { exprDirect.stepExprDirectDrain(action,direct); if(direct.phase!=ExprDirectInstantiation.DS_DRAINED) return; state.stage=8; }
+        else { exprDirect.directWork(direct,1); exprDirect.resumeDirectRetiring(action,direct); }
+        if(state.stage==1) { state.stage=2; exprDirect.releaseDirect(action,direct,state.input); return; }
         if(state.stage==2) {
             require(state.e1!=null&&state.e1.owned,"Complete Expr pass-one result absent");
-            if(!direct.hasUpdateableDelayed) { state.e2=exprCredit(state.e1.value); acquireExpr(state.e2); state.stage=5; return; }
+            if(!direct.hasUpdateableDelayed) { state.e2=exprTransforms.exprCredit(state.e1.value); exprTransforms.acquireExpr(state.e2); state.stage=5; return; }
             DelayedTransform delayed=new DelayedTransform(); state.delayed=delayed;
             DelayedSession session=new DelayedSession(); delayed.foundation=session;
-            session.context=state.context; session.budget=state.budget; session.policy=direct.policy; session.phase=DELAYED_IDLE;
-            delayed.input=state.e1.value; delayed.phase=DT_RUNNING;
-            pushTransform(delayed,new DelayedVisitFrame(exprNode(delayed.input))); state.stage=3; return;
+            session.context=state.context; session.budget=state.budget; session.policy=direct.policy; session.phase=ExprDelayedInstantiation.DELAYED_IDLE;
+            delayed.input=state.e1.value; delayed.phase=ExprDelayedInstantiation.DT_RUNNING;
+            exprDelayed.pushTransform(delayed,new DelayedVisitFrame(exprNode(delayed.input))); state.stage=3; return;
         }
         if(state.stage==5) {
             require(state.context.current!=null&&state.context.current.owned&&state.e2!=null&&state.e2.owned
@@ -3917,8 +1657,8 @@ public final class Interpreter implements AutoCloseable {
             pair.fields[0]=state.context.current.value; state.context.current.owned=false; state.context.current=null; state.pairFields=1;
             pair.fields[1]=state.e2.value; state.e2.owned=false; state.pairFields=2; state.stage=6; return;
         }
-        if(state.stage==6) { state.stage=7; releaseDirect(action,direct,state.e1); return; }
-        require(state.stage==8&&direct.phase==DS_DRAINED&&state.pair!=null&&state.pair.owned&&state.pairFields==2
+        if(state.stage==6) { state.stage=7; exprDirect.releaseDirect(action,direct,state.e1); return; }
+        require(state.stage==8&&direct.phase==ExprDirectInstantiation.DS_DRAINED&&state.pair!=null&&state.pair.owned&&state.pairFields==2
                 &&state.context.current==null&&!state.input.owned&&!state.e1.owned&&!state.e2.owned,
                 "Complete Expr root final ownership differs");
         Object output=state.pair.value; state.pair.owned=false; action.output=output;
@@ -3926,543 +1666,25 @@ public final class Interpreter implements AutoCloseable {
         action.exprFull=null; action.arguments=null; finishAction(action,output);
     }
 
-    private void delayedWork(DelayedSession session,long amount) {
-        instantiationWork(session.budget,amount,"Delayed Expr work outside bounded runtime profile","Delayed Expr interrupted");
-    }
-    private void requireDelayedReceiverFree(RuntimeAction action,DelayedSession session) {
-        require(runtimeAction==action&&currentDelayedSession(action)==session
-                &&session.call==null&&session.constructorCall==null&&objects[action.slot]==null,
-                "Multiple outstanding delayed helper/constructor packets");
-    }
-    private void delayedHelperEntry(Function function,Object[] arguments) {
-        RuntimeAction action=runtimeAction;
-        DelayedSession session=currentDelayedSession(action);
-        if(session==null) return;
-        DelayedHelperPacket packet=session.call;
-        if(packet==null||packet.entered||packet.function!=function||packet.arguments!=arguments) return;
-        require(packet.started,"Delayed helper entered before packet publication");
-        packet.entered=true; Arrays.fill(packet.owned,false);
-    }
-    private boolean releaseDelayed(RuntimeAction action,DelayedSession session,ExprCredit credit) {
-        if(credit==null||!credit.owned) return false;
-        require(session.retiring==null,"Two delayed retiring occurrences");
-        session.retiring=credit; action.retiring=credit.value; action.releaseClaimed=false;
-        boolean dispatch;
-        try { dispatch=beginRelease(credit.value,1,ACTION_BODY); credit.owned=false; }
-        finally { if(action.releaseClaimed) credit.owned=false; }
-        if(!dispatch) { session.retiring=null; action.retiring=null; action.releaseClaimed=false; }
-        return dispatch;
-    }
-    private void resumeDelayedRetiring(RuntimeAction action,DelayedSession session) {
-        if(session.retiring!=null) {
-            require(!session.retiring.owned,"Delayed retiring occurrence was not claimed");
-            session.retiring=null; action.retiring=null; action.releaseClaimed=false;
-        }
-    }
-    private boolean mvarNameEqual(InstantiationBudget budget,Object left,Object right) {
-        ExprEquality comparison=new ExprEquality(false); comparison.work=budget.work;
-        try { return nameEquals(left,right,comparison); }
-        finally { budget.work=comparison.work; }
-    }
-    private int delayedNameHash(DelayedSession session,Object value) {
-        delayedWork(session,1); Node name=nameNode(value); return (int)(name==null?1723:readScalar(name,0,U64));
-    }
-    private void scopedPush(DelayedSession session) {
-        delayedWork(session,1); ScopedExprCache cache=session.cache;
-        require(!cache.sealed&&cache.generationCount<MAX_DELAYED_GENERATIONS&&cache.scope<MAX_DELAYED_GENERATIONS
-                &&cache.generationCounter<Integer.MAX_VALUE,"Scoped Expr generation bound");
-        ScopeGeneration next=new ScopeGeneration(cache.generationCounter+1,cache.current);
-        cache.current=next; cache.generationCounter++; cache.generationCount++; cache.scope++;
-    }
-    private void scopedPop(DelayedSession session) {
-        delayedWork(session,1); ScopedExprCache cache=session.cache;
-        require(!cache.sealed&&cache.scope>0&&cache.current!=null&&cache.current.parent!=null,"Scoped Expr pop outside active scope");
-        cache.current=cache.current.parent; cache.scope--;
-    }
-    private ScopedBucket scopedBucket(DelayedSession session,Node key,int depth,boolean create) {
-        delayedWork(session,1); ScopedExprCache cache=session.cache;
-        require(!cache.sealed&&depth>=0&&depth<=MAX_EXPR_JOB_OFFSET,"Scoped Expr key outside profile");
-        HashMap<Integer,ScopedBucket> depths=cache.index.get(key); ScopedBucket bucket=depths==null?null:depths.get(depth);
-        if(bucket!=null||!create) return bucket;
-        require(cache.buckets.size()<MAX_DELAYED_KEYS,"Scoped Expr (identity,depth) key bound");
-        bucket=new ScopedBucket(); bucket.key=key; bucket.depth=depth; cache.buckets.add(bucket);
-        if(depths==null) { depths=new HashMap<>(); cache.index.put(key,depths); }
-        depths.put(depth,bucket); return bucket;
-    }
-    private void startScopedOperation(DelayedSession session,int kind,Object key,int depth,ExprCredit computed,int resultScope) {
-        require(session.cacheOperation==null&&session.call==null&&session.constructorCall==null,"Scoped Expr operation already active");
-        require(kind==DC_LOOKUP||kind==DC_INSERT,"Unknown scoped Expr operation");
-        Node original=exprNode(key);
-        if(kind==DC_INSERT) require(computed!=null&&computed.owned&&resultScope>=0&&resultScope<=MAX_DELAYED_GENERATIONS,
-                "Scoped Expr computed/result-scope owner missing");
-        ScopedCacheOperation op=new ScopedCacheOperation(); op.kind=kind; op.key=original; op.depth=depth;
-        op.computed=computed; op.resultScope=resultScope; session.cacheOperation=op;
-        op.bucket=scopedBucket(session,original,depth,kind==DC_INSERT);
-    }
-    private void finishScopedRetiring(DelayedSession session,ScopedCacheOperation op) {
-        if(op.retiringEntry==null) return;
-        ScopedEntry entry=op.retiringEntry;
-        require(entry.result!=null&&!entry.result.owned,"Scoped Expr eviction owner not drained");
-        if(entry.reserved) { require(session.cache.liveEntries>0,"Scoped Expr reservation underflow"); session.cache.liveEntries--; entry.reserved=false; }
-        entry.result=null; op.retiringEntry=null;
-    }
-    private void dropScopedTop(RuntimeAction action,DelayedSession session,ScopedCacheOperation op) {
-        require(op.retiringEntry==null&&op.bucket!=null&&!op.bucket.entries.isEmpty(),"Missing scoped eviction entry");
-        op.retiringEntry=op.bucket.entries.remove(op.bucket.entries.size()-1); op.top=null; op.rewindStage=0;
-        releaseDelayed(action,session,op.retiringEntry.result);
-    }
-    private void stepScopedRewind(RuntimeAction action,DelayedSession session,ScopedCacheOperation op) {
-        ScopedExprCache cache=session.cache;
-        if(op.bucket==null||op.bucket.entries.isEmpty()) { op.rewound=true; return; }
-        if(op.rewindStage==0) {
-            op.top=op.bucket.entries.get(op.bucket.entries.size()-1);
-            if(op.top.resultScope>cache.scope) { dropScopedTop(action,session,op); return; }
-            op.rewindStage=1; return;
-        }
-        ScopedEntry top=op.top; require(top!=null&&top.result!=null&&top.result.owned,"Scoped rewind top owner missing");
-        if(op.rewindStage==1) {
-            if(top.validLevel>cache.scope) {
-                require(top.generation!=null&&top.generation.parent!=null,"Scoped degrade chain exhausted");
-                top.generation=top.generation.parent; top.validLevel--; return;
-            }
-            op.currentCursor=cache.current; op.walkLevel=cache.scope; op.rewindStage=2; return;
-        }
-        if(op.rewindStage==2) {
-            if(op.walkLevel>top.validLevel) { require(op.currentCursor!=null&&op.currentCursor.parent!=null,"Scoped current chain exhausted"); op.currentCursor=op.currentCursor.parent; op.walkLevel--; return; }
-            require(top.generation!=null&&op.currentCursor!=null,"Scoped generation cursor missing");
-            if(top.generation.serial==op.currentCursor.serial) { op.rewound=true; return; }
-            op.entryCursor=top.generation; op.walkLevel=top.validLevel; op.rewindStage=3; return;
-        }
-        require(op.rewindStage==3,"Invalid scoped rewind stage");
-        if(op.walkLevel>top.resultScope) {
-            require(op.entryCursor.parent!=null&&op.currentCursor.parent!=null,"Scoped mismatch chain exhausted");
-            op.entryCursor=op.entryCursor.parent; op.currentCursor=op.currentCursor.parent; op.walkLevel--;
-            if(op.entryCursor.serial==op.currentCursor.serial) { top.validLevel=op.walkLevel; top.generation=op.entryCursor; op.rewound=true; }
-            return;
-        }
-        dropScopedTop(action,session,op);
-    }
-    private void stepScopedCache(RuntimeAction action,DelayedSession session) {
-        delayedWork(session,1); resumeDelayedRetiring(action,session);
-        ScopedCacheOperation op=session.cacheOperation; require(op!=null&&!op.completed,"No running scoped Expr operation");
-        finishScopedRetiring(session,op);
-        if(op.stage==0) { stepScopedRewind(action,session,op); if(op.rewound) op.stage=1; return; }
-        if(op.kind==DC_LOOKUP) {
-            if(op.stage==1) {
-                if(op.bucket==null||op.bucket.entries.isEmpty()) { op.completed=true; return; }
-                ScopedEntry top=op.bucket.entries.get(op.bucket.entries.size()-1);
-                if(top.validLevel!=session.cache.scope) { op.completed=true; return; }
-                session.resultScope=Math.max(session.resultScope,top.resultScope);
-                op.optional=exprCredit(top.result.value); acquireExpr(op.optional); op.hit=true; op.stage=2; return;
-            }
-            if(op.stage==2) { op.returned=exprCredit(op.optional.value); acquireExpr(op.returned); op.stage=3; return; }
-            if(op.stage==3) { op.stage=4; releaseDelayed(action,session,op.optional); return; }
-            require(op.stage==4,"Invalid scoped lookup completion"); op.optional=null; op.completed=true; return;
-        }
-        if(op.stage==1) {
-            require(op.computed!=null&&op.computed.owned,"Scoped insertion computed owner missing");
-            op.shared=exprCredit(op.computed.value); acquireExpr(op.shared); op.stage=10; return;
-        }
-        if(op.stage==10) {
-            if(!op.bucket.entries.isEmpty()&&op.bucket.entries.get(op.bucket.entries.size()-1).resultScope==op.resultScope) {
-                op.replacement=exprCredit(op.bucket.entries.get(op.bucket.entries.size()-1).result.value); acquireExpr(op.replacement); op.stage=11; return;
-            }
-            op.stage=13;
-        }
-        if(op.stage==11) { op.stage=12; releaseDelayed(action,session,op.shared); return; }
-        if(op.stage==12) { op.shared=op.replacement; op.replacement=null; op.stage=13; }
-        if(op.stage==13) {
-            if(!op.bucket.entries.isEmpty()&&op.bucket.entries.get(op.bucket.entries.size()-1).validLevel>=op.resultScope) {
-                dropScopedTop(action,session,op); return;
-            }
-            op.stage=14; return;
-        }
-        if(op.stage==14) {
-            require(session.cache.liveEntries<MAX_DELAYED_ENTRIES,"Scoped Expr live-entry bound");
-            ScopedEntry entry=new ScopedEntry(); op.newEntry=entry; entry.result=op.shared; op.shared=null;
-            entry.validLevel=session.cache.scope; entry.resultScope=op.resultScope; entry.generation=session.cache.current;
-            entry.reserved=true; session.cache.liveEntries++; op.bucket.entries.add(entry); op.stage=15; return;
-        }
-        if(op.stage==15) { op.returned=exprCredit(op.newEntry.result.value); acquireExpr(op.returned); op.stage=16; return; }
-        if(op.stage==16) { op.stage=17; releaseDelayed(action,session,op.computed); return; }
-        require(op.stage==17&&op.returned!=null&&op.returned.owned,"Invalid scoped insert completion");
-        op.computed=null; op.newEntry=null; op.completed=true;
-    }
-
-    private PendingNameEntry pendingEntry(DelayedSession session,Object name,boolean create) {
-        int hash=delayedNameHash(session,name); ArrayList<PendingNameEntry> bucket=session.pending.get(hash);
+    PendingNameEntry pendingEntry(DelayedSession session,Object name,boolean create) {
+        int hash=exprDelayed.delayedNameHash(session,name); ArrayList<PendingNameEntry> bucket=session.pending.get(hash);
         if(bucket!=null) for(PendingNameEntry entry:bucket) {
-            delayedWork(session,1); require(entry.name!=null&&entry.name.owned,"Pending Name key owner missing");
-            if(mvarNameEqual(session.budget,name,entry.name.value)) return entry;
+            exprDelayed.delayedWork(session,1); require(entry.name!=null&&entry.name.owned,"Pending Name key owner missing");
+            if(exprDelayed.mvarNameEqual(session.budget,name,entry.name.value)) return entry;
         }
         if(!create) return null;
-        require(session.pendingOwners.size()<MAX_DELAYED_NAMES,"Resolvable pending Name bound");
-        PendingNameEntry entry=new PendingNameEntry(); entry.hash=hash; entry.state=PENDING_IN_PROGRESS; entry.name=exprCredit(name);
+        require(session.pendingOwners.size()<ExprDelayedInstantiation.MAX_DELAYED_NAMES,"Resolvable pending Name bound");
+        PendingNameEntry entry=new PendingNameEntry(); entry.hash=hash; entry.state=ExprDelayedInstantiation.PENDING_IN_PROGRESS; entry.name=exprTransforms.exprCredit(name);
         session.pendingOwners.add(entry);
         if(bucket==null) { bucket=new ArrayList<>(); session.pending.put(hash,bucket); }
-        bucket.add(entry); acquireExpr(entry.name); return entry;
-    }
-    private void pushResolver(DelayedSession session,ResolverTask frame) {
-        require(session.phase==DELAYED_RUNNING&&session.resolver.size()<MAX_DELAYED_FRAMES,"Resolvable Expr frame bound"); session.resolver.addLast(frame);
-    }
-    private boolean takeResolverChild(ResolverTask parent,Class<?> expected) {
-        ResolverTask child=parent.child;
-        require(child!=null&&child.completed&&expected.isInstance(child),"Resolvable child kind/completion differs");
-        boolean result=child.result; parent.child=null; return result;
-    }
-    private void callResolverHelper(RuntimeAction action,DelayedSession session,ResolverTask target,int role) {
-        delayedWork(session,1); require(role>=0&&role<=3,"Resolver does not call assignment setter"); requireDelayedReceiverFree(action,session);
-        Function helper=exprInstantiationHelper(session.policy,role); DelayedHelperPacket packet=new DelayedHelperPacket();
-        packet.function=helper; packet.role=role; packet.target=target; packet.arguments=new Object[helper.params.length]; packet.owned=new boolean[packet.arguments.length];
-        if(role<=1) {
-            require(session.context.current!=null&&session.context.current.owned,"Resolvable context owner missing");
-            packet.arguments[0]=session.context.current.value;
-            packet.arguments[1]=role==0?((ResolvablePendingFrame)target).name:((Node)((ResolvableAppFrame)target).head).fields[0];
-            nameNode(packet.arguments[1]);
-        } else {
-            ExprCredit record=((ResolvableAppFrame)target).recordTemporary;
-            require(record!=null&&record.owned,"Resolvable accessor record temporary missing"); packet.arguments[0]=record.value;
-        }
-        for(Object argument:packet.arguments) validateHostObject(argument);
-        session.call=packet;
-        for(int i=0;i<packet.arguments.length;i++) { inc(packet.arguments[i],1); packet.owned[i]=true; }
-        IdentityHashMap<Node,Integer> known=new IdentityHashMap<>();
-        for(Object argument:packet.arguments) if(argument instanceof Node) known.merge((Node)argument,1,Integer::sum);
-        for(Map.Entry<Node,Integer> entry:known.entrySet()) require(entry.getKey().rc==0||entry.getKey().rc>=entry.getValue(),"Resolvable helper alias credits differ");
-        packet.started=true; enterExplicit(helper,null,packet.arguments,ACTION_BODY,action.slot,ASSIGN,null);
-        require(packet.entered,"Resolvable helper did not publish frame/CodeRequest");
-    }
-    private void receiveResolverHelper(RuntimeAction action,DelayedSession session) {
-        DelayedHelperPacket packet=session.call; require(packet!=null&&packet.entered,"Resolver helper returned before entry");
-        require(packet.target.received==null,"Resolver helper receiver occupied"); Object value=objects[action.slot];
-        if(packet.role<=1) validateDirectOption(value,packet.role==0);
-        else if(packet.role==2) { Node array=node(value); require(array.array&&array.arraySize()<=MAX_DELAYED_NAMES,"Delayed fvars accessor requires bounded object Array"); }
-        else nameNode(value);
-        packet.target.received=new ExprCredit(value,true); objects[action.slot]=null; session.call=null;
-    }
-    private void stepResolvablePending(RuntimeAction action,DelayedSession session,ResolvablePendingFrame frame) {
-        if(frame.stage==0) {
-            frame.entry=pendingEntry(session,frame.name,false);
-            if(frame.entry!=null) { frame.result=frame.entry.state==PENDING_YES; frame.completed=true; return; }
-            frame.entry=pendingEntry(session,frame.name,true); frame.stage=1; callResolverHelper(action,session,frame,0); return;
-        }
-        if(frame.stage==1) {
-            require(frame.received!=null&&frame.received.owned,"Resolvable pending Option missing"); frame.option=frame.received; frame.received=null;
-            if(ERASED.equals(frame.option.value)) { frame.result=false; frame.stage=4; }
-            else {
-                frame.temporary=exprCredit(((Node)frame.option.value).fields[0]); acquireExpr(frame.temporary);
-                frame.stage=2; pushResolver(session,new ResolvableExprFrame(exprNode(frame.temporary.value))); return;
-            }
-        }
-        if(frame.stage==2) { frame.result=takeResolverChild(frame,ResolvableExprFrame.class); frame.stage=3; releaseDelayed(action,session,frame.temporary); return; }
-        if(frame.stage==3) { frame.temporary=null; frame.stage=4; }
-        if(frame.stage==4) { frame.entry.state=frame.result?PENDING_YES:PENDING_NO; frame.stage=5; releaseDelayed(action,session,frame.option); return; }
-        require(frame.stage==5,"Invalid resolvable pending continuation"); frame.option=null; frame.completed=true;
-    }
-    private void stepResolvableApp(RuntimeAction action,DelayedSession session,ResolvableAppFrame frame) {
-        if(frame.stage==0) {
-            if(frame.head==null) frame.head=frame.original;
-            Node head=exprNode(frame.head);
-            if(head.tag==5) { frame.head=head.fields[0]; return; }
-            if(head.tag!=2) { frame.stage=100; pushResolver(session,new ResolvableExprFrame(exprNode(frame.original.fields[0]))); return; }
-            frame.stage=1; callResolverHelper(action,session,frame,1); return;
-        }
-        if(frame.stage==1) {
-            require(frame.received!=null&&frame.received.owned,"Resolvable delayed Option missing"); frame.option=frame.received; frame.received=null;
-            if(ERASED.equals(frame.option.value)) { frame.result=false; frame.stage=200; }
-            else { frame.recordTemporary=exprCredit(((Node)frame.option.value).fields[0]); acquireExpr(frame.recordTemporary);
-                frame.stage=2; callResolverHelper(action,session,frame,2); return; }
-        }
-        if(frame.stage==2) { require(frame.received!=null&&frame.received.owned,"Resolvable fvars Array missing"); frame.fvars=frame.received; frame.received=null;
-            frame.stage=3; releaseDelayed(action,session,frame.recordTemporary); return; }
-        if(frame.stage==3) { frame.recordTemporary=null; frame.cursor=frame.original; frame.argumentCount=0; frame.stage=4; }
-        if(frame.stage==4) {
-            Node current=exprNode(frame.cursor);
-            if(current.tag==5) { require(frame.argumentCount<MAX_DIRECT_ARGUMENTS,"Resolvable application arity bound"); frame.argumentCount++; frame.cursor=current.fields[0]; return; }
-            if(((Node)frame.fvars.value).arraySize()>frame.argumentCount) { frame.result=false; frame.stage=200; }
-            else { frame.recordTemporary=exprCredit(((Node)frame.option.value).fields[0]); acquireExpr(frame.recordTemporary);
-                frame.stage=5; callResolverHelper(action,session,frame,3); return; }
-        }
-        if(frame.stage==5) { require(frame.received!=null&&frame.received.owned,"Resolvable pending Name missing"); frame.pendingName=frame.received; frame.received=null;
-            frame.stage=6; releaseDelayed(action,session,frame.recordTemporary); return; }
-        if(frame.stage==6) { frame.recordTemporary=null; frame.stage=7; pushResolver(session,new ResolvablePendingFrame(frame.pendingName.value)); return; }
-        if(frame.stage==7) {
-            if(!takeResolverChild(frame,ResolvablePendingFrame.class)) { frame.result=false; frame.stage=200; }
-            else { frame.cursor=frame.original; frame.stage=8; }
-        }
-        if(frame.stage==8) {
-            Node current=exprNode(frame.cursor);
-            if(current.tag!=5) { frame.result=true; frame.stage=200; }
-            else { frame.stage=9; pushResolver(session,new ResolvableExprFrame(exprNode(current.fields[1]))); return; }
-        }
-        if(frame.stage==9) {
-            if(!takeResolverChild(frame,ResolvableExprFrame.class)) { frame.result=false; frame.stage=200; }
-            else { frame.cursor=exprNode(frame.cursor).fields[0]; frame.stage=8; return; }
-        }
-        if(frame.stage==100) {
-            if(!takeResolverChild(frame,ResolvableExprFrame.class)) { frame.result=false; frame.completed=true; return; }
-            frame.stage=101; pushResolver(session,new ResolvableExprFrame(exprNode(frame.original.fields[1]))); return;
-        }
-        if(frame.stage==101) { frame.result=takeResolverChild(frame,ResolvableExprFrame.class); frame.completed=true; return; }
-        require(frame.stage==200,"Invalid resolvable App continuation");
-        if(frame.cleanup<3) {
-            ExprCredit credit=frame.cleanup==0?frame.pendingName:frame.cleanup==1?frame.fvars:frame.option;
-            frame.cleanup++; releaseDelayed(action,session,credit); return;
-        }
-        frame.pendingName=null; frame.fvars=null; frame.option=null; require(frame.recordTemporary==null,"Resolvable D temporary not retired"); frame.completed=true;
-    }
-    private void stepResolvableExpr(RuntimeAction action,DelayedSession session,ResolvableExprFrame frame) {
-        Node original=frame.original;
-        if(frame.stage==0) {
-            if((exprCachedData(original)&(1L<<41))==0) { frame.result=true; frame.completed=true; return; }
-            frame.entryShared=!exclusive(original);
-            Boolean cached=frame.entryShared?session.resolvableExpressions.get(original):null;
-            if(cached!=null) { frame.result=cached; frame.completed=true; return; }
-            if(original.tag==2) { frame.result=false; frame.stage=90; }
-            else if(original.tag==5) { frame.stage=10; pushResolver(session,new ResolvableAppFrame(original)); return; }
-            else if(original.tag==6||original.tag==7||original.tag==8||original.tag==10||original.tag==11) frame.stage=1;
-            else { frame.result=true; frame.stage=90; }
-        }
-        if(frame.stage==1) {
-            if(frame.child!=null) { if(!takeResolverChild(frame,ResolvableExprFrame.class)) { frame.result=false; frame.stage=90; } else frame.cursor++; }
-            if(frame.stage==1) {
-                if(frame.cursor<exprChildCount(original.tag)) { pushResolver(session,new ResolvableExprFrame(exprNode(original.fields[exprChildField(original.tag,frame.cursor)]))); return; }
-                frame.result=true; frame.stage=90;
-            }
-        }
-        if(frame.stage==10) { frame.result=takeResolverChild(frame,ResolvableAppFrame.class); frame.stage=90; }
-        require(frame.stage==90,"Invalid resolvable Expr continuation");
-        // Native samples sharing again after analysis, not only at entry.
-        if(!exclusive(original)) {
-            require(session.resolvableExpressions.containsKey(original)||session.resolvableExpressions.size()<MAX_DELAYED_KEYS,"Resolvable Expr key bound");
-            session.resolvableExpressions.put(original,frame.result);
-        }
-        frame.completed=true;
-    }
-    private void startResolver(DelayedSession session,Object input) {
-        require(session.phase==DELAYED_IDLE&&session.resolver.isEmpty()&&session.call==null&&session.constructorCall==null,"Resolvable session is not idle");
-        Node root=exprNode(input); session.phase=DELAYED_RUNNING; pushResolver(session,new ResolvableExprFrame(root));
-    }
-    private void stepResolver(RuntimeAction action,DelayedSession session) {
-        delayedWork(session,1); resumeDelayedRetiring(action,session);
-        require(session.phase==DELAYED_RUNNING&&session.constructorCall==null,"No running resolver or unsupported delayed constructor packet");
-        if(session.call!=null) { receiveResolverHelper(action,session); return; }
-        ResolverTask frame=session.resolver.peekLast(); require(frame!=null,"Missing resolvability frame");
-        if(!frame.completed) {
-            if(frame instanceof ResolvableExprFrame) stepResolvableExpr(action,session,(ResolvableExprFrame)frame);
-            else if(frame instanceof ResolvablePendingFrame) stepResolvablePending(action,session,(ResolvablePendingFrame)frame);
-            else stepResolvableApp(action,session,(ResolvableAppFrame)frame);
-            return;
-        }
-        Iterator<ResolverTask> ancestors=session.resolver.descendingIterator(); ancestors.next(); ResolverTask parent=ancestors.hasNext()?ancestors.next():null;
-        if(parent==null) { session.booleanResult=frame.result; session.phase=DELAYED_RESULT; }
-        else { require(parent.child==null,"Resolver parent receiver occupied"); parent.child=frame; }
-        session.resolver.removeLast();
-    }
-    private boolean takeResolverResult(DelayedSession session) {
-        require(session.phase==DELAYED_RESULT&&session.resolver.isEmpty()&&session.call==null&&session.retiring==null,"Resolver result not ready");
-        boolean result=session.booleanResult; session.phase=DELAYED_IDLE; return result;
-    }
-
-    private SubstitutionEntry substitutionEntry(DelayedSession session,Object name) {
-        int hash=delayedNameHash(session,name); ArrayList<SubstitutionEntry> bucket=session.substitutions.get(hash);
-        if(bucket!=null) for(SubstitutionEntry entry:bucket) {
-            delayedWork(session,1); require(entry.live&&entry.name!=null&&entry.name.owned,"Substitution key owner missing");
-            if(mvarNameEqual(session.budget,name,entry.name.value)) return entry;
-        }
-        return null;
-    }
-    private void publishSubstitution(DelayedSession session,SubstitutionEntry entry) {
-        require(!entry.live&&entry.name!=null&&entry.name.owned&&entry.value!=null&&entry.value.owned,"Incomplete new substitution entry");
-        require(session.substitutionOwners.size()<MAX_DELAYED_NAMES,"Substitution entry allocation bound");
-        session.substitutionOwners.add(entry); ArrayList<SubstitutionEntry> bucket=session.substitutions.get(entry.hash);
-        if(bucket==null) { bucket=new ArrayList<>(); session.substitutions.put(entry.hash,bucket); }
-        bucket.add(entry); entry.live=true;
-    }
-    private void detachSubstitution(DelayedSession session,SubstitutionEntry entry) {
-        ArrayList<SubstitutionEntry> bucket=session.substitutions.get(entry.hash);
-        require(entry.live&&bucket!=null,"Missing substitution erase entry"); delayedWork(session,bucket.size());
-        require(bucket.remove(entry),"Substitution erase index differs"); if(bucket.isEmpty()) session.substitutions.remove(entry.hash); entry.live=false;
-    }
-    private static final int SF_PREPARE=0,SF_ENTER=1,SF_SAVE=2,SF_RELEASE_OLD=3,SF_COMMIT=4,SF_INSTALLED=5;
-    private static final int SF_RESTORE_NEXT=21,SF_RESTORE_VALUE=22,SF_RESTORE_KEY=23,SF_RESTORE_COMMIT=24,SF_RESTORED=25,SF_DRAIN_SAVED=30,SF_DRAIN_ARGS=31,SF_DRAINED=32;
-    private void prepareSubstitutionValue(DelayedSession session,SubstitutionFrame frame,Object name,Object value) {
-        require(frame.newName==null&&frame.newValue==null&&frame.replacement==null,"Substitution replacement escrow occupied");
-        frame.newValue=exprCredit(value); acquireExpr(frame.newValue);
-        if(frame.existing==null) {
-            require(session.substitutionOwners.size()<MAX_DELAYED_NAMES,"Substitution entry allocation bound");
-            frame.replacement=new SubstitutionEntry(); frame.replacement.hash=delayedNameHash(session,name);
-            frame.newName=exprCredit(name); acquireExpr(frame.newName);
-        }
-    }
-    private void commitSubstitutionValue(DelayedSession session,SubstitutionFrame frame,int depth,int scope) {
-        require(frame.newValue!=null&&frame.newValue.owned,"Substitution replacement value missing");
-        SubstitutionEntry entry=frame.existing==null?frame.replacement:frame.existing;
-        require(entry!=null&&entry.value==null,"Substitution old value not retired");
-        if(frame.existing==null) { entry.name=frame.newName; frame.newName=null; }
-        entry.value=frame.newValue; frame.newValue=null; entry.depth=depth; entry.scope=scope;
-        if(frame.existing==null) publishSubstitution(session,entry);
-        frame.existing=null; frame.replacement=null; frame.retiringValue=null; frame.retiringName=null;
-    }
-    private void stepSubstitutionInstall(RuntimeAction action,DelayedSession session,SubstitutionFrame frame) {
-        delayedWork(session,1); resumeDelayedRetiring(action,session);
-        require(!frame.restored&&!frame.completed,"No running substitution install");
-        if(frame.stage==SF_PREPARE) {
-            require(frame.ownsArguments&&frame.sourceArguments instanceof Node,"Missing research argument source");
-            Node arguments=(Node)frame.sourceArguments;
-            if(frame.index<arguments.arraySize()) {
-                ExprCredit argument=exprCredit(arguments.fields[frame.index]); frame.arguments.add(argument); frame.index++; acquireExpr(argument); return;
-            }
-            frame.index=0; frame.stage=SF_ENTER;
-        }
-        if(frame.stage==SF_ENTER) { scopedPush(session); frame.scopePushed=true; frame.stage=SF_SAVE; return; }
-        Node fvars=node(frame.fvars); int count=fvars.arraySize();
-        if(frame.stage==SF_SAVE) {
-            if(frame.index==count) { frame.stage=SF_INSTALLED; frame.completed=true; return; }
-            require(frame.saved.size()<MAX_DELAYED_NAMES&&frame.arguments.size()>=count,"Delayed saved-substitution bound/arity");
-            Node fvar=exprNode(fvars.fields[frame.index]); require(fvar.tag==1,"Delayed substitution requires FVar elements"); Object name=fvar.fields[0]; nameNode(name);
-            frame.existing=substitutionEntry(session,name);
-            SavedSubstitution saved=new SavedSubstitution(); saved.name=exprCredit(name); frame.saved.add(saved); acquireExpr(saved.name);
-            saved.hadOld=frame.existing!=null;
-            if(saved.hadOld) {
-                require(frame.existing.value!=null&&frame.existing.value.owned,"Old substitution value missing");
-                saved.oldDepth=frame.existing.depth; saved.oldScope=frame.existing.scope;
-                saved.oldValue=exprCredit(frame.existing.value.value); acquireExpr(saved.oldValue);
-            }
-            ExprCredit argument=frame.arguments.get(frame.arguments.size()-1-frame.index); require(argument.owned,"Substitution argument backing owner missing");
-            prepareSubstitutionValue(session,frame,name,argument.value); frame.stage=SF_RELEASE_OLD; return;
-        }
-        if(frame.stage==SF_RELEASE_OLD) {
-            frame.stage=SF_COMMIT;
-            if(frame.existing!=null) { frame.retiringValue=frame.existing.value; frame.existing.value=null; releaseDelayed(action,session,frame.retiringValue); }
-            return;
-        }
-        require(frame.stage==SF_COMMIT,"Invalid substitution install continuation");
-        commitSubstitutionValue(session,frame,frame.depth,session.cache.scope); frame.index++; frame.stage=SF_SAVE;
-    }
-    private void beginSubstitutionRestore(DelayedSession session,SubstitutionFrame frame) {
-        require(frame.completed&&frame.stage==SF_INSTALLED&&frame.scopePushed&&!frame.restored,"Substitution scope is not installed");
-        scopedPop(session); session.resultScope=Math.min(session.resultScope,session.cache.scope);
-        frame.scopePushed=false; frame.completed=false; frame.index=0; frame.stage=SF_RESTORE_NEXT;
-    }
-    private void stepSubstitutionRestore(RuntimeAction action,DelayedSession session,SubstitutionFrame frame) {
-        delayedWork(session,1); resumeDelayedRetiring(action,session);
-        require(!frame.completed&&!frame.restored,"No running substitution restoration");
-        if(frame.stage==SF_RESTORE_NEXT) {
-            if(frame.index==frame.saved.size()) { frame.restored=true; frame.completed=true; frame.stage=SF_RESTORED; return; }
-            SavedSubstitution saved=frame.saved.get(frame.index); require(saved.name!=null&&saved.name.owned,"Saved substitution Name owner missing");
-            frame.existing=substitutionEntry(session,saved.name.value); frame.erasing=!saved.hadOld;
-            if(frame.erasing) {
-                if(frame.existing==null) { frame.index++; return; }
-                detachSubstitution(session,frame.existing);
-                frame.retiringValue=frame.existing.value; frame.existing.value=null;
-                frame.retiringName=frame.existing.name; frame.existing.name=null;
-            } else {
-                require(saved.oldValue!=null&&saved.oldValue.owned,"Saved old substitution value missing");
-                prepareSubstitutionValue(session,frame,saved.name.value,saved.oldValue.value);
-                if(frame.existing!=null) { frame.retiringValue=frame.existing.value; frame.existing.value=null; }
-            }
-            frame.stage=SF_RESTORE_VALUE; return;
-        }
-        if(frame.stage==SF_RESTORE_VALUE) { frame.stage=SF_RESTORE_KEY; releaseDelayed(action,session,frame.retiringValue); return; }
-        if(frame.stage==SF_RESTORE_KEY) { frame.stage=SF_RESTORE_COMMIT; releaseDelayed(action,session,frame.retiringName); return; }
-        require(frame.stage==SF_RESTORE_COMMIT,"Invalid substitution restoration continuation");
-        if(!frame.erasing) {
-            SavedSubstitution saved=frame.saved.get(frame.index); commitSubstitutionValue(session,frame,saved.oldDepth,saved.oldScope);
-        } else { frame.existing=null; frame.retiringValue=null; frame.retiringName=null; }
-        frame.index++; frame.stage=SF_RESTORE_NEXT;
-    }
-    private void stepSubstitutionFrameDrain(RuntimeAction action,DelayedSession session,SubstitutionFrame frame) {
-        delayedWork(session,1); resumeDelayedRetiring(action,session);
-        require(frame.restored&&!frame.scopePushed,"Cannot drain an active substitution scope");
-        if(frame.stage==SF_RESTORED) { frame.completed=false; frame.cleanup=0; frame.stage=SF_DRAIN_SAVED; }
-        if(frame.stage==SF_DRAIN_SAVED) {
-            if(frame.cleanup<frame.saved.size()*2) {
-                SavedSubstitution saved=frame.saved.get(frame.cleanup/2); ExprCredit credit=(frame.cleanup++&1)==0?saved.oldValue:saved.name;
-                releaseDelayed(action,session,credit); return;
-            }
-            frame.saved.clear(); frame.cleanup=0; frame.stage=SF_DRAIN_ARGS;
-        }
-        if(frame.stage==SF_DRAIN_ARGS) {
-            if(frame.ownsArguments&&frame.cleanup<frame.arguments.size()) { ExprCredit credit=frame.arguments.get(frame.cleanup++); releaseDelayed(action,session,credit); return; }
-            frame.arguments.clear(); frame.fvars=null; frame.sourceArguments=null; frame.stage=SF_DRAINED; frame.completed=true;
-        }
-        require(frame.stage==SF_DRAINED,"Invalid substitution frame drain");
-    }
-    private void stepSubstitutionLookup(RuntimeAction action,DelayedSession session,SubstitutionLookup frame) {
-        delayedWork(session,1); resumeDelayedRetiring(action,session);
-        if(frame.stage==0) {
-            frame.entry=substitutionEntry(session,frame.name);
-            if(frame.entry==null) { frame.completed=true; return; }
-            require(frame.entry.value!=null&&frame.entry.value.owned&&frame.depth>=frame.entry.depth,"Delayed substitution lookup depth/owner invalid");
-            int delta=frame.depth-frame.entry.depth; require(delta<=MAX_EXPR_JOB_OFFSET,"Delayed substitution lift bound");
-            session.resultScope=Math.max(session.resultScope,frame.entry.scope); frame.present=true;
-            if(delta==0) { frame.optional=exprCredit(frame.entry.value.value); acquireExpr(frame.optional); frame.stage=2; return; }
-            require(runtimeAction==action&&objects[action.slot]==null&&session.call==null&&session.constructorCall==null,"Substitution lift receiver occupied");
-            for(int role=0;role<9;role++) exprConstructor(session.policy.constructors,role);
-            RuntimeAction child=newAction(ACTION_EXPR_MACHINERY,null,ACTION_BODY,action.slot,ASSIGN,null);
-            ExprMachineryState worker=new ExprMachineryState(); worker.policy=session.policy.constructors; worker.budget=session.budget;
-            pushReplaceJob(worker,EXPR_LIFT_JOB,frame.entry.value.value,0,delta,new Object[0]);
-            child.exprMachinery=worker; objects[child.slot]=null; frame.stage=1; publishAction(child); return;
-        }
-        if(frame.stage==1) { Object value=objects[action.slot]; exprNode(value); frame.optional=new ExprCredit(value,true); objects[action.slot]=null; frame.stage=2; }
-        if(frame.stage==2) { frame.returned=exprCredit(frame.optional.value); acquireExpr(frame.returned); frame.stage=3; return; }
-        if(frame.stage==3) { frame.stage=4; releaseDelayed(action,session,frame.optional); return; }
-        require(frame.stage==4,"Invalid substitution lookup completion"); frame.optional=null; frame.completed=true;
-    }
-
-    private void sealDelayedSession(DelayedSession session) {
-        require(session.phase==DELAYED_IDLE&&session.resolver.isEmpty()&&session.call==null&&session.constructorCall==null
-                &&session.cacheOperation==null&&session.substitution==null&&session.lookup==null&&session.substitutionFrames.isEmpty()
-                &&session.retiring==null&&session.result==null&&session.cache.scope==0,"Delayed session is not idle for seal");
-        session.resolvableExpressions.clear(); session.pending.clear(); session.normalized.clear(); session.substitutions.clear(); session.cache.index.clear();
-        for(ScopedBucket bucket:session.cache.buckets) bucket.key=null;
-        session.cache.sealed=true; session.phase=DELAYED_SEALED;
-    }
-    private void stepDelayedDrain(RuntimeAction action,DelayedSession session) {
-        delayedWork(session,1); resumeDelayedRetiring(action,session); require(session.phase==DELAYED_SEALED,"Delayed member drain requires sealed session");
-        if(session.drainStage==0) {
-            if(session.drainCursor<session.pendingOwners.size()) { ExprCredit name=session.pendingOwners.get(session.drainCursor++).name; releaseDelayed(action,session,name); return; }
-            session.pendingOwners.clear(); session.drainCursor=0; session.drainStage=1; return;
-        }
-        if(session.drainStage==1) {
-            if(session.drainCursor<session.saved.size()) { ExprCredit credit=session.saved.get(session.saved.size()-1-session.drainCursor++); releaseDelayed(action,session,credit); return; }
-            session.saved.clear(); session.drainCursor=0; session.drainStage=2; return;
-        }
-        if(session.drainStage==2) {
-            if(session.drainCursor<session.nameOwners.size()) { ExprCredit credit=session.nameOwners.get(session.nameOwners.size()-1-session.drainCursor++).name; releaseDelayed(action,session,credit); return; }
-            session.nameOwners.clear(); session.normalized.clear(); session.drainCursor=0; session.drainStage=3; return;
-        }
-        if(session.drainStage==3) {
-            ScopedExprCache cache=session.cache;
-            if(cache.retiringEntry!=null) {
-                ScopedEntry entry=cache.retiringEntry; require(entry.result!=null&&!entry.result.owned,"Scoped member owner not drained");
-                if(entry.reserved) { require(cache.liveEntries>0,"Scoped drain reservation underflow"); cache.liveEntries--; entry.reserved=false; }
-                entry.result=null; cache.retiringEntry=null;
-            }
-            if(cache.drainBucket<cache.buckets.size()) {
-                ScopedBucket bucket=cache.buckets.get(cache.drainBucket);
-                if(bucket.entries.isEmpty()) { cache.drainBucket++; return; }
-                cache.retiringEntry=bucket.entries.remove(bucket.entries.size()-1); releaseDelayed(action,session,cache.retiringEntry.result); return;
-            }
-            require(cache.liveEntries==0,"Scoped member drain leaked reservations"); cache.buckets.clear(); cache.current=null;
-            session.drainStage=4; session.drainCursor=0; return;
-        }
-        if(session.drainStage==4) {
-            if(session.drainCursor<session.substitutionOwners.size()*2) {
-                SubstitutionEntry entry=session.substitutionOwners.get(session.drainCursor/2);
-                ExprCredit credit=(session.drainCursor++&1)==0?entry.value:entry.name; releaseDelayed(action,session,credit); return;
-            }
-            session.substitutionOwners.clear(); session.phase=DELAYED_DRAINED; return;
-        }
-        throw error("Invalid delayed member drain stage");
+        bucket.add(entry); exprTransforms.acquireExpr(entry.name); return entry;
     }
 
     /** Five exact source-authenticated ordinary helper roles, without guest values,
      * Program bodies or catalogue resources. SHA identities remain descriptive;
      * the trusted source adapter authenticates the original bytes. */
     public static final class LevelInstantiationPolicy {
-        private final Header[] helpers;
+        final Header[] helpers;
         private LevelInstantiationPolicy(Header[] helpers) { this.helpers=helpers.clone(); }
         public static LevelInstantiationPolicy originalHelpers(Header getter,Header setter,Header succ,Header max,Header imax) {
             Header[] helpers={getter,setter,succ,max,imax};
@@ -4502,17 +1724,7 @@ public final class Interpreter implements AutoCloseable {
             return new LevelInstantiationPolicy(helpers);
         }
     }
-    private LevelInstantiationPolicy levelInstantiationPolicy;
-    private static final boolean LEVEL_INSTANTIATION_READY=true;
-    private Function levelInstantiationHelper(LevelInstantiationPolicy policy,int role) {
-        Header header=policy.helpers[role]; int id=program.functionId(header); Function function=program.functions[id];
-        require(function.header==header&&function.intrinsic==0&&function.hostExtern==null&&program.guestExports[id]==null,
-                "Level instantiation helper is not the exact ordinary function");
-        requireExecutableAbi(function);
-        require(function.resultType==OBJ,"Level instantiation helper requires OBJ result");
-        for(int lane:function.paramTypes) require(lane==OBJ,"Level instantiation helper requires OBJ parameters");
-        return preflightCallable(function,true);
-    }
+    LevelInstantiationPolicy levelInstantiationPolicy;
     /** Configure once at an open idle boundary. No helper body is forced. */
     public void configureLevelInstantiation(LevelInstantiationPolicy policy) {
         explicitOnly();
@@ -4522,34 +1734,23 @@ public final class Interpreter implements AutoCloseable {
                 ||releaseTransaction!=null||releaseRoot)
             throw new IllegalStateException("Level instantiation configuration requires an open idle engine");
         require(levelInstantiationPolicy==null,"Level instantiation policy is already configured");
-        for(int role=0;role<5;role++) levelInstantiationHelper(policy,role);
+        for(int role=0;role<5;role++) levels.levelInstantiationHelper(policy,role);
         levelInstantiationPolicy=policy;
     }
-    private void levelInstantiationProfile(Function function) {
-        require(LEVEL_INSTANTIATION_READY,"Level instantiation traversal is not yet enabled");
-        require(explicit&&taskRuntime!=null&&levelInstantiationPolicy!=null,"Level instantiation requires active explicit runtime and configured original helpers");
-        Header origin=function.header;
-        require(origin!=null&&origin.source==levelInstantiationPolicy.helpers[0].source
-                &&origin.kind.equals("extern")&&origin.originalSha256.equals("43de9c312f7e7a4bdeb9cd3b070ca4bd245fcca722f532b05f9e3083c1847605"),
-                "Level instantiation native source Header differs");
-        Object name=Arrays.asList("str",Arrays.asList("str",Arrays.asList("anonymous"),"Lean"),"instantiateLevelMVarsImp");
-        require(origin.exactName.equals(frozenName(name)),"Level instantiation native typed Name differs");
-        for(int role=0;role<5;role++) levelInstantiationHelper(levelInstantiationPolicy,role);
-    }
     private final ProfilingPolicy profilingPolicy;
-    private final TaskRuntime taskRuntime;
+    final TaskRuntime taskRuntime;
     private final BuildIdentity buildIdentity;
-    private Program program;
-    private Object[] objects=new Object[1024];
+    Program program;
+    Object[] objects=new Object[1024];
     private long[] numbers=new long[1024];
     private Body[] joins=new Body[256];
     private int bp,sp,jbp,jsp;
-    private Object result;
-    private long scalarResult;
-    private Object[] constants;
-    private boolean[] constantReady;
-    private boolean[] constantRetired;
-    private boolean disposed;
+    Object result;
+    long scalarResult;
+    Object[] constants;
+    boolean[] constantReady;
+    boolean[] constantRetired;
+    boolean disposed;
     private boolean graphInstalled,moduleGraphInstalled;
     private PreparedGlobalSource preparedModuleSource;
     private boolean initializing;
@@ -4670,7 +1871,7 @@ public final class Interpreter implements AutoCloseable {
         Function ef=program.functions[program.functionId(entropy)],uf=program.functions[program.functionId(userError)];
         require(ef.header==entropy&&ef.intrinsic==IO_RANDOM_BYTES&&program.guestExports[ef.id]==null
                 &&entropy.kind.equals("extern")&&ordinaryRuntimeRole(entropy)
-                &&"lean_io_get_random_bytes".equals(externSymbol(entropy.declaration))
+                &&"lean_io_get_random_bytes".equals(ExternRegistry.externSymbol(entropy.declaration))
                 &&Arrays.equals(entropy.paramTypes,new String[]{"usize","void"})
                 &&Arrays.equals(entropy.borrowed,new boolean[]{false,false})&&entropy.resultType.equals("object")
                 &&entropy.exactName.equals(List.of("str",List.of("str",List.of("anonymous"),"IO"),"getRandomBytes")),
@@ -4780,19 +1981,19 @@ public final class Interpreter implements AutoCloseable {
         action.entropy=null; pendingEntropy=null;
     }
     private final Object runtimeIdentity=new Object();
-    private Node stdoutRoot; // legacy root; opt-in stdio default stdout occurrence
-    private Node stdinDefaultRoot,stderrRoot;
-    private final StringBuilder stderrOutput=new StringBuilder();
+    Node stdoutRoot; // legacy root; opt-in stdio default stdout occurrence
+    Node stdinDefaultRoot,stderrRoot;
+    final StringBuilder stderrOutput=new StringBuilder();
     /** All supported synchronous tasks execute on this ONE branch-local thread.
      * currentTask never selects, inherits, resets or retires these slots. */
-    private static final class StdioContext { final Node[] current=new Node[3]; }
-    private StdioContext stdioContext;
-    private final StringBuilder output=new StringBuilder();
-    private int outputBytes,stderrOutputBytes;
-    private ByteArrayOutputStream outputRaw=new ByteArrayOutputStream();
-    private ByteArrayOutputStream stderrRaw=new ByteArrayOutputStream();
+    static final class StdioContext { final Node[] current=new Node[3]; }
+    StdioContext stdioContext;
+    final StringBuilder output=new StringBuilder();
+    int outputBytes,stderrOutputBytes;
+    ByteArrayOutputStream outputRaw=new ByteArrayOutputStream();
+    ByteArrayOutputStream stderrRaw=new ByteArrayOutputStream();
     private byte[] invocationInput=new byte[0]; // immutable private snapshot; forks share only these bytes
-    private int invocationCursor,stdoutLimit=MAX_STRING_OUTPUT_BYTES,stderrLimit=MAX_STRING_OUTPUT_BYTES;
+    int invocationCursor,stdoutLimit=MAX_STRING_OUTPUT_BYTES,stderrLimit=MAX_STRING_OUTPUT_BYTES;
     private long invocationEpoch;
     private boolean invocationActive;
     private long atomicDeadlineNanos;
@@ -4818,8 +2019,8 @@ public final class Interpreter implements AutoCloseable {
     private void panic(String message) {
         if(failOnPanic) throw new LeanPanic(message);
         if(initializing) return;
-        String line=message+"\n"; int size=utf8Extent(line); captureBudget(size,true);
-        appendRaw(line.getBytes(StandardCharsets.UTF_8),0,size,true); stderrOutput.append(line);
+        String line=message+"\n"; int size=utf8Extent(line); stdio.captureBudget(size,true);
+        stdio.appendRaw(line.getBytes(StandardCharsets.UTF_8),0,size,true); stderrOutput.append(line);
     }
     /** A reached panic under the fail-on-panic policy. */
     public static final class LeanPanic extends RuntimeException {
@@ -4831,7 +2032,7 @@ public final class Interpreter implements AutoCloseable {
                 ||runtimeAction!=null||releaseTransaction!=null||pendingInitializerGlobal!=null)
             throw new IllegalStateException(operation+" requires an open idle task-free engine");
     }
-    private void atomicPoll() {
+    void atomicPoll() {
         if(Thread.currentThread().isInterrupted())
             throw new RuntimeLimitException("Cancelled","Atomic Nat operation interrupted");
         if(atomicDeadlineEnabled&&System.nanoTime()-atomicDeadlineNanos>=0)
@@ -4853,10 +2054,10 @@ public final class Interpreter implements AutoCloseable {
         boolean claimed;
     }
     private long callsLeft;
-    private final boolean explicit;
-    private static final int IDLE=0, RUNNING=1, COMPLETE=2, FAILED=3, HOST_CALL=4, CODE_CALL=5, WAITING=6, HOST_GUEST_RESULT=7;
-    private static final int ASSIGN=0, CACHE=1, APPLY=2, ROOT=4;
-    private int phase=IDLE, continuationDepth;
+    final boolean explicit;
+    static final int IDLE=0, RUNNING=1, COMPLETE=2, FAILED=3, HOST_CALL=4, CODE_CALL=5, WAITING=6, HOST_GUEST_RESULT=7;
+    static final int ASSIGN=0, CACHE=1, APPLY=2, ROOT=4;
+    int phase=IDLE, continuationDepth;
     private long instructions;
     private boolean advancing, pendingOwnedResult;
     private Function active, entry;
@@ -4880,12 +2081,12 @@ public final class Interpreter implements AutoCloseable {
     private HostGuestPolicy hostGuestPolicy;
     private HostGuestRecord hostGuestRecord;
     private HostCall hostCompletion;
-    private RuntimeAction runtimeAction,failedRuntimeAction;
-    private static final int ACTION_RELEASE=1,ACTION_DISPOSE=2,ACTION_NATIVE=3,ACTION_HOST=4,ACTION_TASK=5,ACTION_RESOLVE=6,ACTION_RUN_TASK=7,ACTION_PROFILE=8,ACTION_FIND=9,ACTION_LEVEL_MVARS=10,ACTION_EXPR_MACHINERY=11,ACTION_SHARECOMMON=13,ACTION_EXPR_REPLACE=15,ACTION_EXPR_ABSTRACT=16,ACTION_EXPR_PURE=18,ACTION_EXPR_FULL_RESEARCH=19,ACTION_HOST_GUEST=20,ACTION_ENTROPY=21;
-    private static final Body ACTION_BODY=new Body();
+    RuntimeAction runtimeAction,failedRuntimeAction;
+    static final int ACTION_RELEASE=1,ACTION_DISPOSE=2,ACTION_NATIVE=3,ACTION_HOST=4,ACTION_TASK=5,ACTION_RESOLVE=6,ACTION_RUN_TASK=7,ACTION_PROFILE=8,ACTION_FIND=9,ACTION_LEVEL_MVARS=10,ACTION_EXPR_MACHINERY=11,ACTION_SHARECOMMON=13,ACTION_EXPR_REPLACE=15,ACTION_EXPR_ABSTRACT=16,ACTION_EXPR_PURE=18,ACTION_EXPR_FULL_RESEARCH=19,ACTION_HOST_GUEST=20,ACTION_ENTROPY=21;
+    static final Body ACTION_BODY=new Body();
     /** Typed ownership/control state, separate from NodeMetadata. The output
      * scratch slot is reserved before callbacks may enter generic AP. */
-    private static final class RuntimeAction {
+    static final class RuntimeAction {
         RuntimeAction parent;
         HostGuestRecord guest;
         FindState find;
@@ -4906,7 +2107,7 @@ public final class Interpreter implements AutoCloseable {
         boolean releaseClaimed;
         Node current,origin;
     }
-    private RuntimeAction newAction(int operation,Function function,Body next,int dest,int kind,Object[] surplus) {
+    RuntimeAction newAction(int operation,Function function,Body next,int dest,int kind,Object[] surplus) {
         int nextSp=Math.addExact(sp,1); require(nextSp<=8_000_000,"Runtime action stack limit");
         ensure(nextSp,jsp);
         RuntimeAction action=new RuntimeAction();
@@ -4914,10 +2115,10 @@ public final class Interpreter implements AutoCloseable {
         action.kind=kind; action.surplus=surplus; action.savedSp=sp; action.slot=sp;
         return action;
     }
-    private void publishAction(RuntimeAction action) {
+    void publishAction(RuntimeAction action) {
         action.parent=runtimeAction; runtimeAction=action; sp=action.savedSp+1; pc=ACTION_BODY;
     }
-    private void finishAction(RuntimeAction action,Object value) {
+    void finishAction(RuntimeAction action,Object value) {
         require(runtimeAction==action,"Runtime action order differs");
         action.output=value;
         int type=action.function==null?OBJ:action.function.resultType;
@@ -4954,8 +2155,8 @@ public final class Interpreter implements AutoCloseable {
     private void markReleaseClaim(Object value) {
         if(runtimeAction!=null&&runtimeAction.retiring==value) runtimeAction.releaseClaimed=true;
     }
-    private boolean beginRelease(Object value,int count,Body next) { return beginRelease(value,count,next,false); }
-    private boolean beginRelease(Object value,int count,Body next,boolean budgeted) {
+    boolean beginRelease(Object value,int count,Body next) { return beginRelease(value,count,next,false); }
+    boolean beginRelease(Object value,int count,Body next,boolean budgeted) {
         require(count>=0,"Negative reference decrement");
         validateHostObject(value);
         Node root=value instanceof Node?(Node)value:null;
@@ -5072,7 +2273,7 @@ public final class Interpreter implements AutoCloseable {
         releaseRoot=true; entry=null; result=null; instructions=0; callsLeft=10_000_000; phase=RUNNING; publishAction(action);
     }
     private void stepDispose(RuntimeAction action) {
-        if(stdioContext!=null) { stepStdioDispose(action); return; }
+        if(stdioContext!=null) { stdio.stepStdioDispose(action); return; }
         if(action.cursor==0) {
             Node old=stdoutRoot; action.retiring=old; action.releaseClaimed=false; stdoutRoot=null; action.cursor++;
             if(old!=null) { beginRelease(old,1,ACTION_BODY); action.releaseClaimed=true; }
@@ -5095,7 +2296,7 @@ public final class Interpreter implements AutoCloseable {
     private boolean actionPrimitive(Function function) {
         int op=function.intrinsic;
         if(op==IO_RANDOM_BYTES||op==STR_ANY) return true;
-        return taskRuntime!=null&&(pureExprTransform(op)||abstractPrimitive(op)||op==EXPR_REPLACE||op==SHARECOMMON_QUICK||op==LEVEL_INSTANTIATE||op==EXPR_INSTANTIATE_MVARS||op==VOID_MK||op==PROFILE_IT||findPrimitive(op)||taskPrimitive(op)||op==TASK_MAP||op==REF_SET||op==ARRAY_POP||op==ARRAY_FSET||op==ARRAY_USET||op==ARRAY_CHECKED_SET||op==ARRAY_REPLICATE);
+        return taskRuntime!=null&&(ExprTransforms.pureExprTransform(op)||ExprTransforms.abstractPrimitive(op)||op==EXPR_REPLACE||op==SHARECOMMON_QUICK||op==LEVEL_INSTANTIATE||op==EXPR_INSTANTIATE_MVARS||op==VOID_MK||op==PROFILE_IT||findPrimitive(op)||taskPrimitive(op)||op==TASK_MAP||op==REF_SET||op==ARRAY_POP||op==ARRAY_FSET||op==ARRAY_USET||op==ARRAY_CHECKED_SET||op==ARRAY_REPLICATE);
     }
     private Object[] savedArguments(Function function,int[] slots) {
         Object[] args=new Object[slots.length];
@@ -5175,15 +2376,15 @@ public final class Interpreter implements AutoCloseable {
     private void validateNative(Function function,Object[] args) {
         if(function.intrinsic==STR_ANY) { validateStringAny(args); return; }
         if(function.intrinsic==IO_RANDOM_BYTES) { validateEntropy(function,args); return; }
-        if(pureExprTransform(function.intrinsic)) { validatePureExprTransform(function,args); return; }
-        if(function.intrinsic==EXPR_REPLACE) { validateExprReplace(function,args); return; }
-        if(abstractPrimitive(function.intrinsic)) { validateAbstractArguments(function,args); return; }
+        if(ExprTransforms.pureExprTransform(function.intrinsic)) { exprTransforms.validatePureExprTransform(function,args); return; }
+        if(function.intrinsic==EXPR_REPLACE) { exprTransforms.validateExprReplace(function,args); return; }
+        if(ExprTransforms.abstractPrimitive(function.intrinsic)) { exprTransforms.validateAbstractArguments(function,args); return; }
         if(function.intrinsic==SHARECOMMON_QUICK) {
             shareCommonProfile(); require(args!=null&&args.length==2&&ERASED.equals(args[0]),"ShareCommon requires erased placeholder and borrowed input");
             shareKind(args[1]); return;
         }
-        if(function.intrinsic==LEVEL_INSTANTIATE) { validateLevelArguments(function,args); return; }
-        if(function.intrinsic==EXPR_INSTANTIATE_MVARS) { validateExprInstantiationArguments(function,args); return; }
+        if(function.intrinsic==LEVEL_INSTANTIATE) { levels.validateLevelArguments(function,args); return; }
+        if(function.intrinsic==EXPR_INSTANTIATE_MVARS) { exprDelayed.validateExprInstantiationArguments(function,args); return; }
         if(function.intrinsic==ARRAY_CHECKED_SET) { validateCheckedArraySet(args); return; }
         if(function.intrinsic==VOID_MK) {
             require(args!=null&&args.length==2,"Void.mk native arity mismatch");
@@ -5211,7 +2412,7 @@ public final class Interpreter implements AutoCloseable {
     private void enterNative(Function function,Object[] args,Body next,int dest,int kind,Object[] surplus) {
         if(function.intrinsic==IO_RANDOM_BYTES) require(surplus==null,"Entropy overapplication is outside the capability profile");
         validateNative(function,args);
-        RuntimeAction action=newAction(function.intrinsic==IO_RANDOM_BYTES?ACTION_ENTROPY:function.intrinsic==EXPR_INSTANTIATE_MVARS?ACTION_EXPR_FULL_RESEARCH:pureExprTransform(function.intrinsic)?ACTION_EXPR_PURE:abstractPrimitive(function.intrinsic)?ACTION_EXPR_ABSTRACT:function.intrinsic==EXPR_REPLACE?ACTION_EXPR_REPLACE:function.intrinsic==SHARECOMMON_QUICK?ACTION_SHARECOMMON:function.intrinsic==LEVEL_INSTANTIATE?ACTION_LEVEL_MVARS:findPrimitive(function.intrinsic)?ACTION_FIND:function.intrinsic==PROFILE_IT?ACTION_PROFILE:
+        RuntimeAction action=newAction(function.intrinsic==IO_RANDOM_BYTES?ACTION_ENTROPY:function.intrinsic==EXPR_INSTANTIATE_MVARS?ACTION_EXPR_FULL_RESEARCH:ExprTransforms.pureExprTransform(function.intrinsic)?ACTION_EXPR_PURE:ExprTransforms.abstractPrimitive(function.intrinsic)?ACTION_EXPR_ABSTRACT:function.intrinsic==EXPR_REPLACE?ACTION_EXPR_REPLACE:function.intrinsic==SHARECOMMON_QUICK?ACTION_SHARECOMMON:function.intrinsic==LEVEL_INSTANTIATE?ACTION_LEVEL_MVARS:findPrimitive(function.intrinsic)?ACTION_FIND:function.intrinsic==PROFILE_IT?ACTION_PROFILE:
                 taskPrimitive(function.intrinsic)||function.intrinsic==TASK_MAP?ACTION_TASK:ACTION_NATIVE,function,next,dest,kind,surplus);
         action.arguments=args;
         if(function.intrinsic==IO_RANDOM_BYTES) {
@@ -5219,13 +2420,13 @@ public final class Interpreter implements AutoCloseable {
             EntropyAttempt attempt=new EntropyAttempt(); attempt.size=(int)(long)(Long)args[0];
             attempt.thread=Thread.currentThread(); action.entropy=attempt; pendingEntropy=attempt;
         }
-        if(function.intrinsic==EXPR_INSTANTIATE_MVARS) prepareExprFullAction(action,exprInstantiationPolicy,args[0],exprNode(args[1]));
-        if(pureExprTransform(function.intrinsic)) preparePureExprTransform(action,function,args);
-        if(abstractPrimitive(function.intrinsic)) prepareAbstractAction(action,function,args);
+        if(function.intrinsic==EXPR_INSTANTIATE_MVARS) exprDelayed.prepareExprFullAction(action,exprInstantiationPolicy,args[0],exprNode(args[1]));
+        if(ExprTransforms.pureExprTransform(function.intrinsic)) exprTransforms.preparePureExprTransform(action,function,args);
+        if(ExprTransforms.abstractPrimitive(function.intrinsic)) exprTransforms.prepareAbstractAction(action,function,args);
         if(function.intrinsic==EXPR_REPLACE) {
             ExprMachineryState state=new ExprMachineryState(); state.policy=exprTransformsProfile(function);
             state.budget=new InstantiationBudget(); state.borrowedPredicate=(Node)args[0];
-            pushReplaceJob(state,EXPR_CALLBACK_JOB,args[1],0,0,new Object[0]); action.exprMachinery=state; objects[action.slot]=null;
+            exprTransforms.pushReplaceJob(state,ExprTransforms.EXPR_CALLBACK_JOB,args[1],0,0,new Object[0]); action.exprMachinery=state; objects[action.slot]=null;
         }
         if(function.intrinsic==SHARECOMMON_QUICK) {
             ShareState state=new ShareState(); state.input=args[1]; sharePush(state,state.input); action.share=state; objects[action.slot]=null;
@@ -5233,9 +2434,9 @@ public final class Interpreter implements AutoCloseable {
         if(function.intrinsic==LEVEL_INSTANTIATE) {
             LevelInstantiationState state=new LevelInstantiationState();
             MVarContextCell cell=new MVarContextCell(); cell.current=new LevelCredit(args[0],true);
-            state.session=newLevelSession(cell,new InstantiationBudget(),levelInstantiationPolicy);
+            state.session=levels.newLevelSession(cell,new InstantiationBudget(),levelInstantiationPolicy);
             state.input=new LevelCredit(args[1],true); action.levelMvars=state;
-            startLevelJob(state.session,args[1]); objects[action.slot]=null;
+            levels.startLevelJob(state.session,args[1]); objects[action.slot]=null;
         }
         if(findPrimitive(function.intrinsic)) {
             FindState state=new FindState(); state.predicate=(Node)args[0]; state.root=(Node)args[1];
@@ -5513,406 +2714,46 @@ public final class Interpreter implements AutoCloseable {
         int stage;
         boolean predicateCredit,currentCredit,callbackStarted,receiverOwned,foundOwned;
     }
-    private static final int MAX_LEVEL_INSTANTIATION_FRAMES=100_000,
-            MAX_LEVEL_INSTANTIATION_CACHE=100_000,MAX_LEVEL_INSTANTIATION_SAVED=100_000;
-    /** Exactly one control-owned occurrence when owned=true; other references
-     * to this credit object are aliases. Never stored in guest Node metadata. */
-    private static final class LevelCredit {
-        Object value; boolean owned;
-        LevelCredit(Object value,boolean owned) { this.value=value; this.owned=owned; }
-    }
-    private static final class LevelFrame {
-        Object original,name;
-        int tag,stage,cleanup;
-        boolean shared,active,cached;
-        LevelCredit left,right,option,assignment,result;
-        LevelFrame(Object original) { this.original=original; }
-    }
-    private static final class LevelPacket {
-        Function function; int role;
-        Object[] arguments; boolean[] owned;
-        boolean entryStarted,entered;
-        LevelFrame frame;
-    }
-    private static final int LS_IDLE=0,LS_RUNNING=1,LS_RESULT=2,LS_SEALED=3,LS_DRAINING=4,LS_DRAINED=5;
-    /** Borrowed input/key lifetimes extend through seal; only values/saved
-     * assignments own. The context cell is shared, never a second owner. */
-    private static final class LevelSession {
-        MVarContextCell context;
-        InstantiationBudget budget;
-        LevelInstantiationPolicy policy;
-        final ArrayDeque<LevelFrame> frames=new ArrayDeque<>();
-        final IdentityHashMap<Node,LevelCredit> cache=new IdentityHashMap<>();
-        // cacheValues indexes the SAME owned credit objects as cache.
-        final ArrayList<LevelCredit> cacheValues=new ArrayList<>(),saved=new ArrayList<>();
-        final IdentityHashMap<Node,Boolean> active=new IdentityHashMap<>();
-        LevelPacket call;
-        LevelCredit result,retiring;
-        int phase,drainStage,drainCursor;
-    }
-    private static final class LevelInstantiationState {
-        LevelSession session;
-        LevelCredit input,result,pair;
-        int stage,pairFields;
-    }
     /** Both helper entry commit points call this AFTER publication and BEFORE
      * tick/guest work. Until then the native packet remains the owner escrow. */
     private void actionHelperEntry(Function function,Object[] arguments) {
-        levelHelperEntry(function,arguments);
-        directHelperEntry(function,arguments);
-        delayedHelperEntry(function,arguments);
+        levels.levelHelperEntry(function,arguments);
+        exprDirect.directHelperEntry(function,arguments);
+        exprDelayed.delayedHelperEntry(function,arguments);
         RuntimeAction action=runtimeAction;
         if(action==null) return;
         ExprPacket packet=action.exprMachinery==null?null:action.exprMachinery.call;
-        ExprDirectSession direct=currentDirectSession(action);
+        ExprDirectSession direct=exprDelayed.currentDirectSession(action);
         if(direct!=null) { require(packet==null,"Multiple current Expr constructor packets"); packet=direct.constructorCall; }
-        DelayedSession delayed=currentDelayedSession(action);
+        DelayedSession delayed=exprDelayed.currentDelayedSession(action);
         if(delayed!=null) { require(packet==null,"Multiple current delayed constructor packets"); packet=delayed.constructorCall; }
         if(packet==null||packet.entered||packet.function!=function||packet.arguments!=arguments) return;
         require(packet.started,"Expr constructor entered before packet publication");
         packet.entered=true; Arrays.fill(packet.owned,false);
     }
-    private void levelHelperEntry(Function function,Object[] arguments) {
-        RuntimeAction action=runtimeAction;
-        LevelSession session=currentLevelSession(action);
-        if(session==null) return;
-        LevelPacket packet=session.call;
-        if(packet==null||packet.entered||packet.function!=function||packet.arguments!=arguments) return;
-        require(packet.entryStarted,"Level helper entered before packet publication");
-        packet.entered=true; Arrays.fill(packet.owned,false);
-    }
-    private static final int LF_ENTER=0,LF_LEFT=1,LF_RIGHT=2,LF_GET=3,LF_ASSIGN=4,LF_ASSIGNED=5,LF_SET=6,LF_BUILD=7,LF_FINISH=8,LF_CLEAN=9;
-    private void levelWork(LevelSession state,long amount) {
-        instantiationWork(state.budget,amount,"Level instantiation work outside bounded runtime profile","Level instantiation interrupted");
-    }
-    private static boolean sameLevel(Object a,Object b) {
-        return a==b||a instanceof Long&&b instanceof Long&&((Long)a)==0&&((Long)b)==0;
-    }
-    private long levelWord(Object value) { Node node=levelNode(value); return node==null?2221:readScalar(node,0,U64); }
-    private boolean levelHasMVar(Object value) { return (levelWord(value)&(1L<<32))!=0; }
-    private boolean instantiatedLevelEqual(LevelSession state,Object left,Object right) {
-        ExprEquality comparison=new ExprEquality(false); comparison.work=state.budget.work;
-        try { return comparison.applyLevel(left,right); }
-        finally { state.budget.work=comparison.work; }
-    }
-    private static final class LevelOffset {
-        final Object base; final int offset;
-        LevelOffset(Object base,int offset) { this.base=base; this.offset=offset; }
-    }
-    private LevelOffset levelOffset(LevelSession state,Object value) {
-        IdentityHashMap<Node,Boolean> seen=new IdentityHashMap<>(); int offset=0;
-        while(true) {
-            levelWork(state,1); Node node=levelNode(value);
-            if(node==null||node.tag!=1) return new LevelOffset(value,offset);
-            require(seen.size()<MAX_LEVEL_INSTANTIATION_FRAMES&&!seen.containsKey(node),"Level instantiation offset cycle/depth outside profile");
-            seen.put(node,Boolean.TRUE); value=node.fields[0]; offset++;
-        }
-    }
-    private boolean levelNotZero(LevelSession state,Object value) {
-        ArrayDeque<Object[]> todo=new ArrayDeque<>(); IdentityHashMap<Node,Boolean> seen=new IdentityHashMap<>();
-        todo.push(new Object[]{value,Boolean.FALSE});
-        while(!todo.isEmpty()) {
-            levelWork(state,1); Object[] item=todo.pop(); Node node=levelNode(item[0]);
-            if(node==null) continue;
-            if(item[1]==Boolean.TRUE) { seen.put(node,Boolean.TRUE); continue; }
-            if(node.tag==1) return true;
-            if(node.tag==4||node.tag==5) continue;
-            Boolean prior=seen.get(node);
-            require(prior!=Boolean.FALSE,"Level instantiation nonzero cycle outside profile");
-            if(prior==Boolean.TRUE) continue;
-            require(seen.size()<MAX_LEVEL_INSTANTIATION_FRAMES&&todo.size()<MAX_LEVEL_INSTANTIATION_FRAMES-3,
-                    "Level instantiation nonzero stack outside profile");
-            seen.put(node,Boolean.FALSE); todo.push(new Object[]{node,Boolean.TRUE});
-            if(node.tag==2) todo.push(new Object[]{node.fields[1],Boolean.FALSE});
-            todo.push(new Object[]{node.fields[node.tag==3?1:0],Boolean.FALSE});
-        }
-        return false;
-    }
-    private boolean levelOne(LevelSession state,Object value) {
-        levelWork(state,1); Node node=levelNode(value);
-        return node!=null&&node.tag==1&&sameLevel(node.fields[0],ERASED)
-                &&(int)readScalar(node,0,U64)==(int)mixHash(2243,2221)&&(readScalar(node,0,U64)>>>40)==1;
-    }
-    /** Null means call the raw constructor. Every nonnull selection is borrowed. */
-    private Object smartLevelMax(LevelSession state,Object left,Object right) {
-        LevelOffset x=levelOffset(state,left),y=null;
-        if(sameLevel(x.base,ERASED)) {
-            y=levelOffset(state,right);
-            if(sameLevel(y.base,ERASED)) return (levelWord(left)>>>40)>=(levelWord(right)>>>40)?left:right;
-        }
-        if(instantiatedLevelEqual(state,left,right)) return left;
-        if(sameLevel(left,ERASED)) return right;
-        if(sameLevel(right,ERASED)) return left;
-        Node a=levelNode(left),b=levelNode(right);
-        if(b.tag==2&&(instantiatedLevelEqual(state,b.fields[0],left)||instantiatedLevelEqual(state,b.fields[1],left))) return right;
-        if(a.tag==2&&(instantiatedLevelEqual(state,a.fields[0],right)||instantiatedLevelEqual(state,a.fields[1],right))) return left;
-        if(y==null) y=levelOffset(state,right);
-        if(instantiatedLevelEqual(state,x.base,y.base)) {
-            require(x.offset!=y.offset,"Level instantiation inconsistent equal offsets outside profile");
-            return x.offset>y.offset?left:right;
-        }
-        return null;
-    }
-    private Object smartLevelIMax(LevelSession state,Object left,Object right,boolean nonzero) {
-        if(nonzero) return smartLevelMax(state,left,right);
-        if(sameLevel(right,ERASED)||sameLevel(left,ERASED)||levelOne(state,left)) return right;
-        if(instantiatedLevelEqual(state,left,right)) return left;
-        return null;
-    }
-    private LevelCredit retainedLevel(LevelSession state,Object value) {
-        levelWork(state,1); LevelCredit credit=new LevelCredit(value,false);
-        // Caller must publish the credit BEFORE invoking inc; this routine is
-        // used only where the resulting credit is immediately stored below.
-        return credit;
-    }
-    private void ownLevelCredit(LevelCredit credit) { inc(credit.value,1); credit.owned=true; }
-    private void pushLevelFrame(LevelSession state,Object original) {
-        require(state.frames.size()<MAX_LEVEL_INSTANTIATION_FRAMES,"Level instantiation frame limit");
-        state.frames.addLast(new LevelFrame(original));
-    }
-    private void validateLevelArguments(Function function,Object[] args) {
-        levelInstantiationProfile(function);
-        require(args!=null&&args.length==2,"Level instantiation native arity mismatch");
-        validateHostObject(args[0]); levelNode(args[1]);
-        if(args[0]==args[1]&&args[0] instanceof Node) {
-            Node node=(Node)args[0]; require(node.rc==0||node.rc>=2,"Insufficient aliased Level instantiation input credits");
-        }
-    }
-    private void checkLevelPacket(LevelPacket packet) {
-        IdentityHashMap<Node,Integer> credits=new IdentityHashMap<>();
-        for(int i=0;i<packet.arguments.length;i++) {
-            require(packet.owned[i],"Level helper packet argument is not owned"); validateHostObject(packet.arguments[i]);
-            if(packet.arguments[i] instanceof Node) credits.merge((Node)packet.arguments[i],1,Integer::sum);
-        }
-        for(Map.Entry<Node,Integer> item:credits.entrySet())
-            require(item.getKey().rc==0||item.getKey().rc>=item.getValue(),"Insufficient Level helper packet alias credits");
-    }
-    private void callLevelHelper(RuntimeAction action,LevelSession state,LevelFrame frame,int role) {
-        levelWork(state,1); require(state.call==null&&objects[action.slot]==null,"Level helper receiver already occupied");
-        Function helper=levelInstantiationHelper(state.policy,role);
-        int arity=role==0||role>=3?2:role==1?3:1;
-        LevelPacket packet=new LevelPacket(); packet.function=helper; packet.role=role; packet.frame=frame;
-        packet.arguments=new Object[arity]; packet.owned=new boolean[arity]; state.call=packet;
-        if(role==0||role==1) {
-            require(state.context.current!=null&&state.context.current.owned,"Level helper lacks current context owner");
-            packet.arguments[0]=state.context.current.value;
-            if(role==1) { packet.owned[0]=true; state.context.current.owned=false; state.context.current=null; }
-            else { inc(packet.arguments[0],1); packet.owned[0]=true; }
-            nameNode(frame.name); packet.arguments[1]=frame.name; inc(frame.name,1); packet.owned[1]=true;
-            if(role==1) { packet.arguments[2]=frame.result.value; inc(packet.arguments[2],1); packet.owned[2]=true; }
-        } else {
-            packet.arguments[0]=frame.left.value; inc(packet.arguments[0],1); packet.owned[0]=true;
-            if(arity==2) { packet.arguments[1]=frame.right.value; inc(packet.arguments[1],1); packet.owned[1]=true; }
-        }
-        checkLevelPacket(packet); packet.entryStarted=true;
-        enterExplicit(helper,null,packet.arguments,ACTION_BODY,action.slot,ASSIGN,null);
-        require(packet.entered,"Level helper did not publish a frame or CodeRequest");
-    }
-    private void receiveLevelHelper(RuntimeAction action,LevelSession state) {
-        LevelPacket packet=state.call; require(packet.entered,"Level helper has not committed entry");
-        Object value=objects[action.slot]; LevelFrame frame=packet.frame;
-        // The existing receiver slot owns VALUE already, even before any local
-        // flag is set. Invalid results remain there on terminal failure.
-        if(packet.role==0) {
-            if(!sameLevel(value,ERASED)) {
-                Node option=constructorNode(value);
-                require(option.closure==null&&option.tag==1&&option.fields.length==1&&option.scalars.length==0,"Level getter returned malformed Option");
-                levelNode(option.fields[0]);
-            }
-            frame.option=new LevelCredit(value,true); objects[action.slot]=null; state.call=null;
-            if(sameLevel(value,ERASED)) {
-                frame.result=retainedLevel(state,frame.original); ownLevelCredit(frame.result); frame.stage=LF_FINISH;
-            } else {
-                Object assigned=((Node)value).fields[0];
-                frame.assignment=retainedLevel(state,assigned); ownLevelCredit(frame.assignment);
-                if(!levelHasMVar(assigned)) { frame.result=frame.assignment; frame.assignment=null; frame.stage=LF_FINISH; }
-                else { frame.stage=LF_ASSIGN; pushLevelFrame(state,assigned); }
-            }
-        } else if(packet.role==1) {
-            validateHostObject(value); require(state.context.current==null,"Level setter would replace a live context owner");
-            state.context.current=new LevelCredit(value,true); objects[action.slot]=null; state.call=null; frame.stage=LF_FINISH;
-        } else {
-            Node level=levelNode(value); int tag=packet.role==2?1:packet.role==3?2:3;
-            require(level!=null&&level.tag==tag&&sameLevel(level.fields[0],packet.arguments[0])
-                    &&(tag==1||sameLevel(level.fields[1],packet.arguments[1])),"Original Level constructor returned unexpected head/children");
-            frame.result=new LevelCredit(value,true); objects[action.slot]=null; state.call=null; frame.stage=LF_FINISH;
-        }
-    }
-    private boolean releaseLevelCredit(RuntimeAction action,LevelSession state,LevelCredit credit) {
-        if(credit==null||!credit.owned) return false;
-        state.retiring=credit; action.retiring=credit.value; action.releaseClaimed=false;
-        boolean dispatch;
-        try { dispatch=beginRelease(credit.value,1,ACTION_BODY); credit.owned=false; }
-        finally { if(action.releaseClaimed) credit.owned=false; }
-        if(!dispatch) { state.retiring=null; action.retiring=null; action.releaseClaimed=false; }
-        return dispatch;
-    }
-    private void completeLevelFrame(LevelSession state,LevelFrame frame) {
-        require(frame.result!=null&&frame.result.owned,"Level frame has no owned result");
-        if(frame.active) state.active.remove((Node)frame.original);
-        require(state.frames.removeLast()==frame,"Level frame stack differs");
-        LevelCredit result=frame.result; frame.result=null;
-        frame.original=null; frame.name=null; frame.left=null; frame.right=null; frame.assignment=null; frame.option=null;
-        if(state.frames.isEmpty()) { state.result=result; state.phase=LS_RESULT; return; }
-        LevelFrame parent=state.frames.peekLast();
-        if(parent.stage==LF_LEFT) parent.left=result;
-        else if(parent.stage==LF_RIGHT) parent.right=result;
-        else if(parent.stage==LF_ASSIGN) { parent.result=result; parent.stage=LF_ASSIGNED; }
-        else throw error("Level instantiation child continuation differs");
-    }
-    private void stepLevelJob(RuntimeAction action,LevelSession state) {
-        require(state.phase==LS_RUNNING,"Level session has no running job"); levelWork(state,1);
-        if(state.retiring!=null) {
-            require(!state.retiring.owned,"Level cleanup returned without claiming retiring owner");
-            state.retiring=null; action.retiring=null; action.releaseClaimed=false;
-        }
-        if(state.call!=null) { receiveLevelHelper(action,state); return; }
-        {
-            LevelFrame frame=state.frames.peekLast(); require(frame!=null,"Missing Level traversal frame");
-            if(frame.stage==LF_ENTER) {
-                Node node=levelNode(frame.original); frame.tag=node==null?0:node.tag;
-                if(!levelHasMVar(frame.original)) {
-                    frame.result=retainedLevel(state,frame.original); ownLevelCredit(frame.result); frame.stage=LF_FINISH; return;
-                }
-                require(node!=null&&node.tag!=4,"Inconsistent Level hasMVar cache on Zero/Param");
-                frame.shared=!exclusive(node);
-                LevelCredit cached=frame.shared?state.cache.get(node):null;
-                if(cached!=null) {
-                    require(cached.owned,"Level cache value owner is missing");
-                    frame.result=retainedLevel(state,cached.value); ownLevelCredit(frame.result); frame.cached=true; frame.stage=LF_FINISH; return;
-                }
-                require(!state.active.containsKey(node),"Level instantiation assignment/structural cycle outside profile");
-                state.active.put(node,Boolean.TRUE); frame.active=true;
-                if(node.tag==5) { frame.name=node.fields[0]; frame.stage=LF_GET; callLevelHelper(action,state,frame,0); }
-                else { frame.stage=LF_LEFT; pushLevelFrame(state,node.fields[0]); }
-                return;
-            }
-            if(frame.stage==LF_LEFT) {
-                require(frame.left!=null&&frame.left.owned,"Level left result missing");
-                if(frame.tag==1) frame.stage=LF_BUILD;
-                else { frame.stage=LF_RIGHT; pushLevelFrame(state,((Node)frame.original).fields[1]); }
-                return;
-            }
-            if(frame.stage==LF_RIGHT) frame.stage=LF_BUILD;
-            if(frame.stage==LF_BUILD) {
-                Node original=(Node)frame.original; Object selected; int role=frame.tag==1?2:frame.tag==2?3:4;
-                if(sameLevel(frame.left.value,original.fields[0])&&(frame.tag==1||sameLevel(frame.right.value,original.fields[1]))) selected=original;
-                else if(frame.tag==1) selected=null;
-                else if(frame.tag==2) selected=smartLevelMax(state,frame.left.value,frame.right.value);
-                else {
-                    boolean nonzero=levelNotZero(state,frame.right.value); if(nonzero) role=3;
-                    selected=smartLevelIMax(state,frame.left.value,frame.right.value,nonzero);
-                }
-                if(selected!=null) { frame.result=retainedLevel(state,selected); ownLevelCredit(frame.result); frame.stage=LF_FINISH; }
-                else callLevelHelper(action,state,frame,role);
-                return;
-            }
-            if(frame.stage==LF_ASSIGNED) {
-                if(sameLevel(frame.assignment.value,frame.result.value)) frame.stage=LF_FINISH;
-                else {
-                    require(state.saved.size()<MAX_LEVEL_INSTANTIATION_SAVED,"Level instantiation saved-assignment limit");
-                    LevelCredit saved=retainedLevel(state,frame.assignment.value); state.saved.add(saved); ownLevelCredit(saved);
-                    frame.stage=LF_SET; callLevelHelper(action,state,frame,1);
-                }
-                return;
-            }
-            if(frame.stage==LF_FINISH) {
-                if(frame.tag>=1&&frame.tag<=3&&frame.shared&&!frame.cached) {
-                    require(state.cache.size()<MAX_LEVEL_INSTANTIATION_CACHE&&!state.cache.containsKey((Node)frame.original),"Level instantiation cache limit/duplicate");
-                    LevelCredit cached=retainedLevel(state,frame.result.value);
-                    state.cache.put((Node)frame.original,cached); state.cacheValues.add(cached); ownLevelCredit(cached); frame.cached=true;
-                }
-                frame.stage=LF_CLEAN; frame.cleanup=0;
-            }
-            if(frame.stage==LF_CLEAN) {
-                if(frame.cleanup<4) {
-                    LevelCredit credit=frame.cleanup==0?frame.right:frame.cleanup==1?frame.left:frame.cleanup==2?frame.assignment:frame.option;
-                    frame.cleanup++; releaseLevelCredit(action,state,credit); return;
-                }
-                completeLevelFrame(state,frame); return;
-            }
-            throw error("Level instantiation helper continuation did not return");
-        }
-    }
-    private LevelSession newLevelSession(MVarContextCell context,InstantiationBudget budget,LevelInstantiationPolicy policy) {
-        require(context!=null&&context.current!=null&&context.current.owned&&budget!=null&&policy!=null,"Level session requires current context owner, budget and policy");
-        for(int role=0;role<5;role++) levelInstantiationHelper(policy,role);
-        LevelSession session=new LevelSession(); session.context=context; session.budget=budget; session.policy=policy; return session;
-    }
-    private LevelSession currentLevelSession(RuntimeAction action) {
-        return action==null?null:action.levelMvars!=null?action.levelMvars.session:
-                currentDirectSession(action)!=null?currentDirectSession(action).levels:null;
-    }
-    /** Caller anchors all original cache keys through seal. No input retain. */
-    private void startLevelJob(LevelSession session,Object borrowedInput) {
-        require(session.phase==LS_IDLE&&session.result==null&&session.call==null&&session.retiring==null
-                &&session.frames.isEmpty()&&session.active.isEmpty(),"Level session is not idle for a new job");
-        require(session.context.current!=null&&session.context.current.owned,"Level session context owner is absent");
-        levelNode(borrowedInput);
-        for(int role=0;role<5;role++) levelInstantiationHelper(session.policy,role);
-        pushLevelFrame(session,borrowedInput); session.phase=LS_RUNNING;
-    }
-    private LevelCredit takeLevelJobResult(LevelSession session) {
-        require(session.phase==LS_RESULT&&session.result!=null&&session.result.owned&&session.call==null&&session.retiring==null
-                &&session.frames.isEmpty()&&session.active.isEmpty(),"Level session has no completed owned result");
-        LevelCredit result=session.result; session.result=null; session.phase=LS_IDLE; return result;
-    }
-    private void sealLevelSession(LevelSession session) {
-        require(session.phase==LS_IDLE&&session.result==null&&session.call==null&&session.retiring==null
-                &&session.frames.isEmpty()&&session.active.isEmpty(),"Level session must be idle with result taken before seal");
-        session.cache.clear(); session.active.clear(); session.phase=LS_SEALED;
-    }
-    private void resumeLevelRetiring(RuntimeAction action,LevelSession session) {
-        if(session.retiring!=null) {
-            require(!session.retiring.owned,"Level cleanup returned without claiming retiring owner");
-            session.retiring=null; action.retiring=null; action.releaseClaimed=false;
-        }
-    }
-    /** Drain only this worker's saved/cache owners; never consume its shared cell. */
-    private void stepLevelSessionDrain(RuntimeAction action,LevelSession session) {
-        require(session.phase==LS_SEALED||session.phase==LS_DRAINING,"Level session is not sealed for drain");
-        levelWork(session,1); resumeLevelRetiring(action,session);
-        session.phase=LS_DRAINING;
-        if(session.drainStage==0) {
-            if(session.drainCursor<session.saved.size()) {
-                LevelCredit credit=session.saved.get(session.saved.size()-1-session.drainCursor++);
-                releaseLevelCredit(action,session,credit); return;
-            }
-            session.drainStage=1; session.drainCursor=0;
-        }
-        if(session.drainStage==1) {
-            if(session.drainCursor<session.cacheValues.size()) {
-                LevelCredit credit=session.cacheValues.get(session.cacheValues.size()-1-session.drainCursor++);
-                releaseLevelCredit(action,session,credit); return;
-            }
-            session.drainStage=2;
-        }
-        require(session.retiring==null&&session.cache.isEmpty()&&session.active.isEmpty(),"Level session drain retains a pending cursor");
-        session.saved.clear(); session.cacheValues.clear(); session.phase=LS_DRAINED;
-    }
     private void stepLevelInstantiation(RuntimeAction action) {
         LevelInstantiationState state=action.levelMvars; require(state!=null,"Missing Level instantiation state");
         LevelSession session=state.session;
         if(state.stage==0) {
-            stepLevelJob(action,session);
-            if(session.phase==LS_RESULT) { state.result=takeLevelJobResult(session); state.stage=1; }
+            levels.stepLevelJob(action,session);
+            if(session.phase==LevelInstantiation.LS_RESULT) { state.result=levels.takeLevelJobResult(session); state.stage=1; }
             return;
         }
         if(state.stage==3||state.stage==4) {
-            stepLevelSessionDrain(action,session);
-            state.stage=session.phase==LS_DRAINED?5:session.drainStage==0?3:4;
+            levels.stepLevelSessionDrain(action,session);
+            state.stage=session.phase==LevelInstantiation.LS_DRAINED?5:session.drainStage==0?3:4;
             if(state.stage!=5) return;
-        } else { levelWork(session,1); resumeLevelRetiring(action,session); }
+        } else { levels.levelWork(session,1); levels.resumeLevelRetiring(action,session); }
         if(state.stage==1) {
             require(session.context.current!=null&&session.context.current.owned&&state.result!=null&&state.result.owned,"Level result/context owners missing");
             Node pair=new Node(0,2,0); state.pair=new LevelCredit(pair,true); allocations++;
             pair.fields[0]=session.context.current.value; session.context.current.owned=false; session.context.current=null; state.pairFields=1;
             pair.fields[1]=state.result.value; state.result.owned=false; state.pairFields=2;
             // No pause/tick/helper can observe a restartable session after ctx transfer.
-            sealLevelSession(session); state.stage=2; return;
+            levels.sealLevelSession(session); state.stage=2; return;
         }
-        if(state.stage==2) { state.stage=3; releaseLevelCredit(action,session,state.input); return; }
-        require(state.stage==5&&session.phase==LS_DRAINED&&state.pair!=null&&state.pair.owned&&state.pairFields==2,"Incomplete Level instantiation pair");
+        if(state.stage==2) { state.stage=3; levels.releaseLevelCredit(action,session,state.input); return; }
+        require(state.stage==5&&session.phase==LevelInstantiation.LS_DRAINED&&state.pair!=null&&state.pair.owned&&state.pairFields==2,"Incomplete Level instantiation pair");
         Object pair=state.pair.value; action.output=pair; state.pair.owned=false;
         state.input=null; state.result=null; state.pair=null; action.arguments=null; action.levelMvars=null; finishAction(action,pair);
     }
@@ -6039,7 +2880,7 @@ public final class Interpreter implements AutoCloseable {
         finishAction(action,answer);
     }
     private void stepNative(RuntimeAction action) {
-        if(action.function.intrinsic==STR_ANY) { stepStringAny(action); return; }
+        if(action.function.intrinsic==STR_ANY) { strings.stepStringAny(action); return; }
         Object[] args=action.arguments; int op=action.function.intrinsic;
         if(action.stage==0) {
             action.stage=1;
@@ -6132,7 +2973,7 @@ public final class Interpreter implements AutoCloseable {
         else if(action.operation==ACTION_FIND) stepFind(action);
         else if(action.operation==ACTION_SHARECOMMON) stepShareCommon(action);
         else if(action.operation==ACTION_LEVEL_MVARS) stepLevelInstantiation(action);
-        else if(action.operation==ACTION_EXPR_MACHINERY||action.operation==ACTION_EXPR_REPLACE||action.operation==ACTION_EXPR_ABSTRACT||action.operation==ACTION_EXPR_PURE) stepExprMachinery(action);
+        else if(action.operation==ACTION_EXPR_MACHINERY||action.operation==ACTION_EXPR_REPLACE||action.operation==ACTION_EXPR_ABSTRACT||action.operation==ACTION_EXPR_PURE) exprTransforms.stepExprMachinery(action);
         else if(action.operation==ACTION_EXPR_FULL_RESEARCH) stepExprFullResearch(action);
         else if(action.operation==ACTION_HOST_GUEST) stepHostGuest(action);
         else if(action.operation==ACTION_HOST) {
@@ -6877,18 +3718,18 @@ public final class Interpreter implements AutoCloseable {
             }
         }
     }
-    private static IllegalArgumentException error(String message) { return new IllegalArgumentException(message); }
-    private static int number(Object x) {
+    static IllegalArgumentException error(String message) { return new IllegalArgumentException(message); }
+    static int number(Object x) {
         if(!(x instanceof Number)||!x.toString().matches("0|[1-9][0-9]*")) throw error("Expected exact nonnegative integer: "+x);
         BigInteger n=new BigInteger(x.toString());
         if(n.compareTo(BigInteger.valueOf(1_000_000))>0) throw error("Integer outside preparation bounds: "+n);
         return n.intValue();
     }
-    @SuppressWarnings("unchecked") private static Map<String,Object> map(Object x) {
+    @SuppressWarnings("unchecked") static Map<String,Object> map(Object x) {
         if(!(x instanceof Map)) throw error("Expected IR map");
         return (Map<String,Object>)x;
     }
-    @SuppressWarnings("unchecked") private static List<Object> list(Object x) {
+    @SuppressWarnings("unchecked") static List<Object> list(Object x) {
         if(!(x instanceof List)) throw error("Expected IR array");
         return (List<Object>)x;
     }
@@ -6903,7 +3744,7 @@ public final class Interpreter implements AutoCloseable {
         if("object".equals(x)||"tobject".equals(x)||"tagged".equals(x)||"erased".equals(x)||"void".equals(x)) return OBJ;
         throw error("Unsupported baseline IR type: "+x);
     }
-    private static String name(Object x) {
+    static String name(Object x) {
         List<Object> n=list(x);
         switch((String)n.get(0)) {
             case "anonymous": return "";
@@ -6923,7 +3764,7 @@ public final class Interpreter implements AutoCloseable {
 
     /** Freeze every nested Name list and leaf before retaining it as a key.
      * No caller-owned list/map/array can later change a generation's index. */
-    private static Object frozenName(Object value) {
+    static Object frozenName(Object value) {
         if(value instanceof List) {
             List<Object> out=new ArrayList<>();
             for(Object element:(List<?>)value) out.add(frozenName(element));
@@ -6968,9 +3809,9 @@ public final class Interpreter implements AutoCloseable {
             int resultType=type(d.get("type")),intrinsic=0;
             HostExtern hostExtern=null;
             if(external) {
-                Object symbol=externSymbol(d);
+                Object symbol=ExternRegistry.externSymbol(d);
                 if(EXTERNS.containsKey(symbol)||!hostRegistry.containsKey(symbol)) {
-                    ExternSpec spec=resolveExtern(d);
+                    ExternSpec spec=ExternRegistry.resolveExtern(d);
                     if(spec.intrinsic==0) throw error("Known extern ABI outside execution profile: "+spec.symbol);
                     intrinsic=spec.intrinsic;
                 } else {
@@ -7064,7 +3905,7 @@ public final class Interpreter implements AutoCloseable {
         return out;
     }
 
-    private static void require(boolean condition,String message) { if(!condition) throw error(message); }
+    static void require(boolean condition,String message) { if(!condition) throw error(message); }
     private static int lane(Map<Integer,Integer> env,int variable) {
         if(variable==0) return OBJ;
         Integer t=env.get(variable); if(t==null) throw error("Unbound IR variable: "+variable); return t;
@@ -7091,7 +3932,7 @@ public final class Interpreter implements AutoCloseable {
                     case SPROJ: require((b.type==U8||b.type==U16||b.type==U32||b.type==U64||b.type==F64||b.type==F32)&&lane(env,e.a)==OBJ,"Scalar projection lane mismatch"); break;
                     case UPROJ: require(b.type==USIZE&&lane(env,e.a)==OBJ,"USize projection lane mismatch"); break;
                     case FAP: requireExecutableAbi(e.target); checkArgs(env,e.args,e.target.paramTypes); require(b.type==e.target.resultType,"Call result lane mismatch"); break;
-                    case PAP: requireExecutableAbi(e.target); require(e.target.intrinsic!=PROFILE_IT,"Borrowed profiling primitive requires an owned guest wrapper"); require(!borrowedTaskPrimitive(e.target.intrinsic),"Borrowed task primitive requires owned closure wrapper"); require(b.type==OBJ&&e.args.length<e.target.params.length,"Invalid partial application"); require(!borrowedArrayPrimitive(e.target.intrinsic),"Borrowed array primitive requires owned closure wrapper"); require(!borrowedIntPrimitive(e.target.intrinsic),"Borrowed Int primitive requires owned closure wrapper"); require(!borrowedStringPositionPrimitive(e.target.intrinsic),"Borrowed String position primitive requires owned closure wrapper"); require(!borrowedStringCompletionPrimitive(e.target.intrinsic),"Borrowed String range primitive requires owned closure wrapper"); require(!borrowedBytePrimitive(e.target.intrinsic),"Borrowed ByteArray primitive requires owned closure wrapper"); require(!e.target.borrowedUtf8,"Borrowed UTF8 conversion requires owned closure wrapper"); require(e.target.intrinsic!=NAME_EQ,"Borrowed Name equality requires an owned guest wrapper"); require(e.target.intrinsic!=EXPR_CACHE,"Borrowed Expr data requires an owned guest wrapper"); require(!borrowedExprEquality(e.target.intrinsic),"Borrowed Expr equality requires an owned guest wrapper"); require(e.target.intrinsic!=LEVEL_EQUAL,"Borrowed Level equality requires an owned guest wrapper"); require(!borrowedExprLooseQuery(e.target.intrinsic),"Borrowed Expr loose search requires an owned guest wrapper"); require(!borrowedExprOrder(e.target.intrinsic),"Borrowed Expr quick ordering requires an owned guest wrapper"); require(!findPrimitive(e.target.intrinsic),"Borrowed Expr.find requires an owned guest wrapper"); require(e.target.intrinsic!=SHARECOMMON_QUICK,"Borrowed ShareCommon requires an owned guest wrapper"); require(e.target.intrinsic!=EXPR_REPLACE,"Borrowed Expr.replace requires an owned guest wrapper"); require(!abstractPrimitive(e.target.intrinsic),"Borrowed Expr abstraction requires an owned guest wrapper"); require(!pureExprTransform(e.target.intrinsic),"Borrowed Expr instantiation/lift requires an owned guest wrapper"); require(e.target.intrinsic!=POINTER_IDENTITY,"Pointer identity requires a certified direct FAP site"); require(!borrowedRefPrimitive(e.target.intrinsic),"Borrowed ref primitive requires owned closure wrapper"); for(int i=0;i<e.target.paramTypes.length;i++) require(e.target.paramTypes[i]==OBJ,"Unboxed partial target unsupported; boxed wrapper required"); for(int a:e.args) require(lane(env,a)==OBJ,"Partial argument must be boxed"); break;
+                    case PAP: requireExecutableAbi(e.target); require(e.target.intrinsic!=PROFILE_IT,"Borrowed profiling primitive requires an owned guest wrapper"); require(!borrowedTaskPrimitive(e.target.intrinsic),"Borrowed task primitive requires owned closure wrapper"); require(b.type==OBJ&&e.args.length<e.target.params.length,"Invalid partial application"); require(!borrowedArrayPrimitive(e.target.intrinsic),"Borrowed array primitive requires owned closure wrapper"); require(!ScalarIntrinsics.borrowedIntPrimitive(e.target.intrinsic),"Borrowed Int primitive requires owned closure wrapper"); require(!StringIntrinsics.borrowedStringPositionPrimitive(e.target.intrinsic),"Borrowed String position primitive requires owned closure wrapper"); require(!StringIntrinsics.borrowedStringCompletionPrimitive(e.target.intrinsic),"Borrowed String range primitive requires owned closure wrapper"); require(!borrowedBytePrimitive(e.target.intrinsic),"Borrowed ByteArray primitive requires owned closure wrapper"); require(!e.target.borrowedUtf8,"Borrowed UTF8 conversion requires owned closure wrapper"); require(e.target.intrinsic!=NAME_EQ,"Borrowed Name equality requires an owned guest wrapper"); require(e.target.intrinsic!=EXPR_CACHE,"Borrowed Expr data requires an owned guest wrapper"); require(!borrowedExprEquality(e.target.intrinsic),"Borrowed Expr equality requires an owned guest wrapper"); require(e.target.intrinsic!=LEVEL_EQUAL,"Borrowed Level equality requires an owned guest wrapper"); require(!ExprTransforms.borrowedExprLooseQuery(e.target.intrinsic),"Borrowed Expr loose search requires an owned guest wrapper"); require(!borrowedExprOrder(e.target.intrinsic),"Borrowed Expr quick ordering requires an owned guest wrapper"); require(!findPrimitive(e.target.intrinsic),"Borrowed Expr.find requires an owned guest wrapper"); require(e.target.intrinsic!=SHARECOMMON_QUICK,"Borrowed ShareCommon requires an owned guest wrapper"); require(e.target.intrinsic!=EXPR_REPLACE,"Borrowed Expr.replace requires an owned guest wrapper"); require(!ExprTransforms.abstractPrimitive(e.target.intrinsic),"Borrowed Expr abstraction requires an owned guest wrapper"); require(!ExprTransforms.pureExprTransform(e.target.intrinsic),"Borrowed Expr instantiation/lift requires an owned guest wrapper"); require(e.target.intrinsic!=POINTER_IDENTITY,"Pointer identity requires a certified direct FAP site"); require(!borrowedRefPrimitive(e.target.intrinsic),"Borrowed ref primitive requires owned closure wrapper"); for(int i=0;i<e.target.paramTypes.length;i++) require(e.target.paramTypes[i]==OBJ,"Unboxed partial target unsupported; boxed wrapper required"); for(int a:e.args) require(lane(env,a)==OBJ,"Partial argument must be boxed"); break;
                     case AP: require(b.type==OBJ&&lane(env,e.a)==OBJ&&e.args.length>0,"Unsupported closure application"); for(int a:e.args) require(lane(env,a)==OBJ,"Closure argument must be boxed"); break;
                     case BOX: require(b.type==OBJ&&e.b!=OBJ&&lane(env,e.a)==e.b,"Box lane mismatch"); break;
                     case UNBOX: require(b.type!=OBJ&&lane(env,e.a)==OBJ,"Unbox lane mismatch"); break;
@@ -7226,7 +4067,7 @@ public final class Interpreter implements AutoCloseable {
         if(joinSlots>joins.length) joins=Arrays.copyOf(joins,Math.max(joinSlots,joins.length*2));
     }
     private Object obj(int variable) { return variable==0?ERASED:objects[bp+variable]; }
-    private Node node(Object o) {
+    Node node(Object o) {
         if(!(o instanceof Node)||((Node)o).dead) throw error("Expected live object");
         Node value=(Node)o; checkRuntimeOwner(value); return value;
     }
@@ -7250,7 +4091,7 @@ public final class Interpreter implements AutoCloseable {
     }
     /** Finalizer-free/local quiet-proof path. Active arbitrary releases use an
      * action; this helper must never become a callback dispatcher. */
-    private void releaseQuiet(Object o,int n) {
+    void releaseQuiet(Object o,int n) {
         if(releaseTransaction!=null||(releaseRoot&&taskRuntime==null))
             throw new IllegalStateException("Synchronous DEC cannot overlap a release transaction");
         if(n<0) throw error("Negative reference decrement");
@@ -7370,7 +4211,7 @@ public final class Interpreter implements AutoCloseable {
             } else completeRelease();
         }
     }
-    private Node constructorNode(Object value) {
+    Node constructorNode(Object value) {
         Node node=node(value); require(!(kindMetadata(node) instanceof FileHandleMetadata)&&!node.ref&&!node.array&&!node.readyTask&&!isPromise(node)&&!isByteArray(node),"Opaque object is not a constructor"); return node;
     }
     private void unique(Node n) {
@@ -7378,13 +4219,13 @@ public final class Interpreter implements AutoCloseable {
         require(!n.ref&&!n.array&&!n.readyTask&&!isPromise(n)&&!isByteArray(n),"Reference/array/task/byte-array is not a constructor");
         if(!exclusive(n)) throw error("Expected exclusive object");
     }
-    private static BigInteger nat(Object x) {
+    static BigInteger nat(Object x) {
         if(x instanceof Long&&((Long)x)>=0) return BigInteger.valueOf((Long)x);
         if(x instanceof BigInteger&&((BigInteger)x).signum()>=0) return (BigInteger)x;
         throw error("Invalid Nat");
     }
-    private static Object normalize(BigInteger n) { if(n.signum()<0) throw error("Negative Nat"); return n.compareTo(SMALL_MAX)<=0?Long.valueOf(n.longValue()):n; }
-    private static long inputScalar(Object value,int type) {
+    static Object normalize(BigInteger n) { if(n.signum()<0) throw error("Negative Nat"); return n.compareTo(SMALL_MAX)<=0?Long.valueOf(n.longValue()):n; }
+    static long inputScalar(Object value,int type) {
         if(type==F32) {
             require(value instanceof Float,"Expected Float Float32 scalar");
             return Integer.toUnsignedLong(Float.floatToRawIntBits((Float)value));
@@ -7402,7 +4243,7 @@ public final class Interpreter implements AutoCloseable {
         if(n.signum()<0||n.bitLength()>bits) throw error("Unsigned scalar outside "+bits+"-bit range");
         return n.longValue();
     }
-    private static Object externalScalar(long value,int type) {
+    static Object externalScalar(long value,int type) {
         if(type==F32) return Float.valueOf(Float.intBitsToFloat((int)value));
         if(type==F64) return Double.valueOf(Double.longBitsToDouble(value));
         if((type==USIZE||type==U64)&&value<0) return BigInteger.valueOf(value&Long.MAX_VALUE).setBit(63);
@@ -7434,7 +4275,7 @@ public final class Interpreter implements AutoCloseable {
     private static int rawOffset(Node n,int word,int extra) {
         return Math.addExact(Math.multiplyExact(Math.subtractExact(word,n.fields.length),8),extra);
     }
-    private static long readScalar(Node n,int offset,int type) {
+    static long readScalar(Node n,int offset,int type) {
         return ScalarBits.readLittleEndian(n.scalars,offset,scalarWidth(type));
     }
     private static void writeScalar(Node n,int offset,int type,long value) {
@@ -7477,16 +4318,16 @@ public final class Interpreter implements AutoCloseable {
         return value;
     }
     private void intrinsicSlots(Function f,int[] slots) {
-        if(f.intrinsic==STR_ANY) { stringAnyRecursive(new Object[]{obj(slots[0]),obj(slots[1])}); return; }
-        if(f.intrinsic==DBG_TRACE_SHARED) { traceShared(obj(slots[0]),obj(slots[1]),obj(slots[2])); return; }
+        if(f.intrinsic==STR_ANY) { strings.stringAnyRecursive(new Object[]{obj(slots[0]),obj(slots[1])}); return; }
+        if(f.intrinsic==DBG_TRACE_SHARED) { stdio.traceShared(obj(slots[0]),obj(slots[1]),obj(slots[2])); return; }
         if(f.intrinsic==BYTE_COPY_SLICE) {
             byteCopySlice(obj(slots[0]),obj(slots[1]),obj(slots[2]),obj(slots[3]),obj(slots[4]),numbers[bp+slots[5]]); return;
         }
         if(f.intrinsic==MARK_PERSISTENT) { persistentIntrinsic(obj(slots[0]),obj(slots[1]),obj(slots[2])); return; }
         if(f.intrinsic==VOID_MK) { voidIntrinsic(obj(slots[0]),obj(slots[1])); return; }
         require(f.intrinsic!=TASK_MAP,"Task.map requires its runtime frame");
-        if(floatPrimitive(f.intrinsic)) {
-            floatIntrinsic(f,numbers[bp+slots[0]],slots.length<2?0:numbers[bp+slots[1]]); return;
+        if(ScalarIntrinsics.floatPrimitive(f.intrinsic)) {
+            scalars.floatIntrinsic(f,numbers[bp+slots[0]],slots.length<2?0:numbers[bp+slots[1]]); return;
         }
         require(f.intrinsic!=POINTER_IDENTITY,"Pointer identity requires a certified direct FAP site");
         if(borrowedExprEquality(f.intrinsic)) { scalarResult=new ExprEquality(f.intrinsic==EXPR_EQUAL).apply(obj(slots[0]),obj(slots[1]))?1:0; return; }
@@ -7503,10 +4344,10 @@ public final class Interpreter implements AutoCloseable {
         }
         if(f.intrinsic==EXPR_APP_DATA) { exprAppData(numbers[bp+slots[0]],numbers[bp+slots[1]]); return; }
         if(f.intrinsic==STR_POS_SET) {
-            stringPosSet(obj(slots[0]),obj(slots[1]),Long.valueOf(numbers[bp+slots[2]]),obj(slots[3])); return;
+            strings.stringPosSet(obj(slots[0]),obj(slots[1]),Long.valueOf(numbers[bp+slots[2]]),obj(slots[3])); return;
         }
         if(f.intrinsic==STR_MEMCMP) {
-            stringMemcmp(obj(slots[0]),obj(slots[1]),obj(slots[2]),obj(slots[3]),obj(slots[4]),obj(slots[5]),obj(slots[6])); return;
+            strings.stringMemcmp(obj(slots[0]),obj(slots[1]),obj(slots[2]),obj(slots[3]),obj(slots[4]),obj(slots[5]),obj(slots[6])); return;
         }
         if(advancedArrayPrimitive(f.intrinsic)) {
             arrayPlaceholders(f,obj(slots[0]),slots.length>3?obj(slots[slots.length-1]):ERASED,
@@ -7519,20 +4360,20 @@ public final class Interpreter implements AutoCloseable {
             refPlaceholders(obj(slots[0]),obj(slots[1]),obj(slots[slots.length-1]));
             refIntrinsic(f,obj(slots[2]),slots.length==5?obj(slots[3]):ERASED); return;
         }
-        if(natPrimitive(f.intrinsic)) {
+        if(ScalarIntrinsics.natPrimitive(f.intrinsic)) {
             if(f.intrinsic==NAT_DIV_EXACT) require(ERASED.equals(obj(slots[2])),"Nat.divExact proof requires erased placeholder");
             intrinsic(f,obj(slots[0]),slots.length<2?ERASED:obj(slots[1])); return;
         }
         Object a=f.paramTypes[0]==OBJ?obj(slots[0]):Long.valueOf(numbers[bp+slots[0]]);
         Object b=slots.length<2?ERASED:f.paramTypes[1]==OBJ?obj(slots[1]):Long.valueOf(numbers[bp+slots[1]]);
-        if(f.intrinsic>=STR_PUSH&&!(f.intrinsic>=USIZE_LT&&f.intrinsic<=USIZE_MUL)&&!u64ScalarPrimitive(f.intrinsic)) {
+        if(f.intrinsic>=STR_PUSH&&!(f.intrinsic>=USIZE_LT&&f.intrinsic<=USIZE_MUL)&&!ScalarIntrinsics.u64ScalarPrimitive(f.intrinsic)) {
             Object c=slots.length<3?ERASED:f.paramTypes[2]==OBJ?obj(slots[2]):Long.valueOf(numbers[bp+slots[2]]);
             runtimeIntrinsic(f,a,b,c);
-        } else scalarIntrinsic(f,a,b);
+        } else scalars.scalarIntrinsic(f,a,b);
     }
     private void intrinsicExternal(Function f,Object[] args) {
-        if(f.intrinsic==STR_ANY) { stringAnyRecursive(args); return; }
-        if(f.intrinsic==DBG_TRACE_SHARED) { traceShared(args[0],args[1],args[2]); return; }
+        if(f.intrinsic==STR_ANY) { strings.stringAnyRecursive(args); return; }
+        if(f.intrinsic==DBG_TRACE_SHARED) { stdio.traceShared(args[0],args[1],args[2]); return; }
         require(f.intrinsic!=IO_RANDOM_BYTES,"Entropy requires its explicit owned action");
         if(f.intrinsic==BYTE_COPY_SLICE) {
             byteCopySlice(args[0],args[1],args[2],args[3],args[4],inputScalar(args[5],U8)); return;
@@ -7540,8 +4381,8 @@ public final class Interpreter implements AutoCloseable {
         if(f.intrinsic==MARK_PERSISTENT) { persistentIntrinsic(args[0],args[1],args[2]); return; }
         if(f.intrinsic==VOID_MK) { voidIntrinsic(args[0],args[1]); return; }
         require(f.intrinsic!=TASK_MAP,"Task.map requires its runtime frame");
-        if(floatPrimitive(f.intrinsic)) {
-            floatIntrinsic(f,readSavedScalar(args[0],f.paramTypes[0]),args.length<2?0:readSavedScalar(args[1],f.paramTypes[1])); return;
+        if(ScalarIntrinsics.floatPrimitive(f.intrinsic)) {
+            scalars.floatIntrinsic(f,readSavedScalar(args[0],f.paramTypes[0]),args.length<2?0:readSavedScalar(args[1],f.paramTypes[1])); return;
         }
         require(f.intrinsic!=POINTER_IDENTITY,"Pointer identity requires a certified direct FAP site");
         if(borrowedExprEquality(f.intrinsic)) { scalarResult=new ExprEquality(f.intrinsic==EXPR_EQUAL).apply(args[0],args[1])?1:0; return; }
@@ -7558,10 +4399,10 @@ public final class Interpreter implements AutoCloseable {
         }
         if(f.intrinsic==EXPR_APP_DATA) { exprAppData(inputScalar(args[0],U64),inputScalar(args[1],U64)); return; }
         if(f.intrinsic==STR_POS_SET) {
-            stringPosSet(args[0],args[1],externalArgument(f,args,2),args[3]); return;
+            strings.stringPosSet(args[0],args[1],externalArgument(f,args,2),args[3]); return;
         }
         if(f.intrinsic==STR_MEMCMP) {
-            stringMemcmp(args[0],args[1],args[2],args[3],args[4],args[5],args[6]); return;
+            strings.stringMemcmp(args[0],args[1],args[2],args[3],args[4],args[5],args[6]); return;
         }
         if(advancedArrayPrimitive(f.intrinsic)) {
             arrayPlaceholders(f,args[0],args.length>3?args[args.length-1]:ERASED,
@@ -7574,61 +4415,16 @@ public final class Interpreter implements AutoCloseable {
             refPlaceholders(args[0],args[1],args[args.length-1]);
             refIntrinsic(f,args[2],args.length==5?args[3]:ERASED); return;
         }
-        if(natPrimitive(f.intrinsic)) {
+        if(ScalarIntrinsics.natPrimitive(f.intrinsic)) {
             if(f.intrinsic==NAT_DIV_EXACT) require(ERASED.equals(args[2]),"Nat.divExact proof requires erased placeholder");
             intrinsic(f,args[0],args.length<2?ERASED:args[1]); return;
         }
         Object a=f.paramTypes[0]==OBJ?args[0]:Long.valueOf(inputScalar(args[0],f.paramTypes[0]));
         Object b=args.length<2?ERASED:f.paramTypes[1]==OBJ?args[1]:Long.valueOf(inputScalar(args[1],f.paramTypes[1]));
-        if(f.intrinsic>=STR_PUSH&&!(f.intrinsic>=USIZE_LT&&f.intrinsic<=USIZE_MUL)&&!u64ScalarPrimitive(f.intrinsic)) {
+        if(f.intrinsic>=STR_PUSH&&!(f.intrinsic>=USIZE_LT&&f.intrinsic<=USIZE_MUL)&&!ScalarIntrinsics.u64ScalarPrimitive(f.intrinsic)) {
             Object c=args.length<3?ERASED:f.paramTypes[2]==OBJ?args[2]:Long.valueOf(inputScalar(args[2],f.paramTypes[2]));
             runtimeIntrinsic(f,a,b,c);
-        } else scalarIntrinsic(f,a,b);
-    }
-    private static boolean floatPrimitive(int op) { return op>=FLOAT_BITS&&op<=FLOAT_STRING||op==FLOAT_LE||op==FLOAT_ADD||op==FLOAT32_ADD
-            ||op==FLOAT32_BITS||op==FLOAT32_DIV||op==FLOAT32_MUL||op==U64_FLOAT32
-            ||op==FLOAT_TO_BITS||op==FLOAT32_TO_BITS; }
-    private strictfp void floatIntrinsic(Function f,long a,long b) {
-        // Pinned object.cpp: both directions preserve non-NaN bits and canonicalize NaNs.
-        if(f.intrinsic==FLOAT32_BITS||f.intrinsic==FLOAT32_TO_BITS) {
-            int bits=(int)a;
-            scalarResult=ScalarBits.isNaN32Bits(bits)
-                    ?0x7fc00000L:Integer.toUnsignedLong(bits); return;
-        }
-        if(f.intrinsic==U64_FLOAT32) {
-            BigInteger unsigned=BigInteger.valueOf(a&Long.MAX_VALUE); if(a<0) unsigned=unsigned.setBit(63);
-            // A direct integer-to-float conversion: routing through double would double-round.
-            scalarResult=Integer.toUnsignedLong(Float.floatToRawIntBits(unsigned.floatValue())); return;
-        }
-        if(f.intrinsic==FLOAT32_ADD||f.intrinsic==FLOAT32_DIV||f.intrinsic==FLOAT32_MUL) {
-            float x=Float.intBitsToFloat((int)a),y=Float.intBitsToFloat((int)b);
-            float out=f.intrinsic==FLOAT32_ADD?x+y:f.intrinsic==FLOAT32_DIV?x/y:x*y;
-            scalarResult=Integer.toUnsignedLong(Float.floatToRawIntBits(out)); return;
-        }
-        if(f.intrinsic==FLOAT_BITS||f.intrinsic==FLOAT_TO_BITS) { scalarResult=ScalarBits.isNaN64Bits(a)?0x7ff8000000000000L:a; return; }
-        if(f.intrinsic==FLOAT_U64) {
-            BigInteger unsigned=BigInteger.valueOf(a&Long.MAX_VALUE); if(a<0) unsigned=unsigned.setBit(63);
-            scalarResult=Double.doubleToRawLongBits(unsigned.doubleValue()); return;
-        }
-        double x=Double.longBitsToDouble(a),y=Double.longBitsToDouble(b);
-        switch(f.intrinsic) {
-            case FLOAT_ADD: scalarResult=Double.doubleToRawLongBits(x+y); break;
-            case FLOAT_SUB: scalarResult=Double.doubleToRawLongBits(x-y); break;
-            case FLOAT_MUL: scalarResult=Double.doubleToRawLongBits(x*y); break;
-            case FLOAT_DIV: scalarResult=Double.doubleToRawLongBits(x/y); break;
-            case FLOAT_EQ: scalarResult=x==y?1:0; break;
-            case FLOAT_LT: scalarResult=x<y?1:0; break;
-            case FLOAT_LE: scalarResult=x<=y?1:0; break;
-            case FLOAT_STRING:
-                if(ScalarBits.isNaN64Bits(a)) result="NaN";
-                else if(Double.isInfinite(x)) result=x<0?"-inf":"inf";
-                else {
-                    BigDecimal rounded=new BigDecimal(x).setScale(6,RoundingMode.HALF_EVEN);
-                    result=(a<0&&rounded.signum()==0?"-":"")+rounded.toPlainString();
-                }
-                break;
-            default: throw error("Unsupported Float intrinsic");
-        }
+        } else scalars.scalarIntrinsic(f,a,b);
     }
     private static boolean advancedArrayPrimitive(int op) { return op>=ARRAY_EMPTY&&op<=ARRAY_REPLICATE||op==ARRAY_CHECKED_GET||op==ARRAY_CHECKED_BORROWED||op==ARRAY_CHECKED_SET; }
     private static boolean borrowedArrayPrimitive(int op) {
@@ -7651,7 +4447,7 @@ public final class Interpreter implements AutoCloseable {
         require(n.compareTo(BigInteger.valueOf(MAX_ARRAY_CAPACITY))<=0,"Array capacity outside bounded runtime profile");
         return n.intValue();
     }
-    private static ArrayState arrayState(Node value) { return (ArrayState)kindMetadata(value); }
+    static ArrayState arrayState(Node value) { return (ArrayState)kindMetadata(value); }
     private static int arrayIndex(Node a,Object index) {
         BigInteger n=nat(index);
         require(n.compareTo(BigInteger.valueOf(arrayState(a).size))<0,"Array index outside bounds");
@@ -7811,118 +4607,29 @@ public final class Interpreter implements AutoCloseable {
         }
         throw error("Invalid ST.Ref intrinsic");
     }
-    /** Native strings use byte positions, including defined safe invalid-index
-     * behavior. Java carriers are validated Unicode; no normalization occurs. */
-    private void stringPositionIntrinsic(Function f,Object a,Object b,Object c) {
-        byte[] bytes=utf8(a); BigInteger position=nat(b);
-        int length=bytes.length;
-        if(f.intrinsic==STR_END) { scalarResult=position.compareTo(BigInteger.valueOf(length))>=0?1:0; return; }
-        if(f.intrinsic==STR_SAFE_NEXT) {
-            int width=1;
-            if(position.compareTo(BigInteger.valueOf(length))<0) {
-                int p=position.intValue(); width=Utf8Bytes.leadingByte(bytes[p])?Utf8Bytes.width(bytes[p]):1;
-            }
-            result=normalize(boundedAdd(position,BigInteger.valueOf(width),false)); return;
-        }
-        if(f.intrinsic==STR_PREV) {
-            if(position.signum()==0) { result=ERASED; return; }
-            if(position.compareTo(BigInteger.valueOf(length))>0) { result=normalize(position.subtract(BigInteger.ONE)); return; }
-            int p=position.intValue()-1;
-            while(p>0&&!Utf8Bytes.leadingByte(bytes[p])) p--;
-            result=Long.valueOf(p); return;
-        }
-        if(f.intrinsic==STR_VALID) {
-            scalarResult=position.compareTo(BigInteger.valueOf(length))<=0
-                    &&(position.intValue()==length||Utf8Bytes.leadingByte(bytes[position.intValue()]))?1:0; return;
-        }
-        if(f.intrinsic==STR_EXTRACT) {
-            BigInteger end=nat(c);
-            if(position.bitLength()>63||end.bitLength()>63) { result=a; return; }
-            if(position.compareTo(end)>=0||position.compareTo(BigInteger.valueOf(length))>=0) { result=""; return; }
-            int begin=position.intValue();
-            if(!Utf8Bytes.leadingByte(bytes[begin])) { result=""; return; }
-            int stop=end.compareTo(BigInteger.valueOf(length))>=0?length:end.intValue();
-            if(stop<length&&!Utf8Bytes.leadingByte(bytes[stop])) stop=length;
-            result=new String(bytes,begin,stop-begin,StandardCharsets.UTF_8); return;
-        }
-        boolean inRange=position.compareTo(BigInteger.valueOf(length))<0;
-        if(f.intrinsic==STR_BYTE) {
-            require(ERASED.equals(c),"String byte proof requires erased placeholder");
-            require(inRange,"UTF-8 byte index outside String");
-            scalarResult=Byte.toUnsignedInt(bytes[position.intValue()]); return;
-        }
-        if(f.intrinsic==STR_SET) {
-            int replacement=codePoint(c);
-            if(!inRange||!Utf8Bytes.leadingByte(bytes[position.intValue()])) { result=a; return; }
-            int p=position.intValue(),width=Utf8Bytes.width(bytes[p]);
-            stringReplacementExtent(length,width,replacement);
-            result=new String(bytes,0,p,StandardCharsets.UTF_8)+new String(Character.toChars(replacement))
-                    +new String(bytes,p+width,length-p-width,StandardCharsets.UTF_8); return;
-        }
-        scalarResult=inRange&&Utf8Bytes.leadingByte(bytes[position.intValue()])?Utf8Bytes.codePoint(bytes,position.intValue()):65;
-    }
-    private void stringIntrinsic(Function f,Object a,Object b,Object c) {
-        if(f.intrinsic>=STR_END&&f.intrinsic<=STR_EXTRACT||f.intrinsic==STR_BYTE||f.intrinsic==STR_SET) {
-            stringPositionIntrinsic(f,a,b,c); return;
-        }
-        if(f.intrinsic==STR_LENGTH) { String s=text(a); utf8(s); result=Long.valueOf(s.codePointCount(0,s.length())); return; }
-        if(f.intrinsic==STR_CONTAINS) { String s=text(a); utf8(s); scalarResult=s.indexOf(codePoint(b))>=0?1:0; return; }
-        byte[] x=utf8(a),y=utf8(b); int cmp=Arrays.compareUnsigned(x,y);
-        if(f.intrinsic==STR_EQ) scalarResult=cmp==0?1:0;
-        else if(f.intrinsic==STR_LT) scalarResult=cmp<0?1:0;
-        else scalarResult=cmp<0?0:cmp==0?1:2;
-    }
     /** Pinned lean_del_object ignores tagged immediates; heap deletion transfers
      * already-extracted field credits and must not recursively decrement them. */
     private void deleteShell(Object value) {
         if(value instanceof Long) return;
         Node n=node(value); unique(n); n.dead=true; Arrays.fill(n.fields,null); shellDeletes++;
     }
-    private static boolean borrowedStringPositionPrimitive(int op) {
-        return op==STR_GET||op==STR_NEXT||op==STR_EXTRACT;
-    }
     /** Modern proof-carrying Pos is an erased wrapper around a Nat byte offset.
      * Unlike legacy Raw.set, this exact ABI owns its position and proves non-end.
      * Java String is immutable, so native in-place ASCII identity is not claimed. */
-    private static void stringReplacementExtent(int bytes,int oldWidth,int cp) {
+    static void stringReplacementExtent(int bytes,int oldWidth,int cp) {
         stringReplacementExtent(bytes,oldWidth,cp,"String.set");
     }
-    private static void stringReplacementExtent(int bytes,int oldWidth,int cp,String operation) {
+    static void stringReplacementExtent(int bytes,int oldWidth,int cp,String operation) {
         int newWidth=cp<128?1:cp<2048?2:cp<65536?3:4;
         resource((long)bytes-oldWidth+newWidth<=MAX_STRING_OUTPUT_BYTES,
                 operation+" output outside bounded runtime profile");
-    }
-    private void stringPosSet(Object source,Object position,Object replacement,Object proof) {
-        require(ERASED.equals(proof),"String.Pos.set proof requires erased placeholder");
-        byte[] bytes=utf8(source); BigInteger offset=nat(position); int cp=codePoint(replacement);
-        require(offset.compareTo(BigInteger.valueOf(bytes.length))<0,"String.Pos.set requires a non-end position");
-        int p=offset.intValue();
-        require(Utf8Bytes.leadingByte(bytes[p]),"String.Pos.set requires a valid UTF-8 scalar position");
-        int oldWidth=Utf8Bytes.width(bytes[p]); stringReplacementExtent(bytes.length,oldWidth,cp,"String.Pos.set");
-        String changed=new String(bytes,0,p,StandardCharsets.UTF_8)+new String(Character.toChars(cp))
-                +new String(bytes,p+oldWidth,bytes.length-p-oldWidth,StandardCharsets.UTF_8);
-        result=changed; releaseQuiet(source,1); releaseQuiet(position,1);
-    }
-    private static boolean borrowedStringCompletionPrimitive(int op) { return op==STR_MEMCMP; }
-    /** Proof-backed equality of raw UTF-8 byte ranges; neither positions nor
-     * length may be narrowed until the complete range has been validated. */
-    private void stringMemcmp(Object left,Object right,Object leftStart,Object rightStart,Object size,Object leftProof,Object rightProof) {
-        require(ERASED.equals(leftProof)&&ERASED.equals(rightProof),"String memcmp proofs require erased placeholders");
-        byte[] a=utf8(left),b=utf8(right);
-        BigInteger x=nat(leftStart),y=nat(rightStart),n=nat(size);
-        require(x.compareTo(BigInteger.valueOf(a.length))<=0&&y.compareTo(BigInteger.valueOf(b.length))<=0
-                &&n.compareTo(BigInteger.valueOf(a.length).subtract(x))<=0
-                &&n.compareTo(BigInteger.valueOf(b.length).subtract(y))<=0,
-                "String memcmp range outside bounded source domain");
-        int from=x.intValue(),other=y.intValue(),count=n.intValue();
-        scalarResult=Arrays.equals(a,from,from+count,b,other,other+count)?1:0;
     }
     private static int repairedStringPosition(byte[] bytes,BigInteger position) {
         if(position.compareTo(BigInteger.valueOf(bytes.length))>=0) return bytes.length;
         int p=position.intValue(); return Utf8Bytes.leadingByte(bytes[p])?p:bytes.length;
     }
     /** Transient validated view, never retained by an engine or guest Node. */
-    private static final class SubstringView {
+    static final class SubstringView {
         final Node owner;
         final byte[] bytes;
         final int start,size;
@@ -7930,139 +4637,12 @@ public final class Interpreter implements AutoCloseable {
             this.owner=owner; this.bytes=bytes; this.start=start; this.size=size;
         }
     }
-    private SubstringView substringView(Object value) {
+    SubstringView substringView(Object value) {
         Node n=constructorNode(value);
         require(n.closure==null&&n.tag==0&&n.fields.length==3&&n.scalars.length==0,"Expected Substring.Raw constructor");
         byte[] bytes=utf8(n.fields[0]); BigInteger begin=nat(n.fields[1]),end=nat(n.fields[2]);
         int start=repairedStringPosition(bytes,begin),stop=repairedStringPosition(bytes,end);
         return new SubstringView(n,bytes,start,Math.max(0,stop-start));
-    }
-    private void stringCompletionIntrinsic(Function f,Object a,Object b,Object c) {
-        if(f.intrinsic==STR_SUBSTRING_EQ) {
-            // Validate BOTH owned operands before consuming either container.
-            SubstringView x=substringView(a),y=substringView(b);
-            long same=x.size==y.size&&Arrays.equals(x.bytes,x.start,x.start+x.size,y.bytes,y.start,y.start+y.size)?1:0;
-            releaseQuiet(x.owner,1); releaseQuiet(y.owner,1); scalarResult=same; return;
-        }
-        if(f.intrinsic==STR_POS_OF) {
-            byte[] bytes=utf8(a); int cp=codePoint(b),p=0;
-            while(p<bytes.length&&Utf8Bytes.codePoint(bytes,p)!=cp) p+=Utf8Bytes.width(bytes[p]);
-            result=Long.valueOf(p); releaseQuiet(a,1); return;
-        }
-        if(f.intrinsic==STR_OFFSET_OF_POS) {
-            byte[] bytes=utf8(a); BigInteger position=nat(b);
-            int stop=position.compareTo(BigInteger.valueOf(bytes.length))>=0?bytes.length:position.intValue();
-            int p=0,count=0;
-            while(p<stop) { p+=Utf8Bytes.width(bytes[p]); count++; }
-            result=Long.valueOf(count); releaseQuiet(a,1); releaseQuiet(b,1); return;
-        }
-        require(f.intrinsic==STR_PUSHN,"Invalid String completion intrinsic");
-        String source=text(a);
-        require(source.length()<=MAX_STRING_OUTPUT_BYTES,"String.pushn output outside bounded runtime profile");
-        int cp=codePoint(b); BigInteger repetitions=nat(c); byte[] bytes=utf8(source);
-        int width=cp<0x80?1:cp<0x800?2:cp<0x10000?3:4;
-        require(bytes.length<=MAX_STRING_OUTPUT_BYTES
-                &&repetitions.compareTo(BigInteger.valueOf((MAX_STRING_OUTPUT_BYTES-bytes.length)/width))<=0,
-                "String.pushn output outside bounded runtime profile");
-        int count=repetitions.intValue();
-        if(count==0) { result=source; releaseQuiet(c,1); return; }
-        int chars=Math.addExact(source.length(),Math.multiplyExact(Character.charCount(cp),count));
-        StringBuilder output=new StringBuilder(chars); output.append(source);
-        for(int i=0;i<count;i++) output.appendCodePoint(cp);
-        result=output.toString(); releaseQuiet(a,1); releaseQuiet(c,1);
-    }
-    private static boolean borrowedIntPrimitive(int op) { return op>=INT_NEG&&op<=INT_NONNEG; }
-    private static BigInteger signedInteger(Object value) {
-        if(value instanceof Long) return BigInteger.valueOf((Long)value);
-        if(value instanceof BigInteger) return (BigInteger)value;
-        throw error("Expected exact signed Int carrier");
-    }
-    private static Object normalizeSigned(BigInteger value) {
-        return value.bitLength()<=63?Long.valueOf(value.longValue()):value;
-    }
-    private void intIntrinsic(Function f,Object a,Object b,Object c) {
-        // Int carriers are mathematical values. Native small-object thresholds and
-        // raw tagged object words are deliberately not part of this profile.
-        if(f.intrinsic==INT_NONNEG) { scalarResult=signedInteger(a).signum()>=0?1:0; return; }
-        if(f.intrinsic==INT_DIV_EXACT) require(ERASED.equals(c),"Int.divExact proof requires erased placeholder");
-        if(a instanceof Long) {
-            long x=(Long)a;
-            if(f.intrinsic==INT_OF_NAT||f.intrinsic==INT_NEG_SUCC) {
-                require(x>=0,"Invalid Nat"); result=f.intrinsic==INT_OF_NAT?a:Long.valueOf(-x-1); return;
-            }
-            if(f.intrinsic==INT_NEG||f.intrinsic==INT_ABS) {
-                if(x!=Long.MIN_VALUE) { result=Long.valueOf(f.intrinsic==INT_NEG?-x:Math.abs(x)); return; }
-            } else if(b instanceof Long) {
-                long y=(Long)b;
-                switch(f.intrinsic) {
-                    case INT_EQ: scalarResult=x==y?1:0; return;
-                    case INT_LT: scalarResult=x<y?1:0; return;
-                    case INT_LE: scalarResult=x<=y?1:0; return;
-                    case INT_ADD:
-                        try { result=Long.valueOf(Math.addExact(x,y)); return; }
-                        catch(ArithmeticException overflow) { break; }
-                    case INT_SUB:
-                        try { result=Long.valueOf(Math.subtractExact(x,y)); return; }
-                        catch(ArithmeticException overflow) { break; }
-                    case INT_MUL:
-                        try { result=Long.valueOf(Math.multiplyExact(x,y)); return; }
-                        catch(ArithmeticException overflow) { break; }
-                    // Pinned lean.h/object.cpp: T-division truncates, T-modulus takes the
-                    // dividend's sign; E-modulus is nonnegative. x/0=0 and x%0=x for all four.
-                    case INT_DIV: case INT_DIV_EXACT:
-                        if(y==0) { result=Long.valueOf(0); return; }
-                        if(x==Long.MIN_VALUE&&y==-1) break;
-                        result=Long.valueOf(x/y); return;
-                    case INT_MOD: result=y==0?a:Long.valueOf(x%y); return;
-                    case INT_EDIV: {
-                        if(y==0) { result=Long.valueOf(0); return; }
-                        if(x==Long.MIN_VALUE&&y==-1) break;
-                        long q=x/y; if(x%y<0) q=y>0?q-1:q+1;
-                        result=Long.valueOf(q); return;
-                    }
-                    case INT_EMOD: {
-                        if(y==0) { result=a; return; }
-                        long r=x%y;
-                        // r-y cannot overflow: r<0 and |r|<|y| keep r+|y| within (0,2^63).
-                        if(r<0) r=y>0?r+y:r-y;
-                        result=Long.valueOf(r); return;
-                    }
-                    default: throw error("Invalid signed Int intrinsic");
-                }
-            }
-        }
-        if(f.intrinsic==INT_OF_NAT) { result=normalizeSigned(nat(a)); return; }
-        if(f.intrinsic==INT_NEG_SUCC) { result=normalizeSigned(boundedAdd(nat(a),BigInteger.ONE,false).negate()); return; }
-        BigInteger x=signedInteger(a);
-        if(f.intrinsic==INT_NEG) { boundedMagnitude(x); result=normalizeSigned(x.negate()); return; }
-        if(f.intrinsic==INT_ABS) { boundedMagnitude(x); result=normalize(x.abs()); return; }
-        BigInteger y=signedInteger(b);
-        switch(f.intrinsic) {
-            case INT_ADD: result=normalizeSigned(boundedAdd(x,y,false)); return;
-            case INT_SUB: result=normalizeSigned(boundedAdd(x,y,true)); return;
-            case INT_EQ: scalarResult=x.equals(y)?1:0; return;
-            case INT_LT: scalarResult=x.compareTo(y)<0?1:0; return;
-            case INT_LE: scalarResult=x.compareTo(y)<=0?1:0; return;
-            case INT_MUL: {
-                BigInteger magnitude=natMultiply(x.abs(),y.abs());
-                result=normalizeSigned(x.signum()*y.signum()<0?magnitude.negate():magnitude); return;
-            }
-            case INT_DIV: case INT_DIV_EXACT:
-                result=y.signum()==0?Long.valueOf(0):normalizeSigned(x.divide(y)); return;
-            case INT_MOD: result=normalizeSigned(y.signum()==0?x:x.remainder(y)); return;
-            case INT_EDIV: {
-                if(y.signum()==0) { result=Long.valueOf(0); return; }
-                BigInteger[] qr=x.divideAndRemainder(y); BigInteger q=qr[0];
-                if(qr[1].signum()<0) q=y.signum()>0?q.subtract(BigInteger.ONE):q.add(BigInteger.ONE);
-                result=normalizeSigned(q); return;
-            }
-            case INT_EMOD: {
-                if(y.signum()==0) { result=normalizeSigned(x); return; }
-                BigInteger r=x.remainder(y);
-                result=normalizeSigned(r.signum()<0?r.add(y.abs()):r); return;
-            }
-            default: throw error("Invalid signed Int intrinsic");
-        }
     }
     private static boolean borrowedBytePrimitive(int op) {
         return op==BYTE_GET||op==BYTE_GET_DEFAULT||op==BYTE_SIZE||op==BYTE_EMPTY||op==STR_VALIDATE_UTF8||op==BYTE_COPY_SLICE;
@@ -8126,7 +4706,7 @@ public final class Interpreter implements AutoCloseable {
         ByteArrayState target=(ByteArrayState)kindMetadata(out);
         out.scalars[target.size]=(byte)value; setByteArraySize(out,target.size+1); stores++; result=out;
     }
-    private int utf8Extent(Object value) {
+    int utf8Extent(Object value) {
         String text=text(value); long size=0;
         for(int i=0;i<text.length();i++) {
             char ch=text.charAt(i);
@@ -8192,15 +4772,15 @@ public final class Interpreter implements AutoCloseable {
         System.arraycopy(src.scalars,from,out.scalars,to,count);
         setByteArraySize(out,next); stores++; result=out;
     }
-    private String text(Object value) { require(value instanceof String,"Expected immutable String"); return (String)value; }
-    private byte[] utf8(Object value) {
+    String text(Object value) { require(value instanceof String,"Expected immutable String"); return (String)value; }
+    byte[] utf8(Object value) {
         String s=text(value); utf8Extent(s);
         if(utf8Key!=null&&utf8Key.get()==s) return utf8Bytes;
         byte[] bytes=s.getBytes(StandardCharsets.UTF_8);
         if(bytes.length<=1_048_576) { utf8Key=new WeakReference<>(s); utf8Bytes=bytes; }
         return bytes;
     }
-    private int codePoint(Object value) {
+    int codePoint(Object value) {
         long cp=inputScalar(value,U32);
         require(cp<=0x10ffff&&(cp<0xd800||cp>0xdfff),"Invalid Unicode scalar");
         return (int)cp;
@@ -8216,7 +4796,7 @@ public final class Interpreter implements AutoCloseable {
         }
         return values.toArray();
     }
-    private Node array(Object value) { Node n=node(value); require(n.array&&!n.ref&&n.closure==null,"Expected Array"); return n; }
+    Node array(Object value) { Node n=node(value); require(n.array&&!n.ref&&n.closure==null,"Expected Array"); return n; }
     private Node ioUnit() { Node n=new Node(0,1,0); n.fields[0]=ERASED; allocations++; return n; }
     /** Per-call finite input, independent of process stdin. Existing original
      * ofBuffer installations are a separate profile and cannot overlap. Captures
@@ -8230,22 +4810,15 @@ public final class Interpreter implements AutoCloseable {
         require(outputBytes==0&&stderrOutputBytes==0,"Drain captured output before beginning an invocation");
         require(invocationEpoch<Long.MAX_VALUE/4-2,"Invocation stream epoch exhausted");
         atomicPoll(); byte[] snapshot=input.clone(); // all validation/allocation before root retirement
-        retireCapturedDefaults();
+        stdio.retireCapturedDefaults();
         invocationEpoch++; invocationInput=snapshot; invocationCursor=0;
         stdoutLimit=outLimit; stderrLimit=errLimit; invocationActive=true;
     }
     public void endInvocation() {
         requireAtomicIdle("Invocation input retirement");
         require(invocationActive&&stdioContext==null,"No invocation input context is active");
-        retireCapturedDefaults(); invocationEpoch++; invocationInput=new byte[0]; invocationCursor=0;
+        stdio.retireCapturedDefaults(); invocationEpoch++; invocationInput=new byte[0]; invocationCursor=0;
         invocationActive=false; stdoutLimit=MAX_STRING_OUTPUT_BYTES; stderrLimit=MAX_STRING_OUTPUT_BYTES;
-    }
-    private void retireCapturedDefaults() {
-        // These synthetic roots have only private method closures/Long captures;
-        // arbitrary guest finalizers are never dispatched by this quiet path.
-        Node in=stdinDefaultRoot,out=stdoutRoot,err=stderrRoot;
-        stdinDefaultRoot=null; stdoutRoot=null; stderrRoot=null;
-        if(in!=null) releaseQuiet(in,1); if(out!=null) releaseQuiet(out,1); if(err!=null) releaseQuiet(err,1);
     }
     private Node capturedStream(int channel) {
         Node stream=new Node(0,6,0); allocations++;
@@ -8259,74 +4832,30 @@ public final class Interpreter implements AutoCloseable {
         }
         return stream;
     }
-    private Node defaultStream(int channel) {
+    Node defaultStream(int channel) {
         if(channel==0) { if(stdinDefaultRoot==null) stdinDefaultRoot=capturedStream(0); return stdinDefaultRoot; }
         if(channel==1) { if(stdoutRoot==null) stdoutRoot=capturedStream(1); return stdoutRoot; }
         if(stderrRoot==null) stderrRoot=capturedStream(2); return stderrRoot;
     }
-    private Node directStream(int channel) { Node stream=defaultStream(channel); inc(stream,1); return stream; }
     private Node stdout() {
         if(stdioContext!=null) return standardStream(1,false,null);
-        return directStream(1);
+        return stdio.directStream(1);
     }
-    /** Pinned object.cpp lean_mk_string_lossy_recover: replace a bad lead and
-     * its following continuation run by ONE replacement character. Java's
-     * decoder does not use this recovery rule for all malformed sequences. */
-    private String capturedText(byte[] bytes,int start,int end) {
-        StringBuilder text=new StringBuilder(end-start);
-        for(int at=start;at<end;) {
-            if((at&1023)==0) atomicPoll();
-            int lead=Byte.toUnsignedInt(bytes[at]),width=0,min=0,cp=0;
-            if(lead<128) { text.append((char)lead); at++; continue; }
-            if((lead&0xe0)==0xc0) { width=2; min=0x80; cp=lead&31; }
-            else if((lead&0xf0)==0xe0) { width=3; min=0x800; cp=lead&15; }
-            else if((lead&0xf8)==0xf0) { width=4; min=0x10000; cp=lead&7; }
-            boolean valid=width!=0&&width<=end-at;
-            if(valid) for(int j=1;j<width;j++) {
-                int next=Byte.toUnsignedInt(bytes[at+j]);
-                if((next&0xc0)!=0x80) { valid=false; break; }
-                cp=(cp<<6)|(next&63);
-            }
-            valid=valid&&cp>=min&&cp<=0x10ffff&&(cp<0xd800||cp>0xdfff);
-            if(valid) { text.appendCodePoint(cp); at+=width; }
-            else {
-                text.append('\ufffd'); at++;
-                while(at<end&&(bytes[at]&0xc0)==0x80) { if((at&1023)==0) atomicPoll(); at++; }
-            }
-        }
-        return text.toString();
-    }
-    public String capturedStdout() { byte[] bytes=outputRaw.toByteArray(); return capturedText(bytes,0,bytes.length); }
-    public String capturedStderr() { byte[] bytes=stderrRaw.toByteArray(); return capturedText(bytes,0,bytes.length); }
+    public String capturedStdout() { byte[] bytes=outputRaw.toByteArray(); return stdio.capturedText(bytes,0,bytes.length); }
+    public String capturedStderr() { byte[] bytes=stderrRaw.toByteArray(); return stdio.capturedText(bytes,0,bytes.length); }
     /** Copies and relinquishes both captures; callers own the returned arrays. */
     public byte[][] drainCapturedBytes() {
         requireAtomicIdle("Captured output drain");
         byte[][] captured={outputRaw.toByteArray(),stderrRaw.toByteArray()};
-        resetCapturedOutput(); return captured;
-    }
-    private void resetCapturedOutput() {
-        if(outputRaw.size()>65536) outputRaw=new ByteArrayOutputStream(); else outputRaw.reset();
-        if(stderrRaw.size()>65536) stderrRaw=new ByteArrayOutputStream(); else stderrRaw.reset();
-        output.setLength(0); stderrOutput.setLength(0); outputBytes=0; stderrOutputBytes=0;
-        if(output.capacity()>65536) output.trimToSize();
-        if(stderrOutput.capacity()>65536) stderrOutput.trimToSize();
+        stdio.resetCapturedOutput(); return captured;
     }
     public String[] drainCapturedOutput() {
         requireAtomicIdle("Captured output drain");
-        String[] captured={capturedStdout(),capturedStderr()}; resetCapturedOutput(); return captured;
+        String[] captured={capturedStdout(),capturedStderr()}; stdio.resetCapturedOutput(); return captured;
     }
-    private void captureBudget(int size,boolean stderr) {
-        int previous=stderr?stderrOutputBytes:outputBytes,limit=stderr?stderrLimit:stdoutLimit;
-        resource(size>=0&&size<=limit-previous,"Captured output outside bounded runtime profile");
-    }
-    private void appendRaw(byte[] bytes,int start,int size,boolean stderr) {
-        captureBudget(size,stderr); atomicPoll();
-        (stderr?stderrRaw:outputRaw).write(bytes,start,size);
-        if(stderr) stderrOutputBytes+=size; else outputBytes+=size;
-    }
-    private void appendCaptured(Object value,boolean stderr) {
-        String text=text(value); int size=utf8Extent(text); captureBudget(size,stderr);
-        byte[] bytes=text.getBytes(StandardCharsets.UTF_8); appendRaw(bytes,0,size,stderr);
+    void appendCaptured(Object value,boolean stderr) {
+        String text=text(value); int size=utf8Extent(text); stdio.captureBudget(size,stderr);
+        byte[] bytes=text.getBytes(StandardCharsets.UTF_8); stdio.appendRaw(bytes,0,size,stderr);
         (stderr?stderrOutput:output).append(text);
     }
     private Node streamError(String message) {
@@ -8425,7 +4954,7 @@ public final class Interpreter implements AutoCloseable {
             }
             if(op==FS_LINE) {
                 byte[] bytes=fileSession.getLine(handle);
-                String line=capturedText(bytes,0,bytes.length);
+                String line=stdio.capturedText(bytes,0,bytes.length);
                 resource(utf8Extent(line)<=MAX_STRING_OUTPUT_BYTES,"Filesystem line outside bounded runtime profile");
                 result=fileLayouts.ioSuccess(this::fileNode,line); return;
             }
@@ -8483,46 +5012,17 @@ public final class Interpreter implements AutoCloseable {
         } else if(op==3) {
             int end=invocationCursor;
             while(end<invocationInput.length) { if((end&1023)==0) atomicPoll(); if(invocationInput[end++]==10) break; }
-            String line=capturedText(invocationInput,invocationCursor,end);
+            String line=stdio.capturedText(invocationInput,invocationCursor,end);
             Node envelope=ioValue(line); atomicPoll(); invocationCursor=end; result=envelope;
         } else if(op==2) {
             Node bytes=byteArray(argument); int size=((ByteArrayState)kindMetadata(bytes)).size;
-            captureBudget(size,channel==2); Node envelope=ioUnit();
-            appendRaw(bytes.scalars,0,size,channel==2); result=envelope;
+            stdio.captureBudget(size,channel==2); Node envelope=ioUnit();
+            stdio.appendRaw(bytes.scalars,0,size,channel==2); result=envelope;
         } else if(op==4) {
-            int size=utf8Extent(argument); captureBudget(size,channel==2); Node envelope=ioUnit();
+            int size=utf8Extent(argument); stdio.captureBudget(size,channel==2); Node envelope=ioUnit();
             appendCaptured(argument,channel==2); result=envelope;
         } else throw error("Unknown captured stream method");
         if(ownsArgument) releaseQuiet(argument,1);
-    }
-    /** Pinned object.cpp: return the owning argument unchanged; the message is
-     * borrowed and printed as a C string. Untracked immutable heap leaves have
-     * no logical exclusivity observation in this runtime. Admitted programs
-     * fail here if execution reaches a value outside that supported domain. */
-    private void validateTraceShared(Object erased,Object message,Object value) {
-        require(ERASED.equals(erased),"Sharing trace requires erased type parameter");
-        utf8Extent(message);
-        if(value instanceof Node) node(value);
-        else require(value instanceof Long&&(Long)value>=0,
-                "Sharing trace requires a managed object or immediate scalar; heap-leaf ownership is unavailable");
-    }
-    private void traceShared(Object erased,Object message,Object value) {
-        validateTraceShared(erased,message,value);
-        if(value instanceof Node&&!exclusive((Node)value)) {
-            String text=(String)message;
-            int end=text.indexOf('\0'); if(end<0) end=text.length();
-            long bytes=11; // "shared RC " plus newline, before any output mutation.
-            for(int i=0;i<end;i++) {
-                char ch=text.charAt(i);
-                if(Character.isHighSurrogate(ch)) { i++; bytes+=4; }
-                else bytes+=ch<0x80?1:ch<0x800?2:3;
-            }
-            resource(bytes<=stderrLimit-stderrOutputBytes,
-                    "Captured output outside bounded runtime profile");
-            String line="shared RC "+text.substring(0,end)+"\n";
-            appendCaptured(line,true);
-        }
-        result=value;
     }
     private Node streamNode(Object value) {
         Node stream=constructorNode(value);
@@ -8541,7 +5041,7 @@ public final class Interpreter implements AutoCloseable {
     }
     /** Read-only bounded graph proof, INCLUDING persistent rc0 subgraphs. This
      * is a quiet default-release profile, not a universal branch ownership seal. */
-    private void quietStdioGraph(Object root) {
+    void quietStdioGraph(Object root) {
         IdentityHashMap<Node,Boolean> seen=new IdentityHashMap<>(); ArrayDeque<Object> todo=new ArrayDeque<>();
         todo.push(root); int edges=0;
         while(!todo.isEmpty()) {
@@ -8563,16 +5063,6 @@ public final class Interpreter implements AutoCloseable {
             if(Thread.currentThread().isInterrupted()) throw error("Stdio default validation interrupted");
         }
     }
-    private static final String[] STDIN_METHOD_LABELS={
-        "IO.FS.Stream.ofBuffer._lam_4._boxed","IO.FS.Stream.ofBuffer._lam_0._boxed",
-        "IO.FS.Stream.ofBuffer._lam_1._boxed","IO.FS.Stream.ofBuffer._lam_3._boxed",
-        "IO.FS.Stream.ofBuffer._lam_2._boxed","IO.FS.instInhabitedStream.default._lam_5._boxed"};
-    // These exact original body identities are checked against issued Headers;
-    // accepted raw CAS/index authentication remains the trusted source adapter's job.
-    private static final String[] STDIN_METHOD_SHA={
-        "e832604259e5794a331574c8a391637cde19e6f28ec322fc86a376a87b6c0c83","29e0f37498cc280d39c84ad0fa70336c5713b90308e32ee960d4ba28a7afbcac",
-        "370ad89209e61c6fbe137e22e27d42200c02f50bb90cbaff442868ca0ecbd24a","41ab29cdd05e589e44148a3f6051b995992290d55733ab2bd234a1bed4c13ae6",
-        "27399d0e9fd073070f6cc12f7d726b8c3d91cf17ec30e478eca80a81becfaa35","67b99a70a0d3bacecd41baf5e321468782636888e2b7a45febc15918216a7e89"};
     /** Borrow an actual original empty Stream.ofBuffer; acquire one default
      * owner only after all graph/header/layout/RC checks. No guest call occurs.
      * Caller authenticates source/CAS and keeps its borrowed input owner alive. */
@@ -8590,8 +5080,8 @@ public final class Interpreter implements AutoCloseable {
         Node ref=null;
         for(int i=0;i<6;i++) {
             Node method=node(stream.fields[i]); Header h=method.closure.header;
-            require(h!=null&&h.source==ofBuffer.source&&Interpreter.name(h.exactName).equals(STDIN_METHOD_LABELS[i])
-                    &&h.originalSha256.equals(STDIN_METHOD_SHA[i])&&method.fields.length==1,
+            require(h!=null&&h.source==ofBuffer.source&&Interpreter.name(h.exactName).equals(StdioCapture.STDIN_METHOD_LABELS[i])
+                    &&h.originalSha256.equals(StdioCapture.STDIN_METHOD_SHA[i])&&method.fields.length==1,
                     "Default stdin differs from original Stream.ofBuffer method source");
             if(i==0||i==5) require(ERASED.equals(method.fields[0]),"Default stdin pure method capture differs");
             else { Node r=reference(method.fields[0]); if(ref==null) ref=r;
@@ -8628,50 +5118,9 @@ public final class Interpreter implements AutoCloseable {
         if(swap) { stdioContext.current[channel]=next; return seed; }
         inc(seed,1); return seed;
     }
-    private Node stdioDefault(int channel) { return channel==0?stdinDefaultRoot:channel==1?stdoutRoot:stderrRoot; }
-    private void clearStdioDefault(int channel) {
-        if(channel==0) stdinDefaultRoot=null; else if(channel==1) stdoutRoot=null; else stderrRoot=null;
-    }
-    private boolean currentStdioRoots() {
-        for(Node stream:stdioContext.current) if(stream!=null) return true; return false;
-    }
-    private boolean stdioRoots() {
-        return stdoutRoot!=null||stdinDefaultRoot!=null||stderrRoot!=null||(stdioContext!=null&&currentStdioRoots());
-    }
-    private void stepStdioDispose(RuntimeAction action) {
-        if(action.stage==0) {
-            if(action.cursor<3) {
-                int channel=action.cursor++; Node old=stdioContext.current[channel];
-                action.retiring=old; action.releaseClaimed=false; stdioContext.current[channel]=null;
-                if(old!=null) { beginRelease(old,1,ACTION_BODY); action.releaseClaimed=true; }
-            } else if(action.cursor<constants.length+3) {
-                int index=action.cursor++-3;
-                if(constantReady[index]) {
-                    Object old=constants[index]; action.retiring=old; action.releaseClaimed=false;
-                    constants[index]=null; constantReady[index]=false; constantRetired[index]=true;
-                    if(program.functions[index].resultType==OBJ) { beginRelease(old,1,ACTION_BODY); action.releaseClaimed=true; }
-                }
-            } else {
-                if(currentStdioRoots()) { action.cursor=0; return; }
-                for(boolean ready:constantReady) if(ready) { action.cursor=0; return; }
-                for(TaskRecord record:taskRecords.values()) if(record.keepalive) { phase=WAITING; return; }
-                action.stage=1; action.cursor=0;
-            }
-        } else if(action.cursor<3) {
-            // Validate all owned defaults immediately before the FIRST claim;
-            // no guest advance or owner transfer separates this check/claim.
-            // Also recheck each remaining graph at its own claim boundary.
-            if(action.cursor==0) for(int i=0;i<3;i++) if(stdioDefault(i)!=null) quietStdioGraph(stdioDefault(i));
-            int channel=action.cursor; Node old=stdioDefault(channel);
-            if(old!=null) quietStdioGraph(old);
-            action.cursor++;
-            action.retiring=old; action.releaseClaimed=false; clearStdioDefault(channel);
-            if(old!=null) { beginRelease(old,1,ACTION_BODY); action.releaseClaimed=true; }
-        } else { require(!stdioRoots(),"Stdio roots recreated during callback-free default retirement"); disposed=true; finishAction(action,ERASED); }
-    }
     /** Validate the current Name head, without a recursive prefix/hash audit.
      * A well-founded parent chain and valid Unicode are trusted value invariants. */
-    private Node nameNode(Object value) {
+    Node nameNode(Object value) {
         if(value instanceof Long&&((Long)value)==0) return null;
         require(value instanceof Node,"Expected Lean.Name anonymous zero or constructor");
         Node name=constructorNode(value);
@@ -8684,8 +5133,8 @@ public final class Interpreter implements AutoCloseable {
                      "Expected Lean.Name Nat component");
         return name;
     }
-    private boolean nameEquals(Object left,Object right) { return nameEquals(left,right,null); }
-    private boolean nameEquals(Object left,Object right,ExprEquality budget) {
+    boolean nameEquals(Object left,Object right) { return nameEquals(left,right,null); }
+    boolean nameEquals(Object left,Object right,ExprEquality budget) {
         Node a=nameNode(left),b=nameNode(right);
         if(a==null||b==null) return a==b;
         if(a==b) return true;
@@ -8708,7 +5157,7 @@ public final class Interpreter implements AutoCloseable {
         }
         throw error("Name equality depth/cycle outside bounded runtime profile");
     }
-    private Node levelNode(Object value) {
+    Node levelNode(Object value) {
             if(value instanceof Long&&((Long)value)==0) return null;
             Node n=constructorNode(value); require(n.closure==null&&n.rc>=0&&n.tag>=1&&n.tag<=5,"Expected Level constructor kind");
             require(n.fields.length==(n.tag==2||n.tag==3?2:1)&&n.scalars.length==8,"Unexpected Level cached-data storage layout"); return n;
@@ -8733,7 +5182,7 @@ public final class Interpreter implements AutoCloseable {
     }
     /** Invocation-local, read-only bounded equality. No scratch escapes through
      * Program/Node metadata or failures. This is not native heartbeat accounting. */
-    private final class ExprEquality {
+    final class ExprEquality {
         final boolean compareBinders;
         final ArrayDeque<EqualityFrame> stack=new ArrayDeque<>();
         final HashMap<EqualityKey,Boolean> states=new HashMap<>();
@@ -8754,7 +5203,7 @@ public final class Interpreter implements AutoCloseable {
             return left.equals(right);
         }
         boolean number(Object left,Object right,boolean signed) {
-            BigInteger a=signed?signedInteger(left):nat(left),b=signed?signedInteger(right):nat(right);
+            BigInteger a=signed?ScalarIntrinsics.signedInteger(left):nat(left),b=signed?ScalarIntrinsics.signedInteger(right):nat(right);
             charge(1L+(a.bitLength()+63L)/64+(b.bitLength()+63L)/64); return a.equals(b);
         }
         Node ctor(Object value,int fields,int scalarBytes) {
@@ -8931,7 +5380,7 @@ public final class Interpreter implements AutoCloseable {
             finally { work=comparison.work; }
         }
         int number(Object left,Object right) {
-            BigInteger a=pureExprNat(left),b=pureExprNat(right);
+            BigInteger a=ExprTransforms.pureExprNat(left),b=ExprTransforms.pureExprNat(right);
             charge(1L+(a.bitLength()+63L)/64+(b.bitLength()+63L)/64); return a.compareTo(b);
         }
         int codePoint(String s,int at) {
@@ -9003,7 +5452,7 @@ public final class Interpreter implements AutoCloseable {
                     require(frame.left.tag==0&&frame.right.tag==0,"Expr ordering metadata pair tag differs"); break;
                 case LT_VALUE: case LT_LITERAL: frame.left=taggedValue(x,frame.key.kind==LT_LITERAL); frame.right=taggedValue(y,frame.key.kind==LT_LITERAL); break;
                 case LT_NAME: nameNode(x); nameNode(y); break;
-                case LT_NAT: pureExprNat(x); pureExprNat(y); break;
+                case LT_NAT: ExprTransforms.pureExprNat(x); ExprTransforms.pureExprNat(y); break;
                 case LT_STRING: require(x instanceof String&&y instanceof String,"Expr ordering String carrier differs"); break;
                 default: throw error("Unknown Expr ordering domain");
             }
@@ -9458,7 +5907,7 @@ public final class Interpreter implements AutoCloseable {
      * not C-string routines: NUL is an ordinary scalar and matching is forward.
      * Immutable String carriers have no guest RC; the predicate owns one credit
      * across the search and AP consumes an additional credit at each encounter. */
-    private void validateStringAny(Object[] args) {
+    void validateStringAny(Object[] args) {
         require(args!=null&&args.length==2,"String.any requires string and predicate");
         atomicPoll(); utf8Extent(args[0]); atomicPoll();
         Node predicate=node(args[1]); acceptsClosure(predicate);
@@ -9475,69 +5924,17 @@ public final class Interpreter implements AutoCloseable {
         for(Map.Entry<Node,Integer> credit:credits.entrySet())
             require(credit.getKey().rc==0||credit.getKey().rc>=credit.getValue(),"Insufficient String.any owner credits");
     }
-    private long stringPredicateResult(Object answer) {
-        require(answer instanceof Long&&((Long)answer==0||(Long)answer==1),
-                "String.any predicate did not return canonical boxed Bool");
-        return (Long)answer;
-    }
-    private boolean stringIsPrefix(Object prefix,Object value) {
-        atomicPoll(); utf8Extent(prefix); utf8Extent(value); atomicPoll();
-        String p=text(prefix),s=text(value);
-        if(p.length()>s.length()) return false;
-        for(int i=0;i<p.length();i++) {
-            if((i&1023)==0) atomicPoll();
-            if(p.charAt(i)!=s.charAt(i)) return false;
-        }
-        return true;
-    }
-    private void stringAnyRecursive(Object[] args) {
-        validateStringAny(args); String text=text(args[0]); Node predicate=(Node)args[1];
-        long answer=0;
-        for(int cursor=0;cursor<text.length();) {
-            atomicPoll(); tick(); int cp=text.codePointAt(cursor); cursor+=Character.charCount(cp);
-            inc(predicate,1);
-            answer=stringPredicateResult(apply(predicate,new Object[]{Long.valueOf(cp)}));
-            if(answer!=0) break;
-        }
-        releaseQuiet(predicate,1); scalarResult=answer;
-    }
-    private void stepStringAny(RuntimeAction action) {
-        String text=text(action.arguments[0]);
-        if(action.stage==1) {
-            action.pending=(int)stringPredicateResult(objects[action.slot]);
-            objects[action.slot]=null; action.work=null; action.stage=0;
-        }
-        if(action.stage==0) {
-            atomicPoll();
-            if(action.pending==0&&action.cursor<text.length()) {
-                tick(); int cp=text.codePointAt(action.cursor); action.cursor+=Character.charCount(cp);
-                action.work=new Object[]{Long.valueOf(cp)};
-                inc(action.arguments[1],1); action.stage=1;
-                // Generic AP owns this retained callback occurrence and packet.
-                applyExplicit(action.arguments[1],action.work,ACTION_BODY,action.slot); return;
-            }
-            action.stage=2; action.retiring=action.arguments[1]; action.releaseClaimed=false;
-        }
-        if(action.stage==2) {
-            action.stage=3;
-            // Release can suspend in a captured finalizer; never replay DEC.
-            if(beginRelease(action.retiring,1,ACTION_BODY)) return;
-        }
-        require(action.stage==3,"Invalid String.any continuation");
-        action.arguments=null; action.work=null; action.retiring=null;
-        finishAction(action,Long.valueOf(action.pending));
-    }
     private void runtimeIntrinsic(Function f,Object a,Object b,Object c) {
         if(filePrimitive(f.intrinsic)) { fileOperation(f,a,b,c); return; }
-        if(f.intrinsic==STR_IS_PREFIX) { scalarResult=stringIsPrefix(a,b)?1:0; return; }
+        if(f.intrinsic==STR_IS_PREFIX) { scalarResult=strings.stringIsPrefix(a,b)?1:0; return; }
         if(f.intrinsic>=CAPTURE_FLUSH&&f.intrinsic<=CAPTURE_TTY) { capturedOperation(f,a,b,c); return; }
         if(f.intrinsic==STR_TO_UTF8) { stringToUtf8(a); return; }
         if(f.intrinsic==STR_FROM_UTF8) { stringFromUtf8(a,b); return; }
         if(f.intrinsic==STR_VALIDATE_UTF8) {
             Node bytes=byteArray(a); scalarResult=Utf8Bytes.validPrefix(bytes.scalars,((ByteArrayState)kindMetadata(bytes)).size)?1:0; return;
         }
-        if(f.intrinsic>=STR_SUBSTRING_EQ&&f.intrinsic<=STR_PUSHN) { stringCompletionIntrinsic(f,a,b,c); return; }
-        if(f.intrinsic>=INT_OF_NAT&&f.intrinsic<=INT_NONNEG) { intIntrinsic(f,a,b,c); return; }
+        if(f.intrinsic>=STR_SUBSTRING_EQ&&f.intrinsic<=STR_PUSHN) { strings.stringCompletionIntrinsic(f,a,b,c); return; }
+        if(f.intrinsic>=INT_OF_NAT&&f.intrinsic<=INT_NONNEG) { scalars.intIntrinsic(f,a,b,c); return; }
         if(f.intrinsic==NAME_EQ) { scalarResult=nameEquals(a,b)?1:0; return; }
         if(buildIdentityPrimitive(f.intrinsic)) {
             requireBuildIdentity(); requireBuildUnit(a);
@@ -9553,7 +5950,7 @@ public final class Interpreter implements AutoCloseable {
             if(f.intrinsic==TASK_PURE) { result=newReadyTask(b); return; }
             result=getReadyTaskOwned(readyTaskNode(b)); return;
         }
-        if(f.intrinsic>=STR_END&&f.intrinsic<=STR_SET) { stringIntrinsic(f,a,b,c); return; }
+        if(f.intrinsic>=STR_END&&f.intrinsic<=STR_SET) { strings.stringIntrinsic(f,a,b,c); return; }
         switch(f.intrinsic) {
             case STR_PUSH: {
                 int bytes=utf8Extent(a),cp=codePoint(b),width=cp<0x80?1:cp<0x800?2:cp<0x10000?3:4;
@@ -9600,7 +5997,7 @@ public final class Interpreter implements AutoCloseable {
             case GET_STDOUT: if(stdioContext!=null) require(ERASED.equals(a),"Stdio world placeholder required"); result=stdout(); break;
             case GET_STDIN: case GET_STDERR:
                 require(ERASED.equals(a),"Stdio world placeholder required");
-                result=stdioContext==null?directStream(f.intrinsic==GET_STDIN?0:2):standardStream(f.intrinsic==GET_STDIN?0:2,false,null); break;
+                result=stdioContext==null?stdio.directStream(f.intrinsic==GET_STDIN?0:2):standardStream(f.intrinsic==GET_STDIN?0:2,false,null); break;
             case SET_STDIN: case SET_STDOUT: case SET_STDERR:
                 require(ERASED.equals(b),"Stdio world placeholder required");
                 result=standardStream(f.intrinsic==SET_STDIN?0:f.intrinsic==SET_STDOUT?1:2,true,a); break;
@@ -9619,8 +6016,8 @@ public final class Interpreter implements AutoCloseable {
     }
     /** Pinned lean_expr_data reads the first scalar word after the object
      * fields. Validate only the known storage family; do not infer AST flags. */
-    private long exprCachedData(Object value) { return readScalar(exprNode(value),0,U64); }
-    private Node exprNode(Object value) {
+    long exprCachedData(Object value) { return readScalar(exprNode(value),0,U64); }
+    Node exprNode(Object value) {
         Node node=constructorNode(value);
         require(node.closure==null,"Closure is not an Expr constructor");
         int expected;
@@ -9659,124 +6056,17 @@ public final class Interpreter implements AutoCloseable {
         long range=Math.max(fData>>>44,aData>>>44);
         scalarResult=((fData|aData)&(15L<<40))|(mixHash(fData,aData)&0xffffffffL)|(depth<<32)|(range<<44);
     }
-    private static long mixHash(long hash,long key) {
+    static long mixHash(long hash,long key) {
         long m=0xc6a4a7935bd1e995L;
         key*=m; key^=key>>>47; key^=m; // Deliberately XOR, unlike Murmur's second multiply.
         return (hash^key)*m;
     }
-    private static long stringHash(byte[] bytes) {
-        long m=0xc6a4a7935bd1e995L,hash=11L^((long)bytes.length*m);
-        int end=bytes.length&~7;
-        for(int offset=0;offset<end;offset+=8) {
-            long key=0;
-            for(int i=0;i<8;i++) key|=(long)Byte.toUnsignedInt(bytes[offset+i])<<(i*8);
-            key*=m; key^=key>>>47; key*=m; hash^=key; hash*=m;
-        }
-        if(end<bytes.length) {
-            for(int i=end;i<bytes.length;i++) hash^=(long)Byte.toUnsignedInt(bytes[i])<<((i-end)*8);
-            hash*=m;
-        }
-        hash^=hash>>>47; hash*=m; hash^=hash>>>47; return hash;
-    }
-    /** Explicit membership: later IDs need not lie beside the original scalar group. */
-    private static boolean u64ScalarPrimitive(int op) {
-        switch(op) {
-            case U16_EQ: case U16_NAT: case U8_ADD: case U32_OWNED_NAT:
-            case U8_FROM_NAT: case U16_FROM_NAT: case U8_OWNED_NAT: case U16_OWNED_NAT:
-            case LAYOUT_FIELDS: case LAYOUT_SCALARS: case LAYOUT_TAG: case LAYOUT_USIZE: case U32_LT: case U64_TO_NAT:
-            case STR_HASH: case U64_MIX: case U64_NAT: case U64_SHR: case U64_XOR: case U64_USIZE:
-            case U64_LT: case U64_EQ: case U64_OWNED_NAT: case U64_TO_U32:
-            case BOOL_U64: case U64_ADD: case U64_SUB: case U64_MUL: case U64_DIV: case U64_MOD:
-            case U64_AND: case U64_OR: case U64_NOT: case U64_NEG: case U64_LOG2: case U64_SHL: case U64_LE:
-            case U8_TO_U64: case U32_TO_U64: case USIZE_TO_U64: case U8_TO_U32: case U64_TO_U8:
-                return true;
-            default: return wordPrimitive(op);
-        }
-    }
-    private static void requireBoolScalar(Object value) {
-        require(inputScalar(value,U8)<=1,"Bool.toUInt64 requires canonical Bool 0 or 1");
-    }
-    private void scalarIntrinsic(Function f,Object a,Object b) {
-        if(wordPrimitive(f.intrinsic)) { wordIntrinsic(f,a,b); return; }
-        switch(f.intrinsic) {
-            case USIZE_NAT:
-                if(f.params.length>1) require(ERASED.equals(b),"USize conversion proof requires erased placeholder");
-                scalarResult=nat(a).longValue(); break;
-            case USIZE_REPR: result=Long.toUnsignedString((Long)a); break;
-            case U16_NAT: case U32_NAT: result=a; break;
-            case U8_ADD: scalarResult=((Long)a+(Long)b)&255L; break;
-            case U16_EQ: case U32_EQ: scalarResult=((Long)a).longValue()==((Long)b).longValue()?1:0; break;
-            case U32_LT: scalarResult=(Long)a<(Long)b?1:0; break;
-            case U64_TO_NAT: result=externalScalar((Long)a,U64); break;
-            case LAYOUT_FIELDS: case LAYOUT_SCALARS: case LAYOUT_TAG: case LAYOUT_USIZE:
-                requireLayoutUnit(a);
-                result=Long.valueOf(f.intrinsic==LAYOUT_FIELDS?256:f.intrinsic==LAYOUT_SCALARS?1024:f.intrinsic==LAYOUT_TAG?243:8); break;
-            case U32_LE: scalarResult=(Long)a<=(Long)b?1:0; break;
-            case PLATFORM_BITS: require(a instanceof Long&&(Long)a==0,"Expected Unit for platform bits"); result=Long.valueOf(64); break;
-            case USIZE_LT: scalarResult=Long.compareUnsigned((Long)a,(Long)b)<0?1:0; break;
-            case USIZE_LE: scalarResult=Long.compareUnsigned((Long)a,(Long)b)<=0?1:0; break;
-            case USIZE_EQ: case U8_EQ: scalarResult=((Long)a).longValue()==((Long)b).longValue()?1:0; break;
-            case USIZE_ADD: scalarResult=(Long)a+(Long)b; break;
-            case USIZE_SUB: scalarResult=(Long)a-(Long)b; break;
-            case USIZE_MUL: scalarResult=(Long)a*(Long)b; break;
-            case USIZE_TO_NAT: result=externalScalar((Long)a,USIZE); break;
-            case USIZE_SHR: scalarResult=(Long)a>>>(Long)b; break;
-            case USIZE_SHL: scalarResult=(Long)a<<(Long)b; break;
-            case USIZE_AND: case U8_AND: scalarResult=(Long)a&(Long)b; break;
-            case U8_NAT: result=a; break;
-            case U8_LE: scalarResult=(Long)a<=(Long)b?1:0; break;
-            // Pinned lean.h: borrowed and consuming forms use modulo 2^width;
-            // the optional ofNatLT proof is erased by the native C ABI.
-            case U8_FROM_NAT: case U16_FROM_NAT:
-                require(ERASED.equals(b),"Unsigned conversion proof requires erased placeholder");
-                scalarResult=nat(a).longValue()&(f.intrinsic==U8_FROM_NAT?255L:65535L); break;
-            case U8_OWNED_NAT: case U16_OWNED_NAT:
-                scalarResult=nat(a).longValue()&(f.intrinsic==U8_OWNED_NAT?255L:65535L); releaseQuiet(a,1); break;
-            case U32_FROM_NAT:
-                require(ERASED.equals(b),"UInt32 conversion proof requires erased placeholder");
-                scalarResult=nat(a).longValue()&0xffffffffL; break;
-            case U32_TO_U8: scalarResult=(Long)a&255; break;
-            case U32_ADD: scalarResult=((Long)a+(Long)b)&0xffffffffL; break;
-            case STR_HASH: scalarResult=stringHash(utf8(a)); break;
-            case U8_TO_U64: case U32_TO_U64: case USIZE_TO_U64: case U8_TO_U32: scalarResult=(Long)a; break;
-            case U64_TO_U8: scalarResult=(Long)a&255L; break;
-            case BOOL_U64: requireBoolScalar(a); scalarResult=(Long)a; break;
-            case U64_ADD: scalarResult=(Long)a+(Long)b; break;
-            case U64_SUB: scalarResult=(Long)a-(Long)b; break;
-            case U64_MUL: scalarResult=(Long)a*(Long)b; break;
-            case U64_DIV: scalarResult=(Long)b==0?0:Long.divideUnsigned((Long)a,(Long)b); break;
-            case U64_MOD: scalarResult=(Long)b==0?(Long)a:Long.remainderUnsigned((Long)a,(Long)b); break;
-            case U64_AND: scalarResult=(Long)a&(Long)b; break;
-            case U64_OR: scalarResult=(Long)a|(Long)b; break;
-            case U64_NOT: scalarResult=~(Long)a; break;
-            case U64_NEG: scalarResult=-(Long)a; break;
-            case U64_LOG2: scalarResult=(Long)a==0?0:63-Long.numberOfLeadingZeros((Long)a); break;
-            case U64_SHL: scalarResult=(Long)a<<(Long)b; break;
-            case U64_LE: scalarResult=Long.compareUnsigned((Long)a,(Long)b)<=0?1:0; break;
-            case U64_MIX: scalarResult=mixHash((Long)a,(Long)b); break;
-            case U64_NAT:
-                if(f.params.length>1) require(ERASED.equals(b),"UInt64 conversion proof requires erased placeholder");
-                scalarResult=nat(a).longValue(); break;
-            case U64_OWNED_NAT: scalarResult=nat(a).longValue(); releaseQuiet(a,1); break;
-            case U32_OWNED_NAT: scalarResult=nat(a).longValue()&0xffffffffL; releaseQuiet(a,1); break;
-            case U64_SHR: scalarResult=(Long)a>>>(Long)b; break;
-            case U64_XOR: scalarResult=(Long)a^(Long)b; break;
-            case U64_USIZE: scalarResult=(Long)a; break;
-            case U64_TO_U32: scalarResult=(Long)a&0xffffffffL; break;
-            case U64_LT: scalarResult=Long.compareUnsigned((Long)a,(Long)b)<0?1:0; break;
-            case U64_EQ: scalarResult=((Long)a).longValue()==((Long)b).longValue()?1:0; break;
-            default: throw error("Invalid scalar intrinsic");
-        }
-    }
     // Negative BigInteger.bitLength omits the sign extension; +1 safely bounds
     // absolute magnitude without allocating abs()/negate() just to inspect it.
-    private static long magnitudeBits(BigInteger value) {
+    static long magnitudeBits(BigInteger value) {
         return (long)value.bitLength()+(value.signum()<0?1:0);
     }
-    private static void boundedMagnitude(BigInteger value) {
-        resource(magnitudeBits(value)<=MAX_NAT_RESULT_BITS,"Integer magnitude outside bounded runtime bit limit");
-    }
-    private static BigInteger boundedAdd(BigInteger left,BigInteger right,boolean subtract) {
+    static BigInteger boundedAdd(BigInteger left,BigInteger right,boolean subtract) {
         if(right.signum()==0) return left;
         if(!subtract&&left.signum()==0) return right;
         if(subtract&&left.equals(right)) return BigInteger.ZERO;
@@ -9790,7 +6080,7 @@ public final class Interpreter implements AutoCloseable {
         resource(right==0||left<=MAX_NAT_MULTIPLY_WORK/right,"Nat multiplication outside bounded runtime work limit");
         return left*right;
     }
-    private BigInteger natMultiply(BigInteger left,BigInteger right) {
+    BigInteger natMultiply(BigInteger left,BigInteger right) {
         atomicPoll();
         if(left.signum()==0||right.signum()==0) return BigInteger.ZERO;
         if(left.equals(BigInteger.ONE)) { resource(right.bitLength()<=MAX_NAT_RESULT_BITS,"Nat product outside bounded runtime bit limit"); return right; }
@@ -9830,57 +6120,11 @@ public final class Interpreter implements AutoCloseable {
         }
         atomicPoll(); return normalize(answer);
     }
-    private static Object natShiftLeft(BigInteger value,BigInteger exponent) {
-        if(value.signum()==0) return ERASED;
-        if(exponent.signum()==0) return normalize(value);
-        resource(exponent.compareTo(BigInteger.valueOf(MAX_SHIFT_RESULT_BITS))<=0
-                &&(long)value.bitLength()+exponent.longValue()<=MAX_SHIFT_RESULT_BITS,
-                "Nat.shiftLeft result outside bounded runtime bit limit");
-        return normalize(value.shiftLeft(exponent.intValue()));
-    }
-    private static boolean natPrimitive(int op) {
-        return op<=POW||(op>=NAT_LE&&op<=NAT_SHR)||(op>=NAT_AND&&op<=NAT_DIV_EXACT);
-    }
     private static long gcd(long x,long y) {
         while(y!=0) { long r=x%y; x=y; y=r; }
         return x;
     }
-    private static boolean wordPrimitive(int op) { return op>=WORD_BASE&&op<WORD_BASE+WORD_LANES*WORD_STRIDE&&(op-WORD_BASE)%WORD_STRIDE<=W_OWNED_NAT; }
-    private static boolean boolWordPrimitive(int op) {
-        return op==BOOL_U64||(wordPrimitive(op)&&(op-WORD_BASE)%WORD_STRIDE==W_FROM_BOOL);
-    }
-    /** Pinned lean.h semantics: arithmetic wraps modulo 2^width, x/0=0, x%0=x,
-     * shift distances reduce modulo the width, log2 0=0, and narrowing truncates. */
-    private void wordIntrinsic(Function f,Object a,Object b) {
-        int lane=(f.intrinsic-WORD_BASE)/WORD_STRIDE,code=(f.intrinsic-WORD_BASE)%WORD_STRIDE,bits=WORD_BITS[lane];
-        long mask=bits==64?-1L:(1L<<bits)-1;
-        if(code==W_OWNED_NAT) { scalarResult=nat(a).longValue()&mask; releaseQuiet(a,1); return; }
-        if(code==W_FROM_BOOL) { requireBoolScalar(a); scalarResult=(Long)a; return; }
-        long x=(Long)a&mask,y=b instanceof Long?(Long)b&mask:0;
-        switch(code) {
-            case W_ADD: scalarResult=(x+y)&mask; break;
-            case W_SUB: scalarResult=(x-y)&mask; break;
-            case W_MUL: scalarResult=(x*y)&mask; break;
-            case W_DIV: scalarResult=y==0?0:Long.divideUnsigned(x,y); break;
-            case W_MOD: scalarResult=y==0?x:Long.remainderUnsigned(x,y); break;
-            case W_AND: scalarResult=x&y; break;
-            case W_OR: scalarResult=x|y; break;
-            case W_XOR: scalarResult=x^y; break;
-            case W_NOT: scalarResult=~x&mask; break;
-            case W_NEG: scalarResult=-x&mask; break;
-            case W_SHL: scalarResult=(x<<(int)(y&(bits-1)))&mask; break;
-            case W_SHR: scalarResult=x>>>(int)(y&(bits-1)); break;
-            case W_LOG2: scalarResult=x==0?0:63-Long.numberOfLeadingZeros(x); break;
-            case W_EQ: scalarResult=x==y?1:0; break;
-            case W_LT: scalarResult=Long.compareUnsigned(x,y)<0?1:0; break;
-            case W_LE: scalarResult=Long.compareUnsigned(x,y)<=0?1:0; break;
-            case W_TO_U8: case W_TO_U16: case W_TO_U32: case W_TO_U64: case W_TO_USIZE: {
-                int target=WORD_BITS[code-W_TO_U8];
-                scalarResult=target==64?x:x&((1L<<target)-1); break;
-            }
-            default: throw error("Invalid word intrinsic");
-        }
-    }
+    static boolean wordPrimitive(int op) { return op>=WORD_BASE&&op<WORD_BASE+WORD_LANES*WORD_STRIDE&&(op-WORD_BASE)%WORD_STRIDE<=W_OWNED_NAT; }
     private void intrinsic(Function f,Object a,Object b) {
         if(a instanceof Long && b instanceof Long && (Long)a>=0 && (Long)b>=0) {
             long x=(Long)a,y=(Long)b;
@@ -9896,7 +6140,7 @@ public final class Interpreter implements AutoCloseable {
                 case NAT_LE: scalarResult=x<=y?1:0; break;
                 case NAT_LOG2: result=Long.valueOf(Math.max(0,63-Long.numberOfLeadingZeros(x))); break;
                 case NAT_OR: result=Long.valueOf(x|y); break;
-                case NAT_SHL: result=natShiftLeft(BigInteger.valueOf(x),BigInteger.valueOf(y)); break;
+                case NAT_SHL: result=ScalarIntrinsics.natShiftLeft(BigInteger.valueOf(x),BigInteger.valueOf(y)); break;
                 case NAT_SHR: result=Long.valueOf(y>=63?0:x>>>y); break;
                 case NAT_AND: result=Long.valueOf(x&y); break;
                 case NAT_XOR: result=Long.valueOf(x^y); break;
@@ -9920,7 +6164,7 @@ public final class Interpreter implements AutoCloseable {
                 case NAT_LE: scalarResult=x.compareTo(y)<=0?1:0; break;
                 case NAT_LOG2: result=Long.valueOf(Math.max(0,x.bitLength()-1)); break;
                 case NAT_OR: result=normalize(x.or(y)); break;
-                case NAT_SHL: result=natShiftLeft(x,y); break;
+                case NAT_SHL: result=ScalarIntrinsics.natShiftLeft(x,y); break;
                 case NAT_SHR: result=y.compareTo(BigInteger.valueOf(x.bitLength()))>=0?ERASED:normalize(x.shiftRight(y.intValue())); break;
                 case NAT_AND: result=normalize(x.and(y)); break;
                 case NAT_XOR: result=normalize(x.xor(y)); break;
@@ -9945,7 +6189,7 @@ public final class Interpreter implements AutoCloseable {
         else constants[f.id]=Long.valueOf(scalarResult);
         constantReady[f.id]=true;
     }
-    private static void requireExecutableAbi(Function function) {
+    static void requireExecutableAbi(Function function) {
         Header header=function.header;
         if(header==null) return;
         if(function.resultType<0) throw error("Unsupported execution lane "+header.resultType+" in "+function.label+" ["+header.originalSha256+"]");
@@ -9954,7 +6198,7 @@ public final class Interpreter implements AutoCloseable {
     }
     /** Pinned 64-bit Lean target layout, not Java object dimensions. */
     private static boolean layoutPrimitive(int op) { return op>=LAYOUT_FIELDS&&op<=LAYOUT_USIZE; }
-    private static void requireLayoutUnit(Object value) {
+    static void requireLayoutUnit(Object value) {
         require(value instanceof Long&&((Long)value).longValue()==0,"Layout query requires canonical Unit zero");
     }
     private static boolean buildIdentityPrimitive(int op) { return op==BUILD_GITHASH||op==BUILD_TARGET; }
@@ -9971,8 +6215,8 @@ public final class Interpreter implements AutoCloseable {
         Function target=program.guestExports[function.id];
         return target==null?function:target;
     }
-    private Function preflightCallable(Function function) { return preflightCallable(function,false); }
-    private Function preflightCallable(Function function,boolean allowCodeRequest) {
+    Function preflightCallable(Function function) { return preflightCallable(function,false); }
+    Function preflightCallable(Function function,boolean allowCodeRequest) {
         requireExecutableAbi(function);
         require(!disposed,"Disposed task runtime cannot enter guest code");
         require(function.id<0||!constantRetired[function.id],"Initialized cache owner has been retired: "+function.label);
@@ -9981,11 +6225,11 @@ public final class Interpreter implements AutoCloseable {
         require(function.id<0||!constantRetired[function.id],"Initialized cache owner has been retired: "+function.label);
         if(function.intrinsic==PROFILE_IT) profilingGetter(function);
         if(findPrimitive(function.intrinsic)) require(explicit&&taskRuntime!=null,"Expr.find requires the active explicit runtime");
-        if(function.intrinsic==LEVEL_INSTANTIATE) levelInstantiationProfile(function);
-        if(function.intrinsic==EXPR_INSTANTIATE_MVARS) exprInstantiationProfile(function);
+        if(function.intrinsic==LEVEL_INSTANTIATE) levels.levelInstantiationProfile(function);
+        if(function.intrinsic==EXPR_INSTANTIATE_MVARS) exprDelayed.exprInstantiationProfile(function);
         if(function.intrinsic==SHARECOMMON_QUICK) shareCommonProfile();
         if(function.intrinsic==EXPR_REPLACE) exprTransformsProfile(function);
-        if(abstractPrimitive(function.intrinsic)||pureExprTransform(function.intrinsic)) exprTransformsProfile(function);
+        if(ExprTransforms.abstractPrimitive(function.intrinsic)||ExprTransforms.pureExprTransform(function.intrinsic)) exprTransformsProfile(function);
         if(buildIdentityPrimitive(function.intrinsic)) requireBuildIdentity();
         if(taskPrimitive(function.intrinsic)) require(taskRuntime!=null,"Logical synchronous task runtime is inactive");
         if(function.params.length==0&&constantReady[function.id]) return function;
@@ -10035,7 +6279,7 @@ public final class Interpreter implements AutoCloseable {
         try { eval(f,prepared); }
         finally { Arrays.fill(objects,oldSp,sp,null); Arrays.fill(joins,oldJsp,jsp,null); bp=oldBp;sp=oldSp;jbp=oldJbp;jsp=oldJsp; }
     }
-    private Object apply(Object value,Object[] args) {
+    Object apply(Object value,Object[] args) {
         Node closure=node(value); if(closure.closure==null) throw error("Expected closure");
         acceptsClosure(closure);
         Function f=closure.closure,called=f;
@@ -10045,7 +6289,7 @@ public final class Interpreter implements AutoCloseable {
             called=preflightCallable(f);
             if(buildIdentityPrimitive(f.intrinsic)) requireBuildUnit(closure.fields.length==0?args[0]:closure.fields[0]);
             if(layoutPrimitive(f.intrinsic)) requireLayoutUnit(closure.fields.length==0?args[0]:closure.fields[0]);
-            if(boolWordPrimitive(f.intrinsic)) requireBoolScalar(closure.fields.length==0?args[0]:closure.fields[0]);
+            if(ScalarIntrinsics.boolWordPrimitive(f.intrinsic)) ScalarIntrinsics.requireBoolScalar(closure.fields.length==0?args[0]:closure.fields[0]);
         }
         Object[] combined=new Object[closure.fields.length+args.length];
         System.arraycopy(closure.fields,0,combined,0,closure.fields.length);
@@ -10095,7 +6339,7 @@ public final class Interpreter implements AutoCloseable {
             default: throw error("Invalid expression opcode");
         }
     }
-    private void tick() { if(--callsLeft<0) throw error("Call/loop budget exhausted"); if((callsLeft&1023)==0&&Thread.currentThread().isInterrupted()) throw error("Interrupted"); }
+    void tick() { if(--callsLeft<0) throw error("Call/loop budget exhausted"); if((callsLeft&1023)==0&&Thread.currentThread().isInterrupted()) throw error("Interrupted"); }
     private void eval(Function f,PreparedBody prepared) {
         tick(); Body b=prepared.body;
         while(true) {
@@ -10147,7 +6391,7 @@ public final class Interpreter implements AutoCloseable {
                 "Borrowed UTF8/buffer primitive requires an owned guest wrapper");
         require(!borrowedTaskPrimitive(function.intrinsic),"Borrowed task primitive requires owned guest wrapper");
         require(function.intrinsic!=NAME_EQ,"Borrowed Name equality cannot be admitted as a first-class closure");
-        require(function.intrinsic!=EXPR_CACHE,"Borrowed Expr data requires an owned guest wrapper"); require(!borrowedExprEquality(function.intrinsic),"Borrowed Expr equality requires an owned guest wrapper"); require(function.intrinsic!=LEVEL_EQUAL,"Borrowed Level equality requires an owned guest wrapper"); require(!borrowedExprLooseQuery(function.intrinsic),"Borrowed Expr loose search requires an owned guest wrapper"); require(!borrowedExprOrder(function.intrinsic),"Borrowed Expr quick ordering requires an owned guest wrapper"); require(!findPrimitive(function.intrinsic),"Borrowed Expr.find requires an owned guest wrapper"); require(function.intrinsic!=SHARECOMMON_QUICK,"Borrowed ShareCommon requires an owned guest wrapper"); require(function.intrinsic!=EXPR_REPLACE,"Borrowed Expr.replace requires an owned guest wrapper"); require(!abstractPrimitive(function.intrinsic),"Borrowed Expr abstraction requires an owned guest wrapper"); require(!pureExprTransform(function.intrinsic),"Borrowed Expr instantiation/lift requires an owned guest wrapper");
+        require(function.intrinsic!=EXPR_CACHE,"Borrowed Expr data requires an owned guest wrapper"); require(!borrowedExprEquality(function.intrinsic),"Borrowed Expr equality requires an owned guest wrapper"); require(function.intrinsic!=LEVEL_EQUAL,"Borrowed Level equality requires an owned guest wrapper"); require(!ExprTransforms.borrowedExprLooseQuery(function.intrinsic),"Borrowed Expr loose search requires an owned guest wrapper"); require(!borrowedExprOrder(function.intrinsic),"Borrowed Expr quick ordering requires an owned guest wrapper"); require(!findPrimitive(function.intrinsic),"Borrowed Expr.find requires an owned guest wrapper"); require(function.intrinsic!=SHARECOMMON_QUICK,"Borrowed ShareCommon requires an owned guest wrapper"); require(function.intrinsic!=EXPR_REPLACE,"Borrowed Expr.replace requires an owned guest wrapper"); require(!ExprTransforms.abstractPrimitive(function.intrinsic),"Borrowed Expr abstraction requires an owned guest wrapper"); require(!ExprTransforms.pureExprTransform(function.intrinsic),"Borrowed Expr instantiation/lift requires an owned guest wrapper");
         require(function.intrinsic!=POINTER_IDENTITY,"Pointer identity cannot be admitted as a first-class closure");
         if(!(kindMetadata(closure) instanceof Generation)||!program.generation.accepts((Generation)kindMetadata(closure))) throw error("Closure belongs to another code image");
         if(function.privateOwner!=null) {
@@ -10507,14 +6751,14 @@ public final class Interpreter implements AutoCloseable {
                 require(!borrowedTaskPrimitive(target.intrinsic),"Borrowed task primitive requires owned guest wrapper");
                 require(!borrowedArrayPrimitive(target.intrinsic),
                         "Borrowed array primitive requires owned closure wrapper");
-                require(!borrowedIntPrimitive(target.intrinsic),"Borrowed Int primitive requires owned closure wrapper");
-                require(!borrowedStringPositionPrimitive(target.intrinsic),"Borrowed String position primitive requires owned closure wrapper");
+                require(!ScalarIntrinsics.borrowedIntPrimitive(target.intrinsic),"Borrowed Int primitive requires owned closure wrapper");
+                require(!StringIntrinsics.borrowedStringPositionPrimitive(target.intrinsic),"Borrowed String position primitive requires owned closure wrapper");
                 require(target.intrinsic!=PROFILE_IT,"Borrowed profiling primitive requires an owned guest wrapper");
-                require(!borrowedStringCompletionPrimitive(target.intrinsic),"Borrowed String range primitive requires owned closure wrapper");
+                require(!StringIntrinsics.borrowedStringCompletionPrimitive(target.intrinsic),"Borrowed String range primitive requires owned closure wrapper");
                 require(!borrowedBytePrimitive(target.intrinsic),"Borrowed ByteArray primitive requires owned closure wrapper");
                 require(!target.borrowedUtf8,"Borrowed UTF8 conversion requires owned closure wrapper");
                 require(target.intrinsic!=NAME_EQ,"Borrowed Name equality requires an owned guest wrapper");
-                require(target.intrinsic!=EXPR_CACHE,"Borrowed Expr data requires an owned guest wrapper"); require(!borrowedExprEquality(target.intrinsic),"Borrowed Expr equality requires an owned guest wrapper"); require(target.intrinsic!=LEVEL_EQUAL,"Borrowed Level equality requires an owned guest wrapper"); require(!borrowedExprLooseQuery(target.intrinsic),"Borrowed Expr loose search requires an owned guest wrapper"); require(!borrowedExprOrder(target.intrinsic),"Borrowed Expr quick ordering requires an owned guest wrapper"); require(!findPrimitive(target.intrinsic),"Borrowed Expr.find requires an owned guest wrapper"); require(target.intrinsic!=SHARECOMMON_QUICK,"Borrowed ShareCommon requires an owned guest wrapper"); require(target.intrinsic!=EXPR_REPLACE,"Borrowed Expr.replace requires an owned guest wrapper"); require(!abstractPrimitive(target.intrinsic),"Borrowed Expr abstraction requires an owned guest wrapper"); require(!pureExprTransform(target.intrinsic),"Borrowed Expr instantiation/lift requires an owned guest wrapper");
+                require(target.intrinsic!=EXPR_CACHE,"Borrowed Expr data requires an owned guest wrapper"); require(!borrowedExprEquality(target.intrinsic),"Borrowed Expr equality requires an owned guest wrapper"); require(target.intrinsic!=LEVEL_EQUAL,"Borrowed Level equality requires an owned guest wrapper"); require(!ExprTransforms.borrowedExprLooseQuery(target.intrinsic),"Borrowed Expr loose search requires an owned guest wrapper"); require(!borrowedExprOrder(target.intrinsic),"Borrowed Expr quick ordering requires an owned guest wrapper"); require(!findPrimitive(target.intrinsic),"Borrowed Expr.find requires an owned guest wrapper"); require(target.intrinsic!=SHARECOMMON_QUICK,"Borrowed ShareCommon requires an owned guest wrapper"); require(target.intrinsic!=EXPR_REPLACE,"Borrowed Expr.replace requires an owned guest wrapper"); require(!ExprTransforms.abstractPrimitive(target.intrinsic),"Borrowed Expr abstraction requires an owned guest wrapper"); require(!ExprTransforms.pureExprTransform(target.intrinsic),"Borrowed Expr instantiation/lift requires an owned guest wrapper");
                 require(target.intrinsic!=POINTER_IDENTITY,"Pointer identity requires a certified direct FAP site");
                 require(!borrowedRefPrimitive(target.intrinsic),"Borrowed ref primitive requires owned closure wrapper");
                 closureTargets[i]=target;
@@ -10593,14 +6837,14 @@ public final class Interpreter implements AutoCloseable {
         require(!borrowedTaskPrimitive(target.intrinsic),"Borrowed task primitive requires owned guest wrapper");
                 require(!borrowedArrayPrimitive(target.intrinsic),
                 "Borrowed array primitive requires owned closure wrapper");
-        require(!borrowedIntPrimitive(target.intrinsic),"Borrowed Int primitive requires owned closure wrapper");
-        require(!borrowedStringPositionPrimitive(target.intrinsic),"Borrowed String position primitive requires owned closure wrapper");
+        require(!ScalarIntrinsics.borrowedIntPrimitive(target.intrinsic),"Borrowed Int primitive requires owned closure wrapper");
+        require(!StringIntrinsics.borrowedStringPositionPrimitive(target.intrinsic),"Borrowed String position primitive requires owned closure wrapper");
         require(target.intrinsic!=PROFILE_IT,"Borrowed profiling primitive requires an owned guest wrapper");
-        require(!borrowedStringCompletionPrimitive(target.intrinsic),"Borrowed String range primitive requires owned closure wrapper");
+        require(!StringIntrinsics.borrowedStringCompletionPrimitive(target.intrinsic),"Borrowed String range primitive requires owned closure wrapper");
         require(!borrowedBytePrimitive(target.intrinsic),"Borrowed ByteArray primitive requires owned closure wrapper");
                 require(!target.borrowedUtf8,"Borrowed UTF8 conversion requires owned closure wrapper");
         require(target.intrinsic!=NAME_EQ,"Borrowed Name equality requires an owned guest wrapper");
-        require(target.intrinsic!=EXPR_CACHE,"Borrowed Expr data requires an owned guest wrapper"); require(!borrowedExprEquality(target.intrinsic),"Borrowed Expr equality requires an owned guest wrapper"); require(target.intrinsic!=LEVEL_EQUAL,"Borrowed Level equality requires an owned guest wrapper"); require(!borrowedExprLooseQuery(target.intrinsic),"Borrowed Expr loose search requires an owned guest wrapper"); require(!borrowedExprOrder(target.intrinsic),"Borrowed Expr quick ordering requires an owned guest wrapper"); require(!findPrimitive(target.intrinsic),"Borrowed Expr.find requires an owned guest wrapper"); require(target.intrinsic!=SHARECOMMON_QUICK,"Borrowed ShareCommon requires an owned guest wrapper"); require(target.intrinsic!=EXPR_REPLACE,"Borrowed Expr.replace requires an owned guest wrapper"); require(!abstractPrimitive(target.intrinsic),"Borrowed Expr abstraction requires an owned guest wrapper"); require(!pureExprTransform(target.intrinsic),"Borrowed Expr instantiation/lift requires an owned guest wrapper");
+        require(target.intrinsic!=EXPR_CACHE,"Borrowed Expr data requires an owned guest wrapper"); require(!borrowedExprEquality(target.intrinsic),"Borrowed Expr equality requires an owned guest wrapper"); require(target.intrinsic!=LEVEL_EQUAL,"Borrowed Level equality requires an owned guest wrapper"); require(!ExprTransforms.borrowedExprLooseQuery(target.intrinsic),"Borrowed Expr loose search requires an owned guest wrapper"); require(!borrowedExprOrder(target.intrinsic),"Borrowed Expr quick ordering requires an owned guest wrapper"); require(!findPrimitive(target.intrinsic),"Borrowed Expr.find requires an owned guest wrapper"); require(target.intrinsic!=SHARECOMMON_QUICK,"Borrowed ShareCommon requires an owned guest wrapper"); require(target.intrinsic!=EXPR_REPLACE,"Borrowed Expr.replace requires an owned guest wrapper"); require(!ExprTransforms.abstractPrimitive(target.intrinsic),"Borrowed Expr abstraction requires an owned guest wrapper"); require(!ExprTransforms.pureExprTransform(target.intrinsic),"Borrowed Expr instantiation/lift requires an owned guest wrapper");
         require(target.intrinsic!=POINTER_IDENTITY,"Pointer identity requires a certified direct FAP site");
         require(!borrowedRefPrimitive(target.intrinsic),"Borrowed ref primitive requires owned closure wrapper");
         for(int lane:target.paramTypes) require(lane==OBJ,"Unboxed partial target unsupported; boxed wrapper required");
@@ -10617,7 +6861,7 @@ public final class Interpreter implements AutoCloseable {
         return closure(target,captured);
     }
 
-    private void validateHostObject(Object value) {
+    void validateHostObject(Object value) {
         if(value instanceof Node) {
             Node n=node(value);
             require(n.rc>=0,"Invalid host object reference count");
@@ -11070,10 +7314,10 @@ public final class Interpreter implements AutoCloseable {
     private void validateEntryArguments(Function function,Object[] args) { validateEntryArguments(function,args,false); }
     private void validateEntryArguments(Function function,Object[] args,boolean saved) {
         if(args==null||args.length!=function.params.length) throw error("Arity mismatch: "+function.label);
-        if(function.intrinsic==DBG_TRACE_SHARED) validateTraceShared(args[0],args[1],args[2]);
+        if(function.intrinsic==DBG_TRACE_SHARED) stdio.validateTraceShared(args[0],args[1],args[2]);
         if(buildIdentityPrimitive(function.intrinsic)) requireBuildUnit(args[0]);
         if(layoutPrimitive(function.intrinsic)) requireLayoutUnit(args[0]);
-        if(boolWordPrimitive(function.intrinsic)) requireBoolScalar(args[0]);
+        if(ScalarIntrinsics.boolWordPrimitive(function.intrinsic)) ScalarIntrinsics.requireBoolScalar(args[0]);
         if(function.intrinsic==STR_TO_UTF8) utf8Extent(args[0]);
         if(function.intrinsic==STR_FROM_UTF8) validateFromUtf8(args[0],args[1]);
         if(function.intrinsic==TASK_MAP&&taskRuntime==null) validateTaskMap(args);
@@ -11141,7 +7385,7 @@ public final class Interpreter implements AutoCloseable {
         catch(Throwable failure) { phase=FAILED; throw failure; }
     }
 
-    private void enterExplicit(Function f,int[] slots,Object[] args,Body next,int dest,int kind,Object[] surplus) {
+    void enterExplicit(Function f,int[] slots,Object[] args,Body next,int dest,int kind,Object[] surplus) {
         if(continuationDepth>=65536) throw error("Continuation depth limit");
         f=preflightCallable(f,true);
         if(program.preparedBodies[f.id]==null) {
@@ -11180,7 +7424,7 @@ public final class Interpreter implements AutoCloseable {
             called=preflightCallable(f,true);
             if(buildIdentityPrimitive(f.intrinsic)) requireBuildUnit(closure.fields.length==0?args[0]:closure.fields[0]);
             if(layoutPrimitive(f.intrinsic)) requireLayoutUnit(closure.fields.length==0?args[0]:closure.fields[0]);
-            if(boolWordPrimitive(f.intrinsic)) requireBoolScalar(closure.fields.length==0?args[0]:closure.fields[0]);
+            if(ScalarIntrinsics.boolWordPrimitive(f.intrinsic)) ScalarIntrinsics.requireBoolScalar(closure.fields.length==0?args[0]:closure.fields[0]);
         }
         Object[] combined=new Object[closure.fields.length+args.length];
         System.arraycopy(closure.fields,0,combined,0,closure.fields.length);
@@ -11218,7 +7462,7 @@ public final class Interpreter implements AutoCloseable {
         applicationSurplus=combined.length==f.params.length?null:Arrays.copyOfRange(combined,f.params.length,combined.length);
         return true;
     }
-    private void applyExplicit(Object value,Object[] args,Body next,int dest) {
+    void applyExplicit(Object value,Object[] args,Body next,int dest) {
         while(true) {
             if(taskRuntime!=null) {
                 applicationResult=value; applicationResultOwned=true; applicationArgumentsOwned=true;
@@ -11398,14 +7642,14 @@ public final class Interpreter implements AutoCloseable {
         require(!f.borrowedUtf8,"Borrowed UTF8 conversion requires owned guest wrapper at external entry");
         require(f.intrinsic!=PROFILE_IT,"Borrowed profiling primitive requires an owned guest wrapper");
         require(!borrowedTaskPrimitive(f.intrinsic),"Borrowed task primitive requires owned guest wrapper");
-        if(borrowedStringPositionPrimitive(f.intrinsic))
+        if(StringIntrinsics.borrowedStringPositionPrimitive(f.intrinsic))
             throw new UnsupportedOperationException("Borrowed String position primitive requires owned guest wrapper at external entry");
-        if(borrowedStringCompletionPrimitive(f.intrinsic))
+        if(StringIntrinsics.borrowedStringCompletionPrimitive(f.intrinsic))
             throw new UnsupportedOperationException("Borrowed String range primitive requires owned guest wrapper at external entry");
-        if(borrowedIntPrimitive(f.intrinsic))
+        if(ScalarIntrinsics.borrowedIntPrimitive(f.intrinsic))
             throw new UnsupportedOperationException("Borrowed Int primitive requires owned guest wrapper at external entry");
         require(f.intrinsic!=NAME_EQ,"Borrowed Name equality requires an owned guest wrapper");
-        require(f.intrinsic!=EXPR_CACHE,"Borrowed Expr data requires an owned guest wrapper"); require(!borrowedExprEquality(f.intrinsic),"Borrowed Expr equality requires an owned guest wrapper"); require(f.intrinsic!=LEVEL_EQUAL,"Borrowed Level equality requires an owned guest wrapper"); require(!borrowedExprLooseQuery(f.intrinsic),"Borrowed Expr loose search requires an owned guest wrapper"); require(!borrowedExprOrder(f.intrinsic),"Borrowed Expr quick ordering requires an owned guest wrapper"); require(!findPrimitive(f.intrinsic),"Borrowed Expr.find requires an owned guest wrapper"); require(f.intrinsic!=SHARECOMMON_QUICK,"Borrowed ShareCommon requires an owned guest wrapper"); require(f.intrinsic!=EXPR_REPLACE,"Borrowed Expr.replace requires an owned guest wrapper"); require(!abstractPrimitive(f.intrinsic),"Borrowed Expr abstraction requires an owned guest wrapper"); require(!pureExprTransform(f.intrinsic),"Borrowed Expr instantiation/lift requires an owned guest wrapper");
+        require(f.intrinsic!=EXPR_CACHE,"Borrowed Expr data requires an owned guest wrapper"); require(!borrowedExprEquality(f.intrinsic),"Borrowed Expr equality requires an owned guest wrapper"); require(f.intrinsic!=LEVEL_EQUAL,"Borrowed Level equality requires an owned guest wrapper"); require(!ExprTransforms.borrowedExprLooseQuery(f.intrinsic),"Borrowed Expr loose search requires an owned guest wrapper"); require(!borrowedExprOrder(f.intrinsic),"Borrowed Expr quick ordering requires an owned guest wrapper"); require(!findPrimitive(f.intrinsic),"Borrowed Expr.find requires an owned guest wrapper"); require(f.intrinsic!=SHARECOMMON_QUICK,"Borrowed ShareCommon requires an owned guest wrapper"); require(f.intrinsic!=EXPR_REPLACE,"Borrowed Expr.replace requires an owned guest wrapper"); require(!ExprTransforms.abstractPrimitive(f.intrinsic),"Borrowed Expr abstraction requires an owned guest wrapper"); require(!ExprTransforms.pureExprTransform(f.intrinsic),"Borrowed Expr instantiation/lift requires an owned guest wrapper");
         if(borrowedBytePrimitive(f.intrinsic))
             throw new UnsupportedOperationException("Borrowed ByteArray primitive requires owned guest wrapper at external entry");
         require(f.intrinsic!=POINTER_IDENTITY,"Pointer identity requires a certified direct FAP site");
@@ -11442,7 +7686,7 @@ public final class Interpreter implements AutoCloseable {
         if(pendingEntropy!=null) throw new IllegalStateException("Pending entropy custody prevents close");
         if(hostGuestRecord!=null) throw new IllegalStateException("Host guest operation requires explicit completion before close");
         if(taskRuntime!=null) {
-            if(!disposed||stdioRoots()||runtimeAction!=null||hostCompletion!=null||quietCurrent!=null||releasePending!=0)
+            if(!disposed||stdio.stdioRoots()||runtimeAction!=null||hostCompletion!=null||quietCurrent!=null||releasePending!=0)
                 throw new IllegalStateException("Active runtime requires completed explicit disposal before close");
             for(boolean ready:constantReady) if(ready)
                 throw new IllegalStateException("Explicit disposal left an initialized cache owner");
@@ -11461,7 +7705,7 @@ public final class Interpreter implements AutoCloseable {
             if(stdioContext!=null) {
                 for(int i=0;i<3;i++) { Node old=stdioContext.current[i]; stdioContext.current[i]=null; if(old!=null) releaseQuiet(old,1); }
             }
-            for(int i=0;i<3;i++) { Node old=stdioDefault(i); clearStdioDefault(i); if(old!=null) releaseQuiet(old,1); }
+            for(int i=0;i<3;i++) { Node old=stdio.stdioDefault(i); stdio.clearStdioDefault(i); if(old!=null) releaseQuiet(old,1); }
             utf8Key=null; utf8Bytes=null;
             for(int i=0;i<constants.length;i++) if(constantReady[i]&&program.functions[i].resultType==OBJ) releaseQuiet(constants[i],1);
             Arrays.fill(constants,null); Arrays.fill(objects,null); result=null; taskRecords.clear();
