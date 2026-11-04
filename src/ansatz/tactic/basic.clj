@@ -1269,6 +1269,44 @@
 ;; Lean 4: induction produces subgoals with induction hypotheses.
 ;; Like cases but each recursive field gets an IH hypothesis.
 
+(defn- get-target-arity
+  ;; Lean Meta/Tactic/Induction.lean getTargetArity (v4.33.1).
+  [type]
+  (loop [type type n 0]
+    (let [type (head-beta type)]
+      (cond
+        (e/mdata? type) (recur (e/mdata-expr type) n)
+        (e/forall? type) (recur (e/forall-body type) (inc n))
+        :else n))))
+
+(defn- induction-ih-major
+  ;; The final argument of the motive application names the recursive field,
+  ;; possibly applied to a Pi telescope. Keep the telescope depth for bvars.
+  [type]
+  (loop [type type depth 0]
+    (cond
+      (e/mdata? type) (recur (e/mdata-expr type) depth)
+      (e/forall? type) (recur (e/forall-body type) (inc depth))
+      :else [(some-> type e/get-app-fn-args second last e/get-app-fn-args first) depth])))
+
+(defn- induction-binder-ids
+  ;; Preserve the existing local-ID order (field, its IH, next field), used
+  ;; by trailing case' names. Telescope/extraction order remains the recursor's.
+  ;; Identify IH majors from the minor type, without inspecting inductive heads.
+  [ps minor-type nfields nparams]
+  (let [order (loop [type minor-type pos 0 out []]
+                (if (= pos nparams) (sort-by second out)
+                    (let [[major depth] (when (>= pos nfields)
+                                          (induction-ih-major (e/forall-type type)))
+                          field-pos (when (and major (e/bvar? major))
+                                      (- (+ pos depth) 1 (e/bvar-idx major)))
+                          rank (if (and field-pos (<= 0 field-pos) (< field-pos nfields))
+                                 (inc (* 2 field-pos)) (* 2 pos))]
+                      (recur (e/forall-body type) (inc pos) (conj out [pos rank])))))]
+    (reduce (fn [[ps ids] [pos _]]
+              (let [[ps fid] (proof/alloc-id ps)] [ps (assoc ids pos fid)]))
+            [ps (vec (repeat nparams nil))] order)))
+
 (defn- induction-core
   "Structural induction on `hyp-fvar-id` WITHOUT generalization: the motive abstracts the target
    (and its fvar indices) from the goal only. `induction` reverts the dependent hypotheses first."
@@ -1333,92 +1371,58 @@
         motive (reduce (fn [body ty] (e/lam "x" ty body :default))
                        motive-body
                        (reverse motive-binder-types))
+        rec-lparams (vec (.levelParams rec-ci))
+        rec-levels (cond
+                     (empty? rec-lparams) []
+                     (> (count rec-lparams) (count ind-levels)) (into [motive-level] ind-levels)
+                     :else (vec ind-levels))
+        rec-type (e/instantiate-level-params
+                  (.type rec-ci) (zipmap rec-lparams rec-levels))
+        rec-type (reduce (fn [t arg] (e/instantiate1 (e/forall-body t) arg))
+                         rec-type (conj params motive))
+        initial-arity (get-target-arity (:type goal))
         ctors (.ctors ind-ci)]
-    (loop [ps ps i 0 ctor-goals []]
+    (loop [ps ps i 0 ctor-goals [] rec-type rec-type]
       (if (< i (alength ctors))
         (let [ctor-name (aget ctors i)
               ^ConstantInfo ctor-ci (env/lookup! (:env ps) ctor-name)
-              ctor-type (.type ctor-ci)
-              ;; Instantiate level params
-              subst (into {} (map vector (vec (.levelParams ctor-ci)) ind-levels))
-              ctor-type (e/instantiate-level-params ctor-type subst)
-              ;; Skip params
-              ctor-type (loop [t ctor-type n num-params ps-args params]
-                          (if (and (pos? n) (e/forall? t))
-                            (recur (e/instantiate1 (e/forall-body t) (first ps-args))
-                                   (dec n) (rest ps-args))
-                            t))
-              ;; Peel fields AND add IH for recursive fields.
-              ;; Recursor expects: all fields first, then all IHs.
-              ;; Track ctor-fvars (for constructor term) separately.
+              ;; Lean Meta/Tactic/Induction.lean finalize: introduce the minor
+              ;; premise's binders, excluding the original target's binders.
+              ;; The recursor supplies both ordinary and Pi-typed IHs.
+              minor-type (head-beta (e/forall-type rec-type))
+              nparams (- (get-target-arity minor-type) initial-arity)
+              _ (when (< nparams (.numFields ctor-ci))
+                  (tactic-error! "induction: ill-formed recursor" {:name rec-name}))
               ;; Lean 4: remove major premise (and index fvars for indexed families)
               ;; from each branch's lctx — they're consumed by the recursor
               base-lctx (let [remove-ids (into #{hyp-fvar-id}
                                                (keep (fn [idx] (when (e/fvar? idx) (e/fvar-id idx))))
                                                indices)]
                           (reduce dissoc (:lctx goal) remove-ids))
-              [ps' ctor-fvars ih-fvar-ids new-lctx ctor-ret-type]
-              (loop [ps ps ctor-fvars [] ih-fvars [] lctx base-lctx t ctor-type]
-                (if (e/forall? t)
-                  (let [[ps' fid] (proof/alloc-id ps)
-                        fv (e/fvar fid)
+              [ps binder-ids] (induction-binder-ids ps minor-type (.numFields ctor-ci) nparams)
+              [ps' all-fvars new-lctx branch-goal-type]
+              (loop [ps ps fvars [] lctx base-lctx t minor-type]
+                (if (< (count fvars) nparams)
+                  (let [t (head-beta t)
+                        fid (nth binder-ids (count fvars))
                         ft (e/forall-type t)
+                        ih? (>= (count fvars) (.numFields ctor-ci))
+                        ;; Preserve the established ih_<field> names. The major
+                        ;; argument of an IH is the field applied to its telescope.
+                        ih-major (when ih? (first (induction-ih-major ft)))
+                        field-name (when (and ih-major (e/fvar? ih-major))
+                                     (get-in lctx [(e/fvar-id ih-major) :name]))
                         fname-raw (e/forall-name t)
-                        fname (cond
-                                (nil? fname-raw) (str "h" fid)
-                                (string? fname-raw) fname-raw
-                                :else (name/->string fname-raw))
-                        lctx' (add-local lctx fid fname ft)
-                        ft-whnf (whnf-in-goal ps lctx ft)
-                        [ft-head ft-args] (e/get-app-fn-args ft-whnf)
-                        ;; A field is RECURSIVE only if its type IS the inductive being eliminated —
-                        ;; same head const AND the same (uniform) PARAMETERS. Checking the head alone
-                        ;; is WRONG for nested types: a field `head : List α` of `List (List α)` has
-                        ;; head `List` = ind-name but is NOT recursive (List α ≠ List (List α)), so it
-                        ;; must not get an induction hypothesis (which would be ill-typed: motive head).
-                        is-recursive (and (e/const? ft-head)
-                                          (= (e/const-name ft-head) ind-name)
-                                          (>= (count ft-args) num-params)
-                                          (let [stf (mk-tc ps lctx)]
-                                            (every? (fn [[fa pa]] (tc/is-def-eq stf fa pa))
-                                                    (map vector (take num-params ft-args) params))))
-                        [ps'' lctx'' new-ih-fvars]
-                        (if is-recursive
-                          (let [[ps'' ih-id] (proof/alloc-id ps')
-                                ;; For indexed families, extract indices from the
-                                ;; recursive field's type and instantiate motive with them
-                                field-ret-indices (when (and (seq indices)
-                                                             (>= (count ft-args) num-params))
-                                                    (subvec (vec ft-args) num-params))
-                                ih-type (if (seq field-ret-indices)
-                                          (e/instantiate motive-body
-                                                         (conj (vec field-ret-indices) fv))
-                                          (e/instantiate1 motive-body fv))
-                                ih-name (str "ih_" fname)
-                                lctx'' (assoc-in (add-local lctx' ih-id ih-name ih-type)
-                                                 [ih-id :is-ih] true)]
-                            [ps'' lctx'' [ih-id]])
-                          [ps' lctx' []])]
-                    (recur ps''
-                           (conj ctor-fvars fid)
-                           (into ih-fvars new-ih-fvars)
-                           lctx'' (e/instantiate1 (e/forall-body t) fv)))
-                  [ps ctor-fvars ih-fvars lctx t]))
-              ;; all-fvars: fields first, then IHs (matching recursor order)
-              all-fvars (into (vec ctor-fvars) ih-fvar-ids)
-              ;; Build ctor applied to params and ONLY field fvars (not IH)
-              ctor-term (reduce e/app
-                                (e/const' ctor-name ind-levels)
-                                (concat params (map e/fvar ctor-fvars)))
-              ;; For indexed families, extract return indices from ctor return type
-              ctor-ret-indices (when (seq indices)
-                                 (let [[_ ret-args] (e/get-app-fn-args ctor-ret-type)]
-                                   (when (>= (count ret-args) num-params)
-                                     (subvec (vec ret-args) num-params))))
-              branch-goal-type (if (seq ctor-ret-indices)
-                                 (e/instantiate motive-body
-                                                (conj (vec ctor-ret-indices) ctor-term))
-                                 (e/instantiate1 motive-body ctor-term))
+                        fname (if field-name (str "ih_" field-name)
+                                  (cond
+                                    (nil? fname-raw) (str "h" fid)
+                                    (string? fname-raw) fname-raw
+                                    :else (name/->string fname-raw)))
+                        lctx' (cond-> (add-local lctx fid fname (head-beta ft))
+                                ih? (assoc-in [fid :is-ih] true))]
+                    (recur ps (conj fvars fid) lctx'
+                           (e/instantiate1 (e/forall-body t) (e/fvar fid))))
+                  [ps fvars lctx (head-beta t)]))
               new-lctx (reduce #(assoc-in %1 [%2 :inaccessible] true) new-lctx all-fvars)
               [ps' branch-id] (proof/fresh-mvar ps' branch-goal-type new-lctx)
               ps' (proof/set-mvar-user-name ps' branch-id
@@ -1426,34 +1430,32 @@
                                                          (last (clojure.string/split (name/->string ctor-name) #"\."))))]
           (recur ps' (inc i)
                  (conj ctor-goals {:ctor-name ctor-name
-                                   :field-fvars all-fvars  ;; includes IH fvars for extraction
-                                   :goal-id branch-id})))
+                                   :field-fvars all-fvars
+                                   :goal-id branch-id})
+                 (e/instantiate1
+                  (e/forall-body rec-type)
+                  (reduce (fn [body fid]
+                            (let [d (get new-lctx fid)]
+                              (e/lam (:name d) (:type d) (e/abstract1 body fid) :default)))
+                          (e/mvar branch-id) (reverse all-fvars)))))
         ;; Assign the original goal
-        (let [;; Build recursor levels: prepend the motive universe only when the
-              ;; recursor declares more level params than the inductive has universes. Prop-
-              ;; eliminating recursors (List.Perm.rec) fix the motive at Sort 0 — no extra param.
-              rec-lparams (vec (.levelParams rec-ci))
-              rec-levels (cond
-                           (empty? rec-lparams) []
-                           (> (count rec-lparams) (count ind-levels)) (into [motive-level] ind-levels)
-                           :else (vec ind-levels))]
-          (let [branch-ids (mapv :goal-id ctor-goals)
-                ps' (-> (proof/assign-mvar ps (:id goal)
-                                           {:kind :cases  ;; reuse cases extraction
-                                            :hyp-fvar-id hyp-fvar-id
-                                            :ind-name ind-name
-                                            :rec-name rec-name
-                                            :motive motive
-                                            :params params
-                                            :indices indices
-                                            :levels rec-levels
-                                            :ctor-goals ctor-goals})
-                        (proof/record-tactic :induction [hyp-fvar-id] (:id goal)))]
+        (let [branch-ids (mapv :goal-id ctor-goals)
+              ps' (-> (proof/assign-mvar ps (:id goal)
+                                         {:kind :cases  ;; reuse cases extraction
+                                          :hyp-fvar-id hyp-fvar-id
+                                          :ind-name ind-name
+                                          :rec-name rec-name
+                                          :motive motive
+                                          :params params
+                                          :indices indices
+                                          :levels rec-levels
+                                          :ctor-goals ctor-goals})
+                      (proof/record-tactic :induction [hyp-fvar-id] (:id goal)))]
             ;; Move branch goals to front to maintain focus
-            (update ps' :goals (fn [gs]
-                                 (let [branch-set (set branch-ids)
-                                       others (filterv #(not (branch-set %)) gs)]
-                                   (into (vec branch-ids) others))))))))))
+          (update ps' :goals (fn [gs]
+                               (let [branch-set (set branch-ids)
+                                     others (filterv #(not (branch-set %)) gs)]
+                                 (into (vec branch-ids) others)))))))))
 
 ;; Lean's `generalizeVars` (Elab/Tactic/Induction.lean) over Meta/GeneralizeVars.lean: the
 ;; target, its fvar indices and everything their types depend on are FORBIDDEN; every other local
@@ -1489,9 +1491,8 @@
    Following Lean 4's Induction tactic: hypotheses depending on the target are reverted first
    (so the motive, hence every IH, quantifies over them) and re-introduced in each case.
 
-   Creates one subgoal per constructor. For each constructor field
-   that has the same type as the inductive being eliminated,
-   adds an induction hypothesis to the local context."
+   Creates one subgoal per constructor, introducing fields and induction
+   hypotheses from the recursor's minor premise type."
   ([ps hyp-fvar-id] (induction ps hyp-fvar-id []))
   ([ps hyp-fvar-id user-generalizing]
    (let [goal (proof/current-goal ps)
