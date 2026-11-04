@@ -109,7 +109,7 @@
                   storage/read-derived (fn [store branch kind]
                                          (is (= [:fixture "main" :simp-trie] [store branch kind])) legacy)]
       (is (= 1 (:key-encoding (si/ensure-simp-trie! (si/with-index-source environment source))))))
-    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Unsupported persisted simp key encoding"
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Unsupported discrimination key encoding"
                           (si/with-captured-index environment source (assoc legacy :key-encoding 999))))
-    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Unsupported persisted simp key encoding"
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Unsupported discrimination key encoding"
                           (si/build-simp-trie {:key-encoding 999 :entries []})))))

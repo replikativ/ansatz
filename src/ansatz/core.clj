@@ -12,6 +12,7 @@
   (:refer-clojure :exclude [defn class])
   (:require [ansatz.bundle :as bundle]
             [ansatz.artifact-profile :as artifact-profile]
+            [ansatz.discr-key-encoding :as key-encoding]
             [clojure.java.io]
             [clojure.string]
             [ansatz.kernel.expr :as e]
@@ -239,7 +240,8 @@
         ;; Retain the immutable simp trie already read here, rather than probing
         ;; it and later reading a potentially changed branch's derived index.
         derived (assoc derived
-                       :recall-keys (some? (read-derived kstore branch :recall-keys))
+                       :recall-keys (some? (when-let [artifact (read-derived kstore branch :recall-keys)]
+                                             (key-encoding/entries artifact)))
                        :simp-trie (read-derived kstore branch :simp-trie))
         ;; A proving session never reads a theorem's body (theorems are opaque to the
         ;; kernel, lean4#12973), so skip resolving them: :defs-only. Bodies of @[simp]

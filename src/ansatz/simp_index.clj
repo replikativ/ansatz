@@ -17,54 +17,22 @@
    ansatz.tactic.simp can require this namespace without a cycle; the disc-tree keying is
    `dt/expr->keys`, so stored keys match what `build-lemma-index`/`lookup-simp-tree` produce."
   (:require [ansatz.tactic.discr-tree :as dt]
+            [ansatz.discr-key-encoding :as ke]
             [ansatz.kernel.tc :as tc]
             [ansatz.kernel.env :as env]
             [ansatz.kernel.name :as nm]
             [ansatz.state :as state]
-            [ansatz.simp-sources :as sources]
-            [clojure.edn :as edn])
+            [ansatz.simp-sources :as sources])
   (:import [ansatz.kernel Name ConstantInfo]))
 
-(def write-key-encoding
-  "Encoding emitted by the importer. Independent of the store's ConstantInfo format."
-  2)
-
-(def readable-key-encodings
-  "Like store/readable-formats: unversioned artifacts use encoding 1; retain its
-   query generator instead of interpreting its keys using the current encoding."
-  #{1 2})
-
-(defn key-encoding [trie]
-  (let [version (get trie :key-encoding 1)]
-    (when-not (contains? readable-key-encodings version)
-      (throw (ex-info "Unsupported persisted simp key encoding; update ansatz or re-import the store"
-                      {:kind :simp-key-encoding-error :found version :readable readable-key-encodings})))
-    version))
+(def write-key-encoding ke/write-version)
+(def readable-key-encodings ke/readable-versions)
+(def key-encoding ke/encoding)
+(def key-entries ke/entries)
+(def key-entries-artifact ke/entries-artifact)
 
 (defn read-simp-trie [trie]
   (when trie (assoc trie :key-encoding (key-encoding trie))))
-
-(defn key-entries
-  "Validate and unwrap persisted simp entries. Unversioned sequences are the
-   legacy encoding; nil means no artifact. Consumers share this reader."
-  [artifact]
-  (when (map? artifact)
-    (when-not (contains? artifact :key-encoding)
-      (throw (ex-info "Malformed persisted simp key entries: missing key encoding"
-                      {:kind :simp-key-encoding-error :artifact-kind :simp-keys})))
-    (key-encoding artifact))
-  (let [entries (if (map? artifact) (:entries artifact) artifact)]
-    (when-not (or (nil? artifact)
-                  (and (sequential? entries)
-                       (every? (fn [entry]
-                                 (and (sequential? entry) (= 2 (count entry))
-                                      (string? (first entry)) (string? (second entry)))) entries)))
-      (throw (ex-info "Malformed persisted simp key entries"
-                      {:kind :simp-key-encoding-error :artifact-kind :simp-keys})))
-    (or entries [])))
-
-(defn key-entries-artifact [entries]
-  {:key-encoding write-key-encoding :entries entries})
 
 (def extension-key
   "The Env extension naming the store whose derived simp index serves this env:
@@ -175,7 +143,7 @@
   [entries]
   (let [version (if (map? entries) (key-encoding entries) 1)
         entries (key-entries entries)]
-    (reduce (fn [trie [nam k]] (dt/trie-insert trie (edn/read-string k) nam))
+    (reduce (fn [trie [nam k]] (dt/trie-insert trie (ke/checked-query version k) nam))
             (assoc dt/empty-trie :key-encoding version) entries)))
 
 (defn ensure-simp-trie!
@@ -202,12 +170,13 @@
 ;; ---- lookup side: candidate names by goal-subterm key, lazy rule resolution ----
 
 (defn query-keys
-  "The edn-safe disc-tree key-path for a goal subterm — the stored LHS keys' encoding, so
-   `dt/trie-match` against the loaded trie compares equal."
+  "Versioned edn-safe query path for a goal subterm. Pass the stored LHS keys'
+   encoding so `dt/trie-match` against the loaded trie compares equal."
   ([st env expr] (query-keys st env expr write-key-encoding))
   ([st env expr version]
    ;; Lean getKeyArgs: query offsets retain their structure; only patterns are stars.
-   (edn-safe-keys (dt/expr->keys st env expr {:key-encoding version :pattern? false}))))
+   (ke/path-artifact version
+                     (edn-safe-keys (dt/expr->keys st env expr {:key-encoding version :pattern? false})))))
 
 (defn candidate-names
   "Lemma NAMES whose LHS structurally matches `expr` (over-approximate — the disc tree; simp's

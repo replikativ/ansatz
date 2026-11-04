@@ -14,6 +14,7 @@
             [ansatz.catalogue.scalars :as scalars]
             [ansatz.session :as session]
             [ansatz.recall :as recall]
+            [ansatz.discr-key-encoding :as ke]
             [ansatz.export.storage :as storage]
             [ansatz.kernel.env :as env]
             [ansatz.kernel.expr :as e]
@@ -90,7 +91,17 @@
         (is (= si/write-key-encoding (:key-encoding artifact)))
         (is (= (set entries)
                (into #{} (mapcat (fn [entity]
-                                   (map #(vector (:decl/name entity) %) (:decl/simp-key entity)))) entities)))))
+                                   (map #(vector (:decl/name entity) (pr-str (:keys (ke/read-path %)))) (:decl/simp-key entity)))) entities)))))
+    (testing "the importer versions recall keys and the catalogue preserves their encoding"
+      (let [kstore (:store (:store-map @state/ansatz-store))
+            artifact (storage/read-derived kstore "init" :recall-keys)
+            entities (scalars/scalar-entities {:recall-keys artifact})]
+        (is (= ke/write-version (ke/encoding artifact)))
+        (is (seq (ke/entries artifact)))
+        (is (= (set (ke/entries artifact))
+               (into #{} (map (fn [entity]
+                                [(:decl/name entity) (pr-str (:keys (ke/read-path (:decl/dt-key entity))))])) entities)))
+        (is (every? #(= ke/write-version (ke/encoding (ke/read-path (:decl/dt-key %)))) entities))))
     (testing "simp resolves inherited rules LAZILY from the captured store trie"
       (is (nil? (si/capture-caches)) "no inherited rules resolved before the first simp")
       (binding [a/*verbose* false]

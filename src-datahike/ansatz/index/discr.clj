@@ -18,16 +18,13 @@
 ;; and fed the signed-delta datom stream for the watched attribute. The stored value is
 ;; the EDN key-path (`conclusion-key` / `decl-key`); queries pass a key-path or its EDN.
 (ns ansatz.index.discr
-  (:require [ansatz.tactic.discr-tree :as dt]
-            [ansatz.kernel.name :as nm]
-            [ansatz.kernel.expr :as e]
+  (:require [ansatz.discr-key-encoding :as ke]
+            [ansatz.recall :as recall]
             [datahike.index.secondary :as sec]
             [datahike.index.entity-set :as es]
             [konserve.core :as k]
-            [hasch.core :as hasch]
-            [clojure.edn :as edn])
-  (:import [ansatz.kernel Name]
-           [java.util Collections LinkedHashMap Map]))
+            [hasch.core :as hasch])
+  (:import [java.util Collections LinkedHashMap Map]))
 
 ;; ============================================================
 ;; Keys
@@ -35,45 +32,32 @@
 
 (def ^:private star-key {:tag :star})
 
-(defn- edn-safe-keys
-  "Make a disc-tree key-path EDN-round-trippable: the `:name` of a :const key is a kernel
-   Name object → stringify it. Applied to BOTH stored and query keys so they compare
-   consistently in the trie."
-  [keys]
-  (mapv (fn [k]
-          (if (instance? Name (:name k))
-            (update k :name nm/->string)
-            k))
-        keys))
-
 (defn conclusion-key
-  "The EDN-serialized discrimination key-path of an expression (for storage as
-   :decl/dt-key). `expr` should be the declaration's CONCLUSION."
+  "Versioned EDN path for a newly keyed conclusion."
   [expr]
-  (pr-str (edn-safe-keys (dt/expr->keys expr))))
+  (pr-str (ke/path-artifact ke/write-version
+                            (recall/conclusion-key expr))))
 
 (defn decl-key
-  "Stored disc-tree key for a declaration TYPE: peel the ∀-telescope, substituting
-   metavariables for the bound variables so they key as STAR wildcards, then key the
-   conclusion. A lemma `∀ n, 0 ≤ n` is thus stored as `0 ≤ *` and structurally matches any
-   `0 ≤ k` query (the kernel `defeq` confirmation then decides which candidates apply)."
+  "Versioned EDN declaration path for a newly built index."
   [ty]
-  (loop [t ty, i 0]
-    (if (e/forall? t)
-      (recur (e/instantiate1 (e/forall-body t) (e/mvar (+ 800000 i))) (inc i))
-      (conclusion-key t))))
+  (pr-str (ke/path-artifact ke/write-version (recall/decl-key ty))))
+
+(defn key-encoding [index]
+  (let [st @(:state index)]
+    (ke/encoding (cond-> st
+                   (nil? (:key-encoding st)) (assoc :key-encoding ke/write-version)))))
 
 (defn query-key
-  "A query key-path (vector) from a pattern expression; holes/mvars become star
-   wildcards inside dt/expr->keys."
-  [expr]
-  (edn-safe-keys (dt/expr->keys expr)))
+  "Fresh queries use the writer encoding; queries of a restored index MUST use
+   the index arity, which retains its persisted encoding."
+  ([expr] (recall/query-key expr ke/write-version))
+  ([index expr]
+   (let [version (key-encoding index)]
+     (recall/query-key expr version))))
 
-(defn- query-keys [query-spec]
-  (let [q (:query query-spec)]
-    (cond (string? q) (edn/read-string q)
-          (vector? q) q
-          :else [])))
+(defn- query-keys [st query-spec]
+  (ke/checked-query (or (:key-encoding st) ke/write-version) (:query query-spec)))
 
 ;; ============================================================
 ;; Persistent trie over konserve-addressed CHUNKS
@@ -292,7 +276,7 @@
                                             (load-chunk store (:cache ctx) a) {})
                                      ;; drop entries whose key left this node or became big/in-memory
                                      base (into {} (filter (fn [[k _]] (and (contains? live-keys k)
-                                                                             (bref? (get children k))))
+                                                                            (bref? (get children k))))
                                                            base))
                                      mine (into {} (filter (fn [[k _]] (= i (bucket-of k nb))) small-mem))
                                      merged (reduce-kv (fn [m k c] (assoc m k (inline-whole ctx c))) base mine)]
@@ -339,24 +323,31 @@
   sec/ISecondaryIndex
   (-search [_ query-spec entity-filter]
     (let [st @state ctx (ctx-of st)]
-      (eids->bitset (distinct (match ctx (resolve-child ctx (:root st)) (query-keys query-spec)))
+      (eids->bitset (distinct (match ctx (resolve-child ctx (:root st)) (query-keys st query-spec)))
                     entity-filter)))
   (-estimate [_ query-spec]
     (let [st @state ctx (ctx-of st)]
-      (count (distinct (match ctx (resolve-child ctx (:root st)) (query-keys query-spec))))))
+      (count (distinct (match ctx (resolve-child ctx (:root st)) (query-keys st query-spec))))))
   (-can-order? [_ _ _] false)
   (-slice-ordered [_ _ _ _ _ _] nil)
   (-indexed-attrs [_] attrs)
   (-transact [this {:keys [datom added?]}]
     ;; datom = [e a v tx]; v = EDN key-path string.
     (let [eid (long (nth datom 0))
-          keys (edn/read-string (nth datom 2))]
+          {version :key-encoding keys :keys} (ke/read-path (nth datom 2))]
       (swap! state (fn [st]
                      (let [ctx (ctx-of st)
                            root (resolve-child ctx (:root st))]
-                       (assoc st :root (if added?
-                                         (insert ctx root keys eid)
-                                         (remove-eid ctx root keys eid)))))))
+                       ;; An empty schema index can acquire its source's encoding
+                       ;; during backfill. An index containing keys cannot mix versions.
+                       (when (and (:key-encoding st) (not= version (:key-encoding st))
+                                  (or (seq (:values root)) (seq (:children root))))
+                         (throw (ex-info "Cannot mix persisted key encodings; rebuild the index"
+                                         {:kind :discr-key-encoding-error :index (:key-encoding st) :entry version})))
+                       (let [st (assoc st :key-encoding version)]
+                         (assoc st :root (if added?
+                                           (insert ctx root keys eid)
+                                           (remove-eid ctx root keys eid))))))))
     this)
 
   sec/IVersionedSecondaryIndex
@@ -368,9 +359,11 @@
       ;; drop every resident chunk: superseded versions are garbage from here on and the
       ;; new root's chunks reload on demand
       (swap! state assoc :root [:ref addr] :store store :cache (new-cache))
-      {:type :ansatz.index/discr-tree :branch branch :root addr :merkle-root addr}))
+      {:type :ansatz.index/discr-tree :branch branch :root addr :merkle-root addr
+       :key-encoding (or (:key-encoding st) ke/write-version)}))
   (-sec-restore [_ store key-map]
-    (->DiscrTreeIndex (atom {:root [:ref (:root key-map)] :store store :cache (new-cache)})
+    (->DiscrTreeIndex (atom {:root [:ref (:root key-map)] :store store :cache (new-cache)
+                             :key-encoding (ke/encoding key-map)})
                       attrs))
   (-sec-branch [_ store _from-branch _new-branch]
     ;; nodes are content-addressed and immutable: the fork shares the root
@@ -389,6 +382,7 @@
   ;; which would let the sweep delete every live chunk of this index. Walk the chunk tree
   ;; from the root address through the store and return every chunk's konserve key.
   [key-map store]
+  (ke/encoding key-map)
   (if-let [root (:root key-map)]
     (let [ctx {:store store :cache (new-cache)}]
       (set (map node-key (all-addrs ctx (resolve-child ctx [:ref root]) #{root}))))
@@ -410,7 +404,7 @@
   [index key-path]
   (let [st @(:state index) ctx (ctx-of st)]
     (distinct (match ctx (resolve-child ctx (:root st))
-                     (if (string? key-path) (edn/read-string key-path) key-path)))))
+                     (query-keys st {:query key-path})))))
 
 (defn search-scored
   "Matching entity ids with their SPECIFICITY, most specific first: `[[eid score] …]`, one
@@ -419,7 +413,7 @@
   [index key-path]
   (let [st @(:state index) ctx (ctx-of st)]
     (->> (match-scored ctx (resolve-child ctx (:root st))
-                       (if (string? key-path) (edn/read-string key-path) key-path)
+                       (query-keys st {:query key-path})
                        0)
          (reduce (fn [m [e sc]] (assoc m e (max sc (get m e 0)))) {})
          (sort-by (comp - val))

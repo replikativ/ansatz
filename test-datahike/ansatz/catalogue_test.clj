@@ -3,11 +3,13 @@
    with the durable disc-tree index as two instances (`:idx/dt` recall, `:idx/simp` simp
    LHS), connected — not rebuilt — by later processes, and reached from ansatz.recall with the
    in-memory trie as the fallback."
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [clojure.edn]
+            [clojure.test :refer [deftest is testing]]
             [clojure.java.io :as io]
             [datahike.api :as d]
             [ansatz.catalogue :as cat]
             [ansatz.simp-index :as si]
+            [ansatz.discr-key-encoding :as ke]
             [ansatz.recall :as recall]
             [ansatz.state :as state]
             [ansatz.export.storage :as storage]
@@ -43,7 +45,7 @@
 (deftest build-connect-and-query-both-indices
   (let [dir (fresh-store-dir) p (.getPath dir)]
     (testing "one entity per name, keys merged from both sources"
-      (let [stats (cat/build! p {:branch "main" :recall-keys recall-entries :simp-keys (si/key-entries-artifact simp-entries)})]
+      (let [stats (cat/build! p {:branch "main" :recall-keys (ke/entries-artifact recall-entries) :simp-keys (si/key-entries-artifact simp-entries)})]
         (is (= 4 (:entities stats)))
         (is (= 3 (:dt-keys stats)))
         (is (= 3 (:simp-keys stats)))))
@@ -70,7 +72,7 @@
   (testing "the catalogue connects from a path other than the one it was built at"
     (let [dir (fresh-store-dir) p (.getPath dir)
           moved (io/file (.getParentFile dir) (str (.getName dir) "-moved"))]
-      (cat/build! p {:branch "main" :recall-keys recall-entries :simp-keys simp-entries})
+      (cat/build! p {:branch "main" :recall-keys (ke/entries-artifact recall-entries) :simp-keys (ke/entries-artifact simp-entries)})
       (is (.renameTo dir moved))
       (.deleteOnExit moved)
       (is (cat/exists? (.getPath moved)))
@@ -82,7 +84,7 @@
 (deftest recall-prefers-the-catalogue-and-falls-back-to-the-trie
   (let [dir (fresh-store-dir) p (.getPath dir)
         sm (storage/open-store p)]
-    (storage/write-derived! (:store sm) "main" :recall-keys recall-entries)
+    (storage/write-derived! (:store sm) "main" :recall-keys (ke/entries-artifact recall-entries))
     (try
       (testing "no catalogue → the in-memory trie from the store's derived recall keys"
         (reset! recall/store-path p)
@@ -99,3 +101,46 @@
         (reset! recall/store-path nil)
         (reset! state/ansatz-store nil)
         (reset! state/ansatz-discr-trie nil)))))
+
+(deftest legacy-recall-entries-reach-both-public-catalogue-query-paths
+  (let [fixture (clojure.edn/read-string (slurp "test/fixtures/discr-keys-legacy.edn"))
+        cfg {:store {:backend :memory :id (java.util.UUID/randomUUID)}
+             :writer {:backend :self :writer-ownership :exclusive}
+             :schema-flexibility :write :keep-history? false}
+        _ (d/create-database cfg) conn (d/connect cfg)
+        succ #(e/app (e/const' (name/from-string "Nat.succ") []) %)
+        goal #(e/app* (e/const' (name/from-string "Nat.lt") []) (e/lit-nat 0) %)]
+    (try
+      (d/transact conn cat/schema-tx)
+      (d/transact conn cat/index-tx)
+      (d/transact conn (mapv (fn [[n k]] {:decl/name n :decl/kind :thm :decl/dt-key k}) (:recall-keys fixture)))
+      (d/transact conn (mapv (fn [[n k]] {:decl/name n :decl/simp-key [k]}) (:simp-keys fixture)))
+      (is (= #{"Nat.pred_succ"}
+             (set (cat/simp-expr-names @conn nil nil
+                                       (e/app (e/const' (name/from-string "Nat.pred") []) (succ (e/fvar 100)))))))
+      (let [db @conn ix (get (:secondary-indices db) :idx/dt)
+            query (goal (succ (e/fvar 100)))
+            numeral (goal (succ (succ (succ (e/const' (name/from-string "Nat.zero") [])))))]
+        (is (= 1 (dti/key-encoding ix)))
+        (with-redefs [recall/catalogue-db (constantly db)]
+          (is (some #{"Legacy.succ"} (recall/recall-names query)))
+          (is (some #{"Legacy.three"} (recall/recall-names numeral))))
+        (is (some #{"Legacy.three"}
+                  (map :name ((requiring-resolve 'ansatz.search/candidates) db numeral)))))
+      (finally (d/release conn)))))
+
+(deftest legacy-entry-artifacts-rebuild-with-their-original-encodings
+  (let [fixture (clojure.edn/read-string (slurp "test/fixtures/discr-keys-legacy.edn"))
+        dir (fresh-store-dir) p (.getPath dir)
+        succ #(e/app (e/const' (name/from-string "Nat.succ") []) %)
+        goal (e/app* (e/const' (name/from-string "Nat.lt") []) (e/lit-nat 0) (succ (e/fvar 100)))]
+    (cat/build! p {:branch "main" :recall-keys (:recall-keys fixture) :simp-keys (:simp-keys fixture) :log (constantly nil)})
+    (let [conn (cat/connect p) db @conn]
+      (try
+        (is (= 1 (dti/key-encoding (get (:secondary-indices db) :idx/dt))))
+        (is (= 1 (dti/key-encoding (get (:secondary-indices db) :idx/simp))))
+        (is (= #{"Legacy.succ"} (set (cat/recall-expr-names db goal))))
+        (is (= #{"Nat.pred_succ"}
+               (set (cat/simp-expr-names db nil nil
+                                         (e/app (e/const' (name/from-string "Nat.pred") []) (succ (e/fvar 100)))))))
+        (finally (d/release conn))))))

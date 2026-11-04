@@ -205,3 +205,10 @@ Single-threaded REPL use is safe. Fix: use `swap!` with
 - **Never reprocess all 707k declarations to test a fix.** Jump to the failing declaration directly with `skip-to!` or `verify-by-name!`.
 - **Full verification only as final validation** after individual fixes are confirmed.
 - Use `:reload` when requiring namespaces to pick up code changes.
+
+Persisted search keys must follow `ansatz.discr-key-encoding`: tag new artifacts,
+interpret absent tags as legacy encoding 1, and generate queries using the actual
+artifact's encoding. This applies to recall, simp, catalogue datoms and catalogue
+secondary roots. Never decode a key-entry envelope as a row sequence or strip its
+version before rebuilding an index. Instance registry keys have their separate
+`:dt-version` reader/recompute policy. See README's persisted-key inventory.

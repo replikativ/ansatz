@@ -13,7 +13,6 @@
    language they share, and the kernel confirms the survivors by actually applying them."
   (:require [ansatz.catalogue :as cat]
             [ansatz.index.discr :as dti]
-            [ansatz.recall :as recall]
             [ansatz.state :as state]
             [ansatz.tactic.basic :as basic]
             [ansatz.tactic.proof :as proof]
@@ -157,7 +156,7 @@
         ;; structure a stored pattern matched puts the plausible ones in front, and lets the
         ;; vocabulary join — and the kernel confirmation after it — see a few hundred rather
         ;; than thousands.
-        scored (take rank-pool (dti/search-scored ix (recall/query-key goal-type)))
+        scored (take rank-pool (dti/search-scored ix (dti/query-key ix goal-type)))
         eids (mapv first scored)
         spec (into {} scored)
         gc (into [] (keep #(eid db %)) (goal-consts goal-type))

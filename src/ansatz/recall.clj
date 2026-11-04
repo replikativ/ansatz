@@ -6,10 +6,10 @@
    (ansatz.catalogue, the durable disc-tree index) or, without one, from an in-memory trie
    built on first use. A dependency-light leaf (dt + kernel only)."
   (:require [ansatz.tactic.discr-tree :as dt]
+            [ansatz.discr-key-encoding :as ke]
             [ansatz.kernel.expr :as e]
             [ansatz.kernel.name :as nm]
-            [clojure.string :as str]
-            [clojure.edn :as edn])
+            [clojure.string :as str])
   (:import [ansatz.kernel ConstantInfo Name]))
 
 (defn- edn-safe-keys
@@ -19,6 +19,9 @@
   [keys]
   (mapv (fn [k] (if (instance? Name (:name k)) (update k :name nm/->string) k)) keys))
 
+(defn conclusion-key [expr]
+  (edn-safe-keys (dt/expr->keys nil nil expr {:key-encoding ke/write-version :pattern? true})))
+
 (defn decl-key
   "Disc-tree key for a declaration TYPE: peel the ∀-telescope (binders → star
    mvars, so a lemma `∀ n, 0 ≤ n` keys as `0 ≤ *`), then key the conclusion.
@@ -27,11 +30,15 @@
   (loop [t ty, i 0]
     (if (e/forall? t)
       (recur (e/instantiate1 (e/forall-body t) (e/mvar (+ 800000 i))) (inc i))
-      (edn-safe-keys (dt/expr->keys t)))))
+      (conclusion-key t))))
 
 (defn query-key
-  "Query key-path for a goal type (holes/mvars → star)."
-  [goal] (edn-safe-keys (dt/expr->keys goal)))
+  "Versioned query path for a goal type (holes/mvars → star). Pass the stored
+   artifact encoding when querying an existing index."
+  ([goal] (query-key goal ke/write-version))
+  ([goal version]
+   (ke/path-artifact version
+                     (edn-safe-keys (dt/expr->keys nil nil goal {:key-encoding version :pattern? false})))))
 
 ;; ---- G: skip auto-generated decls (equation lemmas, recursors, match eqns,
 ;;      internal proofs) — not useful recall targets, and their huge keys blow
@@ -63,10 +70,11 @@
 
 (defn build-discr-trie
   "The recall disc-tree from `[name key-str]` entries — trie-insert only; the expensive keying
-   was done at import."
+   was done at import. Versioned entry collections retain their encoding; bare
+   legacy entry sequences use encoding 1."
   [entries]
-  (reduce (fn [trie [nam k]] (dt/trie-insert trie (edn/read-string k) nam))
-          dt/empty-trie entries))
+  (reduce (fn [trie [nam k]] (dt/trie-insert trie (ke/checked-query (ke/encoding entries) k) nam))
+          (assoc dt/empty-trie :key-encoding (ke/encoding entries)) (ke/entries entries)))
 
 (defonce store-path
   ^{:doc "Path of the current store (set by ansatz.core/init!), or nil. When the store carries a
@@ -106,8 +114,7 @@
    first use), else from the in-memory trie built on first use from the store's recall keys;
    nil when the current env has neither."
   [goal-type]
-  (let [k (query-key goal-type)]
-    (if-let [db (catalogue-db)]
-      ((requiring-resolve 'ansatz.catalogue/recall-names) db k)
-      (when-let [trie (ensure-discr-trie!)]
-        (distinct (dt/trie-match trie k))))))
+  (if-let [db (catalogue-db)]
+    ((requiring-resolve 'ansatz.catalogue/recall-expr-names) db goal-type)
+    (when-let [trie (ensure-discr-trie!)]
+      (distinct (dt/trie-match trie (query-key goal-type (ke/encoding trie)))))))

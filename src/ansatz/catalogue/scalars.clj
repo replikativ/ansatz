@@ -1,6 +1,6 @@
 (ns ansatz.catalogue.scalars
   "Dependency-free conversion of store artifacts into catalogue scalar entities."
-  (:require [ansatz.simp-index :as si]))
+  (:require [ansatz.discr-key-encoding :as ke]))
 
 (defn scalar-entities
   "One entity map per declaration name from every source, scalars only (refs come second, once
@@ -17,8 +17,10 @@
                                       :decl/num-binders (:num-binders f) :decl/type-id (:type-id f))
                          (:concl-head f) (assoc :decl/concl-head (:concl-head f))
                          (:value-id f) (assoc :decl/value-id (:value-id f)))))
-    (doseq [[n k] recall-keys] (ent! n #(assoc % :decl/dt-key k)))
-    (doseq [[n k] (si/key-entries simp-keys)] (ent! n #(update % :decl/simp-key (fnil conj #{}) k)))
+    (doseq [[n k] (ke/entries recall-keys)]
+      (ent! n #(assoc % :decl/dt-key (ke/stored-path (ke/encoding recall-keys) k))))
+    (doseq [[n k] (ke/entries simp-keys)]
+      (ent! n #(update % :decl/simp-key (fnil conj #{}) (ke/stored-path (ke/encoding simp-keys) k))))
     (doseq [[n {:keys [module doc]}] modules :when (.containsKey by-name n)]
       (ent! n #(cond-> (assoc % :decl/module module) doc (assoc :decl/doc doc))))
     (doseq [[kind n _ prio] attrs]

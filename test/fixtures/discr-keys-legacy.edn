@@ -1,0 +1,53 @@
+; Frozen pre-offset wire paths. Literal tokens, not produced by expr->keys.
+{:recall-keys
+ [["Legacy.succ"
+   "[{:tag :const :name \"Nat.lt\" :arity 2} {:tag :lit :val 0} {:tag :const :name \"Nat.succ\" :arity 1} {:tag :star}]"]
+  ["Legacy.three"
+   "[{:tag :const :name \"Nat.lt\" :arity 2} {:tag :lit :val 0} {:tag :const :name \"Nat.succ\" :arity 1} {:tag :const :name \"Nat.succ\" :arity 1} {:tag :const :name \"Nat.succ\" :arity 1} {:tag :const :name \"Nat.zero\" :arity 0}]"]],
+ :simp-keys
+ [["Nat.pred_succ"
+   "[{:tag :const :name \"Nat.pred\" :arity 1} {:tag :const :name \"Nat.succ\" :arity 1} {:tag :star}]"]],
+ :simp-trie
+ {:values [],
+  :children
+  {{:tag :const, :name "Nat.pred", :arity 1}
+   {:values [],
+    :children
+    {{:tag :const, :name "Nat.succ", :arity 1}
+     {:values [],
+      :children
+      {{:tag :star} {:values ["Nat.pred_succ"], :children {}}}}}}}},
+ :catalogue-key-map
+ {:type :ansatz.index/discr-tree,
+  :root :legacy-root,
+  :merkle-root :legacy-root,
+  :branch "main"},
+ :catalogue-chunk
+ {:values [],
+  :children
+  {{:tag :const, :name "Nat.lt", :arity 2}
+   {:values [],
+    :children
+    {{:tag :lit, :val 0}
+     {:values [],
+      :children
+      {{:tag :const, :name "Nat.succ", :arity 1}
+       {:values [],
+        :children
+        {{:tag :star} {:values [10], :children {}},
+         {:tag :const, :name "Nat.succ", :arity 1}
+         {:values [],
+          :children
+          {{:tag :const, :name "Nat.succ", :arity 1}
+           {:values [],
+            :children
+            {{:tag :const, :name "Nat.zero", :arity 0}
+             {:values [11], :children {}}}}}}}}}}}}},
+  :n 2},
+ :instance-entry
+ {:name "instInhabitedNat",
+  :priority 1000,
+  :order 1,
+  :dt-version 2,
+  :keys [[:const "Inhabited" 1] [:const "Nat" 0]],
+  :synth-order []}}
