@@ -1,5 +1,11 @@
 # Explicit native producer bundle
 
+**Which bundle to use:** for new preparations use the
+[v4 host-binding bundle](#host-binding-producer). It covers general calls, v3
+datatypes and host bindings. Older bundles (v1–v3) remain documented below only
+because artifacts and caches prepared with them stay loadable. Deploying a prepared
+artifact needs no bundle at all.
+
 The maintained native helper sources live in
 [tools/lean-producer](../../../tools/lean-producer/README.md). This directory owns
 bundle descriptors and release/packaging records; it is not a second helper

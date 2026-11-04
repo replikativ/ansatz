@@ -4,7 +4,11 @@ import java.math.BigInteger;
 import java.util.Objects;
 import java.util.function.UnaryOperator;
 
-/** One serialized project branch, with handles bound to its exact loaded code. */
+/**
+ * One loaded Lean project: its code, initialized globals and serialized calls.
+ * A call that fails during execution retires the engine; {@link #restart()}
+ * reinitializes it from the same verified artifact.
+ */
 public final class LeanProject implements AutoCloseable {
     private final Lean owner;
     private Object token;
@@ -99,6 +103,29 @@ public final class LeanProject implements AutoCloseable {
             }
         }
         try { return (String) Bridge.INVOKE.invoke(token, handle, input); }
+        catch (Throwable failure) { throw Bridge.failure(failure); }
+    }
+
+    /**
+     * True after a call failed during execution (for example by exceeding its
+     * budget, or reaching {@code panic!} with the fail-on-panic policy). Later
+     * calls are refused with {@code ProjectFailed} until {@link #restart()}.
+     */
+    public synchronized boolean isFailed() {
+        ensureOpen();
+        try { return "failed".equals(Bridge.STATUS.invoke(token)); }
+        catch (Throwable failure) { throw Bridge.failure(failure); }
+    }
+
+    /**
+     * Discard this Project's engine and initialize a fresh one from the same
+     * verified artifact, without re-reading or re-verifying it. Existing
+     * {@link LeanFunction} handles stay valid. Module initializers run again, so
+     * globals and {@code IO.Ref} state start over.
+     */
+    public synchronized void restart() {
+        ensureOpen();
+        try { Bridge.RESTART.invoke(token); }
         catch (Throwable failure) { throw Bridge.failure(failure); }
     }
 

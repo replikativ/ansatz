@@ -3,10 +3,10 @@
 Status: implemented experimental v3 boundary, with native, public API and
 packaged-consumer acceptance. This contract does not establish a published
 version or admit a type independently of the source/artifact issuers.
-The existing [value conventions](VALUE_EXAMPLES.md), [compatibility policy](COMPATIBILITY.md),
+The existing [value conventions](../VALUE_EXAMPLES.md), [compatibility policy](../COMPATIBILITY.md),
 and [release gates](RELEASE_CHECKLIST.md) remain authoritative for current SDKs.
 The subsequent host bindings is specified separately in
-[FFI.md](FFI.md); later-work references below describe this datatype
+[FFI.md](../FFI.md); later-work references below describe this datatype
 milestone's scope.
 
 ## Implementation checkpoint
@@ -301,12 +301,12 @@ persisted declaration layouts and instantiated/trivial type representation
 must be independently validated in the native-evidence phase before these
 references authorize any reads, writes or allocation.
 
-The isolated [NativeTypeGraph module](../../tools/lean-producer/src/NativeTypeGraph.lean)
+The isolated [NativeTypeGraph module](../../../tools/lean-producer/src/NativeTypeGraph.lean)
 now defines `discover (roots : Array Expr) (products : Name → Option String) :
 MetaM Discovery`, returning `logical : Json` and separate `layouts : Json`.
 It is imported by the v3 producer, separately from the unchanged v2 producer.
 Only the registered source/binary/closure/receipt cohort and source/artifact
-issuers grant entry authority; source implementation alone does not. Its [probe](../../tools/lean-producer/test/NativeTypeGraphProbe.lean)
+issuers grant entry authority; source implementation alone does not. Its [probe](../../../tools/lean-producer/test/NativeTypeGraphProbe.lean)
 uses explicit dummy product claims only to test lookup custody; those hashes
 are never authenticated product evidence.
 

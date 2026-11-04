@@ -5,7 +5,7 @@
          '[ansatz.lean.jvm.compiler.local :as local]
          '[clojure.java.io :as io] '[clojure.data.json :as json])
 (import '[java.nio.file Path Files] '[ansatz.lean.jvm LeanException])
-(assert (= "jar" (.getProtocol (io/resource "ansatz/lean/jvm.clj"))))
+(assert (= "jar" (.getProtocol (io/resource "ansatz/lean/jvm__init.class"))))
 (def arguments (vec *command-line-args*))
 (assert (= 3 (count arguments)) "Expected: lean-sysroot producer-bundle new-empty-output-directory")
 (def output (io/file (nth arguments 2)))

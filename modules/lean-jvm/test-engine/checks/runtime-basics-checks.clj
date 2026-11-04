@@ -121,11 +121,29 @@
       (is (= 1 (c/rc ctx v) (c/rc ctx default)))
       (finally (j/release! ctx engine default) (j/release! ctx engine array) (j/close! ctx engine)))))
 
-(deftest checked-get-panic-path-rejects-before-producing-a-fake-default
+(defn- drained-stderr [engine]
+  (String. ^bytes (second (.invoke (.getMethod (class engine) "drainCapturedBytes" (make-array Class 0))
+                                   engine (object-array 0))) "UTF-8"))
+(deftest checked-get-out-of-bounds-follows-native-array-get-panic
+  ;; lean_array_get_panic: report on stderr, continue with the default value.
+  ;; The IR wrappers take owned arguments, as in the in-bounds test above.
   (let [ctx (context) engine (j/machine ctx) default (fresh ctx engine)
         array (a/empty! ctx engine 4)]
-    (is (re-find #"Array.get! panic path outside bounded runtime profile"
-          (c/failure #(call ctx engine "Array.get!InternalBorrowed" [0 default array huge]))))
-    (is (= 1 (c/rc ctx default) (c/rc ctx array)))
-    (j/release! ctx engine default) (j/release! ctx engine array)))
+    (try
+      (j/retain! ctx engine default) (j/retain! ctx engine array)
+      (let [v (call ctx engine "Array.get!Internal" [0 default array huge])]
+        (is (identical? default v)) (is (= 2 (c/rc ctx default))) (is (= 1 (c/rc ctx array)))
+        (j/release! ctx engine v))
+      (is (= "Error: index out of bounds\n" (drained-stderr engine)))
+      (j/retain! ctx engine default) (j/retain! ctx engine array)
+      (is (identical? default (call ctx engine "Array.get!InternalBorrowed" [0 default array huge])))
+      (is (= 1 (c/rc ctx default) (c/rc ctx array)))
+      (is (= "Error: index out of bounds\n" (drained-stderr engine)))
+      (finally (j/release! ctx engine default) (j/release! ctx engine array) (j/close! ctx engine))))
+  ;; Fail-on-panic mirrors LEAN_ABORT_ON_PANIC: the invocation fails.
+  (let [ctx (context) engine (j/machine ctx) default (fresh ctx engine)
+        array (a/empty! ctx engine 4)]
+    (.invoke (.getMethod (class engine) "configurePanicPolicy" (into-array Class [Boolean/TYPE])) engine (object-array [true]))
+    (is (re-find #"Lean panic: Error: index out of bounds"
+          (c/failure #(call ctx engine "Array.get!InternalBorrowed" [0 default array huge]))))))
 (defn check! [basis] (binding [*basis* basis] (run-tests 'java-ir-runtime-basics-checks)))

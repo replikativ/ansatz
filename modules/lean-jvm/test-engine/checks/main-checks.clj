@@ -250,7 +250,12 @@
 
 (deftest unsupported-and-invalid-runtime-paths-are-explicit
   (let [ctx (context)]
-    (x/probe-failure! ctx "panicCore" [0 0 "test panic"] #"panicCore default-return policy outside")
+    ;; lean_panic_fn: the message goes to captured stderr; the borrowed default is the result.
+    (let [engine (j/machine ctx)]
+      (is (= 0 (j/call ctx engine "panicCore" [0 0 "test panic"])))
+      (is (= "test panic\n" (String. ^bytes (second (.invoke (.getMethod (class engine) "drainCapturedBytes" (make-array Class 0))
+                                                              engine (object-array 0))) "UTF-8")))
+      (j/close! ctx engine))
     (doseq [text [(String. (char-array [(char 0xd800)]))
                  (String. (char-array [(char 0xdc00)]))]]
       (x/probe-failure! ctx "String.utf8ByteSize" [text] #"Invalid Unicode String"))

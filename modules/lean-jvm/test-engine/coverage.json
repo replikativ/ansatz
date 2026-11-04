@@ -548,6 +548,16 @@
       "expected_tests": 8
     },
     {
+      "namespace": "java-ir-arithmetic-checks",
+      "execution": "(java-ir-arithmetic-checks/check! basis)",
+      "expected_tests": 6
+    },
+    {
+      "namespace": "java-ir-arithmetic-checks",
+      "execution": "(java-ir-arithmetic-checks/check! (assoc basis :explicit true))",
+      "expected_tests": 6
+    },
+    {
       "namespace": "java-ir-name-equality-checks",
       "execution": "(java-ir-name-equality-checks/check! basis)",
       "expected_tests": 11
@@ -800,10 +810,10 @@
       "disposition": "Legacy World/provider implementation archived. Stable identity, owner, readiness, publication and checking requirements are exercised by maintained engine/kernel tests and the SDK source/artifact authority gate; historical implementation test count is not reproduced."
     }
   ],
-  "current_engine_groups": 133,
-  "current_engine_test_executions": 1279,
+  "current_engine_groups": 135,
+  "current_engine_test_executions": 1291,
   "validation": {
-    "assertions": 57536,
+    "assertions": 90155,
     "failures": 0,
     "errors": 0,
     "heap_mib": 384

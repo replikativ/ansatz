@@ -71,7 +71,7 @@ engine. Managed objects and nonnegative immediate scalars are supported;
 immutable Java String/BigInteger leaves have no logical RC and throw if reached.
 This explicit runtime-domain contract replaces mandatory static provenance
 analysis. Earlier guest effects may occur before a domain failure; the failed
-branch is terminal. Full source/artifact/ABI authority remains independent of
+engine is retired until `LeanProject.restart()` reinitializes a fresh one. Full source/artifact/ABI authority remains independent of
 this check, and no invented heap-leaf sharing counts are reported.
 
 Core Ansatz supplies the kernel, elaboration DSL and stores in its own JAR. Both
@@ -97,16 +97,39 @@ See [preparation](PREPARATION.md), [value conventions](VALUE_EXAMPLES.md), and t
 - `../../tools/lean-producer/`: maintained native helper sources, including the
   supported v1 source. Moving these files does not change their admitted bytes.
 
-The engine keeps Node/Header/Program identity, mutable execution state, pending
-operations, ownership journals, suspension and fork commit points together.
-Splitting those across classes is a separate ownership review, not a directory
-cleanup. In particular, the adapters inspect declared fields; introducing an
-engine superclass would change that contract.
+`Interpreter` keeps the program model (Node/Header/Program identity, parsing,
+linking and validation), the execution loop, intrinsic dispatch, mutable
+execution state, pending operations, ownership journals, suspension, host and
+code requests, and fork commit points. Every engine field stays declared on
+`Interpreter`: the adapters inspect declared fields, and introducing an engine
+superclass would change that contract. Node payloads and headers are written
+only inside the `Interpreter` nest, so Array, ByteArray, Ref, Task/Promise,
+fork copy, ShareCommon, `Expr.find?`, filesystem and IO-result construction
+stay there too.
 
-`ScalarBits` and `Utf8Bytes` contain only mechanically extracted stateless
-operations. Stateful intrinsic families can be extracted later with explicit
-custody interfaces. Heap, IR, runtime-family and bridge packages should appear
-when real implementations move into them, rather than as empty placeholders.
+Package-private families hold the interpreter and keep no state of their own.
+They change heap values only through `Interpreter` ownership operations and
+read Nodes through package-only views that never return a payload array:
+
+- `ExternRegistry`: supported extern symbols and exact ABIs, mapped to intrinsic
+  ids. `EXTERNS` and the id constants stay declared on `Interpreter`, which
+  `capabilities.clj` reads reflectively.
+- `ScalarIntrinsics`: Nat, Int, fixed-width word and float intrinsics.
+- `StringIntrinsics`: String positions, comparison, memcmp, pushn, hashing and
+  the `String.any`/`isPrefixOf` driver.
+- `StdioCapture`: captured stdout/stderr accounting, standard-stream default
+  retirement and the managed sharing trace.
+- `ExprTransforms`, `ExprDirectInstantiation`, `ExprDelayedInstantiation` and
+  `LevelInstantiation`: the resumable Expr/Level machinery. The public SDK
+  profile does not admit it; the engine contracts in `test-engine/` cover it.
+
+Members that adapters and contracts reach by name stay declared where they
+were: nested `Interpreter$...` classes, intrinsic id fields, and reflected
+helpers such as `natPow` or `pendingEntry`. `ScalarBits`, `Utf8Bytes` and
+`FilesystemLayouts` contain only stateless operations; `FrozenValues` holds
+detached pure-data storage plans. Heap, IR, runtime-family and bridge packages
+should appear when real implementations move into them, rather than as empty
+placeholders.
 
 ## Build and class inventories
 
@@ -166,4 +189,4 @@ consumers, archive rejection, explicit ownership and resource limits. The broade
 contract gate exercises the canonical engine's fork, graph, host, code-demand and
 frontend foundations. The explicit source gate additionally checks the native
 frontend cold/cache/edit/reload/artifact paths with a supplied supported toolchain
-and bundle. See [release checks](RELEASE_CHECKLIST.md) for the acceptance sequence.
+and bundle. See [release checks](dev/RELEASE_CHECKLIST.md) for the acceptance sequence.

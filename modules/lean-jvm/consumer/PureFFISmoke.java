@@ -88,7 +88,7 @@ public final class PureFFISmoke {
             } catch (LeanException failure) { check(failure.code().equals("HostFailure")); }
             try (LeanProject bad = load(runtime, HostBindings.builder().pure("Interop.normalizeMessage", "bad/1", xs -> "not a Message").build())) {
                 rejected("HostFailure", () -> bad.call("Interop.process", n(41)));
-                rejected("RuntimeBoundary", () -> bad.call("Interop.process", n(41)));
+                rejected("ProjectFailed", () -> bad.call("Interop.process", n(41)));
             }
             AssertionError original = new AssertionError("host error");
             try (LeanProject bad = load(runtime, HostBindings.builder().pure("Interop.normalizeMessage", "error/1", xs -> { throw original; }).build())) {

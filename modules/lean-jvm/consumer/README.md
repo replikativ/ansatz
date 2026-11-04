@@ -43,7 +43,7 @@ Lower-level start/advance/result/reuse checks run in the packaged SDK
 [preparation checks](../test/prepare_checks.clj). Published historical observations remain in
 [validation.json](../validation.json) and [consumer receipts](receipts/).
 Current candidate results belong in CI/review artifacts; see
-[release checks](../RELEASE_CHECKLIST.md).
+[release checks](../dev/RELEASE_CHECKLIST.md).
 
 ## General application-value consumers
 
@@ -119,8 +119,8 @@ function call checks the same public value conversion without a compiler namespa
 Fresh projects exercise actual uncaught `IO.userError` messages, including Unicode,
 NUL, empty text, the 2048-unit boundary and surrogate-safe truncation. The consumer
 checks immutable value-only exception details, generic treatment of another
-IO.Error variant, terminal failed branches, successful close, and isolation from
-the healthy retained project. The IO Unit error entry uses this artifact's AUTO
+IO.Error variant, that a returned IO error leaves the Project ready, successful
+close, and isolation from the healthy retained project. The IO Unit error entry uses this artifact's AUTO
 v2 evidence; it does not verify the legacy source codec path.
 
 Run the existing launcher with `--main-class MonadsSmoke` and a fresh output
@@ -200,3 +200,11 @@ dependency initialization, nominal values and dependency host bindings from Java
 and Clojure, then checks that the Lake source compiler was never loaded. The
 [fixture provenance](../test/fixtures/lake-workspace/provenance.json) records the
 source, native output and archive identities.
+
+`ServiceSemanticsSmoke.java` consumes `resources/lean/service-semantics.zip`,
+prepared from [Svc.lean](resources/lean/service-semantics-source/Svc.lean) with
+Lean 4.33.1 and the v4 producer. It checks per-call budgets and their bounds,
+`ProjectFailed` after an execution failure and in-place `restart()` with retained
+handles, native panic semantics (stderr message, default value; `System.err` for
+pure entries) and the fail-on-panic policy, a returned IO error leaving the Project
+ready, and a startup budget refusal.

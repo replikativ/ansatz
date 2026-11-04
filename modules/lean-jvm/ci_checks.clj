@@ -17,9 +17,16 @@
 
 ;; Runtime resources and classes must come from the built SDK, never src/ or
 ;; target/classes. Producer audit helpers/models remain separate test inputs.
-(doseq [resource ["ansatz/lean/jvm/ir.clj" "ansatz/lean/jvm/project.clj"
-                  "ansatz/lean/jvm/startup.clj" "ansatz/lean/jvm/artifact.clj"]]
+(doseq [resource ["ansatz/lean/jvm/ir__init.class" "ansatz/lean/jvm/project__init.class"
+                  "ansatz/lean/jvm/startup__init.class" "ansatz/lean/jvm/artifact__init.class"
+                  "ansatz/lean/jvm/compiler/transport.clj"]]
   (assert (= "jar" (.getProtocol (io/resource resource))) (str "Non-JAR SDK resource: " resource)))
+;; The runtime namespaces ran from the JAR's AOT classes, not a source compile:
+;; a source-loaded fn class has no code source; an AOT one names the SDK JAR.
+(doseq [v [#'ir/linked-basis #'ansatz.lean.jvm.project/open-artifact!]]
+  (let [source (some-> ^Class (class @v) .getProtectionDomain .getCodeSource .getLocation .getPath)]
+    (assert (and source (.endsWith ^String source "/ansatz-lean-jvm.jar")) (str "SDK namespace was not loaded AOT: " v))))
+(assert (nil? (io/resource "ansatz/lean/jvm/ir.clj")) "AOT namespace source shipped beside its classes")
 (let [source (-> (Class/forName "ansatz.lean.jvm.Lean") .getProtectionDomain .getCodeSource .getLocation .getPath)]
   (assert (.endsWith source "/ansatz-lean-jvm.jar") "Java facade must come from the built SDK JAR"))
 

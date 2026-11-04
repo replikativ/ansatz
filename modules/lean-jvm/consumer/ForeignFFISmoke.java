@@ -86,7 +86,7 @@ public final class ForeignFFISmoke {
             AtomicInteger failed = new AtomicInteger();
             try (LeanProject project = load(runtime, required(failed, xs -> { throw new IllegalStateException("host failure"); }).build())) {
                 rejected("HostFailure", () -> io(project, "HostInterop.describe", "key"));
-                rejected("RuntimeBoundary", () -> io(project, "HostInterop.describe", "key"));
+                rejected("ProjectFailed", () -> io(project, "HostInterop.describe", "key"));
                 check(failed.get() == 1);
             }
             AssertionError fatal = new AssertionError("fatal host error"); AtomicInteger fatals = new AtomicInteger();

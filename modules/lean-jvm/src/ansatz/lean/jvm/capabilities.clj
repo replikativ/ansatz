@@ -2,8 +2,10 @@
   "Audited positive task-free profile. Descriptors are metadata, not artifact authority."
   (:require [ansatz.lean.jvm.ir :as j]))
 (def ^:private families
-  {:nat ["ADD" "SUB" "MOD" "EQ" "LT" "MUL" "DIV" "POW" "NAT_LE" "NAT_LOG2" "NAT_OR" "NAT_SHL" "NAT_SHR"]
-   :int ["INT_OF_NAT" "INT_NEG_SUCC" "INT_NEG" "INT_ABS" "INT_ADD" "INT_SUB" "INT_EQ" "INT_LT" "INT_LE"]
+  {:nat ["ADD" "SUB" "MOD" "EQ" "LT" "MUL" "DIV" "POW" "NAT_LE" "NAT_LOG2" "NAT_OR" "NAT_SHL" "NAT_SHR"
+         "NAT_AND" "NAT_XOR" "NAT_GCD" "NAT_PRED" "NAT_DIV_EXACT"]
+   :int ["INT_OF_NAT" "INT_NEG_SUCC" "INT_NEG" "INT_ABS" "INT_ADD" "INT_SUB" "INT_EQ" "INT_LT" "INT_LE"
+         "INT_MUL" "INT_DIV" "INT_MOD" "INT_EDIV" "INT_EMOD" "INT_DIV_EXACT" "INT_NONNEG"]
    :word ["USIZE_NAT" "USIZE_REPR" "USIZE_LT" "USIZE_ADD" "USIZE_EQ" "USIZE_SUB" "USIZE_TO_NAT"
           "USIZE_SHR" "USIZE_SHL" "USIZE_AND" "USIZE_LE" "USIZE_MUL" "USIZE_TO_U64"
           "U8_ADD" "U8_NAT" "U8_EQ" "U8_AND" "U8_LE" "U8_TO_U32" "U8_TO_U64" "U16_EQ" "U16_NAT"
@@ -11,7 +13,15 @@
           "U32_OWNED_NAT" "U32_NAT" "U32_EQ" "U32_LE" "U32_FROM_NAT" "U32_TO_U8" "U32_ADD" "U32_TO_U64" "U32_LT"
           "U64_MIX" "U64_NAT" "U64_SHR" "U64_XOR" "U64_USIZE" "U64_LT" "U64_EQ" "U64_OWNED_NAT"
           "U64_TO_U32" "U64_TO_U8" "U64_TO_NAT" "BOOL_U64" "U64_ADD" "U64_SUB" "U64_MUL"
-          "U64_DIV" "U64_MOD" "U64_AND" "U64_OR" "U64_NOT" "U64_NEG" "U64_LOG2" "U64_SHL" "U64_LE"]
+          "U64_DIV" "U64_MOD" "U64_AND" "U64_OR" "U64_NOT" "U64_NEG" "U64_LOG2" "U64_SHL" "U64_LE"
+          "U8_SUB" "U8_MUL" "U8_DIV" "U8_MOD" "U8_OR" "U8_XOR" "U8_NOT" "U8_NEG" "U8_SHL" "U8_SHR" "U8_LOG2" "U8_LT"
+          "U8_TO_U16" "U8_TO_USIZE" "BOOL_U8"
+          "U16_ADD" "U16_SUB" "U16_MUL" "U16_DIV" "U16_MOD" "U16_AND" "U16_OR" "U16_XOR" "U16_NOT" "U16_NEG"
+          "U16_SHL" "U16_SHR" "U16_LOG2" "U16_LT" "U16_LE" "U16_TO_U8" "U16_TO_U32" "U16_TO_U64" "U16_TO_USIZE" "BOOL_U16"
+          "U32_SUB" "U32_MUL" "U32_DIV" "U32_MOD" "U32_AND" "U32_OR" "U32_XOR" "U32_NOT" "U32_NEG" "U32_SHL" "U32_SHR"
+          "U32_LOG2" "U32_TO_U16" "U32_TO_USIZE" "BOOL_U32" "U64_TO_U16"
+          "USIZE_DIV" "USIZE_MOD" "USIZE_OR" "USIZE_XOR" "USIZE_NOT" "USIZE_NEG" "USIZE_LOG2" "USIZE_TO_U8"
+          "USIZE_TO_U16" "USIZE_TO_U32" "USIZE_OWNED_NAT" "BOOL_USIZE"]
    :string ["STR_PUSH" "STR_LIST" "STR_GET" "STR_NEXT" "STR_APPEND" "STR_SIZE" "STR_END"
             "STR_SAFE_GET" "STR_SAFE_NEXT" "STR_PREV" "STR_VALID" "STR_EXTRACT" "STR_EQ" "STR_LT"
             "STR_COMPARE" "STR_BYTE" "STR_CONTAINS" "STR_LENGTH" "STR_SET" "STR_HASH" "STR_MEMCMP"
@@ -32,9 +42,10 @@
    :managed-sharing-diagnostic ["DBG_TRACE_SHARED"]
    :filesystem ["FS_METADATA" "FS_OPEN" "FS_READ" "FS_LINE" "FS_WRITE" "FS_PUT" "FS_FLUSH" "FS_TTY" "FS_REWIND" "FS_TRUNCATE"]
    :entropy ["IO_RANDOM_BYTES"]
-   ;; Existing Interpreter PANIC terminates with an unsupported-operation
-   ;; failure; it never invents Lean's default-return result.
-   :terminal-trap ["PANIC"]})
+   ;; lean_panic_fn: message to captured stderr, then the caller's default value
+   ;; (silent during module initialization), or a LeanPanic failure under the
+   ;; per-invocation fail-on-panic policy.
+   :panic ["PANIC"]})
 (defn- need [p message] (when-not p (throw (ex-info message {:code "CapabilityMissing" :profile :task-free-captured-output-v1}))))
 (defn- field [object name]
   (let [f (.getDeclaredField (class object) name)] (.setAccessible f true) (.get f object)))
@@ -98,8 +109,8 @@
      :dynamic-io-profile :bounded-stdio-read-line-write-flush-tty
      :stdin-profile :native-like-finite-byte-input
      :runtime-unsupported (if (some #(= :filesystem (:family %)) (vals externs))
-                            #{:panic-default-return :heap-leaf-sharing-observation :stdio-redirection :filesystem-directories :filesystem-initialization :arbitrary-host-filesystem}
-                            #{:panic-default-return :heap-leaf-sharing-observation :stdio-redirection :host-filesystem})
+                            #{:heap-leaf-sharing-observation :stdio-redirection :filesystem-directories :filesystem-initialization :arbitrary-host-filesystem}
+                            #{:heap-leaf-sharing-observation :stdio-redirection :host-filesystem})
      :task-runtime false :host-handlers false :guest-export-aliases false :code-demand false})))
 (defn check-program!
   "Bind the requirements to the actual fully prepared canonical Program. No engine exists."

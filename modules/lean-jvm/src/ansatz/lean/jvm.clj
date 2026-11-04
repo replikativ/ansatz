@@ -154,13 +154,18 @@
       (mapv #(visit %1 %2 0) (get descriptor "arguments") arguments))))
 
 (defn invocation-options
-  "Immutable per-call finite stdin and byte output limits. Text and bytes are
-   mutually exclusive. Invalid options are rejected before guest execution."
+  "Immutable per-call options: finite :stdin text or :stdin-bytes (mutually
+   exclusive), :stdout-limit-bytes/:stderr-limit-bytes, the cooperative budget
+   :instruction-budget and :time-budget-ms (defaults 2,000,000 and 5,000), and
+   :fail-on-panic? (default false: panic! prints to stderr and continues with the
+   default value, as native Lean does). Invalid options are rejected before
+   guest execution."
   [options]
   (if (= InvocationOptions (class options)) options
     (do
       (when-not (and (map? options)
-                     (every? #{:stdin :stdin-bytes :stdout-limit-bytes :stderr-limit-bytes} (keys options))
+                     (every? #{:stdin :stdin-bytes :stdout-limit-bytes :stderr-limit-bytes
+                               :instruction-budget :time-budget-ms :fail-on-panic?} (keys options))
                      (not (and (contains? options :stdin) (contains? options :stdin-bytes))))
         (throw (ex-info "Invalid invocation option keys or overlapping stdin forms" {:code "InvalidArgument"})))
       (let [^InvocationOptions native
@@ -178,7 +183,17 @@
             err (get options :stderr-limit-bytes InvocationOptions/MAX_OUTPUT_BYTES)]
         (when-not (every? #(and (integer? %) (<= 0 % InvocationOptions/MAX_OUTPUT_BYTES)) [out err])
           (throw (ex-info "Invalid output byte limit" {:code "InvalidArgument"})))
-        (.withOutputLimits native (int out) (int err))))))
+        (let [instructions (get options :instruction-budget InvocationOptions/DEFAULT_INSTRUCTIONS)
+              millis (get options :time-budget-ms (.toMillis InvocationOptions/DEFAULT_TIME))
+              panic? (get options :fail-on-panic? false)]
+          (when-not (and (integer? instructions) (integer? millis) (boolean? panic?))
+            (throw (ex-info "Budgets are integers and :fail-on-panic? is a boolean" {:code "InvalidArgument"})))
+          (try
+            (-> (.withOutputLimits native (int out) (int err))
+                (.withBudget (long instructions) (java.time.Duration/ofMillis (long millis)))
+                (.withFailOnPanic (boolean panic?)))
+            (catch IllegalArgumentException invalid
+              (throw (ex-info (.getMessage invalid) {:code "InvalidArgument"} invalid)))))))))
 
 (defn- function*
   "Resolve an admitted checked function as an IFn bound to this Project. Exact
@@ -227,4 +242,10 @@
   (apply (function project name options) arguments))
 
 (defn run-main [^LeanProject project] (.runMain project))
+(defn failed?
+  "True after a call failed during execution; later calls are refused until restart!."
+  [^LeanProject project] (.isFailed project))
+(defn restart!
+  "Reinitialize the Project from its verified artifact; function handles stay valid."
+  [^LeanProject project] (.restart project) project)
 (defn close! [^java.lang.AutoCloseable value] (.close value))

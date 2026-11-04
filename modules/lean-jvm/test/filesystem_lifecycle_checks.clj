@@ -13,9 +13,9 @@
   (.invoke (.getMethod (class value) method (make-array Class 0)) value (object-array 0)))
 (defn quarantine-count [] (count @(var-get (ns-resolve 'ansatz.lean.jvm.project 'quarantine))))
 (defn cancel-after-open [observations]
-  (fn [ctx engine callable args slot host-calls]
+  (fn [ctx engine callable args slot host-calls options]
     (assert (empty? host-calls))
-    (#'project/deadline! engine)
+    (#'project/deadline! engine (.timeBudgetNanos ^ansatz.lean.jvm.InvocationOptions options))
     (aset ^objects slot 1 :start-pending)
     (ir/start! ctx engine callable args)
     ;; Match the real driver's ownership adoption after successful start.
