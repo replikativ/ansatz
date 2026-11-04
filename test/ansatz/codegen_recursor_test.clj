@@ -330,11 +330,18 @@
         (eval '(ansatz.core/defn cc-oracle [n :- Nat] (=> Nat Nat)
                  (match n [zero (fn [x :- Nat] x)]
                         [(succ k) (fn [x :- Nat] (+ 1 ((cc-oracle k) x)))])))
-        (doseq [kind [:verified :partial :wf :foreign]
-                shape [:explicit :implicit :instance :nullary]
-                function? [false true]
-                recursive? [false true]
-                fallback? [false true]]
+        ;; Keep the large row check outside the nested sequence expansion.
+        (doseq [[kind shape function? recursive? fallback?]
+                (for [kind [:verified :partial :wf :foreign]
+                      shape [:explicit :implicit :instance :nullary]
+                      function? [false true]
+                      recursive? [false true]
+                      fallback? [false true]
+                      ;; Verified recursive predefinitions require direct emission.
+                      :when (not (and fallback? (not= shape :nullary)
+                                      (or (= kind :wf)
+                                          (and (= kind :verified) recursive?))))]
+                  [kind shape function? recursive? fallback?])]
           (let [f (symbol (str "cc-" (name kind) "-" (name shape) "-"
                                function? "-" recursive? "-" fallback?))
                 params (case shape

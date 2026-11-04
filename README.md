@@ -572,6 +572,15 @@ right-nested, as Lean's `→`. `->` is always Clojure's threading macro, never a
   (cons [a α] [m Nat] [tail (Vec α m)] :where [(+ m 1)]))
 ```
 
+Verified structural and well-founded definitions execute their predefinition bodies,
+with direct recursive calls and `recur` for tail calls, following Lean's
+`_unsafe_rec` compilation. A code generation failure is reported instead of
+executing the kernel recursion encoding. This also applies to hoisted `loop` helpers.
+Direct user recursors retain ansatz's lazy, shared induction hypotheses: unused
+recursive values are not evaluated. This is a runtime extension to Lean's code
+generator, which rejects recursors unless a compiler replacement is available;
+ansatz keeps its native lowering ahead of strict replacements such as `Nat.recCompiled`.
+
 ### Pattern Matching
 
 ```clojure

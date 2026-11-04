@@ -41,6 +41,9 @@
     (testing "non-tail self-call takes the named call"
       (is (= '(if c 0 (inc (self_ t n)))
              (rw (list 'if 'c 0 (list 'inc (list dsym 'A 't 'n))) dsym 'self_ 1 3))))
+    (testing "cond branch results preserve tail calls"
+      (is (= '(cond c (recur x n) :else (recur y n))
+             (rw '(cond c (Fake.self A x n) :else (Fake.self A y n)) dsym 'self_ 1 3))))
     (testing "arity-mismatched self-call fails the rewrite"
       (is (nil? (rw (list dsym 'A 't) dsym 'self_ 1 3))))))
 

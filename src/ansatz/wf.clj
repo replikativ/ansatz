@@ -1435,30 +1435,18 @@
 
         _ (swap! ansatz-env eqns/register-eqn-thms cname @equation-names @equation-errors)
 
-        ;; Unified direct-recursion emitter (storedef): `body-ansatz` above already IS the
-        ;; direct-recursion term (self-calls as the axiom const), so emit it with `recur`
-        ;; at tail self-calls — a tail-recursive accumulator defn becomes a real loop
-        ;; regardless of the WF/fuel encoding, which stays the kernel-proven artifact.
-        ;; Falls back to compiling the encoding on any failure.
+        ;; Basic.lean addAndCompilePartialRec: compile the predefinition with
+        ;; direct calls. An unsupported runtime shape must not execute the kernel's
+        ;; fuel/WellFounded encoding as a fallback.
         direct-fn (when (pos? n)
-                    (try
-                      (let [{:keys [arity erased]} (get @arity-registry (str fn-name))
-                            emit (requiring-resolve 'ansatz.codegen.storedef/emit-direct-recursion)
-                            emitted (emit @ansatz-env (str fn-name) body-ansatz
-                                          {:erased (or erased 0) :arity (or arity n)})]
-                        (when emitted
-                          (decl/register! (str fn-name)
-                                          (update emitted :convention assoc :provenance :surface))
-                          (:fn emitted)))
-                      (catch Exception ex
-                        (when (verbose?)
-                          (println "  direct-recursion emitter unavailable ("
-                                   (.getMessage ex) ") — compiling the WF encoding"))
-                        nil)))
-        ;; The runtime fuel encoding is compilable even when direct emission declines;
-        ;; the kernel keeps its independently checked well-founded definition.
-        runtime-body (if (zero? n) body-ansatz final-body)
+                    (let [{:keys [arity erased]} (get @arity-registry (str fn-name))
+                          emit (requiring-resolve 'ansatz.codegen.storedef/emit-direct-recursion!)
+                          emitted (emit @ansatz-env (str fn-name) body-ansatz
+                                        {:erased (or erased 0) :arity (or arity n)})]
+                      (decl/register! (str fn-name)
+                                      (update emitted :convention assoc :provenance :surface))
+                      (:fn emitted)))
         clj-fn (if direct-fn direct-fn
                    (decl/emit-classic! (str fn-name)
-                                       #(ansatz->clj @ansatz-env runtime-body [])))]
+                                       #(ansatz->clj @ansatz-env body-ansatz [])))]
     clj-fn))

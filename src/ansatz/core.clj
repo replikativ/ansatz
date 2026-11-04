@@ -1752,11 +1752,19 @@
                   (let [f (define-verified helper-sym helper-params 'Nat helper-body)]
                     (intern *ns* helper-sym f)
                     (list* helper-sym (concat inits encl)))
-                  (catch Throwable t
-                    (when *verbose*
-                      (println (str "  loop hoisting unavailable (" (.getMessage t)
-                                    ") — falling back to counting-shape elaboration")))
-                    form)))
+                  (catch clojure.lang.ExceptionInfo ex
+                    ;; A non-Nat helper or unproved decrease may still fit
+                    ;; elab-loop's typed counting shape. Compiler failures and
+                    ;; programming errors must not retry a kernel encoding.
+                    (if (#{:elab-error :non-structural-recursion
+                           :termination-decrease-failed :termination-wf-encode-failed}
+                         (:kind (ex-data ex)))
+                      (do
+                        (when *verbose*
+                          (println (str "  loop hoisting unavailable (" (.getMessage ex)
+                                        ") — falling back to counting-shape elaboration")))
+                        form)
+                      (throw ex)))))
               (seq? form) (apply list (map walk form))
               (vector? form) (mapv walk form)
               :else form))]
@@ -2747,40 +2755,24 @@
                      (reduce (fn [env aux]
                                (eqns/register-eqn-thms env aux (own aux) @equation-errors))
                              env @equation-auxiliaries))))
-        ;; Unified direct-recursion emitter: for a TOP-LEVEL match that actually recurses,
-        ;; re-elaborate the SAME surface body against the just-verified env so self-calls
-        ;; stay applications of the constant (the runtime analogue of Lean compiling
-        ;; `f._unsafe_rec` — the kernel keeps the recursor encoding proven above), and emit
-        ;; through storedef: `recur` at tail self-calls (a tail-recursive accumulator defn
-        ;; becomes a real loop — no more closure cascade / 20k-frame stack bound), named
-        ;; self-call otherwise, flat + curried methods. Falls back to the classic path on
-        ;; any failure; non-recursive bodies keep the optimizer-seam path below.
-        direct-fn (when (or structural-matcher?
-                            (and top-match? (not lean-matchers?)))
-                    (try
-                      (let [direct (if structural-matcher?
-                                     ;; The pre-encoding matcher body is Lean's `_unsafe_rec`
-                                     ;; runtime source. Replace its local self with the
-                                     ;; admitted constant; no old match recompilation.
-                                     (e/instantiate1
-                                      (e/abstract1 (:expr body-result) (:self-fvar-id body-result))
-                                      (e/const' cname []))
-                                     (build-telescope-fvar @ansatz-env pairs ret-type-form body-form))]
-                        (when (mentions-const? direct cname)
-                          (let [{:keys [arity erased]} (get @arity-registry (str fn-name))
-                                emit (requiring-resolve 'ansatz.codegen.storedef/emit-direct-recursion)
-                                emitted (emit @ansatz-env (str fn-name) direct
-                                              {:erased (or erased 0) :arity (or arity n)})]
-                            (when emitted
-                              (decl/register! (str fn-name)
-                                              (update emitted :convention assoc :provenance :surface))
-                              (when *verbose* (println "✓" fn-name ":" (pr-str (:fn-form emitted))))
-                              (:fn emitted)))))
-                      (catch Exception ex
-                        (when *verbose*
-                          (println "  direct-recursion emitter unavailable ("
-                                   (.getMessage ex) ") — classic codegen path"))
-                        nil)))
+        ;; Lean Structural/Main.lean structuralRecursion and Basic.lean
+        ;; addAndCompilePartialRec compile the predefinition, never its kernel
+        ;; recursion encoding. Keep direct emission mandatory for recursive bodies,
+        ;; including matches nested under let/if and non-Nat inductives.
+        direct-fn (when (or structural-matcher? recursive?)
+                    (let [direct (if structural-matcher?
+                                   (e/instantiate1
+                                    (e/abstract1 (:expr body-result) (:self-fvar-id body-result))
+                                    (e/const' cname []))
+                                   (build-telescope-fvar @ansatz-env pairs ret-type-form body-form))
+                          {:keys [arity erased]} (get @arity-registry (str fn-name))
+                          emit (requiring-resolve 'ansatz.codegen.storedef/emit-direct-recursion!)
+                          emitted (emit @ansatz-env (str fn-name) direct
+                                        {:erased (or erased 0) :arity (or arity n)})]
+                      (decl/register! (str fn-name)
+                                      (update emitted :convention assoc :provenance :surface))
+                      (when *verbose* (println "✓" fn-name ":" (pr-str (:fn-form emitted))))
+                      (:fn emitted)))
         ;; Optimizer seam: a runtime (wandler) may rewrite the body to a kernel-EQUAL, faster term
         ;; just for codegen — the original stays the proven definition in the env. The hook
         ;; receives (env name term) so the runtime can key its explain/plan reports.

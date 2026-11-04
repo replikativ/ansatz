@@ -405,7 +405,12 @@
   ;; applyImplementedBy? both replace the global constant, preserving arguments.
   (when-let [g (or (get (env/get-extension env :csimp {}) h)
                    (get (env/get-extension env :implemented-by {}) h))]
-    (when-not (or (builtin-app h) (contains? builtin-value h) (contains? @codegen-registry h))
+    (when-not (or (builtin-app h) (contains? builtin-value h) (contains? @codegen-registry h)
+                  ;; A recursor already has a native, lazy-IH lowering. In particular,
+                  ;; Init/Data/Nat/Basic.lean recCompiled is strict in its IH; selecting
+                  ;; it here would force unused branches of match-derived eliminations.
+                  (when-let [ci (env/lookup env (name/from-string h))]
+                    (and (.isRecursor ^ConstantInfo ci) (.endsWith ^String h ".rec"))))
       (when (or (builtin-app g) (contains? builtin-value g) (contains? @codegen-registry g)
                 (contains? @arity-registry g)
                 (when-let [ci (env/lookup env (name/from-string g))]
