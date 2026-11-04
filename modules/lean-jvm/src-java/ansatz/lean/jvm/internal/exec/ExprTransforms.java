@@ -1,17 +1,7 @@
 package ansatz.lean.jvm.internal.exec;
 
-import java.io.ByteArrayOutputStream;
 import java.math.BigInteger;
-import java.math.BigDecimal;
-import java.math.RoundingMode;
-import java.lang.ref.WeakReference;
-import java.nio.charset.StandardCharsets;
 import java.util.*;
-import java.util.concurrent.atomic.AtomicLong;
-import java.security.SecureRandom;
-import java.security.ProviderException;
-import ansatz.lean.jvm.internal.fs.FileSession;
-import ansatz.lean.jvm.internal.exec.ExternRegistry.*;
 import ansatz.lean.jvm.internal.exec.Interpreter.*;
 import ansatz.lean.jvm.internal.exec.ExprDirectInstantiation.*;
 import ansatz.lean.jvm.internal.exec.ExprDelayedInstantiation.*;

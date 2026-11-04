@@ -12,8 +12,6 @@ package ansatz.lean.jvm.internal.exec;
 
 import java.io.ByteArrayOutputStream;
 import java.math.BigInteger;
-import java.math.BigDecimal;
-import java.math.RoundingMode;
 import java.lang.ref.WeakReference;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
@@ -29,6 +27,8 @@ import ansatz.lean.jvm.internal.exec.LevelInstantiation.*;
 import static ansatz.lean.jvm.internal.exec.FrozenValues.*;
 
 public final class Interpreter implements AutoCloseable {
+    // Package-private engine families. Each holds this interpreter and keeps no
+    // state of its own; every engine field stays declared on Interpreter.
     final ScalarIntrinsics scalars=new ScalarIntrinsics(this);
     final StringIntrinsics strings=new StringIntrinsics(this);
     final StdioCapture stdio=new StdioCapture(this);
@@ -36,6 +36,7 @@ public final class Interpreter implements AutoCloseable {
     final ExprDirectInstantiation exprDirect=new ExprDirectInstantiation(this);
     final ExprDelayedInstantiation exprDelayed=new ExprDelayedInstantiation(this);
     final LevelInstantiation levels=new LevelInstantiation(this);
+
     static final int OBJ=0, U8=1, U32=2, USIZE=3, U64=4, F64=5, U16=6, F32=7;
     private static final int VDECL=0,JDECL=1,SET=2,SSET=3,INC=4,DEC=5,DEL=6,CASE=7,RET=8,JMP=9,UNREACHABLE=10,SETTAG=11,USET=12;
     private static final int MAP_APPLY=13,MAP_WRAP=14;
@@ -1542,7 +1543,6 @@ public final class Interpreter implements AutoCloseable {
         }
     }
 
-
     void validateExprReplaceCallback(Object value) {
         Node predicate=node(value); acceptsClosure(predicate);
         Function target=predicate.closure; rootEntry(target); requireExecutableAbi(target);
@@ -1553,8 +1553,6 @@ public final class Interpreter implements AutoCloseable {
         for(Object capture:predicate.fields) validateHostObject(capture);
         preflightCallable(target,true);
     }
-
-
 
     /** Complete nineteen-role source binding for expression instantiation.
      * Descriptive Header hashes are not source authentication. */
@@ -1668,7 +1666,6 @@ public final class Interpreter implements AutoCloseable {
         action.exprFull=null; action.arguments=null; finishAction(action,output);
     }
 
-
     PendingNameEntry pendingEntry(DelayedSession session,Object name,boolean create) {
         int hash=exprDelayed.delayedNameHash(session,name); ArrayList<PendingNameEntry> bucket=session.pending.get(hash);
         if(bucket!=null) for(PendingNameEntry entry:bucket) {
@@ -1682,8 +1679,6 @@ public final class Interpreter implements AutoCloseable {
         if(bucket==null) { bucket=new ArrayList<>(); session.pending.put(hash,bucket); }
         bucket.add(entry); exprTransforms.acquireExpr(entry.name); return entry;
     }
-
-
 
     /** Five exact source-authenticated ordinary helper roles, without guest values,
      * Program bodies or catalogue resources. SHA identities remain descriptive;
