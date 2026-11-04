@@ -67,6 +67,13 @@ in the kernel term):
 (:x (->Point 3 4))  ;; => 3
 ```
 
+Dotted Lean names keep their spelling in verified bodies. Clojure runtime names
+escape `.` as `$dot$` and `$` as `$dollar$`: `(a/defn Reach.mem …)` defines
+`Reach$dot$mem`, and `(a/structure Gap.Pair …)` defines the record `Gap$dot$Pair`
+with constructor `->Gap$dot$Pair`. Qualified dotted function vars (such as
+`my.ns/Reach.mem`) remain available as compatibility aliases. Projections and constructors can be passed as
+function values in verified bodies.
+
 **Verified data structures** — define types, implement with pattern matching, prove properties:
 
 ```clojure

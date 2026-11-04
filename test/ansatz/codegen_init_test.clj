@@ -326,3 +326,69 @@
           concrete (compile-form (list 'fn '[x Nat y Nat] (list primitive 'x 'y)))]
       (is (= concrete surface))
       (is (= (((eval concrete) 9) 2) (((eval surface) 9) 2))))))
+
+(deftest structure-functions-and-dotted-runtime-names
+  (binding [*ns* (the-ns 'ansatz.codegen-init-test)]
+    (doseq [form
+            '[(ansatz.core/structure Gap.Pair [] (a Nat) (b Bool))
+              (ansatz.core/structure GapRow [] (id Nat) (v Nat))
+              (ansatz.core/structure Gap.Nested [] (row GapRow))
+              (ansatz.core/structure Gap.Box [α Type] (value α))
+              (ansatz.core/defn gap-mk [n :- Nat] Gap.Pair (Gap.Pair.mk n true))
+              (ansatz.core/defn gap-ids [xs :- (List GapRow)] (List Nat) (List.map GapRow.id xs))
+              (ansatz.core/defn Reach.mem [n :- Nat] Nat (+ n 1))
+              (ansatz.core/defn reach-call [n :- Nat] Nat (Reach.mem n))
+              (ansatz.core/defn reach-value [xs :- (List Nat)] (List Nat) (List.map Reach.mem xs))
+              (ansatz.core/defn gap-rows [xs :- (List Nat)] (List GapRow)
+                (List.map (GapRow.mk 8) xs))
+              (ansatz.core/defn gap-ctor [] (=> Nat Nat GapRow) GapRow.mk)
+              (ansatz.core/defn gap-pairs [xs :- (List Bool)] (List Gap.Pair)
+                (List.map (Gap.Pair.mk 3) xs))
+              (ansatz.core/defn gap-wrap [xs :- (List GapRow)] (List Gap.Nested)
+                (List.map Gap.Nested.mk xs))
+              (ansatz.core/defn gap-nested [xs :- (List Gap.Nested)] (List GapRow)
+                (List.map Gap.Nested.row xs))
+              (ansatz.core/defn gap-option [n :- Nat] (Option GapRow)
+                (Option.some GapRow (GapRow.mk n 9)))
+              (ansatz.core/defn gap-box-values [xs :- (List (Gap.Box Nat))] (List Nat)
+                (List.map Gap.Box.value xs))]]
+      (eval form))
+    (let [call (fn [n & args] (apply (ns-resolve *ns* n) args))
+          rows (call 'gap-rows [2 5])]
+      (is (= {:a 4 :b true} (into {} (call 'gap-mk 4))))
+      (is (= [8 8] (vec (call 'gap-ids rows))))
+      (is (= [{:id 8 :v 2} {:id 8 :v 5}] (mapv #(into {} %) rows)))
+      (is (= {:id 2 :v 7} (into {} (((var-get (ns-resolve *ns* 'gap-ctor)) 2) 7))))
+      (is (= [{:a 3 :b true} {:a 3 :b false}]
+             (mapv #(into {} %) (call 'gap-pairs [true false]))))
+      (is (= rows (call 'gap-nested (call 'gap-wrap rows))))
+      (is (= {:id 6 :v 9} (into {} (first (call 'gap-option 6)))))
+      (is (= [2 7] (vec (call 'gap-box-values (map #(call '->Gap$dot$Box %) [2 7])))))
+      (is (= 5 (call 'Reach$dot$mem 4)))
+      (is (= 5 (call 'reach-call 4)))
+      (is (= [2 5] (vec (call 'reach-value [1 4]))))
+      (is (= "Reach.mem" (:ansatz.core/kernel-name (meta (var-get (ns-resolve *ns* 'Reach$dot$mem))))))
+      (doseq [n ["Gap.Pair" "Gap.Pair.mk" "Gap.Pair.a" "Reach.mem"]]
+        (is (some? (env/lookup (a/env) (name/from-string n))))))))
+
+(deftest dotted-structures-resolve-outside-their-defining-namespace
+  (let [origin (or (find-ns 'ansatz.structure-origin) (create-ns 'ansatz.structure-origin))
+        caller (or (find-ns 'ansatz.structure-caller) (create-ns 'ansatz.structure-caller))]
+    (doseq [n [origin caller]]
+      (binding [*ns* n] (clojure.core/refer 'clojure.core)))
+    (binding [*ns* origin]
+      (eval '(ansatz.core/structure Names.Row [] (id Nat)))
+      (eval '(ansatz.core/defn Names.id [x :- Nat] Nat x))
+      (eval '(ansatz.core/defn Names$dot$id [x :- Nat] Nat (+ x 1))))
+    (binding [*ns* caller]
+      (eval '(ansatz.core/defn rows [xs :- (List Nat)] (List Names.Row)
+               (List.map Names.Row.mk xs)))
+      (eval '(ansatz.core/defn ids [xs :- (List Names.Row)] (List Nat)
+               (List.map Names.Row.id xs)))
+      (eval '(ansatz.core/defn dotted-call [n :- Nat] Nat (Names.id n)))
+      (is (= [2 7] (vec ((ns-resolve caller 'ids) ((ns-resolve caller 'rows) [2 7])))))
+      (is (= 4 ((ns-resolve caller 'dotted-call) 4)))
+      (is (= 4 (eval '(ansatz.structure-origin/Names.id 4))))
+      (is (= 4 (eval '(ansatz.structure-origin/Names$dot$id 4))))
+      (is (= 5 ((ns-resolve origin 'Names$dollar$dot$dollar$id) 4)))
+      (is (= 4 ((ns-resolve origin 'Names$dot$id) 4))))))
