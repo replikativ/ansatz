@@ -4,6 +4,9 @@
             [ansatz.core :as a]
             [ansatz.eqns :as eqns]
             [ansatz.kernel.expr :as e]
+            [ansatz.kernel.env :as env]
+            [ansatz.meta.constructions.util :as util]
+            [ansatz.meta.rec-ext :as rec-ext]
             [ansatz.kernel.name :as name]
             [ansatz.kernel.level :as lvl]
             [ansatz.kernel.tc :as tc]
@@ -198,3 +201,119 @@
              (dt/expr->keys (wrap arg)))))
     (is (= :const (:tag (second (dt/expr->keys (wrap (add-at (c "Int"))))))))
     (is (= :const (:tag (second (dt/expr->keys (wrap (e/app* (c "Nat.add") n (e/bvar 1))))))))))
+
+(defn- imported-polymorphic-equations []
+  ;; An imported inventory has no eager :eqns extension. Admit the definition and
+  ;; its equations through the kernel, as the importer does for exported CIs.
+  (let [un (name/from-string "u") u (lvl/param un)
+        fn-name (name/from-string "polyOffset")
+        ctx (util/context (a/env)) nat (c "Nat")
+        alpha (util/local-decl ctx "α" (e/sort' (lvl/succ u)))
+        n (util/local-decl ctx "n" nat)
+        a (util/local-decl ctx "a" alpha)
+        k (util/local-decl ctx "k" nat)
+        ih (util/local-decl ctx "ih" alpha)
+        motive (util/mk-lambda-fvars ctx [k] alpha)
+        minor (util/mk-lambda-fvars ctx [k ih] ih)
+        body (e/app* (e/const' (name/from-string "Nat.rec") [(lvl/succ u)]) motive a minor n)
+        environment (env/check-constant (a/env)
+                                        (env/mk-def fn-name [un]
+                                                    (util/mk-forall-fvars ctx [alpha n a] alpha)
+                                                    (util/mk-lambda-fvars ctx [alpha n a] body)))
+        _ (util/set-env! ctx environment)
+        call #(e/app* (e/const' fn-name [u]) alpha % a)
+        environment (reduce (fn [environment [suffix params lhs rhs]]
+                              (env/check-constant environment
+                                                  (env/mk-thm (name/mk-str fn-name suffix) [un]
+                                                              (util/mk-forall-fvars ctx params (util/mk-eq ctx lhs rhs))
+                                                              (util/mk-lambda-fvars ctx params (util/mk-eq-refl ctx lhs)))))
+                            environment
+                            [["eq_1" [alpha a] (call (e/lit-nat 0)) a]
+                             ["eq_2" [alpha n a] (call (e/app (c "Nat.succ") n)) (call n)]])]
+    (rec-ext/mark-as-recursive environment fn-name)))
+
+(deftest imported-polymorphic-offset-equations-infer-universes
+  (let [environment (imported-polymorphic-equations)
+        fn-name (name/from-string "polyOffset") n (e/fvar 100) a (e/fvar 101)]
+    (is (nil? (eqns/eqns-for environment fn-name)))
+    (is (= 2 (count (eqns/get-eqns-for? environment fn-name))))
+    (doseq [[level alpha a-type] [[lvl/zero (c "Nat") (c "Nat")]
+                                  [(lvl/succ lvl/zero)
+                                   (e/app (e/const' (name/from-string "List") [(lvl/succ lvl/zero)])
+                                          (e/sort' (lvl/succ lvl/zero)))
+                                   (e/app (e/const' (name/from-string "List") [(lvl/succ lvl/zero)])
+                                          (e/sort' (lvl/succ lvl/zero)))]]
+            arg [(add n 1) (e/app (c "Nat.succ") n)]]
+      (let [call #(e/app* (e/const' fn-name [level]) alpha % a)
+            expr (call arg)
+            lctx {100 {:tag :local :name "n" :type (c "Nat")}
+                  101 {:tag :local :name "a" :type a-type}
+                  102 {:tag :local :name "P" :type (e/arrow a-type (e/sort' lvl/zero))}}
+            [ps _] (proof/start-proof environment (e/app (e/fvar 102) expr))
+            ps (assoc-in ps [:meta-mctx :decls (:id (proof/current-goal ps)) :lctx] lctx)
+            simplify (fn [names] (-> (simp/simp ps names {:only? true}) proof/current-goal :type e/app-arg))]
+        (is (= expr (simplify [])))
+        (is (= (call n) (simplify ["polyOffset"])))))))
+
+(defn- checked-local-proof? [st ids goal value]
+  (let [ctx (atom st) xs (mapv e/fvar ids)]
+    (env/verifies? (:env st) (util/mk-forall-fvars ctx xs goal)
+                   (util/mk-lambda-fvars ctx xs value))))
+
+(deftest offset-conditions-are-discharged-before-priority-fallback
+  (let [environment (a/env) nat (c "Nat") n (e/fvar 100) g (e/fvar 101) p (e/fvar 104)
+        high-result (e/fvar 106) low-result (e/fvar 107)
+        eq #(e/app* (e/const' (name/from-string "Eq") [(lvl/succ lvl/zero)]) nat %1 %2)
+        high-type (e/forall' "x" nat
+                             (e/arrow (e/app p (e/bvar 0))
+                                      (eq (e/app g (e/app (c "Nat.succ") (e/bvar 1)))
+                                          (e/app high-result (e/bvar 1)))) :default)
+        low-type (e/forall' "x" nat (eq (e/app g (e/bvar 0)) (e/app low-result (e/bvar 0))) :default)
+        locals {100 {:tag :local :name "n" :type nat}
+                101 {:tag :local :name "g" :type (e/arrow nat nat)}
+                102 {:tag :local :name "h" :type high-type}
+                103 {:tag :local :name "low" :type low-type}
+                104 {:tag :local :name "P" :type (e/arrow nat (e/sort' lvl/zero))}
+                106 {:tag :local :name "highResult" :type (e/arrow nat nat)}
+                107 {:tag :local :name "lowResult" :type (e/arrow nat nat)}}
+        high (first (#'simp/extract-simp-lemma-term environment high-type 2000 (e/fvar 102)))
+        low (first (#'simp/extract-simp-lemma-term environment low-type 1000 (e/fvar 103)))]
+    (doseq [hp? [true false] arg [(add n 1) (e/app (c "Nat.succ") n)]]
+      (let [lctx (cond-> locals hp? (assoc 105 {:tag :local :name "hp" :type (e/app p n)}))
+            st (tc/mk-tc-state-with-locals environment lctx)
+            index (simp/build-lemma-index st environment [low high])
+            expr (e/app g arg)
+            result (#'simp/try-rewrite-step st environment index expr {:max-depth 20})
+            expected (if hp? (e/app high-result n) (e/app low-result arg))]
+        (is (= expected (:expr result)))
+        (is (= (if hp? (e/app* (e/fvar 102) n (e/fvar 105)) (e/app (e/fvar 103) arg))
+               (:proof? result)))
+        (is (checked-local-proof? st (cond-> [100 101 104 106 107 102 103] hp? (conj 105))
+                                  (eq expr expected) (:proof? result)))))))
+
+(deftest offset-theorems-synthesize-instances-absent-from-the-lhs
+  (let [environment (a/env) nat (c "Nat") n (e/fvar 100) g (e/fvar 101)
+        result-fn (e/fvar 104)
+        eq #(e/app* (e/const' (name/from-string "Eq") [(lvl/succ lvl/zero)]) nat %1 %2)
+        inst-type (e/app (e/const' (name/from-string "Inhabited") [(lvl/succ lvl/zero)]) nat)
+        type (e/forall' "x" nat
+                        (e/forall' "inst" inst-type
+                                   (eq (e/app g (e/app (c "Nat.succ") (e/bvar 1)))
+                                       (e/app result-fn (e/bvar 1))) :inst-implicit) :default)
+        lctx {100 {:tag :local :name "n" :type nat}
+              101 {:tag :local :name "g" :type (e/arrow nat nat)}
+              102 {:tag :local :name "h" :type type}
+              103 {:tag :local :name "inst" :info :inst-implicit :type inst-type}
+              104 {:tag :local :name "result" :type (e/arrow nat nat)}}
+        lemma (first (#'simp/extract-simp-lemma-term environment type 2000 (e/fvar 102)))]
+    (doseq [local? [true false]
+            arg [(add n 1) (e/app (c "Nat.succ") n)]]
+      (let [st (tc/mk-tc-state-with-locals environment (if local? lctx (dissoc lctx 103)))
+            index (simp/build-lemma-index st environment [lemma])
+            expr (e/app g arg)
+            result (#'simp/try-rewrite-step st environment index expr {:max-depth 20})
+            instance (if local? (e/fvar 103) (c "instInhabitedNat"))]
+        (is (= (e/app result-fn n) (:expr result)))
+        (is (= (e/app* (e/fvar 102) n instance) (:proof? result)))
+        (is (checked-local-proof? st (if local? [100 101 104 103 102] [100 101 104 102])
+                                  (eq expr (:expr result)) (:proof? result)))))))

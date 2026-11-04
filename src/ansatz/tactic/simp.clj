@@ -934,229 +934,128 @@
 (declare find-eqn-theorems)
 
 (defn- forall-meta-telescope
-  "Instantiate a ∀-telescope with fresh metavariables (Lean's forallMetaTelescopeReducing).
-   Declares real `Expr.mvar`s in the atom-held metacontext, scoped to `lctx`.
-   Returns [xs body] where xs are the mvar nodes and body is the type with
-   them substituted."
-  [mctx lctx id-base type]
-  (loop [ty type xs [] i 0]
-    (if (e/forall? ty)
-      (let [id (+ id-base i)
-            _ (swap! mctx meta/add-expr-mvar-decl id (e/forall-type ty) lctx)]
+  "Lean forallMetaTelescopeReducing for the preprocessed rule's parameter prefix.
+   Stop before a Not/And conclusion that preprocessing has already converted."
+  [mctx lctx id-base type num-params]
+  (loop [ty type xs [] bis []]
+    (if (= (count xs) num-params)
+      [xs bis]
+      (let [id (+ id-base (count xs))
+            info (e/forall-info ty)
+            _ (swap! mctx meta/add-expr-mvar-decl id (e/forall-type ty) lctx
+                     {:kind (if (= info :inst-implicit) :synthetic :natural)
+                      :inst-implicit? (= info :inst-implicit)})]
         (recur (e/instantiate1 (e/forall-body ty) (e/mvar id))
-               (conj xs (e/mvar id)) (inc i)))
-      [xs ty])))
+               (conj xs (e/mvar id)) (conj bis info))))))
+
+(defn- synthesize-args
+  "Lean Simp/Rewrite.lean synthesizeArgs: after matching, try class synthesis
+   and then Prop discharge, assigning each answer in the same metacontext."
+  [mctx st env lemma-index config xs bis]
+  (every?
+   true?
+   (map
+    (fn [x bi]
+      (if-not (e/mvar? (meta/zonk-expr @mctx x))
+        true
+        (let [type (meta/infer-type @mctx st x)
+              head (e/get-app-fn (meta/whnf @mctx st type))
+              class? (or (= bi :inst-implicit)
+                         (and (e/const? head) (meta/class-name? env (e/const-name head))))
+              _ (when class?
+                  (let [index (if-let [idx (:inst-index config)]
+                                (if (instance? clojure.lang.Delay idx) @idx idx)
+                                (inst/index-for env))]
+                    (when-let [[next-context value] (inst/synth-instance @mctx st index type)]
+                      (when-let [assigned (binding [meta/*transparency* :instances]
+                                            (meta/is-def-eq next-context st x value))]
+                        (reset! mctx assigned)))))
+              type (meta/infer-type @mctx st x)]
+          (if (and (e/mvar? (meta/zonk-expr @mctx x))
+                   (meta/closed-expr? @mctx type) (is-prop-type? st type))
+            (boolean
+             (when-let [value (try-discharge st env lemma-index config type
+                                             (or (:discharge-depth config) 0))]
+               (when-let [assigned (binding [meta/*transparency* :reducible]
+                                     (meta/is-def-eq @mctx st x value))]
+                 (reset! mctx assigned)
+                 true)))
+            ;; A later instance argument may determine an earlier data parameter.
+            ;; Check residual metavariables only after the whole synthesis pass.
+            true))))
+    xs bis)))
 
 (defn- try-theorem
-  "Lean 4's tryTheoremCore (Simp/Rewrite.lean:114). Instantiate the lemma's ∀-params as fresh
-   metavariables, then unify its LHS against the goal `expr` via the reduction-aware `is-def-eq!`
-   (so a named-accessor goal matches a projection-spelled lemma). Build the proof by applying the
-   lemma value to the now-assigned metavariables; REJECT (nil) if any metavariable is left
-   unassigned (Lean's `hasAssignableMVar`). Used as a fallback when the structural `match-lemma`
-   fails — it can only ADD sound matches, never corrupt an existing one. Only handles the `:eq`
-   kind with a level-concrete value (term lemmas `simp [proof-term]` and monomorphic named lemmas)."
-  [st env expr lemma]
-  (let [val (cond (:proof-term lemma) (:proof-term lemma)
-                  (and (:name lemma) (empty? (:level-params lemma)))
-                  (e/const' (:name lemma) [])
-                  :else nil)]
-    (when val
-      (let [type (tc/infer-type st val)]
-        (when type
-          ;; Lean's withNewMCtxDepth: lemma-parameter mvars at depth 1; the
-          ;; context is discarded once the zonked proof is extracted.
-          (let [mctx (atom (meta/inc-depth meta/empty-context))
-                [xs body] (forall-meta-telescope mctx (:lctx st) 9000000 type)
-                [head args] (e/get-app-fn-args body)]
-            (when (and (e/const? head) (= (e/const-name head) eq-name) (= 3 (count args)))
-              (let [lhs (nth args 1) rhs (nth args 2)]
-                (when (when-let [m (binding [meta/*transparency* :reducible]
-                                     (meta/is-def-eq @mctx st lhs expr))]
-                        (reset! mctx m)
-                        true)
-                  (let [proof (meta/zonk-expr @mctx (reduce e/app val xs))
-                        rhs' (meta/zonk-expr @mctx rhs)]
-                    (when (and (not (meta/has-expr-mvar? proof))
-                               (not (meta/has-expr-mvar? rhs'))
-                               (not= rhs' expr))
-                      (mk-result rhs' proof))))))))))))
-
-(defn- try-structural-theorem
-  "Structural matching and argument synthesis for one simp candidate."
+  "Lean Simp/Rewrite.lean tryTheoremWithExtraArgs?/tryTheoremCore: fresh universe
+   and expression metavariables, isDefEq, synthesizeArgs, then the residual-mvar
+   and permutation checks. All indexed rules use this theorem-application path."
   [st env lemma-index expr config lemma]
-  (when-let [subst (match-lemma st (:lhs-pattern lemma) expr (:num-params lemma))]
-    (let [num-params (:num-params lemma)
-          matched (count subst)]
-      (when (>= matched (- num-params 3))
-                  ;; Try to fill missing params via discharge
-        (let [full-subst
-              (if (= matched num-params)
-                subst
-                          ;; Walk forall telescope with progressive instantiation.
-                          ;; Uses instantiate1 to keep bvar indices correct.
-                (let [;; the lemma's statement: a hypothesis rule (a conditional IH
-                                 ;; `h : p → lhs = rhs`) has no constant — its type is the local's,
-                                 ;; a term rule's is inferred. Only the premise prefix is walked, and
-                                 ;; premises are peeled BEFORE an And split, so an And-projected
-                                 ;; hypothesis shares its premises with the hypothesis type.
-                      ctype0 (cond
-                               (:proof-term lemma)
-                               (tc/infer-type st (:proof-term lemma))
-                               (:hyp-fvar-id lemma)
-                               (:type (red/lctx-lookup (:lctx st) (:hyp-fvar-id lemma)))
-                               (:name lemma)
-                               (when-let [ci (env/lookup env (:name lemma))] (.type ^ConstantInfo ci))
-                               :else nil)
-                                ;; Resolve the lemma's universe level params from the matched subst
-                                ;; FIRST, then instantiate them into ctype — so discharge obligations
-                                ;; carry CONCRETE levels. Without this, e.g. `beq_iff_eq`'s `LawfulBEq α`
-                                ;; obligation keeps the lemma's raw level param `u_1`, while the matched
-                                ;; BEq instance arg is at the goal's concrete level (0); the resulting
-                                ;; `LawfulBEq.{u_1} K (instBEqOfDecidableEq.{0} K dec)` is level-
-                                ;; inconsistent and instance synthesis (which type-checks the candidate)
-                                ;; fails. Mirrors the RHS level instantiation done after the loop.
-                      lvl-subst (when ctype0
-                                  (let [ils (infer-level-params st lemma subst expr)]
-                                    (when (and (seq ils)
-                                               (= (count ils) (count (:level-params lemma))))
-                                      (zipmap (:level-params lemma) ils))))
-                      ctype (if (seq lvl-subst)
-                              (e/instantiate-level-params ctype0 lvl-subst)
-                              ctype0)
-                                ;; Map forall-index → value from subst (body bvar to forall index)
-                      idx->val (into {} (map (fn [[bvar-idx val]]
-                                               [(- num-params bvar-idx 1) val])
-                                             subst))]
-                  (loop [s subst i 0 ty ctype]
-                    (if (or (>= i num-params) (nil? ty) (not (e/forall? ty)))
-                      s
-                      (if-let [val (get idx->val i)]
-                                  ;; Already resolved — instantiate and advance
-                        (recur s (inc i) (e/instantiate1 (e/forall-body ty) val))
-                                  ;; Missing — try instance synthesis or discharge
-                        (let [param-type (e/forall-type ty)
-                              binfo (e/forall-info ty)
-                              resolved
-                              (if (= binfo :inst-implicit)
-                                          ;; Real recursive instance synthesis (Lean synthInstance):
-                                          ;; local instances + global index/discovery + recursive arg
-                                          ;; discharge. `st` carries the goal lctx so a polymorphic
-                                          ;; `[DecidableEq K]` hyp discharges e.g. beq_iff_eq's LawfulBEq.
-                                          ;; Use config's full-scan index (the delay built from THIS
-                                          ;; env, which includes structure-`extends` parent projections
-                                          ;; like LawfulBEq.toReflBEq); the process-global
-                                          ;; ansatz.core/instance-index is often empty for replayed/
-                                          ;; non-init! envs, which silently starved parent-projection
-                                          ;; synthesis. Fall back to the global, then a fresh scan.
-                                ((requiring-resolve 'ansatz.tactic.instance/synthesize*)
-                                 st env
-                                 (or (when-let [idx (:inst-index config)]
-                                       (if (instance? clojure.lang.Delay idx) @idx idx))
-                                     (not-empty ((requiring-resolve 'ansatz.core/instance-index)))
-                                     (inst/index-for env))
-                                 param-type 0)
-                                (when (is-prop-type? st param-type)
-                                  (try-discharge st env lemma-index config
-                                                 param-type
-                                                 (or (:discharge-depth config) 0))))]
-                          (if resolved
-                            (recur (assoc s (- num-params i 1) resolved)
-                                   (inc i) (e/instantiate1 (e/forall-body ty) resolved))
-                                       ;; Lean Simp/Rewrite.lean synthesizeArgs/tryTheoremCore:
-                                       ;; an unresolved argument rejects this candidate. Our
-                                       ;; substitution map cannot represent typed metavariables.
-                            nil)))))))]
-          (let [param-vals (mapv #(get full-subst %) (range num-params))]
-            (when (every? some? param-vals)
-              (let [rhs-raw (apply-subst (:rhs lemma) full-subst num-params)
-                              ;; Instantiate level params in RHS
-                    inst-levels-for-rhs (infer-level-params st lemma full-subst expr)
-                    level-subst (zipmap (:level-params lemma) inst-levels-for-rhs)
-                    rhs (if (seq level-subst)
-                          (e/instantiate-level-params rhs-raw level-subst)
-                          rhs-raw)
-                              ;; Perm check (Lean 4: Rewrite.lean:142-149)
-                              ;; For permutative lemmas, only allow if RHS < expr
-                    perm-ok (if (:perm lemma)
-                              (ac-lt? env rhs expr)
-                              true)]
-                           ;; Lean Rewrite.lean tryTheoremCore rejects a structurally
-                           ;; unchanged RHS, even for rfl rules. Index reduction can
-                           ;; match Nat.add_eq against its own packed HAdd RHS.
-                (when (and perm-ok (not= rhs expr))
-                            ;; RFL optimization (Lean 4: useImplicitDefEqProof)
-                            ;; If theorem is rfl, skip proof construction
-                  (if (:rfl lemma)
-                    (mk-result rhs)  ;; proof? = nil (definitional equality)
-                    (let [inst-levels (infer-level-params st lemma full-subst expr)
-                                    ;; For hypothesis lemmas (from local context), use fvar as proof.
-                                    ;; For named lemmas (from env), use const.
-                          base-proof (cond
-                                                 ;; term lemma (`simp [<proof-term>]`): apply the term
-                                       (:proof-term lemma)
-                                       (reduce e/app (:proof-term lemma) (reverse param-vals))
-                                       (:hyp-fvar-id lemma)
-                                                  ;; a conditional hypothesis `h : p₁ → … → lhs = rhs`
-                                                  ;; is applied to its discharged premises (And
-                                                  ;; projections, if any, wrap the applied proof)
-                                       (reduce e/app (e/fvar (:hyp-fvar-id lemma)) (reverse param-vals))
-                                       :else (reduce e/app
-                                                     (e/const' (:name lemma) inst-levels)
-                                                     (reverse param-vals)))
-                                    ;; And projection: if lemma came from And splitting,
-                                    ;; apply the chain of And.left/And.right projections.
-                                    ;; And.left : {a b : Prop} → And a b → a
-                                    ;; And.right : {a b : Prop} → And a b → b
-                                    ;; :and-proj is a vec of {:side :left/:right, :args [P Q]}
-                                    ;; from outermost to innermost projection.
-                          raw-proof (if-let [proj-chain (seq (:and-proj lemma))]
-                                      (reduce (fn [proof {:keys [side args]}]
-                                                (let [p-inst (apply-subst (nth args 0) full-subst num-params)
-                                                      q-inst (apply-subst (nth args 1) full-subst num-params)]
-                                                  (case side
-                                                    :left (e/app* (e/const' and-left-name [])
-                                                                  p-inst q-inst proof)
-                                                    :right (e/app* (e/const' and-right-name [])
-                                                                   p-inst q-inst proof))))
-                                              base-proof proj-chain)
-                                      base-proof)
-                                    ;; Proof wrapping depends on lemma kind:
-                                    ;; :eq        → raw-proof is already P = Q
-                                    ;; :iff       → propext P Q (raw-proof : P ↔ Q) → P = Q
-                                    ;; :prop-true → eq_true P (raw-proof : P) → (P = True)
-                                    ;; :not-false → eq_false P (raw-proof : ¬P) → (P = False)
-                                    ;; :ne-false  → eq_false (a=b) (raw-proof : ¬(a=b)) → ((a=b) = False)
-                          proof-term (case (:kind lemma)
-                                       :iff (e/app* (e/const' propext-name [])
-                                                              ;; level-instantiate the LHS proposition too, else a
-                                                              ;; poly lemma (e.g. eq_self_iff_true) leaks Eq.{u} here
-                                                    (let [l (apply-subst (:lhs-pattern lemma) full-subst num-params)]
-                                                      (if (seq level-subst)
-                                                        (e/instantiate-level-params l level-subst) l))
-                                                    rhs raw-proof)
-                                       :prop-true (e/app* (e/const' eq-true-name [])
-                                                          expr  ;; the instantiated proposition
-                                                          raw-proof)
-                                       :not-false (e/app* (e/const' eq-false-name [])
-                                                          expr  ;; P (the proposition)
-                                                          raw-proof)
-                                       :ne-false (e/app* (e/const' eq-false-name [])
-                                                         expr  ;; @Eq α a b
-                                                         raw-proof)
-                                       raw-proof)]
-                      (mk-result rhs proof-term))))))))))))
+  (let [structural (match-lemma st (:lhs-pattern lemma) expr (:num-params lemma))]
+    ;; Preserve the existing structural matcher's domain for preprocessed rules.
+    ;; Reducible equation matching supplies the Nat-offset case; both matches
+    ;; then use the same typed telescope, synthesis and proof construction.
+    (when (or structural (and (= :eq (:kind lemma)) (not (:perm lemma))))
+      (let [mctx (atom (meta/inc-depth meta/empty-context))
+            lparams (:level-params lemma)
+            level-base (inc (reduce max 9000000 (meta/unassigned-level-mvars @mctx expr)))
+            level-ids (range level-base (+ level-base (count lparams)))
+            _ (swap! mctx #(reduce meta/add-level-mvar-decl % level-ids))
+            levels (mapv lvl/mvar level-ids)
+            level-subst (zipmap lparams levels)
+            instantiate-levels #(if (seq level-subst) (e/instantiate-level-params % level-subst) %)
+            value (cond (:proof-term lemma) (:proof-term lemma)
+                        (:hyp-fvar-id lemma) (e/fvar (:hyp-fvar-id lemma))
+                        (:name lemma) (e/const' (:name lemma) levels))
+            type (when value (meta/infer-type @mctx st value))]
+        (when type
+          (let [id-base (inc (reduce max 9000000 (meta/collect-expr-mvars expr)))
+                [xs bis] (forall-meta-telescope mctx (:lctx st) id-base type (:num-params lemma))
+                subst (zipmap (reverse (range (count xs))) xs)
+                instantiate #(meta/zonk-expr @mctx
+                                             (apply-subst (instantiate-levels %) subst (count xs)))
+                lhs (instantiate (:lhs-pattern lemma))
+                seeded (if structural
+                         (reduce (fn [ctx [i x]]
+                                   (when ctx
+                                     (if-let [value (get structural (- (count xs) i 1))]
+                                       (binding [meta/*transparency* :reducible]
+                                         (meta/is-def-eq ctx st x value))
+                                       ctx)))
+                                 @mctx (map-indexed vector xs))
+                         @mctx)]
+            (when-let [matched (when seeded (binding [meta/*transparency* :reducible]
+                              ;; Keep the index's raw-Nat.add/accessor normalization on
+                              ;; both inputs (older exports use the raw spelling).
+                                              (meta/is-def-eq seeded st (dt/reduce-dt env lhs false)
+                                                              (dt/reduce-dt env expr false))))]
+              (reset! mctx matched)
+              (when (synthesize-args mctx st env lemma-index config xs bis)
+                (let [rhs (instantiate (:rhs lemma))
+                      base-proof (meta/zonk-expr @mctx (reduce e/app value xs))]
+                  (when (and (not (meta/has-assignable-mvar? @mctx base-proof))
+                             (not (meta/has-assignable-mvar? @mctx rhs))
+                             (not= rhs expr)
+                             (or (not (:perm lemma)) (ac-lt? env rhs expr)))
+                    (if (:rfl lemma)
+                      (mk-result rhs)
+                      (let [raw-proof (reduce (fn [proof {:keys [side args]}]
+                                                (let [[p q] (mapv instantiate args)]
+                                                  (e/app* (e/const' (case side :left and-left-name :right and-right-name) [])
+                                                          p q proof)))
+                                              base-proof (:and-proj lemma))
+                            proof (case (:kind lemma)
+                                    :iff (e/app* (e/const' propext-name []) (instantiate (:lhs-pattern lemma)) rhs raw-proof)
+                                    :prop-true (e/app* (e/const' eq-true-name []) expr raw-proof)
+                                    (:not-false :ne-false) (e/app* (e/const' eq-false-name []) expr raw-proof)
+                                    raw-proof)]
+                        (mk-result rhs proof)))))))))))))
 
 (defn- try-rewrite-step
-  "Lean Simp/Rewrite.lean rewriteUsingIndex?: sort once, then finish trying each
-   candidate (including reducible isDefEq/offset matching) before the next."
+  "Lean Simp/Rewrite.lean rewriteUsingIndex?: sort once and apply each theorem
+   through the same matching, synthesis and proof-construction path."
   [st env lemma-index expr config]
-  (let [candidates (sort-by (comp - :priority)
-                            (lookup-lemmas st env lemma-index expr config))]
-    (some (fn [lemma]
-            (or (try-structural-theorem st env lemma-index expr config lemma)
-                (when (and (= (:kind lemma) :eq) (not (:perm lemma)))
-                  (try-theorem st env expr lemma))))
-          candidates)))
+  (some #(try-theorem st env lemma-index expr config %)
+        (sort-by (comp - :priority) (lookup-lemmas st env lemma-index expr config))))
 
 ;; ============================================================
 ;; Built-in simprocs — arithmetic reduction

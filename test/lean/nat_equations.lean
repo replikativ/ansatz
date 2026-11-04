@@ -55,3 +55,33 @@ axiom lowResult : Nat → Nat
 @[simp 1000] axiom low (x : Nat) : g x = lowResult x
 example (n : Nat) : g (n+1) = highResult n := by simp
 end Priority
+
+universe u
+def polyOffset (α : Type u) : Nat → α → α
+  | 0, a => a
+  | n+1, a => polyOffset α n a
+example (α : Type u) (P : α → Prop) (n : Nat) (a : α)
+    (h : P (polyOffset α n a)) : P (polyOffset α (n+1) a) := by
+  simp only [polyOffset]
+  exact h
+
+example (P : Nat → Prop) (g highResult : Nat → Nat) (n : Nat)
+    (h : ∀ x, P x → g (Nat.succ x) = highResult x) (hp : P n) :
+    g (n+1) = highResult n := by
+  simp only [h, hp]
+
+example (g result : Nat → Nat) (n : Nat) [Inhabited Nat]
+    (h : ∀ x, [Inhabited Nat] → g (Nat.succ x) = result x) :
+    g (n+1) = result n := by
+  simp only [h]
+
+namespace ConditionalPriority
+axiom P : Nat → Prop
+axiom g : Nat → Nat
+axiom highResult : Nat → Nat
+axiom lowResult : Nat → Nat
+@[simp 2000] axiom high (x : Nat) : P x → g (Nat.succ x) = highResult x
+@[simp 1000] axiom low (x : Nat) : g x = lowResult x
+example (n : Nat) (hp : P n) : g (n+1) = highResult n := by simp [hp]
+example (n : Nat) : g (n+1) = lowResult (n+1) := by simp
+end ConditionalPriority
