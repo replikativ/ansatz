@@ -27,6 +27,7 @@ import static ansatz.lean.jvm.internal.exec.FrozenValues.*;
 public final class Interpreter implements AutoCloseable {
     final ScalarIntrinsics scalars=new ScalarIntrinsics(this);
     final StringIntrinsics strings=new StringIntrinsics(this);
+    final StdioCapture stdio=new StdioCapture(this);
     static final int OBJ=0, U8=1, U32=2, USIZE=3, U64=4, F64=5, U16=6, F32=7;
     private static final int VDECL=0,JDECL=1,SET=2,SSET=3,INC=4,DEC=5,DEL=6,CASE=7,RET=8,JMP=9,UNREACHABLE=10,SETTAG=11,USET=12;
     private static final int MAP_APPLY=13,MAP_WRAP=14;
@@ -394,7 +395,7 @@ public final class Interpreter implements AutoCloseable {
         return node.metadata instanceof PointerMetadata?((PointerMetadata)node.metadata).inner:node.metadata;
     }
     private static boolean logicalMT(Node node) { return sharingMetadata(node) instanceof SharingMetadata; }
-    private static boolean exclusive(Node node) { return node.rc==1&&!logicalMT(node); }
+    static boolean exclusive(Node node) { return node.rc==1&&!logicalMT(node); }
     private static boolean refMaybeMT(Node node) { return node.rc==0||logicalMT(node); }
     private static NodeMetadata kindMetadata(Node node) {
         NodeMetadata metadata=sharingMetadata(node);
@@ -1407,13 +1408,13 @@ public final class Interpreter implements AutoCloseable {
     }
     /** All links here are NONOWNING guest references. Keepalive is a real
      * separately counted Task credit, never supplied by registration reachability. */
-    private static final class TaskRecord {
+    static final class TaskRecord {
         Node task;
         DependencyList dependents=new DependencyList();
         Registration waiting;
         boolean canceled,deactivated,keepalive,bind,io,forward,running;
     }
-    private IdentityHashMap<Node,TaskRecord> taskRecords=new IdentityHashMap<>();
+    IdentityHashMap<Node,TaskRecord> taskRecords=new IdentityHashMap<>();
     private TaskRecord currentTask;
     /** Explicit disabled-only native profiling gate. Header bytes are
      * authenticated by the trusted source adapter; this checks its pinned role.
@@ -4031,17 +4032,17 @@ public final class Interpreter implements AutoCloseable {
     private final ProfilingPolicy profilingPolicy;
     private final TaskRuntime taskRuntime;
     private final BuildIdentity buildIdentity;
-    private Program program;
+    Program program;
     Object[] objects=new Object[1024];
     private long[] numbers=new long[1024];
     private Body[] joins=new Body[256];
     private int bp,sp,jbp,jsp;
     Object result;
     long scalarResult;
-    private Object[] constants;
-    private boolean[] constantReady;
-    private boolean[] constantRetired;
-    private boolean disposed;
+    Object[] constants;
+    boolean[] constantReady;
+    boolean[] constantRetired;
+    boolean disposed;
     private boolean graphInstalled,moduleGraphInstalled;
     private PreparedGlobalSource preparedModuleSource;
     private boolean initializing;
@@ -4272,19 +4273,19 @@ public final class Interpreter implements AutoCloseable {
         action.entropy=null; pendingEntropy=null;
     }
     private final Object runtimeIdentity=new Object();
-    private Node stdoutRoot; // legacy root; opt-in stdio default stdout occurrence
-    private Node stdinDefaultRoot,stderrRoot;
-    private final StringBuilder stderrOutput=new StringBuilder();
+    Node stdoutRoot; // legacy root; opt-in stdio default stdout occurrence
+    Node stdinDefaultRoot,stderrRoot;
+    final StringBuilder stderrOutput=new StringBuilder();
     /** All supported synchronous tasks execute on this ONE branch-local thread.
      * currentTask never selects, inherits, resets or retires these slots. */
-    private static final class StdioContext { final Node[] current=new Node[3]; }
-    private StdioContext stdioContext;
-    private final StringBuilder output=new StringBuilder();
-    private int outputBytes,stderrOutputBytes;
-    private ByteArrayOutputStream outputRaw=new ByteArrayOutputStream();
-    private ByteArrayOutputStream stderrRaw=new ByteArrayOutputStream();
+    static final class StdioContext { final Node[] current=new Node[3]; }
+    StdioContext stdioContext;
+    final StringBuilder output=new StringBuilder();
+    int outputBytes,stderrOutputBytes;
+    ByteArrayOutputStream outputRaw=new ByteArrayOutputStream();
+    ByteArrayOutputStream stderrRaw=new ByteArrayOutputStream();
     private byte[] invocationInput=new byte[0]; // immutable private snapshot; forks share only these bytes
-    private int invocationCursor,stdoutLimit=MAX_STRING_OUTPUT_BYTES,stderrLimit=MAX_STRING_OUTPUT_BYTES;
+    int invocationCursor,stdoutLimit=MAX_STRING_OUTPUT_BYTES,stderrLimit=MAX_STRING_OUTPUT_BYTES;
     private long invocationEpoch;
     private boolean invocationActive;
     private long atomicDeadlineNanos;
@@ -4310,8 +4311,8 @@ public final class Interpreter implements AutoCloseable {
     private void panic(String message) {
         if(failOnPanic) throw new LeanPanic(message);
         if(initializing) return;
-        String line=message+"\n"; int size=utf8Extent(line); captureBudget(size,true);
-        appendRaw(line.getBytes(StandardCharsets.UTF_8),0,size,true); stderrOutput.append(line);
+        String line=message+"\n"; int size=utf8Extent(line); stdio.captureBudget(size,true);
+        stdio.appendRaw(line.getBytes(StandardCharsets.UTF_8),0,size,true); stderrOutput.append(line);
     }
     /** A reached panic under the fail-on-panic policy. */
     public static final class LeanPanic extends RuntimeException {
@@ -4346,9 +4347,9 @@ public final class Interpreter implements AutoCloseable {
     }
     private long callsLeft;
     private final boolean explicit;
-    private static final int IDLE=0, RUNNING=1, COMPLETE=2, FAILED=3, HOST_CALL=4, CODE_CALL=5, WAITING=6, HOST_GUEST_RESULT=7;
+    static final int IDLE=0, RUNNING=1, COMPLETE=2, FAILED=3, HOST_CALL=4, CODE_CALL=5, WAITING=6, HOST_GUEST_RESULT=7;
     private static final int ASSIGN=0, CACHE=1, APPLY=2, ROOT=4;
-    private int phase=IDLE, continuationDepth;
+    int phase=IDLE, continuationDepth;
     private long instructions;
     private boolean advancing, pendingOwnedResult;
     private Function active, entry;
@@ -4564,7 +4565,7 @@ public final class Interpreter implements AutoCloseable {
         releaseRoot=true; entry=null; result=null; instructions=0; callsLeft=10_000_000; phase=RUNNING; publishAction(action);
     }
     private void stepDispose(RuntimeAction action) {
-        if(stdioContext!=null) { stepStdioDispose(action); return; }
+        if(stdioContext!=null) { stdio.stepStdioDispose(action); return; }
         if(action.cursor==0) {
             Node old=stdoutRoot; action.retiring=old; action.releaseClaimed=false; stdoutRoot=null; action.cursor++;
             if(old!=null) { beginRelease(old,1,ACTION_BODY); action.releaseClaimed=true; }
@@ -6718,7 +6719,7 @@ public final class Interpreter implements AutoCloseable {
         if(joinSlots>joins.length) joins=Arrays.copyOf(joins,Math.max(joinSlots,joins.length*2));
     }
     private Object obj(int variable) { return variable==0?ERASED:objects[bp+variable]; }
-    private Node node(Object o) {
+    Node node(Object o) {
         if(!(o instanceof Node)||((Node)o).dead) throw error("Expected live object");
         Node value=(Node)o; checkRuntimeOwner(value); return value;
     }
@@ -6970,7 +6971,7 @@ public final class Interpreter implements AutoCloseable {
     }
     private void intrinsicSlots(Function f,int[] slots) {
         if(f.intrinsic==STR_ANY) { strings.stringAnyRecursive(new Object[]{obj(slots[0]),obj(slots[1])}); return; }
-        if(f.intrinsic==DBG_TRACE_SHARED) { traceShared(obj(slots[0]),obj(slots[1]),obj(slots[2])); return; }
+        if(f.intrinsic==DBG_TRACE_SHARED) { stdio.traceShared(obj(slots[0]),obj(slots[1]),obj(slots[2])); return; }
         if(f.intrinsic==BYTE_COPY_SLICE) {
             byteCopySlice(obj(slots[0]),obj(slots[1]),obj(slots[2]),obj(slots[3]),obj(slots[4]),numbers[bp+slots[5]]); return;
         }
@@ -7024,7 +7025,7 @@ public final class Interpreter implements AutoCloseable {
     }
     private void intrinsicExternal(Function f,Object[] args) {
         if(f.intrinsic==STR_ANY) { strings.stringAnyRecursive(args); return; }
-        if(f.intrinsic==DBG_TRACE_SHARED) { traceShared(args[0],args[1],args[2]); return; }
+        if(f.intrinsic==DBG_TRACE_SHARED) { stdio.traceShared(args[0],args[1],args[2]); return; }
         require(f.intrinsic!=IO_RANDOM_BYTES,"Entropy requires its explicit owned action");
         if(f.intrinsic==BYTE_COPY_SLICE) {
             byteCopySlice(args[0],args[1],args[2],args[3],args[4],inputScalar(args[5],U8)); return;
@@ -7461,22 +7462,15 @@ public final class Interpreter implements AutoCloseable {
         require(outputBytes==0&&stderrOutputBytes==0,"Drain captured output before beginning an invocation");
         require(invocationEpoch<Long.MAX_VALUE/4-2,"Invocation stream epoch exhausted");
         atomicPoll(); byte[] snapshot=input.clone(); // all validation/allocation before root retirement
-        retireCapturedDefaults();
+        stdio.retireCapturedDefaults();
         invocationEpoch++; invocationInput=snapshot; invocationCursor=0;
         stdoutLimit=outLimit; stderrLimit=errLimit; invocationActive=true;
     }
     public void endInvocation() {
         requireAtomicIdle("Invocation input retirement");
         require(invocationActive&&stdioContext==null,"No invocation input context is active");
-        retireCapturedDefaults(); invocationEpoch++; invocationInput=new byte[0]; invocationCursor=0;
+        stdio.retireCapturedDefaults(); invocationEpoch++; invocationInput=new byte[0]; invocationCursor=0;
         invocationActive=false; stdoutLimit=MAX_STRING_OUTPUT_BYTES; stderrLimit=MAX_STRING_OUTPUT_BYTES;
-    }
-    private void retireCapturedDefaults() {
-        // These synthetic roots have only private method closures/Long captures;
-        // arbitrary guest finalizers are never dispatched by this quiet path.
-        Node in=stdinDefaultRoot,out=stdoutRoot,err=stderrRoot;
-        stdinDefaultRoot=null; stdoutRoot=null; stderrRoot=null;
-        if(in!=null) releaseQuiet(in,1); if(out!=null) releaseQuiet(out,1); if(err!=null) releaseQuiet(err,1);
     }
     private Node capturedStream(int channel) {
         Node stream=new Node(0,6,0); allocations++;
@@ -7490,74 +7484,30 @@ public final class Interpreter implements AutoCloseable {
         }
         return stream;
     }
-    private Node defaultStream(int channel) {
+    Node defaultStream(int channel) {
         if(channel==0) { if(stdinDefaultRoot==null) stdinDefaultRoot=capturedStream(0); return stdinDefaultRoot; }
         if(channel==1) { if(stdoutRoot==null) stdoutRoot=capturedStream(1); return stdoutRoot; }
         if(stderrRoot==null) stderrRoot=capturedStream(2); return stderrRoot;
     }
-    private Node directStream(int channel) { Node stream=defaultStream(channel); inc(stream,1); return stream; }
     private Node stdout() {
         if(stdioContext!=null) return standardStream(1,false,null);
-        return directStream(1);
+        return stdio.directStream(1);
     }
-    /** Pinned object.cpp lean_mk_string_lossy_recover: replace a bad lead and
-     * its following continuation run by ONE replacement character. Java's
-     * decoder does not use this recovery rule for all malformed sequences. */
-    private String capturedText(byte[] bytes,int start,int end) {
-        StringBuilder text=new StringBuilder(end-start);
-        for(int at=start;at<end;) {
-            if((at&1023)==0) atomicPoll();
-            int lead=Byte.toUnsignedInt(bytes[at]),width=0,min=0,cp=0;
-            if(lead<128) { text.append((char)lead); at++; continue; }
-            if((lead&0xe0)==0xc0) { width=2; min=0x80; cp=lead&31; }
-            else if((lead&0xf0)==0xe0) { width=3; min=0x800; cp=lead&15; }
-            else if((lead&0xf8)==0xf0) { width=4; min=0x10000; cp=lead&7; }
-            boolean valid=width!=0&&width<=end-at;
-            if(valid) for(int j=1;j<width;j++) {
-                int next=Byte.toUnsignedInt(bytes[at+j]);
-                if((next&0xc0)!=0x80) { valid=false; break; }
-                cp=(cp<<6)|(next&63);
-            }
-            valid=valid&&cp>=min&&cp<=0x10ffff&&(cp<0xd800||cp>0xdfff);
-            if(valid) { text.appendCodePoint(cp); at+=width; }
-            else {
-                text.append('\ufffd'); at++;
-                while(at<end&&(bytes[at]&0xc0)==0x80) { if((at&1023)==0) atomicPoll(); at++; }
-            }
-        }
-        return text.toString();
-    }
-    public String capturedStdout() { byte[] bytes=outputRaw.toByteArray(); return capturedText(bytes,0,bytes.length); }
-    public String capturedStderr() { byte[] bytes=stderrRaw.toByteArray(); return capturedText(bytes,0,bytes.length); }
+    public String capturedStdout() { byte[] bytes=outputRaw.toByteArray(); return stdio.capturedText(bytes,0,bytes.length); }
+    public String capturedStderr() { byte[] bytes=stderrRaw.toByteArray(); return stdio.capturedText(bytes,0,bytes.length); }
     /** Copies and relinquishes both captures; callers own the returned arrays. */
     public byte[][] drainCapturedBytes() {
         requireAtomicIdle("Captured output drain");
         byte[][] captured={outputRaw.toByteArray(),stderrRaw.toByteArray()};
-        resetCapturedOutput(); return captured;
-    }
-    private void resetCapturedOutput() {
-        if(outputRaw.size()>65536) outputRaw=new ByteArrayOutputStream(); else outputRaw.reset();
-        if(stderrRaw.size()>65536) stderrRaw=new ByteArrayOutputStream(); else stderrRaw.reset();
-        output.setLength(0); stderrOutput.setLength(0); outputBytes=0; stderrOutputBytes=0;
-        if(output.capacity()>65536) output.trimToSize();
-        if(stderrOutput.capacity()>65536) stderrOutput.trimToSize();
+        stdio.resetCapturedOutput(); return captured;
     }
     public String[] drainCapturedOutput() {
         requireAtomicIdle("Captured output drain");
-        String[] captured={capturedStdout(),capturedStderr()}; resetCapturedOutput(); return captured;
+        String[] captured={capturedStdout(),capturedStderr()}; stdio.resetCapturedOutput(); return captured;
     }
-    private void captureBudget(int size,boolean stderr) {
-        int previous=stderr?stderrOutputBytes:outputBytes,limit=stderr?stderrLimit:stdoutLimit;
-        resource(size>=0&&size<=limit-previous,"Captured output outside bounded runtime profile");
-    }
-    private void appendRaw(byte[] bytes,int start,int size,boolean stderr) {
-        captureBudget(size,stderr); atomicPoll();
-        (stderr?stderrRaw:outputRaw).write(bytes,start,size);
-        if(stderr) stderrOutputBytes+=size; else outputBytes+=size;
-    }
-    private void appendCaptured(Object value,boolean stderr) {
-        String text=text(value); int size=utf8Extent(text); captureBudget(size,stderr);
-        byte[] bytes=text.getBytes(StandardCharsets.UTF_8); appendRaw(bytes,0,size,stderr);
+    void appendCaptured(Object value,boolean stderr) {
+        String text=text(value); int size=utf8Extent(text); stdio.captureBudget(size,stderr);
+        byte[] bytes=text.getBytes(StandardCharsets.UTF_8); stdio.appendRaw(bytes,0,size,stderr);
         (stderr?stderrOutput:output).append(text);
     }
     private Node streamError(String message) {
@@ -7656,7 +7606,7 @@ public final class Interpreter implements AutoCloseable {
             }
             if(op==FS_LINE) {
                 byte[] bytes=fileSession.getLine(handle);
-                String line=capturedText(bytes,0,bytes.length);
+                String line=stdio.capturedText(bytes,0,bytes.length);
                 resource(utf8Extent(line)<=MAX_STRING_OUTPUT_BYTES,"Filesystem line outside bounded runtime profile");
                 result=fileLayouts.ioSuccess(this::fileNode,line); return;
             }
@@ -7714,46 +7664,17 @@ public final class Interpreter implements AutoCloseable {
         } else if(op==3) {
             int end=invocationCursor;
             while(end<invocationInput.length) { if((end&1023)==0) atomicPoll(); if(invocationInput[end++]==10) break; }
-            String line=capturedText(invocationInput,invocationCursor,end);
+            String line=stdio.capturedText(invocationInput,invocationCursor,end);
             Node envelope=ioValue(line); atomicPoll(); invocationCursor=end; result=envelope;
         } else if(op==2) {
             Node bytes=byteArray(argument); int size=((ByteArrayState)kindMetadata(bytes)).size;
-            captureBudget(size,channel==2); Node envelope=ioUnit();
-            appendRaw(bytes.scalars,0,size,channel==2); result=envelope;
+            stdio.captureBudget(size,channel==2); Node envelope=ioUnit();
+            stdio.appendRaw(bytes.scalars,0,size,channel==2); result=envelope;
         } else if(op==4) {
-            int size=utf8Extent(argument); captureBudget(size,channel==2); Node envelope=ioUnit();
+            int size=utf8Extent(argument); stdio.captureBudget(size,channel==2); Node envelope=ioUnit();
             appendCaptured(argument,channel==2); result=envelope;
         } else throw error("Unknown captured stream method");
         if(ownsArgument) releaseQuiet(argument,1);
-    }
-    /** Pinned object.cpp: return the owning argument unchanged; the message is
-     * borrowed and printed as a C string. Untracked immutable heap leaves have
-     * no logical exclusivity observation in this runtime. Admitted programs
-     * fail here if execution reaches a value outside that supported domain. */
-    private void validateTraceShared(Object erased,Object message,Object value) {
-        require(ERASED.equals(erased),"Sharing trace requires erased type parameter");
-        utf8Extent(message);
-        if(value instanceof Node) node(value);
-        else require(value instanceof Long&&(Long)value>=0,
-                "Sharing trace requires a managed object or immediate scalar; heap-leaf ownership is unavailable");
-    }
-    private void traceShared(Object erased,Object message,Object value) {
-        validateTraceShared(erased,message,value);
-        if(value instanceof Node&&!exclusive((Node)value)) {
-            String text=(String)message;
-            int end=text.indexOf('\0'); if(end<0) end=text.length();
-            long bytes=11; // "shared RC " plus newline, before any output mutation.
-            for(int i=0;i<end;i++) {
-                char ch=text.charAt(i);
-                if(Character.isHighSurrogate(ch)) { i++; bytes+=4; }
-                else bytes+=ch<0x80?1:ch<0x800?2:3;
-            }
-            resource(bytes<=stderrLimit-stderrOutputBytes,
-                    "Captured output outside bounded runtime profile");
-            String line="shared RC "+text.substring(0,end)+"\n";
-            appendCaptured(line,true);
-        }
-        result=value;
     }
     private Node streamNode(Object value) {
         Node stream=constructorNode(value);
@@ -7772,7 +7693,7 @@ public final class Interpreter implements AutoCloseable {
     }
     /** Read-only bounded graph proof, INCLUDING persistent rc0 subgraphs. This
      * is a quiet default-release profile, not a universal branch ownership seal. */
-    private void quietStdioGraph(Object root) {
+    void quietStdioGraph(Object root) {
         IdentityHashMap<Node,Boolean> seen=new IdentityHashMap<>(); ArrayDeque<Object> todo=new ArrayDeque<>();
         todo.push(root); int edges=0;
         while(!todo.isEmpty()) {
@@ -7794,16 +7715,6 @@ public final class Interpreter implements AutoCloseable {
             if(Thread.currentThread().isInterrupted()) throw error("Stdio default validation interrupted");
         }
     }
-    private static final String[] STDIN_METHOD_LABELS={
-        "IO.FS.Stream.ofBuffer._lam_4._boxed","IO.FS.Stream.ofBuffer._lam_0._boxed",
-        "IO.FS.Stream.ofBuffer._lam_1._boxed","IO.FS.Stream.ofBuffer._lam_3._boxed",
-        "IO.FS.Stream.ofBuffer._lam_2._boxed","IO.FS.instInhabitedStream.default._lam_5._boxed"};
-    // These exact original body identities are checked against issued Headers;
-    // accepted raw CAS/index authentication remains the trusted source adapter's job.
-    private static final String[] STDIN_METHOD_SHA={
-        "e832604259e5794a331574c8a391637cde19e6f28ec322fc86a376a87b6c0c83","29e0f37498cc280d39c84ad0fa70336c5713b90308e32ee960d4ba28a7afbcac",
-        "370ad89209e61c6fbe137e22e27d42200c02f50bb90cbaff442868ca0ecbd24a","41ab29cdd05e589e44148a3f6051b995992290d55733ab2bd234a1bed4c13ae6",
-        "27399d0e9fd073070f6cc12f7d726b8c3d91cf17ec30e478eca80a81becfaa35","67b99a70a0d3bacecd41baf5e321468782636888e2b7a45febc15918216a7e89"};
     /** Borrow an actual original empty Stream.ofBuffer; acquire one default
      * owner only after all graph/header/layout/RC checks. No guest call occurs.
      * Caller authenticates source/CAS and keeps its borrowed input owner alive. */
@@ -7821,8 +7732,8 @@ public final class Interpreter implements AutoCloseable {
         Node ref=null;
         for(int i=0;i<6;i++) {
             Node method=node(stream.fields[i]); Header h=method.closure.header;
-            require(h!=null&&h.source==ofBuffer.source&&Interpreter.name(h.exactName).equals(STDIN_METHOD_LABELS[i])
-                    &&h.originalSha256.equals(STDIN_METHOD_SHA[i])&&method.fields.length==1,
+            require(h!=null&&h.source==ofBuffer.source&&Interpreter.name(h.exactName).equals(StdioCapture.STDIN_METHOD_LABELS[i])
+                    &&h.originalSha256.equals(StdioCapture.STDIN_METHOD_SHA[i])&&method.fields.length==1,
                     "Default stdin differs from original Stream.ofBuffer method source");
             if(i==0||i==5) require(ERASED.equals(method.fields[0]),"Default stdin pure method capture differs");
             else { Node r=reference(method.fields[0]); if(ref==null) ref=r;
@@ -7858,47 +7769,6 @@ public final class Interpreter implements AutoCloseable {
         if(old==null) { inc(seed,1); stdioContext.current[channel]=seed; }
         if(swap) { stdioContext.current[channel]=next; return seed; }
         inc(seed,1); return seed;
-    }
-    private Node stdioDefault(int channel) { return channel==0?stdinDefaultRoot:channel==1?stdoutRoot:stderrRoot; }
-    private void clearStdioDefault(int channel) {
-        if(channel==0) stdinDefaultRoot=null; else if(channel==1) stdoutRoot=null; else stderrRoot=null;
-    }
-    private boolean currentStdioRoots() {
-        for(Node stream:stdioContext.current) if(stream!=null) return true; return false;
-    }
-    private boolean stdioRoots() {
-        return stdoutRoot!=null||stdinDefaultRoot!=null||stderrRoot!=null||(stdioContext!=null&&currentStdioRoots());
-    }
-    private void stepStdioDispose(RuntimeAction action) {
-        if(action.stage==0) {
-            if(action.cursor<3) {
-                int channel=action.cursor++; Node old=stdioContext.current[channel];
-                action.retiring=old; action.releaseClaimed=false; stdioContext.current[channel]=null;
-                if(old!=null) { beginRelease(old,1,ACTION_BODY); action.releaseClaimed=true; }
-            } else if(action.cursor<constants.length+3) {
-                int index=action.cursor++-3;
-                if(constantReady[index]) {
-                    Object old=constants[index]; action.retiring=old; action.releaseClaimed=false;
-                    constants[index]=null; constantReady[index]=false; constantRetired[index]=true;
-                    if(program.functions[index].resultType==OBJ) { beginRelease(old,1,ACTION_BODY); action.releaseClaimed=true; }
-                }
-            } else {
-                if(currentStdioRoots()) { action.cursor=0; return; }
-                for(boolean ready:constantReady) if(ready) { action.cursor=0; return; }
-                for(TaskRecord record:taskRecords.values()) if(record.keepalive) { phase=WAITING; return; }
-                action.stage=1; action.cursor=0;
-            }
-        } else if(action.cursor<3) {
-            // Validate all owned defaults immediately before the FIRST claim;
-            // no guest advance or owner transfer separates this check/claim.
-            // Also recheck each remaining graph at its own claim boundary.
-            if(action.cursor==0) for(int i=0;i<3;i++) if(stdioDefault(i)!=null) quietStdioGraph(stdioDefault(i));
-            int channel=action.cursor; Node old=stdioDefault(channel);
-            if(old!=null) quietStdioGraph(old);
-            action.cursor++;
-            action.retiring=old; action.releaseClaimed=false; clearStdioDefault(channel);
-            if(old!=null) { beginRelease(old,1,ACTION_BODY); action.releaseClaimed=true; }
-        } else { require(!stdioRoots(),"Stdio roots recreated during callback-free default retirement"); disposed=true; finishAction(action,ERASED); }
     }
     /** Validate the current Name head, without a recursive prefix/hash audit.
      * A well-founded parent chain and valid Unicode are trusted value invariants. */
@@ -8779,7 +8649,7 @@ public final class Interpreter implements AutoCloseable {
             case GET_STDOUT: if(stdioContext!=null) require(ERASED.equals(a),"Stdio world placeholder required"); result=stdout(); break;
             case GET_STDIN: case GET_STDERR:
                 require(ERASED.equals(a),"Stdio world placeholder required");
-                result=stdioContext==null?directStream(f.intrinsic==GET_STDIN?0:2):standardStream(f.intrinsic==GET_STDIN?0:2,false,null); break;
+                result=stdioContext==null?stdio.directStream(f.intrinsic==GET_STDIN?0:2):standardStream(f.intrinsic==GET_STDIN?0:2,false,null); break;
             case SET_STDIN: case SET_STDOUT: case SET_STDERR:
                 require(ERASED.equals(b),"Stdio world placeholder required");
                 result=standardStream(f.intrinsic==SET_STDIN?0:f.intrinsic==SET_STDOUT?1:2,true,a); break;
@@ -10096,7 +9966,7 @@ public final class Interpreter implements AutoCloseable {
     private void validateEntryArguments(Function function,Object[] args) { validateEntryArguments(function,args,false); }
     private void validateEntryArguments(Function function,Object[] args,boolean saved) {
         if(args==null||args.length!=function.params.length) throw error("Arity mismatch: "+function.label);
-        if(function.intrinsic==DBG_TRACE_SHARED) validateTraceShared(args[0],args[1],args[2]);
+        if(function.intrinsic==DBG_TRACE_SHARED) stdio.validateTraceShared(args[0],args[1],args[2]);
         if(buildIdentityPrimitive(function.intrinsic)) requireBuildUnit(args[0]);
         if(layoutPrimitive(function.intrinsic)) requireLayoutUnit(args[0]);
         if(ScalarIntrinsics.boolWordPrimitive(function.intrinsic)) ScalarIntrinsics.requireBoolScalar(args[0]);
@@ -10468,7 +10338,7 @@ public final class Interpreter implements AutoCloseable {
         if(pendingEntropy!=null) throw new IllegalStateException("Pending entropy custody prevents close");
         if(hostGuestRecord!=null) throw new IllegalStateException("Host guest operation requires explicit completion before close");
         if(taskRuntime!=null) {
-            if(!disposed||stdioRoots()||runtimeAction!=null||hostCompletion!=null||quietCurrent!=null||releasePending!=0)
+            if(!disposed||stdio.stdioRoots()||runtimeAction!=null||hostCompletion!=null||quietCurrent!=null||releasePending!=0)
                 throw new IllegalStateException("Active runtime requires completed explicit disposal before close");
             for(boolean ready:constantReady) if(ready)
                 throw new IllegalStateException("Explicit disposal left an initialized cache owner");
@@ -10487,7 +10357,7 @@ public final class Interpreter implements AutoCloseable {
             if(stdioContext!=null) {
                 for(int i=0;i<3;i++) { Node old=stdioContext.current[i]; stdioContext.current[i]=null; if(old!=null) releaseQuiet(old,1); }
             }
-            for(int i=0;i<3;i++) { Node old=stdioDefault(i); clearStdioDefault(i); if(old!=null) releaseQuiet(old,1); }
+            for(int i=0;i<3;i++) { Node old=stdio.stdioDefault(i); stdio.clearStdioDefault(i); if(old!=null) releaseQuiet(old,1); }
             utf8Key=null; utf8Bytes=null;
             for(int i=0;i<constants.length;i++) if(constantReady[i]&&program.functions[i].resultType==OBJ) releaseQuiet(constants[i],1);
             Arrays.fill(constants,null); Arrays.fill(objects,null); result=null; taskRecords.clear();

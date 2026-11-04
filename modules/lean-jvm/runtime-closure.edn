@@ -48,16 +48,17 @@
              "META-INF/ansatz-lean-jvm/filesystem-layouts.jsonl"
              "META-INF/ansatz-lean-jvm/NOTICE"]
  :engine-class "ansatz.lean.jvm.internal.exec.Interpreter"
- :engine-closure-sha256 "a5a095440b268610b841e431825d32c18209f2ad8e0fda5d56d330798009c570"
+ :engine-closure-sha256 "58c096bef2184c233a3bc9bb3f6abb7e4791309f798646b844f27aad26b426df"
  :java-engine [{:path "ansatz/lean/jvm/internal/exec/FrozenValues.java" :class "ansatz.lean.jvm.internal.exec.FrozenValues" :sha256 "c970ed4396b90ca19ced6a1f1b823a508dc8d5b10f228db49c9c909d43d38b46"}
               {:path "ansatz/lean/jvm/internal/fs/FileSession.java" :class "ansatz.lean.jvm.internal.fs.FileSession" :sha256 "af5d13b527fb420f53dccc550fe877982fe7b1ef8e3d98c2e53f798ede1aeaa9"}
               {:path "ansatz/lean/jvm/internal/exec/FilesystemLayouts.java" :class "ansatz.lean.jvm.internal.exec.FilesystemLayouts" :sha256 "f4f2889a57ebf535aa76cdf2728fcb542017d4ababc2fc41c99513f72a70dbe9"}
-              {:path "ansatz/lean/jvm/internal/exec/Interpreter.java" :class "ansatz.lean.jvm.internal.exec.Interpreter" :sha256 "d758fa4e2bab6ce88caaa55ad7edf6b599b8952442c64207b0ffbe39a236c7c3"}
+              {:path "ansatz/lean/jvm/internal/exec/Interpreter.java" :class "ansatz.lean.jvm.internal.exec.Interpreter" :sha256 "c37bf5b2b36146507d4e1b7c7d115955b9c92e228d0cfa5ba4681eb0d0104e14"}
                {:path "ansatz/lean/jvm/internal/exec/ScalarBits.java" :class "ansatz.lean.jvm.internal.exec.ScalarBits" :sha256 "f7f105354cb7c66c3aa1834254113738ed52d14a47fe92308d1dd4e9db5f6fe9"}
                {:path "ansatz/lean/jvm/internal/exec/Utf8Bytes.java" :class "ansatz.lean.jvm.internal.exec.Utf8Bytes" :sha256 "74eb7745542b95b40ad166517fd79bf60500363792f771a34a2bd4c52a64fb18"}
               {:path "ansatz/lean/jvm/internal/exec/ExternRegistry.java" :class "ansatz.lean.jvm.internal.exec.ExternRegistry" :sha256 "8bb09842474f1dcf02e4331531708d1d8013b9fbda957d1d865319c4843f5859"}
               {:path "ansatz/lean/jvm/internal/exec/ScalarIntrinsics.java" :class "ansatz.lean.jvm.internal.exec.ScalarIntrinsics" :sha256 "e3ed8e067dea239efe8d12167bee165467c82fcb4a42f48f5d66e230df62917e"}
-              {:path "ansatz/lean/jvm/internal/exec/StringIntrinsics.java" :class "ansatz.lean.jvm.internal.exec.StringIntrinsics" :sha256 "e1b51844c6624a3499b256211a91e08a678e43f13cefbb120da88a5d09959e53"}]
+              {:path "ansatz/lean/jvm/internal/exec/StringIntrinsics.java" :class "ansatz.lean.jvm.internal.exec.StringIntrinsics" :sha256 "e1b51844c6624a3499b256211a91e08a678e43f13cefbb120da88a5d09959e53"}
+              {:path "ansatz/lean/jvm/internal/exec/StdioCapture.java" :class "ansatz.lean.jvm.internal.exec.StdioCapture" :sha256 "a23df9bf74adf22e2a1e6ae63813147cf67b2a4dc2bf8debd1ffad41b3267852"}]
  :java-api [
               {:path "ansatz/lean/jvm/LeanIOError.java" :class "ansatz.lean.jvm.LeanIOError" :sha256 "f9d09e98bdb66e01fd5e36c7472c8f1d3b2e7e5be96548103012aab72cbe6490"}
               {:path "ansatz/lean/jvm/HostBindings.java" :class "ansatz.lean.jvm.HostBindings" :sha256 "0ea1e2da29706393d862ab04b7b6282b04baaa562e600f56eaecbd670775d2c7"}
