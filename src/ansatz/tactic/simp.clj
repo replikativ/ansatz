@@ -42,6 +42,7 @@
             [ansatz.kernel.env :as env]
             [ansatz.kernel.name :as name]
             [ansatz.tactic.discr-tree :as dt]
+            [ansatz.tactic.simp.simproc :as simproc]
             [ansatz.meta :as meta]
             [ansatz.meta.rec-ext :as rec-ext]
             [ansatz.kernel.level :as lvl]
@@ -1246,6 +1247,11 @@
   (if (>= n 0)
     (e/app (e/const' int-ofnat-name []) (e/lit-nat n))
     (e/app (e/const' int-negsucc-name []) (e/lit-nat (dec (- n))))))
+
+(defn builtin-simproc? [n]
+  ;; Elab/Tactic/Simp.lean resolveSimpIdTheorem?: registry membership is
+  ;; independent of whether the simproc's execution has been ported.
+  (simproc/is-builtin-simproc n))
 
 (defn- simproc-enabled? [config proc-name]
   ;; Elab/Tactic/Simp.lean elabSimpArgs: explicit additions follow the
@@ -3217,7 +3223,7 @@
             (.inferType tc full-proof))
           (env/check-constant env (env/mk-thm ble-eq-name [] full-type full-proof)))))))
 
-(defn- ensure-nat-packing
+(defn ensure-nat-packing
   "Init/Data/Nat/Basic.lean add_eq/sub_eq/mul_eq/le_eq (Lean 55f80e10a3).
    Older Init exports omit these packing theorems. Derive their exact rfl
    statements so default simp and explicit `simp only` retain Lean's normal forms."
