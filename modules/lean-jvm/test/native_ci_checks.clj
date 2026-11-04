@@ -1,5 +1,6 @@
 (require '[clojure.data.json :as json]
          '[clojure.java.io :as io]
+         '[arithmetic-acceptance :as arithmetic]
          '[lake-acceptance :as acceptance]
          '[lake-corpus :as corpus])
 
@@ -14,11 +15,14 @@
   (flush)
   (let [authored (acceptance/run! (select-keys config [:compiler]))
         _ (println "NATIVE_LAKE_ACCEPTANCE_PASS" (pr-str (:checks authored)))
+        integer (arithmetic/run! (select-keys config [:compiler]))
+        _ (println "NATIVE_ARITHMETIC_ACCEPTANCE_PASS" (pr-str (dissoc integer :workspace)))
         external (corpus/run! config)]
     (assert (:passed authored))
+    (assert (:passed integer))
     (assert (= #{:cli :fp-sort} (set (map :workload external))))
     (assert (every? #(and (:prepared %) (:artifact-loaded %) (:executed %)) external))
     (spit (:report config)
-          (json/write-str {:passed true :authored authored :external external}))
+          (json/write-str {:passed true :authored authored :arithmetic integer :external external}))
     (println "NATIVE_LAKE_CI_PASS" (:report config))))
 (shutdown-agents)
