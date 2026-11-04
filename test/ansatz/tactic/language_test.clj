@@ -11,10 +11,28 @@
             [ansatz.tactic.extract :as extract]
             [ansatz.surface.elaborate :as elab]))
 
+(def reflexive-observed (atom []))
+
+(defn- define-reflexive-inductives! []
+  (binding [a/*verbose* false]
+    (a/inductive ReflexiveW [] :in Prop :indices [x Nat]
+                 (mk [x Nat] [h (forall [y :- Nat] (ReflexiveW (Nat.succ y)))] :where [x]))
+    (a/inductive TwoParents [] :in Prop
+                 (mk [left TwoParents] [value Nat] [right TwoParents]))
+    (a/inductive DeriveEvidence [base (=> Nat Bool) deps (=> Nat (List Nat)) leaf (=> Nat Bool)]
+                 :in Prop :indices [x Nat]
+                 (mk [x Nat] [hb (= (base x) true)]
+                     [hd (forall [y :- Nat]
+                                 (=> (List.Mem Nat y (deps x)) (= (leaf y) false)
+                                     (DeriveEvidence base deps leaf y)))] :where [x])))
+  (a/register-tactic! 'observe-reflexive
+                      (fn [ps _] (swap! reflexive-observed conj (proof/current-goal ps)) ps)))
+
 (use-fixtures :once
   (fn [t]
     (let [saved @a/ansatz-env]
-      (try (a/load-init!) (t) (finally (reset! a/ansatz-env saved))))))
+      (try (a/load-init!) (define-reflexive-inductives!) (t)
+           (finally (reset! a/ansatz-env saved))))))
 
 (defn- proves [nm params stmt tactics]
   (binding [a/*verbose* false]
@@ -375,3 +393,46 @@
           'False
           '[(first (and_then (apply bad) (all_goals (rfl)))
                    (and_then (apply good) (all_goals (rfl))))]))
+
+;; Reflexive induction fields: Lean pair in test/lean/reflexive_induction.lean.
+(defn- proves-reflexive [params target tactics]
+  (reset! reflexive-observed [])
+  (binding [a/*verbose* false]
+    (a/prove-theorem (gensym "reflexive_induction_") params target tactics))
+  true)
+
+(deftest reflexive-indexed-induction-builds-a-kernel-checked-minor
+  (is (proves-reflexive '[x :- Nat] '(=> (ReflexiveW x) (= x x))
+                        '[(intro h) (induction h) (observe-reflexive) (rfl)]))
+  (is (= ["x" "h" "ih_h"]
+         (mapv (comp :name val) (sort-by key (:lctx (first @reflexive-observed)))))))
+
+(deftest reflexive-induction-uses-the-pi-typed-ih
+  ;; There is no False constructor: the proof must apply the IH to h 0.
+  (is (proves-reflexive '[x :- Nat, h :- (ReflexiveW x)] 'False
+                        '[(induction h :with [(mk x children ih) (exact (ih 0))])]))
+  (is (proves-reflexive '[x :- Nat, h :- (ReflexiveW x)] 'False
+                        '[(induction h) (case (mk x children ih) (exact (ih 0)))])))
+
+(deftest guarded-reflexive-induction-proves-soundness
+  (is (proves-reflexive '[base :- (=> Nat Bool), deps :- (=> Nat (List Nat)), leaf :- (=> Nat Bool),
+                          x :- Nat, h :- (DeriveEvidence base deps leaf x)]
+                        '(And (= (base x) true)
+                              (forall [y :- Nat] (=> (List.Mem Nat y (deps x)) (= (leaf y) false)
+                                                     (= (base y) true))))
+                        '[(induction h)
+                          (rename_i x hb hd ih)
+                          (constructor) (exact hb)
+                          (intro y hm hl)
+                          (exact (And.left _ _ (ih y hm hl)))])))
+
+(deftest reflexive-cases-and-rcases-introduce-fields-without-ihs
+  (doseq [script ['[(cases h) (observe-reflexive) (rename_i x children) (exact (children 0))]
+                  '[(rcases h [x children]) (observe-reflexive) (exact (children 0))]]]
+    (is (proves-reflexive '[x :- Nat, h :- (ReflexiveW x)] '(ReflexiveW 1) script))
+    (is (= 2 (count (:lctx (first @reflexive-observed)))))
+    (is (not-any? :is-ih (vals (:lctx (first @reflexive-observed)))))))
+
+(deftest ordinary-recursive-fields-preserve-trailing-case-names
+  (is (proves-reflexive '[h :- TwoParents] 'False
+                        '[(induction h) (case' [mk ih_left _ _ ih_right]) (exact ih_left)])))
