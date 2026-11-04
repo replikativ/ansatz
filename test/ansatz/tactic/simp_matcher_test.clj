@@ -2,6 +2,7 @@
   "Lean pairs: test/lean/simp_matcher.lean."
   (:require [clojure.test :refer [deftest is use-fixtures]]
             [ansatz.core :as a]
+            [ansatz.meta :as meta]
             [ansatz.kernel.env :as env]
             [ansatz.kernel.expr :as e]
             [ansatz.kernel.name :as name]
@@ -94,3 +95,13 @@
         expected (e/lam "s" store (e/proj (name/from-string "MatcherStore") 0 (e/bvar 0)) :default)]
     (is (= expected (#'simp/dsimp-expr (a/env) {} expr 20)))
     (is (tc/is-def-eq (tc/mk-tc-state (a/env)) expr expected))))
+
+(deftest matcher-discriminant-reduces-class-arithmetic
+  (eval '(a/defn matcher-arithmetic [n :- Nat] Bool
+           (match (+ n 1) [zero false] [(succ k) true])))
+  (let [environment (a/env)
+        unfolded (meta/unfold-const-app environment (e/app (c "matcher-arithmetic") (e/lit-nat 0)))
+        result (#'simp/try-reduce-matcher (tc/mk-tc-state environment) unfolded)]
+    (is (= (c "Bool.true") (:expr result))))
+  (eval '(a/theorem matcher-arithmetic-zero [] (= Bool (matcher-arithmetic 0) true)
+                    (simp only [matcher-arithmetic]))))

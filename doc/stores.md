@@ -204,3 +204,33 @@ Unlocked definition
 macros are still outside that concurrency contract. Sessions do not roll back
 namespace Vars, host registries, arbitrary IO, or external effects. They are also
 separate from the experimental guest Lean runtime contexts.
+
+Reducibility attributes are separate from the kernel's definition hints. The
+Lean 4.33.1 attribute producer exports a `reducibility` row for every constant,
+with `status` equal to `reducible`, `semireducible`, `irreducible`,
+`implicitReducible`, or `instanceReducible` (`Lean/ReducibilityAttrs.lean`,
+`getReducibilityStatus`). Import persists these in the existing derived `:attrs`
+blob as `["reducibility" name status nil]`; activation installs the immutable
+`:reducibility-status` environment extension. This adds no binary encoding, so
+store formats 1 and 2 remain readable and the writer remains format 2. Older
+readers cannot consume the new attribute kind.
+
+Old stores remain readable but cannot recover attributes missing from their
+producer. They retain the legacy abbrev/class-projection and registered-instance
+fallback. To obtain exact status metadata, re-run `scripts/setup-mathlib.sh` with
+a new destination store directory. The script uses an `attrs-v2.ndjson.gz` cache
+name to avoid reusing an older dump. For manual imports, regenerate the attrs
+corpus with `scripts/dump_attrs.lean` in the matching Lean/Mathlib toolchain and
+pass it to `ansatz.import` along with the original export. Do not overwrite a
+live store's derived attributes: simp/instance indices must be rebuilt together.
+
+Bundled Init is regenerated as a complete candidate using
+`python3 scripts/generate-bundle.py --exporter-source /path/to/lean4export
+--lean-root /path/to/leanprover--lean4---v4.33.1 --output /tmp/bundle-candidate`.
+Validate the candidate and promote all six resources and `bundle.edn` together;
+the manifest records the dumper input hash and new attrs resource hash.
+Ordinary ansatz definitions have the semireducible default; local abbrev hints
+retain their existing reducible interpretation. There is currently no general
+Lean-style declaration attribute surface for annotating an `a/defn`; adding one
+is a follow-up. Closed Meta comparisons still use the existing kernel shortcut;
+this metadata change does not alter that transparency policy.

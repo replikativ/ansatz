@@ -9,6 +9,7 @@
    become env EXTENSIONS (Lean's EnvironmentExtension), so they branch with the env:
      simp → :simp-lemmas   unfold → :simp-unfold   csimp → :csimp   extern → :extern
      class → :classes (Lean.Class.classExtension identity)
+     reducibility → :reducibility-status (name → Lean ReducibilityStatus string)
      recursive → :recursive-defs, smart-unfolding → :smart-unfolding-defs
    plus :simp-priorities — {name → priority} for the @[simp] lemmas whose priority is NOT
    Lean's default (`@[simp low]` / `@[simp high]`). Priority is not decoration: `Bool.false_eq`
@@ -27,7 +28,7 @@
   "Attribute kind (NDJSON \"kind\") → the Env extension key its entries accumulate into."
   {"simp" :simp-lemmas, "unfold" :simp-unfold, "unfold-thms" :simp-unfold-thms,
    "extern" :extern, "csimp" :csimp, "impl" :implemented-by, "class" :classes,
-   "recursive" :recursive-defs, "smart-unfolding" :smart-unfolding-defs})
+   "reducibility" :reducibility-status, "recursive" :recursive-defs, "smart-unfolding" :smart-unfolding-defs})
 
 (def default-simp-priority
   "Lean's `eval_prio default` — the priority every @[simp] lemma has unless it says otherwise.
@@ -37,12 +38,12 @@
 
 (def ^:private map-kinds
   "Kinds that carry a \"target\" (the replacement / impl decl) — stored as a {name → target} map.
-   Equation-owner registrations carry a vector of theorem names in that slot.
+   Equation owners carry theorem vectors there; reducibility carries a status string.
    The rest are stored as sets of names."
   ;; Lean 4.33.1 Meta/Tactic/Simp/SimpTheorems.lean registerDeclToUnfoldThms:
   ;; record owner → equations separately; the corpus also registers each equation
   ;; as a simp theorem (Attr.lean addDeclToUnfold), with its own phase/priority.
-  #{"csimp" "impl" "unfold-thms"})
+  #{"csimp" "impl" "unfold-thms" "reducibility"})
 
 (defn parse-attr-lines
   "Strict JSON lines → persisted `[kind name target prio]` tuples. Legacy simp
@@ -50,11 +51,11 @@
    fields and duplicate keys fail before any tuple is installed or name probed."
   [lines]
   (mapv (fn [line]
-          (let [{:keys [kind name target prio theorems] :as row}
+          (let [{:keys [kind name target prio theorems status] :as row}
                 (metadata/parse-attribute-row line {:legacy-priority? true})]
             (when (metadata/unsupported-attribute? row)
               (throw (ex-info "Unsupported native attribute semantics" {:kind kind :name name})))
-            [kind name (if (= "unfold-thms" kind) theorems target) prio])) lines))
+            [kind name (case kind "unfold-thms" theorems "reducibility" status target) prio])) lines))
 
 (defn- attribute-lines [text]
   (if (empty? text) []
@@ -68,6 +69,7 @@
             (when-not (and (sequential? tuple) (= 4 (count tuple))
                            (contains? kind->ext kind) (valid-name? declaration)
                            (cond
+                             (= "reducibility" kind) (contains? metadata/reducibility-statuses target)
                              (= "unfold-thms" kind) (and (vector? target) (every? valid-name? target))
                              (map-kinds kind) (valid-name? target)
                              :else (nil? target))
@@ -156,8 +158,8 @@
     (fn [manifest]
       (bundle/assert-consumable!)
       (if (= "ansatz-bundle/2" (:bundle/schema manifest))
-        (mapv (fn [{:keys [kind name target prio theorems]}]
-                [kind name (if (= "unfold-thms" kind) theorems target) prio])
+        (mapv (fn [{:keys [kind name target prio theorems status]}]
+                [kind name (case kind "unfold-thms" theorems "reducibility" status target) prio])
               (bundle/verified-companion-rows :attrs))
         (let [payload (bundle/verified-bytes bundled-attrs-resource)
               text (with-open [in (java.util.zip.GZIPInputStream. (java.io.ByteArrayInputStream. payload))]

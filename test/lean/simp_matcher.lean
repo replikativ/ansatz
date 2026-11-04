@@ -29,3 +29,9 @@ example (s : MatcherStore) (o : Option Nat) : matcherStoreOption s o ≠ none :=
   · cases q
   · cases s
     split at q <;> cases q
+
+-- Class projections stay semireducible but unfoldProjInst? reduces concrete
+-- instances while whnfMatcher selects an alternative (Lean 4.33.1).
+def matcherArithmetic (n : Nat) : Bool :=
+  match n + 1 with | 0 => false | _ + 1 => true
+example : matcherArithmetic 0 = true := by simp only [matcherArithmetic]

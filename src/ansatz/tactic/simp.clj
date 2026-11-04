@@ -1819,15 +1819,20 @@
 
 (defn- can-unfold-at-matcher?
   "Lean `canUnfoldAtMatcher` at instances transparency (Meta/WHNF.lean): reducible
-   constants (`:abbrev` hints: abbrevs, matchers, casesOn and the other constructions),
-   instances (Lean's implicitReducible status), and Lean's fixed list. Deviation: the
+   constants and instanceReducible definitions (Lean 4.33.1), and Lean's fixed list. Deviation: the
    @[match_pattern] attribute is not exported, so those definitions are not included."
   [env const-name]
   (let [ci (env/lookup env const-name)]
     (boolean
      (and ci
-          (or (= :abbrev (env/get-reducibility-hints ci))
-              (contains? (registered-instance-names env) const-name)
+          (or (meta/can-unfold-default? env const-name :instances
+                                        #(contains? (registered-instance-names env) %))
+              ;; WHNF.lean:unfoldProjInst? unfolds a class field at default
+              ;; transparency, then reduces its instance at instances transparency.
+              ;; This matcher probe uses the reducer's raw projection path; its
+              ;; nested instance still uses this predicate, and a stuck probe is discarded.
+              (and (:from-class? (meta/projection-fn-info env const-name))
+                   (meta/can-unfold-default? env const-name :default))
               (contains? match-unfold-whitelist (name/->string const-name)))))))
 
 (defn- max-fvar-id
