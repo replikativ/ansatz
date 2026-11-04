@@ -1427,6 +1427,20 @@
               (when (> (count sargs) (+ nparams idx))
                 (reduce e/app (nth sargs (+ nparams idx)) (drop (inc num-params) args))))))))))
 
+(defn- unfold-default
+  "Lean 4.33.1 WHNF.lean:unfoldDefault, with the default enabled
+   backward.whnf.reducibleClassField option. A reducible class field may reduce
+   its instance projection at instances transparency; a stuck projection keeps
+   the ordinary delta-beta result."
+  [mctx st x mode instance-name?]
+  (let [env (:env st)
+        unfolded (unfold-const-app env x)]
+    (when unfolded
+      (if (and (= mode :reducible)
+               (:from-class? (projection-fn-info env (e/const-name (e/get-app-fn x)))))
+        (or (unfold-proj-inst mctx st x instance-name?) unfolded)
+        unfolded))))
+
 (defn whnf-at
   "Lean's `whnf` at a restricted transparency: `whnfCore`, then unfold the head constant when the
    mode allows it, until nothing applies. `:none` is `whnfCore` alone; `:reducible` unfolds
@@ -1450,7 +1464,7 @@
                  x' (cond
                       (= mode :none) nil
                       (can-unfold-default? env n mode instance-name?)
-                      (unfold-const-app env x)
+                      (unfold-default mctx st x mode instance-name?)
                       ;; Lean 4.33.1 WHNF.lean:unfoldProjInstWhenInstances?.
                       (#{:instances :implicit} mode) (unfold-proj-inst mctx st x instance-name?))]
              (if x' (recur x' (dec fuel)) x))

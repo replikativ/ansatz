@@ -1798,9 +1798,10 @@
               :else nil)))))))
 
 (def ^:private match-unfold-whitelist
-  "Lean Meta/WHNF.lean canUnfoldAtMatcher: default-reducible constants a matcher may unfold
-   at reducible/instances transparency."
-  #{"decEq" "Nat.decEq" "Char.ofNat" "Char.ofNatAux" "String.decEq" "List.hasDecEq" "Fin.ofNat"
+  "Lean 4.33.1 Meta/WHNF.lean:canUnfoldAtMatcher exceptions admitted after
+   ordinary permission fails, including numeric fields marked irreducible."
+  #{"OfNat.ofNat" "NatCast.natCast" "Zero.zero" "One.one"
+    "decEq" "Nat.decEq" "Char.ofNat" "Char.ofNatAux" "String.decEq" "List.hasDecEq" "Fin.ofNat"
     "UInt8.ofNat" "UInt8.decEq" "UInt16.ofNat" "UInt16.decEq" "UInt32.ofNat" "UInt32.decEq"
     "UInt64.ofNat" "UInt64.decEq" "HMod.hMod" "Mod.mod"})
 

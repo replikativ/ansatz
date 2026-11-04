@@ -76,3 +76,23 @@ run_meta do
   unless (← withTransparency .all (isDefEq unfolded (mkNatLit 1))) do
     throwError "projection unfolded to an incorrect value"
 end
+
+section
+set_option allowUnsafeReducibility true
+attribute [local reducible] Add.add
+open Lean Meta in
+run_meta do
+  unless (← getReducibilityStatus ``instAddNat) == .instanceReducible do
+    throwError "instance status changed"
+  let field := mkConst ``Add.add [Level.zero]
+  let e := mkAppN field #[mkConst ``Nat, mkConst ``instAddNat, mkNatLit 0, mkNatLit 1]
+  let result ← withTransparency .reducible (whnf e)
+  if result == e || result.getAppFn.isProj then
+    throwError "reducible class field failed to expose its instance field"
+  unless (← withTransparency .all (isDefEq result (mkNatLit 1))) do
+    throwError "reducible class field returned an incorrect value"
+  withLocalDeclD `inst (mkApp (mkConst ``Add [Level.zero]) (mkConst ``Nat)) fun inst => do
+    let stuck := mkAppN field #[mkConst ``Nat, inst, mkNatLit 0, mkNatLit 1]
+    unless (← withTransparency .reducible (whnf stuck)).getAppFn.isProj do
+      throwError "stuck class field did not retain its ordinary unfolding"
+end

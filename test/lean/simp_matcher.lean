@@ -1,3 +1,4 @@
+import Lean
 def matcherOption (n : Nat) : Option Nat :=
   match n with | 0 => none | k + 1 => some k
 
@@ -35,3 +36,28 @@ example (s : MatcherStore) (o : Option Nat) : matcherStoreOption s o ≠ none :=
 def matcherArithmetic (n : Nat) : Bool :=
   match n + 1 with | 0 => false | _ + 1 => true
 example : matcherArithmetic 0 = true := by simp only [matcherArithmetic]
+
+section
+attribute [local irreducible] OfNat.ofNat NatCast.natCast Zero.zero One.one
+open Lean Meta in
+run_meta do
+  for field in [``OfNat.ofNat, ``NatCast.natCast, ``Zero.zero, ``One.one] do
+    let info ← getConstInfo field
+    if (← canUnfoldDefault { transparency := .instances } info) then
+      throwError "ordinary permission ignored irreducibility"
+    unless (← canUnfoldAtMatcher { transparency := .instances } info) do
+      throwError "numeric matcher exception was lost"
+  let nat := mkConst ``Nat
+  let one := mkNatLit 1
+  let terms := #[
+    (mkAppN (mkConst ``OfNat.ofNat [Level.zero]) #[nat, one, mkApp (mkConst ``instOfNatNat) one], one),
+    (mkAppN (mkConst ``NatCast.natCast [Level.zero]) #[nat, mkConst ``instNatCastNat, one], one),
+    (mkAppN (mkConst ``Zero.zero [Level.zero]) #[nat, mkAppN (mkConst ``Zero.mk [Level.zero]) #[nat, mkNatLit 0]], mkNatLit 0),
+    (mkAppN (mkConst ``One.one [Level.zero]) #[nat, mkAppN (mkConst ``One.mk [Level.zero]) #[nat, one]], one)]
+  for (term, expected) in terms do
+    let result ← withTransparency .instances <| withCanUnfoldPred canUnfoldAtMatcher <| whnf term
+    if result == term || result.getAppFn.isProj then
+      throwError "numeric matcher field stayed folded"
+    unless (← withTransparency .all (isDefEq result expected)) do
+      throwError "numeric matcher field returned an incorrect value"
+end

@@ -146,11 +146,30 @@
   (let [instance-name (name/from-string "projectionImplicitInstance")
         nat (e/const' (name/from-string "Nat") [])
         base (env/check-constant (a/env)
-                                (env/mk-def instance-name []
-                                            (e/app (e/const' (name/from-string "Add") [lvl/zero]) nat)
-                                            (e/const' (name/from-string "instAddNat") [])))
+                                 (env/mk-def instance-name []
+                                             (e/app (e/const' (name/from-string "Add") [lvl/zero]) nat)
+                                             (e/const' (name/from-string "instAddNat") [])))
         [base _] (attrs/import-attr-tuples base [["reducibility" "projectionImplicitInstance" "implicitReducible" nil]] {})
         expr (e/app* (e/const' (name/from-string "Add.add") [lvl/zero])
                      nat (e/const' instance-name []) (e/lit-nat 0) (e/lit-nat 1))]
     (doseq [mode [:instances :implicit]]
       (is (= expr (meta/whnf-at meta/empty-context {:env base :lctx {}} expr mode))))))
+
+(deftest reducible-class-field-reduces-instance-projection
+  (let [[environment _] (attrs/import-attr-tuples (a/env) [["reducibility" "Add.add" "reducible" nil]] {})
+        nat (e/const' (name/from-string "Nat") [])
+        field (e/const' (name/from-string "Add.add") [lvl/zero])
+        expr (e/app* field nat (e/const' (name/from-string "instAddNat") []) (e/lit-nat 0) (e/lit-nat 1))
+        result (meta/whnf-at meta/empty-context {:env environment :lctx {}} expr :reducible)]
+    (is (= "instanceReducible" (meta/get-reducibility-status environment (name/from-string "instAddNat"))))
+    (is (not= expr result))
+    (is (not (e/proj? (e/get-app-fn result))))
+    (is (tc/is-def-eq (tc/mk-tc-state environment) result (e/lit-nat 1)))
+    ;; A local instance stays stuck; unfoldDefault still returns its raw projection.
+    (let [instance (e/fvar 99001)
+          stuck (e/app* field nat instance (e/lit-nat 0) (e/lit-nat 1))
+          lctx {99001 {:tag :local :id 99001 :name "inst"
+                       :type (e/app (e/const' (name/from-string "Add") [lvl/zero]) nat)}}
+          result (meta/whnf-at meta/empty-context {:env environment :lctx lctx} stuck :reducible)]
+      (is (e/proj? (e/get-app-fn result)))
+      (is (= instance (e/proj-struct (e/get-app-fn result)))))))
