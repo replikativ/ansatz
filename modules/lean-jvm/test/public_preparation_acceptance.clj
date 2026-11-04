@@ -6,7 +6,7 @@
 (import '[ansatz.lean.jvm LeanPreparation PreparedArtifact ProjectOptions NativeCompilerOptions LeanChoice]
         '[java.io ByteArrayOutputStream ByteArrayInputStream]
         '[java.nio.file Path Files])
-(assert (= "jar" (.getProtocol (io/resource "ansatz/lean/jvm.clj"))))
+(assert (= "jar" (.getProtocol (io/resource "ansatz/lean/jvm__init.class"))))
 (assert (= 3 (count *command-line-args*)))
 (def output (io/file (nth *command-line-args* 2)))
 (assert (not (.exists output)) "Acceptance output must be new")

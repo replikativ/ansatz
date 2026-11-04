@@ -27,6 +27,11 @@
                    (re-matches #"ansatz/lean/jvm/(?:[a-z_]+/)*[a-z_][a-z_0-9]*\.clj" path))
                (= path (namespace-path namespace))) "Runtime namespace/resource path mismatch"))
   (need (= (count (:sources closure)) (count (set (map :path (:sources closure))))) "Duplicate runtime source")
+  (let [loaded (:source-loaded closure)]
+    (need (and (vector? loaded) (every? symbol? loaded) (= (count loaded) (count (set loaded)))
+               (every? (set (map :namespace (:sources closure))) loaded)
+               (< (count loaded) (count (:sources closure))))
+          "Explicit source-loaded namespace subset required"))
   (need (= runtime-resources (:resources closure)) "Unknown runtime resource inventory")
   (need (and (= engine-class (:engine-class closure))
              (vector? (:java-engine closure)) (<= 1 (count (:java-engine closure)) 64)) "Explicit bounded engine source inventory required")
@@ -46,6 +51,31 @@
     (need (= (count sources) (count (set (map :path sources))) (count (set (map :class sources)))) "Overlapping or duplicate Java source inventories"))
   (need (= runtime-dependencies (:runtime-dependencies closure)) "Unexpected runtime dependency closure")
   closure)
+
+(def clojure-class-inventory-path "META-INF/ansatz-lean-jvm/clojure-classes.json")
+(def java-class-inventory-path "META-INF/ansatz-lean-jvm/java-classes.json")
+(defn clojure-aot-promise
+  "Packaged metadata promise for the AOT namespaces: compiled against the audited
+   runtime Clojure, without direct linking (calls stay Var-indirect)."
+  []
+  {:compiled-with (get-in runtime-dependencies ['org.clojure/clojure :mvn/version]) :direct-linking false})
+(defn aot-namespaces
+  "Every inventoried runtime namespace except the explicit source-loaded ones."
+  [closure]
+  (let [loaded (set (:source-loaded closure))]
+    (vec (remove loaded (map :namespace (:sources closure))))))
+(defn- namespace-root [value] (let [path (namespace-path value)] (subs path 0 (- (count path) 4))))
+(defn check-aot-boundary!
+  "An AOT namespace may not statically require a source-loaded one: its classes
+   would bind deftypes/protocols the source load defines in another classloader."
+  [closure forms]
+  (let [loaded (set (:source-loaded closure))]
+    (doseq [namespace (aot-namespaces closure)
+            clause (drop 2 (get forms namespace)) :when (and (seq? clause) (= :require (first clause)))
+            spec (rest clause)]
+      (need (not (loaded (if (vector? spec) (first spec) spec)))
+            (str "AOT namespace " namespace " requires a source-loaded namespace")))
+    closure))
 
 (defn check-namespace!
   ([expected form] (check-namespace! expected form #{}))
@@ -111,6 +141,72 @@
       (io/make-parents destination) (spit destination (json/write-str inventory))
       {:classes (count classes)})))
 
+(defn- class-major-version [^bytes data]
+  (need (and (<= 8 (alength data)) (= [0xca 0xfe 0xba 0xbe] (map #(bit-and 255 %) (take 4 data))))
+        "Compiled class is not a class file")
+  (bit-or (bit-shift-left (bit-and 255 (aget data 6)) 8) (bit-and 255 (aget data 7))))
+(defn- contains-bytes? [^bytes data ^String needle]
+  (.contains (String. data "ISO-8859-1") needle))
+(defn class-namespace
+  "Attribute one compiled class path to the AOT namespace whose compiler emits it:
+   ns__init, ns$fn.., or a deftype/proxy/reify class in the namespace's package."
+  [roots path]
+  (let [base (subs path 0 (- (count path) 6))
+        head (first (str/split base #"\$"))
+        root (if (str/ends-with? head "__init") (subs head 0 (- (count head) 6)) head)
+        parent (when (str/includes? root "/") (subs root 0 (str/last-index-of root "/")))]
+    (or (get roots root) (when-not (str/ends-with? head "__init") (get roots parent)))))
+(defn write-clojure-class-inventory!
+  "Verify the assembled JAR directory and bind its AOT class bytes to the
+   inventoried namespaces and their source bytes. AOT namespaces ship classes
+   only; source-loaded namespaces ship their .clj only; no dependency classes."
+  [closure jar-dir module-root clojure-version]
+  (need (= clojure-version (:compiled-with (clojure-aot-promise))) "AOT Clojure differs from the audited runtime Clojure")
+  (let [files (paths-under jar-dir)
+        java-inventory (json/read-str (slurp (io/file jar-dir java-class-inventory-path)))
+        java-classes (set (keys (get java-inventory "classes")))
+        java-roots (set (map #(str (subs (:path %) 0 (- (count (:path %)) 5)))
+                             (concat (:java-engine closure) (:java-api closure))))
+        by-namespace (into {} (map (juxt :namespace identity) (:sources closure)))
+        compiled (aot-namespaces closure)
+        loaded (:source-loaded closure)
+        roots (into {} (map (juxt namespace-root identity) compiled))
+        classes (sort (remove java-classes (filter #(str/ends-with? % ".class") files)))
+        attributed (into (sorted-map) (for [path classes] [path (class-namespace roots path)]))
+        source-record (fn [namespace]
+                        (let [{:keys [path]} (by-namespace namespace)]
+                          {"namespace" (str namespace) "path" path
+                           "sourceSHA256" (sha256 (io/file module-root "src" path))}))]
+    (need (every? #(contains? files %) java-classes) "Packaged Java classes differ from their inventory")
+    (doseq [path java-classes]
+      (need (= (get-in java-inventory ["classes" path]) (sha256 (io/file jar-dir path))) "Packaged Java class bytes changed"))
+    (need (every? some? (vals attributed)) "Compiled class outside the AOT namespaces (dependency or unreviewed class)")
+    (need (not-any? #(contains? java-roots (first (str/split (subs % 0 (- (count %) 6)) #"\$"))) classes)
+          "AOT class collides with an inventoried Java class")
+    (need (= (set compiled) (set (vals attributed))) "AOT namespace emitted no classes")
+    (doseq [namespace compiled]
+      (need (contains? files (str (namespace-root namespace) "__init.class")) (str "Missing AOT init class for " namespace)))
+    (doseq [path classes]
+      (let [data (Files/readAllBytes (.toPath (io/file jar-dir path)))]
+        (need (<= 52 (class-major-version data) 61) "AOT class is not loadable by Java 17")
+        ;; The engine is reached only reflectively through ir/linked-basis.
+        (need (not (contains-bytes? data "ansatz/lean/jvm/internal/")) "AOT class links an engine class directly")))
+    (need (= (set (map #(:path (by-namespace %)) loaded))
+             (set (filter #(str/ends-with? % ".clj") files))) "Packaged Clojure sources differ from the source-loaded inventory")
+    (doseq [namespace loaded]
+      (let [{:keys [path]} (by-namespace namespace)]
+        (need (= (sha256 (io/file jar-dir path)) (sha256 (io/file module-root "src" path))) "Packaged Clojure source changed")))
+    (let [inventory {"schema" "ansatz-clojure-class-inventory/1"
+                     "clojureVersion" clojure-version "directLinking" false
+                     "compiled" (mapv #(assoc (source-record %) "init" (str (namespace-root %) "__init.class")) compiled)
+                     "sourceLoaded" (mapv source-record loaded)
+                     "classes" (into (sorted-map) (for [[path namespace] attributed]
+                                                    [path {"namespace" (str namespace) "sha256" (sha256 (io/file jar-dir path))}]))}
+          destination (io/file jar-dir clojure-class-inventory-path)]
+      (need (not (.exists destination)) "Clojure class inventory already present")
+      (spit destination (json/write-str inventory))
+      {:aot-namespaces (count compiled) :aot-classes (count classes) :source-loaded-namespaces (count loaded)})))
+
 (defn verify!
   "Run from modules/lean-jvm or pass {:module-root path}. No JVM/backend effects."
   [{:keys [module-root] :or {module-root "."}}]
@@ -127,19 +223,22 @@
     (need (= (set (map :path (concat (:java-engine closure) (:java-api closure)))) (paths-under (io/file root "src-java"))) "Uninventoried or absent Java API source")
     (doseq [{:keys [path] expected-sha :sha256} (concat (:java-engine closure) (:java-api closure))]
       (need (= expected-sha (sha256 (io/file root "src-java" path))) "Java API source pin differs"))
-    (doseq [{:keys [path namespace]} (:sources closure)]
-      (check-namespace! namespace (source-ns (io/file root "src" path))
-                        (set (map :namespace (:sources closure)))
-                        (set (map :class (:java-api closure)))))
+    (check-aot-boundary! closure
+      (into {} (for [{:keys [path namespace]} (:sources closure)]
+                 [namespace (check-namespace! namespace (source-ns (io/file root "src" path))
+                                              (set (map :namespace (:sources closure)))
+                                              (set (map :class (:java-api closure))))])))
     (need (= (:sha256 engine) (:engine-source-sha256 metadata) (sha256 java)) "Engine source/metadata pin mismatch")
     (need (= (:engine-closure-sha256 closure) (:engine-closure-sha256 metadata)) "Engine closure/metadata mismatch")
     (need (and (= "ansatz-lean-jvm-runtime/1" (:schema metadata)) (= 17 (:java-release metadata))
                (= "ansatz.lean.jvm.internal.exec.Interpreter" (:engine-class metadata))
                (= 'ansatz.lean.jvm.ir (:adapter-namespace metadata))
                (true? (:precompiled-engine metadata)) (false? (:runtime-java-compilation metadata))
-               (false? (:native-compiler-included metadata)) (boolean? (:public-project-api metadata)))
+               (false? (:native-compiler-included metadata)) (boolean? (:public-project-api metadata))
+               (= (clojure-aot-promise) (:clojure-aot metadata)))
           "Unsupported package metadata promise")
     {:sources (count (:sources closure)) :resources (count (:resources closure))
+     :aot-namespaces (count (aot-namespaces closure)) :source-loaded-namespaces (count (:source-loaded closure))
      :java-sources (+ (count (:java-engine closure)) (count (:java-api closure))) :engine-source-sha256 (:engine-source-sha256 metadata)
      :runtime-dependencies runtime-dependencies :closure closure}))
 
