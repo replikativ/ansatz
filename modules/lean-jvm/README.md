@@ -195,8 +195,14 @@ thrown by host bindings propagate unchanged.
 
 **Performance.** The engine interprets Lean's compiler IR; the JVM JIT optimizes
 the interpreter, but there is no Lean-specific JIT yet. As a rough guide, a
-million-iteration `Nat` loop runs in about half a second after warm-up. The first
-`Lean.open()` in a JVM loads the SDK's Clojure layer.
+million-iteration `Nat` loop runs in about half a second after warm-up. The SDK's
+runtime namespaces ship ahead-of-time compiled (against Clojure 1.12.0, direct
+linking off), so first use in a fresh JVM costs Clojure runtime startup and
+data.json loading rather than compiling the SDK: about three seconds to open, load
+a small artifact and make the first call, measured on a loaded machine. Source
+preparation (`LeanPreparation`, `loadProject`) still loads its namespaces from
+source on first use. The JAR contains no Clojure or data.json classes; Clojure
+1.12.0 from the POM is the supported version.
 
 ## Maintainers
 
