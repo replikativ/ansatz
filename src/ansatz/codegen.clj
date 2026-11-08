@@ -5,6 +5,7 @@
    arity machinery; the runtime (wandler) augments lowering via `codegen-registry`."
   (:require [clojure.walk :as walk]
             [ansatz.codegen.numeric]
+            [ansatz.codegen.native :as native]
             [ansatz.kernel.expr :as e]
             [ansatz.kernel.env :as env]
             [ansatz.kernel.name :as name]
@@ -65,6 +66,9 @@
         parent (name/->string (.inductName ci))
         structure (get @structure-registry parent)
         body (cond
+               ;; Native representation (String, UIntN, Char, Array, …): never a vector.
+               (native/native-structure parent)
+               ((:ctor (native/native-structure parent)) fields)
                (and structure (= nf (count (:fields structure))))
                (if (:map? structure)
                  (apply list 'clojure.core/array-map
@@ -177,6 +181,18 @@
                             (zipmap (.levelParams ^ConstantInfo ci) (e/const-levels f))) args) (conj seen n))
         expr))))
 
+(clojure.core/defn- decision-test
+  "The Bool test of a `Decidable p` argument: a native comparison on its raw operands, or else
+   the constructor of the compiled decision (`isTrue` has index 1; the value is [cidx proof])."
+  [env dec-arg dec-compiled names]
+  (let [[dec-head dec-args] (e/get-app-fn-args (decidable-head env dec-arg))]
+    (if (and (e/const? dec-head)
+             (contains? decidable-comparisons (name/->string (e/const-name dec-head))))
+      (list (get decidable-comparisons (name/->string (e/const-name dec-head)))
+            (ansatz->clj env (nth dec-args 0) names)
+            (ansatz->clj env (nth dec-args 1) names))
+      (list 'clojure.core/== 1 (list 'clojure.core/nth dec-compiled 0)))))
+
 (clojure.core/defn- erase-eq-rec [ca]
   ;; ToLCNF.visitEqRec eta-expands partial applications before erasing them.
   (let [missing (vec (repeatedly (max 0 (- 6 (count ca))) #(gensym "eq_arg_")))
@@ -195,8 +211,42 @@
   ;; Native externs retain Decidable's constructor tag and erase its proof payload.
   (bi-nary2 (fn [x y] (list 'if (list '= x y) [1 nil] [0 nil]))))
 
+(clojure.core/defn- inhabited-default
+  "The `default` field of an `Inhabited α` instance argument, lowered like any projection."
+  [env inst names]
+  (ansatz->clj env (e/proj (name/from-string "Inhabited") 0 inst) names))
+
+(clojure.core/defn- default-taking
+  "Externs whose runtime behaviour needs the `[Inhabited α]` default (lean_panic_fn returns it):
+   `inst-idx` locates the instance, `emit` receives the default form and the runtime args."
+  [inst-idx arity emit]
+  (fn [env _ args ca names]
+    (if (>= (count ca) (+ inst-idx 1 arity))
+      (reduce (fn [f a] (list f a))
+              (apply emit (inhabited-default env (nth args inst-idx) names)
+                     (subvec ca (inc inst-idx) (+ inst-idx 1 arity)))
+              (subvec ca (+ inst-idx 1 arity)))
+      (let [missing (vec (repeatedly (- (+ inst-idx 1 arity) (count ca)) #(gensym "p")))]
+        (if (> (count args) inst-idx)
+          (let [supplied (subvec ca (inc inst-idx))
+                ss (vec (repeatedly (count supplied) #(gensym "a")))
+                body (apply emit (inhabited-default env (nth args inst-idx) names) (concat ss missing))]
+            (list 'let (vec (interleave ss supplied))
+                  (reduce (fn [b p] (list 'fn [p] b)) body (rseq missing))))
+          (throw (ex-info "Codegen: extern needs its Inhabited instance"
+                          {:kind :codegen-error :arguments (count ca)})))))))
+
+(def ^:private native-extern-app
+  ;; Lean @[extern] fast paths (ansatz.codegen.native); hand-written entries below take precedence.
+  (merge
+   (into {} (map (fn [[n en]] [n (fn [_ _ _ ca _] (native/app-form en ca))]) native/extern-lowerings))
+   ;; Init/Prelude.lean panicCore / Array.get!Internal: report, then continue with the default.
+   {"panicCore" (default-taking 1 1 (fn [d msg] (list 'ansatz.codegen.lean-runtime/panic! msg d)))
+    "Array.get!Internal" (default-taking 1 2 (fn [d a i] (list 'ansatz.codegen.lean-runtime/array-get! d a i)))}))
+
 (def ^:private builtin-app
   (merge
+   native-extern-app
    ;; n-ary arithmetic / comparison saturating to a bare op. Nat add/mul/succ use the
    ;; auto-promoting variants (+'/*'/inc'): with literals now emitted as longs, results
    ;; promote to bigint on overflow instead of throwing — full unbounded-Nat semantics at
@@ -230,7 +280,14 @@
     "Int.neg"       (fn [_ _ _ ca _] (list '-' (nth ca 0)))
     "Int.natAbs"    (fn [_ _ _ ca _] (list 'ansatz.codegen.numeric/nat-abs (nth ca 0)))
     "Bool.not"      (fn [_ _ _ ca _] (list 'not (nth ca 0)))
-    "ite"           (fn [_ _ _ ca _] (list 'if (nth ca 1) (nth ca 3) (nth ca 4)))
+    ;; ite α c dec t e: the condition is `Decidable.decide dec` (Lean's compiler cases on dec).
+    "ite"           (fn [env _ args ca names]
+                      (if (>= (count ca) 5)
+                        (reduce (fn [f a] (list f a))
+                                (list 'if (decision-test env (nth args 2) (nth ca 2) names) (nth ca 3) (nth ca 4))
+                                (subvec ca 5))
+                        (throw (ex-info "Codegen: partially applied ite"
+                                        {:kind :codegen-error :arguments (count ca)}))))
     ;; Lean Compiler/LCNF/ToLCNF.lean: equality eliminators erase to their minor.
     "Eq.ndrec"      (fn [_ _ _ ca _] (erase-eq-rec ca))
     "Eq.rec"        (fn [_ _ _ ca _] (erase-eq-rec ca))
@@ -288,14 +345,7 @@
             else-body (if (e/lam? else-fn)
                         (ansatz->clj env (e/lam-body else-fn) (types/bind-type names "_h" (e/lam-type else-fn)))
                         (nth ca 4))
-            dec-expr (decidable-head env (nth args 2))
-            [dec-head dec-args] (e/get-app-fn-args dec-expr)
-            bool-cond (if (and (e/const? dec-head)
-                               (contains? decidable-comparisons (name/->string (e/const-name dec-head))))
-                        (list (get decidable-comparisons (name/->string (e/const-name dec-head)))
-                              (ansatz->clj env (nth dec-args 0) names)
-                              (ansatz->clj env (nth dec-args 1) names))
-                        (nth ca 2))]
+            bool-cond (decision-test env (nth args 2) (nth ca 2) names)]
         (list 'if bool-cond then-body else-body)))
     ;; WellFounded.Nat.fix α motive measure F x → letfn self-recursion; F = λ x. λ IH. body, IH calls drop the proof
     "WellFounded.Nat.fix"
@@ -337,6 +387,7 @@
 (def ^:private builtin-value
   "head → clj-form for an op in VALUE position (a fold step `+`, a passed comparator)."
   (merge
+   (into {} (map (fn [[n en]] [n (native/value-form en)]) native/extern-lowerings))
    {"Nat.zero" 0 "Bool.true" true "Bool.false" false
     "Nat.succ" 'inc' "Int.ofNat" 'identity
     "Int.negSucc" 'ansatz.codegen.numeric/neg-succ
@@ -355,12 +406,20 @@
                          "Int.add" '+' "Int.mul" '*' "Int.sub" '-'}
                         integer-binary)))))
 
+(clojure.core/defn native-extern?
+  "Whether this backend implements an externally implemented constant natively."
+  [cn]
+  (or (contains? builtin-app cn) (contains? builtin-value cn)
+      (contains? @codegen-registry cn)))
+
 (clojure.core/defn unhandled-extern?
-  "Whether this backend lacks a lowering for an externally implemented constant."
+  "Whether an externally implemented constant has neither a native lowering nor a Lean body
+   to compile. An extern WITH a body compiles from it (Lean's definition is its specification;
+   native values are reached only through ansatz.codegen.native's representation boundary)."
   [env cn]
   (and (contains? (env/get-extension env :extern #{}) cn)
-       (not (or (contains? builtin-app cn) (contains? builtin-value cn)
-                (contains? @codegen-registry cn) (contains? @arity-registry cn)))))
+       (not (or (native-extern? cn) (contains? @arity-registry cn)))
+       (nil? (some-> (env/lookup env (name/from-string cn)) (.getValue)))))
 
 (clojure.core/defn- extern-unhandled-form
   "Lean's @[extern] decls (inherited into the env's :extern extension by ansatz.attrs) are native
@@ -371,10 +430,13 @@
    dead-code occurrence never executes). Returns nil when `cn` is not an unhandled extern primitive."
   [env cn]
   (when (contains? (env/get-extension env :extern #{}) cn)
-    (list 'throw (list 'ex-info
-                       (str "ansatz: @[extern] native primitive '" cn "' has no Clojure runtime "
-                            "lowering — register one via the codegen-registry to run it")
-                       {:extern cn}))))
+    (let [reason (:reason ((requiring-resolve 'ansatz.codegen.storedef/failure-reason) cn))]
+      (list 'throw (list 'ex-info
+                         (str "ansatz: @[extern] native primitive '" cn "' has no Clojure runtime "
+                              "lowering"
+                              (when reason (str " and its Lean body does not compile (" reason ")"))
+                              " — register one via the codegen-registry to run it")
+                         (cond-> {:extern cn} reason (assoc :reason reason)))))))
 
 (def ^:dynamic *compile-store-defs*
   "Kill switch for equation-driven runtime compilation of plain store defs
@@ -391,6 +453,15 @@
 
 (clojure.core/defn- storedef-compile? [env cname]
   ((requiring-resolve 'ansatz.codegen.storedef/try-compile-store-def!) env cname))
+
+(clojure.core/defn- extern-body-sym
+  "An @[extern] without a native lowering compiles from its Lean body (memoized by storedef).
+   Returns the compiled var's symbol, or nil."
+  [env cn]
+  (when (and *compile-store-defs* (contains? (env/get-extension env :extern #{}) cn)
+             (not (native-extern? cn)))
+    (or (:sym (get @arity-registry cn))
+        (:sym (storedef-compile? env cn)))))
 
 (clojure.core/defn- csimp-target
   "Lean @[csimp] f→g: return g only when codegen can actually LOWER it as a head
@@ -805,6 +876,8 @@
                                                (fn [i]
                                                  [(nth fields i)
                                                   (cond
+                                                    (native/native-structure ind)
+                                                    ((:field (native/native-structure ind)) i t)
                                                     (= ind "Nat") (list 'dec t)
                                                     (= ind "List") (list (if (zero? i) 'first 'rest) t)
                                                     structure (list (keyword (nth (:fields structure) i)) t)
@@ -926,7 +999,7 @@
               ;; dite lowers these decision instances directly from their raw
               ;; operands; aliases must not also enter storedef compilation.
               ;; Ordinary type/proof erasure uses the shared irrelevant? below.
-              native-decision? (when (and (= h "dite") (> (count args) 2))
+              native-decision? (when (and (#{"dite" "ite"} h) (> (count args) 2))
                                  (let [[dh _] (e/get-app-fn-args (decidable-head env (nth args 2)))]
                                    (and (e/const? dh)
                                         (contains? decidable-comparisons
@@ -947,7 +1020,7 @@
                                        (and (#{"HAdd.hAdd" "HMul.hMul" "HSub.hSub"
                                                "HDiv.hDiv" "HMod.hMod" "HPow.hPow"} h)
                                             (< i 4))
-                                       (and (= h "dite")
+                                       (and (#{"dite" "ite"} h)
                                             (and (= i 2) native-decision?)))
                            (ansatz->clj env arg names))) (range) args)]
           (if-let [bi (or (when-let [entry
@@ -1077,6 +1150,8 @@
                                       (fn [i]
                                         [(nth field-syms i)
                                          (cond
+                                           (native/native-structure ind-name-str)
+                                           ((:field (native/native-structure ind-name-str)) i t-sym)
                                            (= ind-name-str "List")
                                            (list (if (zero? i) 'first 'rest) t-sym)
                                            (get @structure-registry ind-name-str)
@@ -1159,7 +1234,10 @@
                             (if eta-major? (list 'fn [eta-major-sym] applied) applied))))))
             ;; @[extern] native primitive with no builtin/registry lowering: emit a clear throw
             ;; rather than a bare symbol applied to args (opaque ClassNotFoundException).
-                  (or (extern-unhandled-form env h)
+                  (or (when (contains? (env/get-extension env :extern #{}) h)
+                        (if (extern-body-sym env h)
+                          (decl/apply-args (get @arity-registry h) (:sym (get @arity-registry h)) ca)
+                          (extern-unhandled-form env h)))
             ;; Unfold a match auxiliary / casesOn: beta-apply its definition to args and recurse,
             ;; so it lands on the `.rec` path codegen already compiles (instead of a bare symbol).
                       (when (or (match-aux? h) (matcher-info/is-matcher-core env h))
@@ -1258,11 +1336,12 @@
                                                  (cg env expr names)
                               ;; VALUE position (fold step, comparator): a storedef-compiled
                               ;; var supports curried application via its partial-arity
-                              ;; methods — emit the qualified symbol. @[extern] primitives
-                              ;; keep their explanatory throw BEFORE any compile attempt
-                              ;; (native reps — String — may not match the Lean reference
-                              ;; body), mirroring the app-position ordering.
+                              ;; methods — emit the qualified symbol. An @[extern] without a
+                              ;; native lowering compiles from its Lean body (native values are
+                              ;; reached only through ansatz.codegen.native), else keeps its
+                              ;; explanatory throw, mirroring the app-position ordering.
                                                  (or (:sym (get @arity-registry cn))
+                                                     (extern-body-sym env cn)
                                                      (extern-unhandled-form env cn)
                                                      (when *compile-store-defs*
                                                        (:sym (storedef-compile! env cn)))
@@ -1270,6 +1349,7 @@
                                              (if-let [cg (get @codegen-registry cn)]
                                                (cg env expr names)
                                                (or (:sym (get @arity-registry cn))
+                                                   (extern-body-sym env cn)
                                                    (extern-unhandled-form env cn) (symbol cn)))))))
     ;; Projection: Expr.proj type-name idx struct
     ;; For structures with defrecord: keyword access (:field-name struct)
@@ -1279,12 +1359,17 @@
           idx (e/proj-idx expr)
           struct-expr (ansatz->clj env (e/proj-struct expr) names)
           struct-info (get @structure-registry type-name-str)]
-      (if (and struct-info (< idx (count (:fields struct-info))))
+      (cond
+        (native/native-structure type-name-str)
+        ((:field (native/native-structure type-name-str)) idx struct-expr)
+        (and struct-info (< idx (count (:fields struct-info))))
         ;; Structure with defrecord: keyword access
         (list (keyword (nth (:fields struct-info) idx)) struct-expr)
         ;; Fallback: nth on vector
-        (list 'nth struct-expr idx)))
-    (e/let? expr) (let [n (or (e/let-name expr) "x")
+        :else (list 'nth struct-expr idx)))
+    ;; A kernel let name may be a Name object (hygienic, not a symbol): use a depth-unique
+    ;; name then, as lambdas do.
+    (e/let? expr) (let [n (let [ln (e/let-name expr)] (if (string? ln) ln (str "v" (count names))))
                         value (e/let-value expr)
                         compiled (ansatz->clj env value names)
                         cc (cond
