@@ -12,7 +12,13 @@
    `erased` leading type arguments, then `arity` runtime arguments (proof arguments are passed
    as nil and ignored). An extern absent from this table compiles from its Lean body, which then
    reaches native values only through the boundary."
-  (:require [ansatz.codegen.lean-runtime]))
+  (:require [ansatz.codegen.lean-runtime]
+            [ansatz.codegen.types :as types]
+            [ansatz.kernel.env :as env]
+            [ansatz.kernel.expr :as e]
+            [ansatz.kernel.name :as name]
+            [ansatz.surface.ingest :refer [structure-registry codegen-registry]])
+  (:import [ansatz.kernel ConstantInfo]))
 
 (def ^:private rt "ansatz.codegen.lean-runtime")
 (defn- rt-sym [n] (symbol rt (name n)))
@@ -25,22 +31,68 @@
    :field (fn [i x] (when (= i relevant) x))})
 
 (def native-structures
-  "Inductive name → {:ctor (fn [field-forms] form) :field (fn [index form] form)}."
+  "Lean's runtime builtin types (Compiler/LCNF/Util.lean builtinRuntimeTypes) that are
+   structures: inductive name → {:ctor (fn [field-forms] form) :field (fn [index form] form)}.
+   Other structures follow `trivial-structure-field`."
   (merge
-   {"Fin" (identity-structure 0)
-    "BitVec" (identity-structure 0)
-    "Char" (identity-structure 0)
-    "String.Pos.Raw" (identity-structure 0)
-    "ByteArray" (identity-structure 0)
+   {"ByteArray" (identity-structure 0)
     "String" {:ctor (fn [[bytes _]] (list (rt-sym 'utf8->string) bytes))
               :field (fn [i x] (when (zero? i) (list (rt-sym 'string->utf8) x)))}
     "Array" {:ctor (fn [[xs]] (list (rt-sym 'array-of-list) xs))
              :field (fn [_ x] (list (rt-sym 'array-to-list) x))}}
-   (into {} (for [t ["UInt8" "UInt16" "UInt32" "UInt64" "USize"
-                     "Int8" "Int16" "Int32" "Int64" "ISize"]]
+   (into {} (for [t ["UInt8" "UInt16" "UInt32" "UInt64" "USize"]]
               [t (identity-structure 0)]))))
 
-(defn native-structure [type-name] (get native-structures type-name))
+;; ConstantInfo of the constructor → field index or ::none. Keyed by the ConstantInfo itself:
+;; a name may be redefined in a different environment.
+(def ^:private trivial-cache (java.util.Collections/synchronizedMap (java.util.WeakHashMap.)))
+
+(defn- compute-trivial-field [env ^ConstantInfo ind]
+  ;; Lean Compiler/LCNF/Irrelevant.lean computeHasTrivialStructure? (v4.33.1): not unsafe,
+  ;; not recursive, one constructor, exactly one field that is neither a proof nor a type
+  ;; (getRelevantCtorFields? with isProp ∨ isTypeFormerType).
+  (when (and (not (.isUnsafe ind)) (not (.isRec ind)) (= 1 (alength (.ctors ind)))
+             ;; a proposition's values are erased already (Lean: ctorType.isErased)
+             (not (let [r (loop [t (.type ind)] (if (e/forall? t) (recur (e/forall-body t)) t))]
+                    (and (e/sort? r) (ansatz.kernel.Level/isZero (e/sort-level r))))))
+    (let [^ConstantInfo ctor (env/lookup env (aget (.ctors ind) 0))
+          relevant (loop [t (.type ctor) i 0 ctx [] acc []]
+                     (if (e/forall? t)
+                       (recur (e/forall-body t) (inc i)
+                              (types/bind-type ctx (str "x" i) (e/forall-type t))
+                              (if (< i (.numParams ctor))
+                                acc
+                                (conj acc (not (types/irrelevant-type? env (e/forall-type t) ctx)))))
+                       acc))]
+      (when (= 1 (count (filter true? relevant)))
+        (first (keep-indexed (fn [i r] (when r i)) relevant))))))
+
+(defn trivial-structure-field
+  "Lean hasTrivialStructure?: the index of the only relevant field of a one-constructor,
+   non-recursive inductive, which is then represented by that field alone. Excludes types
+   whose representation was chosen explicitly: registered records (`a/structure`, malli
+   `[:map …]`) and constructors with a codegen-registry lowering."
+  [env ^String ind-name]
+  (when-not (or (contains? native-structures ind-name) (contains? @structure-registry ind-name))
+    (when-let [^ConstantInfo ind (env/lookup env (name/from-string ind-name))]
+      (when (and (.isInduct ind) (= 1 (alength (.ctors ind)))
+                 (not (contains? @codegen-registry (name/->string (aget (.ctors ind) 0)))))
+        (let [ctor (env/lookup env (aget (.ctors ind) 0))
+              hit (.get trivial-cache ctor)
+              v (if (some? hit) hit
+                    (let [v (or (compute-trivial-field env ind) ::none)]
+                      (.put trivial-cache ctor v)
+                      v))]
+          (when-not (= ::none v) v))))))
+
+(defn native-structure
+  "The representation of a structure-like type when it is not a vector: a runtime builtin
+   type, or a trivial structure (its one relevant field). nil for the generic representation."
+  ([type-name] (get native-structures type-name))
+  ([env type-name]
+   (or (get native-structures type-name)
+       (when-let [i (trivial-structure-field env type-name)]
+         (identity-structure i)))))
 
 ;; ── extern table ──────────────────────────────────────────────────────────────────────────────
 
