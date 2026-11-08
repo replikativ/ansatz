@@ -1,6 +1,7 @@
 (ns ansatz.load-init-test
   (:require [clojure.test :refer [deftest is use-fixtures]]
             [ansatz.core :as a]
+            [ansatz.fixtures :as fixtures]
             [ansatz.bundle :as bundle]
             [ansatz.bundle-test :as bundle-test]
             [ansatz.kernel.env :as env]
@@ -11,6 +12,7 @@
             [ansatz.session :as session]
             [ansatz.state :as state]))
 
+(use-fixtures :once fixtures/isolated-session)
 (use-fixtures :each
   (fn [f]
     (session/with-session

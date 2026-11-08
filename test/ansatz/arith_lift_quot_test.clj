@@ -7,12 +7,13 @@
   that must not happen. `quot` IS truncating integer division, and on Nat that
   is floor division, so the surface spelling and the emitted code agree."
   (:require [clojure.test :refer [deftest testing is use-fixtures]]
-            [ansatz.core :as a]))
+            [ansatz.core :as a]
+            [ansatz.fixtures :as fixtures]))
 
 (defn- init-once [f]
   (binding [a/*verbose* false] (a/load-init!) (f)))
 
-(use-fixtures :once init-once)
+(use-fixtures :once fixtures/isolated-session init-once)
 
 (deftest quot-lifts-and-emits-quot
   (testing "a verified definition using quot compiles, and the emitted Clojure

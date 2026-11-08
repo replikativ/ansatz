@@ -2,6 +2,7 @@
   "Lean pairs: test/lean/simp_matcher.lean."
   (:require [clojure.test :refer [deftest is use-fixtures]]
             [ansatz.core :as a]
+            [ansatz.fixtures :as fixtures]
             [ansatz.meta :as meta]
             [ansatz.attrs :as attrs]
             [ansatz.kernel.env :as env]
@@ -12,7 +13,7 @@
             [ansatz.kernel.level :as lvl]
             [ansatz.tactic.simp :as simp]))
 
-(use-fixtures :once
+(use-fixtures :once fixtures/isolated-session
   (fn [t]
     (a/load-init!)
     (binding [a/*verbose* false *ns* (the-ns 'ansatz.tactic.simp-matcher-test)]

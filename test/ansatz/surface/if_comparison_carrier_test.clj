@@ -7,13 +7,14 @@
    if-guard as a Nat proposition."
   (:require [clojure.test :refer [deftest testing is use-fixtures]]
             [ansatz.core :as a]
+            [ansatz.fixtures :as fixtures]
             [ansatz.kernel.env :as kenv]
             [ansatz.kernel.name :as kn]))
 
 (defn- init-once [f]
   (binding [a/*verbose* false] (a/load-init!) (f)))
 
-(use-fixtures :once init-once)
+(use-fixtures :once fixtures/isolated-session init-once)
 
 (defn- value-str [n] (str (.getValue (kenv/lookup (a/env) (kn/from-string (str n))))))
 

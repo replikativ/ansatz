@@ -2,6 +2,7 @@
   "Nat constructor equations and offset keys; Lean pair: test/lean/nat_equations.lean."
   (:require [clojure.test :refer [deftest is use-fixtures]]
             [ansatz.core :as a]
+            [ansatz.fixtures :as fixtures]
             [ansatz.eqns :as eqns]
             [ansatz.kernel.expr :as e]
             [ansatz.kernel.env :as env]
@@ -18,7 +19,7 @@
 (defn- c [n] (e/const' (name/from-string n) []))
 (defn- add [n k] (#'dt/mk-add-nat n (e/lit-nat k)))
 
-(use-fixtures :once
+(use-fixtures :once fixtures/isolated-session
   (fn [t]
     (a/load-init!)
     (binding [a/*verbose* false *ns* (the-ns 'ansatz.tactic.nat-equations-test)]

@@ -5,6 +5,7 @@
    path (captured trie with rules resolved on demand) is exercised end to end in ansatz.import-test."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [ansatz.core :as a]
+            [ansatz.fixtures :as fixtures]
             [ansatz.simp-index :as si]
             [ansatz.kernel.env :as env]
             [ansatz.kernel.expr :as e]
@@ -16,7 +17,7 @@
             [ansatz.kernel.tc :as tc]
             [ansatz.tactic.simp :as simp]))
 
-(use-fixtures :once (fn [f] (a/load-init!) (binding [a/*verbose* false] (f))))
+(use-fixtures :once fixtures/isolated-session (fn [f] (a/load-init!) (binding [a/*verbose* false] (f))))
 
 (defn- inherited-entries
   "Key the loaded env's whole inherited @[simp] set in-process (what the importer does)."

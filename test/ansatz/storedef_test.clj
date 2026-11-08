@@ -7,6 +7,7 @@
    gracefully when the booted store carries no equation lemmas."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [ansatz.core :as a]
+            [ansatz.fixtures :as fixtures]
             [ansatz.eqns :as eqns]
             [ansatz.codegen :as cg]
             [ansatz.codegen.types :as types]
@@ -16,7 +17,7 @@
             [ansatz.kernel.level :as lvl]
             [ansatz.kernel.name :as name]))
 
-(use-fixtures :once (fn [f] (a/load-init!) (binding [a/*verbose* false] (f))))
+(use-fixtures :once fixtures/isolated-session (fn [f] (a/load-init!) (binding [a/*verbose* false] (f))))
 
 (defn- has-decl? [n] (some? (env/lookup (a/env) (name/from-string n))))
 

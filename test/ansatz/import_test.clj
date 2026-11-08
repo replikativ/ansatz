@@ -7,6 +7,7 @@
             [clojure.test :refer [deftest is testing]]
             [clojure.java.io :as io]
             [ansatz.core :as a]
+            [ansatz.fixtures :as fixtures]
             [ansatz.import :as imp]
             [ansatz.store :as store]
             [ansatz.state :as state]
@@ -44,7 +45,7 @@
   (e/app* (e/const' (name/from-string "LE.le") [lvl/zero]) nat
           (e/const' (name/from-string "instLENat") []) x y))
 
-(clojure.test/use-fixtures :once
+(clojure.test/use-fixtures :once fixtures/isolated-session
   (fn [f]
     ;; The importer accepts a file path; materialize the shipped closure for it.
     (let [file (java.io.File/createTempFile "ansatz-bundled-init-" ".ndjson")]
