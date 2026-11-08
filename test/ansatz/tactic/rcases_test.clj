@@ -1,6 +1,7 @@
 (ns ansatz.tactic.rcases-test
   (:require [clojure.test :refer [deftest is use-fixtures testing]]
             [ansatz.core :as a]
+            [ansatz.fixtures :as fixtures]
             [ansatz.tactic.basic :as basic]
             [ansatz.tactic.simp :as simp]
             [clojure.walk :as walk]
@@ -8,40 +9,26 @@
             [ansatz.kernel.name :as name]))
 
 (use-fixtures :once
-  ;; Restore the session afterwards: a later (a/load-init!) with the same bundle keeps the
-  ;; active Env, so declarations made here (e.g. FrameState) would leak into other
-  ;; namespaces that run in the same JVM.
+  fixtures/isolated-session
   (fn [f]
-    (let [saved-env @a/ansatz-env
-          saved-arity @a/arity-registry
-          saved-codegen @a/codegen-registry
-          saved-structures @a/structure-registry
-          saved-instances @a/ansatz-instance-index]
-      (try
-        (a/load-init!)
-        ;; The bundled small Init fixture omits Sigma and Sum. Declare their
-        ;; constructor shapes here, including Sigma's dependent second field.
-        (binding [a/*verbose* false]
-          (a/inductive TestSigma [A Type B (=> A Type)]
-                       (mk [fst A] [snd (B fst)]))
-          (a/inductive TestSum [A Type B Type]
-                       (inl [val A]) (inr [val B]))
-          (binding [*ns* (the-ns 'ansatz.tactic.rcases-test)]
-            (a/structure FrameState [] (x Nat))
-            (a/structure FrameOutcome [] (state FrameState) (accepted Bool))
-            (a/defn frame-step [n :- Nat, s :- FrameState] FrameOutcome
-              (if (Nat.beq n 0) (FrameOutcome.mk s true) (FrameOutcome.mk s false)))
-            (a/defn probe-case-f [n :- Nat] (Option Nat)
-              (match n
-                [0 (Option.some Nat 0)]
-                [_ (Option.none Nat)])))
-          (f))
-        (finally
-          (reset! a/ansatz-env saved-env)
-          (reset! a/arity-registry saved-arity)
-          (reset! a/codegen-registry saved-codegen)
-          (reset! a/structure-registry saved-structures)
-          (reset! a/ansatz-instance-index saved-instances))))))
+    (a/load-init!)
+    ;; The bundled small Init fixture omits Sigma and Sum. Declare their
+    ;; constructor shapes here, including Sigma's dependent second field.
+    (binding [a/*verbose* false]
+      (a/inductive TestSigma [A Type B (=> A Type)]
+                   (mk [fst A] [snd (B fst)]))
+      (a/inductive TestSum [A Type B Type]
+                   (inl [val A]) (inr [val B]))
+      (binding [*ns* (the-ns 'ansatz.tactic.rcases-test)]
+        (a/structure FrameState [] (x Nat))
+        (a/structure FrameOutcome [] (state FrameState) (accepted Bool))
+        (a/defn frame-step [n :- Nat, s :- FrameState] FrameOutcome
+          (if (Nat.beq n 0) (FrameOutcome.mk s true) (FrameOutcome.mk s false)))
+        (a/defn probe-case-f [n :- Nat] (Option Nat)
+          (match n
+            [0 (Option.some Nat 0)]
+            [_ (Option.none Nat)])))
+      (f))))
 
 (defn- proves [params target tactics]
   ;; prove-theorem constructs a declaration and runs check-constant.
