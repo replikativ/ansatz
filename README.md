@@ -589,6 +589,22 @@ compiler replacement when available (such as Lean's strict `Nat.recCompiled`). O
 those arguments are supplied, native lowering either supports the minor shape or
 reports an error; it does not fall back to a kernel recursion encoding.
 
+Lean's `@[extern]` primitives run as in Lean's runtime. Some Init types have a native
+representation: `String` is a `java.lang.String` read as a sequence of code points, `Char`
+is its code point, `UInt8`…`UInt64`/`USize` (and `Fin`, `BitVec`) are their Nat value
+(wrapping modulo 2^w), `Array` is a persistent vector and `ByteArray` a vector of byte
+values. Generic code never reads such a value as a structure: constructors, projections and
+recursor fields of these types go through one conversion each (`String` ↔ its UTF-8 bytes,
+`Array` ↔ its list; the rest are identities), `ansatz.codegen.native`. The externs over
+them have native implementations (`ansatz.codegen.lean-runtime`, after Lean's `lean.h` and
+runtime sources: code-point string order, MurmurHash64A string hashes, panics that report
+and return the default). An extern without one compiles from its Lean definition, which is
+its specification. An extern with neither (implemented in C only) or whose definition does
+not compile stays unexecutable: running it raises an error naming the extern and the reason. `test/lean/extern_runtime.lean` holds
+the values Lean computes natively, `test/ansatz/extern_runtime_test.clj` checks the same
+values, checks each native implementation against the extern's compiled Lean definition,
+and requires every extern of the bundled Init to be native, compiled or listed with a reason.
+
 ### Pattern Matching
 
 ```clojure

@@ -140,8 +140,9 @@
           :else false)))
 
 (defn- audit-binders
-  "Runtime telescope with a contiguous erased prefix. Explicit type parameters
-   other than predicates retain the store compiler's unsupported-shape guard."
+  "Runtime telescope: a contiguous erased prefix, then parameters (later irrelevant ones
+   receive nil). Explicit type parameters other than predicates retain the store
+   compiler's unsupported-shape guard."
   [env binders]
   ;; ToLCNF.lean:visit/visitAppArg erases types and proofs, not computational
   ;; instance dictionaries merely because their binders are instance-implicit.
@@ -156,8 +157,9 @@
                   infos))
         erased (count (take-while :erased? infos))
         runtime (drop erased infos)]
+    ;; An irrelevant binder after the prefix (a proof such as `h : i < a.size`) stays a
+    ;; parameter: ToLCNF passes the erased value (◾), which this backend represents as nil.
     (when (and (not-any? :unsupported? infos)
-               (not-any? :erased? runtime)
                (<= 0 (count runtime) 20))
       {:erased erased :arity (count runtime)})))
 
@@ -432,8 +434,9 @@
         memo)
       (when-not (contains? *in-progress* cname)
         (when-let [^ConstantInfo ci (env/lookup env (name/from-string cname))]
-          (when (and (<= 0 (.getHintsCode ci)) (some? (.getValue ci))
-                     (not (contains? (env/get-extension env :extern #{}) cname)))
+          ;; An @[extern] body is its specification; codegen reaches it only when no native
+          ;; lowering exists (ansatz.codegen/extern-body-sym).
+          (when (and (<= 0 (.getHintsCode ci)) (some? (.getValue ci)))
             (try
               (let [res (compile!* env cname ci)]
                 (if-let [reason (:reason res)]

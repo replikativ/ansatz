@@ -300,6 +300,17 @@
         term (e/app* (e/const' nm []) (e/lit-nat 5) (e/lit-nat 7))]
     (is (= 12 (eval (cg/ansatz->clj checked term []))))))
 
+(deftest extern-without-native-lowering-runs-its-lean-body
+  (let [nat (e/const' (name/from-string "Nat") [])
+        type (e/forall "n" nat nat :default)
+        nm "RuntimeExternWithBody"
+        body (e/lam "n" nat (e/app (e/const' (name/from-string "Nat.succ") []) (e/bvar 0)) :default)
+        checked (-> (a/env)
+                    (env/check-constant (env/mk-def (name/from-string nm) [] type body :hints {:regular 0}))
+                    (env/update-extension :extern #{} conj nm))]
+    (is (not (cg/unhandled-extern? checked nm)))
+    (is (= 8 (eval (cg/ansatz->clj checked (e/app (e/const' (name/from-string nm) []) (e/lit-nat 7)) []))))))
+
 (deftest unsupported-replacement-is-skipped-before-compiling-the-reference
   (doseq [mode [:unsafe :extern]]
     (let [suffix (name mode)
@@ -310,8 +321,12 @@
           type (e/forall "n" nat nat :default)
           source-body (e/lam "n" nat
                              (e/app (e/const' (name/from-string "Nat.succ") []) (e/bvar 0)) :default)
-          primitive (env/mk-def (name/from-string primitive-name) [] type
-                                (e/lam "n" nat (e/bvar 0) :default) :hints {:regular 0})
+          ;; An @[extern] without a native lowering runs its Lean body; only one
+          ;; without a body (C-implemented, like String.hash) is unexecutable.
+          primitive (if (= mode :extern)
+                      (env/mk-axiom (name/from-string primitive-name) [] type)
+                      (env/mk-def (name/from-string primitive-name) [] type
+                                  (e/lam "n" nat (e/bvar 0) :default) :hints {:regular 0}))
           target-body (if (= mode :unsafe) source-body
                           (e/lam "n" nat
                                  (e/app (e/const' (name/from-string "Nat.succ") [])
