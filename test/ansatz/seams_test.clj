@@ -8,6 +8,7 @@
    Also checks the metadata + :- type-annotation surfaces."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [ansatz.core :as a]
+            [ansatz.fixtures :as fixtures]
             [ansatz.kernel.env :as env]
             [ansatz.kernel.expr]
             [ansatz.kernel.name :as name]))
@@ -15,7 +16,7 @@
 (defn- with-init [f]
   (a/load-init!)                       ; bundled Init — enough for Nat / +
   (binding [a/*verbose* false] (f)))
-(use-fixtures :once with-init)
+(use-fixtures :once fixtures/isolated-session with-init)
 
 (deftest optimize-hook-fires-and-base-still-runs
   (let [called (atom 0)]

@@ -5,7 +5,10 @@
    is what makes ansatz usable the moment you add the dependency. Fixture-free (the tier
    ships in the jar), so it belongs in the default CI unit suite."
   (:require [clojure.test :refer [deftest is testing]]
-            [ansatz.core :as a]))
+            [ansatz.core :as a]
+            [ansatz.fixtures :as fixtures]))
+
+(clojure.test/use-fixtures :once fixtures/isolated-session)
 
 (deftest bundled-medium-init-is-usable
   (binding [a/*verbose* false]

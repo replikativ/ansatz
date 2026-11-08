@@ -24,7 +24,10 @@
    height/round/step comparison, and the two properties are what make a consensus validator
    non-slashable — at most one prevote and one precommit per height/round."
   (:require [clojure.test :refer [deftest is testing]]
-            [ansatz.core :as a]))
+            [ansatz.core :as a]
+            [ansatz.fixtures :as fixtures]))
+
+(clojure.test/use-fixtures :once fixtures/isolated-session)
 
 (defn- fresh-init! []
   (binding [a/*verbose* false] (a/load-init!)))

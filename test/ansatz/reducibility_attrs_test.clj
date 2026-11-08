@@ -3,6 +3,7 @@
             [clojure.java.io :as io]
             [clojure.string :as str]
             [ansatz.core :as a]
+            [ansatz.fixtures :as fixtures]
             [ansatz.attrs :as attrs]
             [ansatz.bundle-metadata :as metadata]
             [ansatz.meta :as meta]
@@ -15,7 +16,7 @@
   (:import [java.nio.file Files]
            [java.nio.file.attribute FileAttribute]))
 
-(use-fixtures :once (fn [f] (a/load-init!) (binding [a/*verbose* false] (f))))
+(use-fixtures :once fixtures/isolated-session (fn [f] (a/load-init!) (binding [a/*verbose* false] (f))))
 
 (def expected-statuses
   {"outParam" "reducible", "semiOutParam" "reducible"

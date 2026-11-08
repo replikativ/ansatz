@@ -4,8 +4,11 @@
    Skipped if no store is available."
   (:require [clojure.test :refer [deftest testing is]]
             [ansatz.core :as a]
+            [ansatz.fixtures :as fixtures]
             [ansatz.kernel.expr :as e]
             [ansatz.surface.elaborate :as el]))
+
+(clojure.test/use-fixtures :once fixtures/isolated-session)
 
 ;; ============================================================
 ;; Mathlib environment

@@ -12,6 +12,7 @@
   computation where the proposition belongs — and tactics failed on it."
   (:require [clojure.test :refer [deftest testing is use-fixtures]]
             [ansatz.core :as a]
+            [ansatz.fixtures :as fixtures]
             [ansatz.kernel.expr :as e]
             [ansatz.kernel.env :as kenv]
             [ansatz.kernel.name :as kn]
@@ -20,7 +21,7 @@
 (defn- init-once [f]
   (binding [a/*verbose* false] (a/load-init!) (f)))
 
-(use-fixtures :once init-once)
+(use-fixtures :once fixtures/isolated-session init-once)
 
 (deftest equality-in-proof-lambda-binder
   (is (a/deftheorem equality-lambda [b :- Bool, h :- (= b true)]

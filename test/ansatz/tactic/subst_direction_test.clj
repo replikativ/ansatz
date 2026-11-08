@@ -1,9 +1,10 @@
 (ns ansatz.tactic.subst-direction-test
   "Lean pairs: test/lean/subst_direction.lean."
   (:require [clojure.test :refer [deftest is use-fixtures]]
-            [ansatz.core :as a]))
+            [ansatz.core :as a]
+            [ansatz.fixtures :as fixtures]))
 
-(use-fixtures :once
+(use-fixtures :once fixtures/isolated-session
   (fn [t]
     (a/load-init!)
     (binding [a/*verbose* false *ns* (the-ns 'ansatz.tactic.subst-direction-test)]

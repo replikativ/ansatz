@@ -4,12 +4,13 @@
    idiomatic functional Clojure can be copied into a/defn with few/no adjustments. Grows phase by
    phase (Phase A: let + threading; later: fn, destructuring, recursion ladder)."
   (:require [clojure.test :refer [deftest is use-fixtures]]
-            [ansatz.core :as a]))
+            [ansatz.core :as a]
+            [ansatz.fixtures :as fixtures]))
 
 (defn- with-init [f]
   (a/load-init!)
   (binding [a/*verbose* false] (f)))
-(use-fixtures :once with-init)
+(use-fixtures :once fixtures/isolated-session with-init)
 
 (deftest let-elaborates-and-runs
   (eval '(ansatz.core/defn ^Nat ci-let1 [^Nat n] (let [x (Nat.add n n)] (Nat.add x x))))

@@ -4,6 +4,7 @@
    follow no naming convention resolves, and the elaborator sees the same index."
   (:require [clojure.test :refer [deftest testing is use-fixtures]]
             [ansatz.core :as a]
+            [ansatz.fixtures :as fixtures]
             [ansatz.kernel.expr :as e]
             [ansatz.kernel.name :as name]
             [ansatz.kernel.level :as lvl]
@@ -13,7 +14,7 @@
 (defn- init-once [f]
   (binding [a/*verbose* false] (a/load-init!) (f)))
 
-(use-fixtures :once init-once)
+(use-fixtures :once fixtures/isolated-session init-once)
 
 (deftest bundled-registry-is-installed
   (let [idx (a/instance-index)]

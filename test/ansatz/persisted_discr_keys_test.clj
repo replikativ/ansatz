@@ -3,6 +3,7 @@
             [clojure.edn :as edn]
             [clojure.walk :as walk]
             [ansatz.core :as a]
+            [ansatz.fixtures :as fixtures]
             [ansatz.discr-key-encoding :as ke]
             [ansatz.recall :as recall]
             [ansatz.simp-index :as si]
@@ -22,7 +23,7 @@
 (defn goal [x] (e/app* (c "Nat.lt") (e/lit-nat 0) x))
 (def numeral (succ (succ (succ (c "Nat.zero")))))
 
-(use-fixtures :once (fn [f] (a/load-init!) (binding [a/*verbose* false] (f))))
+(use-fixtures :once fixtures/isolated-session (fn [f] (a/load-init!) (binding [a/*verbose* false] (f))))
 
 (deftest frozen-recall-artifact-survives-current-defaults
   (let [old @state/ansatz-discr-trie old-store @state/ansatz-store]

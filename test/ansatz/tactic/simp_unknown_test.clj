@@ -2,12 +2,13 @@
   "Lean pairs: test/lean/simp_unknown.lean."
   (:require [clojure.test :refer [deftest is use-fixtures]]
             [ansatz.core :as a]
+            [ansatz.fixtures :as fixtures]
             [ansatz.surface.elaborate :as elab]
             [ansatz.tactic.basic :as basic]
             [ansatz.tactic.proof :as proof]
             [ansatz.tactic.simp.simproc :as simproc]))
 
-(use-fixtures :once (fn [t] (a/load-init!) (binding [a/*verbose* false] (t))))
+(use-fixtures :once fixtures/isolated-session (fn [t] (a/load-init!) (binding [a/*verbose* false] (t))))
 
 (defn- proves [& args]
   (apply a/prove-theorem args)
