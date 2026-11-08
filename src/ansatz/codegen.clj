@@ -67,8 +67,8 @@
         structure (get @structure-registry parent)
         body (cond
                ;; Native representation (String, UIntN, Char, Array, …): never a vector.
-               (native/native-structure parent)
-               ((:ctor (native/native-structure parent)) fields)
+               (native/native-structure env parent)
+               ((:ctor (native/native-structure env parent)) fields)
                (and structure (= nf (count (:fields structure))))
                (if (:map? structure)
                  (apply list 'clojure.core/array-map
@@ -876,8 +876,8 @@
                                                (fn [i]
                                                  [(nth fields i)
                                                   (cond
-                                                    (native/native-structure ind)
-                                                    ((:field (native/native-structure ind)) i t)
+                                                    (native/native-structure env ind)
+                                                    ((:field (native/native-structure env ind)) i t)
                                                     (= ind "Nat") (list 'dec t)
                                                     (= ind "List") (list (if (zero? i) 'first 'rest) t)
                                                     structure (list (keyword (nth (:fields structure) i)) t)
@@ -1150,8 +1150,8 @@
                                       (fn [i]
                                         [(nth field-syms i)
                                          (cond
-                                           (native/native-structure ind-name-str)
-                                           ((:field (native/native-structure ind-name-str)) i t-sym)
+                                           (native/native-structure env ind-name-str)
+                                           ((:field (native/native-structure env ind-name-str)) i t-sym)
                                            (= ind-name-str "List")
                                            (list (if (zero? i) 'first 'rest) t-sym)
                                            (get @structure-registry ind-name-str)
@@ -1360,8 +1360,8 @@
           struct-expr (ansatz->clj env (e/proj-struct expr) names)
           struct-info (get @structure-registry type-name-str)]
       (cond
-        (native/native-structure type-name-str)
-        ((:field (native/native-structure type-name-str)) idx struct-expr)
+        (native/native-structure env type-name-str)
+        ((:field (native/native-structure env type-name-str)) idx struct-expr)
         (and struct-info (< idx (count (:fields struct-info))))
         ;; Structure with defrecord: keyword access
         (list (keyword (nth (:fields struct-info) idx)) struct-expr)

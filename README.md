@@ -589,14 +589,22 @@ compiler replacement when available (such as Lean's strict `Nat.recCompiled`). O
 those arguments are supplied, native lowering either supports the minor shape or
 reports an error; it does not fall back to a kernel recursion encoding.
 
-Lean's `@[extern]` primitives run as in Lean's runtime. Some Init types have a native
-representation: `String` is a `java.lang.String` read as a sequence of code points, `Char`
-is its code point, `UInt8`…`UInt64`/`USize` (and `Fin`, `BitVec`) are their Nat value
-(wrapping modulo 2^w), `Array` is a persistent vector and `ByteArray` a vector of byte
-values. Generic code never reads such a value as a structure: constructors, projections and
-recursor fields of these types go through one conversion each (`String` ↔ its UTF-8 bytes,
-`Array` ↔ its list; the rest are identities), `ansatz.codegen.native`. The externs over
-them have native implementations (`ansatz.codegen.lean-runtime`, after Lean's `lean.h` and
+Runtime representations follow Lean's compiler. A one-constructor, non-recursive type with
+exactly one computationally relevant field is represented by that field
+(`hasTrivialStructure?`): `Fin`, `BitVec`, `Char`, `Subtype`, instances of one-method
+classes such as `Inhabited`, and user types such as `(a/inductive Meters [] (mk [m Nat]))`
+run as the bare value; proof fields never occupy a slot. Records whose representation was
+chosen explicitly (`a/structure`, malli `[:map …]`) stay records, and constructors with a
+codegen-registry lowering keep it. Lean's runtime builtin types have native
+representations: `String` is a `java.lang.String` read as a sequence of code points,
+`UInt8`…`UInt64`/`USize` are their Nat value (wrapping modulo 2^w), `Array` is a persistent
+vector and `ByteArray` a vector of byte values, so `Char` is its code point. Generic code
+never reads such a value as a structure: constructors, projections and recursor fields go
+through one conversion each (`String` ↔ its UTF-8 bytes, `Array` ↔ its list; the rest are
+identities), `ansatz.codegen.native`.
+
+Lean's `@[extern]` primitives run as in Lean's runtime. The externs over these types have
+native implementations (`ansatz.codegen.lean-runtime`, after Lean's `lean.h` and
 runtime sources: code-point string order, MurmurHash64A string hashes, panics that report
 and return the default). An extern without one compiles from its Lean definition, which is
 its specification. An extern with neither (implemented in C only) or whose definition does
