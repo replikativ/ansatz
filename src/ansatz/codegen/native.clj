@@ -130,8 +130,7 @@
     "ByteArray.get" (entry 0 3 (fn [a i _] (list (rt-sym 'array-get) a i)))
     "ByteArray.uget" (entry 0 3 (fn [a i _] (list (rt-sym 'array-get) a i)))
     "ByteArray.emptyWithCapacity" (entry 0 1 (fn [_] []))
-    "ByteArray.copySlice" (entry 0 6 (call 'byte-array-copy-slice))
-}
+    "ByteArray.copySlice" (entry 0 6 (call 'byte-array-copy-slice))}
    (into {} (mapcat (fn [[t bits]] (uint-entries t bits)) uint-widths))))
 
 (defn- curried [params body] (reduce (fn [b p] (list 'fn [p] b)) body (rseq (vec params))))
