@@ -35,6 +35,15 @@ public final class TypeChecker {
     private final ExprMap<Expr> inferOnlyCache;   // m_infer_type[1]
     private final ExprPairSet success;            // m_success  (lean4#14806 pair cache)
     private final ExprPairSet failure;            // m_failure
+    // Free variable ids. Lean's caches assume "free variables are globally unique with fixed
+    // types" (type_checker.h); Lean keeps the kernel's own locals and the inductive module's
+    // apart with separate name generators (g_kernel_fresh vs inductive.cpp's g_ind_fresh).
+    // Here a local is a numeric id, and callers (InductiveChecker, the recursor and nested
+    // generators, the elaborator) number theirs from small counters. The checker's own locals
+    // (binders opened while inferring, reducing or comparing) take ids from a disjoint range
+    // starting at KERNEL_FRESH_BASE, so a caller can never hand out an id the checker already
+    // used — and cached under — for a different local.
+    public static final long KERNEL_FRESH_BASE = 1L << 62;
     private long nextId;
     private int isDefEqDepth;
     private final byte definitionSafety;
@@ -470,7 +479,7 @@ public final class TypeChecker {
         this.inferOnlyCache = new ExprMap<>(1024);
         this.success = new ExprPairSet(256);
         this.failure = new ExprPairSet(256);
-        this.nextId = 0;
+        this.nextId = KERNEL_FRESH_BASE;
         this.lctx = new HashMap<>();
         this.reducer.setLctx(this.lctx);
         this.reducer.setCallbacks(this::inferTypeOnly, this::isDefEq);
