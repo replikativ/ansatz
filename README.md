@@ -10,7 +10,7 @@ Ansatz is a verified programming library for Clojure built on the [Calculus of I
 
 If you already write [malli](https://github.com/metosin/malli)-instrumented Clojure, Ansatz is the gradual next step: your `m/=>` schemas become kernel type signatures, your functions become machine-checked, and they still run as ordinary Clojure.
 
-**Same kernel, different surface.** Ansatz shares Lean 4's CIC kernel — a proof verified in Ansatz is valid in Lean 4 and vice versa. Proofs can be [exported to Lean 4](doc/lean4-for-clojurians.md) syntax. The difference is the surface language: Lean 4 uses its own syntax; Ansatz uses Clojure s-expressions and runs on the JVM. See **[Lean 4 for Clojurians](doc/lean4-for-clojurians.md)** for the full comparison, translation guide, and learning path.
+**Same kernel, different surface.** Ansatz shares Lean 4's CIC kernel — a proof verified in Ansatz is valid in Lean 4 and vice versa. Declarations, with their proofs, can be [exported in Lean's export format and re-checked by Lean 4's own kernel](doc/kernel-validation.md#re-checking-in-lean-4s-kernel). The difference is the surface language: Lean 4 uses its own syntax; Ansatz uses Clojure s-expressions and runs on the JVM. See **[Lean 4 for Clojurians](doc/lean4-for-clojurians.md)** for the full comparison, translation guide, and learning path.
 
 ```clojure
 (require '[ansatz.core :as a] '[malli.core :as m])
@@ -200,7 +200,7 @@ Ansatz adds these primitives to Clojure:
 
 4. **`a/structure`** — defines record types that compile to Clojure `defrecord`. Fields are accessible via keywords: `(:x point)`. Kernel-verified projections are auto-generated.
 
-The key idea: Lean 4's Mathlib library has 210,000+ proved theorems about math (algebra, analysis, topology). Ansatz lets you USE those theorems in your Clojure proofs. When you write `(apply mul_le_of_le_one_left)`, you're applying a theorem that was proved in Mathlib and verified by the kernel. Proofs are portable — Ansatz can [export to Lean 4 syntax](doc/lean4-for-clojurians.md) and Lean 4 proofs can be imported into Ansatz.
+The key idea: Lean 4's Mathlib library has 210,000+ proved theorems about math (algebra, analysis, topology). Ansatz lets you USE those theorems in your Clojure proofs. When you write `(apply mul_le_of_le_one_left)`, you're applying a theorem that was proved in Mathlib and verified by the kernel. Proofs are portable — Lean 4 proofs are imported into Ansatz, and Ansatz declarations can be [exported and re-checked by Lean 4's kernel](doc/kernel-validation.md#re-checking-in-lean-4s-kernel).
 
 ## Features
 
