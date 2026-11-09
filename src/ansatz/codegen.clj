@@ -1011,18 +1011,24 @@
                                   "OfScientific.ofScientific" #{"OfScientific"}
                                   nil)
               ;; Erased parameters never reach expression lowering or runtime calls.
-              ca (mapv (fn [i arg]
-                         (when-not (or (< i (or (:erased cc) 0))
-                                       (types/irrelevant? env arg names erased-type-heads)
+              ;; Compiled arguments, on demand: lowerings that unfold their head (a match
+              ;; auxiliary, a recursor's minors compiled from their kernel terms) never use
+              ;; them, and compiling them eagerly made nested matches exponential. Each delay
+              ;; conveys the dynamic bindings in force here.
+              compile-arg (bound-fn* (fn [i arg]
+                                       (when-not (or (< i (or (:erased cc) 0))
+                                                     (types/irrelevant? env arg names erased-type-heads)
                                        ;; hop extracts the actual field from the
                                        ;; raw instance before emitting operands;
                                        ;; its type/dictionary prefix is not emitted.
-                                       (and (#{"HAdd.hAdd" "HMul.hMul" "HSub.hSub"
-                                               "HDiv.hDiv" "HMod.hMod" "HPow.hPow"} h)
-                                            (< i 4))
-                                       (and (#{"dite" "ite"} h)
-                                            (and (= i 2) native-decision?)))
-                           (ansatz->clj env arg names))) (range) args)]
+                                                     (and (#{"HAdd.hAdd" "HMul.hMul" "HSub.hSub"
+                                                             "HDiv.hDiv" "HMod.hMod" "HPow.hPow"} h)
+                                                          (< i 4))
+                                                     (and (#{"dite" "ite"} h)
+                                                          (and (= i 2) native-decision?)))
+                                         (ansatz->clj env arg names))))
+              cad (mapv (fn [i arg] (delay (compile-arg i arg))) (range) args)
+              ca (delay (mapv deref cad))]
           (if-let [bi (or (when-let [entry
                                      (some (fn [{:keys [prefix depth] :as entry}]
                                              (when (and (>= (count names) depth)
@@ -1038,7 +1044,7 @@
                             (when (= :per-ctor (:kind info))
                               (fn [env _ args ca names] (visit-no-confusion env args ca names info))))
                           (builtin-app h))]
-            (bi env head args ca names)
+            (bi env head args @ca names)
             ;; Constructor application
             ;; For structures (defrecord): use ->RecordName constructor
             ;; For other inductives: tagged vector [field1 field2 ...]
@@ -1049,7 +1055,7 @@
               (cg env expr names)
               (if-let [ctor-ci (when-let [ci (env/lookup env (e/const-name head))]
                                  (when (.isCtor ^ConstantInfo ci) ci))]
-                (compile-constructor-app env ctor-ci ca)
+                (compile-constructor-app env ctor-ci @ca)
               ;; Generic recursor compilation: *.rec → case dispatch with recursion
                 (if-let [rec-ci (when (.endsWith ^String h ".rec")
                                   (env/lookup env (e/const-name head)))]
@@ -1070,10 +1076,10 @@
                             nm (.numMotives rec-ci)
                             nmin (.numMinors rec-ci)
                             minor-start (+ np nm)
-                            _ (when (or (not= nm 1) (< (count ca) (+ minor-start nmin)))
+                            _ (when (or (not= nm 1) (< (count cad) (+ minor-start nmin)))
                                 (throw (ex-info "Codegen: unsupported recursor shape (motives or missing minors)"
                                                 {:kind :codegen-error :recursor h :motives nm
-                                                 :minors nmin :arguments (count ca)})))
+                                                 :minors nmin :arguments (count cad)})))
                           ;; Lean inductive.h, inductive_reduce_rec/get_major_idx:
                           ;; params, motives, minors, indices, then major.
                             major-idx (+ minor-start nmin (.numIndices rec-ci))
@@ -1083,9 +1089,9 @@
                           ;; and wrap the lowering in a fn supplying it (mirrors the
                           ;; Subtype.val / nary-op arity tolerance). Only the major may be
                           ;; missing (minors precede it and are present).
-                            eta-major? (<= (count ca) major-idx)
+                            eta-major? (<= (count cad) major-idx)
                             eta-major-sym (gensym "etamaj_")
-                            major (if eta-major? eta-major-sym (nth ca major-idx))
+                            major (if eta-major? eta-major-sym @(nth cad major-idx))
                             rules (.rules rec-ci)
                       ;; Determine which fields are recursive per constructor
                             ind-name-str (subs h 0 (- (count h) 4)) ;; remove ".rec"
@@ -1098,7 +1104,7 @@
                             (map-indexed
                              (fn [i ^ansatz.kernel.ConstantInfo$RecursorRule rule]
                                (let [nf (.nfields rule)
-                                     minor (nth ca (+ minor-start i))
+                                     minor (nth cad (+ minor-start i))
                                      minor-ansatz-expr (nth args (+ minor-start i))
                                      ctor-name (.ctor rule)
                                      ctor-ci (env/lookup env ctor-name)
@@ -1175,7 +1181,7 @@
                                                                    (list 'array-map :tag (list 'nth t-sym 0))))]))
 
                                 all-zero
-                                (enum-dispatch env rec-ci t-sym (mapv :minor clauses) args names)
+                                (enum-dispatch env rec-ci t-sym (mapv (comp deref :minor) clauses) args names)
 
                           ;; Nat.rec: Nat is native longs, not nil/vector
                                 (and (= ind-name-str "Nat")
@@ -1228,7 +1234,7 @@
                               ;; Non-recursive: just apply directly
                                   (list 'let [t-sym major] body))
                             ;; Extra args beyond major? Apply them (fuel-based WF pattern).
-                                extra-args (if eta-major? [] (subvec ca (inc major-idx)))
+                                extra-args (if eta-major? [] (mapv deref (subvec cad (inc major-idx))))
                                 applied (reduce (fn [f a] (list f a)) rec-result extra-args)]
                           ;; eta-wrap when the recursor was a bare function value
                             (if eta-major? (list 'fn [eta-major-sym] applied) applied))))))
@@ -1236,7 +1242,7 @@
             ;; rather than a bare symbol applied to args (opaque ClassNotFoundException).
                   (or (when (contains? (env/get-extension env :extern #{}) h)
                         (if (extern-body-sym env h)
-                          (decl/apply-args (get @arity-registry h) (:sym (get @arity-registry h)) ca)
+                          (decl/apply-args (get @arity-registry h) (:sym (get @arity-registry h)) @ca)
                           (extern-unhandled-form env h)))
             ;; Unfold a match auxiliary / casesOn: beta-apply its definition to args and recurse,
             ;; so it lands on the `.rec` path codegen already compiles (instead of a bare symbol).
@@ -1260,8 +1266,8 @@
                                   ;; so erased Prop/proof fields never reach the output.
                                   (ansatz->clj env (nth margs (+ np fidx)) names)
                                   ;; symbolic instance: keyword access on the lowered record.
-                                  (list (keyword (subs h (inc (.lastIndexOf ^String h ".")))) (nth ca np)))
-                                extra (subvec ca (inc np))]
+                                  (list (keyword (subs h (inc (.lastIndexOf ^String h ".")))) (nth @ca np)))
+                                extra (subvec @ca (inc np))]
                             (if (seq extra) (apply list op-code extra) op-code))))
             ;; Reducible (:abbrev) def with no runtime lowering — a structure projection or an
             ;; inherited instance accessor (a/structure generates these `:abbrev`). INLINE it
@@ -1290,8 +1296,8 @@
             ;; User-defined function: arity-aware compilation (Lean 4 FAP/PAP).
             ;; Check the arity registry to determine call style.
                       (if-let [cc (when-not (contains? *raw-constants* h) (get @arity-registry h))]
-                        (decl/apply-args cc (or (:sym cc) (symbol h)) ca)
-                        (reduce (fn [f a] (list f a)) (symbol h) ca))))))))
+                        (decl/apply-args cc (or (:sym cc) (symbol h)) @ca)
+                        (reduce (fn [f a] (list f a)) (symbol h) @ca))))))))
 
         (let [compiled (mapv #(ansatz->clj env % names) (cons head args))
               cc (when (e/bvar? head)
