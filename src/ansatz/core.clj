@@ -3077,11 +3077,33 @@
   [eq-name params prop & tactics]
   `(define-csimp '~eq-name '~params '~prop '~(vec tactics)))
 
+(def ^:private large-form-chars
+  "Above this printed size a macro argument is emitted as a string read at load time: a quoted
+   constant is built by bytecode in the class initializer, which the JVM caps at 64 KB
+   (\"Method code too large\")."
+  16384)
+
+(clojure.core/defn read-form-literal
+  "Read the form `large-form-literal` printed (the reader never evaluates)."
+  [& chunks]
+  (binding [*read-eval* false] (read-string (apply str chunks))))
+
+(clojure.core/defn- large-form-literal
+  "Code yielding the form `x`: a quote, or for a large form its printed text (metadata
+   included) as string constants of at most 16 K characters, read once when the code runs."
+  [x]
+  (let [text (binding [*print-meta* true *print-dup* false *print-length* nil *print-level* nil]
+               (pr-str x))]
+    (if (< (count text) large-form-chars)
+      (list 'quote x)
+      (list* `read-form-literal (map #(apply str %) (partition-all large-form-chars text))))))
+
 (defmacro theorem
   "Prove a theorem.
    (a/theorem add-zero [n :- Nat] (= Nat (+ n 0) n) (simp Nat.add_zero))"
   [thm-name params prop & tactics]
-  `(prove-theorem '~thm-name '~params '~prop '~(vec tactics)))
+  `(prove-theorem '~thm-name ~(large-form-literal params) ~(large-form-literal prop)
+                  ~(large-form-literal (vec tactics))))
 
 (defmacro deftheorem
   "Idempotent, NON-SWALLOWING `theorem`: proves + installs `thm-name` unless it is
@@ -3090,7 +3112,8 @@
    needed). For the ledger / lenient mode, call `install-theorem!` directly.
    (a/deftheorem add-zero [n :- Nat] (= Nat (+ n 0) n) (simp Nat.add_zero))"
   [thm-name params prop & tactics]
-  `(install-theorem! '~thm-name '~params '~prop '~(vec tactics)))
+  `(install-theorem! '~thm-name ~(large-form-literal params) ~(large-form-literal prop)
+                     ~(large-form-literal (vec tactics))))
 
 (defmacro inductive
   "Define an inductive type with constructors.
