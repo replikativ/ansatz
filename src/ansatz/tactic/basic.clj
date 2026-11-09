@@ -1270,22 +1270,13 @@
       :else [(some-> type e/get-app-fn-args second last e/get-app-fn-args first) depth])))
 
 (defn- induction-binder-ids
-  ;; Preserve the existing local-ID order (field, its IH, next field), used
-  ;; by trailing case' names. Telescope/extraction order remains the recursor's.
-  ;; Identify IH majors from the minor type, without inspecting inductive heads.
-  [ps minor-type nfields nparams]
-  (let [order (loop [type minor-type pos 0 out []]
-                (if (= pos nparams) (sort-by second out)
-                    (let [[major depth] (when (>= pos nfields)
-                                          (induction-ih-major (e/forall-type type)))
-                          field-pos (when (and major (e/bvar? major))
-                                      (- (+ pos depth) 1 (e/bvar-idx major)))
-                          rank (if (and field-pos (<= 0 field-pos) (< field-pos nfields))
-                                 (inc (* 2 field-pos)) (* 2 pos))]
-                      (recur (e/forall-body type) (inc pos) (conj out [pos rank])))))]
-    (reduce (fn [[ps ids] [pos _]]
-              (let [[ps fid] (proof/alloc-id ps)] [ps (assoc ids pos fid)]))
-            [ps (vec (repeat nparams nil))] order)))
+  ;; Lean Meta/Tactic/Induction.lean finalize introduces the minor premise's binders in
+  ;; telescope order: every field, then the induction hypotheses. Local ids follow that order,
+  ;; so the context and `case tag x…` renaming match Lean's `| node l k r ihl ihr`.
+  [ps _minor-type _nfields nparams]
+  (reduce (fn [[ps ids] _]
+            (let [[ps fid] (proof/alloc-id ps)] [ps (conj ids fid)]))
+          [ps []] (range nparams)))
 
 (defn- induction-core
   "Structural induction on `hyp-fvar-id` WITHOUT generalization: the motive abstracts the target
