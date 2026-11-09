@@ -1708,15 +1708,18 @@
                      (catch Throwable _ nil))
                 (reset! solved-any true)))))
         (when-not (or @solved-any (:postpone-defaults? est))
-          ;; Lean.Elab.SyntheticMVars applies default instances only after
-          ;; ordinary synthesis stalls. OfNat's Nat default must not discard a
-          ;; known local carrier, nor commit before later arguments determine it.
-          (doseq [[id _] (reverse pending)]
-            (let [[head args] (e/get-app-fn-args (zonk est (surface-mvar-type est id)))]
-              (when (and (e/const? head) (= "OfNat" (str (e/const-name head)))
-                         (= 2 (count args)) (e/mvar? (first args)))
-                (when (unify! est (first args) (e/const' (name/from-string "Nat") []))
-                  (reset! solved-any true))))))
+          ;; Lean.Elab.SyntheticMVars applies default instances only after ordinary
+          ;; synthesis stalls, one at a time (then ordinary synthesis runs again), so a
+          ;; known carrier is never discarded: `HDiv.hDiv a 2` with `a : Int` takes
+          ;; instHDiv (priority 1000) before 2's `OfNat ?β` falls back to Nat (100).
+          (sync-meta-decls! est)
+          (let [st (assoc (tc/attach-lctx (tc/mk-tc-state (elab-env est))
+                                          (surface-lctx->meta est (:lctx (:tc est))))
+                          :next-id (:next-id est))]
+            (when-let [mctx ((requiring-resolve 'ansatz.tactic.default-instance/synthesize-using-default)
+                             @(:meta-mctx est) st (mapv first pending))]
+              (reset! (:meta-mctx est) mctx)
+              (reset! solved-any true))))
         (when @solved-any (recur))))))
 
 ;; ============================================================
