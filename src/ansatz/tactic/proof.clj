@@ -11,6 +11,7 @@
             [ansatz.kernel.level :as lvl]
             [ansatz.kernel.reduce :as red]
             [ansatz.meta :as meta]
+            [ansatz.surface.pp :as pp]
             [clojure.string]))
 
 (defn alloc-id
@@ -428,18 +429,29 @@
   [ps]
   (empty? (:goals ps)))
 
+(defn- display-expr
+  "Lean-like text for `expr` in `lctx`, hypotheses shown by name (a dependent hypothesis or
+   the target mentions earlier ones as free variables, which `pp` alone prints as ?fvN)."
+  [lctx expr]
+  (pp/pp (reduce (fn [x [id decl]]
+                   (if (and (:name decl) (e/has-fvar-flag x))
+                     (e/instantiate1 (e/abstract1 x id) (e/const' (name/from-string (str (:name decl))) []))
+                     x))
+                 expr lctx)))
+
 (defn format-goal
   "Format a goal for display, Lean 4 style:
    h1 : T1
    h2 : T2
    ⊢ goal-type"
   [goal]
-  (let [hyps (keep (fn [[id decl]]
+  (let [lctx (:lctx goal)
+        hyps (keep (fn [[id decl]]
                      (when (= :local (:tag decl))
                        (str "  " (or (:name decl) (str "?fv" id))
-                            " : " (ansatz.kernel.expr/->string (:type decl)))))
-                   (:lctx goal))
-        goal-str (ansatz.kernel.expr/->string (:type goal))]
+                            " : " (display-expr lctx (:type decl)))))
+                   lctx)
+        goal-str (display-expr lctx (:type goal))]
     (str (when (seq hyps) (str (clojure.string/join "\n" hyps) "\n"))
          "  ⊢ " goal-str)))
 
