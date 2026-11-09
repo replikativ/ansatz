@@ -1108,6 +1108,12 @@
             (if (= '_ nm) (intro-inaccessible ps) (basic/intro ps (str nm))))
           ps names))
 
+(clojure.core/defn- term-arg
+  "The one term of `apply`/`exact`/`refine`: Lean parses `apply f a b` as `apply (f a b)`,
+   so `(apply f a b)` is `(apply (f a b))` — not `f` with the rest ignored."
+  [args]
+  (if (next args) (apply list args) (first args)))
+
 (def ^:private builtin-tactics
   {'rfl        (fn [ps _] (basic/rfl ps))
    'assumption (fn [ps _] (basic/assumption ps))
@@ -1118,11 +1124,11 @@
    'right     (fn [ps _] (basic/right ps))
    'exact?    (fn [ps _] (basic/exact? ps))
    'exact     (fn [ps args]
-                (basic/exact-form ps (first args)))
+                (basic/exact-form ps (term-arg args)))
    'refine    (fn [ps args]
-                (basic/refine ps (first args)))
+                (basic/refine ps (term-arg args)))
    'refine'   (fn [ps args]
-                (basic/refine-prime ps (first args)))
+                (basic/refine-prime ps (term-arg args)))
    'specialize (fn [ps args]
                  ;; Lean spelling `specialize h a b` and the applied form
                  ;; `specialize (h a b)` both mean: elaborate `(h a b)`.
@@ -1283,7 +1289,7 @@
    'apply     (fn [ps args]
                 (let [g (proof/current-goal ps)
                       from-id (max 1000000 (:next-id ps 1))
-                      [ps' term] (elab-apply-arg ps (:lctx g) (first args) true)]
+                      [ps' term] (elab-apply-arg ps (:lctx g) (term-arg args) true)]
                   (basic/synthesize-pending-instances (basic/apply-tac ps' term) from-id (:lctx g))))
    ;; Lean 4 `funext` tactic (Init/NotationExtra.lean): a macro over `apply funext; intro`. Proves a
    ;; function-equality goal `f = g` by function extensionality (∀x, f x = g x → f = g):
@@ -1538,6 +1544,22 @@
 ;; Initialize registry with built-in tactics
 (when (empty? @tactic-registry)
   (reset! tactic-registry builtin-tactics))
+
+(declare run-tactic)
+
+(clojure.core/defn- run-tactic-reporting
+  "A top-level tactic step. Lean reports a failing tactic with the goals it ran on, so the
+   error carries them (message and :goal-state); nested failures inside combinators such as
+   `first`/`try` are left to those combinators."
+  [ps tac]
+  (try
+    (run-tactic ps tac)
+    (catch clojure.lang.ExceptionInfo ex
+      (if (or (:goal-state (ex-data ex)) (proof/solved? ps))
+        (throw ex)
+        (let [goals (proof/format-goals ps)]
+          (throw (ex-info (str (.getMessage ex) "\n" goals)
+                          (assoc (ex-data ex) :goal-state goals :failed-tactic tac) ex)))))))
 
 (clojure.core/defn run-tactic [ps tac]
   (try
@@ -2863,7 +2885,7 @@
          [ps _] (proof/start-proof env goal-type)
          intro-names (if expr-goal? (mapv str params) (mapv (comp str first) pairs))
          ps (if (seq intro-names) (basic/intros ps intro-names) ps)
-         ps (reduce run-tactic ps tactic-forms)]
+         ps (reduce run-tactic-reporting ps tactic-forms)]
      (when-not (proof/solved? ps)
        (let [mctx (:meta-mctx ps)
              diagnostic (diagnostics/first-instance-diagnostic (:env ps) mctx (:goals ps))]
@@ -2896,7 +2918,7 @@
         [ps _] (proof/start-proof env goal-type)
         intro-names (if expr-goal? (mapv str params) (mapv (comp str first) pairs))
         ps (if (seq intro-names) (basic/intros ps intro-names) ps)
-        ps (reduce run-tactic ps tactic-forms)]
+        ps (reduce run-tactic-reporting ps tactic-forms)]
     (when-not (proof/solved? ps)
       (let [mctx (:meta-mctx ps)
             diagnostic (diagnostics/first-instance-diagnostic (:env ps) mctx (:goals ps))]
