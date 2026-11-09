@@ -74,7 +74,10 @@
     :matcher-prefix (or (:matcher-prefix opts) "_expr")
     :matcher-counter (or (:matcher-counter opts) (atom 0))
     :definition-body (:definition-body opts)
-    :definition-ret (:definition-ret opts)}))
+    :definition-ret (:definition-ret opts)
+    ;; Lean `synthesizeSyntheticMVars (postpone := .yes)`: no default instances. The caller
+    ;; (apply, rw) solves the term against the goal first, then applies them.
+    :postpone-defaults? (:postpone-defaults? opts)}))
 
 (defn- fresh-id! [est]
   (let [id (swap! (:next-id est) inc)]
@@ -519,7 +522,13 @@
   (let [Ts (try (zonk est (infer-with-mvars est T)) (catch Exception _ nil))]
     (if (and Ts (e/sort? Ts) (lvl/succ? (e/sort-level Ts)))
       (lvl/succ-pred (e/sort-level Ts))
-      (fresh-level-mvar! est))))
+      ;; Lean getDecLevel (Meta/InferType decLevel?): an undetermined sort `Sort ?u` is
+      ;; constrained to `Sort (?v+1)`, so `?v` is solved once `T` is. A level that stays
+      ;; independent of T's left `OfNat.{?v} Nat 0` with `?v` unsolvable when T was a
+      ;; metavariable (`Exists.intro 0`).
+      (let [v (fresh-level-mvar! est)]
+        (when Ts (unify! est Ts (e/sort' (lvl/succ v))))
+        v))))
 
 (defn- inst-mvar!
   "A fresh inst-implicit metavariable of type `goal` — solved by `solve-instance-mvars!`
@@ -1234,7 +1243,11 @@
         ;; The explicit form is desugared (drop type+ret, which are a bvar-era workaround
         ;; and dead code respectively; ctor qualification is done inside compile-match).
               "match"  (let [args (vec (rest sexpr))
-                             est* (cond-> (assoc est
+                             ;; A declared result type belongs to the match it was declared for:
+                             ;; one inherited from an enclosing match is not this one's
+                             ;; (`(some (match v …))` inside an Option-valued alternative).
+                             ;; Tail positions get it back from compile-match, as for `if`.
+                             est* (cond-> (assoc (dissoc est :declared-ret-type)
                                                  :infer-fn infer-with-mvars
                                                  :whnf-fn whnf-with-mvars
                                                  :unify-fn unify!
@@ -1694,7 +1707,7 @@
                 (try (unify! est (infer-with-mvars est sol) goal)
                      (catch Throwable _ nil))
                 (reset! solved-any true)))))
-        (when-not @solved-any
+        (when-not (or @solved-any (:postpone-defaults? est))
           ;; Lean.Elab.SyntheticMVars applies default instances only after
           ;; ordinary synthesis stalls. OfNat's Nat default must not discard a
           ;; known local carrier, nor commit before later arguments determine it.

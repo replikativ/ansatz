@@ -866,25 +866,29 @@
 
 (clojure.core/defn- elab-apply-arg
   "Lean Elab/Tactic/ElabTerm.lean elabTermForApply: suppress implicit insertion
-   for identifiers; postpone term and universe holes until result-type matching."
-  [ps lctx arg]
-  (let [hyp-fid (when (symbol? arg)
-                  (latest-local-id-by-name lctx arg))]
-    (if hyp-fid
-      [ps (e/fvar hyp-fid)]
-      (let [form (if (and (symbol? arg)
-                          (not (clojure.string/starts-with? (str arg) "?"))
-                          (not= '_ arg))
-                   (symbol (str "@" arg)) arg)
-            {:keys [expr meta-mctx]}
-            (elab/elaborate-in-context-collecting
-             (:env ps) lctx form nil
-             {:initial-meta-mctx (:meta-mctx ps)
-              :next-id-start (max 1000000 (:next-id ps 1))})
-            next-id (inc (reduce max (:next-id ps 1)
-                                 (concat (keys (:decls meta-mctx))
-                                         (keys (:level-depth meta-mctx)))))]
-        [(assoc ps :meta-mctx meta-mctx :next-id next-id) expr]))))
+   for identifiers; postpone term and universe holes until result-type matching.
+   `postpone?` is Lean's `mayPostpone`: default instances wait until the caller has
+   matched the term against the goal (`basic/synthesize-pending-instances`)."
+  ([ps lctx arg] (elab-apply-arg ps lctx arg false))
+  ([ps lctx arg postpone?]
+   (let [hyp-fid (when (symbol? arg)
+                   (latest-local-id-by-name lctx arg))]
+     (if hyp-fid
+       [ps (e/fvar hyp-fid)]
+       (let [form (if (and (symbol? arg)
+                           (not (clojure.string/starts-with? (str arg) "?"))
+                           (not= '_ arg))
+                    (symbol (str "@" arg)) arg)
+             {:keys [expr meta-mctx]}
+             (elab/elaborate-in-context-collecting
+              (:env ps) lctx form nil
+              {:initial-meta-mctx (:meta-mctx ps)
+               :next-id-start (max 1000000 (:next-id ps 1))
+               :postpone-defaults? postpone?})
+             next-id (inc (reduce max (:next-id ps 1)
+                                  (concat (keys (:decls meta-mctx))
+                                          (keys (:level-depth meta-mctx)))))]
+         [(assoc ps :meta-mctx meta-mctx :next-id next-id) expr])))))
 
 (clojure.core/defn- elab-proof-arg
   "A proof term argument (`linarith [t]`): a hypothesis name, or a term elaborated in the
@@ -1273,10 +1277,14 @@
                   (if (every? #{'_} names) ps
                       (rename-branch-locals ps (:id g)
                                             (reverse (take (count names) fields)) names))))
+   ;; Lean evalApplyLikeTactic: elaborate postponing default instances, apply, then
+   ;; synthesizeSyntheticMVarsNoPostponing — `(apply (Exists.intro 0))` on an Int goal
+   ;; gives the numeral Int, not the Nat default.
    'apply     (fn [ps args]
                 (let [g (proof/current-goal ps)
-                      [ps' term] (elab-apply-arg ps (:lctx g) (first args))]
-                  (basic/apply-tac ps' term)))
+                      from-id (max 1000000 (:next-id ps 1))
+                      [ps' term] (elab-apply-arg ps (:lctx g) (first args) true)]
+                  (basic/synthesize-pending-instances (basic/apply-tac ps' term) from-id (:lctx g))))
    ;; Lean 4 `funext` tactic (Init/NotationExtra.lean): a macro over `apply funext; intro`. Proves a
    ;; function-equality goal `f = g` by function extensionality (∀x, f x = g x → f = g):
    ;;   (funext)        => repeat (apply funext; intro)        — peel all function binders
