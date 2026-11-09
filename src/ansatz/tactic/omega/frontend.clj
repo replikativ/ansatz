@@ -419,6 +419,40 @@
                     :le-inst le :dec-rel dec :rewrite rewrite :ite ite})
          (lc-coordinate idx) (mk-coordinate-eval-proof idx)]))))
 
+(defn- reify-cast-split
+  "Frontend.handleNatCast for `↑(Int.toNat x)` and `↑(Int.natAbs x)`: the Nat term is an
+   atom whose Int value is pinned by a case split, as for min/max.
+     toNat:  Int.toNat_eq_max x : ↑x.toNat = max x 0, then Int.max_def
+             (= if x ≤ 0 then 0 else x)
+     natAbs: Lean.Omega.Int.ofNat_natAbs x : ↑x.natAbs = if 0 ≤ x then x else -x"
+  [st table expr x to-nat?]
+  (let [[table idx] (intern-atom table st expr)
+        int-expr (nat-to-int expr)
+        zero (e/app (e/const' (:int-ofnat omega-names) []) (e/lit-nat 0))
+        le (e/const' (:int-inst-le omega-names) [])
+        dec (e/const' (name/from-string "Int.decLe") [])
+        [a b t-br e-br rewrite]
+        (if to-nat?
+          (let [int-max (e/app* (e/const' (:max-name omega-names) [lvl/zero]) int-type
+                                (e/const' (:int-inst-max omega-names) []) x zero)]
+            [x zero zero x
+             (mk-eq-trans int-expr int-max
+                          (e/app* (e/const' (name/from-string "ite") [u1]) int-type
+                                  (e/app* (e/const' (:le-name omega-names) [lvl/zero]) int-type le x zero)
+                                  (e/app* dec x zero) zero x)
+                          (e/app (e/const' (name/from-string "Int.toNat_eq_max") []) x)
+                          (e/app* (e/const' (:int-max-def omega-names) []) x zero))])
+          [zero x x (e/app* (e/const' (:neg-name omega-names) [lvl/zero]) int-type
+                            (e/const' (name/from-string "Int.instNegInt") []) x)
+           (e/app (e/const' (name/from-string "Lean.Omega.Int.ofNat_natAbs") []) x)])
+        ite (e/app* (e/const' (name/from-string "ite") [u1]) int-type
+                    (e/app* (e/const' (:le-name omega-names) [lvl/zero]) int-type le a b)
+                    (e/app* dec a b) t-br e-br)]
+    [(assoc-in table [:minmax-atoms idx]
+               {:expr int-expr :alpha int-type :a a :b b :branches [t-br e-br]
+                :le-inst le :dec-rel dec :rewrite rewrite :ite ite})
+     (lc-coordinate idx) (mk-coordinate-eval-proof idx)]))
+
 (defn- as-linear-combo-impl
   "Reify a Ansatz term into a LinearCombo (dense coefficients).
    Returns [atom-table linear-combo eval-proof-fn] where
@@ -586,6 +620,13 @@
                  (some? (ground-int-val expr)))
             (let [lc (mk-lc (ground-int-val expr))]
               [table lc (mk-eval-rfl-proof lc)])
+
+            ;; ↑(Int.toNat x) / ↑(Int.natAbs x) → atom + case-split facts (handleNatCast)
+            (and (= head-name (name/from-string "Int.toNat")) (= 1 (count args)))
+            (reify-cast-split st table expr (nth args 0) true)
+
+            (and (= head-name (name/from-string "Int.natAbs")) (= 1 (count args)))
+            (reify-cast-split st table expr (nth args 0) false)
 
             ;; Min.min α inst a b / Max.max α inst a b → atom + case-split facts
             (and (= head-name (:min-name omega-names)) (= 4 (count args)))
@@ -1001,12 +1042,13 @@
    equation in each branch. Both halves are stated over the ORIGINAL `Min.min …`
    spelling, def-eq to the `ite`, so the kernel accepts them and `reify-prop`'s `And`
    handler feeds the ordering fact and the value equation to the solver separately."
-  [{:keys [expr alpha a b min? le-inst dec-rel rewrite ite]}]
+  [{:keys [expr alpha a b min? le-inst dec-rel rewrite ite branches]}]
   (let [P      (e/app* (e/const' (:le-name omega-names) [lvl/zero]) alpha le-inst a b)
         not-P  (e/app (e/const' (:not-name omega-names) []) P)
         dec    (e/app* dec-rel a b)
         ;; the `ite α P dec t e` branches of minOfLe / maxOfLe
-        [t-br e-br] (if min? [a b] [b a])
+        ;; (`:branches` given explicitly by the toNat/natAbs splits)
+        [t-br e-br] (or branches (if min? [a b] [b a]))
         eq-of  (fn [rhs] (e/app* (e/const' (:eq-name omega-names) [u1]) alpha expr rhs))
         eq-t   (eq-of t-br)
         eq-e   (eq-of e-br)
