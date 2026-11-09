@@ -762,6 +762,28 @@
 
 (declare latest-local-id-by-name)
 
+(clojure.core/defn- simp-term-arg
+  "Lean Elab/Tactic/Simp.lean elabSimpTheorem: elaborate the term without an expected type,
+   then abstract the metavariables that remain (`abstractMVars`), so `(Nat.add_zero _)` is the
+   lemma `fun x => Nat.add_zero x` with one parameter."
+  [ps lctx form]
+  (let [{:keys [expr meta-mctx]}
+        (elab/elaborate-in-context-collecting
+         (:env ps) lctx form nil
+         {:initial-meta-mctx (:meta-mctx ps)
+          :next-id-start (max 1000000 (:next-id ps 1))})
+        expr (meta/zonk-expr meta-mctx expr)]
+    (if (empty? (meta/collect-expr-mvars expr))
+      expr
+      (let [st (assoc (tc/attach-lctx (tc/mk-tc-state (:env ps)) lctx)
+                      ;; fresh ids for the binders abstractMVars introduces (abstracted away again)
+                      :next-id (atom (+ 2000000000 (:next-id ps 1))))
+            {:keys [param-names expr]} (meta/abstract-mvars meta-mctx st expr)]
+        (when (seq param-names)
+          (throw (ex-info "Elaboration error: simp argument leaves universe levels undetermined"
+                          {:kind :elab-error :form form :levels param-names})))
+        expr))))
+
 (clojure.core/defn- simp-lemma-args
   "Resolve a surface `(simp …)` argument list into simp's lemma vector. A bare symbol stays a
    symbol (env name resolution / @[simp]-set merge). A COMPOUND form — `(WSemiring.mul_zero m)`,
@@ -818,7 +840,7 @@
                                            "(simp [" a "]) not (simp [" (pr-str a) "]).")
                                       {:kind :tactic-error :arg a}))
               ;; Anything else (a compound form) elaborates to a proof term in the goal context.
-                      :else [(elab/elaborate-in-context (:env ps) (:lctx g) a)]))
+                      :else [(simp-term-arg ps (:lctx g) a)]))
                   args))))
 
 (clojure.core/defn- simp-location
