@@ -1287,9 +1287,12 @@
 (defn- whnf-t
   "`whnf` at the current transparency."
   [mctx st x]
+  ;; The ambient mode, not `:instances`: at `:reducible` (rw's kabstract, Lean
+  ;; Rewrite.Config) an instance-reducible instance stays folded, so `↑?n` does not
+  ;; unify with `Int.ofNat a` through `instNatCastInt`.
   (if (= *transparency* :default)
     (whnf mctx st x)
-    (whnf-at mctx st x :instances *instance-name?*)))
+    (whnf-at mctx st x *transparency* *instance-name?*)))
 
 (defn- lazy-delta-def-eq
   "Lean's `lazyDeltaReduction` (Meta/ExprDefEq.lean): the two sides are applications of
