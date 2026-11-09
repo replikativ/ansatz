@@ -54,3 +54,13 @@ inductive TwoParents : Prop where
 example (h : TwoParents) : False := by
   induction h with
   | mk left value right ih_left ih_right => exact ih_left
+
+-- Meta/Tactic/Induction.lean finalize introduces the minor premise's binders in order: all
+-- fields, then the induction hypotheses. `case tag x…` renames the trailing inaccessibles.
+example (h : TwoParents) : False := by
+  induction h
+  case mk ihl ihr => exact ihl
+
+example (h : TwoParents) : False := by
+  induction h
+  case mk l v r ihl ihr => exact ihr

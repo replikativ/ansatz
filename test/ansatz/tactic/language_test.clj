@@ -434,6 +434,12 @@
     (is (= 2 (count (:lctx (first @reflexive-observed)))))
     (is (not-any? :is-ih (vals (:lctx (first @reflexive-observed)))))))
 
-(deftest ordinary-recursive-fields-preserve-trailing-case-names
+(deftest induction-binders-are-fields-then-hypotheses
+  ;; Lean Meta/Tactic/Induction.lean finalize: all fields, then the IHs, so
+  ;; `| mk left value right ih_left ih_right` (test/lean/reflexive_induction.lean).
   (is (proves-reflexive '[h :- TwoParents] 'False
-                        '[(induction h) (case' [mk ih_left _ _ ih_right]) (exact ih_left)])))
+                        '[(induction h) (case' [mk ihl ihr]) (exact ihl)]))
+  (is (proves-reflexive '[h :- TwoParents] 'False
+                        '[(induction h) (case' [mk l v r ihl ihr]) (exact ihr)]))
+  (is (proves-reflexive '[h :- TwoParents] 'False
+                        '[(induction h) (case' [mk _ _ ih_left _]) (exact ih_left)])))
