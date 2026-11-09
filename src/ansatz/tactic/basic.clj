@@ -22,6 +22,7 @@
             [ansatz.tactic.proof :as proof]
             [ansatz.tactic.elab-term :as telab]
             [ansatz.tactic.instance :as inst]
+            [ansatz.tactic.default-instance :as default-instance]
             [ansatz.surface.diagnostics :as diagnostics]
             [ansatz.config :as config])
   (:import [ansatz.kernel ConstantInfo Expr]))
@@ -298,13 +299,12 @@
       (if-not (identical? synthesized ps)
         (recur synthesized)
         ;; SyntheticMVars.lean: default instances only once ordinary synthesis stalls.
-        (let [defaulted (some (fn [id]
-                                (let [[head args] (e/get-app-fn-args (type-of ps id))]
-                                  (when (and (e/const? head) (= "OfNat" (str (e/const-name head)))
-                                             (= 2 (count args)) (e/mvar? (first args)))
-                                    (defeq-in-goal ps (lctx-of ps id) (first args)
-                                      (e/const' (name/from-string "Nat") [])))))
-                              (rseq pending))]
+        (let [st (mk-tc ps lctx)
+              defaulted (when-let [mctx (default-instance/synthesize-using-default
+                                         (:meta-mctx ps) st pending)]
+                          (-> ps
+                              (assoc :meta-mctx mctx :next-id (max (:next-id ps) (inc @(:next-id st))))
+                              (proof/prune-solved-goals)))]
           (if defaulted (recur defaulted) ps))))))
 
 (def ^:dynamic *apply-normalization-cache* nil)
