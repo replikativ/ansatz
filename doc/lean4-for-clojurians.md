@@ -118,7 +118,9 @@ All 707,508 declarations of Mathlib v4.33.1 are imported via [lean4export](https
 
 ### Ansatz → Lean 4
 
-Ansatz includes a Lean 4 emitter (`ansatz.surface.lean`) that produces fully explicit Lean 4 code. A theorem proved in Ansatz can be exported and verified by Lean 4's kernel.
+`ansatz.export.writer/write-closure!` writes declarations and everything they depend on in lean4export's format, which Lean 4's kernel replays (`tools/lean-replay`, see [Kernel Validation](kernel-validation.md#re-checking-in-lean-4s-kernel)). This checks the kernel terms, not Lean source.
+
+Ansatz also has a Lean 4 syntax emitter (`ansatz.surface.lean`) that prints fully explicit `@`-terms for reading. Its output is not compiled by Lean in the test suite, and it does not print the auxiliary declarations Ansatz generates (matchers, well-founded recursion).
 
 ### What's Different
 

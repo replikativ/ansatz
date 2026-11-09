@@ -1,0 +1,14 @@
+name = "lean_replay"
+version = "0.1.0"
+defaultTargets = ["lean-replay"]
+
+[[lean_exe]]
+name = "lean-replay"
+root = "Main"
+
+# The lean4export parser (Export.Parse), at the revision whose toolchain matches
+# the Lean v4.33.1 the bundled Init tier and the Mathlib store were exported from.
+[[require]]
+name = "lean4export"
+git = "https://github.com/leanprover/lean4export"
+rev = "15f6055"

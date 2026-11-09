@@ -1,12 +1,13 @@
 # Kernel Validation
 
 This document records the validation workflow for the Ansatz kernel. The goal is
-to keep three checks separate:
+to keep four checks separate:
 
 1. Unit and integration tests for local regressions.
 2. Trace comparison against the instrumented `../lean4` kernel for reduction
    order and definitional-equality behavior.
 3. Full imported-store verification for semantic coverage over Mathlib.
+4. Re-checking what Ansatz admitted in Lean 4's own kernel.
 
 ## Standard Checks
 
@@ -108,6 +109,63 @@ Current FlatStore coverage is targeted:
 Full Mathlib-scale FlatStore verification is not yet part of the normal
 validation gate. Until that is run and kept stable, the PSS-backed full Mathlib
 verification remains the authoritative full-corpus kernel check.
+
+## Re-checking in Lean 4's Kernel
+
+Imports go from Lean to Ansatz. The other direction is
+`ansatz.export.writer/write-closure!`. It writes a set of constants, and everything
+they depend on, as a lean4export NDJSON file (format 3.1.0). Lean 4's kernel can
+then replay the file:
+
+```clojure
+(require '[ansatz.export.writer :as w])
+(w/write-closure! (ansatz.core/env) ["my-theorem" "my-fn"] "out.ndjson")
+;; => {:constants 1635 :axioms ["propext" "Quot.sound" "Classical.choice"] :non-safe [] ...}
+```
+
+```bash
+cd tools/lean-replay && lake build          # Lean v4.33.1 + lean4export, once
+.lake/build/bin/lean-replay out.ndjson      # "Accepted N declarations.", exit 0
+```
+
+`tools/lean-replay` is the Lean Kernel Arena's official checker, using Lean
+core's `Lean.Environment.replay`. It sends every declaration to Lean's kernel in
+dependency order. For each inductive, it requires the constructors and
+recursors in the file to equal the ones Lean's kernel generates. It stops at
+the first rejection and names the declaration.
+
+What the export holds:
+
+- Each inductive's whole mutual group, written as one record, including nested
+  auxiliary recursors.
+- The quotient package, written after `Eq`.
+- `Nat` and `String.ofList` whenever literals occur.
+
+The file is a fixed point of our parser: reading it back and writing it again
+gives the same bytes (`ansatz.export.writer-test`).
+
+Limits of the check:
+
+- Lean's replay skips unsafe and partial constants. The writer lists them in
+  `:non-safe`, and Lean does not check them.
+- `^:partial` functions are admitted as axioms, so they appear in `:axioms`.
+- Binder names stored as strings are written as one-component names, and
+  `let` is written with `nondep: false`. Neither affects checking.
+
+Results on 2026-11-09:
+
+| Export | Declarations | Lean's verdict |
+|---|---|---|
+| The bundled Init tier, as `load-init!` holds it | 6,322 | accepted, in 4.4 s |
+| A sample of Ansatz-generated declarations | 1,632 | accepted |
+
+The Ansatz-generated sample covered an `a/inductive` with recursors regenerated
+by Lean, a structure, matchers, structural, well-founded and lexicographic
+recursion, `loop`/`recur`, and proofs by `rfl`, `omega` and `simp`.
+
+Our kernel natively evaluates `Int` arithmetic on literals and `Nat.decEq`.
+Lean's kernel only accelerates the `Nat` binary operations, so Lean checks
+these by unfolding. A proof that leans on them can be slow in Lean.
 
 ## Trace Comparison
 
