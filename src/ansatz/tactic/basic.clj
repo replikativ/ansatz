@@ -269,6 +269,44 @@
              allow-synth-failures? ps
              :else (throw first-error))))))))
 
+(defn synthesize-pending-instances
+  "Lean Elab/SyntheticMVars.lean `synthesizeSyntheticMVarsNoPostponing`, instance part, for
+   the term a tactic elaborated with `postpone := .yes` (evalApplyLikeTactic runs it after
+   `MVarId.apply`): the term's instance metavariables (ids ≥ `from-id`) are synthesized now
+   that the goal has determined their types; when that stalls, the default instance
+   (`OfNat ?α n` ↦ Nat) is applied and synthesis resumes. Instances still undetermined stay
+   pending for the end-of-proof check, which reports them."
+  [ps from-id lctx]
+  (loop [ps ps]
+    (let [mctx (:meta-mctx ps)
+          pending (->> (:decls mctx)
+                       (filter (fn [[id decl]]
+                                 (and (>= id from-id) (:inst-implicit? decl)
+                                      (not (meta/expr-assigned-or-delayed? mctx id)))))
+                       (sort-by first)
+                       (mapv first))
+          type-of (fn [ps id] (zonk-proof-expr ps (:type (meta/expr-decl (:meta-mctx ps) id))))
+          lctx-of (fn [ps id] (or (:lctx (meta/expr-decl (:meta-mctx ps) id)) lctx))
+          synthesized (reduce (fn [ps id]
+                                (let [goal (type-of ps id)]
+                                  (or (when-not (or (meta/has-expr-mvar? goal)
+                                                    (seq (meta/unassigned-level-mvars (:meta-mctx ps) goal)))
+                                        (when-let [[ps' value] (synth-instance-in-context ps (lctx-of ps id) goal)]
+                                          (defeq-in-goal ps' (lctx-of ps id) (e/mvar id) value)))
+                                      ps)))
+                              ps pending)]
+      (if-not (identical? synthesized ps)
+        (recur synthesized)
+        ;; SyntheticMVars.lean: default instances only once ordinary synthesis stalls.
+        (let [defaulted (some (fn [id]
+                                (let [[head args] (e/get-app-fn-args (type-of ps id))]
+                                  (when (and (e/const? head) (= "OfNat" (str (e/const-name head)))
+                                             (= 2 (count args)) (e/mvar? (first args)))
+                                    (defeq-in-goal ps (lctx-of ps id) (first args)
+                                      (e/const' (name/from-string "Nat") [])))))
+                              (rseq pending))]
+          (if defaulted (recur defaulted) ps))))))
+
 (def ^:dynamic *apply-normalization-cache* nil)
 
 (defn- normalize-for-match

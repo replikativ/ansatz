@@ -240,9 +240,15 @@
                                          (into (vec forms) (mapv (fn [_] (gensym "_generalized")) generalized)))
                            row (update row :patterns #(into (mapv (fn [x] (basic/inaccessible (subst/apply (:subst row) x))) indices) %))]
                        (assoc row :rhs-form rhs))) alt-forms)
-        ret (atom (:declared-ret-type est))
+        declared (:declared-ret-type est)
+        ret (atom declared)
         rows (mapv (fn [row]
-                     (let [branch (refine-elab-state est row)
+                     (let [branch (cond-> (refine-elab-state est row)
+                                    ;; An alternative is in tail position: it is elaborated
+                                    ;; at the declared result type (Lean: the motive), so a
+                                    ;; match or `if` there sees it as its own.
+                                    declared (assoc :definition-body (:rhs-form row)
+                                                    :definition-ret (subst/apply (:subst row) declared)))
                            rhs (elab-fn branch (:rhs-form row))
                            type (est-infer branch rhs)]
                        (if-let [ret @ret]
