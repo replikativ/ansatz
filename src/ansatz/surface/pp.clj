@@ -32,7 +32,10 @@
   "Get a human-readable name for a binder. If the stored name is nil or
    anonymous, generate one based on the current context size."
   [binder-name ctx]
-  (let [n (when binder-name (name/->string binder-name))]
+  ;; Binder names are Names from the kernel export and strings from the surface.
+  (let [n (cond (nil? binder-name) nil
+                (string? binder-name) binder-name
+                :else (name/->string binder-name))]
     (if (or (nil? n) (= n "[anonymous]") (str/blank? n))
       (nth generated-names (count ctx))
       n)))
