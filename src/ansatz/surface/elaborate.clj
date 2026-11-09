@@ -993,6 +993,43 @@
                                    hole-name (assoc :user-name hole-name)))]
       term-hole)))
 
+;; ============================================================
+;; sorry — Lean's elabSorry (Elab/BuiltinNotation.lean) and mkLabeledSorry
+;; (Meta/Sorry.lean): a unique, non-synthetic sorry
+;;   sorryAx.{imax 1 u} (Lean.Name → α) false tag
+;; where `tag` is a fresh name `_sorry._@.<module>._hyg.<n>` (mkFreshUserName of
+;; SorryLabelView.encode {} — s-expressions carry no source range) written with
+;; Lean's ToExpr Name. Being applied to a distinct tag, one sorry is never
+;; definitionally equal to another.
+;; ============================================================
+
+(defonce ^:private sorry-scope (atom 0))
+
+(defn- sorry-const [s] (e/const' (name/from-string s) []))
+
+(defn- name->expr
+  "Lean's `Name.toExprAux` for names with a numeric component (the `go` branch)."
+  [^ansatz.kernel.Name n]
+  (case (int (.tag n))
+    0 (sorry-const "Lean.Name.anonymous")
+    1 (e/app* (sorry-const "Lean.Name.str") (name->expr (.prefix n)) (e/lit-str (.str n)))
+    2 (e/app* (sorry-const "Lean.Name.num") (name->expr (.prefix n))
+              (let [lit (e/lit-nat (.num n))]
+                (e/app* (e/const' (name/from-string "OfNat.ofNat") [lvl/zero]) (sorry-const "Nat") lit
+                        (e/app* (sorry-const "instOfNatNat") lit))))))
+
+(defn- elab-sorry [est]
+  (let [u (fresh-level-mvar! est)
+        alpha (fresh-mvar! est (e/sort' u))
+        tag (name/mk-num (reduce (fn [n part] (name/mk-str n part))
+                                 (name/mk-str (name/mk-str (name/anonymous) "_sorry") "_@")
+                                 (concat (clojure.string/split (str (ns-name *ns*)) #"\.") ["_hyg"]))
+                         (swap! sorry-scope inc))]
+    (e/app* (e/const' (name/from-string "sorryAx") [(lvl/imax (lvl/succ lvl/zero) u)])
+            (e/forall' (name/from-string "tag") (sorry-const "Lean.Name") alpha :default)
+            (sorry-const "Bool.false")
+            (name->expr tag))))
+
 (defn- elab-pow-inferred
   "`(pow a n)` — a power whose carrier is the base's type, as Lean's `x ^ n`
    (rightact% HPow.hPow): the exponent keeps its own type (Nat, the Monoid npow),
@@ -1156,6 +1193,9 @@
       (string? sexpr)  (e/lit-str sexpr)
       (boolean? sexpr) (e/const' (name/from-string (if sexpr "Bool.true" "Bool.false")) [])
       (nil? sexpr)     (elab-term est (symbol "List.nil"))  ;; bare nil = empty List
+
+      (and (= 'sorry sexpr) (not (bound-name? est sexpr)))
+      (elab-sorry est)
 
       (hole-symbol? sexpr)
       (fresh-hole! est (when-not (#{"_" "?_"} (str sexpr)) (name/from-string (subs (str sexpr) 1))))

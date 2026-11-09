@@ -242,7 +242,9 @@
    (into {} (map (fn [[n en]] [n (fn [_ _ _ ca _] (native/app-form en ca))]) native/extern-lowerings))
    ;; Init/Prelude.lean panicCore / Array.get!Internal: report, then continue with the default.
    {"panicCore" (default-taking 1 1 (fn [d msg] (list 'ansatz.codegen.lean-runtime/panic! msg d)))
-    "Array.get!Internal" (default-taking 1 2 (fn [d a i] (list 'ansatz.codegen.lean-runtime/array-get! d a i)))}))
+    "Array.get!Internal" (default-taking 1 2 (fn [d a i] (list 'ansatz.codegen.lean-runtime/array-get! d a i)))
+    ;; Init/Prelude.lean sorryAx, @[extern "lean_sorry"]: running a `sorry` is an internal panic.
+    "sorryAx" (fn [_ _ _ _ _] (list 'ansatz.codegen.lean-runtime/executed-sorry!))}))
 
 (def ^:private builtin-app
   (merge
