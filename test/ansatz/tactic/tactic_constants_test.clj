@@ -30,7 +30,9 @@
             [clojure.string :as str]
             [ansatz.core :as a]
             [ansatz.attrs :as attrs]
-            [ansatz.kernel.env :as env]))
+            [ansatz.kernel.env :as env]
+            [ansatz.kernel.name :as name]
+            [ansatz.tactic.simp :as simp]))
 
 ;; ---------------------------------------------------------------------------
 ;; The Boolean / decidable-branching simp family
@@ -71,7 +73,11 @@
       (a/load-init!)
       (let [names (concat (private-var 'ansatz.tactic.simp 'default-simp-lemmas)
                           (private-var 'ansatz.tactic.simp 'simp-only-builtins))
-            missing (into (sorted-set) (remove a/has-constant?) names)]
+            ;; simp derives Init's Nat packing lemmas (Nat.add_eq …) on demand when an export
+            ;; lacks them (simp/ensure-nat-packing); resolve against that environment, not
+            ;; against whatever an earlier namespace in this JVM happened to leave behind.
+            env (simp/ensure-nat-packing (a/env) names true)
+            missing (into (sorted-set) (remove #(env/lookup env (name/from-string %))) names)]
         (is (< 20 (count names)) "found simp's default lemma names")
         (is (empty? missing)
             (str "simp's default set names " (count missing) " constant(s) absent from the "
