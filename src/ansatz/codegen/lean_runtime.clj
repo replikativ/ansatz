@@ -201,6 +201,12 @@
   (binding [*out* *err*] (println (str "PANIC: " msg)))
   default)
 
+(defn executed-sorry!
+  "lean_sorry (runtime/object.cpp): `lean_internal_panic(\"executed 'sorry'\")`, which
+   does not return. On the JVM it throws."
+  []
+  (throw (ex-info "executed 'sorry'" {:kind :executed-sorry})))
+
 (defn array-get!
   "lean_array_get / lean_array_get_panic: out of bounds panics and returns the default."
   [default a i]

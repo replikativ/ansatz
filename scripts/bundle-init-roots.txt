@@ -2893,3 +2893,10 @@ Char.instDecidableLt
 Char.instDecidableLe
 String.decidableLT
 String.decLE
+
+# The axiom behind Lean's `sorry`, and arithmetic lemmas user proofs reached for.
+sorryAx
+Nat.mul_div_cancel_left
+Int.lt_or_le
+Int.mul_le_mul
+Nat.mul_le_mul

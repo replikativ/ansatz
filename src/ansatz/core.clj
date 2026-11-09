@@ -1125,6 +1125,10 @@
    'exact?    (fn [ps _] (basic/exact? ps))
    'exact     (fn [ps args]
                 (basic/exact-form ps (term-arg args)))
+   ;; Init/Tactics.lean: macro "sorry" : tactic => `(tactic| exact sorry);
+   ;; `admit` is a synonym for `sorry`.
+   'sorry     (fn [ps _] (basic/exact-form ps 'sorry))
+   'admit     (fn [ps _] (basic/exact-form ps 'sorry))
    'refine    (fn [ps args]
                 (basic/refine ps (term-arg args)))
    'refine'   (fn [ps args]
@@ -1546,6 +1550,14 @@
   (reset! tactic-registry builtin-tactics))
 
 (declare run-tactic)
+
+(clojure.core/defn- warn-if-uses-sorry!
+  "Lean's warnIfUsesSorry (AddDecl.lean): a declaration whose type or value
+   mentions `sorryAx` is reported as using `sorry`."
+  [decl-name & exprs]
+  (when (some #(and % (e/uses-const? % (name/from-string "sorryAx"))) exprs)
+    (binding [*out* *err*]
+      (println (str "warning: declaration uses `sorry`: " decl-name)))))
 
 (clojure.core/defn- run-tactic-reporting
   "A top-level tactic step. Lean reports a failing tactic with the goals it ran on, so the
@@ -2236,6 +2248,7 @@
         _ (if lean-matchers?
             (reset! ansatz-env (env/check-constant definition-env ci))
             (swap! ansatz-env env/check-constant ci))
+        _ (warn-if-uses-sorry! fn-name type-ansatz body-ansatz)
         _ (when (or structural-matcher? recursive? explicit-ih?)
             (swap! ansatz-env rec-ext/mark-as-recursive cname))
         ;; Register arity for Clojure compilation (FAP/PAP dispatch)
@@ -2901,7 +2914,8 @@
        ;; When using global, swap! to avoid stale env race.
        (if ctx
          (env/check-constant final-env ci)
-         (swap! ansatz-env (fn [_] (env/check-constant final-env ci)))))
+         (swap! ansatz-env (fn [_] (env/check-constant final-env ci))))
+       (warn-if-uses-sorry! thm-name goal-type term))
      (when *verbose* (println "✓" thm-name "proved")))))
 
 (clojure.core/defn prove-law

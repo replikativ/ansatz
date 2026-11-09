@@ -652,6 +652,7 @@ and requires every extern of the bundled Init to be native, compiled or listed w
 | `(case (cons h t ih) (tactic) …)` / `(case nil (tactic) …)` | Select a constructor tag, optionally rename its locals, and close the branch |
 | `(case' tag (tactic) …)` | Focus a tagged branch and keep residual goals; a single residual keeps the selected tag |
 | `(trace_state)` | Print all unsolved goals and their locals without changing the proof state |
+| `(sorry)` / `(admit)` / term `sorry` | Close the goal with Lean's `sorryAx` (each `sorry` unique, as in Lean) and warn "declaration uses `sorry`"; the Lean re-check lists `sorryAx` among the axioms, and running a definition that reaches it fails with "executed 'sorry'" |
 | `(next [h t ih] (tactic) …)` / `(next (tactic) …)` | Close the next branch, optionally naming its locals |
 | `(rename_i h1 h2)` | Name the most recent inaccessible or shadowed locals; `_` skips a local |
 | `(cases h e)` | Lean's `cases h : e`: generalize an inductive discriminant and split in constructor order, retaining `h : e = constructor …` |

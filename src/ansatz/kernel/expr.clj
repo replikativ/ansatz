@@ -224,6 +224,26 @@
   [name binder-type body]
   (forall' name binder-type body :default))
 
+(defn uses-const?
+  "Does `root` mention the constant named `n` (a Name)? Visits each shared
+   subterm once."
+  [^Expr root n]
+  (let [seen (java.util.IdentityHashMap.)
+        stack (java.util.ArrayDeque.)]
+    (.push stack root)
+    (loop []
+      (if (.isEmpty stack)
+        false
+        (let [^Expr x (.pop stack)]
+          (if (.containsKey seen x)
+            (recur)
+            (do (.put seen x true)
+                (if (and (= Expr/CONST (.tag x)) (= n (.o0 x)))
+                  true
+                  (do (doseq [c [(.o0 x) (.o1 x) (.o2 x) (.o3 x)]]
+                        (when (instance? Expr c) (.push stack c)))
+                      (recur))))))))))
+
 ;; ============================================================
 ;; de Bruijn operations — with metadata-based short-circuiting
 ;; ============================================================
