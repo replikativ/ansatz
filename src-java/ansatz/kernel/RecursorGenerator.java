@@ -425,7 +425,11 @@ final class RecursorGenerator {
                 || rec.numMotives != recInfos.length
                 || rec.numMinors != collectMinors().size()
                 || rec.isK != kTarget
-                || rec.isUnsafe != bundle.isUnsafe) {
+                || rec.isUnsafe != bundle.isUnsafe
+                // Lean (inductive.cpp declare_recursors): the recursor's universe parameters are
+                // the elimination level, when it is a parameter, followed by the inductive's.
+                || rec.levelParams.length
+                   != bundle.levelParams.length + (elimLevel.tag == Level.PARAM ? 1 : 0)) {
             throw new RuntimeException("generated recursor computational metadata mismatch for " + rec.name);
         }
     }

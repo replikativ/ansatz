@@ -30,7 +30,13 @@
     ;; on the file is the same).
     (let [o (ac/check-file (str fixtures "141_falseFromUnsafe.ndjson"))]
       (is (= ac/exit-reject (:exit o)))
-      (is (contains? #{"falseFromUnsafe" "unsafeLoop"} (:decl o))))))
+      (is (contains? #{"falseFromUnsafe" "unsafeLoop"} (:decl o)))))
+  (testing "a Prop storing data eliminates only into Prop (fvar ids, kernel/fvar_id_collision_test)"
+    ;; Exported by ansatz.export.writer from a session the stale-id kernel admitted: StaleBox
+    ;; with a large-eliminating recursor and `true_eq_false : True = False`. Lean's kernel
+    ;; rejects it (tools/lean-replay: StaleBox.rec has no universe parameter).
+    (let [o (ac/check-file (str fixtures "stale-fvar-large-elim.ndjson"))]
+      (is (= ac/exit-reject (:exit o))))))
 
 (deftest decline-unreadable-export
   (testing "an unparseable file is declined (exit 2), never rejected"
