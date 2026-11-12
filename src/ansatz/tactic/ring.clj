@@ -10,7 +10,9 @@
             [ansatz.kernel.level :as lvl]
             [ansatz.kernel.tc :as tc]
             [ansatz.tactic.instance :as inst]
-            [ansatz.tactic.proof :as proof])
+            [ansatz.tactic.proof :as proof]
+            [ansatz.surface.pp :as pp]
+            [clojure.string])
   (:import [ansatz.kernel TypeChecker]))
 
 (defn- c [n & [us]] (e/const' (name/from-string n) (or us [])))
@@ -154,6 +156,84 @@
                        (build lo mid) (build mid hi)))))]
       (build 0 (count atoms)))))
 
+;; ------------------------------------------------------------------
+;; Failure explanation only. The kernel has already rejected the certificate when these run;
+;; nothing here is trusted or decides acceptance.
+
+(defn- syntax-poly
+  "Untrusted host normal form of a reified Lean.Grind.CommRing.Expr: {monomial coeff}, a
+   monomial being a sorted map {atom-index degree}. nil for syntax it does not know."
+  [st expr]
+  (let [lit (fn [x] (let [x (whnf st x)] (when (e/lit-nat? x) (biginteger (e/lit-nat-val x)))))
+        add (fn [p q] (into {} (remove (comp zero? val)) (merge-with + p q)))
+        mul (fn [p q] (add {} (apply merge-with +
+                                    {} (for [[m a] p [n b] q] {(merge-with + m n) (* a b)}))))]
+    (letfn [(go [x]
+              (let [[head args] (e/get-app-fn-args x)
+                    ctor (when (e/const? head) (str (e/const-name head)))]
+                (case ctor
+                  "Lean.Grind.CommRing.Expr.var" (when-let [i (lit (first args))] {(sorted-map i 1) 1})
+                  "Lean.Grind.CommRing.Expr.natCast" (when-let [n (lit (first args))] (add {} {(sorted-map) n}))
+                  "Lean.Grind.CommRing.Expr.num"
+                  (let [[h a] (e/get-app-fn-args (first args))
+                        n (lit (first a))
+                        hn (when (e/const? h) (str (e/const-name h)))]
+                    (cond (nil? n) nil
+                          (= hn "Int.ofNat") (add {} {(sorted-map) n})
+                          (= hn "Int.negSucc") {(sorted-map) (- (inc n))}))
+                  "Lean.Grind.CommRing.Expr.add" (let [p (go (first args)) q (go (second args))] (when (and p q) (add p q)))
+                  "Lean.Grind.CommRing.Expr.sub" (let [p (go (first args)) q (go (second args))]
+                                                   (when (and p q) (add p (update-vals q -))))
+                  "Lean.Grind.CommRing.Expr.neg" (when-let [p (go (first args))] (update-vals p -))
+                  "Lean.Grind.CommRing.Expr.mul" (let [p (go (first args)) q (go (second args))] (when (and p q) (mul p q)))
+                  "Lean.Grind.CommRing.Expr.pow" (let [p (go (first args)) k (lit (second args))]
+                                                   (when (and p k (<= k 64))
+                                                     (reduce mul {(sorted-map) 1} (repeat (long k) p))))
+                  nil)))]
+      (go expr))))
+
+(defn- show-poly
+  "Lean-like text for a host normal form: higher degree first, `a - b` for negative terms,
+   an atom parenthesised only when it is not alone in its term (`[[atom-str simple?]]`)."
+  [poly atoms]
+  (if (empty? poly)
+    "0"
+    (let [terms (map (fn [[m k]]
+                       (let [alone? (and (= 1 (count m)) (= 1 (val (first m))) (= 1 (abs k)))
+                             factors (for [[i d] m]
+                                       (let [[s simple?] (nth atoms i)
+                                             s (if (or simple? alone?) s (str "(" s ")"))]
+                                         (str s (when (< 1 d) (str "^" d)))))
+                             body (cond (empty? factors) (str (abs k))
+                                        (= 1 (abs k)) (clojure.string/join " * " factors)
+                                        :else (clojure.string/join " * " (cons (str (abs k)) factors)))]
+                         [(neg? k) body]))
+                     (sort-by (fn [[m _]] [(- (reduce + (vals m))) (vec m)]) poly))
+          [[neg0 first-body] & more] terms]
+      (apply str (if neg0 (str "-" first-body) first-body)
+             (map (fn [[neg body]] (str (if neg " - " " + ") body)) more)))))
+
+(defn- difference-note
+  "\"lhs - rhs normalizes to …\" when the host normal form shows the sides differ, else nil."
+  [st lctx lhs rhs atoms]
+  (try
+    (let [p (syntax-poly st lhs) q (syntax-poly st rhs)]
+      (when (and p q)
+        (let [d (into {} (remove (comp zero? val)) (merge-with + p (update-vals q -)))]
+          (when (seq d)
+            (let [atom-strs (mapv (fn [a]
+                                    (let [s (pp/pp (reduce (fn [x [id decl]]
+                                                             (if (and (:name decl) (e/has-fvar-flag x))
+                                                               (e/instantiate1 (e/abstract1 x id)
+                                                                               (c (str (:name decl))))
+                                                               x))
+                                                           a lctx))]
+                                      [s (boolean (re-matches #"[\p{L}\p{N}_.'₀-₉]+" s))]))
+                                  atoms)]
+              (str "the two sides are different polynomials: lhs - rhs normalizes to\n  "
+                   (show-poly d atom-strs)))))))
+    (catch Exception _ nil)))
+
 (defn- check-term!
   "Check every application argument, including the boolean certificate. inferType alone
    is not a certificate verifier."
@@ -198,8 +278,12 @@
                         [(:u ctx)] ty (:instance ctx) context lhs rhs cert)]
           (try (check-term! env lctx type term)
                (catch Exception ex
-                 (throw (ex-info "ring: polynomial normalization could not certify the equality"
-                                 {:kind :tactic-error :goal type} ex)))))))))
+                 (let [note (difference-note st lctx lhs rhs atoms)]
+                   (throw (ex-info (str "ring: "
+                                        (or note "polynomial normalization could not certify the equality"))
+                                   (cond-> {:kind :tactic-error :goal type}
+                                     note (assoc :problem :not-a-ring-identity))
+                                   ex))))))))))
 
 (defn ring
   "Prove polynomial equalities with Lean's checked normalization certificates.

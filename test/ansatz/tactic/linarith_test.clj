@@ -94,6 +94,14 @@
     (proves cb-square [i :- Int, h1 :- (<= -1048576 i), h2 :- (<= i 1048576)]
             (<= (* i i) 1099511627776) (nlinarith))
     (proves cb-square-lower [i :- Int] (<= 0 (* i i)) (nlinarith))
+    ;; Klara's guard bound: 1454083² = 2114357370889. The reported failure used
+    ;; 2114357368889 (2000 less), which i = 1454083 violates.
+    (proves cb-square-klara [i :- Int, h1 :- (<= -1454083 i), h2 :- (<= i 1454083)]
+            (<= (* i i) 2114357370889) (nlinarith))
+    (proves cb-square-klara-product [i :- Int, m :- (<= 0 (* (- 1454083 i) (+ i 1454083)))]
+            (<= (* i i) 2114357370889) (linarith))
+    (fails cb-square-klara-false [i :- Int, h1 :- (<= -1454083 i), h2 :- (<= i 1454083)]
+           (<= (* i i) 2114357368889) (nlinarith))
     (proves cb-product-upper [a :- Int, b :- Int, ha1 :- (<= -1000 a), ha2 :- (<= a 1000),
                               hb1 :- (<= -1000 b), hb2 :- (<= b 1000)]
             (<= (* a b) 1000000) (nlinarith))

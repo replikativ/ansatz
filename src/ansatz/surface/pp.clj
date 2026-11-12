@@ -188,7 +188,11 @@
           (str s "." (e/proj-idx expr)))
 
         :fvar
-        (str "?fv" (e/fvar-id expr))))))
+        (str "?fv" (e/fvar-id expr))
+
+        ;; an unassigned metavariable, as Lean prints it (`?m.N`)
+        :mvar
+        (str "?m." (e/mvar-id expr))))))
 
 (defn pp
   "Pretty-print a Ansatz expression as readable Lean-like text.

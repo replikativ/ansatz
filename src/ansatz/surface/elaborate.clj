@@ -32,7 +32,8 @@
             [ansatz.meta.match.matcher-info :as matcher-info]
             [ansatz.surface.match :as match]
             [ansatz.surface.ingest :as ingest]
-            [ansatz.surface.diagnostics :as diagnostics])
+            [ansatz.surface.diagnostics :as diagnostics]
+            [ansatz.surface.pp :as pp])
   (:import [ansatz.kernel Env Expr]))
 
 ;; ============================================================
@@ -648,6 +649,37 @@
       (e/forall? t) (recur (e/forall-body t))
       :else false)))
 
+(def ^:private ^:const mismatch-expr-chars 2000)
+
+(defn- app-type-mismatch-message
+  "Lean's Meta/Check.lean throwAppTypeMismatch (what Elab/App.lean ensureArgType reports):
+   the argument, its type, the expected type and the application, with local hypotheses
+   shown by name. Diagnostics only — computed after unification already failed; any
+   failure while rendering falls back to Lean's short form, never changes acceptance."
+  [est f arg arg-type expected]
+  ;; Lean synthesizes pending instance arguments before it reports (synthesizeAppInstMVars),
+  ;; so `(-3 : Int)` prints with its instance rather than a hole.
+  (try (solve-instance-mvars! est) (catch Exception _ nil))
+  (try
+    (let [lctx (:lctx (:tc est))
+          show (fn [x]
+                 (let [x (reduce (fn [x [id decl]]
+                                   (if (and (:name decl) (e/has-fvar-flag x))
+                                     (e/instantiate1 (e/abstract1 x id)
+                                                     (e/const' (name/from-string (str (:name decl))) []))
+                                     x))
+                                 (zonk est x) lctx)
+                       s (pp/pp x)]
+                   (str "\n  " (if (< mismatch-expr-chars (count s))
+                                 (str (subs s 0 mismatch-expr-chars) " …")
+                                 s))))]
+      (str "Application type mismatch: The argument" (show arg)
+           "\nhas type" (show arg-type)
+           "\nbut is expected to have type" (show expected)
+           "\nin the application" (show (e/app f arg))))
+    (catch Exception _
+      "Application type mismatch: The argument is not of the expected type")))
+
 (defn- elab-app
   "Elaborate a function application, inserting implicit arguments."
   [est head-sexpr arg-sexprs]
@@ -718,7 +750,7 @@
                   ;; Unify arg type with expected domain
                   arg-type (infer-with-mvars est arg-expr)]
               (when-not (unify! est arg-type dom-type)
-                (elab-error! "Type mismatch in application"
+                (elab-error! (app-type-mismatch-message est expr arg-expr arg-type dom-type)
                              {:fn head-sexpr :argument arg-sexpr
                               :expected dom-type :inferred arg-type}))
               (let [expr' (e/app expr arg-expr)
