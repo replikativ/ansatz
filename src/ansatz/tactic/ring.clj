@@ -167,29 +167,29 @@
   (let [lit (fn [x] (let [x (whnf st x)] (when (e/lit-nat? x) (biginteger (e/lit-nat-val x)))))
         add (fn [p q] (into {} (remove (comp zero? val)) (merge-with + p q)))
         mul (fn [p q] (add {} (apply merge-with +
-                                    {} (for [[m a] p [n b] q] {(merge-with + m n) (* a b)}))))]
+                                     {} (for [[m a] p [n b] q] {(merge-with + m n) (* a b)}))))]
     (letfn [(go [x]
-              (let [[head args] (e/get-app-fn-args x)
-                    ctor (when (e/const? head) (str (e/const-name head)))]
-                (case ctor
-                  "Lean.Grind.CommRing.Expr.var" (when-let [i (lit (first args))] {(sorted-map i 1) 1})
-                  "Lean.Grind.CommRing.Expr.natCast" (when-let [n (lit (first args))] (add {} {(sorted-map) n}))
-                  "Lean.Grind.CommRing.Expr.num"
-                  (let [[h a] (e/get-app-fn-args (first args))
-                        n (lit (first a))
-                        hn (when (e/const? h) (str (e/const-name h)))]
-                    (cond (nil? n) nil
-                          (= hn "Int.ofNat") (add {} {(sorted-map) n})
-                          (= hn "Int.negSucc") {(sorted-map) (- (inc n))}))
-                  "Lean.Grind.CommRing.Expr.add" (let [p (go (first args)) q (go (second args))] (when (and p q) (add p q)))
-                  "Lean.Grind.CommRing.Expr.sub" (let [p (go (first args)) q (go (second args))]
-                                                   (when (and p q) (add p (update-vals q -))))
-                  "Lean.Grind.CommRing.Expr.neg" (when-let [p (go (first args))] (update-vals p -))
-                  "Lean.Grind.CommRing.Expr.mul" (let [p (go (first args)) q (go (second args))] (when (and p q) (mul p q)))
-                  "Lean.Grind.CommRing.Expr.pow" (let [p (go (first args)) k (lit (second args))]
-                                                   (when (and p k (<= k 64))
-                                                     (reduce mul {(sorted-map) 1} (repeat (long k) p))))
-                  nil)))]
+                (let [[head args] (e/get-app-fn-args x)
+                      ctor (when (e/const? head) (str (e/const-name head)))]
+                  (case ctor
+                    "Lean.Grind.CommRing.Expr.var" (when-let [i (lit (first args))] {(sorted-map i 1) 1})
+                    "Lean.Grind.CommRing.Expr.natCast" (when-let [n (lit (first args))] (add {} {(sorted-map) n}))
+                    "Lean.Grind.CommRing.Expr.num"
+                    (let [[h a] (e/get-app-fn-args (first args))
+                          n (lit (first a))
+                          hn (when (e/const? h) (str (e/const-name h)))]
+                      (cond (nil? n) nil
+                            (= hn "Int.ofNat") (add {} {(sorted-map) n})
+                            (= hn "Int.negSucc") {(sorted-map) (- (inc n))}))
+                    "Lean.Grind.CommRing.Expr.add" (let [p (go (first args)) q (go (second args))] (when (and p q) (add p q)))
+                    "Lean.Grind.CommRing.Expr.sub" (let [p (go (first args)) q (go (second args))]
+                                                     (when (and p q) (add p (update-vals q -))))
+                    "Lean.Grind.CommRing.Expr.neg" (when-let [p (go (first args))] (update-vals p -))
+                    "Lean.Grind.CommRing.Expr.mul" (let [p (go (first args)) q (go (second args))] (when (and p q) (mul p q)))
+                    "Lean.Grind.CommRing.Expr.pow" (let [p (go (first args)) k (lit (second args))]
+                                                     (when (and p k (<= k 64))
+                                                       (reduce mul {(sorted-map) 1} (repeat (long k) p))))
+                    nil)))]
       (go expr))))
 
 (defn- show-poly

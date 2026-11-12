@@ -165,15 +165,15 @@
 ;; "Type mismatch in application" named none of them).
 (deftest application-mismatch-names-the-argument-and-both-types
   (a/theorem diagReach [P :- (=> Int Prop), lo :- Int, hi :- Int, hlo :- (P lo), hle :- (<= lo hi)]
-    (P lo) (exact hlo))
+             (P lo) (exact hlo))
   (testing "a hypothesis whose type is not defeq to the parameter"
     (let [error (failure #(a/theorem diagReachWrong [P :- (=> Int Prop), hgd :- (P -4)] (P -3)
-                            (apply (diagReach P -3 3 hgd _)) (decide)))
+                                     (apply (diagReach P -3 3 hgd _)) (decide)))
           message (str (ex-message error))]
       (is (re-find #"Application type mismatch: The argument\n  hgd\nhas type\n  P \(Neg\.neg Int Int\.instNegInt \(OfNat\.ofNat Int 4 " message))
       (is (re-find #"but is expected to have type\n  P \(Neg\.neg Int Int\.instNegInt \(OfNat\.ofNat Int 3 " message))
       (is (re-find #"in the application\n  diagReach P " message))))
   (testing "Int.negSucc and Neg.neg spellings of the same literal are defeq"
     (is (nil? (failure #(a/theorem diagReachSucc [P :- (=> Int Prop), hgd :- (P (Int.negSucc 1454082))]
-                          (P -1454083)
-                          (apply (diagReach P -1454083 1454083 hgd _)) (decide)))))))
+                                   (P -1454083)
+                                   (apply (diagReach P -1454083 1454083 hgd _)) (decide)))))))

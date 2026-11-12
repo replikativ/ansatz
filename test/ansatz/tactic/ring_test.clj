@@ -46,7 +46,7 @@
                          '(= Int (* (- 1454083 i) (+ i 1454083)) (- 2114357370889 (* i i))) '[(ring)])
         (let [error (try (a/prove-theorem 'ringKlaraLiteralFalse '[i :- Int]
                                           '(= Int (* (- 1454083 i) (+ i 1454083))
-                                                  (- 2114357368889 (* i i)))
+                                              (- 2114357368889 (* i i)))
                                           '[(ring)])
                          nil
                          (catch clojure.lang.ExceptionInfo ex ex))]
