@@ -35,6 +35,31 @@
         (is (.contains (e/->string (.value ci)) "Lean.Grind.CommRing.eq_normS")))
       (finally (reset! a/ansatz-env saved)))))
 
+(deftest a-false-identity-reports-the-polynomial-difference
+  ;; Klara's report: 1454083² is 2114357370889, so the second claim is off by 2000. The
+  ;; kernel evaluates the certificate to false; the message names the difference.
+  (let [saved @a/ansatz-env]
+    (try
+      (reset! a/ansatz-env @test-env/checked-bundled-init-env)
+      (binding [a/*verbose* false]
+        (a/prove-theorem 'ringKlaraLiteral '[i :- Int]
+                         '(= Int (* (- 1454083 i) (+ i 1454083)) (- 2114357370889 (* i i))) '[(ring)])
+        (let [error (try (a/prove-theorem 'ringKlaraLiteralFalse '[i :- Int]
+                                          '(= Int (* (- 1454083 i) (+ i 1454083))
+                                              (- 2114357368889 (* i i)))
+                                          '[(ring)])
+                         nil
+                         (catch clojure.lang.ExceptionInfo ex ex))]
+          (is (re-find #"different polynomials: lhs - rhs normalizes to\n  2000\n" (str (ex-message error))))
+          (is (= :not-a-ring-identity (:problem (ex-data error)))))
+        (let [error (try (a/prove-theorem 'ringSquareFalse '[x :- Int, y :- Int]
+                                          '(= Int (* (+ x y) (+ x y)) (+ (* x x) (* y y)))
+                                          '[(ring)])
+                         nil
+                         (catch clojure.lang.ExceptionInfo ex ex))]
+          (is (re-find #"normalizes to\n  2 \* x \* y\n" (str (ex-message error))))))
+      (finally (reset! a/ansatz-env saved)))))
+
 (deftest symbolic-coefficients-powers-and-opaque-nat-subtraction
   (let [environment @test-env/checked-bundled-init-env
         ctx (u/context environment)
@@ -60,7 +85,9 @@
       (let [type (u/mk-forall-fvars ctx [x y] (eq nat (sub x y) (e/lit-nat 0)))
             [ps _] (proof/start-proof environment type)
             ps (basic/intros ps ["x" "y"])]
-        (is (thrown-with-msg? clojure.lang.ExceptionInfo #"could not certify" (ring/ring ps)))
+        (is (thrown-with-msg? clojure.lang.ExceptionInfo
+                              #"different polynomials: lhs - rhs normalizes to\n  Nat\.sub x y$"
+                              (ring/ring ps)))
         (is (= 1 (count (proof/goals ps))))))))
 
 (deftest signed-integer-polynomial-certificate
@@ -114,7 +141,7 @@
         type (u/mk-forall-fvars ctx [f x y] (eq nat (e/app* f x y) (e/app* f y x)))
         [ps _] (proof/start-proof environment type)
         ps (basic/intros ps ["f" "x" "y"])]
-    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"could not certify" (ring/ring ps)))
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"normalizes to\n  f x y - f y x$" (ring/ring ps)))
     (is (= 1 (count (proof/goals ps))))))
 
 (deftest generic-carrier-with-max-universe
