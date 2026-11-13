@@ -37,6 +37,7 @@
             [ansatz.inductive :as inductive]
             [ansatz.elab.structural :as structural]
             [ansatz.elab.structural-eqns :as structural-eqns]
+            [ansatz.elab.structural-smart-unfolding :as sunfold]
             [ansatz.surface.ingest :as ingest]
             [ansatz.surface.elaborate :as elab]
             [ansatz.surface.diagnostics :as diagnostics]
@@ -864,6 +865,49 @@
       (simp/dsimp-goal ps ids target?)
       (simp/simp-goal ps lemma-args opts ids target?))))
 
+(clojure.core/defn- unfold-location
+  ;; Lean Elab/Tactic/Unfold.lean evalUnfold: each name in turn, at the location by
+  ;; Elab/Tactic/Location.lean withLocation. Named hypotheses are resolved when reached
+  ;; (an earlier unfold replaces them); `*` tries the target, then every hypothesis from the
+  ;; newest, and fails only when nothing unfolded.
+  [ps names locs]
+  (when (empty? names)
+    (throw (ex-info "Tactic error: unfold: expected at least one declaration" {:kind :tactic-error})))
+  (let [attempt (fn [f ps] (try [(f ps) true] (catch clojure.lang.ExceptionInfo _ [ps false])))]
+    (reduce
+     (fn [ps nm]
+       (let [nm (str nm)]
+         (cond
+           (nil? locs) (basic/unfold-in-goal ps nm)
+
+           (= ['*] (vec locs))
+           (let [[ps worked] (attempt #(basic/unfold-in-goal % nm) ps)]
+             (if-let [g (proof/current-goal ps)]
+               (let [ids (reverse (keep (fn [[id d]] (when (= :local (:tag d)) id)) (:lctx g)))
+                     [ps worked]
+                     (reduce (fn [[ps worked] id]
+                               (if (contains? (:lctx (proof/current-goal ps)) id)
+                                 (let [[ps ok] (attempt #(basic/unfold-local-decl % id nm) ps)]
+                                   [ps (or worked ok)])
+                                 [ps worked]))
+                             [ps worked] ids)]
+                 (when-not worked
+                   (throw (ex-info (str "Tactic error: unfold: did not unfold '" nm "'")
+                                   {:kind :tactic-error :declaration nm})))
+                 ps)
+               ps))
+
+           :else
+           (let [ps (reduce (fn [ps h]
+                              (let [g (proof/current-goal ps)
+                                    id (or (latest-local-id-by-name (:lctx g) h)
+                                           (throw (ex-info (str "Tactic error: unfold at: no hypothesis named " h)
+                                                           {:kind :tactic-error :name h})))]
+                                (basic/unfold-local-decl ps id nm)))
+                            ps (remove #{'⊢} locs))]
+             (if (some #{'⊢} locs) (basic/unfold-in-goal ps nm) ps)))))
+     ps names)))
+
 (clojure.core/defn- elab-apply-arg
   "Lean Elab/Tactic/ElabTerm.lean elabTermForApply: suppress implicit insertion
    for identifiers; postpone term and universe holes until result-type matching.
@@ -1432,7 +1476,8 @@
    'delta     (fn [ps args]
                 (basic/delta-in-goal ps (mapv str args)))
    'unfold    (fn [ps args]
-                (basic/unfold-in-goal ps (str (first args))))
+                (let [[names locs] (split-with #(not= 'at %) args)]
+                  (unfold-location ps names (when (seq locs) (rest locs)))))
    'by_cases  (fn [ps args]
                 (let [[hname form] (if (= ':- (second args))
                                      [(str (first args)) (nth args 2)]
@@ -2251,6 +2296,19 @@
         _ (warn-if-uses-sorry! fn-name type-ansatz body-ansatz)
         _ (when (or structural-matcher? recursive? explicit-ih?)
             (swap! ansatz-env rec-ext/mark-as-recursive cname))
+        ;; Lean Structural/Main.lean: addSmartUnfoldingDef. Without it Meta unfolding (simp's
+        ;; `unfold?`) has no fallback when no split equation matches, e.g. `f best (h :: t)`
+        ;; whose equations are per constructor of a nested `match best`. Its absence only
+        ;; loses that fallback, so a failure is reported, never fatal to the definition.
+        _ (when structural-matcher?
+            (try
+              (swap! ansatz-env sunfold/add-smart-unfolding-def cname [] type-ansatz
+                     (e/instantiate1 (e/abstract1 (:expr body-result) (:self-fvar-id body-result))
+                                     (e/const' cname []))
+                     rec-pos)
+              (catch Exception ex
+                (when *verbose*
+                  (println (str "  ⚠ " fn-name "._sunfold not added: " (ex-message ex)))))))
         ;; Register arity for Clojure compilation (FAP/PAP dispatch)
         _ (decl/plan! env (str fn-name) type-ansatz (count pairs))
         equation-errors (atom [])
@@ -2830,6 +2888,15 @@
                   (swap! equation-names conj [cname eqn])))
               (catch Exception ex
                 (report-equation-error! equation-errors (str fn-name ".eq_1") ex))))
+        ;; Lean getUnfoldEqnFor? generates `f.eq_def` (what `unfold f` rewrites with). Not part
+        ;; of the equation inventory; without it `unfold` keeps its delta fallback.
+        _ (when structural-matcher?
+            (try
+              (swap! ansatz-env structural-eqns/unfold-equation fn-name (:expr body-result)
+                     (:self-fvar-id body-result) rec-pos n)
+              (catch Exception ex
+                (when *verbose*
+                  (println (str "  ⚠ " fn-name ".eq_def not generated: " (ex-message ex)))))))
         ;; Lean Meta/Eqns.lean registerEqnThms/getEqnsFor?: record the names at
         ;; installation with each matcher owning its own equations.
         ;; Preserve equation order within each owner; retain

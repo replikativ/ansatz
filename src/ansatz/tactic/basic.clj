@@ -2558,19 +2558,15 @@
                                           :goal-type (:type goal) :simplified target})
         (proof/record-tactic :delta selected-names (:id goal)))))
 
-(defn unfold-in-goal
-  "Unfold a definition in the goal type, following Lean `Meta.unfoldTarget`
-   (Meta/Tactic/Unfold.lean).
+(defn- unfold-result
+  "Lean 4.33.1 Meta/Tactic/Unfold.lean `unfold e declName` over `type` in local context
+   `lctx`: {:expr new-type :proof? eq-proof-or-nil}.
 
-   Existing eq_def (or well-founded eq_unfold) theorems use Lean's simp pre-method.
-   Otherwise use deltaExpand. Tagged local recursive definitions retain delta+whnf:
-   Lean would generate eq_def here; porting mkUnfoldEq remains unsupported.
-
-   Usage: (unfold sorted)"
-  [ps def-name-str]
-  (let [goal (proof/current-goal ps)
-        _ (when-not goal (tactic-error! "No goals" {}))
-        st (mk-tc ps (:lctx goal))
+   An eq_def (or well-founded eq_unfold) theorem uses Lean's simp pre-method: rewrite, then
+   reduceMatcher?. Otherwise deltaExpand. A recursive definition with no unfold theorem keeps
+   delta+whnf."
+  [ps lctx def-name-str type]
+  (let [st (mk-tc ps lctx)
         def-name (name/from-string def-name-str)
         ^ConstantInfo ci (env/lookup! (:env ps) def-name)
         ;; theorems are opaque to `unfold`/`delta` (lean4#12973) — the same refusal Lean gives
@@ -2579,12 +2575,10 @@
         _ (when-not (.value ci)
             (tactic-error! (str "unfold: " def-name-str " has no definition value") {}))
         def-val (.value ci)
-        ;; Replace the constant application in the goal with its unfolded form
-        ;; Walk the goal and find applications of def-name, replace with def-val applied to args
+        ;; Replace the constant application with its unfolded form
         replace-fn (fn replace-fn [expr]
                      (let [[head args] (e/get-app-fn-args expr)]
                        (if (and (e/const? head) (= (e/const-name head) def-name))
-                         ;; Unfold: apply the definition value to the args
                          (let [subst (into {} (map vector
                                                    (vec (.levelParams ci))
                                                    (e/const-levels head)))
@@ -2593,7 +2587,6 @@
                                      def-val)]
                            ;; WHNF the unfolded result immediately (beta + iota)
                            (#'tc/cached-whnf st (reduce e/app val args)))
-                         ;; Recurse into applications
                          (case (e/tag expr)
                            :app (let [f (replace-fn (e/app-fn expr))
                                       a (replace-fn (e/app-arg expr))]
@@ -2604,14 +2597,24 @@
         unfold-eqn (eqns/get-unfold-eqn-for? (:env ps) def-name)
         unfold-result (when unfold-eqn
                         ((requiring-resolve 'ansatz.tactic.simp/unfold-expr)
-                         st (:env ps) (:type goal) unfold-eqn))
-        new-goal-type-reduced
-        (if unfold-result
-          (:expr unfold-result)
-          (if (rec-ext/is-recursive-definition (:env ps) def-name)
-            ;; Local structural definitions do not yet have Lean's generated eq_def.
-            (#'tc/cached-whnf st (replace-fn (:type goal)))
-            (delta-expand (:type goal) def-name ci)))
+                         st (:env ps) type unfold-eqn))]
+    (or unfold-result
+        {:expr (if (rec-ext/is-recursive-definition (:env ps) def-name)
+                 (#'tc/cached-whnf st (replace-fn type))
+                 (delta-expand type def-name ci))
+         :proof? nil})))
+
+(defn unfold-in-goal
+  "Unfold a definition in the goal type, following Lean `Meta.unfoldTarget`
+   (Meta/Tactic/Unfold.lean).
+
+   Usage: (unfold sorted)"
+  [ps def-name-str]
+  (let [goal (proof/current-goal ps)
+        _ (when-not goal (tactic-error! "No goals" {}))
+        st (mk-tc ps (:lctx goal))
+        unfold-result (unfold-result ps (:lctx goal) def-name-str (:type goal))
+        new-goal-type-reduced (:expr unfold-result)
         _ (when (= new-goal-type-reduced (:type goal))
             (tactic-error! (str "unfold: failed to unfold " def-name-str " in the goal")
                            {:declaration def-name-str}))
@@ -2622,6 +2625,22 @@
                                            :mpr-level (when (:proof? unfold-result)
                                                         (e/sort-level (#'tc/cached-whnf st (tc/infer-type st (:type goal)))))})
         (proof/record-tactic :unfold [def-name-str] (:id goal)))))
+
+(defn unfold-local-decl
+  "Lean 4.33.1 Meta/Tactic/Unfold.lean unfoldLocalDecl: unfold `def-name-str` in the type of
+   hypothesis `hyp-id`, replacing it through applySimpResultToLocalDecl."
+  [ps hyp-id def-name-str]
+  (let [goal (proof/current-goal ps)
+        _ (when-not goal (tactic-error! "No goals" {}))
+        decl (red/lctx-lookup (:lctx goal) hyp-id)
+        type (:type decl)
+        result (unfold-result ps (:lctx goal) def-name-str type)]
+    (when (= (:expr result) type)
+      (tactic-error! (str "Tactic `unfold` failed to unfold `" def-name-str "` in\n  "
+                          (proof/display-expr (:lctx goal) type))
+                     {:declaration def-name-str :hypothesis (:name decl)}))
+    ((requiring-resolve 'ansatz.tactic.simp/apply-simp-result-to-local-decl)
+     ps hyp-id result {:may-close-goal? false} [def-name-str])))
 
 (defn exact?
   "Search the environment + local context for a term that closes the goal.

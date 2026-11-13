@@ -429,7 +429,7 @@
   [ps]
   (empty? (:goals ps)))
 
-(defn- display-expr
+(defn display-expr
   "Lean-like text for `expr` in `lctx`, hypotheses shown by name (a dependent hypothesis or
    the target mentions earlier ones as free variables, which `pp` alone prints as ?fvN)."
   [lctx expr]

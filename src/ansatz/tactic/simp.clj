@@ -45,6 +45,7 @@
             [ansatz.tactic.simp.simproc :as simproc]
             [ansatz.meta :as meta]
             [ansatz.meta.rec-ext :as rec-ext]
+            [ansatz.elab.structural-smart-unfolding :as sunfold]
             [ansatz.kernel.level :as lvl]
             [ansatz.kernel.tc :as tc]
             [ansatz.meta.match.matcher-info :as matcher-info]
@@ -2141,6 +2142,69 @@
           decl (red/lctx-lookup (:lctx st) id)]
       (when decl (when-let [v (:value decl)] v)))))
 
+(defn- smart-unfolding-reduce
+  "Lean 4.33.1 Meta/WHNF.lean smartUnfoldingReduce?: reduce every `sunfoldMatch` matcher of a
+   smart-unfolding body; an alternative marked `sunfoldMatchAlt` ends the walk. nil when a
+   marked matcher is stuck. Binders are entered only around a marked matcher."
+  [st x]
+  (letfn [(enter [st nm type body k]
+            (let [id (inc (max-fvar-id (:lctx st) body))
+                  st' (update st :lctx red/lctx-add-local id (str nm) type)]
+              (when-let [r (k st' (e/instantiate1 body (e/fvar id)))]
+                (e/abstract1 r id))))
+          (go [st x]
+              (if-not (sunfold/contains-smart-unfolding-match? x)
+                x
+                (case (e/tag x)
+                  :let (when-let [v (go st (e/let-value x))]
+                         (when-let [b (enter st (e/let-name x) (e/let-type x) (e/let-body x) go)]
+                           (e/let' (e/let-name x) (e/let-type x) v b)))
+                  :lam (when-let [b (enter st (e/lam-name x) (e/lam-type x) (e/lam-body x) go)]
+                         (e/lam (e/lam-name x) (e/lam-type x) b (e/lam-info x)))
+                  :app (when-let [f (go st (e/app-fn x))]
+                         (when-let [a (go st (e/app-arg x))]
+                           (e/app f a)))
+                  :proj (when-let [s (go st (e/proj-struct x))]
+                          (e/proj (e/proj-type-name x) (e/proj-idx x) s))
+                  :mdata (if-let [m (sunfold/smart-unfolding-match? x)]
+                           (go-match st m)
+                           (when-let [b (go st (e/mdata-expr x))]
+                             (e/mdata (e/mdata-data x) b)))
+                  x)))
+          (go-match [st m]
+            (when-let [{reduced :expr} (try-reduce-matcher st m)]
+              (or (sunfold/smart-unfolding-match-alt? reduced)
+                  (go st reduced))))]
+    (go st x)))
+
+(defn- smart-unfold
+  "Lean 4.33.1 Meta/WHNF.lean unfoldDefinition? with smart unfolding: delta-beta `f args` to
+   `f._sunfold`, reduce its marked matchers, then require the structural argument to reduce
+   to a constructor (lean4#1081). nil when `f` has no annotated `_sunfold` here — exported
+   declarations do not carry the body and its annotations."
+  [st env expr]
+  (let [[head args] (e/get-app-fn-args expr)
+        ^ConstantInfo aux (env/lookup env (sunfold/smart-unfolding-name (e/const-name head)))
+        value (when (and aux (.isDef aux)) (.value aux))]
+    (when (and value (sunfold/contains-smart-unfolding-match? value)
+               (= (count (.levelParams aux)) (count (e/const-levels head))))
+      (let [value (if (seq (e/const-levels head))
+                    (e/instantiate-level-params value (zipmap (vec (.levelParams aux)) (e/const-levels head)))
+                    value)
+            applied (reduce (fn [f a] (if (e/lam? f) (e/instantiate1 (e/lam-body f) a) (e/app f a)))
+                            value args)]
+        (when-let [r (smart-unfolding-reduce st applied)]
+          (let [pos (sunfold/structural-rec-arg-pos env (e/const-name head))]
+            (cond
+              (nil? pos) r
+              (>= pos (count args)) nil
+              :else
+              (let [w (red/whnf-no-delta env (nth args pos) (:lctx st))
+                    h (e/get-app-fn w)
+                    ci (when (e/const? h) (env/lookup env (e/const-name h)))]
+                (when (or (e/lit-nat? w) (and ci (.isCtor ^ConstantInfo ci)))
+                  r)))))))))
+
 (defn- try-unfold
   "Unfold an explicit definition, or a matcher with a known constructor
    discriminant. The latter is Lean's matcher equation reduction path."
@@ -2163,30 +2227,34 @@
                     (subvec (vec args) (inc (:num-params info))
                             (+ 1 (:num-params info) (:num-discrs info)))))]
         ;; WHNF.lean unfoldDefinition? uses the annotated smart-unfolding body,
-        ;; never the raw recursive implementation. The kernel export does not
-        ;; retain that body/annotations yet; its admitted equations remain usable.
-        (when (and (not (and (rec-ext/is-recursive-definition env hname)
-                             (rec-ext/has-smart-unfolding-decl env hname)))
-                   (or (contains? to-unfold hstr) matcher-ready?
-                       (.endsWith hstr ".casesOn")))
-          (when-let [^ConstantInfo ci (env/lookup env hname)]
+        ;; never the raw recursive implementation. Definitions elaborated here carry
+        ;; `f._sunfold` (Structural/SmartUnfolding.lean); the kernel export does not
+        ;; retain that body/annotations yet, so for exported ones only their admitted
+        ;; equations are usable.
+        (if (and (rec-ext/is-recursive-definition env hname)
+                 (rec-ext/has-smart-unfolding-decl env hname))
+          (when (contains? to-unfold hstr)
+            (smart-unfold st env expr))
+          (when (or (contains? to-unfold hstr) matcher-ready?
+                    (.endsWith hstr ".casesOn"))
+            (when-let [^ConstantInfo ci (env/lookup env hname)]
               ;; definitions only: theorems are opaque to unfolding (lean4#12973 —
               ;; Meta.unfoldDefinition?/getUnfoldableConst? no longer look through them)
-            (when (.isDef ci)
-              (when-let [value (.value ci)]
-                (when (or matcher-ready? (.endsWith hstr ".casesOn")
-                          (<= (loop [v value n 0]
-                                (if (e/lam? v) (recur (e/lam-body v) (inc n)) n))
-                              (count args)))
-                  (let [levels (e/const-levels head)
-                        lparams (vec (.levelParams ci))
-                        level-subst (into {} (map vector lparams
-                                                  (concat levels (repeat lvl/zero))))
-                        body (if (seq level-subst)
-                               (e/instantiate-level-params value level-subst)
-                               value)
-                        args (e/get-app-args expr)]
-                    (reduce e/app body args)))))))))))
+              (when (.isDef ci)
+                (when-let [value (.value ci)]
+                  (when (or matcher-ready? (.endsWith hstr ".casesOn")
+                            (<= (loop [v value n 0]
+                                  (if (e/lam? v) (recur (e/lam-body v) (inc n)) n))
+                                (count args)))
+                    (let [levels (e/const-levels head)
+                          lparams (vec (.levelParams ci))
+                          level-subst (into {} (map vector lparams
+                                                    (concat levels (repeat lvl/zero))))
+                          body (if (seq level-subst)
+                                 (e/instantiate-level-params value level-subst)
+                                 value)
+                          args (e/get-app-args expr)]
+                      (reduce e/app body args))))))))))))
 
 (defn- try-eta-reduce
   "Eta reduction: (fun x => f x) → f when x is not free in f.
@@ -3364,7 +3432,7 @@
     (close-goal-with-proof ps goal st result lemma-names true
                            (get opts :may-close-goal? true))))
 
-(defn- apply-simp-result-to-local-decl
+(defn apply-simp-result-to-local-decl
   ;; Lean Meta/Tactic/Simp/Main.lean applySimpResultToLocalDeclCore.
   [ps hyp-id result opts lemma-names]
   (let [goal (proof/current-goal ps)
