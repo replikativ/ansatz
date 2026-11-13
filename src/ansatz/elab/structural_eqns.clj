@@ -162,3 +162,28 @@
             :errors (conj errors [(name/from-string (str fn-name ".eq_" (inc (+ (count names) (count errors))))) ex])})))
      {:env environment :names [] :errors []}
      (.ctors ind))))
+
+(defn unfold-equation
+  "Lean 4.33.1 Meta/Eqns.lean getUnfoldEqnFor? / Structural mkUnfoldEq: `f.eq_def :
+   ∀ params, f params = body`, the body being the predefinition with recursive calls to `f`
+   itself. Proved by splitting the structural argument (then its fields) until both sides are
+   definitionally equal, and kernel-checked. Returns the extended env; throws when no
+   split proves it."
+  [environment fn-name source self-id rec-pos arity]
+  (let [ctx (u/context environment)
+        [xs source-body] (matcher-app/lambda-telescope ctx source arity)
+        _ (swap! (:next-id @ctx) max self-id)
+        fconst (e/const' (name/from-string (str fn-name)) [])
+        lhs (u/app fconst xs)
+        rhs (u/replace-fvars source-body [[(e/fvar self-id) fconst]])
+        result-type (u/infer-type ctx lhs)
+        level (u/get-level ctx result-type)
+        eq-type (u/app (u/const' "Eq" [level]) [result-type lhs rhs])
+        eq-name (name/from-string (str fn-name ".eq_def"))
+        proof (or (prove-by-splitting ctx lhs rhs [(nth xs rec-pos)] 3)
+                  (throw (ex-info "Structural unfold equation needs Lean's general proof pass"
+                                  {:equation (str eq-name)})))]
+    (env/check-constant environment
+                        (env/mk-thm eq-name []
+                                    (u/mk-forall-fvars ctx xs eq-type)
+                                    (u/mk-lambda-fvars ctx xs proof)))))
