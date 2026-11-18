@@ -13,6 +13,12 @@
    match expressions use the same Meta.Match compiler."
   true)
 
+(def ^:dynamic *clj-surface*
+  "Clojure surface mode for a/defn bodies: Clojure spellings either keep clojure.core's meaning or
+   are refused (see doc/clojure-contract.md). `a/defn ^:lean` binds it false for a body written in
+   Lean style. Types, propositions, theorem statements and tactic terms are never in this mode."
+  true)
+
 (def ^:dynamic *lean-structural-matchers*
   "Compile recursive matches with `brecOn` and generated matchers."
   true)

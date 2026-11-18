@@ -60,6 +60,18 @@
   [type-name f]
   (swap! ingest/comparison-registry assoc (str type-name) f))
 
+(defn clj-surface?
+  "Is `est` elaborating a Clojure computational body? There a Clojure spelling must keep
+   clojure.core's meaning or be refused (doc/clojure-contract.md)."
+  [est]
+  (elab/clj-surface? est))
+
+(defn refuse!
+  "Refuse a Clojure form whose clojure.core meaning cannot be given. `reason` is one of
+   `ansatz.surface.ingest/refusal-reasons`; the ex-data is {:kind :clj/refused :reason :form :hint}."
+  ([reason form msg] (elab/elab-refuse! reason form msg))
+  ([reason form msg hint] (elab/elab-refuse! reason form msg hint)))
+
 (defn register-elaborator!
   "Register a lean4 macro_rules-shaped surface form: (fn [args] → surface form)."
   [sym f]

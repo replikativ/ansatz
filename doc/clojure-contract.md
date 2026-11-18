@@ -33,6 +33,10 @@ are the same value (Clojure distinguishes them only under `=`). An `Option` argu
 or the value itself on the Clojure side. Rows marked *(needs …)* use constants the bundled
 Init does not carry; they run against a Mathlib store.
 
+Scope: the rules hold in `a/defn` bodies (and the loop helpers hoisted from them). Types,
+propositions, theorem statements, tactic terms and `:termination-by` measures keep Lean's
+meaning. `a/defn ^:lean name …` opts a definition out, for a body written in Lean style.
+
 ## Arithmetic
 
 | Form | Types | Status | Note |
@@ -40,12 +44,12 @@ Init does not carry; they run against a Mathlib store.
 | `(+ a b)` | a : Nat, b : Nat → Nat | faithful |  |
 | `(+ a b)` | a : Int, b : Int → Int | faithful |  |
 | `(+ a b c)` | a : Nat, b : Nat, c : Nat → Nat | faithful |  |
-| `(+)` | — → Nat | refused | Clojure: 0 |
-| `(+ a)` | a : Nat → Nat | refused | Clojure: a. Ansatz reads it as a partial application. |
+| `(+)` | a : Nat → Nat | faithful | 0, as in Clojure. |
+| `(+ a)` | a : Nat → Nat | faithful |  |
 | `(* a b)` | a : Nat, b : Nat → Nat | faithful |  |
 | `(* a b)` | a : Int, b : Int → Int | faithful |  |
-| `(*)` | — → Nat | refused | Clojure: 1 |
-| `(* a)` | a : Nat → Nat | refused |  |
+| `(*)` | a : Nat → Nat | faithful |  |
+| `(* a)` | a : Nat → Nat | faithful |  |
 | `(- a b)` | a : Nat, b : Nat → Nat | **diverges** (known bug) | Lean's Nat subtraction truncates at 0; Clojure's goes negative. |
 | `(if (<= b a) (- a b) 0)` | a : Nat, b : Nat → Nat | faithful | Under a guard that rules out a negative result. |
 | `(- a 1)` | a : Nat → Nat | **diverges** (known bug) | (- 0 1) is 0 at Nat. |
@@ -53,7 +57,7 @@ Init does not carry; they run against a Mathlib store.
 | `(- a b)` | a : Int, b : Int → Int | faithful |  |
 | `(- a b c)` | a : Int, b : Int, c : Int → Int | faithful |  |
 | `(- a)` | a : Int → Int | faithful |  |
-| `(- a)` | a : Nat → Nat | refused | Nat has no negation. |
+| `(- a)` | a : Nat → Nat | refused (`:nat-negation`) |  |
 | `(+ a -3)` | a : Int → Int | faithful |  |
 | `(quot a b)` | a : Nat, b : Nat → Nat | faithful | Division by zero: Clojure throws, Lean returns 0 (outside the contract). |
 | `(rem a b)` | a : Nat, b : Nat → Nat | faithful |  |
@@ -83,11 +87,11 @@ Init does not carry; they run against a Mathlib store.
 | `(= a b)` | a : Int, b : Int → Bool | faithful |  |
 | `(= a b)` | a : String, b : String → Bool | faithful |  |
 | `(= p q)` | p : Bool, q : Bool → Bool | faithful |  |
-| `(< a b c)` | a : Nat, b : Nat, c : Nat → Bool | refused | Read as the typed Prop form (lt T a b). |
-| `(= a b c)` | a : Nat, b : Nat, c : Nat → Bool | refused |  |
-| `(< a)` | a : Nat → Bool | refused | Clojure: true |
+| `(< a b c)` | a : Nat, b : Nat, c : Nat → Bool | faithful | Chains pairwise; (< T a b) with a type T is the Prop form. |
+| `(= a b c)` | a : Nat, b : Nat, c : Nat → Bool | faithful |  |
+| `(< a)` | a : Nat → Bool | faithful |  |
 | `(< a b)` | a : Float, b : Float → Bool | refused | Float.lt is Bool-valued in Lean 4.33.1; the Decidable spelling is ill-typed. *(needs Float, instOfScientificFloat)* |
-| `(= a 0)` | a : Float → Bool | **diverges** (known bug) | (= 0.0 0) is false in Clojure: = does not cross numeric categories. *(needs Float, instOfScientificFloat)* |
+| `(= a 0)` | a : Float → Bool | refused (`:float-int-equality`) | *(needs Float, instOfScientificFloat)* |
 | `(== a 0)` | a : Float → Bool | faithful | *(needs Float, instOfScientificFloat)* |
 
 ## Control flow and truthiness
@@ -97,22 +101,23 @@ Init does not carry; they run against a Mathlib store.
 | `(if p a b)` | p : Bool, a : Nat, b : Nat → Nat | faithful |  |
 | `(if (< a b) a b)` | a : Nat, b : Nat → Nat | faithful |  |
 | `(if (< a 0) (- a) a)` | a : Int → Int | faithful |  |
-| `(if a 1 2)` | a : Nat → Nat | refused | Clojure: every number is truthy. |
-| `(if o 1 2)` | o : (Option Nat) → Nat | refused |  |
-| `(if xs 1 2)` | xs : (List Nat) → Nat | refused |  |
-| `(if p a)` | p : Bool, a : Nat → Nat | refused | Clojure returns nil when p is false. |
-| `(when p xs)` | p : Bool, xs : (List Nat) → (List Nat) | refused |  |
-| `(when p a)` | p : Bool, a : Nat → Nat | refused |  |
+| `(if a 1 2)` | a : Nat → Nat | refused (`:non-bool-test`) | Clojure: every number is truthy. |
+| `(if o 1 2)` | o : (Option Nat) → Nat | refused (`:non-bool-test`) |  |
+| `(if xs 1 2)` | xs : (List Nat) → Nat | refused (`:non-bool-test`) |  |
+| `(if p a)` | p : Bool, a : Nat → Nat | refused (`:nil-at-type`) | Clojure returns nil when p is false. |
+| `(when p xs)` | p : Bool, xs : (List Nat) → (List Nat) | faithful | The missing branch is nil, the empty List. |
+| `(when p a)` | p : Bool, a : Nat → Nat | refused (`:nil-at-type`) |  |
+| `(when p a b)` | p : Bool, a : (List Nat), b : (List Nat) → (List Nat) | refused (`:multi-form-body`) |  |
 | `(cond (< a b) 1 (== a b) 2 :else 3)` | a : Nat, b : Nat → Nat | faithful |  |
-| `(cond (< a b) 1)` | a : Nat, b : Nat → Nat | refused | Clojure returns nil when no clause matches. |
-| `(cond (< a b) 1 :otherwise 2)` | a : Nat, b : Nat → Nat | refused | Any keyword is truthy in Clojure; only :else/:default are accepted. |
+| `(cond (< a b) 1)` | a : Nat, b : Nat → Nat | refused (`:nil-at-type`) | Clojure returns nil when no clause matches. |
+| `(cond (< a b) 1 :otherwise 2)` | a : Nat, b : Nat → Nat | faithful | Any keyword is a catch-all, as in Clojure. |
 | `(case a 0 10 1 11 12)` | a : Nat → Nat | faithful |  |
-| `(case a 0 10 1 11)` | a : Nat → Nat | refused | Clojure throws when nothing matches. |
+| `(case a 0 10 1 11)` | a : Nat → Nat | refused (`:case-no-default`) |  |
 | `(and p q)` | p : Bool, q : Bool → Bool | faithful |  |
 | `(or p q)` | p : Bool, q : Bool → Bool | faithful |  |
 | `(and p q r)` | p : Bool, q : Bool, r : Bool → Bool | faithful |  |
-| `(or o 0)` | o : (Option Nat) → Nat | refused |  |
-| `(and a b)` | a : Nat, b : Nat → Nat | refused |  |
+| `(or o 0)` | o : (Option Nat) → Nat | refused (`:non-bool-test`) |  |
+| `(and a b)` | a : Nat, b : Nat → Nat | refused (`:non-bool-test`) |  |
 | `(not p)` | p : Bool → Bool | refused | `not` is not in the core surface. |
 
 ## Bodies and bindings
@@ -120,12 +125,15 @@ Init does not carry; they run against a Mathlib store.
 | Form | Types | Status | Note |
 |---|---|---|---|
 | `(do a)` | a : Nat → Nat | faithful |  |
-| `(do b a)` | a : Nat, b : Nat → Nat | faithful | Earlier forms are dropped without being elaborated; values agree on returning calls. |
+| `(do)` | a : Nat → Nat | refused (`:empty-do`) |  |
+| `(do b a)` | a : Nat, b : Nat → Nat | refused (`:multi-form-body`) |  |
 | `(let [x (+ a 1)] (* x x))` | a : Nat → Nat | faithful |  |
-| `(let [x a] x (+ x 1))` | a : Nat → Nat | faithful | Earlier body forms are dropped. |
+| `(let [x a] x (+ x 1))` | a : Nat → Nat | refused (`:multi-form-body`) |  |
+| `((fn [x] x (+ x 1)) a)` | a : Nat → Nat | refused (`:multi-form-body`) |  |
 | `((fn [x] (+ x x)) a)` | a : Nat → Nat | faithful |  |
 | `((fn [x] (+ x x)) a)` | a : Nat → Nat | refused | A lambda binder needs a type. |
 | `(loop [i a acc 0] (if (== i 0) acc (recur (dec i) (+ acc i))))` | a : Nat → Nat | faithful |  |
+| `(loop [i a] i i)` | a : Nat → Nat | refused (`:multi-form-body`) |  |
 
 ## Data and nil
 
@@ -135,7 +143,25 @@ Init does not carry; they run against a Mathlib store.
 | `(get p :x 7)` | p : CcPoint → Nat | faithful | A structure field is always present, so the default is unreachable. |
 | `(:y p)` | p : CcPoint → Nat | faithful |  |
 | `(:y p 7)` | p : CcPoint → Nat | faithful |  |
-| `(get xs 0)` | xs : (List Nat) → Nat | refused |  |
+| `(:x o 7)` | o : (Option Nat) → Nat | refused (`:get-default`) |  |
+| `(get xs 0)` | xs : (List Nat) → Nat | refused (`:get-non-keyword`) |  |
 | `nil` | a : Nat → (List Nat) | faithful | nil is the empty List. |
 | `[a b]` | a : Nat, b : Nat → (List Nat) | faithful |  |
-| `(= xs nil)` | xs : (List Nat) → Bool | refused |  |
+| `(= xs nil)` | xs : (List Nat) → Bool | refused (`:nil-vs-empty`) |  |
+
+## Refusal reasons
+
+A refused form throws `ex-info` with `{:kind :clj/refused :reason r :form f :hint h}`.
+
+| Reason | Meaning |
+|---|---|
+| `:case-no-default` | case without a default: Clojure throws when nothing matches. |
+| `:empty-do` | (do) has no value. |
+| `:float-int-equality` | (= x 0) with x a Float: Clojure's = is false across numeric categories ((= 0.0 0) is false); use == for numeric equality. |
+| `:get-default` | (get m :k d) / (:k m d) on a receiver whose field may be absent: the default cannot be modelled. On a structure the field is always present and the form is accepted. |
+| `:get-non-keyword` | (get m k) with a key that is not a keyword literal has no model in the core surface. |
+| `:multi-form-body` | A body with several forms: the earlier forms would only run for effects (assert, println); Ansatz bodies are pure, so they cannot be kept. |
+| `:nat-negation` | (- x) at Nat: Clojure negates, Nat has no negative values. |
+| `:nil-at-type` | A branch that yields nil (if without else, when, cond without :else) at a type other than List, where nil has no value. |
+| `:nil-vs-empty` | (= xs nil) with xs a List: Ansatz identifies nil with the empty list, Clojure does not ((= () nil) is false); use (empty? xs) or (seq xs). |
+| `:non-bool-test` | An if/cond/and/or test that is not a Bool: Clojure's truthiness of other types is not modelled yet. |

@@ -76,6 +76,8 @@
     :matcher-counter (or (:matcher-counter opts) (atom 0))
     :definition-body (:definition-body opts)
     :definition-ret (:definition-ret opts)
+    ;; Clojure surface mode (ansatz.config/*clj-surface*), set only for a/defn bodies.
+    :clj-surface? (:clj-surface? opts)
     ;; Lean `synthesizeSyntheticMVars (postpone := .yes)`: no default instances. The caller
     ;; (apply, rw) solves the term against the goal first, then applies them.
     :postpone-defaults? (:postpone-defaults? opts)}))
@@ -393,6 +395,22 @@
 
 (defn- elab-error! [msg data]
   (throw (ex-info (str "Elaboration error: " msg) (merge {:kind :elab-error} data))))
+
+(defn clj-surface?
+  "Is `est` elaborating a Clojure computational body (an a/defn body, outside types and
+   propositions)? There, Clojure spellings keep clojure.core's meaning or are refused."
+  [est]
+  (boolean (and (:clj-surface? est) (not (:prop-ctx est)))))
+
+(defn elab-refuse!
+  "Refuse a Clojure form whose clojure.core meaning Ansatz cannot give, with a reason from
+   `ingest/refusal-reasons`."
+  ([reason form msg] (elab-refuse! reason form msg nil))
+  ([reason form msg hint]
+   (when-not (contains? ingest/refusal-reasons reason)
+     (throw (ex-info (str "unknown refusal reason " reason) {:reason reason})))
+   (throw (ex-info (str "Refused " (pr-str form) ": " msg (when hint (str "\n  hint: " hint)))
+                   {:kind :clj/refused :reason reason :form form :hint hint}))))
 
 (defn- elab-type
   "Elaborate against a fresh Sort, as Lean.Elab.Term.elabType does."
@@ -1140,19 +1158,77 @@
             [a0 b0])
       "Nat"))
 
+(defn- bool-type [] (e/const' (name/from-string "Bool") []))
+
+(defn- ensure-bool-test!
+  "Clojure surface mode: a test must be a Bool. Unify its type with Bool, refusing with the
+   type when that fails (truthiness of other types is not modelled yet)."
+  [est form expr]
+  (when (clj-surface? est)
+    (let [ty (infer-with-mvars est expr)]
+      (when-not (unify! est ty (bool-type))
+        (elab-refuse! :non-bool-test form
+                      (str "the test has type " (pp/pp (zonk est ty))
+                           ", not Bool; Clojure would test its truthiness")
+                      "compare explicitly, e.g. (< 0 n), (some? x) or (seq xs)")))))
+
+(defn- nil-at-type
+  "The value of a missing else branch at type T: the empty List when T is a List, else a
+   refusal (nil has no value at T)."
+  [est form T]
+  (let [Tw (whnf-with-mvars est (zonk est T))
+        [h as] (e/get-app-fn-args Tw)]
+    (if (and (e/const? h) (= "List" (name/->string (e/const-name h))) (= 1 (count as)))
+      (e/app (e/const' (name/from-string "List.nil") (vec (e/const-levels h))) (first as))
+      (elab-refuse! :nil-at-type form
+                    (str "this branch yields nil, which has no value at " (pp/pp (zonk est T)))
+                    "give an else branch (or :else clause)"))))
+
+(defn- type-operand?
+  "Does `form` elaborate to a type (its type is a Sort)? Decides whether `(< T a b)` is the
+   typed Prop form or a chained comparison."
+  [est form]
+  (try (let [x (elab-term est form)]
+         (e/sort? (whnf-with-mvars est (infer-with-mvars est x))))
+       (catch Exception _ false)))
+
+(declare elab-bool-comparison)
+
+(defn- elab-clj-comparison
+  "Clojure surface mode, a comparison that is not binary: `(< a)` is true, `(< a b c …)` chains
+   pairwise with Bool.and (Clojure's meaning for pure operands). Returns nil when the form is
+   the typed Prop form `(< T a b)` or binary."
+  [est head sexpr]
+  (let [operands (rest sexpr)]
+    (cond
+      (= 1 (count operands)) (e/const' (name/from-string "Bool.true") [])
+      (and (>= (count operands) 3) (not (type-operand? est (first operands))))
+      (reduce (fn [acc x] (e/app* (e/const' (name/from-string "Bool.and") []) acc x))
+              (map (fn [[a b]] (elab-bool-comparison est (str head) (list head a b)))
+                   (partition 2 1 operands)))
+      :else nil)))
+
 (defn- elab-bool-comparison
   "Computational comparisons. Equality follows Init/Prelude.lean's decEq/decide
    through the registered dictionary; order retains the native Nat/Int/Float encoding."
   [est hs sexpr]
   (let [[rel a-form b-form] (case hs
                               "<"  [:lt (nth sexpr 1) (nth sexpr 2)]
-                              "==" [:eq (nth sexpr 1) (nth sexpr 2)]
+                              ("==" "=") [:eq (nth sexpr 1) (nth sexpr 2)]
                               ("<=" "≤") [:le (nth sexpr 1) (nth sexpr 2)]
                               (">") [:lt (nth sexpr 2) (nth sexpr 1)]
                               (">=" "≥") [:le (nth sexpr 2) (nth sexpr 1)])
+        _ (when (and (clj-surface? est) (= rel :eq) (or (nil? a-form) (nil? b-form)))
+            (elab-refuse! :nil-vs-empty sexpr
+                          "nil is the empty List here, and Clojure's (= () nil) is false"
+                          "use (empty? xs) or (seq xs)"))
         a0 (elab-term est a-form)
         b0 (elab-term est b-form)
         tn (comparison-carrier est a0 b0)
+        _ (when (and (clj-surface? est) (= hs "=") (= tn "Float")
+                     (or (e/lit-nat? a0) (e/lit-nat? b0)))
+            (elab-refuse! :float-int-equality sexpr
+                          "Clojure's = compares a double and an integer as unequal" "use =="))
         coerce (fn [x] (if (e/lit-nat? x)
                          (case tn
                            "Int"   (e/app (e/const' (name/from-string "Int.ofNat") []) x)
@@ -1353,67 +1429,77 @@
         ;; whose branch binders CARRY the guard. Downstream this is what gives well-founded
         ;; decrease proofs their hypotheses with no special-casing. A non-comparison Bool
         ;; condition (variable, Bool-valued call) stays on Bool.rec.
-              "if" (let [[_ c t e] sexpr
-                         cmp (when (and (seq? c) (symbol? (first c)) (= 3 (count c)))
-                               (case (str (first c))
-                                 "==" ["Eq" "Nat.decEq" false]
-                                 "<"  ["lt" "Nat.decLt" false]
-                                 ">"  ["lt" "Nat.decLt" true]
-                                 ("<=" "≤") ["le" "Nat.decLe" false]
-                                 (">=" "≥") ["le" "Nat.decLe" true]
-                                 nil))
-                         [a b] (when cmp (if (nth cmp 2) [(nth c 2) (nth c 1)] [(nth c 1) (nth c 2)]))
-                         a0 (when cmp (elab-term est a))
-                         b0 (when cmp (elab-term est b))
+              "if" (if (and (clj-surface? est) (= 3 (count sexpr)))
+                     ;; (if c t) / when: the else branch is nil — the empty List at a List type,
+                     ;; refused elsewhere. The then-branch is elaborated once and spliced back.
+                     (let [[_ c t] sexpr
+                           t0 (elab-term est t)
+                           declared (when (and (:definition-ret est) (= sexpr (:definition-body est)))
+                                      (:definition-ret est))
+                           T (or declared (infer-with-mvars est t0))]
+                       (elab-term est (list 'if c t0 (nil-at-type est sexpr T))))
+                     (let [[_ c t e] sexpr
+                           cmp (when (and (seq? c) (symbol? (first c)) (= 3 (count c)))
+                                 (case (str (first c))
+                                   "==" ["Eq" "Nat.decEq" false]
+                                   "<"  ["lt" "Nat.decLt" false]
+                                   ">"  ["lt" "Nat.decLt" true]
+                                   ("<=" "≤") ["le" "Nat.decLe" false]
+                                   (">=" "≥") ["le" "Nat.decLe" true]
+                                   nil))
+                           [a b] (when cmp (if (nth cmp 2) [(nth c 2) (nth c 1)] [(nth c 1) (nth c 2)]))
+                           a0 (when cmp (elab-term est a))
+                           b0 (when cmp (elab-term est b))
                          ;; the carrier as for a Bool comparison: only Nat and Int lift to
                          ;; dite; any other carrier takes the Bool path below
-                         carrier (when cmp (comparison-carrier est a0 b0))
+                           carrier (when cmp (comparison-carrier est a0 b0))
                          ;; a literal operand takes Int as Lean's OfNat does
-                         int-lit (fn [x] (num-lit-at-type est (e/const' (name/from-string "Int") []) "Int" x))]
-                     (if (and cmp (contains? #{"Nat" "Int"} carrier))
-                       (let [[prop-head dec-name _] cmp
-                             int? (= carrier "Int")
-                             a* (if int? (int-lit a0) a0)
-                             b* (if int? (int-lit b0) b0)
-                             dec-name (if int? (case prop-head "Eq" "Int.decEq" "lt" "Int.decLt" "le" "Int.decLe") dec-name)
+                           int-lit (fn [x] (num-lit-at-type est (e/const' (name/from-string "Int") []) "Int" x))]
+                       (if (and cmp (contains? #{"Nat" "Int"} carrier))
+                         (let [[prop-head dec-name _] cmp
+                               int? (= carrier "Int")
+                               a* (if int? (int-lit a0) a0)
+                               b* (if int? (int-lit b0) b0)
+                               dec-name (if int? (case prop-head "Eq" "Int.decEq" "lt" "Int.decLt" "le" "Int.decLe") dec-name)
                            ;; Build the Prop with the CONCRETE canonical instance
                            ;; (instLTNat/instLENat, Int.instLTInt/instLEInt), not via
                            ;; (lt Nat a b) — that path leaves an instance MVAR which the
                            ;; paired decLt/decLe (whose type mentions the canonical
                            ;; instance) cannot match under a strict mid-elaboration infer
                            ;; (e.g. as an argument of List.map, before the synthesis pass runs).
-                             prop (if int?
-                                    (case prop-head
-                                      "Eq" (e/app* (e/const' (name/from-string "Eq") [(lvl/succ lvl/zero)])
-                                                   (e/const' (name/from-string "Int") []) a* b*)
-                                      "lt" (e/app* (e/const' (name/from-string "LT.lt") [lvl/zero])
-                                                   (e/const' (name/from-string "Int") [])
-                                                   (e/const' (name/from-string "Int.instLTInt") []) a* b*)
-                                      "le" (e/app* (e/const' (name/from-string "LE.le") [lvl/zero])
-                                                   (e/const' (name/from-string "Int") [])
-                                                   (e/const' (name/from-string "Int.instLEInt") []) a* b*))
-                                    (case prop-head
-                                      "Eq" (elab-term est (list 'Eq 'Nat a b))
-                                      "lt" (e/app* (e/const' (name/from-string "LT.lt") [lvl/zero])
-                                                   (e/const' (name/from-string "Nat") [])
-                                                   (e/const' (name/from-string "instLTNat") []) a* b*)
-                                      "le" (e/app* (e/const' (name/from-string "LE.le") [lvl/zero])
-                                                   (e/const' (name/from-string "Nat") [])
-                                                   (e/const' (name/from-string "instLENat") []) a* b*)))
-                             inst (e/app* (e/const' (name/from-string dec-name) []) a* b*)
-                             [then-expr else-expr ret-type] (elab-if-branches est sexpr t e)
-                             ret-sort (infer-with-mvars est ret-type)
-                             u (if (e/sort? ret-sort) (e/sort-level ret-sort) (lvl/succ lvl/zero))
-                             not-prop (e/app (e/const' (name/from-string "Not") []) prop)]
-                         (e/app* (e/const' (name/from-string "dite") [u])
-                                 ret-type prop inst
-                                 (e/lam "h" prop (e/lift then-expr 1 0) :default)
-                                 (e/lam "h" not-prop (e/lift else-expr 1 0) :default)))
-                       (let [cond-expr (elab-term est c)
-                             [then-expr else-expr ret-type] (elab-if-branches est sexpr t e)]
-                         (e/app* (e/const' (name/from-string "Bool.rec") [(lvl/succ lvl/zero)])
-                                 (e/lam "_" (e/const' (name/from-string "Bool") []) ret-type :default)
-                                 else-expr then-expr cond-expr))))
+                               prop (if int?
+                                      (case prop-head
+                                        "Eq" (e/app* (e/const' (name/from-string "Eq") [(lvl/succ lvl/zero)])
+                                                     (e/const' (name/from-string "Int") []) a* b*)
+                                        "lt" (e/app* (e/const' (name/from-string "LT.lt") [lvl/zero])
+                                                     (e/const' (name/from-string "Int") [])
+                                                     (e/const' (name/from-string "Int.instLTInt") []) a* b*)
+                                        "le" (e/app* (e/const' (name/from-string "LE.le") [lvl/zero])
+                                                     (e/const' (name/from-string "Int") [])
+                                                     (e/const' (name/from-string "Int.instLEInt") []) a* b*))
+                                      (case prop-head
+                                        "Eq" (elab-term est (list 'Eq 'Nat a b))
+                                        "lt" (e/app* (e/const' (name/from-string "LT.lt") [lvl/zero])
+                                                     (e/const' (name/from-string "Nat") [])
+                                                     (e/const' (name/from-string "instLTNat") []) a* b*)
+                                        "le" (e/app* (e/const' (name/from-string "LE.le") [lvl/zero])
+                                                     (e/const' (name/from-string "Nat") [])
+                                                     (e/const' (name/from-string "instLENat") []) a* b*)))
+                               inst (e/app* (e/const' (name/from-string dec-name) []) a* b*)
+                               [then-expr else-expr ret-type] (elab-if-branches est sexpr t e)
+                               ret-sort (infer-with-mvars est ret-type)
+                               u (if (e/sort? ret-sort) (e/sort-level ret-sort) (lvl/succ lvl/zero))
+                               not-prop (e/app (e/const' (name/from-string "Not") []) prop)]
+                           (e/app* (e/const' (name/from-string "dite") [u])
+                                   ret-type prop inst
+                                   (e/lam "h" prop (e/lift then-expr 1 0) :default)
+                                   (e/lam "h" not-prop (e/lift else-expr 1 0) :default)))
+                         (let [cond-expr (elab-term est c)
+                               _ (ensure-bool-test! est c cond-expr)
+                               [then-expr else-expr ret-type] (elab-if-branches est sexpr t e)]
+                           (e/app* (e/const' (name/from-string "Bool.rec") [(lvl/succ lvl/zero)])
+                                   (e/lam "_" (e/const' (name/from-string "Bool") []) ret-type :default)
+                                   else-expr then-expr cond-expr)))))
 
         ;; Prop-valued comparisons over an explicit type: (le T a b) / (lt T a b)
         ;; → LE.le.{?u} T ?inst a b — the instance + level resolve via synthesis.
@@ -1439,14 +1525,24 @@
             ;; `=` is an alias for `==`: 2-arg `(= a b)` is the ordinary Clojure equality (a Bool
             ;; decision, type-directed on the operands — the most common filter); 4-arg `(= T a b)`
             ;; is the Prop `Eq` (for a/theorem goals). Both route through the `==` handler below.
-              (elab-term est (cons '== (rest sexpr)))
+            ;; In a Clojure body `=` keeps its own spelling where it differs from `==` (a Float
+            ;; against an integer literal), and the non-binary forms chain.
+              (cond
+                (not (clj-surface? est)) (elab-term est (cons '== (rest sexpr)))
+                (= 3 (count sexpr)) (elab-bool-comparison est "=" sexpr)
+                :else (or (elab-clj-comparison est head sexpr)
+                          (elab-term est (cons '== (rest sexpr)))))
 
         ;; Surface comparison glyphs: 3-arg → Prop (le/lt), 2-arg → Bool —
         ;; except where a proposition is being elaborated (:prop-ctx), where 2-arg is
         ;; the Prop with its carrier read off the operands (Lean's binrel%).
               ("<" "==" "<=" ">" ">=" "≤" "≥")
-              (let [hs (str head)]
+              (let [hs (str head)
+                    chained (when (and (clj-surface? est) (not= 3 (count sexpr)))
+                              (elab-clj-comparison est head sexpr))]
                 (cond
+                  chained chained
+
                   (and (= 3 (count sexpr)) (:prop-ctx est))
                   (elab-prop-comparison est hs sexpr)
 
@@ -1504,6 +1600,17 @@
                   (let [[T _] (arith-type est (first args))]
                     (elab-arith-at-type* est "neg" T args))
 
+                  ;; Clojure's (+) is 0, (*) is 1, (+ x) and (* x) are x; (- x) at Nat has no value
+                  (and (clj-surface? est) (empty? args) (#{"+" "*"} op))
+                  (e/lit-nat (if (= op "+") 0 1))
+
+                  (and (clj-surface? est) (= 1 (count args)) (#{"+" "*"} op))
+                  (elab-term est (first args))
+
+                  (and (clj-surface? est) (= 1 (count args)) (= op "-"))
+                  (elab-refuse! :nat-negation sexpr "negation at Nat"
+                                "declare the operand Int, or write (- 0 x) under a guard")
+
                   (< (count args) 2)
                   (if-let [const (get-in ingest/arith-lift [op "Nat"])]
                     (elab-app est (symbol const) args)
@@ -1544,8 +1651,15 @@
                   :else
                   (elab-arith-at-type est hs (nth sexpr 1) (drop 2 sexpr))))
 
-        ;; do → value of the last form (pure setting: earlier forms have no effect).
-              "do" (elab-term est (last sexpr))
+        ;; do: one form is its value. Several forms are refused everywhere: the earlier forms
+        ;; would only run for effects (assert, println), and dropping them silently changed the
+        ;; meaning of the source.
+              "do" (case (count sexpr)
+                     1 (elab-refuse! :empty-do sexpr "(do) has no value")
+                     2 (elab-term est (second sexpr))
+                     (elab-refuse! :multi-form-body sexpr
+                                   "the forms before the last would only run for effects"
+                                   "keep only the value form; Ansatz bodies are pure"))
 
         ;; (sizeOf x) → SizeOf.sizeOf T inst x — the WF measure for data-typed params.
         ;; The argument's type is INFERRED (fvar scope carries it); the instance is
@@ -1559,7 +1673,10 @@
                 (e/app* (e/const' (name/from-string "SizeOf.sizeOf") [(lvl/succ lvl/zero)]) ty inst x*))
 
         ;; Clojure loop/recur — the common counting-loop shape compiles to Nat.rec (see elab-loop).
-              "loop" (elab-loop est (second sexpr) (last sexpr))
+              "loop" (if (> (count sexpr) 3)
+                       (elab-refuse! :multi-form-body sexpr
+                                     "a loop body with several forms" "keep only the value form")
+                       (elab-loop est (second sexpr) (last sexpr)))
 
         ;; Clojure fn* (single arity) → lambda. parse-params reads the binders' metadata
         ;; types (^Nat / ^{:- T}); flatten to a [name type …] vec and reuse elab-lam.
@@ -1580,16 +1697,24 @@
 
         ;; cond is NOT macroexpanded (Clojure's :else isn't Bool); desugar natively to
         ;; nested if, with :else/:default/true as the catch-all.
+              ;; Any keyword test is a catch-all (keywords are truthy), as `true` is.
               "cond" (letfn [(build [cs]
                                (if (empty? cs)
-                                 (elab-error! "cond: no clause matched and no :else" {:form sexpr})
+                                 (if (clj-surface? est)
+                                   (elab-refuse! :nil-at-type sexpr
+                                                 "no clause matched: Clojure's cond returns nil"
+                                                 "end with an :else clause")
+                                   (elab-error! "cond: no clause matched and no :else" {:form sexpr}))
                                  (let [[t e & more] cs]
-                                   (if (contains? #{:else :default true} t)
+                                   (if (or (keyword? t) (true? t))
                                      (elab-term est e)
-                                     (e/app* (e/const' (name/from-string "Bool.rec") [(lvl/succ lvl/zero)])
-                                             (e/lam "_" (e/const' (name/from-string "Bool") [])
-                                                    (infer-with-mvars est (elab-term est e)) :default)
-                                             (build more) (elab-term est e) (elab-term est t))))))]
+                                     (let [te (elab-term est t)
+                                           _ (ensure-bool-test! est t te)
+                                           ee (elab-term est e)]
+                                       (e/app* (e/const' (name/from-string "Bool.rec") [(lvl/succ lvl/zero)])
+                                               (e/lam "_" (e/const' (name/from-string "Bool") [])
+                                                      (infer-with-mvars est ee) :default)
+                                               (build more) ee te))))))]
                        (build (rest sexpr)))
 
         ;; `and` / `or` are NOT macroexpanded (see ingest/no-expand-macros): Clojure expands
@@ -1616,12 +1741,18 @@
                                (empty? args)
                                (e/const' (name/from-string (if or? "Bool.false" "Bool.true")) [])
 
-                               (= 1 (count args)) (elab-term est (first args))
+                               (= 1 (count args))
+                               (let [x (elab-term est (first args))]
+                                 (ensure-bool-test! est (first args) x)
+                                 x)
 
                                :else
-                               (reduce (fn [acc f] (e/app* (e/const' op []) acc (elab-term est f)))
-                                       (elab-term est (first args))
-                                       (rest args))))
+                               (let [operand (fn [f] (let [x (elab-term est f)]
+                                                       (ensure-bool-test! est f x)
+                                                       x))]
+                                 (reduce (fn [acc f] (e/app* (e/const' op []) acc (operand f)))
+                                         (operand (first args))
+                                         (rest args)))))
 
         ;; `bif` — Lean's boolean-`if` notation, the escape to the `cond` CONSTANT
         ;; (cond.{u} {α : Type u} (c : Bool) (a b : α) : α). The surface `cond` is overloaded as
@@ -1672,6 +1803,7 @@
           ;; (:field struct) → structure projection
                 (keyword? head)
                 (let [field-name (name head)
+                      default? (= 3 (count sexpr))
                       struct-expr (elab-term est (second sexpr))
                       struct-type (whnf-with-mvars est (infer-with-mvars est struct-expr))
                       [th _] (e/get-app-fn-args struct-type)
@@ -1681,7 +1813,13 @@
                       fidx (when sinfo (first (keep-indexed (fn [i f] (when (= f field-name) i))
                                                             (:fields sinfo))))]
                   (cond
+                    ;; a structure field is always present: a default is unreachable
                     fidx (e/proj (name/from-string tn) fidx struct-expr)
+                    (and default? (clj-surface? est))
+                    (elab-refuse! :get-default sexpr
+                                  (str "the receiver (type " tn ") is not a structure, so the key may be "
+                                       "absent and the default matters")
+                                  "use get on an EDN Value, or a structure type")
                   ;; non-structure receiver: type-directed keyword access via the
                   ;; extension registry (e.g. dynamic-EDN Value → vget)
                     (get @ingest/keyword-access-registry tn)
@@ -1691,8 +1829,16 @@
                                                           " is not a registered structure and has"
                                                           " no keyword-access handler)")))
                                        {:field field-name :type tn})))
-          ;; (get struct :field) → (:field struct)
-                (= (str head) "get") (elab-term est (list (nth sexpr 2) (nth sexpr 1)))
+          ;; (get struct :field) → (:field struct); (get struct :field d) keeps d only where it
+          ;; matters (the keyword case refuses a default on a non-structure receiver).
+                (= (str head) "get")
+                (let [[_ m k & more] sexpr]
+                  (if (and (clj-surface? est) (not (keyword? k)))
+                    (elab-refuse! :get-non-keyword sexpr "the key is not a keyword literal"
+                                  "a structure field is (get r :field); an EDN Value has its own get")
+                    (elab-term est (if (and (clj-surface? est) (seq more))
+                                     (list k (elab-term est m) (first more))
+                                     (list k m)))))
           ;; (cons x xs) → List.cons sugar (element type inferred)
                 (= (str head) "cons") (elab-app est (symbol "List.cons") (rest sexpr))
           ;; (case x k1 v1 … default) → a bound scrutinee + nested type-directed ==
@@ -1701,8 +1847,11 @@
                 (= (str head) "case")
                 (let [[_ scrut & clauses] sexpr]
                   (when (even? (count clauses))
-                    (elab-error! "case in a verified body requires a default branch (odd clause count)"
-                                 {:form sexpr}))
+                    (if (clj-surface? est)
+                      (elab-refuse! :case-no-default sexpr "no default branch"
+                                    "add a default as the last form")
+                      (elab-error! "case in a verified body requires a default branch (odd clause count)"
+                                   {:form sexpr})))
                   (let [g (gensym "case")
                         default (last clauses)
                         pairs (partition 2 (butlast clauses))]

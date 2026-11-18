@@ -188,7 +188,8 @@
         (e/app* (const0 "vgetD") (vkey-expr est (second args)) v
                 (to-value-operand est (api/elab est (nth args 2))))
         (e/app* (const0 "vget") (vkey-expr est (second args)) v))
-      (api/elab est (list (second args) (first args))))))
+      ;; any other receiver: the core `get` (structure fields; refusals for the rest)
+      (api/elab-base est (cons 'get args)))))
 
 (defn- to-int-operand
   "Coerce a comparison operand to `Int`: a Value via vint-val (0 off-int), a Nat via

@@ -29,6 +29,32 @@
   [kernel-name src]
   (swap! source-registry assoc (str kernel-name) src))
 
+;; ── Refusals ────────────────────────────────────────────────────────────────────────────
+;; A Clojure form the elaborator cannot give clojure.core's meaning is REFUSED, with one of these
+;; reasons in the ex-data ({:kind :clj/refused :reason r :form f :hint h}). The set is closed so
+;; the contract (doc/clojure-contract.md) can list it; extensions refuse through
+;; ansatz.surface.api/refuse! with a reason from here.
+(def refusal-reasons
+  "reason → what it means."
+  (sorted-map
+   :empty-do "(do) has no value."
+   :multi-form-body (str "A body with several forms: the earlier forms would only run for effects "
+                         "(assert, println); Ansatz bodies are pure, so they cannot be kept.")
+   :get-default (str "(get m :k d) / (:k m d) on a receiver whose field may be absent: the default "
+                     "cannot be modelled. On a structure the field is always present and the form is "
+                     "accepted.")
+   :get-non-keyword "(get m k) with a key that is not a keyword literal has no model in the core surface."
+   :nat-negation "(- x) at Nat: Clojure negates, Nat has no negative values."
+   :non-bool-test (str "An if/cond/and/or test that is not a Bool: Clojure's truthiness of other "
+                       "types is not modelled yet.")
+   :nil-at-type (str "A branch that yields nil (if without else, when, cond without :else) at a "
+                     "type other than List, where nil has no value.")
+   :float-int-equality (str "(= x 0) with x a Float: Clojure's = is false across numeric categories "
+                            "((= 0.0 0) is false); use == for numeric equality.")
+   :nil-vs-empty (str "(= xs nil) with xs a List: Ansatz identifies nil with the empty list, Clojure "
+                      "does not ((= () nil) is false); use (empty? xs) or (seq xs).")
+   :case-no-default "case without a default: Clojure throws when nothing matches."))
+
 ;; ── Custom elaboration forms (lean4 macro_rules-shaped) ─────────────────────────────────
 ;; symbol → (fn [arg-forms] → surface-form). The elaborator expands the form and re-elaborates
 ;; the result — syntax→syntax, so extensions compose with every surface feature for free.

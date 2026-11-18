@@ -1701,7 +1701,12 @@
                                               :self-type type-ansatz})
            body-ansatz (e/instantiate1
                         (e/abstract1 (:expr body-result) (:self-fvar-id body-result))
-                        (e/const' cname []))]
+                        (e/const' cname []))
+           ;; The axiom is trusted, the body is not: kernel-check it at the axiom's type (self-calls
+           ;; go to the axiom) so an ill-typed elaboration is rejected instead of compiled.
+           _ (env/check-constant (env/add-constant (:env body-result) ax)
+                                 (env/mk-def (name/from-string (str fn-name "._partial_body")) []
+                                             type-ansatz body-ansatz))]
     ;; install the trusted axiom + arity in the real env (NOT a verified def — opaque, no body)
        (reset! ansatz-env (:env body-result))
        (swap! ansatz-env env/add-constant ax)
@@ -1802,11 +1807,14 @@
                 lctx)
          expected (when (and opts ret-type-form (not= '_ ret-type-form))
                     (elab/elaborate-in-context env lctx ret-type-form nil {:type-position true}))
+         ;; a/defn bodies are Clojure (ansatz.config/*clj-surface*, off under ^:lean)
          body-result (if opts
                        (elab/elaborate-in-context-with-env
                         env lctx body-form expected
-                        (assoc opts :definition-body body-form :definition-ret expected))
-                       {:env env :expr (elab/elaborate-in-context env lctx body-form)})
+                        (assoc opts :definition-body body-form :definition-ret expected
+                               :clj-surface? config/*clj-surface*))
+                       {:env env :expr (elab/elaborate-in-context env lctx body-form nil
+                                                                  {:clj-surface? config/*clj-surface*})})
          body-expr (:expr body-result)
         ;; abstract-many maps V[k] → bvar (len-1-k) (last → bvar 0), so pass fids in
         ;; param order (fids[0]=outermost param → highest bvar). Do NOT reverse.
@@ -1866,7 +1874,9 @@
                   :else false))
           (walk [form]
             (cond
-              (and (seq? form) (= 'loop (first form)) (vector? (second form)))
+              ;; a single body form only: several forms are refused by the elaborator
+              ;; (:multi-form-body), never hoisted with the extra forms dropped
+              (and (seq? form) (= 'loop (first form)) (vector? (second form)) (= 3 (count form)))
               (let [bindings (second form)
                     lbody0 (nth form 2)
                     lbody (walk lbody0)                       ; hoist inner loops first
@@ -3155,12 +3165,20 @@
                        msig  (:ret-type msig)
                        :else (first more))
         body-and-opts (if (or meta? msig) more (rest more))
-        [opts body] (if (= :termination-by (first body-and-opts))
-                      [{:termination-by (second body-and-opts)} (nth body-and-opts 2)]
-                      [{} (first body-and-opts)])
+        [opts body extra] (if (= :termination-by (first body-and-opts))
+                            [{:termination-by (second body-and-opts)} (nth body-and-opts 2)
+                             (drop 3 body-and-opts)]
+                            [{} (first body-and-opts) (rest body-and-opts)])
+        _ (when (seq extra)
+            (throw (ex-info (str "Refused a/defn " fn-name ": a body with several forms — the "
+                                 "forms before the last would only run for effects, and Ansatz "
+                                 "bodies are pure")
+                            {:kind :clj/refused :reason :multi-form-body :form (cons body extra)
+                             :hint "keep only the value form"})))
         partial? (:partial (meta fn-name))
         check? (:check (meta fn-name))
-        nm (vary-meta fn-name dissoc :- :tag :partial :check)
+        lean? (:lean (meta fn-name))
+        nm (vary-meta fn-name dissoc :- :tag :partial :check :lean)
         runtime-name (decl/runtime-name nm)
         runtime-sym (symbol (str (ns-name *ns*)) (str runtime-name))]
     ;; the compiled fn carries its kernel constant name as metadata — runtimes use it
@@ -3179,9 +3197,13 @@
       ;; ^:check on the name runs check-clojure! once the definition is in place.
       `(do (ingest/record-source! '~nm {:ns '~(ns-name *ns*) :params '~params :ret '~ret-type
                                         :body '~body :raw-name '~nm})
-           ~@(if (.contains (str nm) ".")
-               [definition `(def ~nm ~runtime-name)]
-               [definition])
+           ~@(let [definition (if lean?
+                                ;; ^:lean: a Lean-style body (Nat truncation, …), not Clojure
+                                `(binding [config/*clj-surface* false] ~definition)
+                                definition)]
+               (if (.contains (str nm) ".")
+                 [definition `(def ~nm ~runtime-name)]
+                 [definition]))
            ~@(when check?
                [`((requiring-resolve 'ansatz.clj-check/check-clojure!) (var ~runtime-name))])
            (var ~runtime-name)))))
