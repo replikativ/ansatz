@@ -29,9 +29,11 @@ Status:
   they are visible; each is checked to still diverge, so a fix has to update this table.
 
 Representation: a `List` is a Clojure sequence and `nil` is the empty list, so `nil` and `()`
-are the same value (Clojure distinguishes them only under `=`). An `Option` argument is `nil`
-or the value itself on the Clojure side. Rows marked *(needs …)* use constants the bundled
-Init does not carry; they run against a Mathlib store.
+are the same value (Clojure distinguishes them only under `=`). An `Option` is `nil` or the
+value itself, as Clojure passes it. Only a `some x` whose x itself runs as `nil` (`none`, the
+empty list, `Unit`) or is already boxed runs as a box, a value Clojure has no spelling for.
+Rows marked *(needs …)* use constants the bundled Init does not carry; they run against a
+Mathlib store.
 
 Scope: the rules hold in `a/defn` bodies (and the loop helpers hoisted from them). Types,
 propositions, theorem statements, tactic terms and `:termination-by` measures keep Lean's
@@ -156,6 +158,7 @@ meaning. `a/defn ^:lean name …` opts a definition out, for a body written in L
 | `(:x o 7)` | o : (Option Nat) → Nat | refused (`:get-default`) |  |
 | `(get xs 0)` | xs : (List Nat) → Nat | refused (`:get-non-keyword`) |  |
 | `nil` | a : Nat → (List Nat) | faithful | nil is the empty List. |
+| `o` | o : (Option Int) → (Option Int) | faithful | An Option crosses unchanged: nil, or the value itself. |
 | `[a b]` | a : Nat, b : Nat → (List Nat) | faithful |  |
 | `(= xs nil)` | xs : (List Nat) → Bool | refused (`:nil-vs-empty`) |  |
 

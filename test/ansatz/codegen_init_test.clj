@@ -25,9 +25,7 @@
         tc (TypeChecker. (a/env))
         kernel (#'am/decode-val #(.whnf (.getReducer tc) %) schema term)
         runtime (eval (cg/ansatz->clj (a/env) term []))
-        runtime (if (= :sequential (when (vector? schema) (first schema))) (or runtime ()) runtime)
-        runtime (if (= :maybe (when (vector? schema) (first schema)))
-                  (when runtime (first runtime)) runtime)]
+        runtime (if (= :sequential (when (vector? schema) (first schema))) (or runtime ()) runtime)]
     (is (= kernel runtime) (pr-str application))))
 
 (deftest foldl-runtime-agrees-with-kernel
@@ -362,7 +360,7 @@
       (is (= [{:a 3 :b true} {:a 3 :b false}]
              (mapv #(into {} %) (call 'gap-pairs [true false]))))
       (is (= rows (call 'gap-nested (call 'gap-wrap rows))))
-      (is (= {:id 6 :v 9} (into {} (first (call 'gap-option 6)))))
+      (is (= {:id 6 :v 9} (into {} (call 'gap-option 6))))
       (is (= [2 7] (vec (call 'gap-box-values (map #(call '->Gap$dot$Box %) [2 7])))))
       (is (= 5 (call 'Reach$dot$mem 4)))
       (is (= 5 (call 'reach-call 4)))

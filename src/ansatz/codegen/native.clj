@@ -43,6 +43,24 @@
    (into {} (for [t ["UInt8" "UInt16" "UInt32" "UInt64" "USize"]]
               [t (identity-structure 0)]))))
 
+(def native-inductives
+  "Inductives with several constructors whose runtime representation is not the generic
+   leaf/node or tagged vector: inductive name →
+     {:ctor  (fn [cidx field-forms] form)  construct
+      :none? (fn [form] form)              true for the first, field-less constructor
+      :field (fn [i form] form)            field i of the other constructor}
+   Construction, recursor dispatch and field bindings all read this table.
+
+   Option runs as Clojure passes an optional value (ansatz.codegen.lean-runtime/some-of)."
+  {"Option" {:ctor (fn [cidx [x]] (when-not (zero? cidx) (list (rt-sym 'some-of) x)))
+             :none? (fn [t] (list 'clojure.core/nil? t))
+             :field (fn [_ t] (list (rt-sym 'some-val) t))}})
+
+(defn native-inductive
+  "The native representation of a multi-constructor inductive (see `native-inductives`), or nil."
+  [type-name]
+  (get native-inductives type-name))
+
 ;; ConstantInfo of the constructor → field index or ::none. Keyed by the ConstantInfo itself:
 ;; a name may be redefined in a different environment.
 (def ^:private trivial-cache (java.util.Collections/synchronizedMap (java.util.WeakHashMap.)))

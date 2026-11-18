@@ -104,12 +104,9 @@
       (let [arg (elab/elaborate (a/env) input)
             term (elab/elaborate (a/env) (list f input))
             rt (runtime (eval (cg/ansatz->clj (a/env) arg [])))
-            kernel (#'am/decode-val whnf schema term)
-            ;; Malli's codec uses nil-punning for Option; base codegen retains
-            ;; nil/[value], so compare the decoded payload on both sides.
-            decoded-rt (if (= :maybe (when (vector? schema) (first schema)))
-                         (when rt (first rt)) rt)]
-        (is (= kernel decoded-rt) (str f " " input))))))
+            kernel (#'am/decode-val whnf schema term)]
+        ;; Malli's codec and the compiled runtime both run Option nil-punned.
+        (is (= kernel rt) (str f " " input))))))
 
 (defn- differential-closed!
   ([applications] (differential-closed! applications :int))
@@ -749,8 +746,8 @@
                      ['cg-tag-forward-all [spine] :int]]]
               (differential! f inputs schema))))
         (testing "#113: eta-reduced minor applies in the outer context"
-          (is (= [6] ((deref (ns-resolve *ns* 'ob5)) 5)))
-          (is (= [6] ((deref (ns-resolve *ns* 'obind)) [5] #(vector (inc %))))))
+          (is (= 6 ((deref (ns-resolve *ns* 'ob5)) 5)))
+          (is (= 6 ((deref (ns-resolve *ns* 'obind)) 5 inc))))
         (testing "#118: duplicated IH is shared at depth 28"
           (let [spine (nth (iterate #(vector 1 % [2]) [0]) 28)
                 start (System/nanoTime)]

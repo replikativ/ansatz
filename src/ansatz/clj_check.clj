@@ -11,8 +11,8 @@
    The pieces:
      type-desc      kernel parameter/result type → a small descriptor ([:nat], [:list [:int]], …)
      gen-inputs     seeded, edge-first argument tuples for a list of descriptors (no test.check)
-     clj->runtime   Clojure value → the value the compiled function takes (Option is `[x]`/nil
-     runtime->clj   when Ansatz runs alone; see `*option-rep*`) and back
+     clj->runtime   Clojure value → the value the compiled function takes (an Option argument
+     runtime->clj   passes unchanged; see `*option-rep*`) and back
      agree?         result equality: integers across Long/BigInt, NaN = NaN, sequences by element
      run-row        one row of the clojure.core contract table (ansatz.clj-contract)
 
@@ -20,6 +20,7 @@
    something there); such calls are counted as :clj-throws, never as divergences."
   (:require [clojure.string :as str]
             [ansatz.core :as a]
+            [ansatz.codegen.lean-runtime :as rt]
             [ansatz.kernel.expr :as e]
             [ansatz.kernel.env :as env]
             [ansatz.kernel.name :as name]
@@ -141,10 +142,12 @@
 ;; ── Representation: Clojure values ↔ compiled-runtime values ─────────────────────────────
 
 (def ^:dynamic *option-rep*
-  "How the compiled code represents `Option`: :tagged — `none` is nil and `some x` is `[x]`
-   (Ansatz's own codegen, ansatz.codegen) — or :nil-punning — `some x` is `x` (wandler's
-   runtime). The Clojure side always uses nil-punning."
-  :tagged)
+  "How the compiled code represents `Option`. :nil-punning (the default; ansatz.codegen) —
+   `none` is nil and `some x` is x, boxed in a `SomeBox` only when x is nil or a box
+   (ansatz.codegen.lean-runtime/some-of), so a Clojure value crosses unchanged.
+   :tagged (legacy, for code compiled when `some x` ran as `[x]`; to be removed) — `none` is
+   nil and `some x` is `[x]`. The Clojure side always uses nil-punning."
+  :nil-punning)
 
 (defn clj->runtime
   "The value the compiled function expects for the Clojure value `v` of descriptor `d`."
@@ -152,7 +155,7 @@
   (case (first d)
     :option (cond (nil? v) nil
                   (= :tagged *option-rep*) [(clj->runtime (second d) v)]
-                  :else (clj->runtime (second d) v))
+                  :else (rt/some-of (clj->runtime (second d) v)))
     :list (mapv #(clj->runtime (second d) %) v)
     :prod [(clj->runtime (nth d 1) (first v)) (clj->runtime (nth d 2) (second v))]
     v))
@@ -166,7 +169,7 @@
                   (if (and (vector? v) (= 1 (count v)))
                     (runtime->clj (second d) (first v))
                     (throw (ex-info "not a tagged Option value" {:value v})))
-                  :else (runtime->clj (second d) v))
+                  :else (runtime->clj (second d) (rt/some-val v)))
     :list (some->> (seq v) (mapv #(runtime->clj (second d) %)))
     :prod [(runtime->clj (nth d 1) (first v)) (runtime->clj (nth d 2) (second v))]
     v))

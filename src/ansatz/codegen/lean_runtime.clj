@@ -14,6 +14,8 @@
      String.Pos.Raw            the UTF-8 byte offset as a Nat
      Array α                   a Clojure persistent vector
      ByteArray                 a persistent vector of byte values (its `data : Array UInt8`)
+     Option α                  `none` is nil; `some x` is x itself, or a `SomeBox` holding x
+                               when x is nil or already a box (`some-of`, `some-val`)
 
    The functions that convert between a native representation and its Lean structure view
    (`string->utf8`, `utf8->string`, …) are the trusted boundary. Every other extern either has a
@@ -180,6 +182,34 @@
         k (bit-xor k m)
         h (bit-xor (unchecked-long h) k)]
     (u64 (unchecked-multiply h m))))
+
+;; ── Option: Clojure's nil-punning, made injective ─────────────────────────────────────────────
+;; `none` runs as nil and `some x` as x, which is how a Clojure caller passes an optional value.
+;; Only where x would be confused with `none` — x is nil (List.nil, Unit, a nil enum constructor,
+;; `none` itself) or already a box (`some (some none)`) — does `some x` box it. The choice is made
+;; at run time, so code polymorphic in α and code specialised to it produce the same values.
+
+(deftype SomeBox [v]
+  Object
+  (equals [_ o] (and (instance? SomeBox o) (clojure.lang.Util/equiv v (.-v ^SomeBox o))))
+  (hashCode [_] (unchecked-add-int (int 0x2b1d5e7) (clojure.lang.Util/hash v)))
+  (toString [_] (str "#ansatz/some " (pr-str v)))
+  clojure.lang.IHashEq
+  (hasheq [_] (unchecked-add-int (int 0x2b1d5e7) (clojure.lang.Util/hasheq v))))
+
+(defmethod print-method SomeBox [^SomeBox b ^java.io.Writer w]
+  (.write w "#ansatz/some ")
+  (print-method (.-v b) w))
+
+(defn some-of
+  "`Option.some x`: x itself unless x is nil or a box, which are boxed."
+  [x]
+  (if (or (nil? x) (instance? SomeBox x)) (SomeBox. x) x))
+
+(defn some-val
+  "The value inside a non-`none` Option (`some-of`'s inverse)."
+  [o]
+  (if (instance? SomeBox o) (.-v ^SomeBox o) o))
 
 ;; ── Array / ByteArray ─────────────────────────────────────────────────────────────────────────
 
