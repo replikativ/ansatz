@@ -276,8 +276,9 @@
                            {:refused t}))]
         (if-let [t (:refused defined)]
           {:id (:id row) :status :refused :error (root-message t)
-           :data (some (fn [^Throwable x] (when (instance? clojure.lang.ExceptionInfo x) (ex-data x)))
-                       (take-while some? (iterate #(.getCause ^Throwable %) t)))}
+           :data (let [datas (keep (fn [^Throwable x] (when (instance? clojure.lang.ExceptionInfo x) (ex-data x)))
+                                   (take-while some? (iterate #(.getCause ^Throwable %) t)))]
+                   (or (first (filter :reason datas)) (first datas)))}
           (let [sig (signature (a/env) (:kname defined))
                 _ (when-not (every? known? (conj (:params sig) (:ret sig)))
                     (throw (ex-info "clj-check: no generator for a parameter or result type"
