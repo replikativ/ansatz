@@ -9,7 +9,10 @@
   (testing "bounded :int schemas round-trip through the Subtype encoding back to {:min :max}"
     (is (= {:min 3 :max 9} (r/nat-range (malli/schema->type-expr [:int {:min 3 :max 9}]))))
     (is (= {:min 5}        (r/nat-range (malli/schema->type-expr [:int {:min 5}]))))
-    (is (= {:max 99}       (r/nat-range (malli/schema->type-expr [:int {:max 99}]))))
+    (testing "an upper bound alone admits negative values: a Subtype Int range"
+      (is (nil? (r/nat-range (malli/schema->type-expr [:int {:max 99}]))))
+      (is (= {:max 99} (r/int-range (malli/schema->type-expr [:int {:max 99}]))))
+      (is (= {:min -5 :max 5} (r/int-range (malli/schema->type-expr [:int {:min -5 :max 5}])))))
     (is (= {:min 1 :max 7} (r/nat-range (malli/schema->type-expr [:and :int [:>= 1] [:< 8]]))))
     (testing "values are plain longs, not BigInteger (clean selectivity arithmetic)"
       (is (every? #(instance? Long %) (vals (r/nat-range (malli/schema->type-expr [:int {:min 3 :max 9}]))))))))

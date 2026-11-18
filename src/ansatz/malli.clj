@@ -176,6 +176,40 @@
                             (kconst "instLTNat") a b))
 (defn- kand [a b] (e/app* (kconst "And") a b))
 
+(defn- kint-lit
+  "An Int literal as a closed kernel term: `Int.ofNat n` or `Int.negSucc n` (−n−1)."
+  [v]
+  (if (neg? v)
+    (e/app (kconst "Int.negSucc") (e/lit-nat (- (- v) 1)))
+    (e/app (kconst "Int.ofNat") (e/lit-nat v))))
+
+(defn- int-le [a b] (e/app* (e/const' (nm "LE.le") [lvl/zero]) (kconst "Int")
+                            (kconst "Int.instLEInt") a b))
+
+(defn- ksubtype-int
+  "`Subtype Int (fun v => mn ≤ v [∧ v ≤ mx])` — the refinement type for an int range that
+   admits negative values; nil when unbounded."
+  [mn mx]
+  (let [lo (when mn (int-le (kint-lit mn) (e/bvar 0)))
+        hi (when mx (int-le (e/bvar 0) (kint-lit mx)))
+        body (cond (and lo hi) (kand lo hi) lo lo hi hi :else nil)]
+    (when body
+      (e/app* (e/const' (nm "Subtype") [u1]) (kconst "Int")
+              (e/lam "v" (kconst "Int") body :default)))))
+
+(declare ksubtype-nat)
+
+(defn- int-range-type
+  "The carrier of an int range: Nat (a Subtype Nat refinement when bounded) when the lower
+   bound is ≥ 0, else Int (a Subtype Int refinement when bounded). Clojure ints are longs, so an
+   int schema without a non-negative lower bound admits negative values."
+  [mn mx]
+  (if (and mn (not (neg? mn)))
+    (let [ge (when (pos? mn) mn)
+          lt (when mx (inc mx))]
+      (if (or ge lt) (ksubtype-nat ge lt) (kconst "Nat")))
+    (or (ksubtype-int mn mx) (kconst "Int"))))
+
 (defn- bound-prop
   "Prop body over (bvar 0 : Nat): ge ≤ v [∧ v < lt], or nil when unbounded."
   [ge lt]
@@ -221,10 +255,9 @@
     (cond
       (keyword? f)
       (case f
-        ;; v1 maps :int to Nat — this branch's embedding (arithmetic default, WF measures,
-        ;; sizeOf) is Nat-centric; negative ints are caught by malli's own runtime checks.
-        ;; Promote to Int when the int=long faithfulness story lands here (wandler has it).
-        :int (kconst "Nat")
+        ;; a Clojure int is a long, negative values included: Int. `:nat-int` (and an
+        ;; [:int {:min k}] with k ≥ 0) is the Nat carrier.
+        :int (kconst "Int")
         (:nat-int :nat) (kconst "Nat")
         :boolean (kconst "Bool")
         :string (kconst "String")
@@ -243,7 +276,7 @@
 
       (symbol? f)
       (case f
-        (int? integer?) (kconst "Nat")   ;; see :int note above
+        (int? integer?) (kconst "Int")   ;; see :int note above
         (nat-int? pos-int?) (kconst "Nat")
         boolean? (kconst "Bool")
         string? (kconst "String")
@@ -276,21 +309,19 @@
           :map (if (seq more)
                  (ensure-record! (record-entries more))
                  (ensure-opaque!))
-          ;; [:int {:min n :max m}] — {:min 0} is definitionally Nat; positive lower /
-          ;; any upper bound becomes a Subtype refinement (max m ⇒ v < m+1)
-          :int (let [mn (:min props) mx (:max props)
-                     ge (when (and mn (pos? mn)) mn)
-                     lt (when mx (inc mx))]
-                 (cond (or ge lt) (ksubtype-nat ge lt)
-                       :else (kconst "Nat")))   ;; see :int note above
+          ;; [:int {:min n :max m}] — a non-negative lower bound makes it Nat ({:min 0} is
+          ;; definitionally Nat; a positive lower / any upper bound is a Subtype Nat refinement,
+          ;; max m ⇒ v < m+1); without one it is Int (a Subtype Int refinement when bounded)
+          :int (int-range-type (:min props) (:max props))
           ;; [:and :int [:>= k] [:< m]] — the predicate-combinator spelling of bounds
           :and (let [base (first more)
                      ge (some (fn [s] (when (and (vector? s) (= :>= (first s))) (second s))) more)
                      lt (some (fn [s] (when (and (vector? s) (= :< (first s))) (second s))) more)
                      ge* (when (and ge (pos? ge)) ge)]
                  (cond
-                   (and (= :int base) (or ge* lt)) (ksubtype-nat ge* lt)
+                   (and (= :int base) ge (not (neg? ge)) (or ge* lt)) (ksubtype-nat ge* lt)
                    (and (= :int base) ge (zero? ge)) (kconst "Nat")
+                   (and (= :int base) (or ge lt)) (int-range-type ge (when lt (dec lt)))
                    :else (schema->type-expr base)))
           :string (or (ksubtype-string (:min props) (:max props)) (kconst "String"))
           :double (kconst "Float")
@@ -299,7 +330,8 @@
           :enum (let [ms (enum-members more)
                       v  (first ms)]
                   (cond (string? v)  (kconst "String")
-                        (int? v)     (kconst "Nat")
+                        (int? v)     (if (every? #(and (int? %) (not (neg? %))) ms)
+                                       (kconst "Nat") (kconst "Int"))
                         (boolean? v) (kconst "Bool")
                         (every? keyword? ms) (ensure-enum! ms)
                         :else        (ensure-opaque!)))
@@ -363,7 +395,8 @@
   [f]
   (let [f (if (m/schema? f) (m/form f) f)]
     (cond
-      (contains? #{:int 'int? 'integer? :nat-int 'nat-int?} f) [:int {:min 0 :max 25}]
+      (contains? #{:int 'int? 'integer?} f) [:int {:min -25 :max 25}]
+      (contains? #{:nat-int 'nat-int?} f) [:int {:min 0 :max 25}]
       (contains? #{:boolean 'boolean?} f) :boolean
       (contains? #{:string 'string?} f) [:string {:max 6}]
       ;; a bare :keyword is an OPEN set, so it has no closed kernel carrier — it types as
@@ -376,10 +409,12 @@
             [props more] (if (map? (first more)) [(first more) (rest more)] [nil more])]
         (case tag
           (:sequential :vector) [:sequential {:max 6} (gen-schema (first more))]
-          :int (if (or (some? (:max props)) (pos? (or (:min props) 0)))
+          :int (cond
+                 (or (some? (:max props)) (pos? (or (:min props) 0)) (neg? (or (:min props) 0)))
                  (throw (ex-info "differential lane: bounded :int requires a Subtype value codec"
                                  {:form f :kind :unsupported-refinement-codec}))
-                 [:int {:min 0 :max 25}])
+                 (= 0 (:min props)) [:int {:min 0 :max 25}]
+                 :else [:int {:min -25 :max 25}])
           :string (if (or (some? (:min props)) (some? (:max props)))
                     (throw (ex-info "differential lane: bounded :string requires a Subtype value codec"
                                     {:form f :kind :unsupported-refinement-codec}))
@@ -423,15 +458,17 @@
   [schema v]
   (let [f (if (m/schema? schema) (m/form schema) schema)]
     (cond
-      (contains? #{:int 'int? 'integer? :nat-int 'nat-int?} f) (e/lit-nat (long v))
+      (contains? #{:int 'int? 'integer?} f) (kint-lit (long v))
+      (contains? #{:nat-int 'nat-int?} f) (e/lit-nat (long v))
       (contains? #{:boolean 'boolean?} f) (kconst (if v "Bool.true" "Bool.false"))
       (contains? #{:string 'string?} f) (e/lit-str v)
 
       (vector? f)
       (let [[tag & more] f
+            props (when (map? (first more)) (first more))
             more (unprop more)]
         (case tag
-          :int (e/lit-nat (long v))
+          :int (if (= 0 (:min props)) (e/lit-nat (long v)) (kint-lit (long v)))
           :string (e/lit-str v)
           :boolean (kconst (if v "Bool.true" "Bool.false"))
 
@@ -484,7 +521,9 @@
           ;; constructor of the inductive ensure-enum! synthesizes, named by its position.
           :enum (cond (string? v)  (e/lit-str v)
                       (boolean? v) (kconst (if v "Bool.true" "Bool.false"))
-                      (integer? v) (e/lit-nat (long v))
+                      (integer? v) (if (every? #(and (int? %) (not (neg? %))) (enum-members more))
+                                     (e/lit-nat (long v))
+                                     (kint-lit (long v)))
                       (keyword? v)
                       (let [ms (enum-members more)
                             i  (.indexOf ^java.util.List ms v)]
@@ -586,6 +625,9 @@
       ;; ── term-directed cases ────────────────────────────────────────────────────────
       (e/lit-nat? x) (e/lit-nat-val x)
       (e/lit-str? x) (e/lit-str-val x)
+      ;; Int values: Int.ofNat n / Int.negSucc n (−n−1)
+      (and (= "Int.ofNat" hname) (= 1 (count as))) (decode-val whnf :nat-int (first as))
+      (and (= "Int.negSucc" hname) (= 1 (count as))) (- (- (decode-val whnf :nat-int (first as))) 1)
       (= "Bool.true" hname) true
       (= "Bool.false" hname) false
       (= "List.nil" hname) ()

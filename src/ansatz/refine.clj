@@ -66,6 +66,37 @@
       "Prod"    {:kind :prod   :fst   (nth args 0 nil) :snd (nth args 1 nil)}
       {:kind :opaque :type ty})))
 
+(defn- int-lit-of
+  "The value of a closed Int literal term (`Int.ofNat n` / `Int.negSucc n`), else nil."
+  [x]
+  (let [[h args] (e/get-app-fn-args x)]
+    (case (cname h)
+      "Int.ofNat" (nat-lit-of (first args))
+      "Int.negSucc" (some-> (nat-lit-of (first args)) - dec)
+      nil)))
+
+(defn- decode-int-bound [b]
+  (let [[h args] (e/get-app-fn-args b)
+        lhs (nth args 2 nil) rhs (nth args 3 nil)]
+    (when (= "LE.le" (cname h))
+      (cond (and (int-lit-of lhs) (e/bvar? rhs)) {:min (int-lit-of lhs)}
+            (and (e/bvar? lhs) (int-lit-of rhs)) {:max (int-lit-of rhs)}
+            :else nil))))
+
+(defn int-range
+  "The decoded {:min :max} (either bound optional) of a `Subtype Int …` type (an int schema
+   whose range admits negative values), else nil."
+  [ty]
+  (let [f (type-facts ty)
+        body (when (and (= :subtype (:kind f)) (const-named? (:base f) "Int") (e/lam? (:pred f)))
+               (e/lam-body (:pred f)))
+        [h args] (when body (e/get-app-fn-args body))
+        rng (when body
+              (if (const-named? h "And")
+                (merge (decode-int-bound (nth args 0 nil)) (decode-int-bound (nth args 1 nil)))
+                (decode-int-bound body)))]
+    (not-empty rng)))
+
 (defn nat-range
   "The decoded {:min :max} (either bound optional) of a `Subtype Nat …` type, else nil.
    The planner's selectivity hook reads this to turn a comparator guess into a sound bound."

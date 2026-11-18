@@ -12,7 +12,8 @@
 (defonce ^:private booted (delay (binding [a/*verbose* false] (a/load-init!))))
 
 ;; ordinary malli-instrumented Clojure style: schema FIRST, then the definition
-(m/=> msf-add2 [:=> [:cat :int :int] :int])
+(m/=> msf-add2 [:=> [:cat nat-int? nat-int?] nat-int?])
+(m/=> msf-add2i [:=> [:cat :int :int] :int])
 (m/=> msf-len  [:=> [:cat [:sequential :int]] :int])
 
 (deftest test-malli-schema-as-signature
@@ -29,16 +30,26 @@
           "schema-signed recursive function kernel-verified")
       ;; the kernel type came from the schema: ∀ (x y : Nat), Nat
       (let [ty (e/->string (.type (env/lookup (a/env) (name/from-string "msf-add2"))))]
-        (is (re-find #"Nat" ty) "Nat signature from :int schema"))
+        (is (re-find #"Nat" ty) "Nat signature from nat-int? schema"))
       ;; and it runs
       (is (= 7 (clojure.core/long ((deref (ns-resolve 'ansatz.malli-surface-test 'msf-add2)) 3 4))) "runtime agrees")))
-  (testing "collection schemas: [:sequential :int] → List Nat"
+  (testing ":int is a Clojure long, negative values included: Int"
+    @booted
+    (binding [a/*verbose* false]
+      (when-not (env/lookup (a/env) (name/from-string "msf-add2i"))
+        (binding [*ns* (find-ns 'ansatz.malli-surface-test)]
+          (eval '(ansatz.core/defn msf-add2i [x y] (- x y)))))
+      (let [ty (e/->string (.type (env/lookup (a/env) (name/from-string "msf-add2i"))))]
+        (is (re-find #"Int" ty) "Int signature from :int schema"))
+      (is (= -1 (clojure.core/long ((deref (ns-resolve 'ansatz.malli-surface-test 'msf-add2i)) 3 4)))
+          "Int subtraction goes negative, as Clojure's does")))
+  (testing "collection schemas: [:sequential :int] → List Int"
     @booted
     (binding [a/*verbose* false]
       (when-not (env/lookup (a/env) (name/from-string "msf-len"))
         (binding [*ns* (find-ns 'ansatz.malli-surface-test)]
           (eval '(ansatz.core/defn msf-len [xs]
-                   (match xs (List Nat) Nat (nil 0) (cons [h t] (+ 1 (msf-len t))))))))
+                   (match xs (List Int) Int (nil 0) (cons [h t] (+ 1 (msf-len t))))))))
       (is (some? (env/lookup (a/env) (name/from-string "msf-len"))) "List-typed via schema")
       (is (= 3 (clojure.core/long ((deref (ns-resolve 'ansatz.malli-surface-test 'msf-len)) (list 1 2 3)))) "runtime agrees"))))
 
@@ -151,6 +162,8 @@
             "a HETEROGENEOUS enum still has no single sharp type"))
       (testing "precise scalars unchanged (still sharp native types)"
         (is (re-find #"Nat"    (e/->string (ansatz.malli/schema->type-expr [:int {:min 0}]))))
+        (is (= "Int"           (e/->string (ansatz.malli/schema->type-expr :int))))
+        (is (re-find #"Int"    (e/->string (ansatz.malli/schema->type-expr [:enum -1 2]))))
         (is (re-find #"String" (e/->string (ansatz.malli/schema->type-expr :string))))))))
 
 (deftest test-collection-and-map-schema-shapes
@@ -162,12 +175,12 @@
           opq? (fn [s] (= "Opaque" (let [[h _] (e/get-app-fn-args (ansatz.malli/schema->type-expr s))]
                                      (and (e/const? h) (name/->string (e/const-name h))))))]
       (testing "[:map-of K V] -> association List of key/value Prods"
-        (is (re-find #"List.*Prod.*String.*Nat" (->s [:map-of :string :int])))
-        (is (re-find #"List.*Prod.*String.*List.*Nat" (->s [:map-of :string [:sequential :int]]))))
+        (is (re-find #"List.*Prod.*String.*Int" (->s [:map-of :string :int])))
+        (is (re-find #"List.*Prod.*String.*List.*Int" (->s [:map-of :string [:sequential :int]]))))
       (testing "regex-sequence element schemas: :* / :+ -> List, :? -> Option"
-        (is (re-find #"List.*Nat"    (->s [:* :int])))
+        (is (re-find #"List.*Int"    (->s [:* :int])))
         (is (re-find #"List.*String" (->s [:+ :string])))
-        (is (re-find #"Option.*Nat"  (->s [:? :int]))))
+        (is (re-find #"Option.*Int"  (->s [:? :int]))))
       (testing "a fieldless map (bare :map, [:map], map?) carries as gradual Opaque"
         (is (opq? :map)   "bare :map -> Opaque")
         (is (opq? [:map]) "[:map] with no entries -> Opaque")
@@ -264,7 +277,7 @@
     (m/=> msf-tuple-swap [:=> [:cat [:tuple :int :string]] [:tuple :string :int]])
     (let [r (msf-verify 'msf-tuple-swap
                         '(ansatz.core/defn msf-tuple-swap [p]
-                           (Prod.mk String Nat (Prod.snd Nat String p) (Prod.fst Nat String p)))
+                           (Prod.mk String Int (Prod.snd Int String p) (Prod.fst Int String p)))
                         10)]
       (is (= 10 (:ok r)) "10/10 generated tuples agree runtime vs kernel"))
     (is (= ["hi" 7] ((deref (ns-resolve 'ansatz.malli-surface-test 'msf-tuple-swap)) [7 "hi"]))
@@ -275,7 +288,9 @@
     @booted
     (m/=> msf-mapof-len [:=> [:cat [:map-of :string :int]] :int])
     (let [r (msf-verify 'msf-mapof-len
-                        '(ansatz.core/defn msf-mapof-len [mm] (List.length (Prod String Nat) mm))
+                        ;; List.length is a Nat; the declared :int result coerces it (↑), as
+                        ;; Lean's ensureHasType does
+                        '(ansatz.core/defn msf-mapof-len [mm] (List.length (Prod String Int) mm))
                         10)]
       (is (= 10 (:ok r)) "10/10 generated maps agree runtime vs kernel"))
     (is (= 3 (clojure.core/long ((deref (ns-resolve 'ansatz.malli-surface-test 'msf-mapof-len))
@@ -307,8 +322,28 @@
     @booted
     (m/=> msf-computed-head [:=> [:cat [:sequential :int]] [:sequential :int]])
     (let [r (msf-verify 'msf-computed-head
-                        '(ansatz.core/defn msf-computed-head [l] (cons (+ (List.length Nat l) 1) l))
+                        '(ansatz.core/defn msf-computed-head [l] (List.cons Int (+ (List.length Int l) 1) l))
                         10)]
       (is (= 10 (:ok r)) "10/10 agree; before the fix this threw 'undecodable kernel value'"))
     (is (= [3 7 8] (vec ((deref (ns-resolve 'ansatz.malli-surface-test 'msf-computed-head)) [7 8])))
         "the head is the computed length + 1")))
+
+(m/=> msf-pred-nat [:=> [:cat [:int {:min 1}]] nat-int?])
+(m/=> msf-pred-int [:=> [:cat [:int {:min 1}]] :int])
+
+(deftest test-refinement-facts-discharge-nat-subtraction
+  (testing "a [:int {:min 1}] param is a Subtype Nat whose bound is a fact in scope, so a Clojure
+            (- n 1) at Nat is accepted: it cannot go below 0"
+    @booted
+    (binding [a/*verbose* false]
+      (when-not (env/lookup (a/env) (name/from-string "msf-pred-nat"))
+        (binding [*ns* (find-ns 'ansatz.malli-surface-test)]
+          (eval '(ansatz.core/defn msf-pred-nat [n] (- n 1)))))
+      (is (= 4 (clojure.core/long ((deref (ns-resolve 'ansatz.malli-surface-test 'msf-pred-nat)) 5))))))
+  (testing "with an :int result the subtraction is at Int (the declared type is the expected type)"
+    @booted
+    (binding [a/*verbose* false]
+      (when-not (env/lookup (a/env) (name/from-string "msf-pred-int"))
+        (binding [*ns* (find-ns 'ansatz.malli-surface-test)]
+          (eval '(ansatz.core/defn msf-pred-int [n] (- n 1)))))
+      (is (= 4 (clojure.core/long ((deref (ns-resolve 'ansatz.malli-surface-test 'msf-pred-int)) 5)))))))
