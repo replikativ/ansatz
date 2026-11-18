@@ -604,11 +604,13 @@
       :else (undecodable x))))
 
 (defn check-verified!
-  "The differential check for an a/defn'd function with a malli schema: generate `runs`
-   inputs from the (clamped) schema, run the compiled runtime and the kernel evaluator,
-   compare. Returns {:runs n :ok n} or throws on the first divergence — a divergence means
-   an ELABORATION bug (well-typed but source-unfaithful), the exact class the kernel cannot
-   see. Scope: whatever `gen-schema` will clamp and the codec will carry — Nat, Bool,
+  "Codegen faithfulness for an a/defn'd function with a malli schema: generate `runs` inputs
+   from the (clamped) schema, run the compiled runtime and the kernel evaluator on the SAME
+   elaborated term, compare. Returns {:runs n :ok n} or throws on the first divergence — a
+   divergence means the compiled code does not compute what the kernel term computes (a codegen
+   bug). Both sides come from the elaborated term, so this cannot detect an elaboration that gave
+   the source a non-Clojure meaning; `ansatz.clj-check` compares against the Clojure reading.
+   Scope: whatever `gen-schema` will clamp and the codec will carry — Nat, Bool,
    String, Option, homogeneous lists of those, named-field [:map] records, [:tuple …],
    [:map-of K V] and homogeneous keyword [:enum …]."
   [ns-sym fn-sym & {:keys [runs] :or {runs 25}}]

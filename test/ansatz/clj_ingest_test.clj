@@ -98,8 +98,8 @@
   (is (= 3 ((resolve 'ci-getx) ((resolve '->CiPoint) 3 4))) "(get rec :field) projects"))
 
 (deftest and-or-over-bool-elaborate
-  ;; expand-by-default: and/or macroexpand to let*+if, which now typecheck because the if case
-  ;; infers its branch type properly (no Nat guessing). Pure structural — no special handler.
+  ;; and/or are NOT macroexpanded (ingest/no-expand-macros): over Bool they elaborate to the
+  ;; functions Bool.and/Bool.or, which codegen lowers back to Clojure's and/or.
   (eval '(ansatz.core/defn ^Bool ci-and [^Bool p ^Bool q] (and p q)))
   (eval '(ansatz.core/defn ^Bool ci-or  [^Bool p ^Bool q] (or p q)))
   (is (= [true false] [((resolve 'ci-and) true true) ((resolve 'ci-and) true false)]) "and over Bool")

@@ -119,9 +119,9 @@
 ;; The elaborator macroexpand-1's ANY clojure.core (or user) macro on the way in — so all the
 ;; binding/threading/sugar reaches the kernel as core forms (let*/fn*/if/application) without a case
 ;; per macro — EXCEPT a small exclusion set: forms ansatz handles with a dedicated typed elaborator
-;; that beats the macro's expansion. Today that set is just `cond`: the elaborator's typed cond
-;; handler maps :else correctly, unlike Clojure's :else-as-truthy expansion. (`=>` is the type
-;; arrow; `->` threads as in Clojure.)
+;; that beats the macro's expansion. The set and the reason for each member are documented on
+;; `ansatz.surface.ingest/no-expand-macros` (today `cond`, `and`, `or`). (`=>` is the type arrow;
+;; `->` threads as in Clojure.)
 ;; Soundness does NOT depend on this set: the kernel type-checks every resulting term, so a macro
 ;; that expands to a non-CIC form simply fails to elaborate (an honest error) — it can never produce
 ;; an unsound definition. The set only keeps OUR handlers winning and errors clean.
@@ -1680,8 +1680,8 @@
 (clojure.core/defn define-partial
   "Define a PARTIAL (trusted, opaque) function — the recursion ladder's lenient fallback, for recursion
    we can't or won't prove total. The kernel gets an AXIOM at the function's type: trusted, NOT verified,
-   and never usable in proofs (data-only). The runtime is the original recursive Clojure body — self-calls
-   resolve to the def'd var at call time. Mark with ^:partial. Mirrors Lean's `partial def`."
+   and never usable in proofs (data-only). The runtime is the compiled ELABORATED body (not the source
+   text), with self-calls going to the def'd var. Mark with ^:partial. Mirrors Lean's `partial def`."
   [fn-name params ret-type-form body-form]
   (atomic-definition
    (fn []

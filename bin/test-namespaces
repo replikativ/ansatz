@@ -15,6 +15,7 @@ import subprocess
 GROUPS = 4
 # These exports/stores are uncommitted and unavailable on a fresh checkout.
 EXCLUDED = {
+    "ansatz.clj-core-conformance-mathlib-test": "Mathlib store (ANSATZ_STORE_DIR)",
     "ansatz.int-arith-test": "Mathlib store (ANSATZ_STORE_DIR)",
     "ansatz.tactic.carriers-test": "Mathlib store (ANSATZ_STORE_DIR)",
     "ansatz.theory.convergence-test": "Mathlib store (ANSATZ_STORE_DIR)",
