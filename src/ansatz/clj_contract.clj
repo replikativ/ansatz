@@ -55,6 +55,10 @@
    {:id :sub/int :group :arithmetic :form '(- a b) :params '[[a Int] [b Int]] :ret 'Int :expect :agree}
    {:id :sub/nary-int :group :arithmetic :form '(- a b c) :params '[[a Int] [b Int] [c Int]] :ret 'Int
     :expect :agree}
+   {:id :sub/nat-at-int :group :arithmetic :form '(- a 1) :params '[[a Nat]] :ret 'Int :expect :agree
+    :note "The declared Int type is the expected type: ↑a - 1 at Int, as Lean's binop%."}
+   {:id :add/nat-int :group :arithmetic :form '(+ a i) :params '[[a Nat] [i Int]] :ret 'Int :expect :agree
+    :note "A Nat leaf in an Int tree is coerced."}
    {:id :neg/int :group :arithmetic :form '(- a) :params '[[a Int]] :ret 'Int :expect :agree}
    {:id :neg/nat :group :arithmetic :form '(- a) :params '[[a Nat]] :ret 'Nat :expect :refuse
     :reason :nat-negation}
@@ -90,6 +94,7 @@
    {:id :lt/int :group :comparison :form '(< a b) :params '[[a Int] [b Int]] :ret 'Bool :expect :agree}
    {:id :le/int :group :comparison :form '(<= a b) :params '[[a Int] [b Int]] :ret 'Bool :expect :agree}
    {:id :eq/int :group :comparison :form '(= a b) :params '[[a Int] [b Int]] :ret 'Bool :expect :agree}
+   {:id :lt/nat-int :group :comparison :form '(< a i) :params '[[a Nat] [i Int]] :ret 'Bool :expect :agree}
    {:id :eq/string :group :comparison :form '(= a b) :params '[[a String] [b String]] :ret 'Bool :expect :agree}
    {:id :eq/bool :group :comparison :form '(= p q) :params '[[p Bool] [q Bool]] :ret 'Bool :expect :agree}
    {:id :lt/chain :group :comparison :form '(< a b c) :params '[[a Nat] [b Nat] [c Nat]] :ret 'Bool
