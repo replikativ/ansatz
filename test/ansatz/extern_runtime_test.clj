@@ -214,7 +214,9 @@
 
 (def ^:private unsupported
   "Bundled-Init externs with neither a native lowering nor a compilable body, and why."
-  {"Nat.gcd._unary" "well-founded recursion's internal unary encoding; Nat.gcd runs natively"})
+  {"Nat.gcd._unary" "well-founded recursion's internal unary encoding; Nat.gcd runs natively"
+   "Float.ofModel" "the IEEE model conversion of Float's specification; Float runs as a double"
+   "Float.toModel" "the IEEE model conversion of Float's specification; Float runs as a double"})
 
 (deftest every-bundled-init-extern-is-accounted-for
   (doseq [n (sort (env/get-extension (a/env) :extern #{}))]
