@@ -121,7 +121,8 @@
 ;; binding/threading/sugar reaches the kernel as core forms (let*/fn*/if/application) without a case
 ;; per macro — EXCEPT a small exclusion set: forms ansatz handles with a dedicated typed elaborator
 ;; that beats the macro's expansion. The set and the reason for each member are documented on
-;; `ansatz.surface.ingest/no-expand-macros` (today `cond`, `and`, `or`). (`=>` is the type arrow;
+;; `ansatz.surface.ingest/no-expand-macros` (today `cond`, `and`, `or` and the nil-check binders
+;; `if-some`, `when-some`, `if-let`, `when-let`). (`=>` is the type arrow;
 ;; `->` threads as in Clojure.)
 ;; Soundness does NOT depend on this set: the kernel type-checks every resulting term, so a macro
 ;; that expands to a non-CIC form simply fails to elaborate (an honest error) — it can never produce

@@ -204,6 +204,30 @@
         body (reduce (fn [f a] (list f a)) (nth args 3) (drop 6 args))]
     (reduce (fn [body arg] (list 'fn [arg] body)) body (reverse missing))))
 
+(clojure.core/defn- option-case
+  "`(let [o# o] (if (none? o#) none-branch (some-branch (some-val o#))))` over Option's runtime
+   representation (ansatz.codegen.native/native-inductives). Only the branch taken runs."
+  [o none-branch some-fn]
+  (let [{:keys [none? field]} (native/native-inductive "Option")
+        g (gensym "opt_")
+        x (field 0 g)
+        some-branch (cond
+                      (nil? some-fn) x
+                      (and (seq? some-fn) (= 'fn (first some-fn)) (= 3 (count some-fn))
+                           (vector? (second some-fn)) (= 1 (count (second some-fn))))
+                      (list 'let [(first (second some-fn)) x] (nth some-fn 2))
+                      :else (list some-fn x))]
+    (list 'let [g o] (list 'if (none? g) none-branch some-branch))))
+
+(clojure.core/defn- saturated
+  "Apply `(emit args)` to the first `n` compiled args, eta-expanding a partial application
+   (curried, as erase-eq-rec does) and applying any further args to the result."
+  [n emit ca]
+  (let [missing (vec (repeatedly (max 0 (- n (count ca))) #(gensym "opt_arg_")))
+        args (into (vec ca) missing)
+        body (reduce (fn [f a] (list f a)) (emit (subvec args 0 n)) (drop n args))]
+    (reduce (fn [body arg] (list 'fn [arg] body)) body (reverse missing))))
+
 (clojure.core/defn- erase-false-rec [ca]
   ;; ToLCNF.visitFalseRec: eta-expand to arity two, then emit unreachable.
   ;; False.elim is the standard wrapper around False.rec.
@@ -286,6 +310,11 @@
     "Int.neg"       (fn [_ _ _ ca _] (list '-' (nth ca 0)))
     "Int.natAbs"    (fn [_ _ _ ca _] (list 'ansatz.codegen.numeric/nat-abs (nth ca 0)))
     "Bool.not"      (fn [_ _ _ ca _] (list 'not (nth ca 0)))
+    ;; Option.elim α β o e f / Option.getD α o d: the branch not taken never runs, as in
+    ;; Clojure's if-some and or (Lean: getD is @[macro_inline], elim's match is inlined).
+    ;; A call with the default as an argument would run a recursive default every time.
+    "Option.elim"   (fn [_ _ _ ca _] (saturated 5 (fn [[_ _ o e f]] (option-case o e f)) ca))
+    "Option.getD"   (fn [_ _ _ ca _] (saturated 3 (fn [[_ o d]] (option-case o d nil)) ca))
     ;; ite α c dec t e: the condition is `Decidable.decide dec` (Lean's compiler cases on dec).
     "ite"           (fn [env _ args ca names]
                       (if (>= (count ca) 5)

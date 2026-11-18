@@ -164,16 +164,19 @@
    'nil? "vnil?" 'map? "vmap?" 'vector? "vvec?" 'set? "vset?" 'double? "vfloat?" 'float? "vfloat?"
    'some? "vsome?" 'any? "vany?"})
 
-;; For a NON-Value operand, fall back to core's normal handling (so e.g. `(some? opt)` over an
-;; Option still becomes Option.isSome, and unknown predicates error exactly as before). This is
-;; what keeps these global registrations side-effect-free for non-EDN code.
+;; For a NON-Value operand, `some?`/`nil?` fall back to the core elaborator: over an Option in a
+;; Clojure body they are Option.isSome / Option.isNone, other operands are refused there
+;; (:not-optional). The other predicates are only supported over a Value.
+(def ^:private core-preds '#{some? nil?})
+
 (defn- vpred-elaborator [sym vpred]
   (fn [est args]
     (let [v (api/elab est (first args))]
-      (if (value-typed? est v)
-        (e/app (const0 vpred) v)
-        (throw (ex-info (str "`" sym "` is only supported over a dynamic EDN Value in a "
-                             "verified body (operand type is not Value)") {:pred sym}))))))
+      (cond
+        (value-typed? est v) (e/app (const0 vpred) v)
+        (contains? core-preds sym) (api/elab-base est (cons sym args))
+        :else (throw (ex-info (str "`" sym "` is only supported over a dynamic EDN Value in a "
+                                   "verified body (operand type is not Value)") {:pred sym}))))))
 
 (declare to-value-operand)
 

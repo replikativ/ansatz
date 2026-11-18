@@ -35,6 +35,13 @@ empty list, `Unit`) or is already boxed runs as a box, a value Clojure has no sp
 Rows marked *(needs …)* use constants the bundled Init does not carry; they run against a
 Mathlib store.
 
+Truthiness: Ansatz keeps Lean's semantics and does not model Clojure's truthiness. A test
+is a Bool. A nil check is accepted where it means the same as a Lean construct (*Nil
+checks*): `if-some` on any Option, `if-let` and `(or o d)` on an Option whose values never
+run as `nil` or `false` (numbers, strings, characters, structures and inductives whose every
+constructor has fields), `some?`/`nil?` on an Option, `(seq xs)` as a test and `empty?` on a
+List. Elsewhere the form is refused with a hint to the explicit test.
+
 Scope: the rules hold in `a/defn` bodies (and the loop helpers hoisted from them). Types,
 propositions, theorem statements, tactic terms and `:termination-by` measures keep Lean's
 meaning. `a/defn ^:lean name …` opts a definition out, for a body written in Lean style.
@@ -128,9 +135,52 @@ meaning. `a/defn ^:lean name …` opts a definition out, for a body written in L
 | `(and p q)` | p : Bool, q : Bool → Bool | faithful |  |
 | `(or p q)` | p : Bool, q : Bool → Bool | faithful |  |
 | `(and p q r)` | p : Bool, q : Bool, r : Bool → Bool | faithful |  |
-| `(or o 0)` | o : (Option Nat) → Nat | refused (`:non-bool-test`) |  |
+| `(or a b)` | a : Nat, b : Nat → Nat | refused (`:non-bool-test`) | An Option's `(or o d)` is under Nil checks. |
 | `(and a b)` | a : Nat, b : Nat → Nat | refused (`:non-bool-test`) |  |
-| `(not p)` | p : Bool → Bool | refused | `not` is not in the core surface. |
+| `(not p)` | p : Bool → Bool | faithful | Bool.not. |
+| `(not a)` | a : Nat → Bool | refused (`:non-bool-test`) | Clojure: every number is truthy, so (not a) is false. |
+| `(if-not p a b)` | p : Bool, a : Nat, b : Nat → Nat | faithful |  |
+
+## Nil checks
+
+| Form | Types | Status | Note |
+|---|---|---|---|
+| `(if-some [x o] (+ x 1) 0)` | o : (Option Nat) → Nat | faithful | Option.elim o 0 (fun x => x + 1), Lean's `if let some x := o`. |
+| `(if-some [x o] (if x 1 2) 3)` | o : (Option Bool) → Nat | faithful | Any element type: if-some tests for nil only. |
+| `(if-some [ys o] ys [7])` | o : (Option (List Nat)) → (List Nat) | faithful |  |
+| `(if-some [x o] [x])` | o : (Option Nat) → (List Nat) | faithful | The missing branch is nil, the empty List. |
+| `(if-some [x o] x)` | o : (Option Nat) → Nat | refused (`:nil-at-type`) |  |
+| `(when-some [x o] [x x])` | o : (Option Nat) → (List Nat) | faithful |  |
+| `(when-some [x o] x)` | o : (Option Nat) → Nat | refused (`:nil-at-type`) |  |
+| `(if-some [x a] x 0)` | a : Nat → Nat | refused (`:not-optional`) | A Nat is never nil: bind it with let. |
+| `(if-let [x o] (* x 2) 7)` | o : (Option Nat) → Nat | faithful | A number is never nil or false: truthiness and the none test agree. |
+| `(if-let [x o] (- x) 7)` | o : (Option Int) → Int | faithful |  |
+| `(if-let [s o] s "none")` | o : (Option String) → String | faithful |  |
+| `(if-let [p o] (:x p) 0)` | o : (Option CcPoint) → Nat | faithful | A structure with fields runs as a record. |
+| `(when-let [x o] [x])` | o : (Option Nat) → (List Nat) | faithful |  |
+| `(if-let [x p] (if x 1 3) 2)` | p : Bool → Nat | faithful | On a Bool, Clojure's own (let [x p] (if x … …)). |
+| `(if-let [x o] 1 2)` | o : (Option Bool) → Nat | refused (`:truthiness-differs`) | Clojure takes the else branch for false. |
+| `(if-let [x o] 1 2)` | o : (Option (Option Nat)) → Nat | refused (`:truthiness-differs`) |  |
+| `(if-let [x o] 1 2)` | o : (Option (List Nat)) → Nat | refused (`:truthiness-differs`) |  |
+| `(if-let [x o] 1 2)` | o : (Option Unit) → Nat | refused (`:truthiness-differs`) |  |
+| `(if-let [x a] x 0)` | a : Nat → Nat | refused (`:not-optional`) |  |
+| `(some? o)` | o : (Option Nat) → Bool | faithful | Option.isSome. |
+| `(nil? o)` | o : (Option Bool) → Bool | faithful | Option.isNone. |
+| `(some? a)` | a : Nat → Bool | refused (`:not-optional`) |  |
+| `(nil? xs)` | xs : (List Nat) → Bool | refused (`:not-optional`) | nil is the empty List, and (nil? ()) is false. |
+| `(if (seq xs) 1 0)` | xs : (List Nat) → Nat | faithful | As a test: !xs.isEmpty. |
+| `(when (seq xs) xs)` | xs : (List Nat) → (List Nat) | faithful |  |
+| `(cond (seq xs) 1 :else 0)` | xs : (List Nat) → Nat | faithful |  |
+| `(if (and p (seq xs)) 1 0)` | p : Bool, xs : (List Nat) → Nat | faithful | Inside an and/or that is itself a test. |
+| `(not (seq xs))` | xs : (List Nat) → Bool | faithful |  |
+| `(seq xs)` | xs : (List Nat) → (List Nat) | refused (`:seq-value`) | Clojure returns nil or a seq. |
+| `(and p (seq xs))` | p : Bool, xs : (List Nat) → Bool | refused (`:seq-value`) | The and's value would be the seq. |
+| `(empty? xs)` | xs : (List Nat) → Bool | faithful | List.isEmpty. |
+| `(empty? s)` | s : String → Bool | refused (`:not-a-list`) |  |
+| `(or o 0)` | o : (Option Nat) → Nat | faithful | Option.getD o 0. |
+| `(or o -1)` | o : (Option Int) → Int | faithful |  |
+| `(or o q 5)` | o : (Option Nat), q : (Option Nat) → Nat | faithful | Option.getD o (Option.getD q 5). |
+| `(or o true)` | o : (Option Bool) → Bool | refused (`:truthiness-differs`) | Clojure: (or false true) is true. |
 
 ## Bodies and bindings
 
@@ -178,4 +228,8 @@ A refused form throws `ex-info` with `{:kind :clj/refused :reason r :form f :hin
 | `:nat-sub-may-be-negative` | (- a b) at Nat where b ≤ a does not follow from the guards in scope: Lean's Nat subtraction truncates at 0, Clojure's goes negative. Declare Int, guard with (<= b a), or write (Nat.sub a b). |
 | `:nil-at-type` | A branch that yields nil (if without else, when, cond without :else) at a type other than List, where nil has no value. |
 | `:nil-vs-empty` | (= xs nil) with xs a List: Ansatz identifies nil with the empty list, Clojure does not ((= () nil) is false); use (empty? xs) or (seq xs). |
-| `:non-bool-test` | An if/cond/and/or test that is not a Bool: Clojure's truthiness of other types is not modelled yet. |
+| `:non-bool-test` | An if/cond/and/or/not test that is not a Bool: Clojure would test its truthiness, which Ansatz does not model. Write the explicit test: (some? o) or if-some for an Option, (seq xs) or (empty? xs) for a List, a comparison for a number. |
+| `:not-a-list` | (seq x) or (empty? x) on a value that is not a List: only a List's emptiness has a Lean counterpart (List.isEmpty) in the core surface. |
+| `:not-optional` | (some? x), (nil? x), if-some or if-let on a value that is not an Option: it is never nil in Clojure, so the test is constant (a List's nil is the empty list: use (empty? xs)). |
+| `:seq-value` | (seq xs) where its value is used: Clojure returns nil or a seq, which is neither a Bool nor the list. (seq xs) is accepted as an if/when/cond test (also inside and/or/not there); as a value write (not (empty? xs)). |
+| `:truthiness-differs` | if-let, when-let or (or o d) on an Option whose values can run as nil or false (Option Bool, Option (Option _), Option (List _), Option Unit, a type variable): Clojure's truthiness test and Lean's none test differ there. Use if-some / when-some, which test for nil only. |

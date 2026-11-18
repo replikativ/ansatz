@@ -45,8 +45,22 @@
                      "accepted.")
    :get-non-keyword "(get m k) with a key that is not a keyword literal has no model in the core surface."
    :nat-negation "(- x) at Nat: Clojure negates, Nat has no negative values."
-   :non-bool-test (str "An if/cond/and/or test that is not a Bool: Clojure's truthiness of other "
-                       "types is not modelled yet.")
+   :non-bool-test (str "An if/cond/and/or/not test that is not a Bool: Clojure would test its "
+                       "truthiness, which Ansatz does not model. Write the explicit test: "
+                       "(some? o) or if-some for an Option, (seq xs) or (empty? xs) for a List, "
+                       "a comparison for a number.")
+   :not-optional (str "(some? x), (nil? x), if-some or if-let on a value that is not an Option: "
+                      "it is never nil in Clojure, so the test is constant (a List's nil is the "
+                      "empty list: use (empty? xs)).")
+   :truthiness-differs (str "if-let, when-let or (or o d) on an Option whose values can run as nil "
+                            "or false (Option Bool, Option (Option _), Option (List _), Option Unit, "
+                            "a type variable): Clojure's truthiness test and Lean's none test "
+                            "differ there. Use if-some / when-some, which test for nil only.")
+   :not-a-list (str "(seq x) or (empty? x) on a value that is not a List: only a List's emptiness "
+                    "has a Lean counterpart (List.isEmpty) in the core surface.")
+   :seq-value (str "(seq xs) where its value is used: Clojure returns nil or a seq, which is "
+                   "neither a Bool nor the list. (seq xs) is accepted as an if/when/cond test (also "
+                   "inside and/or/not there); as a value write (not (empty? xs)).")
    :nil-at-type (str "A branch that yields nil (if without else, when, cond without :else) at a "
                      "type other than List, where nil has no value.")
    :float-int-equality (str "(= x 0) with x a Float: Clojure's = is false across numeric categories "
@@ -96,9 +110,12 @@
                    applications — none of them can match a raw `Bool.rec` tree, which is what
                    made Boolean-returning functions unprovable. The elaborator emits the
                    functions instead; codegen lowers them straight back to Clojure's `or`/`and`,
-                   so compiled output (short-circuiting included) is unchanged."}
+                   so compiled output (short-circuiting included) is unchanged.
+     `if-some`/`when-some`/`if-let`/`when-let` — in a Clojure body they elaborate natively to
+                   `Option.elim` (Lean's `if let some x := o`), with x at the Option's element
+                   type; their expansion tests `(nil? temp)` on the Option itself."}
   no-expand-macros
-  (atom '#{cond and or}))
+  (atom '#{cond and or if-some when-some if-let when-let}))
 
 (defn expand-macro?
   "Should the elaborator macroexpand-1 this list head? True iff it resolves to a macro and is
