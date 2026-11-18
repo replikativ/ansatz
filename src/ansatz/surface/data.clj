@@ -47,13 +47,26 @@
   (binding [*read-eval* false]
     (read-string (slurp (io/resource "ansatz/surface/core-forms.edn")))))
 
+(defn- declared? [form]
+  (some? (env/lookup (a/env) (name/from-string (str (second form))))))
+
 (defn install-core!
   "Define the `Value` type and core ops/laws on the current `ansatz.core` env.
-   Requires the env to already contain Lean `Init`. Returns the updated env."
+   Requires the env to already contain Lean `Init` (the ops use `String.length`, which the
+   bundled Init lacks). Forms already declared are skipped. Returns the updated env."
   []
   (binding [a/*verbose* false]
-    (doseq [form core-forms]
+    (doseq [form core-forms :when (not (declared? form))]
       (eval form)))
+  (a/env))
+
+(defn install-value-type!
+  "Define only the `Value` inductive (the first core form), e.g. for the Clojure model's Value
+   boundary on the bundled Init. Idempotent. Returns the updated env."
+  []
+  (binding [a/*verbose* false]
+    (when-not (declared? (first core-forms))
+      (eval (first core-forms))))
   (a/env))
 
 ;; ── runtime EDN ↔ Value boundary (#59) ────────────────────────────────────────
