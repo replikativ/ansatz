@@ -44,7 +44,8 @@ schemas that require a `Subtype` value. The codec does not yet construct the
 bound proof and `Subtype.mk`; a clear refusal precedes input generation and
 execution. The same refusal applies to bounded scalars nested in supported
 collections and records. `[:int {:min 0}]` retains the plain `Nat` carrier and is
-accepted. This does not remove refinement types from ordinary definition typing.
+accepted; an unbounded `:int` is `Int` and is generated with negative values (encoded as
+`Int.ofNat`/`Int.negSucc`). This does not remove refinement types from ordinary definition typing.
 
 Generator size limits for an unbounded declared schema are only sampling limits;
 they do not change its kernel carrier. Proper refinement-value codecs remain

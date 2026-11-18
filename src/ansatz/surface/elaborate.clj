@@ -1350,7 +1350,14 @@
     ;; an already-elaborated kernel Expr passes through — term elaborators (elab_rules)
     ;; splice Exprs into surface forms they hand back to elab (quotation with term holes)
       (instance? ansatz.kernel.Expr sexpr) sexpr
-      (integer? sexpr) (e/lit-nat sexpr)
+      ;; A numeral in definition position takes the declared type, as Lean elaborates `0`
+      ;; against its expected type (OfNat): a match alternative or body `0` of an Int function.
+      (integer? sexpr)
+      (let [x (e/lit-nat sexpr)
+            T (when (= sexpr (:definition-body est)) (:definition-ret est))
+            T (when T (zonk est T))
+            tn (when (and T (not (e/mvar? T))) (type-head-name est T))]
+        (if (and tn (not= tn "Nat")) (num-lit-at-type est T tn x) x))
     ;; FLOAT literal: a Clojure double → OfScientific.ofScientific Float inst m s e
     ;; (m × 10^±e; BigDecimal's shortest round-trip repr). Float is the computable
     ;; carrier (native double); Real is for proofs, so a bare double means Float.
@@ -2092,10 +2099,18 @@
             (distinct (keep (comp :name val) lctx)))))
 
 (defn- check-expected!
+  "Lean's ensureHasType: the elaborated term against its expected type, with the coercion
+   Ansatz implements (Nat → Int, `↑n`) when they differ. Returns the term."
   [est expr expected]
-  (when expected
+  (if-not expected
+    expr
     (let [inferred (infer-with-mvars est expr)]
-      (when-not (unify! est inferred expected)
+      (cond
+        (unify! est inferred expected) expr
+        (and (= "Nat" (type-head-name est (zonk est inferred)))
+             (= "Int" (type-head-name est (zonk est expected))))
+        (coerce-nat-to-int est expr)
+        :else
         (elab-error! "Type mismatch"
                      {:expected expected :inferred inferred})))))
 
@@ -2150,8 +2165,8 @@
                (or (:type-position opts)
                    (and expected (e/sort? expected)))
                (assoc :prop-ctx true))
-         expr (if (:type-position opts) (elab-type est sexpr) (elab-term est sexpr))]
-     (check-expected! est expr expected)
+         expr (if (:type-position opts) (elab-type est sexpr) (elab-term est sexpr))
+         expr (check-expected! est expr expected)]
      (let [result (finalize-elaboration mode (refresh-env est) expr)
            result-env (elab-env est)]
        (cond

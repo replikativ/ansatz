@@ -19,10 +19,15 @@ If you already write [malli](https://github.com/metosin/malli)-instrumented Cloj
 ;; The gradual on-ramp: keep your malli schema, change defn → a/defn.
 ;; The schema becomes the kernel type; the function is machine-checked and
 ;; still compiles to an ordinary Clojure fn.
-(m/=> add2 [:=> [:cat :int :int] :int])
+(m/=> add2 [:=> [:cat nat-int? nat-int?] nat-int?])
 (a/defn add2 [x y]
   (match x [zero y] [(succ k) (+ 1 (add2 k y))]))
 (add2 20 22) ;; => 42
+
+;; :int is a Clojure long, negative values included, so it is Int (nat-int? is Nat)
+(m/=> diff [:=> [:cat :int :int] :int])
+(a/defn diff [x y] (- x y))
+(diff 3 5) ;; => -2
 
 ;; [:map …] schemas become named-field records: keyword access is kernel-verified,
 ;; runtime values stay plain Clojure maps
@@ -205,7 +210,7 @@ The key idea: Lean 4's Mathlib library has 210,000+ proved theorems about math (
 ## Features
 
 - **Verified functions** — define functions with CIC types, prove properties, run at JVM speed
-- **Malli schemas as signatures (optional)** — the gradual-typing on-ramp: keep your `(m/=> f [:=> [:cat :int :int] :int])` declarations and change `defn` to `a/defn`; the schema becomes the kernel signature. Collections→`List`; `[:map [:x :int] …]`→a synthesized named-field record (keyword access `(:x p)` elaborates to kernel projections, runtime values stay plain Clojure maps); `[:int {:min k}]`→`Subtype` refinements whose params are still usable directly as numbers (references auto-coerce to `.val`, the refinement stays in the binder for proofs). `ansatz.malli/check-verified!` adds a generative differential check — schema-generated inputs run through both the compiled runtime and the kernel evaluator and must agree, guarding the well-typed-but-unfaithful elaboration bug class the kernel can't see. malli loads lazily; core has no hard dependency
+- **Malli schemas as signatures (optional)** — the gradual-typing on-ramp: keep your `(m/=> f [:=> [:cat :int :int] :int])` declarations and change `defn` to `a/defn`; the schema becomes the kernel signature. `:int`→`Int` (a Clojure long can be negative), `nat-int?` and `[:int {:min k}]` with k ≥ 0→`Nat`; collections→`List`; `[:map [:x :int] …]`→a synthesized named-field record (keyword access `(:x p)` elaborates to kernel projections, runtime values stay plain Clojure maps); `[:int {:min k}]`→`Subtype` refinements whose params are still usable directly as numbers (references auto-coerce to `.val`, the refinement stays in the binder for proofs). `ansatz.malli/check-verified!` adds a generative differential check — schema-generated inputs run through both the compiled runtime and the kernel evaluator and must agree, guarding the well-typed-but-unfaithful elaboration bug class the kernel can't see. malli loads lazily; core has no hard dependency
 - **Grind tactic** — automated reasoning via persistent E-graph with congruence closure, propositional propagators (And/Or/Not/Eq/ite), E-matching for lemma instantiation, constructor injection/discrimination, and theory solver integration
 - **Kernel-enforced termination** — every recursive definition carries its termination proof in the kernel term: structural recursion, `:termination-by` measures (scalar, **lexicographic** `[m n]` — Ackermann verifies, `(sizeOf xs)` over data structures), automatic measure guessing, and `loop`/`recur`; non-terminating definitions are rejected with actionable errors (`^:partial` is the explicit trusted escape)
 - **One lean4-shaped elaborator** — fvar/metavar elaboration with implicit + universe inference for bodies, signatures, measures, theorem statements, and tactic arguments; Clojure macros (`->`, `when`, `and`/`or`, yours) expand by default and compose
@@ -533,7 +538,7 @@ right-nested, as Lean's `→`. `->` is always Clojure's threading macro, never a
   (match xs [nil 0] [(cons h t) (match t [nil 0] [(cons h2 t2) (+ 1 (pairs t2))])]))
 
 ;; Malli schemas as signatures (optional dep): defn → a/defn, schema unchanged
-(m/=> add2 [:=> [:cat :int :int] :int])
+(m/=> add2 [:=> [:cat nat-int? nat-int?] nat-int?])   ; :int is Int, nat-int? is Nat
 (a/defn add2 [x y]
   (match x [zero y] [(succ k) (+ 1 (add2 k y))]))
 ;; [:map …] schemas become named-field records: keyword access verifies, runtime = plain maps
