@@ -588,6 +588,18 @@
 
 (declare clj-surface?)
 
+(defn- coerce-nat-to-int
+  "Lean's binop% applyCoe (Elab/Extra.lean): a leaf whose type is Nat in an Int arithmetic tree
+   is coerced, `↑n` = `@Nat.cast Int instNatCastInt n` (NatCast Int, Init/Data/Int/Basic.lean)."
+  [est x]
+  (if (and (not (e/lit-nat? x))
+           (= "Nat" (type-head-name est (zonk est (infer-with-mvars est x)))))
+    (e/app* (e/const' (name/from-string "Nat.cast") [lvl/zero])
+            (e/const' (name/from-string "Int") [])
+            (e/const' (name/from-string "instNatCastInt") [])
+            x)
+    x))
+
 (defn- nat-sub-obligation
   "Clojure surface mode: a Nat subtraction spelled `-` is faithful only where it cannot go
    below 0. Mark it as an obligation `b ≤ a`, discharged once the body is elaborated
@@ -609,7 +621,8 @@
           r (elab-arith-at-type* est (case (str (first form)) "+" "add" "-" "sub" "*" "mul")
                                  T (rest form))]
       (if (= '- (first form)) (nat-sub-obligation est tn form r) r))
-    (num-lit-at-type est T tn (elab-term est form))))
+    (let [x (num-lit-at-type est T tn (elab-term est form))]
+      (if (= tn "Int") (coerce-nat-to-int est x) x))))
 
 (defn- concrete-arith
   "A surface-specific concrete operation from `ingest/arith-lift` (power or division).
@@ -655,19 +668,39 @@
     [sexpr]))
 
 (defn- arith-type
-  "The max type of an arithmetic tree: the kernel type of its first non-literal leaf (Lean
-   computes a maximum over the coercion order; the leaves of one arithmetic expression are
-   homogeneous in practice, so the first one that carries a type fixes it). Returns
-   [type-expr type-head-name], or nil when every leaf is a bare numeral."
-  [est sexpr]
-  (some (fn [leaf]
-          (when-not (integer? leaf)
-            (try (let [ty (zonk est (infer-with-mvars est (elab-term est leaf)))]
-                   ;; A local carrier is a free variable, so it has no constant
-                   ;; head name. It still determines the arithmetic type.
-                   (when-not (e/mvar? ty) [ty (type-head-name est ty)]))
-                 (catch Exception _ nil))))
-        (arith-leaves sexpr)))
+  "The max type of an arithmetic tree, as Lean's binop% `analyze` computes it
+   (Elab/Extra.lean): start from the expected type, then take the maximum of the leaf types
+   over the coercion order. Ansatz implements the Nat < Int part of that order: a Nat leaf in a
+   tree with an Int leaf, or under an Int expected type, makes the tree Int (the Nat leaves are
+   coerced by `coerce-nat-to-int`). Other types keep the first typed leaf, as before. The leaf
+   types read are those of the first typed leaf and of every symbol leaf (elaborating a symbol
+   has no side effects). Returns [type-expr type-head-name mixed?], mixed? when a Nat leaf or a
+   numeral-only tree was promoted to Int; nil when every leaf is a bare numeral and no Int is
+   expected."
+  ([est sexpr] (arith-type est sexpr nil))
+  ([est sexpr expected]
+   (let [leaf-type (fn [leaf]
+                     (when-not (integer? leaf)
+                       (try (let [ty (zonk est (infer-with-mvars est (elab-term est leaf)))]
+                              ;; A local carrier is a free variable, so it has no constant
+                              ;; head name. It still determines the arithmetic type.
+                              (when-not (e/mvar? ty) [ty (type-head-name est ty)]))
+                            (catch Exception _ nil))))
+         leaves (arith-leaves sexpr)
+         first-typed (some leaf-type leaves)
+         seed (when expected
+                (let [d (zonk est expected)]
+                  (when (and (not (e/mvar? d)) (= "Int" (type-head-name est d))) [d "Int"])))]
+     (if (and first-typed (not= "Nat" (second first-typed)))
+       first-typed
+       ;; the first typed leaf is Nat (or none is typed): an Int elsewhere wins
+       (let [int-leaf (when (= "Nat" (second first-typed))
+                        (some #(let [t (leaf-type %)] (when (= "Int" (second t)) t))
+                              (filter symbol? leaves)))]
+         (cond
+           int-leaf (conj int-leaf true)
+           seed (conj seed true)
+           :else first-typed))))))
 
 (defn- sort-valued-domain?
   "Is a parameter type a Sort, or a function type ending in one (a predicate)?
@@ -757,13 +790,18 @@
                   ;; (Elab/Extra.lean): where no leaf carries one — `(+ 2 2)`, all numerals —
                   ;; the expected type decides the carrier. Without this the tree defaulted to
                   ;; Nat and `(= Int (+ 2 2) 4)` built `Eq Int (Nat.add 2 2) (4 : Int)`.
+                  ;; With an Int parameter a Nat leaf is coerced, as binop% does with the
+                  ;; expected type (`f (n - 1)` for `f : Int → …` is `f (↑n - 1)`).
                   at-expected (when (and (seq? arg-sexpr) (<= 3 (count arg-sexpr))
                                          (symbol? (first arg-sexpr))
-                                         (contains? #{"+" "-" "*"} (str (first arg-sexpr)))
-                                         (nil? (arith-type est arg-sexpr)))
+                                         (contains? #{"+" "-" "*"} (str (first arg-sexpr))))
                                 (let [d (zonk est dom-type)]
                                   (when (not (e/mvar? d))
-                                    (elab-arith-operand est d (type-head-name est d) arg-sexpr))))
+                                    (let [[T tn mixed?] (arith-type est arg-sexpr d)]
+                                      (cond
+                                        (nil? T) (elab-arith-operand est d (type-head-name est d) arg-sexpr)
+                                        mixed? (elab-arith-operand est T tn arg-sexpr)
+                                        :else nil)))))
                   ;; Lean propagates the expected type into the argument; here only the part a
                   ;; comparison needs: a parameter of type Prop (or a predicate α → Prop, as
                   ;; for Exists) takes a proposition, any other parameter takes a value.
@@ -1109,6 +1147,15 @@
             T (zonk est (infer-with-mvars est b))]
         (elab-arith-at-type* est "pow" T [b exp-form])))))
 
+(defn- mixed-int-carrier
+  "Lean's binrel% (Elab/Extra.lean): the operands of a relation are analysed together, so
+   `(< n i)` with `n : Nat`, `i : Int` compares at Int with `n` coerced. Returns the Int type
+   when the joint tree is Int only by that coercion, else nil (the per-operand carrier rules
+   apply unchanged)."
+  [est a-form b-form]
+  (let [[T tn mixed?] (arith-type est (list '+ a-form b-form))]
+    (when (and mixed? (= tn "Int")) T)))
+
 (defn- elab-prop-comparison
   "A 2-arg comparison where a proposition is being elaborated (:prop-ctx):
    `(<= a b)` → `LE.le T ?inst a b`, `(== a b)` → `Eq T a b`, with the carrier
@@ -1126,7 +1173,10 @@
                                  (contains? #{"+" "-" "*"} (str (first f)))
                                  (every? numeral-tree? (rest f)))))
         carrier-of (fn [x] (zonk est (infer-with-mvars est x)))
+        mixed (mixed-int-carrier vest a-form b-form)
         [T a b] (cond
+                  mixed [mixed (elab-arith-operand vest mixed "Int" a-form)
+                         (elab-arith-operand vest mixed "Int" b-form)]
                   (not (numeral-tree? a-form))
                   (let [a0 (elab-term vest a-form)] [(carrier-of a0) a0 b-form])
                   (not (numeral-tree? b-form))
@@ -1235,8 +1285,9 @@
             (elab-refuse! :nil-vs-empty sexpr
                           "nil is the empty List here, and Clojure's (= () nil) is false"
                           "use (empty? xs) or (seq xs)"))
-        a0 (elab-term est a-form)
-        b0 (elab-term est b-form)
+        mixed (mixed-int-carrier est a-form b-form)
+        a0 (if mixed (elab-arith-operand est mixed "Int" a-form) (elab-term est a-form))
+        b0 (if mixed (elab-arith-operand est mixed "Int" b-form) (elab-term est b-form))
         tn (comparison-carrier est a0 b0)
         _ (when (and (clj-surface? est) (= hs "=") (= tn "Float")
                      (or (e/lit-nat? a0) (e/lit-nat? b0)))
@@ -1279,6 +1330,14 @@
                           (e/app* (e/const' (name/from-string "BEq.beq") [u]) T inst a b)))
           "String" (elab-error! "String comparison: only == is supported" {:rel rel})
           (bool-op (case rel :lt "Nat.blt" :le "Nat.ble")))))))
+
+(defn- elab-expansion
+  "Elaborate the macroexpansion of `sexpr`. A definition body keeps its position (and so its
+   declared type) through the expansion, as Lean elaborates a macro's expansion against the
+   expected type of the original syntax."
+  [est sexpr expanded]
+  (elab-term (cond-> est (= sexpr (:definition-body est)) (assoc :definition-body expanded))
+             expanded))
 
 (defn- elab-term
   "Recursively elaborate an s-expression into a Ansatz Expr."
@@ -1393,7 +1452,7 @@
                    ;; Clojure's let (name/value pairs) is a macro → expand to let*.
                          (if (and (= 3 (count toks)) (= 1 (count body-forms)))
                            (elab-let est binder-vec (first body-forms))
-                           (elab-term est (macroexpand-1 sexpr))))
+                           (elab-expansion est sexpr (macroexpand-1 sexpr))))
 
               "app"    (let [[_ f a] sexpr]
                          (e/app (elab-term est f) (elab-term est a)))
@@ -1461,8 +1520,9 @@
                                    (">=" "≥") ["le" "Nat.decLe" true]
                                    nil))
                            [a b] (when cmp (if (nth cmp 2) [(nth c 2) (nth c 1)] [(nth c 1) (nth c 2)]))
-                           a0 (when cmp (elab-term est a))
-                           b0 (when cmp (elab-term est b))
+                           mixed (when cmp (mixed-int-carrier est a b))
+                           a0 (when cmp (if mixed (elab-arith-operand est mixed "Int" a) (elab-term est a)))
+                           b0 (when cmp (if mixed (elab-arith-operand est mixed "Int" b) (elab-term est b)))
                          ;; the carrier as for a Bool comparison: only Nat and Int lift to
                          ;; dite; any other carrier takes the Bool path below
                            carrier (when cmp (comparison-carrier est a0 b0))
@@ -1604,7 +1664,10 @@
                     args (rest sexpr)]
                 (cond
                   (> (count args) 2)
-                  (elab-term est (reduce (fn [a b] (list head a b)) args))
+                  (let [folded (reduce (fn [a b] (list head a b)) args)]
+                    ;; the folded tree stays in the definition-body position
+                    (elab-term (cond-> est (= sexpr (:definition-body est)) (assoc :definition-body folded))
+                               folded))
 
                   ;; unary minus `(- a)` is Lean's `-a`, Neg.neg at the operand's type (over
                   ;; Nat, which has no Neg, the surface partial subtraction is kept)
@@ -1635,7 +1698,9 @@
                              (map #(elab-arith-operand est T "Nat" %) args))))
 
                   :else
-                  (let [[T tn] (or (arith-type est sexpr) [(e/const' (name/from-string "Nat") []) "Nat"])]
+                  (let [expected (when (= sexpr (:definition-body est)) (:definition-ret est))
+                        [T tn] (or (arith-type est sexpr expected)
+                                   [(e/const' (name/from-string "Nat") []) "Nat"])]
                     (if-let [const (get-in ingest/arith-lift [op tn])]
                       (concrete-arith est const T tn args false)
                       (let [[cls method] (hop-table op)
@@ -1790,7 +1855,12 @@
               "let*" (let [[_ bindings & body] sexpr]
                        (letfn [(build [ps est]
                                  (if (empty? ps)
-                                   (elab-term est (if (= 1 (count body)) (first body) (cons 'do body)))
+                                   (let [bform (if (= 1 (count body)) (first body) (cons 'do body))]
+                                     ;; Lean elabLetDeclAux elaborates the body against the
+                                     ;; expected type of the whole let
+                                     (elab-term (cond-> est (= sexpr (:definition-body est))
+                                                        (assoc :definition-body bform))
+                                                bform))
                                    (let [[nm vform] (first ps)
                                          vexpr (elab-term est vform)
                                          vtype (infer-with-mvars est vexpr)
@@ -1874,7 +1944,7 @@
                                      (reduce (fn [acc [k v]] (list 'if (list '== g k) v acc))
                                              default (reverse pairs))))))
                 (and (symbol? head) (ingest/expand-macro? head))
-                (elab-term est (macroexpand-1 sexpr))
+                (elab-expansion est sexpr (macroexpand-1 sexpr))
                 :else (elab-app est (first sexpr) (rest sexpr)))))))
 
     ;; vector literal = List literal: [a b c] → (cons a (cons b (cons c nil))).

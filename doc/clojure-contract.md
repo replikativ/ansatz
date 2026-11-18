@@ -60,6 +60,8 @@ meaning. `a/defn ^:lean name …` opts a definition out, for a body written in L
 | `(let [m (+ a b)] (- m a))` | a : Nat, b : Nat → Nat | faithful | A let binding is a fact: m = a + b. |
 | `(- a b)` | a : Int, b : Int → Int | faithful |  |
 | `(- a b c)` | a : Int, b : Int, c : Int → Int | faithful |  |
+| `(- a 1)` | a : Nat → Int | faithful | The declared Int type is the expected type: ↑a - 1 at Int, as Lean's binop%. |
+| `(+ a i)` | a : Nat, i : Int → Int | faithful | A Nat leaf in an Int tree is coerced. |
 | `(- a)` | a : Int → Int | faithful |  |
 | `(- a)` | a : Nat → Nat | refused (`:nat-negation`) |  |
 | `(+ a -3)` | a : Int → Int | faithful |  |
@@ -89,6 +91,7 @@ meaning. `a/defn ^:lean name …` opts a definition out, for a body written in L
 | `(< a b)` | a : Int, b : Int → Bool | faithful |  |
 | `(<= a b)` | a : Int, b : Int → Bool | faithful |  |
 | `(= a b)` | a : Int, b : Int → Bool | faithful |  |
+| `(< a i)` | a : Nat, i : Int → Bool | faithful |  |
 | `(= a b)` | a : String, b : String → Bool | faithful |  |
 | `(= p q)` | p : Bool, q : Bool → Bool | faithful |  |
 | `(< a b c)` | a : Nat, b : Nat, c : Nat → Bool | faithful | Chains pairwise; (< T a b) with a type T is the Prop form. |
