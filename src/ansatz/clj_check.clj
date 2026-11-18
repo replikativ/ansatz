@@ -17,10 +17,17 @@
      run-row        one row of the clojure.core contract table (ansatz.clj-contract)
 
    A call where clojure.core throws is outside the contract (Ansatz's total functions return
-   something there); such calls are counted as :clj-throws, never as divergences."
+   something there); such calls are counted as :clj-throws, never as divergences.
+
+   The Clojure model (ansatz.clj-model) is checked here too: `run-model-row` runs a row of the
+   model contract (ansatz.clj-model.contract) on random EDN (`gen-edn-inputs`), and
+   `check-model!` checks an `a/foreign ^:model` function's faithfulness and conformance."
   (:require [clojure.string :as str]
             [ansatz.core :as a]
             [ansatz.codegen.lean-runtime :as rt]
+            [ansatz.config :as config]
+            [ansatz.clj-model :as clj-model]
+            [ansatz.clj-model.translate :as translate]
             [ansatz.kernel.expr :as e]
             [ansatz.kernel.env :as env]
             [ansatz.kernel.name :as name]
@@ -437,3 +444,170 @@
   `(clojure.test/deftest ~test-name
      (let [r# (check-clojure! (ns-resolve '~(ns-name *ns*) '~f) ~@opts)]
        (clojure.test/is (contains? #{:agree :no-clojure-reading} (:status r#)) (pr-str r#)))))
+
+;; ── The Clojure model (ansatz.clj-model): faithfulness and conformance ───────────────────
+;; Faithfulness: the compiled model against clojure.core on random EDN. Model `some v` must
+;; equal clojure.core's value under clj-model/strict= (else :model-bug, a hard failure); model
+;; `none` where clojure.core throws is :throws (right), where it returns is :no-claim (a gap,
+;; counted against a row's :max-no-claim so a model answering none everywhere fails).
+;; Conformance: on inputs from the declared types, dec_R of the model's result must be `some`.
+
+(def ^:private long-edges [0 1 -1 2 7 -7 Long/MAX_VALUE Long/MIN_VALUE])
+(def ^:private double-edges [0.0 -0.0 1.5 -2.0 Double/NaN Double/POSITIVE_INFINITY])
+(def ^:private string-edges ["" "a" "ab" "😀"])
+(def ^:private keyword-edges [:a :b :c :ns/k])
+
+(defn- big-map [] (zipmap (map #(keyword (str "k" %)) (range 10)) (range 10)))
+
+(defn edn-edges
+  "Edge values of an EDN generator kind: :any :int :nat :num :bool :string :key :map :coll :value."
+  [kind]
+  (case kind
+    :int long-edges
+    :nat [0 1 2 7 Long/MAX_VALUE]
+    :num (into long-edges double-edges)
+    :bool [false true]
+    :string string-edges
+    :key (into keyword-edges [0 1 "a" nil])
+    :map [{} {:a 1} {:a 1 :b 2} {:a Long/MAX_VALUE :b 1} {:a "x" :b 1} (hash-map :a 1 :b 2) (big-map)]
+    :coll [nil [] () {} #{} [1 2] '(1 2) {:a 1} #{1 2} (map inc [0 1])]
+    :value [nil {:a 1 :b 2} {:a 1} {:a Long/MAX_VALUE :b 1} {:a -3 :b 1.5} {:a "x" :b 1} {} [1 2]
+            {:b 2 :a 1 :c [1]} true 3 "s" :k #{1}]
+    :any [nil true false 0 1 -1 Long/MAX_VALUE Long/MIN_VALUE 0.0 -0.0 1.5 Double/NaN ""
+          "😀" :a :ns/k 'sym \a () '(1 2) [] [1 2] {} {:a 1 :b 2} (hash-map :a 1 :b 2)
+          (big-map) #{} #{1 2} (map inc [0 1])]))
+
+(defn random-edn
+  "A random EDN value of `kind` from `rng`, nested at most `depth` deep."
+  [^java.util.Random rng kind depth]
+  (let [pick (fn [xs] (nth xs (.nextInt rng (count xs))))
+        small-int (fn [] (long (- (.nextInt rng 41) 20)))
+        sub (fn [k] (random-edn rng k (dec depth)))]
+    (case kind
+      :int (if (zero? (.nextInt rng 5)) (pick long-edges) (small-int))
+      :nat (if (zero? (.nextInt rng 5)) (pick [0 Long/MAX_VALUE]) (long (.nextInt rng 40)))
+      :num (case (.nextInt rng 3) 0 (pick double-edges) 1 (* 10.0 (- (.nextDouble rng) 0.5)) (random-edn rng :int 0))
+      :bool (.nextBoolean rng)
+      :string (pick (into string-edges ["b" "abc"]))
+      :key (pick (into keyword-edges [0 1 2 "a"]))
+      :map (let [n (if (zero? (.nextInt rng 8)) (+ 9 (.nextInt rng 3)) (.nextInt rng 4))
+                 vk (if (pos? depth) :any :int)]
+             (into {} (repeatedly n #(vector (random-edn rng :key 0) (sub vk)))))
+      :value (case (.nextInt rng 6)
+               0 (pick [nil true false "s" :k 1.5])
+               1 (random-edn rng :int 0)
+               2 (vec (repeatedly (.nextInt rng 3) #(sub :value)))
+               ;; records: each of :a :b :c present with p = 0.7, mostly integer-valued
+               (into {} (for [k [:a :b :c] :when (< (.nextInt rng 10) 7)]
+                          [k (if (or (zero? depth) (< (.nextInt rng 10) 7)) (random-edn rng :int 0) (sub :value))])))
+      :coll (case (.nextInt rng 5)
+              0 nil
+              1 (vec (repeatedly (.nextInt rng 4) #(sub :any)))
+              2 (random-edn rng :map depth)
+              3 (set (repeatedly (.nextInt rng 3) #(random-edn rng :key 0)))
+              (apply list (repeatedly (.nextInt rng 3) #(sub :any))))
+      :any (case (.nextInt rng 8)
+             0 nil
+             1 (.nextBoolean rng)
+             2 (random-edn rng :num 0)
+             3 (random-edn rng :string 0)
+             4 (random-edn rng :key 0)
+             5 (if (pos? depth) (random-edn rng :coll depth) (pick [[] {} #{}]))
+             6 (random-edn rng :int 0)
+             (pick [\a 'sym (map inc [0 1])])))))
+
+(defn gen-edn-inputs
+  "Argument tuples for generator `kinds`: the product of the edges (at most `max-edges`), then
+   `n-random` random tuples from a generator seeded with `seed`."
+  [kinds & {:keys [seed n-random max-edges] :or {seed 42 n-random 60 max-edges 200}}]
+  (let [rng (java.util.Random. (long seed))
+        product (reduce (fn [acc k] (for [xs acc x (edn-edges k)] (conj xs x))) [[]] kinds)]
+    (vec (concat (take max-edges product)
+                 (repeatedly n-random (fn [] (mapv #(random-edn rng % 2) kinds)))))))
+
+(defn- model-call [model-fn args]
+  (some-> (clj-model/opt-value (apply model-fn (map clj-model/edn->cljv args))) :some))
+
+(defn model-verdict
+  "Classify one call: the model's result (a runtime CljM.V, or nil for none) against the
+   outcome of the Clojure call ({:v x} / {:ex t} / {:timeout true})."
+  [mv c]
+  (cond (nil? mv) (if (contains? c :v) :no-claim :throws)
+        (and (contains? c :v) (clj-model/strict= (clj-model/cljv->edn mv) (:v c))) :agree
+        :else :model-bug))
+
+(defn- outcome-edn [c]
+  (cond (contains? c :v) (:v c)
+        (:timeout c) :timeout
+        :else {:threw (.getName (class (:ex c))) :message (.getMessage ^Throwable (:ex c))}))
+
+(defn- faithfulness [model-fn clj-f inputs timeout-ms]
+  (let [results (mapv (fn [args]
+                        (let [mv (model-call model-fn args)
+                              c (call-with-timeout #(apply clj-f args) timeout-ms)]
+                          {:verdict (model-verdict mv c) :args args
+                           :model (if mv (clj-model/cljv->edn mv) :none) :clojure (outcome-edn c)}))
+                      inputs)]
+    {:counts (merge {:agree 0 :throws 0 :no-claim 0 :model-bug 0} (frequencies (map :verdict results)))
+     :model-bugs (vec (take 5 (filter #(= :model-bug (:verdict %)) results)))
+     :no-claims (vec (take 3 (filter #(= :no-claim (:verdict %)) results)))}))
+
+(defn run-model-row
+  "Run one row of the model contract (ansatz.clj-model.contract): translate `(fn [params…] form)`
+   into the model, then compare it with clojure.core on generated EDN."
+  [{:keys [id params form]} & {:keys [seed n-random timeout-ms] :or {n-random 60 timeout-ms 2000}}]
+  (clj-model/install-model!)
+  (let [fn-form (list 'fn (mapv first params) form)
+        kname (str (row-kernel-name id) ".clj")
+        model-fn (binding [a/*verbose* false config/*clj-surface* false *ns* (the-scratch-ns)]
+                   @(eval (translate/model-defn kname fn-form scratch-ns nil)))
+        inputs (gen-edn-inputs (map second params) :seed (or seed (hash id)) :n-random n-random)]
+    (assoc (faithfulness model-fn (reading {:params params :form form}) inputs timeout-ms)
+           :id id)))
+
+(defn model-row-verdict
+  "Does a model-row result pass? No model bug, at least one agreeing call, and no more
+   no-claims than `:max-no-claim` (a fraction of the calls where clojure.core returned)."
+  [row {:keys [counts] :as result}]
+  (let [{:keys [agree no-claim model-bug]} counts
+        returned (+ agree no-claim)
+        frac (if (pos? returned) (/ no-claim (double returned)) 0.0)
+        limit (:max-no-claim row 0.0)]
+    {:ok? (and (zero? model-bug) (pos? agree) (<= frac limit))
+     :why (str "counts " counts " no-claim fraction " (format "%.2f" frac) " (max " limit ")"
+               (when (seq (:model-bugs result)) (str " model bugs " (pr-str (:model-bugs result))))
+               (when (> frac limit) (str " no-claims " (pr-str (:no-claims result)))))}))
+
+(def ^:private domain-kind {'Nat :nat 'Int :int 'Bool :bool 'String :string 'Value :value})
+
+(defn check-model!
+  "Check an `a/foreign ^:model` function: faithfulness of its model `f.clj` against its Clojure
+   source (random EDN of any kind, plus inputs from the declared types), and conformance on
+   inputs from the declared types: dec_R of the model's result must be `some`.
+
+   Returns {:status :conforming | :nonconforming | :model-bug, :faithful {counts …},
+   :conformance {:conforming n :nonconforming n}, :witnesses [{:args :model :clojure} …]}, the
+   witnesses being the domain inputs where conformance fails, with what clojure.core did there.
+   Options: :runs (random tuples, default 60), :seed, :timeout-ms (default 2000)."
+  [f & {:keys [runs seed timeout-ms] :or {runs 60 seed 42 timeout-ms 2000}}]
+  (let [{:keys [impl model-fn pairs ret-codec]} ((requiring-resolve 'ansatz.clj-model.boundary/info) f)
+        dec-fn (clj-model/model-fn (:dec ret-codec))
+        kinds (mapv (fn [[_ t]] (get domain-kind t :any)) pairs)
+        domain (gen-edn-inputs kinds :seed seed :n-random runs)
+        anything (gen-edn-inputs (repeat (count pairs) :any) :seed (inc seed) :n-random runs :max-edges 64)
+        faith (faithfulness model-fn impl (concat domain anything) timeout-ms)
+        conf (mapv (fn [args]
+                     (let [mv (model-call model-fn args)]
+                       (if (and mv (clj-model/opt-value (dec-fn mv)))
+                         {:ok true}
+                         {:args args :model (if mv (clj-model/cljv->edn mv) :none)
+                          :clojure (outcome-edn (call-with-timeout #(apply impl args) timeout-ms))})))
+                   domain)
+        bad (remove :ok conf)]
+    {:status (cond (pos? (get-in faith [:counts :model-bug])) :model-bug
+                   (seq bad) :nonconforming
+                   :else :conforming)
+     :faithful (:counts faith)
+     :model-bugs (:model-bugs faith)
+     :conformance {:conforming (count (filter :ok conf)) :nonconforming (count bad)}
+     :witnesses (vec (take 5 bad))}))

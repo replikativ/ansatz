@@ -3226,11 +3226,34 @@
      (a/foreign sqrt [x :- Float] Float (fn [x] (Math/sqrt x)))
      (a/foreign upper [s :- String] String clojure.string/upper-case)
    Then `(map (fn [x] (sqrt x)) xs)` in an a/defn body verifies + optimizes the pipeline
-   structure while `sqrt` stays a trusted hole."
+   structure while `sqrt` stays a trusted hole.
+
+   `^:model` on the name translates `impl` — an inline `(fn [x …] body)` of plain Clojure — into
+   the kernel model of Clojure (ansatz.clj-model), so `f` becomes a DEFINITION from its source
+   instead of an axiom; `impl` stays the runtime. Conformance to the declared types starts
+   :tested (checked on every result) and becomes :proved with `a/conforms`.
+   The :tested gap: `f` is a definition that proofs can unfold, so a theorem about `f` holds of
+   the MODEL, which answers the default d_R where it makes no claim — for
+   `(fn [x] (+ x 1))` at Int, `f Long/MAX_VALUE = 0` is provable while the impl throws.
+   :proved closes the gap for inputs of the declared types (the model answers on all of them).
+     (a/foreign ^:model clamp [x :- Int, lo :- Int, hi :- Int] Int
+       (fn [x lo hi] (cond (< x lo) lo (> x hi) hi :else x)))"
   [fn-name params ret-type impl]
-  (let [nm (vary-meta fn-name dissoc :- :tag)
+  (let [nm (vary-meta fn-name dissoc :- :tag :model)
         runtime-sym (symbol (str (ns-name *ns*)) (str nm))]
-    `(def ~nm (tag-kernel-name (define-foreign '~nm '~params '~ret-type ~impl) '~nm '~runtime-sym))))
+    (if (:model (meta fn-name))
+      `(def ~nm (tag-kernel-name ((requiring-resolve 'ansatz.clj-model.boundary/define-modelled)
+                                  '~nm '~params '~ret-type '~impl ~impl '~(ns-name *ns*))
+                                 '~nm '~runtime-sym))
+      `(def ~nm (tag-kernel-name (define-foreign '~nm '~params '~ret-type ~impl) '~nm '~runtime-sym)))))
+
+(defmacro conforms
+  "Prove that the `a/foreign ^:model` function `f` conforms to its declared types:
+   `f.conforms : ∀ x…, Option.isSome (Option.bind (f.clj (enc x)…) dec_R) = true`, with the
+   given tactics. Also adds `f.spec : ∀ x…, Option.bind (f.clj (enc x)…) dec_R = some (f x)`;
+   `f`'s status becomes :proved."
+  [f & tactics]
+  `((requiring-resolve 'ansatz.clj-model.boundary/prove-conforms!) '~f '~(vec tactics)))
 
 (defmacro implemented_by
   "Lean's @[implemented_by] / @[extern] correspondence, named to match — an alias of `a/foreign`:
