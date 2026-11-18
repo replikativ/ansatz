@@ -8,6 +8,7 @@
             [ansatz.core :as a]
             [ansatz.fixtures :as fixtures]
             [ansatz.clj-check :as cc]
+            [ansatz.codegen.lean-runtime :as rt]
             [ansatz.clj-contract :as contract]))
 
 (defn- init-once [f]
@@ -41,10 +42,16 @@
       (is (zero? ansatz)))))
 
 (deftest representation-round-trips
-  (testing "Option is tagged when Ansatz runs alone"
-    (is (= [5] (cc/clj->runtime [:option [:nat]] 5)))
+  (testing "Option crosses unchanged: none is nil, some x is x"
+    (is (= 5 (cc/clj->runtime [:option [:nat]] 5)))
     (is (nil? (cc/clj->runtime [:option [:nat]] nil)))
-    (is (= 5 (cc/runtime->clj [:option [:nat]] [5]))))
+    (is (= 5 (cc/runtime->clj [:option [:nat]] 5)))
+    (is (= 5 (cc/clj->runtime [:option [:option [:nat]]] 5)))
+    (is (nil? (cc/runtime->clj [:option [:option [:nat]]] (rt/some-of nil)))))
+  (testing "the legacy :tagged representation stays available"
+    (binding [cc/*option-rep* :tagged]
+      (is (= [5] (cc/clj->runtime [:option [:nat]] 5)))
+      (is (= 5 (cc/runtime->clj [:option [:nat]] [5])))))
   (testing "results agree across Long/BigInt, NaN, and nil vs the empty list"
     (is (cc/agree? [:nat] 3 3N))
     (is (cc/agree? [:float] Double/NaN Double/NaN))

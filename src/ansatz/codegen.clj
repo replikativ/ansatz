@@ -45,6 +45,7 @@
   "Tagged vectors distinguish fielded constructors that the native nil/vector rep cannot."
   [env ind-name-str]
   (and (not (#{"List" "Nat" "Int"} ind-name-str))
+       (not (native/native-inductive ind-name-str))
        (not (get @structure-registry ind-name-str))
        (when-let [ind-ci (env/lookup env (name/from-string ind-name-str))]
          (let [ctors (.ctors ^ConstantInfo ind-ci)
@@ -66,6 +67,9 @@
         parent (name/->string (.inductName ci))
         structure (get @structure-registry parent)
         body (cond
+               ;; Native multi-constructor representation (Option: nil / the value).
+               (native/native-inductive parent)
+               ((:ctor (native/native-inductive parent)) (.cidx ci) fields)
                ;; Native representation (String, UIntN, Char, Array, …): never a vector.
                (native/native-structure env parent)
                ((:ctor (native/native-structure env parent)) fields)
@@ -878,6 +882,8 @@
                                                (fn [i]
                                                  [(nth fields i)
                                                   (cond
+                                                    (native/native-inductive ind)
+                                                    ((:field (native/native-inductive ind)) i t)
                                                     (native/native-structure env ind)
                                                     ((:field (native/native-structure env ind)) i t)
                                                     (= ind "Nat") (list 'dec t)
@@ -922,6 +928,8 @@
                               (and (= 2 (count clauses)) (zero? (:nf (first clauses))))
                               (list 'if (cond (= ind "Nat") (list 'zero? t)
                                               (= ind "List") (list 'not (list 'seq t))
+                                              (native/native-inductive ind)
+                                              ((:none? (native/native-inductive ind)) t)
                                               :else (list 'nil? t))
                                     (:body (first clauses)) (:body (second clauses)))
                               :else (throw (ex-info "Codegen: unsupported recursor shape"
@@ -1051,7 +1059,7 @@
             ;; For structures (defrecord): use ->RecordName constructor
             ;; For other inductives: tagged vector [field1 field2 ...]
             ;; Codegen seam FIRST: a runtime-registered lowering overrides the generic
-            ;; representation (e.g. Option.some → nil-punning value, Prod.mk → [a b]) —
+            ;; representation (e.g. Prod.mk → [a b]) —
             ;; the runtime owns the representation of the vocabulary it installs.
             (if-let [cg (get @codegen-registry h)]
               (cg env expr names)
@@ -1158,6 +1166,8 @@
                                       (fn [i]
                                         [(nth field-syms i)
                                          (cond
+                                           (native/native-inductive ind-name-str)
+                                           ((:field (native/native-inductive ind-name-str)) i t-sym)
                                            (native/native-structure env ind-name-str)
                                            ((:field (native/native-structure env ind-name-str)) i t-sym)
                                            (= ind-name-str "List")
@@ -1210,9 +1220,11 @@
                           ;; Leaf + node: first ctor 0 fields, others have fields
                                 (and (= 2 (count clauses))
                                      (zero? (:nfields (first clauses))))
-                                (list 'if (if (= ind-name-str "List")
-                                            (list 'not (list 'seq t-sym))
-                                            (list 'nil? t-sym))
+                                (list 'if (cond (= ind-name-str "List")
+                                                (list 'not (list 'seq t-sym))
+                                                (native/native-inductive ind-name-str)
+                                                ((:none? (native/native-inductive ind-name-str)) t-sym)
+                                                :else (list 'nil? t-sym))
                                       (apply-minor (first clauses))
                                       (branch (second clauses) 0))
 
