@@ -53,7 +53,10 @@
                             "((= 0.0 0) is false); use == for numeric equality.")
    :nil-vs-empty (str "(= xs nil) with xs a List: Ansatz identifies nil with the empty list, Clojure "
                       "does not ((= () nil) is false); use (empty? xs) or (seq xs).")
-   :case-no-default "case without a default: Clojure throws when nothing matches."))
+   :case-no-default "case without a default: Clojure throws when nothing matches."
+   :nat-sub-may-be-negative (str "(- a b) at Nat where b ≤ a does not follow from the guards in scope: "
+                                 "Lean's Nat subtraction truncates at 0, Clojure's goes negative. "
+                                 "Declare Int, guard with (<= b a), or write (Nat.sub a b).")))
 
 ;; ── Custom elaboration forms (lean4 macro_rules-shaped) ─────────────────────────────────
 ;; symbol → (fn [arg-forms] → surface-form). The elaborator expands the form and re-elaborates

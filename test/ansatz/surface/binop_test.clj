@@ -42,8 +42,13 @@
   (binding [a/*verbose* false]
     (a/defn sum3 [a Nat b Nat c Nat] Nat (+ a b c))
     (is (= 6 (sum3 1 2 3)))
-    (a/defn diff3 [a Nat b Nat c Nat] Nat (- a b c))
-    (is (= 5 (diff3 10 2 3)))))
+    (a/defn diff3 [a Int b Int c Int] Int (- a b c))
+    (is (= 5 (diff3 10 2 3)))
+    (is (= -15 (diff3 -10 2 3)))
+    (testing "over Nat, only where the result cannot go below 0 (a Clojure body)"
+      (a/defn diff3n [a Nat b Nat c Nat] Nat (if (<= (+ b c) a) (- a b c) 0))
+      (is (= 5 (diff3n 10 2 3)))
+      (is (= 0 (diff3n 1 2 3))))))
 
 (deftest explicit-type-forms-do-not-shadow-real-names
   (testing "`mul`/`add`/... are ordinary identifiers: a definition of that name still applies"

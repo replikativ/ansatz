@@ -32,6 +32,7 @@
             [ansatz.meta.match.matcher-info :as matcher-info]
             [ansatz.surface.match :as match]
             [ansatz.surface.ingest :as ingest]
+            [ansatz.surface.clj-obligations :as obligations]
             [ansatz.surface.diagnostics :as diagnostics]
             [ansatz.surface.pp :as pp])
   (:import [ansatz.kernel Env Expr]))
@@ -585,6 +586,17 @@
             (e/app* (e/const' (name/from-string "OfNat.ofNat") [u]) T x (inst-mvar! est goal))))))
     x))
 
+(declare clj-surface?)
+
+(defn- nat-sub-obligation
+  "Clojure surface mode: a Nat subtraction spelled `-` is faithful only where it cannot go
+   below 0. Mark it as an obligation `b ≤ a`, discharged once the body is elaborated
+   (ansatz.surface.clj-obligations)."
+  [est tn form expr]
+  (if (and (= tn "Nat") (clj-surface? est))
+    (obligations/mark-nat-sub form expr)
+    expr))
+
 (defn- elab-arith-operand
   "Propagate the selected carrier into arithmetic subtrees, as Lean's binop%
    toExpr does. An all-numeral subtree must not independently default to Nat."
@@ -593,9 +605,10 @@
            (<= 3 (count form)))
     (let [form (if (> (count form) 3)
                  (reduce (fn [a b] (list (first form) a b)) (rest form))
-                 form)]
-      (elab-arith-at-type* est (case (str (first form)) "+" "add" "-" "sub" "*" "mul")
-                           T (rest form)))
+                 form)
+          r (elab-arith-at-type* est (case (str (first form)) "+" "add" "-" "sub" "*" "mul")
+                                 T (rest form))]
+      (if (= '- (first form)) (nat-sub-obligation est tn form r) r))
     (num-lit-at-type est T tn (elab-term est form))))
 
 (defn- concrete-arith
@@ -1625,10 +1638,11 @@
                   (let [[T tn] (or (arith-type est sexpr) [(e/const' (name/from-string "Nat") []) "Nat"])]
                     (if-let [const (get-in ingest/arith-lift [op tn])]
                       (concrete-arith est const T tn args false)
-                      (let [[cls method] (hop-table op)]
-                        (elab-hop est cls method T T T
-                                  (elab-arith-operand est T tn (first args))
-                                  (elab-arith-operand est T tn (second args))))))))
+                      (let [[cls method] (hop-table op)
+                            r (elab-hop est cls method T T T
+                                        (elab-arith-operand est T tn (first args))
+                                        (elab-arith-operand est T tn (second args)))]
+                        (if (= op "-") (nat-sub-obligation est tn sexpr r) r))))))
 
         ;; Explicit-type arithmetic — `(mul T a b)`, `(add/sub/div T a b)`, `(pow T a n)`,
         ;; `(neg T a)`: the spelling a theorem statement needs when the type cannot be read

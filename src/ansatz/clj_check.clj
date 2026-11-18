@@ -239,12 +239,13 @@
 
 (defn define-row!
   "Define the row's form as an `a/defn` over its typed parameters. Returns the compiled fn."
-  [{:keys [id params ret form]}]
+  [{:keys [id params ret form lean?]}]
   (let [kname (row-kernel-name id)
         binders (mapv (fn [[p t]] (with-meta p {:- t})) params)]
     (binding [a/*verbose* false]
       (eval-in (the-scratch-ns)
-               (list 'ansatz.core/defn (with-meta kname {:- ret}) binders form)))
+               (list 'ansatz.core/defn (with-meta kname (cond-> {:- ret} lean? (assoc :lean true)))
+                     binders form)))
     {:kname kname
      :fn @(ns-resolve (the-scratch-ns) kname)}))
 

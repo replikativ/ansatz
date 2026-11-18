@@ -73,11 +73,18 @@
       "loop/recur counting accumulator → Nat.rec, verified + runs (sum 1..n)"))
 
 (deftest non-structural-recursion-auto-measure
-  ;; A non-structural but TERMINATING recursive call ((- n 2), not a bare match field) is now
+  ;; A non-structural but TERMINATING recursive call ((- n 2), not a bare match field) is
   ;; auto-verified via WF auto-measure (lean4's GuessLex, single Nat measure): the measure `n`
-  ;; provably decreases (n ≠ 0 → n-2 < n via omega), so no :termination-by is needed.
-  (eval '(ansatz.core/defn ^Nat ci-nonstruct [^Nat n] (if (== n 0) 0 (ci-nonstruct (- n 2)))))
-  (is (= [0 0 0] (mapv (resolve 'ci-nonstruct) [0 4 7])) "non-structural (n-2) auto-verifies + runs"))
+  ;; provably decreases (n > 1 → n-2 < n via omega), so no :termination-by is needed.
+  (eval '(ansatz.core/defn ^Nat ci-nonstruct [^Nat n] (if (<= n 1) 0 (ci-nonstruct (- n 2)))))
+  (is (= [0 0 0] (mapv (resolve 'ci-nonstruct) [0 4 7])) "non-structural (n-2) auto-verifies + runs")
+  ;; Guarded only by (== n 0), (- n 2) may go below 0: Nat truncation would make every chain
+  ;; reach 0, while the Clojure reading never terminates for odd n. Refused.
+  (is (= :nat-sub-may-be-negative
+         (try (eval '(ansatz.core/defn ^Nat ci-nonstruct0 [^Nat n] (if (== n 0) 0 (ci-nonstruct0 (- n 2)))))
+              :accepted
+              (catch Throwable e
+                (some #(:reason (ex-data %)) (take-while some? (iterate #(.getCause ^Throwable %) e))))))))
 
 (deftest nonterminating-recursion-rejected
   ;; A genuinely non-terminating recursion (n unchanged) has NO decreasing measure, so auto-measure

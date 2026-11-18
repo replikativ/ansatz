@@ -47,7 +47,9 @@
       (fn []
         (eval '(ansatz.core/defn quorum-size [n :- Nat] Nat
                  (+ (Nat.div (* 2 n) 3) 1)))
-        (eval '(ansatz.core/defn byz-tolerance [n :- Nat] Nat
+        ;; ^:lean: a Lean-style body whose `-` means truncated Nat subtraction (in a Clojure
+        ;; body, (- n 1) with no guard is refused: it may go below 0)
+        (eval '(ansatz.core/defn ^:lean byz-tolerance [n :- Nat] Nat
                  (Nat.div (- n 1) 3)))
         (is (some? (env/lookup (a/env) (name/from-string "quorum-size"))))
         (is (some? (env/lookup (a/env) (name/from-string "byz-tolerance"))))

@@ -40,6 +40,7 @@
             [ansatz.elab.structural-smart-unfolding :as sunfold]
             [ansatz.surface.ingest :as ingest]
             [ansatz.surface.elaborate :as elab]
+            [ansatz.surface.clj-obligations :as obligations]
             [ansatz.surface.diagnostics :as diagnostics]
             [ansatz.codegen :as codegen]
             [ansatz.codegen.decl :as decl]
@@ -1815,7 +1816,14 @@
                                :clj-surface? config/*clj-surface*))
                        {:env env :expr (elab/elaborate-in-context env lctx body-form nil
                                                                   {:clj-surface? config/*clj-surface*})})
-         body-expr (:expr body-result)
+         ;; Clojure faithfulness obligations (Nat `-` that may go below 0) are discharged here,
+         ;; under the parameters and the guards in scope, and their marks removed — so every
+         ;; later consumer sees the term it always saw.
+         body-expr (if (and config/*clj-surface* (obligations/has-obligations? (:expr body-result)))
+                     (obligations/discharge (:env body-result) (:expr body-result)
+                                            (cond-> (mapv (fn [fid pt] [fid pt]) fids ptypes)
+                                              self-id (conj [self-id (:self-type opts)])))
+                     (:expr body-result))
         ;; abstract-many maps V[k] → bvar (len-1-k) (last → bvar 0), so pass fids in
         ;; param order (fids[0]=outermost param → highest bvar). Do NOT reverse.
          body-bvar (e/abstract-many body-expr fids)]

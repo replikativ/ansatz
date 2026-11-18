@@ -50,10 +50,14 @@ meaning. `a/defn ^:lean name …` opts a definition out, for a body written in L
 | `(* a b)` | a : Int, b : Int → Int | faithful |  |
 | `(*)` | a : Nat → Nat | faithful |  |
 | `(* a)` | a : Nat → Nat | faithful |  |
-| `(- a b)` | a : Nat, b : Nat → Nat | **diverges** (known bug) | Lean's Nat subtraction truncates at 0; Clojure's goes negative. |
+| `(- a b)` | a : Nat, b : Nat → Nat | refused (`:nat-sub-may-be-negative`) | Accepted where b ≤ a follows from the guards in scope. |
 | `(if (<= b a) (- a b) 0)` | a : Nat, b : Nat → Nat | faithful | Under a guard that rules out a negative result. |
-| `(- a 1)` | a : Nat → Nat | **diverges** (known bug) | (- 0 1) is 0 at Nat. |
-| `(- a b c)` | a : Nat, b : Nat, c : Nat → Nat | **diverges** (known bug) |  |
+| `^:lean` `(- a b)` | a : Nat, b : Nat → Nat | **diverges** (known bug) | Under `a/defn ^:lean` the body keeps Lean's truncation. |
+| `(- a 1)` | a : Nat → Nat | refused (`:nat-sub-may-be-negative`) |  |
+| `(if (== a 0) 0 (- a 1))` | a : Nat → Nat | faithful |  |
+| `(- a b c)` | a : Nat, b : Nat, c : Nat → Nat | refused (`:nat-sub-may-be-negative`) |  |
+| `(if (<= (+ b c) a) (- a b c) 0)` | a : Nat, b : Nat, c : Nat → Nat | faithful |  |
+| `(let [m (+ a b)] (- m a))` | a : Nat, b : Nat → Nat | faithful | A let binding is a fact: m = a + b. |
 | `(- a b)` | a : Int, b : Int → Int | faithful |  |
 | `(- a b c)` | a : Int, b : Int, c : Int → Int | faithful |  |
 | `(- a)` | a : Int → Int | faithful |  |
@@ -162,6 +166,7 @@ A refused form throws `ex-info` with `{:kind :clj/refused :reason r :form f :hin
 | `:get-non-keyword` | (get m k) with a key that is not a keyword literal has no model in the core surface. |
 | `:multi-form-body` | A body with several forms: the earlier forms would only run for effects (assert, println); Ansatz bodies are pure, so they cannot be kept. |
 | `:nat-negation` | (- x) at Nat: Clojure negates, Nat has no negative values. |
+| `:nat-sub-may-be-negative` | (- a b) at Nat where b ≤ a does not follow from the guards in scope: Lean's Nat subtraction truncates at 0, Clojure's goes negative. Declare Int, guard with (<= b a), or write (Nat.sub a b). |
 | `:nil-at-type` | A branch that yields nil (if without else, when, cond without :else) at a type other than List, where nil has no value. |
 | `:nil-vs-empty` | (= xs nil) with xs a List: Ansatz identifies nil with the empty list, Clojure does not ((= () nil) is false); use (empty? xs) or (seq xs). |
 | `:non-bool-test` | An if/cond/and/or test that is not a Bool: Clojure's truthiness of other types is not modelled yet. |
