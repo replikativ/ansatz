@@ -127,7 +127,10 @@
    ;; so the surface spelling and the emitted code agree. Codegen already
    ;; emits `quot` for `Nat.div`.
    "quot" {"Nat" "Nat.div", "Int" "Int.tdiv"}
-   "rem" {"Nat" "Nat.mod", "Int" "Int.tmod"}})
+   "rem" {"Nat" "Nat.mod", "Int" "Int.tmod"}
+   ;; Clojure's `mod` is FLOORED (the result has the divisor's sign): Int.fmod. Never Lean's
+   ;; `%` on Int, which is Int.emod: (mod 5 -3) is -1 in Clojure and 2 under emod.
+   "mod" {"Nat" "Nat.mod", "Int" "Int.fmod"}})
 
 ;; ── Parameter metadata parsing ──────────────────────────────────────────────────────────
 (defn binder-type
