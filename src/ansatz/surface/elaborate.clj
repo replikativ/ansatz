@@ -28,6 +28,7 @@
             [ansatz.kernel.reduce :as red]
             [ansatz.kernel.tc :as tc]
             [ansatz.config :as config]
+            [ansatz.codegen.native :as native]
             [ansatz.meta :as meta]
             [ansatz.meta.match.matcher-info :as matcher-info]
             [ansatz.surface.match :as match]
@@ -1224,9 +1225,20 @@
 
 (defn- bool-type [] (e/const' (name/from-string "Bool") []))
 
+(defn- explicit-test-hint
+  "The explicit test to write instead of a non-Bool test of type `ty`."
+  [est ty]
+  (case (try (type-head-name est ty) (catch Exception _ nil))
+    "Option" "test for a value with (some? o) or (nil? o), or bind it with (if-some [x o] then else)"
+    "List" "test for elements with (seq xs) or (empty? xs)"
+    ("Nat" "Int" "Float") (str "every number is truthy in Clojure, so the test is always true; "
+                               "compare explicitly, e.g. (< 0 n) or (== n 0)")
+    "compare explicitly, e.g. (< 0 n), (some? o) or (seq xs)"))
+
 (defn- ensure-bool-test!
   "Clojure surface mode: a test must be a Bool. Unify its type with Bool, refusing with the
-   type when that fails (truthiness of other types is not modelled yet)."
+   type when that fails (Ansatz does not model Clojure's truthiness of other types), with a
+   hint naming the explicit test for that type."
   [est form expr]
   (when (clj-surface? est)
     (let [ty (infer-with-mvars est expr)]
@@ -1234,7 +1246,7 @@
         (elab-refuse! :non-bool-test form
                       (str "the test has type " (pp/pp (zonk est ty))
                            ", not Bool; Clojure would test its truthiness")
-                      "compare explicitly, e.g. (< 0 n), (some? x) or (seq xs)")))))
+                      (explicit-test-hint est ty))))))
 
 (defn- nil-at-type
   "The value of a missing else branch at type T: the empty List when T is a List, else a
@@ -1247,6 +1259,187 @@
       (elab-refuse! :nil-at-type form
                     (str "this branch yields nil, which has no value at " (pp/pp (zonk est T)))
                     "give an else branch (or :else clause)"))))
+
+;; ── Nil checks that mean the same in Clojure and Lean ────────────────────────────────────
+;; Ansatz keeps Lean's semantics and does not model Clojure's truthiness. A Clojure nil-check is
+;; accepted only where it and a Lean construct mean the same (doc/clojure-contract.md):
+;;   (if-some [x o] t e)        o : Option α           Option.elim o e (fun x => t)
+;;   (if-let  [x o] t e)        α never nil/false       the same (truthiness = the none test)
+;;   (if-let  [x b] t e)        b : Bool                (let [x b] (if x t e)), as in Clojure
+;;   (some? o) / (nil? o)       o : Option α            Option.isSome o / Option.isNone o
+;;   (seq xs) as a test         xs : List α             !xs.isEmpty
+;;   (empty? xs)                xs : List α             xs.isEmpty
+;;   (or o d)                   o : Option α, d : α     Option.getD o d   (α as for if-let)
+;;   (not p)                    p : Bool                !p
+;; "α never nil/false" is ansatz.codegen.native/runs-truthy?: there `some x` runs as x itself, so
+;; Clojure's truthiness of the Option value is exactly its none test.
+
+(defn- unqualified-head
+  "The unqualified name of a list form's head symbol when it is not a local binder, else nil."
+  [est form]
+  (when (and (seq? form) (symbol? (first form)) (not (contains? (:scope est) (first form))))
+    (symbol (name (first form)))))
+
+(defn- option-type-arg
+  "[α u] when `ty` is `Option.{u} α` after whnf, else nil."
+  [est ty]
+  (let [tw (whnf-with-mvars est (zonk est ty))
+        [h as] (e/get-app-fn-args tw)]
+    (when (and (e/const? h) (= "Option" (name/->string (e/const-name h))) (= 1 (count as)))
+      [(first as) (first (e/const-levels h))])))
+
+(defn- list-type-arg
+  "[α u] when `ty` is `List.{u} α` after whnf, else nil."
+  [est ty]
+  (let [tw (whnf-with-mvars est (zonk est ty))
+        [h as] (e/get-app-fn-args tw)]
+    (when (and (e/const? h) (= "List" (name/->string (e/const-name h))) (= 1 (count as)))
+      [(first as) (first (e/const-levels h))])))
+
+(defn- runs-truthy?
+  "Is every value of `α` a Clojure value other than nil and false at run time?"
+  [est α]
+  (native/runs-truthy? (elab-env est) #(whnf-with-mvars est (zonk est %)) (zonk est α)))
+
+(defn- const* [s levels] (e/const' (name/from-string s) levels))
+
+(defn- elab-list-emptiness
+  "(empty? xs) → List.isEmpty xs; (seq xs) as a test → !(List.isEmpty xs)."
+  [est form negate?]
+  (when-not (= 2 (count form))
+    (elab-error! (str (first form) " takes one argument") {:form form}))
+  (let [xs (elab-term (dissoc est :test-position) (second form))
+        ty (infer-with-mvars est xs)]
+    (if-let [[α u] (list-type-arg est ty)]
+      (let [empty (e/app* (const* "List.isEmpty" [u]) α xs)]
+        (if negate? (e/app (const* "Bool.not" []) empty) empty))
+      (elab-refuse! :not-a-list form
+                    (str "the operand has type " (pp/pp (zonk est ty)) ", not a List")
+                    (if (option-type-arg est ty)
+                      "test an Option with (some? o) or (nil? o)"
+                      "test the value explicitly, e.g. with a comparison")))))
+
+(defn- elab-test
+  "Elaborate the test of an if/cond (and the operands of an and/or/not in test position). In a
+   Clojure body `(seq xs)` there means `!xs.isEmpty`; any other test must be a Bool. An and/or
+   test passes test position on to its operands: its value is only tested, never used."
+  [est form]
+  (if (clj-surface? est)
+    (let [h (unqualified-head est form)
+          x (cond
+              (and (= 'seq h) (= 2 (count form))) (elab-list-emptiness est form true)
+              (contains? '#{and or} h) (elab-term (assoc est :test-position true) form)
+              :else (elab-term (dissoc est :test-position) form))]
+      (ensure-bool-test! est form x)
+      x)
+    (elab-term est form)))
+
+(defn- elab-option-predicate
+  "(some? o) → Option.isSome o, (nil? o) → Option.isNone o."
+  [est form]
+  (when-not (= 2 (count form))
+    (elab-error! (str (first form) " takes one argument") {:form form}))
+  (let [o (elab-term (dissoc est :test-position) (second form))
+        ty (infer-with-mvars est o)]
+    (if-let [[α u] (option-type-arg est ty)]
+      (e/app* (const* (if (= 'some? (unqualified-head est form)) "Option.isSome" "Option.isNone") [u])
+              α o)
+      (elab-refuse! :not-optional form
+                    (str "the operand has type " (pp/pp (zonk est ty))
+                         ", not an Option: it is never nil, so Clojure's answer is constant")
+                    (if (list-type-arg est ty)
+                      "a List's nil is the empty list: test it with (empty? xs) or (seq xs)"
+                      "declare the value as an (Option T) if it can be absent")))))
+
+(defn- elab-not
+  "(not p) on a Bool → Bool.not p. The operand is a test, so (not (seq xs)) is accepted."
+  [est form]
+  (when-not (= 2 (count form))
+    (elab-error! "not takes one argument" {:form form}))
+  (e/app (const* "Bool.not" []) (elab-test est (second form))))
+
+(defn- elab-option-or
+  "(or o d …) with o : Option α, α never nil/false at run time → Option.getD o (or d …)."
+  [est sexpr o [α u] more]
+  (when-not (runs-truthy? est α)
+    (elab-refuse! :truthiness-differs sexpr
+                  (str "the Option's values have type " (pp/pp (zonk est α))
+                       ", which can run as nil or false: Clojure's or would test that value")
+                  "(if-some [x o] x d) tests for nil only"))
+  (let [d-form (if (next more) (cons 'or more) (first more))
+        d (elab-term est d-form)
+        d (num-lit-at-type est α (type-head-name est α) d)]
+    (when-not (unify! est (infer-with-mvars est d) α)
+      (elab-refuse! :non-bool-test sexpr
+                    (str "the default has type " (pp/pp (zonk est (infer-with-mvars est d)))
+                         ", not the Option's value type " (pp/pp (zonk est α)))
+                    "write (if-some [x o] x d) with d of the value type"))
+    (e/app* (const* "Option.getD" [u]) α o d)))
+
+(def ^:private nil-check-binders '#{if-some when-some if-let when-let})
+
+(declare elab-expansion)
+
+(defn- elab-nil-check-binding
+  "(if-some [x o] t e) / (when-some [x o] t) → Option.elim o e (fun x => t), with x : α in t
+   (Lean's `if let some x := o then t else e`). if-let/when-let take the same term where α never
+   runs as nil or false; on a Bool they are Clojure's own (let [x b] (if x t e))."
+  [est sexpr]
+  (let [head (unqualified-head est sexpr)
+        when? (contains? '#{when-some when-let} head)
+        let? (contains? '#{if-let when-let} head)
+        [_ bv & body] sexpr
+        _ (when-not (and (vector? bv) (= 2 (count bv)) (symbol? (first bv)))
+            (elab-error! (str head " binds one symbol to one value: [x o]") {:form sexpr}))
+        _ (when (and (not when?) (not (#{1 2} (count body))))
+            (elab-error! (str head " takes a then branch and an optional else branch") {:form sexpr}))
+        [x o-form] bv
+        t-form (if when? (if (= 1 (count body)) (first body) (cons 'do body)) (first body))
+        has-else? (and (not when?) (= 2 (count body)))
+        e-form (when has-else? (second body))
+        est (dissoc est :test-position)
+        o (elab-term est o-form)
+        oty (infer-with-mvars est o)
+        opt (option-type-arg est oty)]
+    (cond
+      opt
+      (let [[α u] opt
+            _ (when (and let? (not (runs-truthy? est α)))
+                (elab-refuse! :truthiness-differs sexpr
+                              (str "the Option's values have type " (pp/pp (zonk est α))
+                                   ", which can run as nil or false: Clojure's " head
+                                   " would test that value, not only its presence")
+                              (str (if when? "when-some" "if-some") " tests for nil only")))
+            declared (when (and (:definition-ret est) (= sexpr (:definition-body est)))
+                       (:definition-ret est))
+            at (fn [est form] (if declared (assoc est :definition-body form) est))
+            α (zonk est α)
+            fid (fresh-id! est)
+            est-x (-> est
+                      (assoc-in [:scope x] {:fvar-id fid :type α})
+                      (update :tc update :lctx red/lctx-add-local fid (str x) α))
+            t0 (elab-term (at est-x t-form) t-form)
+            e0 (when has-else? (elab-term (at est e-form) e-form))
+            T (zonk est (or declared (infer-with-mvars est-x (if (and e0 (e/lit-nat? t0)) e0 t0))))
+            tn (type-head-name est T)
+            t1 (num-lit-at-type est-x T tn t0)
+            e1 (if has-else? (num-lit-at-type est T tn e0) (nil-at-type est sexpr T))
+            T-sort (infer-with-mvars est T)
+            v (if (e/sort? T-sort) (e/sort-level T-sort) (lvl/succ lvl/zero))
+            body (e/abstract1 (meta/abstract-fvars (zonk est-x t1) [fid]) fid)]
+        (e/app* (const* "Option.elim" [u v]) α T o e1 (e/lam (str x) α body :default)))
+
+      (and let? (unify! est oty (bool-type)))
+      (elab-expansion est sexpr
+                      (list 'let [x o] (if has-else? (list 'if x t-form e-form) (list 'if x t-form))))
+
+      :else
+      (elab-refuse! :not-optional sexpr
+                    (str "the value has type " (pp/pp (zonk est oty))
+                         ", not an Option: it is never nil, so " head " always binds it")
+                    (if (list-type-arg est oty)
+                      "a List's nil is the empty list: test it with (seq xs), bind it with let"
+                      "bind it with let; declare an (Option T) if it can be absent")))))
 
 (defn- type-operand?
   "Does `form` elaborate to a type (its type is a Sort)? Decides whether `(< T a b)` is the
@@ -1612,8 +1805,7 @@
                                    ret-type prop inst
                                    (e/lam "h" prop (e/lift then-expr 1 0) :default)
                                    (e/lam "h" not-prop (e/lift else-expr 1 0) :default)))
-                         (let [cond-expr (elab-term est c)
-                               _ (ensure-bool-test! est c cond-expr)
+                         (let [cond-expr (elab-test est c)
                                [then-expr else-expr ret-type] (elab-if-branches est sexpr t e)]
                            (e/app* (e/const' (name/from-string "Bool.rec") [(lvl/succ lvl/zero)])
                                    (e/lam "_" (e/const' (name/from-string "Bool") []) ret-type :default)
@@ -1839,8 +2031,7 @@
                                  (let [[t e & more] cs]
                                    (if (or (keyword? t) (true? t))
                                      (elab-term est e)
-                                     (let [te (elab-term est t)
-                                           _ (ensure-bool-test! est t te)
+                                     (let [te (elab-test est t)
                                            ee (elab-term est e)]
                                        (e/app* (e/const' (name/from-string "Bool.rec") [(lvl/succ lvl/zero)])
                                                (e/lam "_" (e/const' (name/from-string "Bool") [])
@@ -1860,9 +2051,20 @@
         ;; `or`/`and`, short-circuiting included).
         ;;   (and) → true · (or) → false · (and x) → x · n-ary folds left, as Lean's infixl
         ;;   `&&`/`||` do (Bool.and/Bool.or are associative, so this only fixes the shape).
+        ;; In a Clojure body, an and/or that is itself a test (elab-test marks it :test-position)
+        ;; tests its operands too, so `(seq xs)` is accepted there; where its value is used, an
+        ;; operand's value can be the result, so operands must be Bools. `(or o d)` with an
+        ;; Option `o` is `Option.getD o d` where the Option's values never run as nil or false.
               ("and" "or") (let [or? (= "or" (str head))
                                  args (rest sexpr)
-                                 op (name/from-string (if or? "Bool.or" "Bool.and"))]
+                                 op (name/from-string (if or? "Bool.or" "Bool.and"))
+                                 test? (:test-position est)
+                                 est (dissoc est :test-position)
+                                 operand (fn [f] (if test?
+                                                   (elab-test est f)
+                                                   (let [x (elab-term est f)]
+                                                     (ensure-bool-test! est f x)
+                                                     x)))]
                              (cond
                              ;; No Bool.or/Bool.and in this env (a minimal test env): fall back
                              ;; to Clojure's expansion rather than failing to elaborate at all.
@@ -1873,17 +2075,19 @@
                                (e/const' (name/from-string (if or? "Bool.false" "Bool.true")) [])
 
                                (= 1 (count args))
-                               (let [x (elab-term est (first args))]
-                                 (ensure-bool-test! est (first args) x)
-                                 x)
+                               (operand (first args))
 
                                :else
-                               (let [operand (fn [f] (let [x (elab-term est f)]
-                                                       (ensure-bool-test! est f x)
-                                                       x))]
-                                 (reduce (fn [acc f] (e/app* (e/const' op []) acc (operand f)))
-                                         (operand (first args))
-                                         (rest args)))))
+                               (let [x0 (when (and or? (not test?) (clj-surface? est))
+                                          (elab-term est (first args)))
+                                     opt (when x0 (option-type-arg est (infer-with-mvars est x0)))]
+                                 (if opt
+                                   (elab-option-or est sexpr x0 opt (rest args))
+                                   (reduce (fn [acc f] (e/app* (e/const' op []) acc (operand f)))
+                                           (if x0
+                                             (do (ensure-bool-test! est (first args) x0) x0)
+                                             (operand (first args)))
+                                           (rest args))))))
 
         ;; `bif` — Lean's boolean-`if` notation, the escape to the `cond` CONSTANT
         ;; (cond.{u} {α : Type u} (c : Bool) (a b : α) : α). The surface `cond` is overloaded as
@@ -1995,6 +2199,23 @@
                                (list 'let [g scrut]
                                      (reduce (fn [acc [k v]] (list 'if (list '== g k) v acc))
                                              default (reverse pairs))))))
+          ;; nil checks that mean the same in Clojure and Lean (see elab-nil-check-binding).
+          ;; Outside a Clojure body the binders keep their macroexpansion.
+                (contains? nil-check-binders (unqualified-head est sexpr))
+                (if (clj-surface? est)
+                  (elab-nil-check-binding est sexpr)
+                  (elab-expansion est sexpr (macroexpand-1 sexpr)))
+                (and (clj-surface? est) (contains? '#{some? nil?} (unqualified-head est sexpr)))
+                (elab-option-predicate est sexpr)
+                (and (clj-surface? est) (= 'empty? (unqualified-head est sexpr)))
+                (elab-list-emptiness est sexpr false)
+                (and (clj-surface? est) (= 'not (unqualified-head est sexpr)))
+                (elab-not est sexpr)
+          ;; (seq xs) reaches here only where its value is used (elab-test takes it as a test)
+                (and (clj-surface? est) (= 'seq (unqualified-head est sexpr)))
+                (elab-refuse! :seq-value sexpr
+                              "Clojure's seq returns nil or a seq, neither a Bool nor the list"
+                              "as an if/when/cond test (seq xs) is accepted; as a value write (not (empty? xs))")
                 (and (symbol? head) (ingest/expand-macro? head))
                 (elab-expansion est sexpr (macroexpand-1 sexpr))
                 :else (elab-app est (first sexpr) (rest sexpr)))))))

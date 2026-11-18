@@ -148,12 +148,88 @@
    {:id :or/bool :group :control :form '(or p q) :params '[[p Bool] [q Bool]] :ret 'Bool :expect :agree}
    {:id :and/nary :group :control :form '(and p q r) :params '[[p Bool] [q Bool] [r Bool]] :ret 'Bool
     :expect :agree}
-   {:id :or/value :group :control :form '(or o 0) :params '[[o (Option Nat)]] :ret 'Nat :expect :refuse
-    :reason :non-bool-test}
+   {:id :or/value :group :control :form '(or a b) :params '[[a Nat] [b Nat]] :ret 'Nat :expect :refuse
+    :reason :non-bool-test :note "An Option's `(or o d)` is under Nil checks."}
    {:id :and/value :group :control :form '(and a b) :params '[[a Nat] [b Nat]] :ret 'Nat :expect :refuse
     :reason :non-bool-test}
-   {:id :not/bool :group :control :form '(not p) :params '[[p Bool]] :ret 'Bool :expect :refuse
-    :note "`not` is not in the core surface."}
+   {:id :not/bool :group :control :form '(not p) :params '[[p Bool]] :ret 'Bool :expect :agree
+    :note "Bool.not."}
+   {:id :not/nat :group :control :form '(not a) :params '[[a Nat]] :ret 'Bool :expect :refuse
+    :reason :non-bool-test :note "Clojure: every number is truthy, so (not a) is false."}
+   {:id :if-not/bool :group :control :form '(if-not p a b) :params '[[p Bool] [a Nat] [b Nat]] :ret 'Nat
+    :expect :agree}
+
+   ;; ── nil checks ──────────────────────────────────────────────────────────────────────
+   {:id :if-some/nat :group :nil :form '(if-some [x o] (+ x 1) 0) :params '[[o (Option Nat)]] :ret 'Nat
+    :expect :agree :note "Option.elim o 0 (fun x => x + 1), Lean's `if let some x := o`."}
+   {:id :if-some/bool :group :nil :form '(if-some [x o] (if x 1 2) 3) :params '[[o (Option Bool)]] :ret 'Nat
+    :expect :agree :note "Any element type: if-some tests for nil only."}
+   {:id :if-some/list :group :nil :form '(if-some [ys o] ys [7]) :params '[[o (Option (List Nat))]]
+    :ret '(List Nat) :expect :agree}
+   {:id :if-some/no-else-list :group :nil :form '(if-some [x o] [x]) :params '[[o (Option Nat)]]
+    :ret '(List Nat) :expect :agree :note "The missing branch is nil, the empty List."}
+   {:id :if-some/no-else-nat :group :nil :form '(if-some [x o] x) :params '[[o (Option Nat)]] :ret 'Nat
+    :expect :refuse :reason :nil-at-type}
+   {:id :when-some/list :group :nil :form '(when-some [x o] [x x]) :params '[[o (Option Nat)]]
+    :ret '(List Nat) :expect :agree}
+   {:id :when-some/nat :group :nil :form '(when-some [x o] x) :params '[[o (Option Nat)]] :ret 'Nat
+    :expect :refuse :reason :nil-at-type}
+   {:id :if-some/not-optional :group :nil :form '(if-some [x a] x 0) :params '[[a Nat]] :ret 'Nat
+    :expect :refuse :reason :not-optional :note "A Nat is never nil: bind it with let."}
+   {:id :if-let/nat :group :nil :form '(if-let [x o] (* x 2) 7) :params '[[o (Option Nat)]] :ret 'Nat
+    :expect :agree :note "A number is never nil or false: truthiness and the none test agree."}
+   {:id :if-let/int :group :nil :form '(if-let [x o] (- x) 7) :params '[[o (Option Int)]] :ret 'Int
+    :expect :agree}
+   {:id :if-let/string :group :nil :form '(if-let [s o] s "none") :params '[[o (Option String)]]
+    :ret 'String :expect :agree}
+   {:id :if-let/structure :group :nil :form '(if-let [p o] (:x p) 0) :params '[[o (Option CcPoint)]]
+    :ret 'Nat :expect :agree :note "A structure with fields runs as a record."}
+   {:id :when-let/list :group :nil :form '(when-let [x o] [x]) :params '[[o (Option Nat)]]
+    :ret '(List Nat) :expect :agree}
+   {:id :if-let/bool :group :nil :form '(if-let [x p] (if x 1 3) 2) :params '[[p Bool]] :ret 'Nat
+    :expect :agree :note "On a Bool, Clojure's own (let [x p] (if x … …))."}
+   {:id :if-let/option-bool :group :nil :form '(if-let [x o] 1 2) :params '[[o (Option Bool)]] :ret 'Nat
+    :expect :refuse :reason :truthiness-differs :note "Clojure takes the else branch for false."}
+   {:id :if-let/option-option :group :nil :form '(if-let [x o] 1 2) :params '[[o (Option (Option Nat))]]
+    :ret 'Nat :expect :refuse :reason :truthiness-differs}
+   {:id :if-let/option-list :group :nil :form '(if-let [x o] 1 2) :params '[[o (Option (List Nat))]]
+    :ret 'Nat :expect :refuse :reason :truthiness-differs}
+   {:id :if-let/option-unit :group :nil :form '(if-let [x o] 1 2) :params '[[o (Option Unit)]]
+    :ret 'Nat :expect :refuse :reason :truthiness-differs}
+   {:id :if-let/not-optional :group :nil :form '(if-let [x a] x 0) :params '[[a Nat]] :ret 'Nat
+    :expect :refuse :reason :not-optional}
+   {:id :some?/option :group :nil :form '(some? o) :params '[[o (Option Nat)]] :ret 'Bool :expect :agree
+    :note "Option.isSome."}
+   {:id :nil?/option :group :nil :form '(nil? o) :params '[[o (Option Bool)]] :ret 'Bool :expect :agree
+    :note "Option.isNone."}
+   {:id :some?/nat :group :nil :form '(some? a) :params '[[a Nat]] :ret 'Bool :expect :refuse
+    :reason :not-optional}
+   {:id :nil?/list :group :nil :form '(nil? xs) :params '[[xs (List Nat)]] :ret 'Bool :expect :refuse
+    :reason :not-optional :note "nil is the empty List, and (nil? ()) is false."}
+   {:id :seq/if :group :nil :form '(if (seq xs) 1 0) :params '[[xs (List Nat)]] :ret 'Nat :expect :agree
+    :note "As a test: !xs.isEmpty."}
+   {:id :seq/when :group :nil :form '(when (seq xs) xs) :params '[[xs (List Nat)]] :ret '(List Nat)
+    :expect :agree}
+   {:id :seq/cond :group :nil :form '(cond (seq xs) 1 :else 0) :params '[[xs (List Nat)]] :ret 'Nat
+    :expect :agree}
+   {:id :seq/and-test :group :nil :form '(if (and p (seq xs)) 1 0) :params '[[p Bool] [xs (List Nat)]]
+    :ret 'Nat :expect :agree :note "Inside an and/or that is itself a test."}
+   {:id :seq/not :group :nil :form '(not (seq xs)) :params '[[xs (List Nat)]] :ret 'Bool :expect :agree}
+   {:id :seq/value :group :nil :form '(seq xs) :params '[[xs (List Nat)]] :ret '(List Nat) :expect :refuse
+    :reason :seq-value :note "Clojure returns nil or a seq."}
+   {:id :seq/and-value :group :nil :form '(and p (seq xs)) :params '[[p Bool] [xs (List Nat)]] :ret 'Bool
+    :expect :refuse :reason :seq-value :note "The and's value would be the seq."}
+   {:id :empty?/list :group :nil :form '(empty? xs) :params '[[xs (List Nat)]] :ret 'Bool :expect :agree
+    :note "List.isEmpty."}
+   {:id :empty?/string :group :nil :form '(empty? s) :params '[[s String]] :ret 'Bool :expect :refuse
+    :reason :not-a-list}
+   {:id :or/option :group :nil :form '(or o 0) :params '[[o (Option Nat)]] :ret 'Nat :expect :agree
+    :note "Option.getD o 0."}
+   {:id :or/option-int :group :nil :form '(or o -1) :params '[[o (Option Int)]] :ret 'Int :expect :agree}
+   {:id :or/option-nary :group :nil :form '(or o q 5) :params '[[o (Option Nat)] [q (Option Nat)]] :ret 'Nat
+    :expect :agree :note "Option.getD o (Option.getD q 5)."}
+   {:id :or/option-bool :group :nil :form '(or o true) :params '[[o (Option Bool)]] :ret 'Bool
+    :expect :refuse :reason :truthiness-differs :note "Clojure: (or false true) is true."}
 
    ;; ── bodies and bindings ─────────────────────────────────────────────────────────────
    {:id :do/single :group :bodies :form '(do a) :params '[[a Nat]] :ret 'Nat :expect :agree}
@@ -196,7 +272,7 @@
 
 (def ^:private group-titles
   [[:arithmetic "Arithmetic"] [:comparison "Comparison"] [:control "Control flow and truthiness"]
-   [:bodies "Bodies and bindings"] [:data "Data and nil"]])
+   [:nil "Nil checks"] [:bodies "Bodies and bindings"] [:data "Data and nil"]])
 
 (def ^:private status-text
   {:agree "faithful" :refuse "refused" :diverges "**diverges** (known bug)" :domain "faithful on a domain"})
@@ -251,6 +327,13 @@
      "empty list, `Unit`) or is already boxed runs as a box, a value Clojure has no spelling for."
      "Rows marked *(needs …)* use constants the bundled Init does not carry; they run against a"
      "Mathlib store."
+     ""
+     "Truthiness: Ansatz keeps Lean's semantics and does not model Clojure's truthiness. A test"
+     "is a Bool. A nil check is accepted where it means the same as a Lean construct (*Nil"
+     "checks*): `if-some` on any Option, `if-let` and `(or o d)` on an Option whose values never"
+     "run as `nil` or `false` (numbers, strings, characters, structures and inductives whose every"
+     "constructor has fields), `some?`/`nil?` on an Option, `(seq xs)` as a test and `empty?` on a"
+     "List. Elsewhere the form is refused with a hint to the explicit test."
      ""
      "Scope: the rules hold in `a/defn` bodies (and the loop helpers hoisted from them). Types,"
      "propositions, theorem statements, tactic terms and `:termination-by` measures keep Lean's"

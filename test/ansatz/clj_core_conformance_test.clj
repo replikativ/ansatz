@@ -29,6 +29,7 @@
 (deftest arithmetic (check-group :arithmetic))
 (deftest comparison (check-group :comparison))
 (deftest control (check-group :control))
+(deftest nil-checks (check-group :nil))
 (deftest bodies (check-group :bodies))
 (deftest data (check-group :data))
 

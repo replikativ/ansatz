@@ -112,6 +112,55 @@
        (when-let [i (trivial-structure-field env type-name)]
          (identity-structure i)))))
 
+;; ── values that never run as nil or false ────────────────────────────────────────────────────
+
+(def ^:private truthy-scalars
+  "Init types whose runtime values are Clojure numbers, strings or code points."
+  #{"Nat" "Int" "Float" "String" "Char"})
+
+(defn- ctor-field-type
+  "The type of field `i` of the one constructor of `ind`, at the parameters `params`; nil when
+   it depends on an earlier field."
+  [env ^ConstantInfo ind params i]
+  (let [^ConstantInfo ctor (env/lookup env (aget (.ctors ind) 0))]
+    (when (= (count params) (.numParams ctor))
+      (let [t (reduce (fn [t p] (if (e/forall? t) (e/instantiate1 (e/forall-body t) p) t))
+                      (.type ctor) params)
+            t (nth (iterate #(when (and % (e/forall? %)) (e/forall-body %)) t) i)]
+        (when (and t (e/forall? t) (not (e/has-loose-bvars? (e/forall-type t))))
+          (e/forall-type t))))))
+
+(defn runs-truthy?
+  "Does every value of the type `ty` run as a Clojure value that is neither nil nor false?
+   Then `some x` of it runs as x itself, so Clojure's truthiness test on an `Option ty` is
+   Lean's `none` test (the nil checks `if-let`, `when-let` and `(or o d)` rely on it).
+
+   A closed, syntactic rule on the head of `ty` after `whnf`: Nat, Int, Float, String and Char;
+   the runtime builtin structures (`native-structures`: Array, ByteArray, UIntN — vectors,
+   strings and numbers); a trivial structure when its one relevant field's type qualifies
+   (it runs as that field: `{x : Option Nat // p}` runs as an Option); any other inductive
+   whose every constructor has fields (a record or a vector). Everything else is refused:
+   a constructor without fields can run as nil (`none`, the empty list, `Unit`, a `Bool`
+   is false), and a type variable can be any of them."
+  [env whnf ty]
+  (let [ty (whnf ty)
+        [h as] (e/get-app-fn-args ty)
+        hn (when (e/const? h) (name/->string (e/const-name h)))]
+    (boolean
+     (when hn
+       (cond
+         (contains? truthy-scalars hn) true
+         (contains? native-structures hn) true
+         (native-inductive hn) false
+         :else
+         (when-let [^ConstantInfo ind (env/lookup env (name/from-string hn))]
+           (when (and (.isInduct ind) (pos? (alength (.ctors ind))))
+             (if-let [i (trivial-structure-field env hn)]
+               (when-let [ft (ctor-field-type env ind (vec as) i)]
+                 (runs-truthy? env whnf ft))
+               (every? (fn [c] (pos? (.numFields ^ConstantInfo (env/lookup env c))))
+                       (.ctors ind))))))))))
+
 ;; ── extern table ──────────────────────────────────────────────────────────────────────────────
 
 (defn- entry [erased arity emit] {:erased erased :arity arity :emit emit})
