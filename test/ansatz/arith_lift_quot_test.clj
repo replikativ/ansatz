@@ -48,3 +48,9 @@
     (binding [a/*verbose* false]
       (is (thrown? clojure.lang.ExceptionInfo
                    (a/defn bad [n Nat] Nat (/ n 3)))))))
+
+(deftest mod-lifts
+  (testing "Clojure's mod at Nat is Nat.mod (floored and truncated agree on non-negatives)"
+    (binding [a/*verbose* false]
+      (a/defn m3 [n Nat] Nat (mod n 3))
+      (is (every? true? (for [n (range 200)] (= (mod n 3) (m3 n))))))))

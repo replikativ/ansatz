@@ -22,7 +22,7 @@
   "Declarations the rows refer to, evaluated once before the table runs."
   ['(ansatz.core/structure CcPoint [] (x Nat) (y Nat))])
 
-(def float-consts #{"Float" "instOfScientificFloat"})
+(def float-consts #{"Float" "instOfScientificFloat" "Float.floor" "Float.lt"})
 
 (def rows
   [;; ── arithmetic ──────────────────────────────────────────────────────────────────────
@@ -71,10 +71,14 @@
    {:id :rem/int :group :arithmetic :form '(rem a b) :params '[[a Int] [b Int]] :ret 'Int :expect :agree
     :requires #{"Int.tmod"}}
    {:id :quot/float :group :arithmetic :form '(quot a b) :params '[[a Float] [b Float]] :ret 'Float
-    :expect :diverges :requires float-consts :note "Elaborates to real division (HDiv), not truncation."}
-   {:id :mod/nat :group :arithmetic :form '(mod a b) :params '[[a Nat] [b Nat]] :ret 'Nat :expect :refuse
-    :note "No `mod` surface yet."}
-   {:id :mod/int :group :arithmetic :form '(mod a b) :params '[[a Int] [b Int]] :ret 'Int :expect :refuse}
+    :expect :agree :requires float-consts :note "Truncation toward zero, not real division."}
+   {:id :rem/float :group :arithmetic :form '(rem a b) :params '[[a Float] [b Float]] :ret 'Float
+    :expect :agree :requires float-consts}
+   {:id :mod/float :group :arithmetic :form '(mod a b) :params '[[a Float] [b Float]] :ret 'Float
+    :expect :agree :requires float-consts :note "clojure.core/mod: the remainder takes the divisor's sign."}
+   {:id :mod/nat :group :arithmetic :form '(mod a b) :params '[[a Nat] [b Nat]] :ret 'Nat :expect :agree}
+   {:id :mod/int :group :arithmetic :form '(mod a b) :params '[[a Int] [b Int]] :ret 'Int :expect :agree
+    :requires #{"Int.fmod"} :note "Int.fmod (floored), never Lean's `%` on Int, which is Int.emod."}
    {:id :div/nat :group :arithmetic :form '(/ a b) :params '[[a Nat] [b Nat]] :ret 'Nat :expect :refuse
     :note "Clojure's `/` on integers is Ratio division; it is never lifted to floor division."}
    {:id :inc/nat :group :arithmetic :form '(inc a) :params '[[a Nat]] :ret 'Nat :expect :refuse
@@ -103,8 +107,9 @@
     :expect :agree}
    {:id :lt/unary :group :comparison :form '(< a) :params '[[a Nat]] :ret 'Bool :expect :agree}
    {:id :lt/float :group :comparison :form '(< a b) :params '[[a Float] [b Float]] :ret 'Bool
-    :expect :refuse :requires float-consts
-    :note "Float.lt is Bool-valued in Lean 4.33.1; the Decidable spelling is ill-typed."}
+    :expect :agree :requires float-consts :note "Float.lt is Bool-valued in Lean 4.33.1."}
+   {:id :le/float :group :comparison :form '(<= a b) :params '[[a Float] [b Float]] :ret 'Bool
+    :expect :agree :requires float-consts}
    {:id :eq/float-literal :group :comparison :form '(= a 0) :params '[[a Float]] :ret 'Bool
     :expect :refuse :reason :float-int-equality :requires float-consts}
    {:id :eqeq/float-literal :group :comparison :form '(== a 0) :params '[[a Float]] :ret 'Bool

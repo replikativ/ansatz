@@ -518,7 +518,8 @@
 (def ^:private hop-table
   "Surface op → [class method] for Lean's heterogeneous operator classes."
   {"+" ["HAdd" "HAdd.hAdd"] "-" ["HSub" "HSub.hSub"] "*" ["HMul" "HMul.hMul"]
-   "quot" ["HDiv" "HDiv.hDiv"] "rem" ["HMod" "HMod.hMod"] "pow" ["HPow" "HPow.hPow"]})
+   "quot" ["HDiv" "HDiv.hDiv"] "rem" ["HMod" "HMod.hMod"] "mod" ["HMod" "HMod.hMod"]
+   "pow" ["HPow" "HPow.hPow"]})
 
 (def ^:private explicit-arith
   "Explicit-type surface form → the `hop-table` / `ingest/arith-lift` op key. (No `rem` row: the
@@ -1271,6 +1272,42 @@
                    (partition 2 1 operands)))
       :else nil)))
 
+(defn- float-c [n] (e/const' (name/from-string n) []))
+
+(defn- float-divmod
+  "Clojure's quot / rem / mod on doubles (clojure.lang.Numbers quotient and remainder,
+   clojure.core/mod), which are NOT real division: quot truncates toward zero, rem is
+   a - b·quot, and mod is rem adjusted to the divisor's sign. Lean has Float.floor/Float.ceil
+   (Init/Data/Float/Float.lean) and a Bool-valued Float.lt, so:
+     quot a b = let q := a / b; if q < 0 then ceil q else floor q
+     rem  a b = a - b * quot a b
+     mod  a b = let m := rem a b; if m == 0 || ((0 < a) == (0 < b)) then m else m + b
+   (the conditionals are Bool.rec, as an elaborated `if` over a Bool test)"
+  [op a b]
+  (let [F (float-c "Float")
+        zero (e/app (float-c "Float.ofNat") (e/lit-nat 0))
+        app2 (fn [f x y] (e/app* (float-c f) x y))
+        ;; Bool.rec (motive, false-case, true-case, test), as the elaborated `if` is
+        cond* (fn cond* ([c x y] (cond* F c x y))
+                ([T c x y] (e/app* (e/const' (name/from-string "Bool.rec") [(lvl/succ lvl/zero)])
+                                   (e/lam "_" (float-c "Bool") T :default) y x c)))
+        quot (fn [a b]
+               (e/let' "q" F (app2 "Float.div" a b)
+                       (cond* (app2 "Float.lt" (e/bvar 0) zero)
+                              (e/app (float-c "Float.ceil") (e/bvar 0))
+                              (e/app (float-c "Float.floor") (e/bvar 0)))))
+        rem (fn [a b] (app2 "Float.sub" a (app2 "Float.mul" b (quot a b))))]
+    (case op
+      "quot" (quot a b)
+      "rem" (rem a b)
+      "mod" (let [pos (fn [x] (app2 "Float.lt" zero x))
+                  same-sign (cond* (float-c "Bool") (pos (e/lift a 1 0)) (pos (e/lift b 1 0))
+                                   (e/app (float-c "Bool.not") (pos (e/lift b 1 0))))]
+              (e/let' "m" F (rem a b)
+                      (cond* (app2 "Bool.or" (app2 "Float.beq" (e/bvar 0) zero) same-sign)
+                             (e/bvar 0)
+                             (app2 "Float.add" (e/bvar 0) (e/lift b 1 0))))))))
+
 (defn- elab-bool-comparison
   "Computational comparisons. Equality follows Init/Prelude.lean's decEq/decide
    through the registered dictionary; order retains the native Nat/Int/Float encoding."
@@ -1323,7 +1360,8 @@
         (decide-eq)
         (case tn
           "Int"   (case rel :lt (decide "Int.lt" "Int.decLt") :le (decide "Int.le" "Int.decLe"))
-          "Float" (case rel :lt (decide "Float.lt" "Float.decLt") :le (decide "Float.le" "Float.decLe") :eq
+          ;; Float.lt / Float.le are Bool-valued (Init/Data/Float/Float.lean): no decide
+          "Float" (case rel :lt (bool-op "Float.lt") :le (bool-op "Float.le") :eq
                         (let [u (type-sort-level est (infer-with-mvars est a))
                               T (infer-with-mvars est a)
                               inst (inst-mvar! est (e/app (e/const' (name/from-string "BEq") [u]) T))]
@@ -1666,7 +1704,7 @@
         ;; analyse the operand tree for its max type, then emit the class operator.
         ;; Power and quotient/remainder have surface-specific concrete mappings.
         ;; n-ary folds left, as Lean's infixl ops do.
-              ("+" "-" "*" "quot" "rem")
+              ("+" "-" "*" "quot" "rem" "mod")
               (let [op (str head)
                     args (rest sexpr)]
                 (cond
@@ -1708,8 +1746,15 @@
                   (let [expected (when (= sexpr (:definition-body est)) (:definition-ret est))
                         [T tn] (or (arith-type est sexpr expected)
                                    [(e/const' (name/from-string "Nat") []) "Nat"])]
-                    (if-let [const (get-in ingest/arith-lift [op tn])]
-                      (concrete-arith est const T tn args false)
+                    (cond
+                      (get-in ingest/arith-lift [op tn])
+                      (concrete-arith est (get-in ingest/arith-lift [op tn]) T tn args false)
+
+                      (and (= tn "Float") (#{"quot" "rem" "mod"} op))
+                      (float-divmod op (elab-arith-operand est T tn (first args))
+                                    (elab-arith-operand est T tn (second args)))
+
+                      :else
                       (let [[cls method] (hop-table op)
                             r (elab-hop est cls method T T T
                                         (elab-arith-operand est T tn (first args))

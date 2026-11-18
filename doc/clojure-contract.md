@@ -69,14 +69,16 @@ meaning. `a/defn ^:lean name …` opts a definition out, for a body written in L
 | `(rem a b)` | a : Nat, b : Nat → Nat | faithful |  |
 | `(quot a b)` | a : Int, b : Int → Int | faithful | Int.tdiv: truncation toward zero. *(needs Int.tdiv)* |
 | `(rem a b)` | a : Int, b : Int → Int | faithful | *(needs Int.tmod)* |
-| `(quot a b)` | a : Float, b : Float → Float | **diverges** (known bug) | Elaborates to real division (HDiv), not truncation. *(needs Float, instOfScientificFloat)* |
-| `(mod a b)` | a : Nat, b : Nat → Nat | refused | No `mod` surface yet. |
-| `(mod a b)` | a : Int, b : Int → Int | refused |  |
+| `(quot a b)` | a : Float, b : Float → Float | faithful | Truncation toward zero, not real division. *(needs Float, Float.floor, Float.lt, instOfScientificFloat)* |
+| `(rem a b)` | a : Float, b : Float → Float | faithful | *(needs Float, Float.floor, Float.lt, instOfScientificFloat)* |
+| `(mod a b)` | a : Float, b : Float → Float | faithful | clojure.core/mod: the remainder takes the divisor's sign. *(needs Float, Float.floor, Float.lt, instOfScientificFloat)* |
+| `(mod a b)` | a : Nat, b : Nat → Nat | faithful |  |
+| `(mod a b)` | a : Int, b : Int → Int | faithful | Int.fmod (floored), never Lean's `%` on Int, which is Int.emod. *(needs Int.fmod)* |
 | `(/ a b)` | a : Nat, b : Nat → Nat | refused | Clojure's `/` on integers is Ratio division; it is never lifted to floor division. |
 | `(inc a)` | a : Nat → Nat | refused | Not in the core surface (wandler adds it). |
 | `(dec a)` | a : Nat → Nat | refused |  |
 | `(max a b)` | a : Nat, b : Nat → Nat | refused |  |
-| `(+ a b)` | a : Float, b : Float → Float | faithful | *(needs Float, instOfScientificFloat)* |
+| `(+ a b)` | a : Float, b : Float → Float | faithful | *(needs Float, Float.floor, Float.lt, instOfScientificFloat)* |
 
 ## Comparison
 
@@ -97,9 +99,10 @@ meaning. `a/defn ^:lean name …` opts a definition out, for a body written in L
 | `(< a b c)` | a : Nat, b : Nat, c : Nat → Bool | faithful | Chains pairwise; (< T a b) with a type T is the Prop form. |
 | `(= a b c)` | a : Nat, b : Nat, c : Nat → Bool | faithful |  |
 | `(< a)` | a : Nat → Bool | faithful |  |
-| `(< a b)` | a : Float, b : Float → Bool | refused | Float.lt is Bool-valued in Lean 4.33.1; the Decidable spelling is ill-typed. *(needs Float, instOfScientificFloat)* |
-| `(= a 0)` | a : Float → Bool | refused (`:float-int-equality`) | *(needs Float, instOfScientificFloat)* |
-| `(== a 0)` | a : Float → Bool | faithful | *(needs Float, instOfScientificFloat)* |
+| `(< a b)` | a : Float, b : Float → Bool | faithful | Float.lt is Bool-valued in Lean 4.33.1. *(needs Float, Float.floor, Float.lt, instOfScientificFloat)* |
+| `(<= a b)` | a : Float, b : Float → Bool | faithful | *(needs Float, Float.floor, Float.lt, instOfScientificFloat)* |
+| `(= a 0)` | a : Float → Bool | refused (`:float-int-equality`) | *(needs Float, Float.floor, Float.lt, instOfScientificFloat)* |
+| `(== a 0)` | a : Float → Bool | faithful | *(needs Float, Float.floor, Float.lt, instOfScientificFloat)* |
 
 ## Control flow and truthiness
 

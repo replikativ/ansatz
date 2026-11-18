@@ -161,3 +161,15 @@
     (is (= 8.0 (f 2.0 3.0)))
     (is (= 8.0 ((f 2.0) 3.0)))
     (is (= 8.0 (run expr)))))
+
+(deftest float-order-equality-and-rounding-lower-natively
+  (testing "Lean 4.33.1 Float.lt/le/beq are Bool-valued externs; floor/ceil are libm"
+    (let [pos (fn [x] (e/app* (c "OfScientific.ofScientific") (c "Float") (c "instOfScientificFloat")
+                              (e/lit-nat (long (* 100 x))) (c "Bool.true") (e/lit-nat 2)))
+          fl (fn [x] (if (neg? x) (e/app (c "Float.neg") (pos (- x))) (pos x)))]
+      (is (true? (run (e/app* (c "Float.lt") (fl 1.5) (fl 2.0)))))
+      (is (false? (run (e/app* (c "Float.le") (fl 2.5) (fl 2.0)))))
+      (is (true? (run (e/app* (c "Float.beq") (fl 2.0) (fl 2.0)))))
+      (is (= -1.5 (run (e/app (c "Float.neg") (fl 1.5)))))
+      (is (= [-2.0 1.0] [(run (e/app (c "Float.floor") (fl -1.5))) (run (e/app (c "Float.floor") (fl 1.75)))]))
+      (is (= [-1.0 2.0] [(run (e/app (c "Float.ceil") (fl -1.5))) (run (e/app (c "Float.ceil") (fl 1.25)))])))))
