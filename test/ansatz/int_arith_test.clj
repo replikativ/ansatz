@@ -48,5 +48,7 @@
   (a/defn ^Int halve [^Int a] (quot a 2))
   (is (= 42 (halve 85)))
   (testing "Nat keeps its own lowering (truncated subtraction, floor division)"
-    (a/defn ^Nat nsub [^Nat m ^Nat n] (- m n))
-    (is (= 0 (nsub 3 5)) "Nat subtraction truncates at zero")))
+    (a/defn ^Nat nsub [^Nat m ^Nat n] (Nat.sub m n))
+    (is (= 0 (nsub 3 5)) "Nat subtraction truncates at zero")
+    (is (thrown? Exception (a/defn ^Nat nsub-clj [^Nat m ^Nat n] (- m n)))
+        "a Clojure `-` that may go below 0 is refused")))

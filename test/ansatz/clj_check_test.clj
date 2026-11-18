@@ -42,7 +42,8 @@
 (deftest a-non-terminating-reading-is-a-divergence
   (testing "Nat subtraction truncates, so (- n 2) reaches 0 from every n in the kernel; the
             Clojure reading never terminates for odd n"
-    (define! '(ansatz.core/defn ^Nat cc-nonstruct [^Nat n] (if (== n 0) 0 (cc-nonstruct (- n 2)))))
+    ;; ^:lean: Clojure surface mode would refuse the (- n 2) that may go below 0
+    (define! '(ansatz.core/defn ^:lean ^Nat cc-nonstruct [^Nat n] (if (== n 0) 0 (cc-nonstruct (- n 2)))))
     (let [data (try (cc/check-clojure! (defined 'cc-nonstruct)) nil
                     (catch clojure.lang.ExceptionInfo e (ex-data e)))]
       (is (some? data) "divergence reported")
@@ -51,7 +52,7 @@
       (is (= 0 (:ansatz data))))))
 
 (deftest a-value-divergence-names-the-inputs
-  (define! '(ansatz.core/defn ^Nat cc-diff [^Nat a ^Nat b] (- a b)))
+  (define! '(ansatz.core/defn ^:lean ^Nat cc-diff [^Nat a ^Nat b] (- a b)))
   (let [data (try (cc/check-clojure! (defined 'cc-diff)) nil
                   (catch clojure.lang.ExceptionInfo e (ex-data e)))]
     (is (< (first (:args data)) (second (:args data))))
@@ -59,7 +60,7 @@
 
 (deftest check-metadata-runs-at-definition-time
   (testing "^:check on the name runs check-clojure! after the definition"
-    (let [data (try (define! '(ansatz.core/defn ^:check ^Nat cc-checked-diff [^Nat a ^Nat b] (- a b)))
+    (let [data (try (define! '(ansatz.core/defn ^:lean ^:check ^Nat cc-checked-diff [^Nat a ^Nat b] (- a b)))
                     nil
                     (catch Throwable t (ex-data-in-chain t)))]
       (is (neg? (:clojure data)) "the divergence is reported when the definition is made"))

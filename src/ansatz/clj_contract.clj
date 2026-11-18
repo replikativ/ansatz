@@ -13,7 +13,7 @@
    clj_core_conformance_mathlib_test.clj (rows whose `:requires` constants only a Mathlib store
    has), and rendered to doc/clojure-contract.md by `contract-markdown`; a test keeps that
    document equal to the rendering. Row keys:
-     :id :group :form :params [[sym type-form] …] :ret type-form :expect :reason
+     :id :group :form :params [[sym type-form] …] :ret type-form :expect :reason :lean?
      :requires #{constant-name …}  :domain '(fn [args…] bool)  :note"
   (:require [clojure.string :as str]
             [ansatz.surface.ingest :as ingest]))
@@ -36,14 +36,22 @@
    {:id :mul/int :group :arithmetic :form '(* a b) :params '[[a Int] [b Int]] :ret 'Int :expect :agree}
    {:id :mul/zero-arity :group :arithmetic :form '(*) :params '[[a Nat]] :ret 'Nat :expect :agree}
    {:id :mul/unary :group :arithmetic :form '(* a) :params '[[a Nat]] :ret 'Nat :expect :agree}
-   {:id :sub/nat :group :arithmetic :form '(- a b) :params '[[a Nat] [b Nat]] :ret 'Nat :expect :diverges
-    :note "Lean's Nat subtraction truncates at 0; Clojure's goes negative."}
+   {:id :sub/nat :group :arithmetic :form '(- a b) :params '[[a Nat] [b Nat]] :ret 'Nat :expect :refuse
+    :reason :nat-sub-may-be-negative :note "Accepted where b ≤ a follows from the guards in scope."}
    {:id :sub/nat-guarded :group :arithmetic :form '(if (<= b a) (- a b) 0) :params '[[a Nat] [b Nat]]
     :ret 'Nat :expect :agree :note "Under a guard that rules out a negative result."}
-   {:id :sub/nat-literal :group :arithmetic :form '(- a 1) :params '[[a Nat]] :ret 'Nat :expect :diverges
-    :note "(- 0 1) is 0 at Nat."}
+   {:id :sub/nat-lean :group :arithmetic :form '(- a b) :params '[[a Nat] [b Nat]] :ret 'Nat
+    :lean? true :expect :diverges :note "Under `a/defn ^:lean` the body keeps Lean's truncation."}
+   {:id :sub/nat-literal :group :arithmetic :form '(- a 1) :params '[[a Nat]] :ret 'Nat :expect :refuse
+    :reason :nat-sub-may-be-negative}
+   {:id :sub/nat-literal-guarded :group :arithmetic :form '(if (== a 0) 0 (- a 1)) :params '[[a Nat]]
+    :ret 'Nat :expect :agree}
    {:id :sub/nary-nat :group :arithmetic :form '(- a b c) :params '[[a Nat] [b Nat] [c Nat]] :ret 'Nat
-    :expect :diverges}
+    :expect :refuse :reason :nat-sub-may-be-negative}
+   {:id :sub/nary-nat-guarded :group :arithmetic :form '(if (<= (+ b c) a) (- a b c) 0)
+    :params '[[a Nat] [b Nat] [c Nat]] :ret 'Nat :expect :agree}
+   {:id :sub/nat-let-guard :group :arithmetic :form '(let [m (+ a b)] (- m a)) :params '[[a Nat] [b Nat]]
+    :ret 'Nat :expect :agree :note "A let binding is a fact: m = a + b."}
    {:id :sub/int :group :arithmetic :form '(- a b) :params '[[a Int] [b Int]] :ret 'Int :expect :agree}
    {:id :sub/nary-int :group :arithmetic :form '(- a b c) :params '[[a Int] [b Int] [c Int]] :ret 'Int
     :expect :agree}
@@ -241,7 +249,7 @@
          "| Form | Types | Status | Note |"
          "|---|---|---|---|"]
         (for [r rows :when (= g (:group r))]
-          (str "| `" (cell (pr-str (:form r))) "` | " (cell (types-text r)) " | "
+          (str "| " (when (:lean? r) "`^:lean` ") "`" (cell (pr-str (:form r))) "` | " (cell (types-text r)) " | "
                (status-text (:expect r))
                (when-let [reason (:reason r)] (str " (`" reason "`)"))
                " | "

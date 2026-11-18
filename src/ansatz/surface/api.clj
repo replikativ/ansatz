@@ -72,6 +72,17 @@
   ([reason form msg] (elab/elab-refuse! reason form msg))
   ([reason form msg hint] (elab/elab-refuse! reason form msg hint)))
 
+(defn nat-sub-obligation
+  "For an extension that builds a Nat subtraction meaning Clojure's `-` (e.g. a `dec`): in a
+   Clojure body, mark `expr` (an `HSub.hSub Nat Nat Nat inst a b` application) as the obligation
+   `b ≤ a`. It is discharged from the guards in scope once the body is elaborated, and the
+   definition is refused (:nat-sub-may-be-negative) when it cannot be. Outside a Clojure body
+   `expr` is returned unchanged."
+  [est form expr]
+  (if (elab/clj-surface? est)
+    ((requiring-resolve 'ansatz.surface.clj-obligations/mark-nat-sub) form expr)
+    expr))
+
 (defn register-elaborator!
   "Register a lean4 macro_rules-shaped surface form: (fn [args] → surface form)."
   [sym f]

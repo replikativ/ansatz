@@ -32,8 +32,8 @@
 (deftest data (check-group :data))
 
 (deftest the-harness-finds-the-known-divergence
-  (testing "Nat subtraction: a witness with b > a"
-    (let [row (first (filter #(= :sub/nat (:id %)) contract/rows))
+  (testing "Nat subtraction under ^:lean: a witness with b > a"
+    (let [row (first (filter #(= :sub/nat-lean (:id %)) contract/rows))
           {:keys [witnesses]} (cc/run-row row)
           {:keys [args clojure ansatz]} (first witnesses)]
       (is (< (first args) (second args)))
