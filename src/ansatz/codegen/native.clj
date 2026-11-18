@@ -150,6 +150,20 @@
 
     "Char.ofNatAux" (entry 0 2 (fn [n _] n))
 
+    ;; Float is a double at runtime (Lean 4.33.1 Init/Data/Float/Float.lean externs). Order and
+    ;; equality are Bool-valued (IEEE: false on NaN), the Decidable instances are decisions.
+    "Float.lt" (entry 0 2 (fn [a b] (list 'clojure.core/< a b)))
+    "Float.le" (entry 0 2 (fn [a b] (list 'clojure.core/<= a b)))
+    "Float.beq" (entry 0 2 (fn [a b] (list 'clojure.core/== a b)))
+    "Float.decLt" (entry 0 2 (decision 'clojure.core/<))
+    "Float.decLe" (entry 0 2 (decision 'clojure.core/<=))
+    "Float.neg" (entry 0 1 (fn [a] (list 'clojure.core/- a)))
+    "Float.floor" (entry 0 1 (fn [a] (list 'Math/floor a)))
+    "Float.ceil" (entry 0 1 (fn [a] (list 'Math/ceil a)))
+    "Float.ofBits" (entry 0 1 (fn [u] (list 'Double/longBitsToDouble
+                                            (list '.longValue (list 'clojure.core/biginteger u)))))
+    "UInt64.toFloat" (entry 0 1 (fn [u] (list 'clojure.core/double u)))
+
     "String.ofList" (entry 0 1 (call 'string-of-list))
     "String.toList" (entry 0 1 (call 'string-to-list))
     "String.toByteArray" (entry 0 1 (call 'string->utf8))
