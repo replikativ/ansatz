@@ -82,11 +82,11 @@
      (defm 'CljM.dropKey '[[k CljM.V] [c CljM.V]] 'CljM.V
        (m/vm 'c 'CljM.V 'c {'ventry [['k2 'w 'r] (list 'if '(Option.getD (CljM.keq k k2) false)
                                                        '(CljM.dropKey k r) (V 'ventry 'k2 'w '(CljM.dropKey k r)))]
-                             'vcons [['h 't] (list 'if '(Option.getD (CljM.keq k h) false)
-                                                   '(CljM.dropKey k t) (V 'vcons 'h '(CljM.dropKey k t)))]}))
+                            'vcons [['h 't] (list 'if '(Option.getD (CljM.keq k h) false)
+                                                  '(CljM.dropKey k t) (V 'vcons 'h '(CljM.dropKey k t)))]}))
      (defm 'CljM.dedupe '[[c CljM.V]] 'CljM.V
        (m/vm 'c 'CljM.V 'c {'ventry [['k 'w 'r] (V 'ventry 'k 'w '(CljM.dropKey k (CljM.dedupe r)))]
-                             'vcons [['h 't] (V 'vcons 'h '(CljM.dropKey h (CljM.dedupe t)))]}))
+                            'vcons [['h 't] (V 'vcons 'h '(CljM.dropKey h (CljM.dedupe t)))]}))
      ;; chain? = the Value is a chain payload (cons/entry cells) rather than a value
      (defm 'CljM.ofV '[[chain Bool] [v Value]] 'CljM.V
        (value-match 'v 'CljM.V
@@ -104,27 +104,27 @@
      (defm 'CljM.toV '[[chain Bool] [v CljM.V]] OVal
        (let [seq-arm (fn [it] (bindVal (list 'CljM.toV true it) 'c '(Option.some (Value.vvec c))))]
          (m/vm 'v OVal noneVal
-                {'vnil [[] '(Option.some Value.vnil)]
-                 'vbool [['b] '(Option.some (Value.vbool b))]
-                 'vlong [['i] (list 'if '(CljM.inLong i) '(Option.some (Value.vint i)) noneVal)]
-                 'vdouble [['f] '(Option.some (Value.vfloat f))]
-                 'vstr [['s] '(Option.some (Value.vstr s))]
-                 'vkw [['s] '(Option.some (Value.vkw s))]
-                 'vcons [['h 't] (list 'if 'chain (bindVal '(CljM.toV false h) 'h2
-                                                           (bindVal '(CljM.toV true t) 't2 '(Option.some (Value.vcons h2 t2))))
-                                       noneVal)]
-                 'ventry [['k 'w 'r] (list 'if 'chain
-                                           (bindVal '(CljM.toV false k) 'k2
-                                                    (bindVal '(CljM.toV false w) 'w2
-                                                             (bindVal '(CljM.toV true r) 'r2 '(Option.some (Value.ventry k2 w2 r2)))))
-                                           noneVal)]
-                 'vlist [['it] (seq-arm 'it)]
-                 'vvec [['it] (seq-arm 'it)]
-                 'vlseq [['o 'it] (list 'if 'o (seq-arm 'it) noneVal)]
-                 'vmap [['e] (list 'if '(<= (CljM.clen e) 8)
-                                   (bindVal '(CljM.toV true e) 'c '(Option.some (Value.vmap c))) noneVal)]
-                 'vset [['e] (list 'if '(<= (CljM.clen e) 1)
-                                   (bindVal '(CljM.toV true e) 'c '(Option.some (Value.vset c))) noneVal)]})))
+               {'vnil [[] '(Option.some Value.vnil)]
+                'vbool [['b] '(Option.some (Value.vbool b))]
+                'vlong [['i] (list 'if '(CljM.inLong i) '(Option.some (Value.vint i)) noneVal)]
+                'vdouble [['f] '(Option.some (Value.vfloat f))]
+                'vstr [['s] '(Option.some (Value.vstr s))]
+                'vkw [['s] '(Option.some (Value.vkw s))]
+                'vcons [['h 't] (list 'if 'chain (bindVal '(CljM.toV false h) 'h2
+                                                          (bindVal '(CljM.toV true t) 't2 '(Option.some (Value.vcons h2 t2))))
+                                      noneVal)]
+                'ventry [['k 'w 'r] (list 'if 'chain
+                                          (bindVal '(CljM.toV false k) 'k2
+                                                   (bindVal '(CljM.toV false w) 'w2
+                                                            (bindVal '(CljM.toV true r) 'r2 '(Option.some (Value.ventry k2 w2 r2)))))
+                                          noneVal)]
+                'vlist [['it] (seq-arm 'it)]
+                'vvec [['it] (seq-arm 'it)]
+                'vlseq [['o 'it] (list 'if 'o (seq-arm 'it) noneVal)]
+                'vmap [['e] (list 'if '(<= (CljM.clen e) 8)
+                                  (bindVal '(CljM.toV true e) 'c '(Option.some (Value.vmap c))) noneVal)]
+                'vset [['e] (list 'if '(<= (CljM.clen e) 1)
+                                  (bindVal '(CljM.toV true e) 'c '(Option.some (Value.vset c))) noneVal)]})))
      (defm 'CljM.toValue? '[[v CljM.V]] OVal '(CljM.toV false v))]))
 
 (defn- installed-const? [n] (some? (env/lookup (a/env) (name/from-string n))))

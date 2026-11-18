@@ -21,9 +21,9 @@
    runtime, the compiled dec_R on the result, agree."
   []
   (a/foreign ^:model clamp [x :- Int, lo :- Int, hi :- Int] Int
-    (fn [x lo hi] (cond (< x lo) lo (> x hi) hi :else x)))
+             (fn [x lo hi] (cond (< x lo) lo (> x hi) hi :else x)))
   (a/foreign ^:model add-total [m :- Value] Value
-    (fn [m] (assoc m :total (+ (:a m) (:b m)))))
+             (fn [m] (assoc m :total (+ (:a m) (:b m)))))
   (a/foreign ^:model id-nat [x :- Int] Nat (fn [x] x))
   (a/foreign ^:model id-int [x :- Int] Int (fn [x] x))
   (a/foreign ^:model id-bool [x :- Bool] Bool (fn [x] x))

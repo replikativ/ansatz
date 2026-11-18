@@ -189,14 +189,14 @@
   (check-binding-vector form bindings)
   (let [body (single-body form body)]
     (letfn [(go [locals pairs]
-              (if (empty? pairs)
-                (tr locals body)
-                (let [[sym init] (first pairs)]
-                  (if-let [a (atom-of locals init)]
-                    (go (assoc locals sym a) (rest pairs))
-                    (let [x (fresh sym)]
-                      (list 'Option.bind (tr locals init)
-                            (list 'fn [x :- 'CljM.V] (go (assoc locals sym x) (rest pairs)))))))))]
+                (if (empty? pairs)
+                  (tr locals body)
+                  (let [[sym init] (first pairs)]
+                    (if-let [a (atom-of locals init)]
+                      (go (assoc locals sym a) (rest pairs))
+                      (let [x (fresh sym)]
+                        (list 'Option.bind (tr locals init)
+                              (list 'fn [x :- 'CljM.V] (go (assoc locals sym x) (rest pairs)))))))))]
       (go locals (partition 2 bindings)))))
 
 (defn- resolve-call [locals sym form]
@@ -262,7 +262,7 @@
                   (let [es (seq form)]
                     (with-atoms locals (map val es)
                       (fn [as] (some-of (vctor 'vmap (reduce (fn [acc [k a]] (vctor 'ventry (literal k) a acc))
-                                                            (vctor 'vnil) (reverse (map vector (map key es) as))))))))
+                                                             (vctor 'vnil) (reverse (map vector (map key es) as))))))))
                   (refuse! :unmodelled-form form))
     (set? form) (if (every? constant? form) (some-of (literal form)) (refuse! :unmodelled-form form))
     (and (seq? form) (seq form))

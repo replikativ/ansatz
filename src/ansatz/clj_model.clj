@@ -77,7 +77,6 @@
                   (if (empty? fs) (list ct dflt) (list ct (vec (repeatedly (count fs) #(gensym "_"))) dflt))))
               ctors)))
 
-
 (defn- defm [nm params ret body]
   (list 'ansatz.core/defn nm (vec (mapcat (fn [[p t]] [p :- t]) params)) ret body))
 
