@@ -30,7 +30,8 @@
                (requiring-resolve 'ansatz.state/ansatz-store)
                (requiring-resolve 'ansatz.surface.ingest/arity-registry)
                (requiring-resolve 'ansatz.surface.ingest/codegen-registry)
-               (requiring-resolve 'ansatz.surface.ingest/structure-registry)]
+               (requiring-resolve 'ansatz.surface.ingest/structure-registry)
+               (requiring-resolve 'ansatz.surface.ingest/source-registry)]
         atoms (map deref cells)
         saved (mapv deref atoms)]
     (try

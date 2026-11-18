@@ -314,3 +314,121 @@
                         :why (str "expected a divergence (a fix must flip this row), counts " counts)}
              :refuse {:ok? false :why (str "expected a refusal but the definition was accepted, counts "
                                            counts " witnesses " (:witnesses result))}))))
+
+;; ── Per-definition check: check-clojure! ─────────────────────────────────────────────────
+;; A row checks one operator; a definition composes them, and some divergences only appear in
+;; the composition: `(if (== n 0) 0 (f (- n 2)))` over Nat verifies (truncating subtraction
+;; makes every chain reach 0) while its Clojure reading never terminates for odd n.
+
+(defn- fuel-exhausted [] (ex-info "clj-check: the Clojure reading ran out of fuel" {::fuel true}))
+
+(defn- call-with-timeout
+  "Run (f) on a daemon thread with a deeper stack; {:v value}, {:ex throwable} or {:timeout true}.
+   A timed-out thread cannot be stopped on current JDKs; it is left to finish on its own (the
+   Clojure reading is fuel-limited, so a recursive spin ends; a `loop` spin does not)."
+  [f timeout-ms]
+  (let [p (promise)
+        t (Thread. nil
+                   (fn [] (deliver p (try {:v (f)} (catch Throwable x {:ex x}))))
+                   "clj-check-call" (* 64 1024 1024))]
+    (.setDaemon t true)
+    (.start t)
+    (deref p timeout-ms {:timeout true})))
+
+(defn- plain-param-names [params]
+  (mapv first (ingest/parse-params params)))
+
+(defn- clojure-reading
+  "The Clojure reading of a recorded a/defn source: the body as a clojure.core function whose
+   self-calls are fuel-counted. Returns {:f fn} or {:error msg} when the body has no Clojure
+   reading (Ansatz-only forms such as `match` or typed `let`)."
+  [{:keys [ns params body raw-name]} fuel]
+  (let [pairs (ingest/parse-params params)]
+    (if (some #(not= :default (nth % 2)) pairs)
+      {:error "implicit or instance binders have no Clojure reading"}
+      (let [self (symbol (str raw-name))
+            ps (mapv first pairs)
+            counter (gensym "fuel")
+            form `(fn [~counter]
+                    (letfn [(~self [~@ps]
+                              (when (neg? (swap! ~counter dec))
+                                (throw (#'ansatz.clj-check/fuel-exhausted)))
+                              ~body)]
+                      ~self))]
+        (try (let [factory (binding [*ns* (the-ns ns)] (eval form))]
+               ;; a fresh fuel budget per call
+               {:make (fn [] (factory (atom fuel)))})
+             (catch Throwable t {:error (root-message t)}))))))
+
+(defn- fuel-exception? [^Throwable t]
+  (some #(::fuel (ex-data %)) (take-while some? (iterate #(.getCause ^Throwable %) t))))
+
+(defn check-clojure!
+  "Compare an a/defn'd function with its Clojure reading — the same body evaluated by
+   clojure.core — on inputs generated from the definition's kernel parameter types.
+
+   `f` is the compiled function, its var or its symbol. Options: :runs (random inputs after the
+   edge cases, default 40), :seed, :timeout-ms per Clojure call (default 2000), :fuel (self-calls
+   per Clojure call, default 100000).
+
+   Returns {:status :agree :runs n :agree n :clj-throws n} when every call agrees, or
+   {:status :no-clojure-reading :cause msg} when the body is not Clojure (`match`, typed `let`,
+   Lean names). Throws ex-info \"Clojure reading disagrees\" with {:args :clojure :ansatz} on the
+   first divergence. A Clojure reading that overflows the stack, runs out of fuel or times out
+   while the compiled function returned is a divergence (non-termination); any other Clojure
+   exception is outside the contract (:clj-throws). Callees that are other verified functions run
+   as their compiled versions."
+  [f & {:keys [runs seed timeout-ms fuel] :or {runs 40 seed 42 timeout-ms 2000 fuel 100000}}]
+  (let [v (cond (var? f) @f (symbol? f) @(resolve f) :else f)
+        _ (when (nil? v) (throw (ex-info "check-clojure!: nothing to check" {:fn f})))
+        kname (:ansatz.core/kernel-name (meta v))
+        src (when kname (get @ingest/source-registry kname))]
+    (when-not src
+      (throw (ex-info "check-clojure!: not an a/defn function with a recorded source" {:fn f})))
+    (let [{:keys [error make]} (clojure-reading src fuel)]
+      (if error
+        {:status :no-clojure-reading :cause error}
+        (let [sig (signature (a/env) kname)]
+          (when-not (every? known? (conj (:params sig) (:ret sig)))
+            (throw (ex-info "check-clojure!: no generator for a parameter or result type"
+                            {:fn kname :signature sig})))
+          (let [inputs (gen-inputs (:params sig) :seed seed :n-random runs :max-edges 64)
+                counts (atom {})]
+            (doseq [args inputs]
+              (let [r (call-with-timeout
+                       #(runtime->clj (:ret sig) (apply v (map clj->runtime (:params sig) args)))
+                       timeout-ms)
+                    c (when (contains? r :v) (call-with-timeout #(apply (make) args) timeout-ms))
+                    class (cond
+                            (not (contains? r :v)) :ansatz-throws
+                            (:timeout c) :diverge
+                            (and (:ex c) (or (instance? StackOverflowError (:ex c))
+                                             (fuel-exception? (:ex c)))) :diverge
+                            (:ex c) :clj-throws
+                            (agree? (:ret sig) (:v c) (:v r)) :agree
+                            :else :diverge)]
+                (swap! counts update class (fnil inc 0))
+                (case class
+                  :diverge
+                  (throw (ex-info "Clojure reading disagrees"
+                                  {:fn kname :args args
+                                   :clojure (cond (:timeout c) :timeout
+                                                  (:ex c) (if (fuel-exception? (:ex c)) :out-of-fuel
+                                                              :stack-overflow)
+                                                  :else (:v c))
+                                   :ansatz (:v r)}))
+                  :ansatz-throws
+                  (throw (ex-info "check-clojure!: the compiled function failed"
+                                  {:fn kname :args args
+                                   :error (if (:timeout r) :timeout (root-message (:ex r)))}))
+                  nil)))
+            (merge {:status :agree :runs (count inputs) :agree 0 :clj-throws 0} @counts)))))))
+
+(defmacro deftest-clojure
+  "A clojure.test deftest that runs `check-clojure!` on the a/defn'd function named `f`
+   (leanfran's defcheck). `f` is resolved when the test runs, in the namespace that uses the
+   macro, so the definition may happen after the namespace is loaded."
+  [test-name f & opts]
+  `(clojure.test/deftest ~test-name
+     (let [r# (check-clojure! (ns-resolve '~(ns-name *ns*) '~f) ~@opts)]
+       (clojure.test/is (contains? #{:agree :no-clojure-reading} (:status r#)) (pr-str r#)))))

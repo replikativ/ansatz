@@ -19,6 +19,16 @@
 ;; → clj-form). ansatz->clj consults it for application heads it does not lower natively.
 (defonce ^{:doc "Codegen registry: Name-string → (fn [env expr names] → clj-form)."} codegen-registry (atom {}))
 
+;; Source registry — the quoted a/defn source per kernel name: {:ns :params :ret :body :raw-name}.
+;; `ansatz.clj-check/check-clojure!` builds the Clojure reading of a definition from it.
+(defonce ^{:doc "a/defn source registry: kernel-name string → {:ns :params :ret :body :raw-name}."}
+  source-registry (atom {}))
+
+(defn record-source!
+  "Record the quoted source of an a/defn under its kernel name."
+  [kernel-name src]
+  (swap! source-registry assoc (str kernel-name) src))
+
 ;; ── Custom elaboration forms (lean4 macro_rules-shaped) ─────────────────────────────────
 ;; symbol → (fn [arg-forms] → surface-form). The elaborator expands the form and re-elaborates
 ;; the result — syntax→syntax, so extensions compose with every surface feature for free.

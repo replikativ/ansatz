@@ -3159,7 +3159,8 @@
                       [{:termination-by (second body-and-opts)} (nth body-and-opts 2)]
                       [{} (first body-and-opts)])
         partial? (:partial (meta fn-name))
-        nm (vary-meta fn-name dissoc :- :tag :partial)
+        check? (:check (meta fn-name))
+        nm (vary-meta fn-name dissoc :- :tag :partial :check)
         runtime-name (decl/runtime-name nm)
         runtime-sym (symbol (str (ns-name *ns*)) (str runtime-name))]
     ;; the compiled fn carries its kernel constant name as metadata — runtimes use it
@@ -3174,9 +3175,16 @@
             `(def ~runtime-name (tag-kernel-name (define-verified '~nm '~params '~ret-type '~body) '~nm '~runtime-sym)))]
       ;; Qualified Clojure callers can already resolve dotted vars. Preserve
       ;; that spelling as an alias; generated references use the escaped name.
-      (if (.contains (str nm) ".")
-        `(do ~definition (def ~nm ~runtime-name) (var ~runtime-name))
-        definition))))
+      ;; The quoted source is recorded for ansatz.clj-check (the Clojure reading of the body);
+      ;; ^:check on the name runs check-clojure! once the definition is in place.
+      `(do (ingest/record-source! '~nm {:ns '~(ns-name *ns*) :params '~params :ret '~ret-type
+                                        :body '~body :raw-name '~nm})
+           ~@(if (.contains (str nm) ".")
+               [definition `(def ~nm ~runtime-name)]
+               [definition])
+           ~@(when check?
+               [`((requiring-resolve 'ansatz.clj-check/check-clojure!) (var ~runtime-name))])
+           (var ~runtime-name)))))
 
 (defmacro foreign
   "Declare a TRUSTED FOREIGN function — an arbitrary Clojure fn asserted at a kernel type,
