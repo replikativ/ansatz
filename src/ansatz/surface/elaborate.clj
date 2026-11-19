@@ -1525,7 +1525,12 @@
                           "Clojure's = compares a double and an integer as unequal" "use =="))
         coerce (fn [x] (if (e/lit-nat? x)
                          (case tn
-                           "Int"   (e/app (e/const' (name/from-string "Int.ofNat") []) x)
+                           ;; an Int literal is `Int.ofNat k` or `Int.negSucc k` (k natural)
+                           "Int"   (let [v (e/lit-nat-val x)]
+                                     (if (neg? v)
+                                       (e/app (e/const' (name/from-string "Int.negSucc") [])
+                                              (e/lit-nat (- (- v) 1)))
+                                       (e/app (e/const' (name/from-string "Int.ofNat") []) x)))
                            "Float" (e/app (e/const' (name/from-string "Float.ofNat") []) x)
                            x)
                          x))
