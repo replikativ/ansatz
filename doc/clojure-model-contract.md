@@ -242,6 +242,18 @@ modelled function, and checks conformance on inputs from its declared types.
 | `[(clojure.string/upper-case s) (clojure.string/lower-case s)]` | s : string | 0.2 | ASCII only: Java's case mapping is Unicode-aware. |
 | `[(clojure.string/starts-with? s t) (clojure.string/ends-with? s t) (clojure.string/includes? s t)]` | s : string, t : string | 0.0 |  |
 
+## Destructuring
+
+| Form | Inputs | Max no-claim | Note |
+|---|---|---|---|
+| `(let [[a b] c] [a b])` | c : seqable | 0.35 | nth with a nil default: a map or a set throws. |
+| `(let [[a & r :as all] c] [a r all])` | c : seqable | 0.35 | With & the pattern reads by seq/first/next, so a small map destructures too. |
+| `(let [{:keys [a b], :or {b 5}, :as all} m] [a b all])` | m : any | 0.2 | A seq destructured as a map is keyword arguments (Java interop since 1.11): no claim. |
+| `(let [{x :a, [y z] :b} m] [x y z])` | m : value | 0.2 |  |
+| `(let [{:strs [a], :syms [b]} m] [a b])` | m : coll | 0.35 | Lists and seqs in the input are keyword arguments: no claim. |
+| `(map (fn [[k v]] [v k]) m)` | m : kmap | 0.05 |  |
+| `((fn [{:keys [a], :or {a 0}}] (inc a)) m)` | m : value | 0.05 |  |
+
 ## Refused forms
 
 Translation refuses what the model cannot express with `ex-info`
@@ -249,7 +261,7 @@ Translation refuses what the model cannot express with `ex-info`
 
 | Reason | Meaning |
 |---|---|
-| `:destructuring` | A destructuring binding form. |
+| `:destructuring` | A destructuring form Clojure itself rejects (a qualified local, an element after `&`). |
 | `:dispatch` | Protocols, multimethods and a raw `case*`: not modelled. |
 | `:dynamic-var` | A dynamic var or `var`: its value depends on the binding in force. |
 | `:escaping-fn` | A function stored in data, returned or compared: the model's values are data; functions are only called or passed to a modelled higher-order function. |
@@ -260,6 +272,7 @@ Translation refuses what the model cannot express with `ex-info`
 | `:multi-arity` | A modelled function with several arities (a fn literal passed to a function may have several). |
 | `:multi-form-body` | A body with several forms: the earlier forms only run for effects. |
 | `:mutable-state` | Atoms, volatiles, `deref`, `set!`: the model has no state. |
+| `:no-source` | The function's source is not available: define it with `a/defmodel` (a REPL `defn` has no source file). |
 | `:recursion` | Recursion, `loop`/`recur`, `letfn`. |
 | `:regex` | Regular expressions: not modelled. |
 | `:side-effect` | An effect (printing, I/O, `def`): the model is pure. |

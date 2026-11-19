@@ -461,28 +461,36 @@
 
 (defn edn-edges
   "Edge values of an EDN generator kind: :any :int :nat :num :bool :string :key :map :coll :value,
-   :ints (collections of integers), :kmap (keyword → integer maps),
-   :mixmap (as :kmap, half of them hash maps of 9-12 entries), :seqable (collections and strings)."
+   :ints (collections of integers), :kmap (keyword → integer maps), :mixmap (as :kmap, half of them
+   hash maps of 9-12 entries), :seqable (collections and strings),
+   :double; and for boundary types [:vec k] (vectors of k), [:pair a b], [:opt k] (nil or k)."
   [kind]
-  (case kind
-    :ints [nil [] () [1 2 3] '(3 1 2) [2 2 1] [Long/MAX_VALUE 1] #{1 2 3} #{} (map inc [0 1 2]) (range 3) [-1]]
-    :kmap [{} {:a 1} {:a 1 :b 2} {:b 2 :a 1 :c 3} {:a Long/MAX_VALUE :b 1} (big-map)]
-    :mixmap [{} {:b 2 :a 1 :c 3} (zipmap [:i :h :g :f :e :d :c :b :a] (range 9)) (big-map)
-             (zipmap (map #(keyword (str (char (+ 97 %)))) (range 12)) (range 12))]
-    :seqable (into (edn-edges :coll) ["" "ab" "😀" [1 2 3] #{:a :b :c} (big-map)])
-    :int long-edges
-    :nat [0 1 2 7 Long/MAX_VALUE]
-    :num (into long-edges double-edges)
-    :bool [false true]
-    :string string-edges
-    :key (into keyword-edges [0 1 "a" nil])
-    :map [{} {:a 1} {:a 1 :b 2} {:a Long/MAX_VALUE :b 1} {:a "x" :b 1} (hash-map :a 1 :b 2) (big-map)]
-    :coll [nil [] () {} #{} [1 2] '(1 2) {:a 1} #{1 2} (map inc [0 1])]
-    :value [nil {:a 1 :b 2} {:a 1} {:a Long/MAX_VALUE :b 1} {:a -3 :b 1.5} {:a "x" :b 1} {} [1 2]
-            {:b 2 :a 1 :c [1]} true 3 "s" :k #{1}]
-    :any [nil true false 0 1 -1 Long/MAX_VALUE Long/MIN_VALUE 0.0 -0.0 1.5 Double/NaN ""
-          "😀" :a :ns/k 'sym \a () '(1 2) [] [1 2] {} {:a 1 :b 2} (hash-map :a 1 :b 2)
-          (big-map) #{} #{1 2} (map inc [0 1])]))
+  (if (vector? kind)
+    (let [[tag a b] kind]
+      (case tag
+        :vec (let [es (edn-edges a)] [[] [(first es)] (vec (take 3 es))])
+        :pair (vec (for [x (take 3 (edn-edges a)) y (take 3 (edn-edges b))] [x y]))
+        :opt (into [nil] (edn-edges a))))
+    (case kind
+      :double double-edges
+      :ints [nil [] () [1 2 3] '(3 1 2) [2 2 1] [Long/MAX_VALUE 1] #{1 2 3} #{} (map inc [0 1 2]) (range 3) [-1]]
+      :kmap [{} {:a 1} {:a 1 :b 2} {:b 2 :a 1 :c 3} {:a Long/MAX_VALUE :b 1} (big-map)]
+      :mixmap [{} {:b 2 :a 1 :c 3} (zipmap [:i :h :g :f :e :d :c :b :a] (range 9)) (big-map)
+               (zipmap (map #(keyword (str (char (+ 97 %)))) (range 12)) (range 12))]
+      :seqable (into (edn-edges :coll) ["" "ab" "😀" [1 2 3] #{:a :b :c} (big-map)])
+      :int long-edges
+      :nat [0 1 2 7 Long/MAX_VALUE]
+      :num (into long-edges double-edges)
+      :bool [false true]
+      :string string-edges
+      :key (into keyword-edges [0 1 "a" nil])
+      :map [{} {:a 1} {:a 1 :b 2} {:a Long/MAX_VALUE :b 1} {:a "x" :b 1} (hash-map :a 1 :b 2) (big-map)]
+      :coll [nil [] () {} #{} [1 2] '(1 2) {:a 1} #{1 2} (map inc [0 1])]
+      :value [nil {:a 1 :b 2} {:a 1} {:a Long/MAX_VALUE :b 1} {:a -3 :b 1.5} {:a "x" :b 1} {} [1 2]
+              {:b 2 :a 1 :c [1]} true 3 "s" :k #{1}]
+      :any [nil true false 0 1 -1 Long/MAX_VALUE Long/MIN_VALUE 0.0 -0.0 1.5 Double/NaN ""
+            "😀" :a :ns/k 'sym \a () '(1 2) [] [1 2] {} {:a 1 :b 2} (hash-map :a 1 :b 2)
+            (big-map) #{} #{1 2} (map inc [0 1])])))
 
 (defn random-edn
   "A random EDN value of `kind` from `rng`, nested at most `depth` deep."
@@ -490,47 +498,54 @@
   (let [pick (fn [xs] (nth xs (.nextInt rng (count xs))))
         small-int (fn [] (long (- (.nextInt rng 41) 20)))
         sub (fn [k] (random-edn rng k (dec depth)))]
-    (case kind
-      :int (if (zero? (.nextInt rng 5)) (pick long-edges) (small-int))
-      :nat (if (zero? (.nextInt rng 5)) (pick [0 Long/MAX_VALUE]) (long (.nextInt rng 40)))
-      :num (case (.nextInt rng 3) 0 (pick double-edges) 1 (* 10.0 (- (.nextDouble rng) 0.5)) (random-edn rng :int 0))
-      :bool (.nextBoolean rng)
-      :ints (let [xs (repeatedly (.nextInt rng 5) #(random-edn rng :int 0))]
-              (case (.nextInt rng 5) 0 (vec xs) 1 (apply list xs) 2 (set xs) 3 (map identity xs) (vec (map #(mod % 5) xs))))
-      :kmap (let [n (if (zero? (.nextInt rng 6)) (+ 9 (.nextInt rng 3)) (.nextInt rng 5))]
-              (into {} (map (fn [i] [(keyword (str (char (+ 97 i)))) (random-edn rng :int 0)]) (range n))))
-      ;; half small maps (array maps), half maps of 9-12 entries (hash maps)
-      :mixmap (let [n (if (.nextBoolean rng) (.nextInt rng 5) (+ 9 (.nextInt rng 4)))]
-                (into {} (map (fn [i] [(keyword (str (char (+ 97 i)))) (random-edn rng :int 0)])
-                              (take n (sort-by (fn [_] (.nextInt rng)) (range 14))))))
-      :seqable (case (.nextInt rng 3) 0 (random-edn rng :string 0) 1 (random-edn rng :ints 0) (random-edn rng :coll depth))
-      :string (pick (into string-edges ["b" "abc"]))
-      :key (pick (into keyword-edges [0 1 2 "a"]))
-      :map (let [n (if (zero? (.nextInt rng 8)) (+ 9 (.nextInt rng 3)) (.nextInt rng 4))
-                 vk (if (pos? depth) :any :int)]
-             (into {} (repeatedly n #(vector (random-edn rng :key 0) (sub vk)))))
-      :value (case (.nextInt rng 6)
-               0 (pick [nil true false "s" :k 1.5])
-               1 (random-edn rng :int 0)
-               2 (vec (repeatedly (.nextInt rng 3) #(sub :value)))
+    (if (vector? kind)
+      (let [[tag a b] kind]
+        (case tag
+          :vec (vec (repeatedly (.nextInt rng 4) #(random-edn rng a 0)))
+          :pair [(random-edn rng a 0) (random-edn rng b 0)]
+          :opt (when (.nextBoolean rng) (random-edn rng a 0))))
+      (case kind
+        :double (random-edn rng :num 0)
+        :int (if (zero? (.nextInt rng 5)) (pick long-edges) (small-int))
+        :nat (if (zero? (.nextInt rng 5)) (pick [0 Long/MAX_VALUE]) (long (.nextInt rng 40)))
+        :num (case (.nextInt rng 3) 0 (pick double-edges) 1 (* 10.0 (- (.nextDouble rng) 0.5)) (random-edn rng :int 0))
+        :bool (.nextBoolean rng)
+        :ints (let [xs (repeatedly (.nextInt rng 5) #(random-edn rng :int 0))]
+                (case (.nextInt rng 5) 0 (vec xs) 1 (apply list xs) 2 (set xs) 3 (map identity xs) (vec (map #(mod % 5) xs))))
+        :kmap (let [n (if (zero? (.nextInt rng 6)) (+ 9 (.nextInt rng 3)) (.nextInt rng 5))]
+                (into {} (map (fn [i] [(keyword (str (char (+ 97 i)))) (random-edn rng :int 0)]) (range n))))
+        ;; half small maps (array maps), half maps of 9-12 entries (hash maps)
+        :mixmap (let [n (if (.nextBoolean rng) (.nextInt rng 5) (+ 9 (.nextInt rng 4)))]
+                  (into {} (map (fn [i] [(keyword (str (char (+ 97 i)))) (random-edn rng :int 0)])
+                                (take n (sort-by (fn [_] (.nextInt rng)) (range 14))))))
+        :seqable (case (.nextInt rng 3) 0 (random-edn rng :string 0) 1 (random-edn rng :ints 0) (random-edn rng :coll depth))
+        :string (pick (into string-edges ["b" "abc"]))
+        :key (pick (into keyword-edges [0 1 2 "a"]))
+        :map (let [n (if (zero? (.nextInt rng 8)) (+ 9 (.nextInt rng 3)) (.nextInt rng 4))
+                   vk (if (pos? depth) :any :int)]
+               (into {} (repeatedly n #(vector (random-edn rng :key 0) (sub vk)))))
+        :value (case (.nextInt rng 6)
+                 0 (pick [nil true false "s" :k 1.5])
+                 1 (random-edn rng :int 0)
+                 2 (vec (repeatedly (.nextInt rng 3) #(sub :value)))
                ;; records: each of :a :b :c present with p = 0.7, mostly integer-valued
-               (into {} (for [k [:a :b :c] :when (< (.nextInt rng 10) 7)]
-                          [k (if (or (zero? depth) (< (.nextInt rng 10) 7)) (random-edn rng :int 0) (sub :value))])))
-      :coll (case (.nextInt rng 5)
-              0 nil
-              1 (vec (repeatedly (.nextInt rng 4) #(sub :any)))
-              2 (random-edn rng :map depth)
-              3 (set (repeatedly (.nextInt rng 3) #(random-edn rng :key 0)))
-              (apply list (repeatedly (.nextInt rng 3) #(sub :any))))
-      :any (case (.nextInt rng 8)
-             0 nil
-             1 (.nextBoolean rng)
-             2 (random-edn rng :num 0)
-             3 (random-edn rng :string 0)
-             4 (random-edn rng :key 0)
-             5 (if (pos? depth) (random-edn rng :coll depth) (pick [[] {} #{}]))
-             6 (random-edn rng :int 0)
-             (pick [\a 'sym (map inc [0 1])])))))
+                 (into {} (for [k [:a :b :c] :when (< (.nextInt rng 10) 7)]
+                            [k (if (or (zero? depth) (< (.nextInt rng 10) 7)) (random-edn rng :int 0) (sub :value))])))
+        :coll (case (.nextInt rng 5)
+                0 nil
+                1 (vec (repeatedly (.nextInt rng 4) #(sub :any)))
+                2 (random-edn rng :map depth)
+                3 (set (repeatedly (.nextInt rng 3) #(random-edn rng :key 0)))
+                (apply list (repeatedly (.nextInt rng 3) #(sub :any))))
+        :any (case (.nextInt rng 8)
+               0 nil
+               1 (.nextBoolean rng)
+               2 (random-edn rng :num 0)
+               3 (random-edn rng :string 0)
+               4 (random-edn rng :key 0)
+               5 (if (pos? depth) (random-edn rng :coll depth) (pick [[] {} #{}]))
+               6 (random-edn rng :int 0)
+               (pick [\a 'sym (map inc [0 1])]))))))
 
 (defn gen-edn-inputs
   "Argument tuples for generator `kinds`: the product of the edges (at most `max-edges`), then
@@ -617,7 +632,16 @@
                (when (seq (:model-bugs result)) (str " model bugs " (pr-str (:model-bugs result))))
                (when (> frac limit) (str " no-claims " (pr-str (:no-claims result)))))}))
 
-(def ^:private domain-kind {'Nat :nat 'Int :int 'Bool :bool 'String :string 'Value :value})
+(defn- domain-kind
+  "The EDN generator kind of a boundary type (:any for one it does not describe)."
+  [t]
+  (if (seq? t)
+    (case (first t)
+      List [:vec (domain-kind (second t))]
+      Prod [:pair (domain-kind (nth t 1)) (domain-kind (nth t 2))]
+      Option [:opt (domain-kind (second t))]
+      :any)
+    (get '{Nat :nat Int :int Bool :bool String :string Value :value Float :double} t :any)))
 
 (defn check-model!
   "Check an `a/foreign ^:model` function: faithfulness of its model `f.clj` against its Clojure
@@ -631,7 +655,7 @@
   [f & {:keys [runs seed timeout-ms] :or {runs 60 seed 42 timeout-ms 2000}}]
   (let [{:keys [impl model-fn pairs ret-codec arity]} ((requiring-resolve 'ansatz.clj-model.boundary/info) f)
         dec-fn (clj-model/model-fn (:dec ret-codec))
-        kinds (mapv (fn [[_ t]] (get domain-kind t :any)) pairs)
+        kinds (mapv (fn [[_ t]] (domain-kind t)) pairs)
         domain (gen-edn-inputs kinds :seed seed :n-random runs)
         anything (gen-edn-inputs (repeat (count pairs) :any) :seed (inc seed) :n-random runs :max-edges 64)
         faith (faithfulness model-fn arity impl (concat domain anything) timeout-ms)

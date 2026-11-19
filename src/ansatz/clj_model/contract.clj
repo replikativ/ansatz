@@ -261,6 +261,22 @@
    {:id :case-conv/string :group :strings
     :form '[(clojure.string/upper-case s) (clojure.string/lower-case s)] :params '[[s :string]] :max-no-claim 0.2
     :note "ASCII only: Java's case mapping is Unicode-aware."}
+   ;; ── destructuring (G2b) ─────────────────────────────────────────────────────────────
+   {:id :destr/vector :group :destructuring :form '(let [[a b] c] [a b]) :params '[[c :seqable]] :max-no-claim 0.35
+    :note "nth with a nil default: a map or a set throws."}
+   {:id :destr/rest :group :destructuring :form '(let [[a & r :as all] c] [a r all]) :params '[[c :seqable]]
+    :max-no-claim 0.35 :note "With & the pattern reads by seq/first/next, so a small map destructures too."}
+   {:id :destr/keys :group :destructuring :form '(let [{:keys [a b] :or {b 5} :as all} m] [a b all])
+    :params '[[m :any]] :max-no-claim 0.2
+    :note "A seq destructured as a map is keyword arguments (Java interop since 1.11): no claim."}
+   {:id :destr/nested :group :destructuring :form '(let [{x :a [y z] :b} m] [x y z]) :params '[[m :value]]
+    :max-no-claim 0.2}
+   {:id :destr/strs :group :destructuring :form '(let [{:strs [a] :syms [b]} m] [a b]) :params '[[m :coll]]
+    :max-no-claim 0.35 :note "Lists and seqs in the input are keyword arguments: no claim."}
+   {:id :destr/fn :group :destructuring :form '(map (fn [[k v]] [v k]) m) :params '[[m :kmap]] :max-no-claim 0.05}
+   {:id :destr/fn-map :group :destructuring :form '((fn [{:keys [a] :or {a 0}}] (inc a)) m) :params '[[m :value]]
+    :max-no-claim 0.05}
+
    {:id :affix/string :group :strings
     :form '[(clojure.string/starts-with? s t) (clojure.string/ends-with? s t) (clojure.string/includes? s t)]
     :params '[[s :string] [t :string]] :max-no-claim 0.0}])
@@ -268,7 +284,7 @@
 (def group-titles
   [[:numbers "Numbers"] [:equality "Equality"] [:control "Truthiness and control"]
    [:types "Type predicates"] [:collections "Collections"] [:sequences "Sequences"] [:maps "Maps"]
-   [:functions "Functions"] [:strings "Strings"]])
+   [:functions "Functions"] [:strings "Strings"] [:destructuring "Destructuring"]])
 
 (defn- cell [s] (str/replace (str s) "|" "\\|"))
 

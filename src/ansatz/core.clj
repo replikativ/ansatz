@@ -3246,7 +3246,8 @@
    Then `(map (fn [x] (sqrt x)) xs)` in an a/defn body verifies + optimizes the pipeline
    structure while `sqrt` stays a trusted hole.
 
-   `^:model` on the name translates `impl` — an inline `(fn [x …] body)` of plain Clojure — into
+   `^:model` on the name translates `impl` — an inline `(fn [x …] body)` of plain Clojure, or a
+   function defined with `a/defmodel` (or any defn with a source file) — into
    the kernel model of Clojure (ansatz.clj-model), so `f` becomes a DEFINITION from its source
    instead of an axiom; `impl` stays the runtime. Conformance to the declared types starts
    :tested (checked on every result) and becomes :proved with `a/conforms`.
@@ -3267,6 +3268,20 @@
                                   {:paranoid? ~(boolean (:paranoid (meta fn-name)))})
                                  '~nm '~runtime-sym))
       `(def ~nm (tag-kernel-name (define-foreign '~nm '~params '~ret-type ~impl) '~nm '~runtime-sym)))))
+
+(defmacro defmodel
+  "A drop-in `defn` that records its source for the Clojure model: `(a/foreign ^:model g
+   [x :- T …] R f)` with `f` defined here translates `f`'s source (the definition `g` gets),
+   and `f` stays the runtime.
+     (a/defmodel total [m] (+ (:a m 0) (:b m 0)))
+     (a/foreign ^:model total-of [m :- Value] Int total)"
+  [fname & fdecl]
+  (let [src ((requiring-resolve 'ansatz.clj-model.translate/defn->fn) (list* 'defn fname fdecl))]
+    `(do (clojure.core/defn ~fname ~@fdecl)
+         (ansatz.surface.ingest/record-model-source!
+          '~(symbol (str (ns-name *ns*)) (str fname))
+          {:ns '~(ns-name *ns*) :form '~src :from :defmodel})
+         (var ~fname))))
 
 (defmacro conforms
   "Prove that the `a/foreign ^:model` function `f` conforms to its declared types:

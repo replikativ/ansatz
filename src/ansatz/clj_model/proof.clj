@@ -239,6 +239,16 @@
    `Value` (its `CljM.ofValue` is a match on the value)."
   #{'Value})
 
+(defn- parameter-split
+  "The first tactic for a parameter of type `t`: cases for `case-split-types` and the G2 codecs'
+   `Prod`/`Option` (their encoder is a match on the value), induction for `List` (its encoder
+   recurses over the list, and so does a model that walks the encoded chain), nil otherwise."
+  [p t]
+  (let [head (if (seq? t) (first t) t)]
+    (cond (case-split-types t) (list 'cases p)
+          (= 'List head) (list 'induction p)
+          (#{'Prod 'Option} head) (list 'cases p))))
+
 (defn- spelling-lemmas
   "`Int.le a b = (a ≤ b)` and `Int.lt a b = (a < b)` (`Eq.refl`): a comparison in a Bool
    position elaborates to `decide (Int.le a b)`; after these, simp turns a branch condition
@@ -308,7 +318,7 @@
    turns them into the comparisons omega reads; a branch can expose a further `if`), omega."
   [pairs unfold]
   (let [s (symbol simp-set)]
-    (vec (concat (for [[p t] pairs :when (case-split-types t)] (list 'cases p))
+    (vec (concat (keep (fn [[p t]] (parameter-split p t)) pairs)
                  [(list 'all_goals (list 'simp (conj (vec unfold) s)))
                   (list 'repeat '(any_goals (split_ifs)) (list 'all_goals (list 'try (list 'simp_all [s]))))
                   '(all_goals (try (omega)))]))))
