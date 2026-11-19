@@ -338,6 +338,8 @@
      "Scope: the rules hold in `a/defn` bodies (and the loop helpers hoisted from them). Types,"
      "propositions, theorem statements, tactic terms and `:termination-by` measures keep Lean's"
      "meaning. `a/defn ^:lean name …` opts a definition out, for a body written in Lean style."
+     "A namespace declared `(ns ^:ansatz/lean my.model …)` (or with `{:ansatz/lean true}` as its"
+     "attribute map) opts out every `a/defn` in it; `^{:lean false}` on a name there opts back in."
      ""]
     (mapcat
      (fn [[g title]]

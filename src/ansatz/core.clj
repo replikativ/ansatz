@@ -1809,7 +1809,7 @@
                 lctx)
          expected (when (and opts ret-type-form (not= '_ ret-type-form))
                     (elab/elaborate-in-context env lctx ret-type-form nil {:type-position true}))
-         ;; a/defn bodies are Clojure (ansatz.config/*clj-surface*, off under ^:lean)
+         ;; a/defn bodies are Clojure (ansatz.config/*clj-surface*, off under ^:lean or :ansatz/lean ns)
          body-result (if opts
                        (elab/elaborate-in-context-with-env
                         env lctx body-form expected
@@ -3152,7 +3152,12 @@
    Runtime names escape `.` as `$dot$` and `$` as `$dollar$`: call Reach.mem as
    Reach$dot$mem from Clojure; verified bodies keep Reach.mem. Qualified dotted vars
    remain available as compatibility aliases (my.ns/Reach.mem).
-   Well-founded recursion: put  :termination-by <measure>  before the body."
+   Well-founded recursion: put  :termination-by <measure>  before the body.
+   The body is in Clojure surface mode (doc/clojure-contract.md): Clojure spellings keep
+   clojure.core's meaning or are refused. `^:lean` on the name elaborates it in Lean style instead
+   (Nat `-` truncates, tests need not be Bool, …). A namespace declared with `:ansatz/lean`
+   metadata, `(ns ^:ansatz/lean my.model …)`, makes Lean style the default for every a/defn in it;
+   `^{:lean false}` on a name there opts that definition back into Clojure surface mode."
   [fn-name params & more]
   (let [meta?    (metadata-params? params)
         ;; Gradual-typing surface: a PLAIN parameter vector (bare symbols, no ^Type metadata,
@@ -3186,7 +3191,11 @@
                              :hint "keep only the value form"})))
         partial? (:partial (meta fn-name))
         check? (:check (meta fn-name))
-        lean? (:lean (meta fn-name))
+        ;; Surface mode: the name's :lean wins, else the namespace's :ansatz/lean
+        ;; (config/lean-namespace?); nil leaves *clj-surface* as the caller bound it.
+        clj-surface (cond (contains? (meta fn-name) :lean) (not (:lean (meta fn-name)))
+                          (config/lean-namespace? *ns*) false
+                          :else nil)
         nm (vary-meta fn-name dissoc :- :tag :partial :check :lean)
         runtime-name (decl/runtime-name nm)
         runtime-sym (symbol (str (ns-name *ns*)) (str runtime-name))]
@@ -3206,9 +3215,9 @@
       ;; ^:check on the name runs check-clojure! once the definition is in place.
       `(do (ingest/record-source! '~nm {:ns '~(ns-name *ns*) :params '~params :ret '~ret-type
                                         :body '~body :raw-name '~nm})
-           ~@(let [definition (if lean?
-                                ;; ^:lean: a Lean-style body (Nat truncation, …), not Clojure
-                                `(binding [config/*clj-surface* false] ~definition)
+           ~@(let [definition (if (some? clj-surface)
+                                ;; false: a Lean-style body (Nat truncation, …), not Clojure
+                                `(binding [config/*clj-surface* ~clj-surface] ~definition)
                                 definition)]
                (if (.contains (str nm) ".")
                  [definition `(def ~nm ~runtime-name)]
