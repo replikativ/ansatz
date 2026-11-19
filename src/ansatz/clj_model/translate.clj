@@ -4,11 +4,12 @@
    A-normal form, where every call is an `Option.bind` and `none` (no claim) propagates.
 
    Special forms modelled: `if` (Clojure truthiness: `CljM.truthy`), `let*`, a single-form
-   `do`, `quote`, `throw` (→ none), and `case` (intercepted before expansion: its `case*` is a
-   hash dispatch; modelled as hashed-key equality tests, `CljM.caseIn`). Every other macro is
-   expanded with `macroexpand-1` in the source namespace, so `when`, `cond`, `and`, `or`, `->`,
-   `if-let`, `when-some`, `cond->`, `condp` … are faithful by construction. `let` and `fn` are
-   intercepted before expansion and destructure with the model's own pass
+   `do`, `quote`, `throw` (→ none), `loop*`/`recur`, `letfn*`, and `case` (intercepted before
+   expansion: its `case*` is a hash dispatch; modelled as hashed-key equality tests,
+   `CljM.caseIn`). Every other macro is expanded with `macroexpand-1` in the source namespace,
+   so `when`, `cond`, `and`, `or`, `->`, `if-let`, `when-some`, `cond->`, `condp` … are faithful
+   by construction. `let`, `fn` and `loop` are intercepted before expansion and destructure with
+   the model's own pass
    (`destructure-bindings`: Clojure's, minus the keyword-argument conversion's Java interop).
 
    Functions are a second sort `CljM.V → … → Option CljM.V`, never a value: a fn literal, a
@@ -20,9 +21,24 @@
    at each call: its arity is chosen per call, as Clojure does, and a variadic arity gets its
    extra arguments as a seq (or nil).
 
+   Recursion. A loop, a letfn, a fn literal that calls itself or uses `recur`, and a recursive
+   top-level function are a GROUP with one member per arity, translated into one functional run
+   by the fixpoint combinator `CljM.fix<k>` (ansatz.clj-model): a call inside the group is
+   `(self tag args…)`, an entry from outside is `(CljM.fix<k> F fuel tag args…)`. The fuel
+   bounds the depth of nested calls; out of fuel is none. Default fuel (`default-fuel`):
+   1 + the `CljM.weight` of the entry's arguments and of every value in scope + the magnitudes
+   of the integer literals in the group's bodies; `^{:fuel form}` on the fn name (or on a
+   loop's binding vector) replaces it with a Clojure form over the parameters.
+
+   Calls of functions outside clojure.core and clojure.string go through `:call-var`
+   (default ansatz.clj-model.callees/call-var): an a/defmodel function is modelled from its
+   source, an a/defn of the DSL is called through the boundary codecs, any other function is
+   an opaque axiom.
+
    Anything outside the model is refused with ex-info {:kind :clj/refused :reason r :form f},
    r from `refusal-reasons`."
-  (:require [clojure.string :as str]))
+  (:require [clojure.string :as str]
+            [ansatz.clj-model :as m]))
 
 (def refusal-reasons
   "reason → what it means. A closed set: the model contract lists it."
@@ -41,9 +57,9 @@
    :higher-order "A higher-order function the model does not cover yet (`apply`, `mapcat`, a comparator for `sort`, a transducer other than map/filter/remove/keep)."
    :destructuring "A destructuring form Clojure itself rejects (a qualified local, an element after `&`)."
    :multi-form-body "A body with several forms: the earlier forms only run for effects."
-   :multi-arity "A modelled function with several arities (a fn literal passed to a function may have several)."
-   :recursion "Recursion, `loop`/`recur`, `letfn`."
-   :unmodelled-fn "A call to a function the model does not cover."
+   :multi-arity "A function with several arities translated without a parameter count to pick one (`a/foreign` picks it from the declared parameters)."
+   :recursion "Recursion the model cannot express: `recur` outside a loop or a fn, a recursive function of more than 8 parameters, or a call to the `a/foreign` function being defined (name the fn literal, `(fn f [x] …)`, or use `recur`)."
+   :unmodelled-fn "A call to a clojure.core or clojure.string function the model does not cover, or to another `clojure.*` library. Functions in other namespaces are modelled (`a/defmodel`), called through the DSL boundary (`a/defn`), or opaque."
    :unmodelled-form "A literal or form the model does not cover (char/BigInt/NaN literals, set or map literals with computed keys)."))
 
 (defn refuse! [reason form & [hint]]
@@ -173,11 +189,13 @@
 ;; `tr` returns a surface term of type `Option CljM.V`; `with-atom` gives the continuation a
 ;; term of type `CljM.V` (a local or a literal), binding non-atomic forms first (ANF).
 ;; Locals map a symbol to its V term, or to {::fn builder} (a function: builder takes argument
-;; atoms to a term of type `Option CljM.V`), or to ::self (the fn's own name: recursion).
+;; atoms to a term of type `Option CljM.V`); ::recur maps to the {::fn builder} `recur` calls.
 
-(def ^:private ^:dynamic *ctx* nil)   ;; {:ns :self :counter (atom n)}
+(def ^:private ^:dynamic *ctx* nil)   ;; {:ns :foreign-name :counter (atom n) :call-var f :group-vars {var builder}}
 
-(defn- fresh [base]
+(defn fresh
+  "A fresh binder name (during a translation)."
+  [base]
   (symbol (str "cv_" (str/replace (str base) #"[^A-Za-z0-9]" "_") "_" (swap! (:counter *ctx*) inc))))
 
 (declare tr with-fn)
@@ -185,12 +203,10 @@
 (defn- fn-local? [x] (and (map? x) (contains? x ::fn)))
 
 (defn- local-term
-  "The V term of local `sym`; refuses a function or a self-reference used as a value."
+  "The V term of local `sym`; refuses a function used as a value."
   [locals sym form]
   (let [v (get locals sym)]
-    (cond (= ::self v) (refuse! :recursion form)
-          (fn-local? v) (refuse! :escaping-fn form)
-          :else v)))
+    (if (fn-local? v) (refuse! :escaping-fn form) v)))
 
 (defn- atom-of [locals form]
   (cond (and (symbol? form) (contains? locals form)) (local-term locals form form)
@@ -259,6 +275,7 @@
         atoms (mapv :a args)
         builder (fn [d] (or (:f d) (invoker (:a d))))]
     (cond
+      (:call spec) ((:call spec) atoms)                    ;; a function outside clojure.core
       hof (cond-> (list* (symbol (:op hof))
                          (into (if-let [i (:fn0 hof)] [((builder (nth args i)) [])] [])
                                (map-indexed (fn [i d] (if-let [k (get (:fns hof) i)] (lam (builder d) k) (:a d))))
@@ -400,7 +417,7 @@
 
 (defn- resolve-call [locals sym form]
   (cond
-    (= sym (:self *ctx*)) (refuse! :recursion form)
+    (= sym (:foreign-name *ctx*)) (refuse! :recursion form)
     (str/starts-with? (name sym) ".") (refuse! :interop form)
     (and (str/ends-with? (name sym) ".") (not= sym '.)) (refuse! :interop form)
     :else
@@ -412,6 +429,7 @@
              (try (class? (ns-resolve nsp (symbol (namespace sym)))) (catch Exception _ false)))
         (refuse! :interop form)
         (nil? v) (refuse! :unmodelled-fn form)
+        (get (:group-vars *ctx*) v) {:call (get (:group-vars *ctx*) v)}
         (.isDynamic ^clojure.lang.Var v) (refuse! :dynamic-var form)
         (instance? clojure.lang.MultiFn @v) (refuse! :dispatch form)
         (:protocol (meta v)) (refuse! :dispatch form)
@@ -425,7 +443,8 @@
                                                    (:name (meta v)))
                                               (refuse! :regex form))
                                             (refuse! :unmodelled-fn form))
-        :else (refuse! :unmodelled-fn form)))))
+        (:macro (meta v)) (refuse! :unmodelled-form form)
+        :else {:call ((or (:call-var *ctx*) (requiring-resolve 'ansatz.clj-model.callees/call-var)) v form)}))))
 
 (def ^:private intercepted '#{let fn loop letfn case})
 
@@ -504,15 +523,21 @@
   (cond-> (merge locals (zipmap params atoms))
     rest (assoc rest (rest-term (drop (count params) atoms)))))
 
+(declare local-group recursive?)
+
 (defn- literal-builder
-  "The builder of a fn literal: inlined at each call, closing over `locals`."
+  "The builder of a fn literal: inlined at each call, closing over `locals`; a recursive one is
+   a group entered at each call."
   [locals form]
-  (let [{:keys [self arities]} (parse-fn form)
-        locals (if self (assoc locals self ::self) locals)]
-    (fn [atoms]
-      (if-let [ar (pick-arity arities (count atoms))]
-        (tr (bind-params locals ar atoms) (:body ar))
-        none-term))))
+  (let [{:keys [self arities] :as parsed} (parse-fn form)]
+    (if (recursive? parsed)
+      (let [nm (or self (gensym "fn"))]
+        (get (:builders (local-group locals [{:name nm :arities arities :fuel (:fuel (meta self))}])) nm))
+      (let [locals (dissoc locals ::recur)]
+        (fn [atoms]
+          (if-let [ar (pick-arity arities (count atoms))]
+            (tr (bind-params locals ar atoms) (:body ar))
+            none-term))))))
 
 (defn- core-builder [locals sym form]
   (let [spec (resolve-call locals sym form)]
@@ -558,9 +583,7 @@
   (cond
     (and (symbol? form) (contains? locals form))
     (let [v (get locals form)]
-      (cond (= ::self v) (refuse! :recursion form)
-            (fn-local? v) (k (::fn v))
-            :else (k (invoker v))))
+      (if (fn-local? v) (k (::fn v)) (k (invoker v))))
     (and (symbol? form) (fn-form? locals form)) (k (core-builder locals form form))
     (fn-literal? locals form) (k (literal-builder locals form))
     (and (seq? form) (contains? fn-makers (core-name locals (first form))))
@@ -569,21 +592,25 @@
 
 ;; ── Forms ───────────────────────────────────────────────────────────────────────────────
 
+(defn- let-bindings
+  "Bind `bindings` (plain symbols) in order, as let* does, then `(k locals)`."
+  [locals bindings k]
+  (letfn [(go [locals pairs]
+              (if (empty? pairs)
+                (k locals)
+                (let [[sym init] (first pairs)]
+                  (if (fn-form? locals init)
+                    (with-fn locals init (fn [b] (go (assoc locals sym {::fn b}) (rest pairs))))
+                    (if-let [a (atom-of locals init)]
+                      (go (assoc locals sym a) (rest pairs))
+                      (let [x (fresh sym)]
+                        (list 'Option.bind (tr locals init)
+                              (list 'fn [x :- 'CljM.V] (go (assoc locals sym x) (rest pairs))))))))))]
+    (go locals (partition 2 bindings))))
+
 (defn- tr-let [locals form bindings body]
-  (let [body (single-body form body)
-        bindings (destructure-bindings form bindings)]
-    (letfn [(go [locals pairs]
-                (if (empty? pairs)
-                  (tr locals body)
-                  (let [[sym init] (first pairs)]
-                    (if (fn-form? locals init)
-                      (with-fn locals init (fn [b] (go (assoc locals sym {::fn b}) (rest pairs))))
-                      (if-let [a (atom-of locals init)]
-                        (go (assoc locals sym a) (rest pairs))
-                        (let [x (fresh sym)]
-                          (list 'Option.bind (tr locals init)
-                                (list 'fn [x :- 'CljM.V] (go (assoc locals sym x) (rest pairs))))))))))]
-      (go locals (partition 2 bindings)))))
+  (let [body (single-body form body)]
+    (let-bindings locals (destructure-bindings form bindings) #(tr % body))))
 
 (defn- tr-case
   "`(case e test result … default?)`: hashed-key equality against the literal tests (a list
@@ -611,6 +638,187 @@
                     :else (refuse! :higher-order form "into with a transducer other than map/filter/remove/keep"))))]
     (list head to (as-seq xf from))))
 
+;; ── Recursion ───────────────────────────────────────────────────────────────────────────
+;; A group's members are arities {:params [sym …] :rest sym-or-nil :body form}, plus :idx (the
+;; member tag), :fuel (a user fuel form, or nil) and :ns (the namespace its body reads in, for
+;; a/defmodel groups). The group's functional binds `self`, `tag` and k value parameters
+;; (k = the most any member takes); member i reads the first ones.
+
+(defn- refers?
+  "Does `sym` occur in `form` (outside quote)?"
+  [form sym]
+  (cond (= form sym) true
+        (and (seq? form) (= 'quote (first form))) false
+        (map? form) (boolean (some #(refers? % sym) (mapcat identity form)))
+        (coll? form) (boolean (some #(refers? % sym) form))
+        :else false))
+
+(def ^:private recur-targets
+  '#{fn fn* loop loop* letfn letfn* clojure.core/fn clojure.core/loop clojure.core/letfn})
+
+(defn- recurs?
+  "Does `form` contain a `recur` aimed at the enclosing fn arity or loop (not one inside a
+   nested fn, loop or letfn)?"
+  [form]
+  (cond (seq? form) (let [h (first form)]
+                      (cond (= 'recur h) true
+                            (or (= 'quote h) (recur-targets h)) false
+                            :else (boolean (some recurs? form))))
+        (map? form) (boolean (some recurs? (mapcat identity form)))
+        (coll? form) (boolean (some recurs? form))
+        :else false))
+
+(defn recursive?
+  "Does a parsed fn ({:self :arities}) call itself by name or `recur`?"
+  [{:keys [self arities]}]
+  (boolean (some (fn [{:keys [body]}] (or (and self (refers? body self)) (recurs? body))) arities)))
+
+(defn int-weight
+  "The magnitudes of the integer literals in `forms` (outside quote), at most Long/MAX_VALUE: a
+   bound like the 10 of `(< i 10)` that no argument carries."
+  [forms]
+  (letfn [(walk [x] (cond (and (seq? x) (= 'quote (first x))) 0
+                          (map? x) (reduce +' 0 (map walk (mapcat identity x)))
+                          (coll? x) (reduce +' 0 (map walk x))
+                          (instance? Long x) (if (= Long/MIN_VALUE x) Long/MAX_VALUE (Math/abs (long x)))
+                          :else 0))]
+    (long (min Long/MAX_VALUE (walk forms)))))
+
+(defn- scope-values
+  "The values bound in `locals` (functions apart)."
+  [locals]
+  (keep (fn [[k v]] (when (and (symbol? k) (not (fn-local? v))) v)) locals))
+
+(defn default-fuel
+  "The default fuel of a group entry: 1 + the `CljM.weight` of `atoms` + `lits`."
+  [atoms lits]
+  (let [terms (cond-> (mapv #(list 'CljM.weight %) (distinct atoms)) (pos? lits) (conj lits))]
+    (list '+ (if (seq terms) (reduce #(list '+ %1 %2) terms) 0) 1)))
+
+(defn all-params
+  "An arity's parameters, the rest parameter last."
+  [{:keys [params rest]}]
+  (cond-> (vec params) rest (conj rest)))
+
+(defn- padded [k atoms] (concat atoms (repeat (- k (count atoms)) (vctor 'vnil))))
+
+(defn- packed
+  "A member's arguments for a call with `atoms`: the fixed ones, then the extra ones as its rest."
+  [{:keys [params rest]} atoms]
+  (cond-> (vec (take (count params) atoms)) rest (conj (rest-term (drop (count params) atoms)))))
+
+(defn dispatch-call
+  "The builder of a call of the function whose arities are the members `ms`: Clojure picks
+   the arity by the number of arguments (none when none takes them: Clojure throws), then
+   `(call member packed-atoms)`."
+  [ms call]
+  (fn [atoms] (if-let [m (pick-arity ms (count atoms))] (call m (packed m atoms)) none-term)))
+
+(defn index-members
+  "`fns` [{:name :arities :fuel :ns}] → {:members [arity + :idx :fuel :ns …] :names {name [idx …]}}."
+  [fns]
+  (reduce (fn [acc {:keys [name arities fuel ns]}]
+            (let [i (count (:members acc))]
+              (-> acc
+                  (update :members into (map-indexed (fn [j ar] (assoc ar :idx (+ i j) :fuel fuel :ns ns)) arities))
+                  (assoc-in [:names name] (vec (range i (+ i (count arities))))))))
+          {:members [] :names {}} fns))
+
+(defn group-functional
+  "Translate the members of a recursive group under `locals`. `names` {local-name [idx …]} and
+   `vars` {var [idx …]} are how its bodies call the group. Returns {:k k :binders [self tag x…]
+   :body term}: the functional's parameters (self : Nat → V^k → Option V, tag : Nat, x… : V)
+   and its body, which dispatches on the tag."
+  [locals members names vars]
+  (let [k (max 1 (apply max (map (comp count all-params) members)))
+        _ (when (> k m/max-fix-arity)
+            (refuse! :recursion (:body (first members)) (str "a recursive function of more than " m/max-fix-arity " parameters")))
+        self (fresh "self") tag (fresh "tag") xs (vec (repeatedly k #(fresh "x")))
+        call (fn [mb atoms] (list* self (:idx mb) (padded k atoms)))
+        fn-of (fn [idxs] (dispatch-call (mapv members idxs) call))
+        outer (merge locals (update-vals names (fn [is] {::fn (fn-of is)})))
+        body (fn [mb]
+               (let [ps (all-params mb)
+                     recur-fn (fn [atoms]
+                                (when (not= (count atoms) (count ps))
+                                  (refuse! :unmodelled-form (:body mb) "recur with the wrong number of arguments"))
+                                (call mb atoms))
+                     locals (assoc (merge outer (zipmap ps xs)) ::recur {::fn recur-fn})]
+                 (binding [*ctx* (cond-> (update *ctx* :group-vars merge (update-vals vars fn-of))
+                                   (:ns mb) (assoc :ns (the-ns (:ns mb))))]
+                   (tr locals (:body mb)))))]
+    {:k k
+     :binders (into [self :- (m/fix-type k) tag :- 'Nat] (mapcat (fn [x] [x :- 'CljM.V]) xs))
+     :body (reduce (fn [else mb] (list 'if (list '== tag (:idx mb)) (body mb) else))
+                   (body (peek members)) (rseq (pop members)))}))
+
+(defn fix-entry
+  "The term entering member `mb` of a group with functional `F` (k parameters) on `atoms`."
+  [F k mb fuel atoms]
+  (list* (symbol (str "CljM.fix" k)) F fuel (:idx mb) (padded k atoms)))
+
+(defn user-fuel
+  "A member's user `:fuel` (a natural number, or a Clojure form over its parameters, bound to
+   `atoms`) as a Nat term, or nil."
+  [locals mb atoms]
+  (when-some [f (:fuel mb)]
+    (if (nat-int? f) f (list 'CljM.toFuel (tr (merge locals (zipmap (all-params mb) atoms)) f)))))
+
+(defn- local-group
+  "A recursive group in a body (a loop, a letfn, a recursive fn literal): `fns` [{:name :arities
+   :fuel}]. Returns {:members [...] :builders {name builder} :enter (fn [member atoms])}: each call
+   is an entry whose fuel is computed from its arguments and the values in scope."
+  [locals fns]
+  (let [{:keys [members names]} (index-members fns)
+        {:keys [k binders body]} (group-functional locals members names {})
+        F (list 'fn binders body)
+        lits (int-weight (map :body members))
+        enter (fn [mb atoms]
+                (fix-entry F k mb (or (user-fuel locals mb atoms)
+                                      (default-fuel (concat atoms (scope-values locals)) lits))
+                           atoms))]
+    {:members members
+     :enter enter
+     :builders (update-vals names (fn [is] (dispatch-call (mapv members is) enter)))}))
+
+(defn- tr-loop
+  "`(loop* [x init …] body)`: the inits bind like let*; a body with `recur` is a one-member
+   group entered with them (a body without is a let)."
+  [locals form bvec body]
+  (let [body (single-body form body)
+        syms (take-nth 2 bvec)]
+    (when-not (and (vector? bvec) (even? (count bvec)) (every? simple-symbol? syms)) (refuse! :unmodelled-form form))
+    (if-not (recurs? body)
+      (let-bindings locals bvec #(tr % body))
+      (let-bindings locals bvec
+                    (fn [inner]
+                      (let [{:keys [enter members]} (local-group locals [{:name (gensym "loop") :fuel (:fuel (meta bvec))
+                                                                          :arities [{:params (vec syms) :body body}]}])]
+                        (enter (first members) (mapv #(local-term inner % form) syms))))))))
+
+(defn- loop->loop*
+  "`(loop [pattern init …] body…)` as clojure.core/loop expands it: patterns are bound first,
+   then a `loop*` over plain symbols destructures again in its body."
+  [[_ bvec & body :as form]]
+  (when-not (and (vector? bvec) (even? (count bvec))) (refuse! :unmodelled-form form))
+  (let [bs (take-nth 2 bvec) vs (take-nth 2 (rest bvec))]
+    (if (every? symbol? bs)
+      (list* 'loop* bvec body)
+      (let [gs (map #(if (symbol? %) % (gensym "loop__")) bs)]
+        (list 'clojure.core/let (vec (mapcat (fn [b v g] (if (symbol? b) [g v] [g v b g])) bs vs gs))
+              (list 'loop* (with-meta (vec (interleave gs gs)) (meta bvec))
+                    (list* 'clojure.core/let (vec (interleave bs gs)) body)))))))
+
+(defn- tr-letfn
+  "`(letfn [(f [x] …) …] body)` or `(letfn* [f (fn f …) …] body)`: the functions are one group;
+   the body calls them through entries."
+  [locals form head [specs & body]]
+  (let [fns (if (= 'letfn* head)
+              (map (fn [[n f]] (assoc (parse-fn f) :name n)) (partition 2 specs))
+              (map (fn [[n & more]] (assoc (parse-fn (list* 'fn n more)) :name n)) specs))
+        {:keys [builders]} (local-group locals (map #(assoc % :fuel (:fuel (meta (:name %)))) fns))]
+    (tr (merge locals (update-vals builders (fn [b] {::fn b}))) (single-body form body))))
+
 (defn tr
   "Translate a Clojure form to a surface term of type `Option CljM.V`."
   [locals form]
@@ -620,7 +828,7 @@
           (class-qualified? form) (refuse! :interop form)
           :else (let [v (try (ns-resolve (:ns *ctx*) form) (catch Exception _ nil))]
                   (cond (and (var? v) (.isDynamic ^clojure.lang.Var v)) (refuse! :dynamic-var form)
-                        (= form (:self *ctx*)) (refuse! :recursion form)
+                        (= form (:foreign-name *ctx*)) (refuse! :recursion form)
                         (class? v) (refuse! :interop form)
                         ;; a function as a value: returned, stored, or compared
                         (and (var? v) (fn? @v)) (refuse! :escaping-fn form)
@@ -659,7 +867,12 @@
           throw none-term
           ;; a fn literal in value position (calls and function arguments are handled above)
           (fn* fn) (refuse! :escaping-fn form)
-          (loop* loop recur letfn* letfn) (refuse! :recursion form)
+          loop (tr locals (loop->loop* form))
+          loop* (tr-loop locals form (first args) (rest args))
+          recur (if-let [r (get locals ::recur)]
+                  (with-atoms locals args (::fn r))
+                  (refuse! :recursion form "recur outside a loop or a fn"))
+          (letfn* letfn) (tr-letfn locals form (core-macro-name head) args)
           try (refuse! :try-catch form)
           (new . reify* deftype* import* clojure.core/import*) (refuse! :interop form)
           set! (refuse! :mutable-state form)
@@ -701,20 +914,35 @@
     (list* 'fn fname decl)))
 
 (defn translate
-  "Translate `(fn [x … & rest?] body)` read in namespace `ns`. Returns {:params [binder …]
-   :fixed n :rest? bool :body term}: the body a term of type `Option CljM.V` over binders of
-   type `CljM.V` (a variadic parameter is one binder, the extra arguments as a seq or nil).
-   `fn-name` (the foreign name) counts as a self-reference."
-  [fn-form ns fn-name]
+  "Translate `(fn name? [x … & rest?] body)` read in namespace `ns`, at the arity taking `arity`
+   arguments (by default its only one). Returns {:params [binder …] :fixed n :rest? bool :body
+   term}: the body a term of type `Option CljM.V` over binders of type `CljM.V` (a variadic
+   parameter is one binder, the extra arguments as a seq or nil). A recursive fn is entered as
+   a group (`local-group`). `fn-name` (the foreign name) counts as a call of the function being
+   defined. `opts`: :arity, :call-var (see the namespace doc)."
+  [fn-form ns fn-name & [{:keys [arity call-var]}]]
   (let [{:keys [self arities] :as parsed} (parse-fn fn-form)
-        _ (when (not= 1 (count arities)) (refuse! :multi-arity fn-form))
-        {:keys [params rest body]} (first arities)]
-    (binding [*ctx* {:ns (the-ns ns) :self (or self fn-name) :counter (atom 0)}]
-      (let [all (cond-> params rest (conj rest))
-            binders (mapv fresh all)
-            locals (zipmap all binders)]
-        {:params binders :fixed (count params) :rest? (some? rest)
-         :body (tr (if self (dissoc locals self) locals) body)}))))
+        ar (cond arity (pick-arity arities arity)
+                 (= 1 (count arities)) (first arities)
+                 :else (refuse! :multi-arity fn-form))
+        _ (when-not ar
+            (throw (ex-info "clj-model: the fn literal's arity differs from the declared parameters"
+                            {:kind :clj-model/arity :arity arity :form fn-form})))]
+    (binding [*ctx* {:ns (the-ns ns) :foreign-name fn-name :counter (atom 0) :call-var call-var}]
+      (let [all (all-params ar)
+            binders (mapv fresh all)]
+        {:params binders :fixed (count (:params ar)) :rest? (some? (:rest ar))
+         :body (if (recursive? parsed)
+                 (let [{:keys [enter members]} (local-group {} [{:name (or self (gensym "fn")) :arities arities
+                                                                 :fuel (:fuel (meta self))}])]
+                   (enter (nth members (.indexOf ^java.util.List arities ar)) binders))
+                 (tr (zipmap all binders) (:body ar)))}))))
+
+(defn with-translation
+  "Run `(f)` in a translation context reading in namespace `ns` (to build a group's definitions
+   outside `translate`, as ansatz.clj-model.callees does). `f` must return realized terms."
+  [ns f]
+  (binding [*ctx* {:ns (the-ns ns) :counter (atom 0)}] (f)))
 
 (defn accepts?
   "Does a model of shape {:clj-model/fixed n :clj-model/rest? r} take `k` arguments?"
@@ -729,9 +957,9 @@
 
 (defn model-defn
   "The `a/defn ^:lean` form defining the model of `fn-form` as `kname`; its metadata carries
-   :clj-model/fixed and :clj-model/rest? (the shape of its parameters)."
-  [kname fn-form ns fn-name]
-  (let [{:keys [params body fixed rest?]} (translate fn-form ns fn-name)]
+   :clj-model/fixed and :clj-model/rest? (the shape of its parameters). `opts` as `translate`."
+  [kname fn-form ns fn-name & [opts]]
+  (let [{:keys [params body fixed rest?]} (translate fn-form ns fn-name opts)]
     (with-meta
       (list 'ansatz.core/defn (symbol kname) (vec (mapcat (fn [p] [p :- 'CljM.V]) params))
             '(Option CljM.V) body)

@@ -140,13 +140,13 @@
           '[[(fn [x] (mapcat inc x)) :higher-order] [(fn [x] (let [[a & b c] x] a)) :destructuring] [(fn [x] (let [a/b x] a)) :destructuring]
             [(fn [x] (println x) x) :multi-form-body]
             [(fn [x] (Math/abs x)) :interop] [(fn [x] (.length x)) :interop] [(fn [x] Long/MAX_VALUE) :interop]
-            [(fn [x] (loop [i x] i)) :recursion] [(fn [x] (self x)) :recursion] [(fn [x] (zipmap x x)) :unmodelled-fn]
+            [(fn f [a b c d e g h i j] (f a b c d e g h i j)) :recursion] [(fn [x] (self x)) :recursion] [(fn [x] (zipmap x x)) :unmodelled-fn]
             [(fn [x] (swap! x inc)) :mutable-state] [(fn [x] (try x (catch Exception e nil))) :try-catch]
             [(fn [x] (print-method x nil)) :dispatch] [(fn ([x] x) ([x y] y)) :multi-arity] [(fn [x] (re-find #"a" x)) :regex]
             [(fn [x] (iterate inc x)) :lazy-infinite] [(fn [x] (eval x)) :eval] [(fn [x] *out*) :dynamic-var]
             [(fn [x] inc) :escaping-fn] [(fn [x] (fn [y] y)) :escaping-fn] [(fn [x] (apply + x)) :higher-order]
             [(fn [x] [(partial + x)]) :escaping-fn] [(fn [x] (let [f (fn [y] y)] f)) :escaping-fn]
-            [(fn [x] (map (fn g [y] (g y)) x)) :recursion] [(fn [x] (into [] (mapcat inc) x)) :higher-order]]]
+            [(fn [x] (into [] (mapcat inc) x)) :higher-order]]]
     (let [data (try (tr/translate form 'ansatz.clj-model-test 'self) nil
                     (catch clojure.lang.ExceptionInfo ex (ex-data ex)))]
       (is (= :clj/refused (:kind data)) (pr-str form))

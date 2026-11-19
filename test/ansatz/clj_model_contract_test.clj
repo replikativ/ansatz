@@ -30,6 +30,7 @@
 (deftest functions (check-group :functions))
 (deftest strings (check-group :strings))
 (deftest destructuring (check-group :destructuring))
+(deftest recursion (check-group :recursion))
 
 (deftest a-model-without-answers-fails-its-row
   (let [row {:id :probe/none :form '(+ a b) :params '[[a :int] [b :int]] :max-no-claim 0.0}

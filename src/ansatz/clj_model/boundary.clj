@@ -340,7 +340,8 @@
    :clj-model/model-disagrees: the model is unfaithful on these arguments. Where the model
    makes no claim, the impl's result stands."
   [cname impl model-fn args & [arity]]
-  (let [claim (m/opt-value (apply model-fn (m/pack-args arity (map m/edn->cljv args))))
+  (let [claim (try (m/opt-value (apply model-fn (m/pack-args arity (map m/edn->cljv args))))
+                   (catch StackOverflowError _ nil))   ;; the compiled fixpoint ran out of stack: no claim
         disagree (fn [data cause]
                    (ex-info (str "clj-model: the model of " cname " disagrees with its Clojure source")
                             (merge {:kind :clj-model/model-disagrees :fn cname :args (vec args)
@@ -372,7 +373,7 @@
                             {:kind :clj-model/no-codec :type ret-type})))
         source (model-source impl-form ns-sym)
         model-name (str fn-name ".clj")
-        model-form (translate/model-defn model-name (:form source) (:ns source) fn-name)
+        model-form (translate/model-defn model-name (:form source) (:ns source) fn-name {:arity (count pairs)})
         arity (select-keys (meta model-form) [:clj-model/fixed :clj-model/rest?])
         _ (when-not (translate/accepts? arity (count pairs))
             (throw (ex-info "clj-model: the fn literal's arity differs from the declared parameters"
@@ -385,11 +386,13 @@
         result (list 'Option.bind model-app (symbol (:dec rc)))
         body (list 'Option.getD result (:default rc))
         statement (list '= 'Bool (list 'Option.isSome result) true)
-        cname (str fn-name)]
+        cname (str fn-name)
+        opaque ((requiring-resolve 'ansatz.clj-model.callees/opaque-in) model-name)]
     (binding [a/*verbose* false config/*clj-surface* false *ns* (the-ns ns-sym)]
       (a/define-verified fn-name params ret-type body))
     (swap! state/ansatz-env env/update-extension :reducibility-status {} assoc cname "irreducible")
-    (swap! state/ansatz-env env/update-extension :clj-model {} assoc cname {:status :tested :model model-name})
+    (swap! state/ansatz-env env/update-extension :clj-model {} assoc cname
+           (cond-> {:status :tested :model model-name} (seq opaque) (assoc :opaque opaque)))
     (let [cell (atom :tested)
           paranoid (atom (boolean (:paranoid? opts)))
           ported (atom nil)
@@ -410,8 +413,9 @@
       (swap! registry assoc cname {:impl impl :params params :ret ret-type :pairs pairs :codecs codecs
                                    :ret-codec rc :model-name model-name :model-fn model-fn :ns ns-sym :arity arity
                                    :statement statement :status cell :paranoid paranoid :ported ported
-                                   :source (:form source) :source-info (dissoc source :form)})
-      (println "⚠ modelled:" fn-name "— a definition from its Clojure source; conformance :tested, not proved")
+                                   :source (:form source) :source-info (dissoc source :form) :opaque opaque})
+      (println "⚠ modelled:" fn-name "— a definition from its Clojure source; conformance :tested, not proved"
+               (if (seq opaque) (str "; opaque (assumed pure): " (str/join ", " opaque)) ""))
       (decl/emit-foreign! cname wrapper))))
 
 (defn status [f] @(:status (info f)))

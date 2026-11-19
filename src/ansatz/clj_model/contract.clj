@@ -279,12 +279,47 @@
 
    {:id :affix/string :group :strings
     :form '[(clojure.string/starts-with? s t) (clojure.string/ends-with? s t) (clojure.string/includes? s t)]
-    :params '[[s :string] [t :string]] :max-no-claim 0.0}])
+    :params '[[s :string] [t :string]] :max-no-claim 0.0}
+
+   ;; ── recursion (G3) ──────────────────────────────────────────────────────────────────
+   {:id :loop/sum :group :recursion :form '(loop [s (seq c) acc 0] (if s (recur (next s) (+ acc (first s))) acc))
+    :params '[[c :ints]] :max-no-claim 0.3 :note "Fuel: the weight of the values in scope. A hash set of 2+ elements is no claim (its order)."}
+   {:id :loop/destructure :group :recursion :form '(loop [[x & more] (seq c) acc []] (if x (recur more (conj acc x)) acc))
+    :params '[[c :ints]] :max-no-claim 0.3}
+   {:id :loop/literal-bound :group :recursion :form '(loop [i 0 acc []] (if (< i 10) (recur (inc i) (conj acc i)) acc))
+    :params '[[a :any]] :max-no-claim 0.0 :note "No argument carries the 10: the integer literals of the body count toward the fuel."}
+   {:id :loop/scope-bound :group :recursion :form '(loop [i 0 acc 0] (if (< i (count c)) (recur (inc i) (+ acc i)) acc))
+    :params '[[c :coll]] :max-no-claim 0.0 :note "Counting up to a bound in scope: the bound's weight counts."}
+   {:id :loop/nested :group :recursion
+    :form '(loop [s (seq c) acc []] (if s (recur (next s) (conj acc (loop [j (min (max (first s) 0) 5) n 0] (if (pos? j) (recur (dec j) (inc n)) n)))) acc))
+    :params '[[c :ints]] :max-no-claim 0.3}
+   {:id :self/next :group :recursion :form '((fn len [s] (if (seq s) (inc (len (next s))) 0)) c)
+    :params '[[c :seqable]] :max-no-claim 0.35 :note "A non-tail self-call: a JVM frame per level (see the stack stance above)."}
+   {:id :self/rest :group :recursion :form '((fn len [s] (if (seq s) (inc (len (rest s))) 0)) c)
+    :params '[[c :seqable]] :max-no-claim 0.75
+    :note "`rest` of a one-element seq other than a list is no claim (an EmptyList or an empty LazySeq); recur with `next` answers."}
+   {:id :self/tree :group :recursion
+    :form '((fn walk [t] (cond (map? t) (reduce + 0 (map walk (vals t))) (vector? t) (reduce + 0 (map walk t)) (int? t) t :else 0)) v)
+    :params '[[v :value]] :max-no-claim 0.05 :note "Recursion through `map` over nested maps and vectors: depth below the weight."}
+   {:id :self/count-down :group :recursion :form '((fn f [n acc] (if (pos? n) (f (dec n) (conj acc n)) acc)) (min n 40) [])
+    :params '[[n :int]] :max-no-claim 0.0 :note "An integer counts |i| + 1 toward the weight."}
+   {:id :fn/recur :group :recursion :form '((fn [n acc] (if (pos? n) (recur (dec n) (* acc 2)) acc)) (min n 70) 1)
+    :params '[[n :int]] :max-no-claim 0.0 :note "Past 62 doublings the long overflows: Clojure throws, the model is none."}
+   {:id :fn/multi-arity :group :recursion :form '((fn f ([x] (f x 0)) ([x acc] (if (seq x) (recur (next x) (inc acc)) acc))) c)
+    :params '[[c :seqable]] :max-no-claim 0.35 :note "An arity calling another: the arities are one group."}
+   {:id :fn/variadic-recur :group :recursion :form '((fn f [acc & xs] (if xs (recur (+ acc (first xs)) (next xs)) acc)) 0 a b c)
+    :params '[[a :int] [b :int] [c :int]] :max-no-claim 0.0 :note "recur passes the rest parameter as it is (a seq or nil)."}
+   {:id :letfn/even-odd :group :recursion
+    :form '(letfn [(ev? [n] (if (zero? n) true (od? (dec n)))) (od? [n] (if (zero? n) false (ev? (dec n))))] [(ev? (count c)) (od? (count c))])
+    :params '[[c :coll]] :max-no-claim 0.0 :note "Mutual recursion: one group, one fuel."}
+   {:id :hof/recursive-literal :group :recursion
+    :form '(map (fn f [n] (if (pos? n) (* n (f (dec n))) 1)) (map (fn [x] (min (max x 0) 20)) c))
+    :params '[[c :ints]] :max-no-claim 0.1 :note "A recursive fn literal passed to a higher-order function."}])
 
 (def group-titles
   [[:numbers "Numbers"] [:equality "Equality"] [:control "Truthiness and control"]
    [:types "Type predicates"] [:collections "Collections"] [:sequences "Sequences"] [:maps "Maps"]
-   [:functions "Functions"] [:strings "Strings"] [:destructuring "Destructuring"]])
+   [:functions "Functions"] [:strings "Strings"] [:destructuring "Destructuring"] [:recursion "Recursion"]])
 
 (defn- cell [s] (str/replace (str s) "|" "\\|"))
 
@@ -316,6 +351,26 @@
      "`partial`, `comp`, `complement`, `constantly`, `juxt`, keywords, maps and sets may be called or"
      "passed to a modelled higher-order function; a function returned or stored is refused."
      ""
+     "Recursion. Self-calls, `loop`/`recur`, `letfn` and mutually recursive `a/defmodel` functions"
+     "are a group run by a fixpoint on a Nat fuel that bounds the depth of nested calls; out of fuel"
+     "is no claim. The default fuel of an entry is 1 + the weight of its arguments and of every value"
+     "in scope + the magnitudes of the integer literals in the group's bodies, where the weight counts"
+     "the nodes of a value, an integer as |i| + 1 and a string as its length + 1. So recursion that"
+     "walks into a collection, shortens a string, counts an integer toward 0, or counts up to a bound"
+     "in scope or in the source is never cut short; other recursion (Collatz, growing arguments) can"
+     "be, and `^{:fuel form}` on the fn name or the loop's binding vector sets the fuel instead."
+     ""
+     "Stack. The claim is what Clojure returns given enough stack and heap. `loop`/`recur` run in"
+     "constant stack, so their claims hold on any stack; a non-tail self-call takes a JVM frame per"
+     "level, so an input deep enough (around 10^4 levels on a default thread stack) throws"
+     "StackOverflowError where the model answers. The checks below count such a call as *resource*,"
+     "neither agreement nor a model bug."
+     ""
+     "Calls of other functions: an `a/defmodel` function is modelled from its source (each strongly"
+     "connected group once); an `a/defn` over Nat, Int, Bool, String or Float is called through the"
+     "boundary codecs; any other function is an opaque axiom `V → … → Option V`, which assumes it is"
+     "pure and is listed by `a/trust-report`."
+     ""
      "Each row below is checked by `test/ansatz/clj_model_contract_test.clj`: the form is translated"
      "into the model and run against clojure.core on generated EDN (edge values first: nil, booleans,"
      "`Long/MIN_VALUE`/`MAX_VALUE`, ±0.0, NaN, a non-BMP string, keywords, `()`, `[]`, small maps,"
@@ -326,7 +381,8 @@
      "- **throws**: the model answers none and clojure.core throws;"
      "- **no claim**: the model answers none and clojure.core returns; the row's *max no-claim*"
      "  bounds their fraction among returning calls;"
-     "- **model bug**: the model answers and clojure.core differs or throws. Any one fails the row."
+     "- **model bug**: the model answers and clojure.core differs or throws. Any one fails the row;"
+     "- **resource**: the model answers and clojure.core runs out of stack or heap (see above)."
      ""
      "A row checks one form; `ansatz.clj-check/check-model!` runs the same comparison for a"
      "modelled function, and checks conformance on inputs from its declared types."

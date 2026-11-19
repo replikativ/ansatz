@@ -20,6 +20,26 @@ Functions are a second sort `CljM.V → … → Option CljM.V`: fn literals, cor
 `partial`, `comp`, `complement`, `constantly`, `juxt`, keywords, maps and sets may be called or
 passed to a modelled higher-order function; a function returned or stored is refused.
 
+Recursion. Self-calls, `loop`/`recur`, `letfn` and mutually recursive `a/defmodel` functions
+are a group run by a fixpoint on a Nat fuel that bounds the depth of nested calls; out of fuel
+is no claim. The default fuel of an entry is 1 + the weight of its arguments and of every value
+in scope + the magnitudes of the integer literals in the group's bodies, where the weight counts
+the nodes of a value, an integer as |i| + 1 and a string as its length + 1. So recursion that
+walks into a collection, shortens a string, counts an integer toward 0, or counts up to a bound
+in scope or in the source is never cut short; other recursion (Collatz, growing arguments) can
+be, and `^{:fuel form}` on the fn name or the loop's binding vector sets the fuel instead.
+
+Stack. The claim is what Clojure returns given enough stack and heap. `loop`/`recur` run in
+constant stack, so their claims hold on any stack; a non-tail self-call takes a JVM frame per
+level, so an input deep enough (around 10^4 levels on a default thread stack) throws
+StackOverflowError where the model answers. The checks below count such a call as *resource*,
+neither agreement nor a model bug.
+
+Calls of other functions: an `a/defmodel` function is modelled from its source (each strongly
+connected group once); an `a/defn` over Nat, Int, Bool, String or Float is called through the
+boundary codecs; any other function is an opaque axiom `V → … → Option V`, which assumes it is
+pure and is listed by `a/trust-report`.
+
 Each row below is checked by `test/ansatz/clj_model_contract_test.clj`: the form is translated
 into the model and run against clojure.core on generated EDN (edge values first: nil, booleans,
 `Long/MIN_VALUE`/`MAX_VALUE`, ±0.0, NaN, a non-BMP string, keywords, `()`, `[]`, small maps,
@@ -30,7 +50,8 @@ a `hash-map`-built small map, a map over 8 entries, sets, a lazy seq). Verdicts 
 - **throws**: the model answers none and clojure.core throws;
 - **no claim**: the model answers none and clojure.core returns; the row's *max no-claim*
   bounds their fraction among returning calls;
-- **model bug**: the model answers and clojure.core differs or throws. Any one fails the row.
+- **model bug**: the model answers and clojure.core differs or throws. Any one fails the row;
+- **resource**: the model answers and clojure.core runs out of stack or heap (see above).
 
 A row checks one form; `ansatz.clj-check/check-model!` runs the same comparison for a
 modelled function, and checks conformance on inputs from its declared types.
@@ -254,6 +275,25 @@ modelled function, and checks conformance on inputs from its declared types.
 | `(map (fn [[k v]] [v k]) m)` | m : kmap | 0.05 |  |
 | `((fn [{:keys [a], :or {a 0}}] (inc a)) m)` | m : value | 0.05 |  |
 
+## Recursion
+
+| Form | Inputs | Max no-claim | Note |
+|---|---|---|---|
+| `(loop [s (seq c) acc 0] (if s (recur (next s) (+ acc (first s))) acc))` | c : ints | 0.3 | Fuel: the weight of the values in scope. A hash set of 2+ elements is no claim (its order). |
+| `(loop [[x & more] (seq c) acc []] (if x (recur more (conj acc x)) acc))` | c : ints | 0.3 |  |
+| `(loop [i 0 acc []] (if (< i 10) (recur (inc i) (conj acc i)) acc))` | a : any | 0.0 | No argument carries the 10: the integer literals of the body count toward the fuel. |
+| `(loop [i 0 acc 0] (if (< i (count c)) (recur (inc i) (+ acc i)) acc))` | c : coll | 0.0 | Counting up to a bound in scope: the bound's weight counts. |
+| `(loop [s (seq c) acc []] (if s (recur (next s) (conj acc (loop [j (min (max (first s) 0) 5) n 0] (if (pos? j) (recur (dec j) (inc n)) n)))) acc))` | c : ints | 0.3 |  |
+| `((fn len [s] (if (seq s) (inc (len (next s))) 0)) c)` | c : seqable | 0.35 | A non-tail self-call: a JVM frame per level (see the stack stance above). |
+| `((fn len [s] (if (seq s) (inc (len (rest s))) 0)) c)` | c : seqable | 0.75 | `rest` of a one-element seq other than a list is no claim (an EmptyList or an empty LazySeq); recur with `next` answers. |
+| `((fn walk [t] (cond (map? t) (reduce + 0 (map walk (vals t))) (vector? t) (reduce + 0 (map walk t)) (int? t) t :else 0)) v)` | v : value | 0.05 | Recursion through `map` over nested maps and vectors: depth below the weight. |
+| `((fn f [n acc] (if (pos? n) (f (dec n) (conj acc n)) acc)) (min n 40) [])` | n : int | 0.0 | An integer counts \|i\| + 1 toward the weight. |
+| `((fn [n acc] (if (pos? n) (recur (dec n) (* acc 2)) acc)) (min n 70) 1)` | n : int | 0.0 | Past 62 doublings the long overflows: Clojure throws, the model is none. |
+| `((fn f ([x] (f x 0)) ([x acc] (if (seq x) (recur (next x) (inc acc)) acc))) c)` | c : seqable | 0.35 | An arity calling another: the arities are one group. |
+| `((fn f [acc & xs] (if xs (recur (+ acc (first xs)) (next xs)) acc)) 0 a b c)` | a : int, b : int, c : int | 0.0 | recur passes the rest parameter as it is (a seq or nil). |
+| `(letfn [(ev? [n] (if (zero? n) true (od? (dec n)))) (od? [n] (if (zero? n) false (ev? (dec n))))] [(ev? (count c)) (od? (count c))])` | c : coll | 0.0 | Mutual recursion: one group, one fuel. |
+| `(map (fn f [n] (if (pos? n) (* n (f (dec n))) 1)) (map (fn [x] (min (max x 0) 20)) c))` | c : ints | 0.1 | A recursive fn literal passed to a higher-order function. |
+
 ## Refused forms
 
 Translation refuses what the model cannot express with `ex-info`
@@ -269,13 +309,13 @@ Translation refuses what the model cannot express with `ex-info`
 | `:higher-order` | A higher-order function the model does not cover yet (`apply`, `mapcat`, a comparator for `sort`, a transducer other than map/filter/remove/keep). |
 | `:interop` | Java interop (`.method`, `Class.`, `Class/static`, `new`): no model of Java objects. |
 | `:lazy-infinite` | An infinite sequence (`iterate`, `cycle`, `repeat`/`range` without a bound). |
-| `:multi-arity` | A modelled function with several arities (a fn literal passed to a function may have several). |
+| `:multi-arity` | A function with several arities translated without a parameter count to pick one (`a/foreign` picks it from the declared parameters). |
 | `:multi-form-body` | A body with several forms: the earlier forms only run for effects. |
 | `:mutable-state` | Atoms, volatiles, `deref`, `set!`: the model has no state. |
 | `:no-source` | The function's source is not available: define it with `a/defmodel` (a REPL `defn` has no source file). |
-| `:recursion` | Recursion, `loop`/`recur`, `letfn`. |
+| `:recursion` | Recursion the model cannot express: `recur` outside a loop or a fn, a recursive function of more than 8 parameters, or a call to the `a/foreign` function being defined (name the fn literal, `(fn f [x] …)`, or use `recur`). |
 | `:regex` | Regular expressions: not modelled. |
 | `:side-effect` | An effect (printing, I/O, `def`): the model is pure. |
 | `:try-catch` | `try`: catching would turn a no-claim into a value. |
-| `:unmodelled-fn` | A call to a function the model does not cover. |
+| `:unmodelled-fn` | A call to a clojure.core or clojure.string function the model does not cover, or to another `clojure.*` library. Functions in other namespaces are modelled (`a/defmodel`), called through the DSL boundary (`a/defn`), or opaque. |
 | `:unmodelled-form` | A literal or form the model does not cover (char/BigInt/NaN literals, set or map literals with computed keys). |
