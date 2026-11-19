@@ -77,7 +77,7 @@
            ["CljM.get" [{:a 1} :a] 1] ["CljM.get3" [{:a nil} :a 5] nil] ["CljM.get3" [{} :a 5] 5]
            ["CljM.get" [[1 2 3] 1] 2] ["CljM.get" [[1 2 3] 4294967297] :none] ["CljM.get" [5 :a] nil]
            ["CljM.assoc" [{:a 1 :b 2} :a 3] {:a 3 :b 2}] ["CljM.assoc" [[1 2] 2 9] [1 2 9]] ["CljM.assoc" [[1 2] 3 9] :none]
-           ["CljM.dissoc" [{:a 1 :b 2} :a] {:b 2}] ["CljM.count" [nil] 0] ["CljM.count" ["ab"] :none]
+           ["CljM.dissoc" [{:a 1 :b 2} :a] {:b 2}] ["CljM.count" [nil] 0] ["CljM.count" ["ab"] 2] ["CljM.count" ["😀"] :none]
            ["CljM.not" [0] false] ["CljM.not" [nil] true] ["CljM.intQ" [9223372036854775808N] false]]]
     (is (m/strict= expected (apply run-op k args)) (str k " " (pr-str args)))))
 
@@ -137,14 +137,16 @@
 
 (deftest refusals
   (doseq [[form reason]
-          '[[(fn [x] (map inc x)) :higher-order] [(fn [x & y] x) :varargs] [(fn [[a b]] a) :destructuring]
+          '[[(fn [x] (mapcat inc x)) :higher-order] [(fn [x & [y]] x) :destructuring] [(fn [[a b]] a) :destructuring]
             [(fn [x] (let [{:keys [a]} x] a)) :destructuring] [(fn [x] (println x) x) :multi-form-body]
             [(fn [x] (Math/abs x)) :interop] [(fn [x] (.length x)) :interop] [(fn [x] Long/MAX_VALUE) :interop]
-            [(fn [x] (loop [i x] i)) :recursion] [(fn [x] (self x)) :recursion] [(fn [x] (str x)) :unmodelled-fn]
+            [(fn [x] (loop [i x] i)) :recursion] [(fn [x] (self x)) :recursion] [(fn [x] (zipmap x x)) :unmodelled-fn]
             [(fn [x] (swap! x inc)) :mutable-state] [(fn [x] (try x (catch Exception e nil))) :try-catch]
-            [(fn [x] (case x 1 2 3)) :dispatch] [(fn ([x] x) ([x y] y)) :multi-arity] [(fn [x] (re-find #"a" x)) :regex]
+            [(fn [x] (print-method x nil)) :dispatch] [(fn ([x] x) ([x y] y)) :multi-arity] [(fn [x] (re-find #"a" x)) :regex]
             [(fn [x] (iterate inc x)) :lazy-infinite] [(fn [x] (eval x)) :eval] [(fn [x] *out*) :dynamic-var]
-            [(fn [x] inc) :escaping-fn] [(fn [x] (fn [y] y)) :escaping-fn] [(fn [f x] (f x)) :higher-order]]]
+            [(fn [x] inc) :escaping-fn] [(fn [x] (fn [y] y)) :escaping-fn] [(fn [x] (apply + x)) :higher-order]
+            [(fn [x] [(partial + x)]) :escaping-fn] [(fn [x] (let [f (fn [y] y)] f)) :escaping-fn]
+            [(fn [x] (map (fn g [y] (g y)) x)) :recursion] [(fn [x] (into [] (mapcat inc) x)) :higher-order]]]
     (let [data (try (tr/translate form 'ansatz.clj-model-test 'self) nil
                     (catch clojure.lang.ExceptionInfo ex (ex-data ex)))]
       (is (= :clj/refused (:kind data)) (pr-str form))
@@ -225,7 +227,7 @@
 
 (deftest an-untranslatable-source-is-refused-at-definition
   (let [data (try (binding [a/*verbose* false]
-                    (eval '(ansatz.core/foreign ^:model bad-model [x :- Int] Int (fn [x] (str x)))))
+                    (eval '(ansatz.core/foreign ^:model bad-model [x :- Int] Int (fn [x] (zipmap x x)))))
                   nil
                   (catch Throwable t (some #(when (:kind (ex-data %)) (ex-data %)) (take-while some? (iterate #(.getCause ^Throwable %) t)))))]
     (is (= :unmodelled-fn (:reason data)))))
