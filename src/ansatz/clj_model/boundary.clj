@@ -27,8 +27,18 @@
    G1 codecs: Nat (dec requires 0 ≤ i), Int, Bool, String and the DSL `Value`
    (ansatz.surface.data; `CljM.ofValue` dedupes map entries first-wins like value->edn,
    `CljM.toValue?` maps list/vector/ordered seq to vvec like edn->value, and is none for a
-   map over 8 entries or a set over 1 element, whose runtime order is the hash order)."
+   map over 8 entries or a set over 1 element, whose runtime order is the hash order).
+
+   G2 codecs, generated per type as `CljM.enc_<T>` / `CljM.dec_<T>` over polymorphic helpers:
+   `List T` (a vector; dec accepts nil, a list, a vector or an ordered seq), `Option T` (`none`
+   is nil; refused when T's decoder accepts nil, Option Bool is fine), `Prod A B` (a 2-vector),
+   Float (a double), an `a/structure` (a map with the field names as keywords; dec reads the
+   fields and ignores other keys) and `Subtype T P` (a parameter only: its value, by T's codec). The runtime
+   conversion of such an argument is its compiled enc_T then cljv->edn, so the impl receives
+   exactly the value the model reads."
   (:require [ansatz.core :as a]
+            [clojure.string :as str]
+            [clojure.java.io :as io]
             [ansatz.config :as config]
             [ansatz.state :as state]
             [ansatz.clj-model :as m]
@@ -36,6 +46,7 @@
             [ansatz.clj-model.translate :as translate]
             [ansatz.codegen.decl :as decl]
             [ansatz.kernel.env :as env]
+            [ansatz.kernel.expr :as e]
             [ansatz.kernel.name :as name]
             [ansatz.surface.elaborate :as elab]
             [ansatz.surface.ingest :as ingest]))
@@ -164,8 +175,154 @@
                                      "(ansatz.surface.data/install-value-type! or install-core!)") {:type ty})))
               {:enc "CljM.ofValue" :dec "CljM.toValue?" :default 'Value.vnil
                :->clj @(requiring-resolve 'ansatz.surface.data/value->edn)})
-    (throw (ex-info (str "clj-model: no G1 boundary codec for " (pr-str ty)
-                         " (G1: Nat, Int, Bool, String, Value)") {:kind :clj-model/no-codec :type ty}))))
+    ((requiring-resolve 'ansatz.clj-model.boundary/compound-codec) ty)))
+
+;; ── Compound codecs (G2) ────────────────────────────────────────────────────────────────
+
+(defn- none-t [t] (list (symbol "@Option.none") t))
+(defn- nil-list [t] (list (symbol "@List.nil") t))
+
+(def ^:private poly-forms
+  (let [A '[α :- Type :implicit] AB '[α :- Type :implicit, β :- Type :implicit]
+        defn* (fn [nm params ret body] (list 'ansatz.core/defn nm params ret body))
+        ;; an ordered sequential's items: a vector, a list, an ordered seq
+        seq-arms (fn [ret k] {'vlist [['it] (k 'it)] 'vvec [['it] (k 'it)]
+                              'vlseq [['o 'it] (list 'if 'o (k 'it) (none-t ret))]})
+        pair (list 'if '(== (CljM.clen c) 2)
+                   '(Option.bind (da (CljM.hd c))
+                                 (fn [a :- α] (Option.bind (db (CljM.hd (CljM.tl c))) (fn [b :- β] (Option.some (Prod.mk a b))))))
+                   (none-t '(Prod α β)))]
+    [(defn* 'CljM.encListC (into A '[e :- (=> α CljM.V), xs :- (List α)]) 'CljM.V
+       '(match xs (List α) CljM.V (nil CljM.V.vnil) (cons [h t] (CljM.V.vcons (e h) (CljM.encListC e t)))))
+     (defn* 'CljM.encList (into A '[e :- (=> α CljM.V), xs :- (List α)]) 'CljM.V '(CljM.V.vvec (CljM.encListC e xs)))
+     (defn* 'CljM.decListC (into A '[d :- (=> CljM.V (Option α)), c :- CljM.V]) '(Option (List α))
+       (m/vm 'c '(Option (List α)) (none-t '(List α))
+             {'vnil [[] (list 'Option.some (nil-list 'α))]
+              'vcons [['h 't] '(Option.bind (d h) (fn [x :- α] (Option.bind (CljM.decListC d t)
+                                                                            (fn [r :- (List α)] (Option.some (List.cons x r))))))]}))
+     (defn* 'CljM.decList (into A '[d :- (=> CljM.V (Option α)), v :- CljM.V]) '(Option (List α))
+       (m/vm 'v '(Option (List α)) (none-t '(List α))
+             (assoc (seq-arms '(List α) (fn [it] (list 'CljM.decListC 'd it)))
+                    'vnil [[] (list 'Option.some (nil-list 'α))])))
+     (defn* 'CljM.encOption (into A '[e :- (=> α CljM.V), o :- (Option α)]) 'CljM.V
+       '(match o (Option α) CljM.V (none CljM.V.vnil) (some [x] (e x))))
+     (defn* 'CljM.decOption (into A '[d :- (=> CljM.V (Option α)), v :- CljM.V]) '(Option (Option α))
+       (list 'if '(CljM.isNil v) (list 'Option.some (none-t 'α))
+             '(Option.bind (d v) (fn [x :- α] (Option.some (Option.some x))))))
+     (defn* 'CljM.encProd (into AB '[ea :- (=> α CljM.V), eb :- (=> β CljM.V), p :- (Prod α β)]) 'CljM.V
+       '(CljM.V.vvec (CljM.V.vcons (ea (Prod.fst p)) (CljM.V.vcons (eb (Prod.snd p)) CljM.V.vnil))))
+     (defn* 'CljM.decProd (into AB '[da :- (=> CljM.V (Option α)), db :- (=> CljM.V (Option β)), v :- CljM.V]) '(Option (Prod α β))
+       (m/vm 'v '(Option (Prod α β)) (none-t '(Prod α β)) (seq-arms '(Prod α β) (fn [it] (list 'let ['c it] pair)))))
+     '(ansatz.core/defn CljM.encFloat [f :- Float] CljM.V (CljM.V.vdouble f))
+     (m/defm 'CljM.decFloat '[[v CljM.V]] '(Option Float) (m/vm 'v '(Option Float) (none-t 'Float) {'vdouble [['f] '(Option.some f)]}))]))
+
+(defn- install-poly! []
+  (when-not (installed-const? "CljM.decFloat")
+    (binding [a/*verbose* false config/*clj-surface* false *ns* (the-ns 'ansatz.clj-model.boundary)]
+      (doseq [f poly-forms] (eval f)))))
+
+(defn- mangle [ty]
+  (cond (seq? ty) (str/join "_" (map mangle ty))
+        :else (str/replace (str ty) #"[^A-Za-z0-9]" "_")))
+
+(defn- structure-fields
+  "The constructor and fields [[name type-form] …] of a non-parametric a/structure `ty`, or nil."
+  [ty]
+  (when-let [{:keys [fields]} (and (symbol? ty) (get @ingest/structure-registry (str ty)))]
+    (let [^ansatz.kernel.ConstantInfo ind (env/lookup (a/env) (name/from-string (str ty)))
+          ^ansatz.kernel.ConstantInfo ctor (env/lookup (a/env) (aget (.ctors ind) 0))
+          form (fn form [x] (cond (e/const? x) (symbol (name/->string (e/const-name x)))
+                                  (e/app? x) (map form (cons (e/get-app-fn x) (e/get-app-args x)))
+                                  :else (throw (ex-info "clj-model: a structure field type the boundary cannot name"
+                                                        {:kind :clj-model/no-codec :type ty}))))]
+      (when (zero? (.numParams ind))
+        {:ctor (name/->string (.name ctor))
+         :fields (loop [t (.type ctor) fs fields acc []]
+                   (if (seq fs)
+                     (do (when (e/has-loose-bvars? (e/forall-type t))
+                           (throw (ex-info "clj-model: a dependent structure field" {:kind :clj-model/no-codec :type ty})))
+                         (recur (e/forall-body t) (rest fs) (conj acc [(first fs) (form (e/forall-type t))])))
+                     acc))}))))
+
+(defn- define-codec! [enc forms]
+  (when-not (installed-const? enc)
+    (binding [a/*verbose* false config/*clj-surface* false *ns* (the-ns 'ansatz.clj-model.boundary)]
+      (doseq [f forms] (eval f)))))
+
+(defn compound-codec
+  "The boundary of a compound type form (List, Option, Prod, Float, an a/structure, Subtype):
+   monomorphic `CljM.enc_<T>`/`CljM.dec_<T>` defined on first use."
+  [ty]
+  (install-poly!)
+  (let [head (if (seq? ty) (first ty) ty)
+        enc (str "CljM.enc_" (mangle ty)) dec (str "CljM.dec_" (mangle ty))
+        inner (when (and (seq? ty) (not= 'Subtype head)) (mapv codec (rest ty)))
+        [c1 c2] inner
+        sym symbol
+        via-enc (fn [] (let [f (m/model-fn enc)] (fn [x] (m/cljv->edn (f x)))))
+        mono (fn [enc-body dec-body]
+               (define-codec! enc
+                 [(list 'ansatz.core/defn (sym enc) ['x :- ty] 'CljM.V enc-body)
+                  (list 'ansatz.core/defn (sym dec) ['v :- 'CljM.V] (list 'Option ty) dec-body)]))]
+    (case head
+      List (do (mono (list 'CljM.encList (sym (:enc c1)) 'x) (list 'CljM.decList (sym (:dec c1)) 'v))
+               {:enc enc :dec dec :default (nil-list (second ty)) :nil? true :->clj (via-enc)})
+      Option (do (when (:nil? c1)
+                   (throw (ex-info (str "clj-model: no codec for " (pr-str ty) ": its element can be nil, so nil would be ambiguous")
+                                   {:kind :clj-model/no-codec :type ty})))
+                 (mono (list 'CljM.encOption (sym (:enc c1)) 'x) (list 'CljM.decOption (sym (:dec c1)) 'v))
+                 {:enc enc :dec dec :default (none-t (second ty)) :nil? true :->clj (via-enc)})
+      Prod (do (mono (list 'CljM.encProd (sym (:enc c1)) (sym (:enc c2)) 'x) (list 'CljM.decProd (sym (:dec c1)) (sym (:dec c2)) 'v))
+               {:enc enc :dec dec :default (list 'Prod.mk (:default c1) (:default c2)) :->clj (via-enc)})
+      Float {:enc "CljM.encFloat" :dec "CljM.decFloat" :default 0.0 :->clj identity}
+      ;; a Subtype-typed parameter reads as its value (the elaborator's coercion), which is also
+      ;; its runtime representation: the base type's codec applies
+      Subtype (assoc (select-keys (codec (second ty)) [:enc :->clj]) :param-only true)
+      (if-let [{:keys [ctor fields]} (structure-fields ty)]
+        (let [fcs (mapv (comp codec second) fields)
+              ys (mapv #(sym (str "y" %)) (range (count fields)))
+              enc-body (list 'CljM.V.vmap
+                             (reduce (fn [acc [[f _] fc]]
+                                       (list 'CljM.V.ventry (list 'CljM.V.vkw f) (list (sym (:enc fc)) (list (sym (str ty "." f)) 'x)) acc))
+                                     'CljM.V.vnil (reverse (map vector fields fcs))))
+              dec-body (list 'if '(CljM.isMap v)
+                             (reduce (fn [acc [[f t] fc y]]
+                                       (list 'Option.bind (list 'Option.bind (list 'CljM.get 'v (list 'CljM.V.vkw f)) (sym (:dec fc)))
+                                             (list 'fn [y :- t] acc)))
+                                     (list 'Option.some (list* (sym ctor) ys))
+                                     (reverse (map vector fields fcs ys)))
+                             (none-t ty))]
+          (mono enc-body dec-body)
+          {:enc enc :dec dec :default (list* (sym ctor) (map :default fcs)) :->clj (via-enc)})
+        (throw (ex-info (str "clj-model: no boundary codec for " (pr-str ty)
+                             " (Nat, Int, Bool, String, Float, Value, List, Option, Prod, Subtype, an a/structure)")
+                        {:kind :clj-model/no-codec :type ty}))))))
+
+;; ── Where the source comes from ─────────────────────────────────────────────────────────
+
+(defn- sha256 [^String s]
+  (let [d (.digest (java.security.MessageDigest/getInstance "SHA-256") (.getBytes s "UTF-8"))]
+    (apply str (map #(format "%02x" (bit-and % 0xff)) d))))
+
+(defn model-source
+  "The fn form to translate and the namespace to read it in: an inline fn literal; for a symbol
+   naming a var, its a/defmodel source, else (best effort) clojure.repl/source-fn of the var
+   with the SHA-256 of its file. A var defined at the REPL has no source: refused."
+  [impl-form ns-sym]
+  (if-not (symbol? impl-form)
+    {:form impl-form :ns ns-sym :from :inline}
+    (let [v (ns-resolve ns-sym impl-form)
+          _ (when-not (var? v) (translate/refuse! :no-source impl-form))
+          qname (symbol (str (ns-name (:ns (meta v)))) (str (:name (meta v))))]
+      (or (get @ingest/model-source-registry (str qname))
+          (let [file (:file (meta v))
+                text (when (and file (not= "NO_SOURCE_PATH" file)) ((requiring-resolve 'clojure.repl/source-fn) qname))
+                _ (when-not text (translate/refuse! :no-source impl-form))
+                vns (ns-name (:ns (meta v)))
+                form (binding [*ns* (the-ns vns) *read-eval* false] (read-string text))
+                contents (some-> (or (io/resource file) (let [f (io/file file)] (when (.exists f) f))) slurp)]
+            {:form (translate/defn->fn form) :ns vns :from :source-fn :file file
+             :sha256 (some-> contents sha256)})))))
 
 ;; ── define-modelled ─────────────────────────────────────────────────────────────────────
 
@@ -210,8 +367,12 @@
             (throw (ex-info "clj-model: G1 boundary takes explicit parameters only" {:params params})))
         codecs (mapv (comp codec second) pairs)
         rc (codec ret-type)
+        _ (when (:param-only rc)
+            (throw (ex-info (str "clj-model: " (pr-str ret-type) " is a parameter type only (no default value)")
+                            {:kind :clj-model/no-codec :type ret-type})))
+        source (model-source impl-form ns-sym)
         model-name (str fn-name ".clj")
-        model-form (translate/model-defn model-name impl-form ns-sym fn-name)
+        model-form (translate/model-defn model-name (:form source) (:ns source) fn-name)
         arity (select-keys (meta model-form) [:clj-model/fixed :clj-model/rest?])
         _ (when-not (translate/accepts? arity (count pairs))
             (throw (ex-info "clj-model: the fn literal's arity differs from the declared parameters"
@@ -239,7 +400,7 @@
                       (apply g xs)
                       (let [args (map #(%1 %2) ->clj xs)
                             r (if @paranoid (paranoid-call cname impl model-fn args arity) (apply impl args))]
-                        (if (and (= :proved @cell) (not= 'Value ret-type))
+                        (if (and (= :proved @cell) (contains? '#{Nat Int Bool String} ret-type))
                           (normalize-int r)
                           (if-let [{v :some} (m/opt-value (dec-fn (m/edn->cljv r)))]
                             v
@@ -249,7 +410,7 @@
       (swap! registry assoc cname {:impl impl :params params :ret ret-type :pairs pairs :codecs codecs
                                    :ret-codec rc :model-name model-name :model-fn model-fn :ns ns-sym :arity arity
                                    :statement statement :status cell :paranoid paranoid :ported ported
-                                   :source impl-form})
+                                   :source (:form source) :source-info (dissoc source :form)})
       (println "⚠ modelled:" fn-name "— a definition from its Clojure source; conformance :tested, not proved")
       (decl/emit-foreign! cname wrapper))))
 

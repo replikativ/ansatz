@@ -137,8 +137,8 @@
 
 (deftest refusals
   (doseq [[form reason]
-          '[[(fn [x] (mapcat inc x)) :higher-order] [(fn [x & [y]] x) :destructuring] [(fn [[a b]] a) :destructuring]
-            [(fn [x] (let [{:keys [a]} x] a)) :destructuring] [(fn [x] (println x) x) :multi-form-body]
+          '[[(fn [x] (mapcat inc x)) :higher-order] [(fn [x] (let [[a & b c] x] a)) :destructuring] [(fn [x] (let [a/b x] a)) :destructuring]
+            [(fn [x] (println x) x) :multi-form-body]
             [(fn [x] (Math/abs x)) :interop] [(fn [x] (.length x)) :interop] [(fn [x] Long/MAX_VALUE) :interop]
             [(fn [x] (loop [i x] i)) :recursion] [(fn [x] (self x)) :recursion] [(fn [x] (zipmap x x)) :unmodelled-fn]
             [(fn [x] (swap! x inc)) :mutable-state] [(fn [x] (try x (catch Exception e nil))) :try-catch]

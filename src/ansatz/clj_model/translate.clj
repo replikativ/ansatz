@@ -8,7 +8,8 @@
    hash dispatch; modelled as hashed-key equality tests, `CljM.caseIn`). Every other macro is
    expanded with `macroexpand-1` in the source namespace, so `when`, `cond`, `and`, `or`, `->`,
    `if-let`, `when-some`, `cond->`, `condp` … are faithful by construction. `let` and `fn` are
-   intercepted before expansion to refuse destructuring.
+   intercepted before expansion and destructure with the model's own pass
+   (`destructure-bindings`: Clojure's, minus the keyword-argument conversion's Java interop).
 
    Functions are a second sort `CljM.V → … → Option CljM.V`, never a value: a fn literal, a
    let-bound function, a core function, `partial`, `comp`, `complement`, `constantly` or
@@ -35,9 +36,10 @@
    :lazy-infinite "An infinite sequence (`iterate`, `cycle`, `repeat`/`range` without a bound)."
    :regex "Regular expressions: not modelled."
    :eval "`eval` and reading code at runtime."
+   :no-source "The function's source is not available: define it with `a/defmodel` (a REPL `defn` has no source file)."
    :escaping-fn "A function stored in data, returned or compared: the model's values are data; functions are only called or passed to a modelled higher-order function."
    :higher-order "A higher-order function the model does not cover yet (`apply`, `mapcat`, a comparator for `sort`, a transducer other than map/filter/remove/keep)."
-   :destructuring "A destructuring binding form."
+   :destructuring "A destructuring form Clojure itself rejects (a qualified local, an element after `&`)."
    :multi-form-body "A body with several forms: the earlier forms only run for effects."
    :multi-arity "A modelled function with several arities (a fn literal passed to a function may have several)."
    :recursion "Recursion, `loop`/`recur`, `letfn`."
@@ -313,10 +315,71 @@
               (list* (symbol k) atoms)
               none-term))))   ;; wrong arity: clojure.core throws
 
-(defn- check-binding-vector [form bv]
-  (when-not (and (vector? bv) (even? (count bv)) (every? symbol? (take-nth 2 bv)))
-    (refuse! :destructuring form))
-  (when (some #(= '& %) (take-nth 2 bv)) (refuse! :destructuring form)))
+;; ── Destructuring ───────────────────────────────────────────────────────────────────────
+;; Clojure's own `destructure` (1.12) would do, except that since 1.11 its map pattern converts
+;; a seq argument (keyword arguments) through Java interop. This is a port of it over the
+;; modelled clojure.core functions, with that conversion as `throw` (no claim): a vector
+;; pattern reads by `nth` (or `seq`/`first`/`next` when it has `&`), a map pattern by `get`
+;; (with the `:or` default), `:as` binds the whole value.
+
+(declare pattern)
+
+(defn- vector-pattern [form bvec b val]
+  (let [gvec (gensym "vec__") gseq (gensym "seq__") gfirst (gensym "first__")
+        has-rest (some #{'&} b)]
+    (loop [ret (cond-> (conj bvec gvec val) has-rest (conj gseq (list 'clojure.core/seq gvec)))
+           n 0, bs b, seen-rest? false]
+      (if (seq bs)
+        (let [firstb (first bs)]
+          (cond
+            (= firstb '&) (recur (pattern form ret (second bs) gseq) n (nnext bs) true)
+            (= firstb :as) (pattern form ret (second bs) gvec)
+            seen-rest? (refuse! :destructuring form "an element after & in a vector pattern")
+            :else (recur (pattern form (cond-> ret has-rest (conj gfirst (list 'clojure.core/first gseq)
+                                                                  gseq (list 'clojure.core/next gseq)))
+                                  firstb
+                                  (if has-rest gfirst (list 'clojure.core/nth gvec n nil)))
+                         (inc n) (next bs) seen-rest?)))
+        ret))))
+
+(defn- map-pattern [form bvec b v]
+  (let [gmap (gensym "map__")
+        defaults (:or b)
+        ret (cond-> (conj bvec gmap v
+                          ;; a seq is converted as keyword arguments (Java interop): no claim
+                          gmap (list 'if (list 'clojure.core/seq? gmap) '(throw nil) gmap))
+              (:as b) (conj (:as b) gmap))
+        transforms (reduce (fn [ts mk]
+                             (if (keyword? mk)
+                               (let [mkns (namespace mk) mkn (name mk)]
+                                 (case mkn
+                                   "keys" (assoc ts mk #(keyword (or mkns (namespace %)) (name %)))
+                                   "syms" (assoc ts mk #(list 'quote (symbol (or mkns (namespace %)) (name %))))
+                                   "strs" (assoc ts mk str)
+                                   ts))
+                               ts))
+                           {} (keys b))
+        bes (reduce (fn [bes [k f]] (reduce #(assoc %1 %2 (f %2)) (dissoc bes k) (get bes k)))
+                    (dissoc b :as :or) transforms)]
+    (reduce (fn [ret [bb bk]]
+              (let [local (if (instance? clojure.lang.Named bb) (symbol nil (name bb)) bb)
+                    bv (if (contains? defaults local)
+                         (list 'clojure.core/get gmap bk (defaults local))
+                         (list 'clojure.core/get gmap bk))]
+                (if (ident? bb) (conj ret local bv) (pattern form ret bb bv))))
+            ret bes)))
+
+(defn- pattern [form bvec b v]
+  (cond (symbol? b) (if (namespace b) (refuse! :destructuring form "a qualified local") (conj bvec b v))
+        (vector? b) (vector-pattern form bvec b v)
+        (map? b) (map-pattern form bvec b v)
+        :else (refuse! :destructuring form)))
+
+(defn destructure-bindings
+  "A binding vector with patterns → plain symbol bindings over modelled functions."
+  [form bv]
+  (when-not (and (vector? bv) (even? (count bv))) (refuse! :unmodelled-form form))
+  (reduce (fn [ret [b v]] (pattern form ret b v)) [] (partition 2 bv)))
 
 (defn- single-body [form body]
   (cond (empty? body) nil
@@ -404,10 +467,16 @@
   "`([params] body…)` → {:params [sym …] :rest sym-or-nil :body form}."
   [form [params & body]]
   (when-not (vector? params) (refuse! :unmodelled-form form))
-  (let [[fixed [amp rest-sym & extra]] (split-with #(not= '& %) params)]
-    (when (or (not-every? symbol? fixed) (and amp (or (not (symbol? rest-sym)) (seq extra))))
-      (refuse! :destructuring form))
-    {:params (vec fixed) :rest (when amp rest-sym) :body (single-body form body)}))
+  (let [[fixed [amp rest-pat & extra]] (split-with #(not= '& %) params)
+        _ (when (or (some #{'&} fixed) (and amp (or (nil? rest-pat) (seq extra)))) (refuse! :unmodelled-form form))
+        ;; a pattern parameter is a fresh symbol destructured by a let around the body (as fn does)
+        named (fn [p] (if (symbol? p) [p nil] (let [g (gensym "p__")] [g [p g]])))
+        fixed (map named fixed)
+        rest (when amp (named rest-pat))
+        pats (vec (mapcat second (cond-> (vec fixed) rest (conj rest))))
+        body (single-body form body)]
+    {:params (mapv first fixed) :rest (first rest)
+     :body (if (seq pats) (list 'clojure.core/let pats body) body)}))
 
 (defn parse-fn
   "`(fn name? [params] body)` or `(fn name? ([params] body) …)` → {:self name :arities […]}."
@@ -501,8 +570,8 @@
 ;; ── Forms ───────────────────────────────────────────────────────────────────────────────
 
 (defn- tr-let [locals form bindings body]
-  (check-binding-vector form bindings)
-  (let [body (single-body form body)]
+  (let [body (single-body form body)
+        bindings (destructure-bindings form bindings)]
     (letfn [(go [locals pairs]
                 (if (empty? pairs)
                   (tr locals body)
@@ -618,6 +687,18 @@
                       (go 0 args []))))))))))
     (seq? form) (some-of (vctor 'vlist (vctor 'vnil)))    ;; ()
     :else (refuse! :unmodelled-form form)))
+
+(defn defn->fn
+  "`(defn name doc? attrs? [params] body…)` or `(defn name doc? attrs? ([params] body…) …)` (also
+   defn-) → `(fn name …)`, the form the model translates."
+  [form]
+  (when-not (and (seq? form) (#{'defn 'defn- 'clojure.core/defn 'clojure.core/defn-} (first form)) (symbol? (second form)))
+    (refuse! :unmodelled-form form "a defn"))
+  (let [[_ fname & decl] form
+        decl (if (string? (first decl)) (rest decl) decl)
+        decl (if (map? (first decl)) (rest decl) decl)
+        decl (if (and (seq? (first decl)) (map? (last decl))) (butlast decl) decl)]
+    (list* 'fn fname decl)))
 
 (defn translate
   "Translate `(fn [x … & rest?] body)` read in namespace `ns`. Returns {:params [binder …]

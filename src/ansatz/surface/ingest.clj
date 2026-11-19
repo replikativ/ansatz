@@ -29,6 +29,17 @@
   [kernel-name src]
   (swap! source-registry assoc (str kernel-name) src))
 
+;; Model source registry — the source of a plain Clojure function defined with `a/defmodel`, per
+;; qualified var name: {:ns ns-sym :form (fn name …) :from :defmodel}. `a/foreign ^:model g …
+;; impl` with `impl` naming that var translates this source (ansatz.clj-model.boundary).
+(defonce ^{:doc "a/defmodel source registry: qualified var name string → {:ns :form :from}."}
+  model-source-registry (atom {}))
+
+(defn record-model-source!
+  "Record the source of an a/defmodel function under its qualified var name."
+  [var-name src]
+  (swap! model-source-registry assoc (str var-name) src))
+
 ;; ── Refusals ────────────────────────────────────────────────────────────────────────────
 ;; A Clojure form the elaborator cannot give clojure.core's meaning is REFUSED, with one of these
 ;; reasons in the ex-data ({:kind :clj/refused :reason r :form f :hint h}). The set is closed so
