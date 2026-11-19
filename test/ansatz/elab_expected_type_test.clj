@@ -30,3 +30,18 @@
   (is (proves '[] '(Exists (fn [n :- Int] (= Int n n))) '[(apply (Exists.intro 0)) (rfl)])
       "the Nat default waits until apply has matched the goal")
   (is (proves '[] '(Exists (fn [n :- Int] (= Int n 3))) '[(apply (Exists.intro 3)) (rfl)])))
+
+(deftest negative-numerals-are-never-nat-literals
+  ;; A kernel Nat literal is a natural number (Expr.litNat refuses a negative value): a negative
+  ;; surface integer is `-n` at the position's type, Int when nothing fixes one.
+  (testing "at a typed position"
+    (a/defn et-dec3 [x :- Int] Int (+ x -3))
+    (is (= 2 ((run-fn 'et-dec3) 5)))
+    (a/defn et-neg-body [x :- Int] Int -7)
+    (is (= -7 ((run-fn 'et-neg-body) 0)))
+    (is (proves '[x :- Int] '(= Int (+ x -1) (- x 1)) '[(omega)])))
+  (testing "a comparison of two numerals runs at Int"
+    (a/defn et-neg-cmp [x :- Int] Bool (< -2 -1))
+    (is (true? ((run-fn 'et-neg-cmp) 0))))
+  (testing "at Nat it is an error, not a literal"
+    (is (thrown? Exception (a/defn et-neg-nat [x :- Nat] Nat -1)))))
