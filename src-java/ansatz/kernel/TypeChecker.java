@@ -459,6 +459,10 @@ public final class TypeChecker {
      *  Only names in this set will be unfolded. */
     public void setDeltaAllowSet(java.util.HashSet<Name> names) { reducer.setDeltaAllowSet(names); }
 
+    /** Set the delta-reduction allow predicate for reducible mode (transparency=0): the names
+     *  it accepts are unfolded too (Reducer.canUnfold). */
+    public void setDeltaAllowPredicate(java.util.function.Predicate<Name> pred) { reducer.setDeltaAllowPredicate(pred); }
+
     /** Get isDefEq depth for debugging. */
     public int getIsDefEqDepth() { return isDefEqDepth; }
 
@@ -1828,7 +1832,9 @@ public final class TypeChecker {
     private ConstantInfo deltaInfo(Expr head) {
         if (head.tag != Expr.CONST) return null;
         ConstantInfo ci = env.lookup((Name) head.o0);
-        return ci != null && ci.getValue() != null ? ci : null;
+        // A definition the reducer's transparency does not unfold is no delta candidate, so lazy
+        // delta unfolds the other side instead of giving up (every definition by default).
+        return ci != null && ci.getValue() != null && reducer.canUnfold((Name) head.o0) ? ci : null;
     }
 
     /** Check if head constant is a delta (unfoldable definition). */

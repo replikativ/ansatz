@@ -595,15 +595,43 @@
         (when (e/lit-nat? n-arg)
           (e/lit-nat-val n-arg))))))
 
+(defn- reducible-defeq?
+  "`x =?= y` as simp decides it: simp runs under `withReducible` (Simp/Types.lean
+   withSimpContext), so a comparison never unfolds a semireducible definition. The kernel's
+   unrestricted defeq would, and on terms that mention a recursive definition at a symbolic
+   argument that is unbounded work (see meta/closed-defeq-at-transparency)."
+  [st x y]
+  (some? (binding [meta/*transparency* :reducible]
+           (meta/is-def-eq meta/empty-context st x y))))
+
+(declare registered-instance-names)
+
+(defn- instances-whnf
+  "whnf at `.instances` transparency, for simp's own reductions of terms (a recursor's major
+   premise, a `Decidable` instance): Lean's simp never reduces a term at default transparency.
+   Default transparency would unfold any definition, and on a recursive definition applied to a
+   symbolic argument and a large literal (`Nat.sub n 9223372036854775807`) that is structural
+   recursion on the literal, as deep as its value."
+  [st x]
+  (let [env (:env st)]
+    (if (empty? (env/get-extension env :reducibility-status {}))
+      ;; no reducibility metadata to restrict by (see meta/closed-defeq-at-transparency)
+      (#'tc/cached-whnf st x)
+      (try (meta/whnf-at meta/empty-context st x :instances #(contains? (registered-instance-names env) %))
+           (catch clojure.lang.ExceptionInfo _ x)))))
+
 (defn- match-lemma
   "Try to match a simp lemma's LHS pattern against a target expression.
    Returns a substitution map {bvar-idx → Expr} or nil.
    Handles OfNat.ofNat ↔ literal matching (Lean 4's foldRawNatLit).
-   Skips instance-implicit arguments (matched by def-eq or ignored)."
+   Skips instance-implicit arguments (matched by def-eq or ignored).
+   A non-linear parameter or a differently spelled subterm is compared at simp's reducible
+   transparency, as Lean's tryTheoremCore unifies."
   [st pattern target num-params]
   (let [subst (atom {})
         ok (atom true)
-        env (:env st)]
+        env (:env st)
+        defeq? (fn [x y] (reducible-defeq? st x y))]
     (letfn [(go [p t depth]
                 (with-inc-rec-depth 1 p
                   (when @ok
@@ -620,7 +648,7 @@
                           (if (e/has-loose-bvars? t)
                             (reset! ok false)
                             (if-let [existing (get @subst param-idx)]
-                              (when-not (tc/is-def-eq st existing t)
+                              (when-not (defeq? existing t)
                                 (reset! ok false))
                               (swap! subst assoc param-idx t))))
 
@@ -689,7 +717,7 @@
                     ;; placeholders, not terms the kernel can compare (Lean uses mvars).
                         :else (when-not (and (not (e/has-loose-bvars? p))
                                              (not (e/has-loose-bvars? t))
-                                             (tc/is-def-eq st p t))
+                                             (defeq? p t))
                                 (reset! ok false)))))))]
       (go pattern target 0))
     (when @ok @subst)))
@@ -1445,7 +1473,7 @@
               ;; `True`/`False` constant (e.g. `Eq Bool true true` is propositionally, not
               ;; definitionally, True). Lean whnfs the *Decidable instance* instead and
               ;; matches `Decidable.isTrue`/`Decidable.isFalse`.
-              (let [[ih _] (e/get-app-fn-args (#'tc/cached-whnf st (nth args 2)))]
+              (let [[ih _] (e/get-app-fn-args (instances-whnf st (nth args 2)))]
                 (when (e/const? ih)
                   (condp = (e/const-name ih)
                     decidable-istrue-name (mk-result (nth args 3))
@@ -1466,7 +1494,7 @@
               nil
               :else
               ;; Whnf the Decidable instance (as for ite); isTrue h → a h, isFalse h → b h.
-              (let [[ih iargs] (e/get-app-fn-args (#'tc/cached-whnf st (nth args 2)))]
+              (let [[ih iargs] (e/get-app-fn-args (instances-whnf st (nth args 2)))]
                 (when (e/const? ih)
                   (condp = (e/const-name ih)
                     decidable-istrue-name  (mk-result (e/app (nth args 3) (last iargs)))
@@ -1971,7 +1999,7 @@
              ;; Raw Bool.rec is our match encoding. Lean Simp/Rewrite.lean
              ;; simpMatchCore uses equation proofs; equal branches are not def-eq
              ;; to a stuck recursor. Prove this equation by Bool induction.
-             (when (and constant-motive? (tc/is-def-eq st fc tc))
+             (when (and constant-motive? (reducible-defeq? st fc tc))
                (let [alpha (tc/infer-type st fc)
                      u (get-sort-level st alpha)
                      rec-b (e/app* head (e/lift motive 1 0) (e/lift fc 1 0)
@@ -1993,7 +2021,7 @@
                                                  :max-depth (min 10 (:max-depth config))
                                                  :cache (atom {})
                                                  :max-steps (atom 0)))
-                     dw (#'tc/cached-whnf st (:expr d-result))
+                     dw (instances-whnf st (:expr d-result))
                      ;; Lean simpMatchDiscrs? uses congruence; discriminant
                      ;; rewriting may itself need a propositional equality proof.
                      r (when (not= discr (:expr d-result))
@@ -2007,8 +2035,8 @@
              ;; Strategy 3: Bool.rec identity — Bool.rec (fun _ => Bool) false true b = b
              ;; Lean 4: simpMatch recognizes when the recursor is the identity.
              ;; Proof: Bool.rec (fun b => Eq Bool (Bool.rec ... b) b) rfl rfl discr
-             (when (and (tc/is-def-eq st fc bool-false)
-                        (tc/is-def-eq st tc bool-true))
+             (when (and (reducible-defeq? st fc bool-false)
+                        (reducible-defeq? st tc bool-true))
                (let [rec-level (first (e/const-levels head))
                      ;; The motive for the proof:
                      ;; fun b => Eq Bool (Bool.rec (fun _ => Bool) false true b) b

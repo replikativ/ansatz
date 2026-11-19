@@ -1143,14 +1143,18 @@
       (when (tc/is-def-eq st a b) mctx)
       (catch Exception _ nil))))
 
+(declare closed-defeq-at-transparency)
+
 (defn- closed-kernel-defeq-zonked
   "Like `closed-kernel-defeq` but assumes `a`/`b` are already zonked, so it uses
-   the cheap `zonked-has-mvar?` closedness check instead of re-zonking."
+   the cheap `zonked-has-mvar?` closedness check instead of re-zonking. At a restricted
+   `*transparency*` the comparison is made at that transparency
+   (`closed-defeq-at-transparency`), as Lean's isDefEq is."
   [mctx st a b]
   (when (and (not (zonked-has-mvar? a))
              (not (zonked-has-mvar? b)))
     (try
-      (when (tc/is-def-eq st a b) mctx)
+      (closed-defeq-at-transparency mctx st a b)
       (catch Exception _ nil))))
 
 (defn- is-def-eq-core
@@ -1634,6 +1638,79 @@
           (if (>= v1 k2) (de (mk-nat-lit (- v1 k2)) t) (fail))
           (when-let [v2 (eval-nat mctx t)]
             (when (nat-type?) (if (= v1 v2) mctx ::false))))))))
+
+;; ── Closed comparisons at a restricted transparency ───────────────────────────────────────
+
+(def ^:private unfold-predicates
+  "env → java Predicate<Name> (weak in the env)."
+  (java.util.WeakHashMap.))
+
+(defn- registered-instance-pred
+  "Lean's `isInstance` from the env's @[instance] registry (`:instances`), for stores without
+   reducibility metadata (`can-unfold-default?`'s fallback)."
+  [env]
+  (let [names (delay (into #{} (comp (mapcat val) (map :name))
+                           (env/get-extension env :instances {})))]
+    (fn [n] (contains? @names n))))
+
+(defn- unfold-predicate
+  "The names a closed comparison at a restricted transparency may unfold, as a memoizing java
+   Predicate<Name>: `can-unfold-default?` at `.implicit` (reducible, instance-reducible,
+   implicit-reducible; an instance by the env's registry where the store has no reducibility
+   metadata), and matchers, which Lean's whnfCore reduces at every transparency (WHNF.lean
+   whnfMatcher). `.implicit` for every restricted mode: Lean 4.33.1's isDefEqArgs raises the
+   transparency of implicit and instance-implicit arguments to `.implicit` (withImplicitConfig),
+   and the kernel's comparison cannot tell argument positions apart. An explicit argument may
+   therefore unfold an instance where Lean's `.reducible` would not; a semireducible definition
+   is never unfolded, as in Lean."
+  ^java.util.function.Predicate [env]
+  (locking unfold-predicates
+    (or (.get ^java.util.WeakHashMap unfold-predicates env)
+        (let [inst? (registered-instance-pred env)
+              matchers (env/get-extension env :matcher-info {})
+              memo (java.util.concurrent.ConcurrentHashMap.)
+              decide (fn [n]
+                       (let [s (name/->string n)]
+                         (boolean (or (can-unfold-default? env n :implicit inst?)
+                                      ;; a class field (`LE.le α inst a b`) reduces when its
+                                      ;; instance does: Lean's unfoldProjInst? at `.instances`
+                                      (and (:from-class? (projection-fn-info env n))
+                                           (can-unfold-default? env n :default))
+                                      (contains? matchers s)
+                                      (re-find #"\.match_\d+$" s)))))
+              pred (reify java.util.function.Predicate
+                     (test [_ n]
+                       (let [hit (.get memo n)]
+                         (if (some? hit)
+                           hit
+                           (let [v (decide n)] (.put memo n v) v)))))]
+          (.put ^java.util.WeakHashMap unfold-predicates env pred)
+          pred))))
+
+(defn- closed-defeq-at-transparency
+  "Closed `a =?= b` (no metavariables) at the current `*transparency*`. At `:default` (and
+   `:all`) the kernel decides it in one call. At a restricted transparency Lean's isDefEq never
+   unfolds a semireducible definition, so neither may we: the kernel's defeq with delta limited
+   to `unfold-predicate` (beta, iota, projections and literal arithmetic are not delta), then
+   Lean's `isDefEqOffset` for Nat offsets (`n + 1 =?= Nat.succ n`, which needs no unfolding in
+   Lean). Asking the unrestricted kernel instead made simp's matching unfold any definition: a
+   non-linear pattern (`ite_self`) compared two branches of a model function down to
+   `Nat.sub n 9223372036854775807`, whose structural recursion on the literal overflowed the
+   stack where Lean's reducible check fails at once."
+  [mctx st a b]
+  (if (or (#{:default :all} *transparency*)
+          ;; an environment without Lean's reducibility metadata (a bare test environment, a
+          ;; store imported without attributes) cannot say what is reducible (`outParam` would
+          ;; read as semireducible): it keeps the kernel's unrestricted comparison
+          (empty? (env/get-extension (:env st) :reducibility-status {})))
+    (when (tc/is-def-eq st a b) mctx)
+    (let [env (:env st)
+          jtc (tc/java-tc-restricted st ::restricted (unfold-predicate env))]
+      (if-not jtc
+        (when (tc/is-def-eq st a b) mctx)
+        (or (when (.isDefEq jtc a b) mctx)
+            (let [off (is-def-eq-offset mctx st #{} a b)]
+              (when (and off (not= off ::false)) off)))))))
 
 ;; ── isDefEqStuck ──────────────────────────────────────────────────────────────────────────
 
