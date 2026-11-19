@@ -14,8 +14,10 @@
    is proved with `self` abstract.
 
    The default choice, `prove-group!`:
-   - μ is the sum of `CljM.weight` of the arguments, the measure the default fuel is built from
-     (ansatz.clj-model/recursion-forms), so `μ a… < e` holds at every entry;
+   - μ is the first of `measures` whose decrease every step shows: the summed `CljM.weight` of
+     the arguments (the measure the default fuel is built from, ansatz.clj-model/recursion-forms,
+     so `μ a… < e` holds at every entry), else the weight of one argument - 1 plus a rank of the
+     member (an accumulator does not shrink; an arity calling the next keeps the data);
    - Q is the entry's context, the goal with the group call abstracted;
    - I is a disjunction of templates `∃ v…, x₁ = A₁[v…] ∧ …`, the shapes the arguments take.
      The templates start from the entry's arguments, as functions of the parameters' variables;
