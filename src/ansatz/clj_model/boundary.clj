@@ -10,8 +10,11 @@
    Status :tested (the default) stores the conformance statement
      f.conforms : ∀ x…, Option.isSome (Option.bind (f.clj (enc x)…) dec_R) = true
    (never as an axiom) and the runtime checks dec_R on every result; `(a/conforms f tactics…)`
-   proves it, adds f.spec : ∀ x…, Option.bind (f.clj (enc x)…) dec_R = some (f x), and the status
-   becomes :proved.
+   proves it (without tactics: ansatz.clj-model.proof/default-script), adds
+   f.spec : ∀ x…, Option.bind (f.clj (enc x)…) dec_R = some (f x), and the status becomes :proved.
+   `(a/port f g)` then proves `f x… = g x…` for an `a/defn g`, registers it as `a/csimp` and makes
+   g the runtime: :ported. `^:paranoid` (or `paranoid!`) runs the model next to the impl on
+   every call and throws where they differ (`paranoid-call`).
 
    The :tested gap. In :tested, `f` is a definition proofs can unfold (marking it irreducible
    stops Meta unfolding, but `rfl`, `decide` and `simp` reach the kernel), so a theorem about `f`
@@ -29,6 +32,7 @@
             [ansatz.config :as config]
             [ansatz.state :as state]
             [ansatz.clj-model :as m]
+            [ansatz.clj-model.proof :as proof]
             [ansatz.clj-model.translate :as translate]
             [ansatz.codegen.decl :as decl]
             [ansatz.kernel.env :as env]
@@ -173,13 +177,33 @@
 (defn- elab-closed [form]
   (elab/elaborate-in-context (a/env) {} form nil))
 
+(defn paranoid-call
+  "Run `impl` and the compiled model on the same arguments. Where the model answers (`some v`),
+   the impl must return `v` (strict =); otherwise, or when it throws there, this throws
+   :clj-model/model-disagrees: the model is unfaithful on these arguments. Where the model
+   makes no claim, the impl's result stands."
+  [cname impl model-fn args]
+  (let [claim (m/opt-value (apply model-fn (map m/edn->cljv args)))
+        disagree (fn [data cause]
+                   (ex-info (str "clj-model: the model of " cname " disagrees with its Clojure source")
+                            (merge {:kind :clj-model/model-disagrees :fn cname :args (vec args)
+                                    :model (m/cljv->edn (:some claim))} data)
+                            cause))
+        r (try (apply impl args)
+               (catch Throwable t
+                 (throw (if claim (disagree {:threw (.getName (class t))} t) t))))]
+    (when (and claim (not (m/strict= (m/cljv->edn (:some claim)) r)))
+      (throw (disagree {:result r} nil)))
+    r))
+
 (defn define-modelled
   "The `a/foreign ^:model` branch: translate `impl-form` (an inline fn literal, read in `ns-sym`)
    into `f.clj`, define `f` from it, and make `impl` its runtime. Returns the runtime fn.
    The status starts :tested, with the gap described in the namespace doc: theorems about `f`
    hold of the model, which answers d_R where it makes no claim (`succ-int Long/MAX_VALUE = 0`
-   is provable while the impl throws); `prove-conforms!` (:proved) closes it on the declared types."
-  [fn-name params ret-type impl-form impl ns-sym]
+   is provable while the impl throws); `prove-conforms!` (:proved) closes it on the declared types.
+   `opts`: {:paranoid? true} runs the model next to the impl on every call (`paranoid-call`)."
+  [fn-name params ret-type impl-form impl ns-sym & [opts]]
   (install-codecs!)
   (let [pairs (ingest/parse-params params)
         _ (when (some #(not= :default (nth % 2)) pairs)
@@ -204,20 +228,26 @@
     (swap! state/ansatz-env env/update-extension :reducibility-status {} assoc cname "irreducible")
     (swap! state/ansatz-env env/update-extension :clj-model {} assoc cname {:status :tested :model model-name})
     (let [cell (atom :tested)
+          paranoid (atom (boolean (:paranoid? opts)))
+          ported (atom nil)
           ->clj (mapv :->clj codecs)
           dec-fn (m/model-fn (:dec rc))
           wrapper (fn [& xs]
-                    (let [r (apply impl (map #(%1 %2) ->clj xs))]
-                      (if (and (= :proved @cell) (not= 'Value ret-type))
-                        (normalize-int r)
-                        (if-let [{v :some} (m/opt-value (dec-fn (m/edn->cljv r)))]
-                          v
-                          (throw (ex-info (str "clj-model: " fn-name " returned a value that does not decode as "
-                                               ret-type " (outside its asserted type)")
-                                          {:kind :clj-model/nonconforming :fn cname :args (vec xs) :result r}))))))]
+                    (if-let [g @ported]
+                      (apply g xs)
+                      (let [args (map #(%1 %2) ->clj xs)
+                            r (if @paranoid (paranoid-call cname impl model-fn args) (apply impl args))]
+                        (if (and (= :proved @cell) (not= 'Value ret-type))
+                          (normalize-int r)
+                          (if-let [{v :some} (m/opt-value (dec-fn (m/edn->cljv r)))]
+                            v
+                            (throw (ex-info (str "clj-model: " fn-name " returned a value that does not decode as "
+                                                 ret-type " (outside its asserted type)")
+                                            {:kind :clj-model/nonconforming :fn cname :args (vec xs) :result r})))))))]
       (swap! registry assoc cname {:impl impl :params params :ret ret-type :pairs pairs :codecs codecs
                                    :ret-codec rc :model-name model-name :model-fn model-fn :ns ns-sym
-                                   :statement statement :status cell :source impl-form})
+                                   :statement statement :status cell :paranoid paranoid :ported ported
+                                   :source impl-form})
       (println "⚠ modelled:" fn-name "— a definition from its Clojure source; conformance :tested, not proved")
       (decl/emit-foreign! cname wrapper))))
 
@@ -229,23 +259,59 @@
   (let [{:keys [params statement]} (info f)] [params statement]))
 
 (defn prove-conforms!
-  "Prove `f.conforms` with `tactics`, derive `f.spec`, and mark `f` :proved."
+  "Prove `f.conforms` with `tactics`, derive `f.spec`, and mark `f` :proved. Without tactics,
+   the `clj_model` simp set is prepared for `f` and `proof/default-script` runs."
   [f tactics]
-  (let [{:keys [params statement pairs ret ret-codec] :as i} (info f)
+  (let [{:keys [params statement pairs ret ret-codec codecs model-name] :as i} (info f)
         cname (str f)
         args (mapv first pairs)
-        result (nth (nth statement 2) 1)]
-    (a/prove-theorem (symbol (str cname ".conforms")) params statement tactics)
+        result (nth (nth statement 2) 1)
+        tactics (if (seq tactics)
+                  tactics
+                  (do (proof/prepare! model-name codecs ret-codec)
+                      (proof/default-script cname (mapv (fn [[p t]] [p t]) pairs))))]
+    (proof/with-deep-stack #(a/prove-theorem (symbol (str cname ".conforms")) params statement tactics))
     ;; f.spec by the generic lemma; the kernel unfolds the (irreducible) f to check it
     (let [spec-type (:type-ansatz (a/elab-signature (a/env) pairs
                                                     (list '= (list 'Option ret) result
                                                           (list 'Option.some (list* (symbol cname) args)))))
-          proof (elab-closed (list 'fn (vec (mapcat (fn [[p t]] [p :- t]) pairs))
-                                   (list 'CljM.some_getD ret result (:default ret-codec)
-                                         (list* (symbol (str cname ".conforms")) args))))]
+          spec-proof (elab-closed (list 'fn (vec (mapcat (fn [[p t]] [p :- t]) pairs))
+                                        (list 'CljM.some_getD ret result (:default ret-codec)
+                                              (list* (symbol (str cname ".conforms")) args))))]
       (swap! state/ansatz-env env/check-constant
-             (env/mk-thm (name/from-string (str cname ".spec")) [] spec-type proof)))
+             (env/mk-thm (name/from-string (str cname ".spec")) [] spec-type spec-proof)))
     (reset! (:status i) :proved)
     (swap! state/ansatz-env env/update-extension :clj-model {} assoc-in [cname :status] :proved)
     (when a/*verbose* (println "✓ modelled:" cname "— conformance proved"))
     :proved))
+
+(defn paranoid!
+  "Turn the paranoid runtime of `f` on or off: every call also runs the model and compares
+   (`paranoid-call`). Returns `on?`."
+  [f on?]
+  (reset! (:paranoid (info f)) (boolean on?)))
+
+(defn port!
+  "The :ported path: `f` (:proved) is rewritten in the DSL as `g` (an `a/defn` of the same type).
+   Proves `f.ported : ∀ x…, f x… = g x…` with `tactics` (default `proof/port-script`) and
+   registers it as `a/csimp`, so compiled DSL code calls `g`; `g-fn`, g's compiled function,
+   becomes `f`'s runtime. The trusted base for `f` is then the kernel and codegen only."
+  [f g g-fn tactics]
+  (let [{:keys [pairs ret status model-name codecs ret-codec] :as i} (info f)
+        cname (str f)]
+    (when-not (= :proved @status)
+      (throw (ex-info (str "clj-model: port " cname " once it is :proved (a/conforms), not " @status)
+                      {:kind :clj-model/not-proved :fn cname :status @status})))
+    (let [args (map first pairs)
+          tactics (if (seq tactics)
+                    tactics
+                    (do (proof/prepare! model-name codecs ret-codec)
+                        (proof/port-script cname g (mapv (fn [[p t]] [p t]) pairs))))]
+      (proof/with-deep-stack
+        #(a/define-csimp (symbol (str cname ".ported")) (:params i)
+           (list '= ret (list* (symbol cname) args) (list* (symbol (str g)) args)) tactics)))
+    (reset! (:ported i) g-fn)
+    (reset! status :ported)
+    (swap! state/ansatz-env env/update-extension :clj-model {} assoc-in [cname :status] :ported)
+    (when a/*verbose* (println "✓ modelled:" cname "— ported to" g))
+    :ported))

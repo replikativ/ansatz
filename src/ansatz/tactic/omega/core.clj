@@ -1242,7 +1242,7 @@
   [n]
   (if (>= n 0)
     (e/app (e/const' (name/from-string "Int.ofNat") []) (e/lit-nat n))
-    (e/app (e/const' (name/from-string "Int.negSucc") []) (e/lit-nat (dec (- n))))))
+    (e/app (e/const' (name/from-string "Int.negSucc") []) (e/lit-nat (dec' (-' n))))))
 
 (defn to-lean-coeffs
   "Build a Ansatz expression for Coeffs (= List Int).

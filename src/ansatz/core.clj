@@ -816,6 +816,12 @@
           (mapcat (fn [a]
                     (cond
                       (= '* a) (prop-hyps)
+                      ;; Lean resolveSimpIdTheorem?: a name that is no local and no constant but
+                      ;; a simp set (`register_simp_attr`, ansatz.attrs/simp-set) means its members.
+                      (and (symbol? a) (not (latest-local-id-by-name lctx a))
+                           (not (env/lookup (:env ps) (name/from-string (str a))))
+                           (attrs/simp-set (:env ps) a))
+                      (mapv symbol (attrs/simp-set (:env ps) a))
               ;; A symbol naming a local hypothesis (newest wins, as Lean's name lookup) is that
               ;; hypothesis — `simp [h]` rewrites with `h`. Otherwise it is a lemma/def NAME
               ;; (resolved by simp). This is the ONE canonical way to name things in the tactic DSL.
@@ -1499,6 +1505,9 @@
                 ;; (all_goals (tactic args)) — apply inner tactic to every open goal
                 (basic/all-goals ps (fn [ps'] (reduce run-tactic ps' args))))
    'any_goals (fn [ps args] (basic/any-goals ps #(reduce run-tactic % args)))
+   ;; Init/Tactics.lean `repeat seq` = first | (seq; repeat seq) | skip: run the tactic sequence
+   ;; until it fails (bounded, and stopping when it no longer changes the goals)
+   'repeat    (fn [ps args] (basic/repeat-tac ps #(reduce run-tactic % args)))
    'trace_state (fn [ps _args] (eval-trace-state ps))
    'case'     (fn [ps args]
                 (let [[pattern & body] args
@@ -3245,24 +3254,48 @@
    the MODEL, which answers the default d_R where it makes no claim — for
    `(fn [x] (+ x 1))` at Int, `f Long/MAX_VALUE = 0` is provable while the impl throws.
    :proved closes the gap for inputs of the declared types (the model answers on all of them).
+   `^:paranoid` (with `^:model`) also runs the model on every call and throws where it answers
+   differently from the impl.
      (a/foreign ^:model clamp [x :- Int, lo :- Int, hi :- Int] Int
        (fn [x lo hi] (cond (< x lo) lo (> x hi) hi :else x)))"
   [fn-name params ret-type impl]
-  (let [nm (vary-meta fn-name dissoc :- :tag :model)
+  (let [nm (vary-meta fn-name dissoc :- :tag :model :paranoid)
         runtime-sym (symbol (str (ns-name *ns*)) (str nm))]
     (if (:model (meta fn-name))
       `(def ~nm (tag-kernel-name ((requiring-resolve 'ansatz.clj-model.boundary/define-modelled)
-                                  '~nm '~params '~ret-type '~impl ~impl '~(ns-name *ns*))
+                                  '~nm '~params '~ret-type '~impl ~impl '~(ns-name *ns*)
+                                  {:paranoid? ~(boolean (:paranoid (meta fn-name)))})
                                  '~nm '~runtime-sym))
       `(def ~nm (tag-kernel-name (define-foreign '~nm '~params '~ret-type ~impl) '~nm '~runtime-sym)))))
 
 (defmacro conforms
   "Prove that the `a/foreign ^:model` function `f` conforms to its declared types:
    `f.conforms : ∀ x…, Option.isSome (Option.bind (f.clj (enc x)…) dec_R) = true`, with the
-   given tactics. Also adds `f.spec : ∀ x…, Option.bind (f.clj (enc x)…) dec_R = some (f x)`;
-   `f`'s status becomes :proved."
+   given tactics, or without any by the default script (ansatz.clj-model.proof/default-script:
+   simp with the `clj_model` set, split the `if`s, omega). Also adds
+   `f.spec : ∀ x…, Option.bind (f.clj (enc x)…) dec_R = some (f x)`; `f`'s status becomes :proved.
+     (a/conforms clamp)"
   [f & tactics]
   `((requiring-resolve 'ansatz.clj-model.boundary/prove-conforms!) '~f '~(vec tactics)))
+
+(defmacro port
+  "Port the :proved `a/foreign ^:model` function `f` to the DSL function `g` (an `a/defn` of the
+   same type): proves `f.ported : f = g` (with the tactics, or by default the conformance
+   computation with `f`, its model and `g` unfolded), registers it as `a/csimp` so compiled code
+   calls `g`, and makes `g` the runtime of `f`. `f`'s status becomes :ported: its trusted base is
+   the kernel and codegen.
+     (a/defn clamp' [x :- Int, lo :- Int, hi :- Int] Int (if (< x lo) lo (if (> x hi) hi x)))
+     (a/port clamp clamp')"
+  [f g & tactics]
+  `((requiring-resolve 'ansatz.clj-model.boundary/port!) '~f '~g ~g '~(vec tactics)))
+
+(defmacro trust-report
+  "What the declaration `decl` rests on beyond the kernel: the axioms in its dependency closure
+   (Lean's standard ones apart) and the `a/foreign ^:model` functions it reaches with their status;
+   `:tested` lists those whose conformance is not proved (ansatz.clj-model.proof/trust-report).
+     (a/trust-report my-theorem)"
+  [decl]
+  `((requiring-resolve 'ansatz.clj-model.proof/trust-report) '~decl))
 
 (defmacro implemented_by
   "Lean's @[implemented_by] / @[extern] correspondence, named to match — an alias of `a/foreign`:

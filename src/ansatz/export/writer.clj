@@ -159,6 +159,12 @@
                 (.add order u))))))
     (vec order)))
 
+(defn closure-constants
+  "The ConstantInfos of the dependency closure of `roots`, in dependency order (an inductive
+   with its constructors and recursors). The trust report reads its axioms from here."
+  [^Env env roots]
+  (into [] (mapcat #(unit-constants env %)) (closure-units env roots)))
+
 ;; ============================================================
 ;; NDJSON emission
 ;; ============================================================

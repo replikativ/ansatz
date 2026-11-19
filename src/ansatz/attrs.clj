@@ -180,3 +180,22 @@
                 (reset! stats result)
                 loaded)))
      @stats)))
+
+;; ── Named simp sets (Lean's `register_simp_attr`) ────────────────────────────────────────
+;; Lean Meta/Tactic/Simp/RegisterCommand.lean `register_simp_attr s` makes a simp extension `s`;
+;; `attribute [s] d` adds a declaration to it, and Elab/Tactic/Simp.lean resolveSimpIdTheorem?
+;; reads an identifier that names no constant as a set: `simp [s]` uses its members. Here a set
+;; is the :simp-sets extension {set-name → [declaration-name …]}: a theorem is a rewrite rule,
+;; a definition is unfolded (its equation lemmas, as `simp [d]`). It branches with the env.
+
+(defn add-to-simp-set
+  "`env` with the declarations `names` (strings or symbols) added to the simp set `set-name`
+   (Lean `attribute [set-name] names…`), in order, without duplicates."
+  [env set-name names]
+  (env/update-extension env :simp-sets {} update (str set-name)
+                        (fn [old] (into (or old []) (comp (map str) (remove (set old)) (distinct)) names))))
+
+(defn simp-set
+  "The members of the simp set `set-name` in `env` (strings), or nil when no such set exists."
+  [env set-name]
+  (get (env/get-extension env :simp-sets {}) (str set-name)))
