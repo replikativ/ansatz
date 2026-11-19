@@ -16,8 +16,20 @@
 (def ^:dynamic *clj-surface*
   "Clojure surface mode for a/defn bodies: Clojure spellings either keep clojure.core's meaning or
    are refused (see doc/clojure-contract.md). `a/defn ^:lean` binds it false for a body written in
-   Lean style. Types, propositions, theorem statements and tactic terms are never in this mode."
+   Lean style; a namespace with `:ansatz/lean` metadata does so for every a/defn in it (see
+   `lean-namespace?`), and `^{:lean false}` on a name opts that definition back in. Types,
+   propositions, theorem statements and tactic terms are never in this mode."
   true)
+
+(defn lean-namespace?
+  "True when namespace `ns` (a Namespace or a symbol) carries `:ansatz/lean` metadata:
+     (ns ^:ansatz/lean my.model (:require [ansatz.core :as a]))
+     (ns my.model {:ansatz/lean true} (:require [ansatz.core :as a]))
+   Its a/defn bodies are then written in Lean style, as if each name had `^:lean`. a/defn reads
+   this from `*ns*` when it expands, so it is lexical to the namespace and holds for a loaded
+   file and for REPL forms evaluated with that namespace current."
+  [ns]
+  (boolean (:ansatz/lean (meta (the-ns ns)))))
 
 (def ^:dynamic *lean-structural-matchers*
   "Compile recursive matches with `brecOn` and generated matchers."
