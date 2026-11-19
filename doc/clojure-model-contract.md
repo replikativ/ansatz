@@ -9,6 +9,17 @@ than an axiom. Every model operation returns `Option CljM.V`: `some v` claims th
 returns a value whose EDN is `v`; `none` claims nothing (clojure.core throws, a long overflows,
 or the case is not modelled). The model is strict, so it can only miss values, never invent them.
 
+Iteration order. A map of at most 8 entries is a Clojure array map and iterates in insertion
+order, which the model tracks. A larger map or any set iterates in hash order, which it does
+not: a seq over one is marked unordered (compared below as a multiset), and order-sensitive
+uses of it (`first`, `nth`, `reduce`, `vec`, `str`, a small map built from it) answer none.
+A small hash map (from `hash-map`, or `dissoc` on a large map) is outside the model's domain;
+the rows skip inputs that contain one.
+
+Functions are a second sort `CljM.V → … → Option CljM.V`: fn literals, core functions,
+`partial`, `comp`, `complement`, `constantly`, `juxt`, keywords, maps and sets may be called or
+passed to a modelled higher-order function; a function returned or stored is refused.
+
 Each row below is checked by `test/ansatz/clj_model_contract_test.clj`: the form is translated
 into the model and run against clojure.core on generated EDN (edge values first: nil, booleans,
 `Long/MIN_VALUE`/`MAX_VALUE`, ±0.0, NaN, a non-BMP string, keywords, `()`, `[]`, small maps,
@@ -109,6 +120,128 @@ modelled function, and checks conformance on inputs from its declared types.
 | `[a {:k b} "s" :kw nil]` | a : any, b : int | 0.0 |  |
 | `(quote (1 x [2]))` | a : any | 0.0 |  |
 
+## Sequences
+
+| Form | Inputs | Max no-claim | Note |
+|---|---|---|---|
+| `(seq c)` | c : seqable | 0.1 | A seq over a hash set or a map of 9+ entries is hash-ordered: the model answers with its elements, order unknown. |
+| `(first c)` | c : seqable | 0.35 | No claim on a hash-ordered collection of 2+ elements. |
+| `(rest c)` | c : seqable | 0.4 | (rest [1]) is () (list? true); a seq rested to nothing may be () or an empty lazy seq: no claim. |
+| `(next c)` | c : seqable | 0.35 |  |
+| `(second c)` | c : seqable | 0.35 |  |
+| `(last c)` | c : ints | 0.3 |  |
+| `(empty? c)` | c : any | 0.05 |  |
+| `(cons x c)` | x : key, c : seqable | 0.1 | (cons x nil) is a list, any other cons a seq. |
+| `(conj c x)` | c : coll, x : any | 0.15 | Prepends to lists and seqs, appends to vectors, adds to sets; onto a map only nil, a [k v] vector or a map. |
+| `(conj c x y)` | c : coll, x : key, y : int | 0.15 |  |
+| `(into a b)` | a : coll, b : seqable | 0.45 | Into a vector, list or seq needs the source's order; into a set or a map does not (a map of 2-8 entries needs it again). |
+| `(into [] (comp (map inc) (filter odd?)) c)` | c : ints | 0.35 | map/filter/remove/keep transducers, and comp of them. |
+| `(vec c)` | c : seqable | 0.35 |  |
+| `(set c)` | c : seqable | 0.1 |  |
+| `(list a b)` | a : any, b : any | 0.0 |  |
+| `(vector a b)` | a : any, b : any | 0.0 |  |
+| `(hash-set a b)` | a : key, b : key | 0.0 |  |
+| `(hash-map :a a :b b :c 3 :d 4 :e 5 :f 6 :g 7 :h 8 :i 9)` | a : any, b : int | 0.05 | hash-map builds a hash map: claimed only with 0 or 9+ entries (a smaller one would leave the model's domain). |
+| `(range n)` | n : int | 0.25 | Over 100000 elements is no claim. |
+| `(range a b)` | a : int, b : int | 0.35 |  |
+| `(range a b s)` | a : int, b : int, s : int | 0.5 | A zero step is an infinite seq: no claim. |
+| `(take n c)` | n : int, c : seqable | 0.35 |  |
+| `(drop n c)` | n : int, c : seqable | 0.45 | Dropping a vector to nothing is () (IDrop); another seq may give () or an empty lazy seq: no claim. |
+| `(reverse c)` | c : seqable | 0.35 |  |
+| `(nth c i)` | c : seqable, i : int | 0.1 |  |
+| `(nth c i :nf)` | c : seqable, i : int | 0.15 |  |
+| `(concat a b)` | a : seqable, b : seqable | 0.15 |  |
+| `(distinct c)` | c : ints | 0.1 |  |
+| `(sort c)` | c : ints | 0.0 | Of a hash set too: sorting forgets the order. |
+| `(sort c)` | c : seqable | 0.6 | compare on longs, BMP strings, simple keywords, chars, booleans, nil; anything else no claim. |
+| `(sort (keys m))` | m : kmap | 0.0 | (first (keys m)) is no claim on a large map; (sort (keys m)) is not. |
+| `(keys m)` | m : kmap | 0.0 |  |
+| `(vals m)` | m : any | 0.05 |  |
+| `(frequencies c)` | c : ints | 0.25 |  |
+| `(max a b)` | a : num, b : num | 0.8 | Longs only; a double is no claim. |
+| `(min a b c)` | a : int, b : int, c : int | 0.0 |  |
+| `(count s)` | s : string | 0.2 | Java counts UTF-16 units: a string outside the BMP is no claim. |
+| `[(seq? x) (list? x) (set? x) (coll? x) (sequential? x)]` | x : any | 0.0 |  |
+| `[(boolean? x) (symbol? x) (char? x) (true? x) (false? x) (boolean x)]` | x : any | 0.0 |  |
+| `[(even? x) (odd? x)]` | x : int | 0.0 |  |
+
+## Maps
+
+| Form | Inputs | Max no-claim | Note |
+|---|---|---|---|
+| `(get-in m [:a :b])` | m : value | 0.0 |  |
+| `(get-in m ks)` | m : value, ks : coll | 0.35 |  |
+| `(get-in m [:a k] d)` | m : value, k : key, d : int | 0.1 |  |
+| `(assoc-in m [:a :b] v)` | m : value, v : int | 0.1 |  |
+| `(update m :a inc)` | m : value | 0.1 |  |
+| `(update m :a + x)` | m : map, x : int | 0.15 |  |
+| `(update-in m [:a :b] (fn [x] (if (number? x) (inc x) 0)))` | m : value | 0.1 |  |
+| `(select-keys m [:a :b])` | m : value | 0.0 |  |
+| `(select-keys m ks)` | m : coll, ks : coll | 0.35 | Keys from a hash set give a map of unknown insertion order: no claim for 2-8 entries. |
+| `(merge a b)` | a : map, b : map | 0.0 |  |
+| `(merge a b c)` | a : coll, b : value, c : key | 0.2 | (merge) of no truthy argument is nil; (merge 5) is 5. |
+| `(update-vals m inc)` | m : kmap | 0.0 |  |
+| `(into {} (map (fn [e] [(first e) (* 2 (second e))]) m))` | m : kmap | 0.05 | Small maps iterate in insertion order, so the rebuilt map has a known order. |
+| `(reduce (fn [acc e] (+ acc (second e))) 0 m)` | m : kmap | 0.35 | Reducing a map of 9+ entries (a hash map) is no claim: the order may matter. |
+| `(group-by odd? c)` | c : ints | 0.25 |  |
+| `(vec (keys (dissoc m :a)))` | m : mixmap | 0.6 | dissoc on a map of 9+ entries is no claim: the 8-entry result is still a hash map. |
+| `(vec (keys (reduce dissoc m [:a :b])))` | m : mixmap | 0.6 |  |
+| `(reduce (fn [acc e] (conj acc (first e))) [] (dissoc m :b))` | m : mixmap | 0.6 |  |
+| `(vec (keys (select-keys m [:c :a :b])))` | m : mixmap | 0.0 | select-keys builds from {}: an array map in the order of the keys asked for. |
+| `(vec (keys (into {} (filter (fn [e] (odd? (second e))) m))))` | m : mixmap | 0.6 | Filtering a hash map gives an array map in hash order: no claim for 2-8 entries. |
+| `(vec (keys (update-vals m inc)))` | m : mixmap | 0.6 | update-vals keeps a hash map a hash map. |
+| `(vec (keys (into {} (take 3 (sort-by first m)))))` | m : mixmap | 0.0 | A sorted source has a known order whatever map it came from. |
+| `(vec (keys (frequencies (vals m))))` | m : mixmap | 0.6 |  |
+| `(vec (keys (merge {:z 0} m)))` | m : mixmap | 0.6 |  |
+
+## Functions
+
+| Form | Inputs | Max no-claim | Note |
+|---|---|---|---|
+| `(map inc c)` | c : ints | 0.05 |  |
+| `(map (fn [x] (* x x)) c)` | c : ints | 0.05 |  |
+| `(map + a b)` | a : ints, b : ints | 0.45 |  |
+| `(mapv some? c)` | c : seqable | 0.35 |  |
+| `(filter odd? c)` | c : ints | 0.0 |  |
+| `(filterv nil? c)` | c : seqable | 0.35 |  |
+| `(remove nil? c)` | c : seqable | 0.1 |  |
+| `(keep (fn [x] (when (odd? x) (* 2 x))) c)` | c : ints | 0.05 |  |
+| `(reduce + c)` | c : ints | 0.25 | (reduce + []) is (+) = 0; reducing a hash set of 2+ elements is no claim. |
+| `(reduce conj [] c)` | c : seqable | 0.35 |  |
+| `(reduce (fn [a b] (if (< a b) b a)) x c)` | x : int, c : ints | 0.25 |  |
+| `(some (fn [x] (when (even? x) x)) c)` | c : ints | 0.1 | On a hash set every call must answer and the truthy answers agree. |
+| `(every? pos? c)` | c : ints | 0.0 |  |
+| `(not-any? neg? c)` | c : ints | 0.0 |  |
+| `(map :a c)` | c : coll | 0.15 |  |
+| `(filter #{1 2} c)` | c : ints | 0.0 |  |
+| `(m k)` | m : coll, k : key | 0.1 | A map, set or keyword called as a function looks up; a vector indexes (throwing out of range). |
+| `[(map (partial + 1) c) (map (comp inc inc) c) (filter (complement odd?) c) (map (constantly 0) c) (map (juxt inc dec) c)]` | c : ints | 0.05 |  |
+| `(let [f (fn [x] (+ x a))] (map f c))` | a : int, c : ints | 0.05 |  |
+| `(sort-by - c)` | c : ints | 0.05 |  |
+| `(sort-by :a c)` | c : coll | 0.6 |  |
+| `((fn [& xs] xs) a b)` | a : any, b : any | 0.0 |  |
+| `[((fn ([x] x) ([x y] y) ([x y & m] m)) a) ((fn ([x] x) ([x y] y)) a b)]` | a : any, b : any | 0.0 |  |
+| `(case x 1 :one (2 3) :two-three :a :kw "s" :str nil :nil [1] :vec :default)` | x : any | 0.05 | case is hashed-key equality: a double test or value is no claim. |
+| `(case x :a 1 :b 2)` | x : key | 0.0 | No match and no default throws. |
+| `(condp = x 1 :a 2 :b :c)` | x : any | 0.05 |  |
+
+## Strings
+
+| Form | Inputs | Max no-claim | Note |
+|---|---|---|---|
+| `(str a b)` | a : any, b : any | 0.6 | str of a double or a collection is no claim (Java's toString). |
+| `(str a "-" b)` | a : key, b : int | 0.0 |  |
+| `(subs s i)` | s : string, i : int | 0.3 | BMP strings only: Java indexes UTF-16 units. |
+| `(subs s i j)` | s : string, i : int, j : int | 0.3 |  |
+| `(name x)` | x : any | 0.05 |  |
+| `(keyword x)` | x : any | 0.05 |  |
+| `(keyword a b)` | a : string, b : string | 0.6 |  |
+| `(clojure.string/join ", " c)` | c : ints | 0.3 |  |
+| `(clojure.string/join c)` | c : seqable | 0.6 |  |
+| `(clojure.string/blank? s)` | s : string | 0.2 |  |
+| `[(clojure.string/upper-case s) (clojure.string/lower-case s)]` | s : string | 0.2 | ASCII only: Java's case mapping is Unicode-aware. |
+| `[(clojure.string/starts-with? s t) (clojure.string/ends-with? s t) (clojure.string/includes? s t)]` | s : string, t : string | 0.0 |  |
+
 ## Refused forms
 
 Translation refuses what the model cannot express with `ex-info`
@@ -116,21 +249,20 @@ Translation refuses what the model cannot express with `ex-info`
 
 | Reason | Meaning |
 |---|---|
-| `:destructuring` | A destructuring binding form (G1 binds symbols only). |
-| `:dispatch` | Protocols, multimethods and `case` (hash dispatch): not modelled yet. |
+| `:destructuring` | A destructuring binding form. |
+| `:dispatch` | Protocols, multimethods and a raw `case*`: not modelled. |
 | `:dynamic-var` | A dynamic var or `var`: its value depends on the binding in force. |
-| `:escaping-fn` | A function stored in data or returned: the model's values are data. |
+| `:escaping-fn` | A function stored in data, returned or compared: the model's values are data; functions are only called or passed to a modelled higher-order function. |
 | `:eval` | `eval` and reading code at runtime. |
-| `:higher-order` | A higher-order function (`map`, `reduce`, …) or a call of a local (G1 has no function sort yet). |
+| `:higher-order` | A higher-order function the model does not cover yet (`apply`, `mapcat`, a comparator for `sort`, a transducer other than map/filter/remove/keep). |
 | `:interop` | Java interop (`.method`, `Class.`, `Class/static`, `new`): no model of Java objects. |
 | `:lazy-infinite` | An infinite sequence (`iterate`, `cycle`, `repeat`/`range` without a bound). |
-| `:multi-arity` | A function with several arities (G1 models one). |
+| `:multi-arity` | A modelled function with several arities (a fn literal passed to a function may have several). |
 | `:multi-form-body` | A body with several forms: the earlier forms only run for effects. |
 | `:mutable-state` | Atoms, volatiles, `deref`, `set!`: the model has no state. |
-| `:recursion` | Recursion, `loop`/`recur`, `letfn` (G1 translates non-recursive functions). |
+| `:recursion` | Recursion, `loop`/`recur`, `letfn`. |
 | `:regex` | Regular expressions: not modelled. |
 | `:side-effect` | An effect (printing, I/O, `def`): the model is pure. |
 | `:try-catch` | `try`: catching would turn a no-claim into a value. |
 | `:unmodelled-fn` | A call to a function the model does not cover. |
 | `:unmodelled-form` | A literal or form the model does not cover (char/BigInt/NaN literals, set or map literals with computed keys). |
-| `:varargs` | A variadic parameter list `[x & more]` (G1). |

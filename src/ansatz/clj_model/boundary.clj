@@ -182,8 +182,8 @@
    the impl must return `v` (strict =); otherwise, or when it throws there, this throws
    :clj-model/model-disagrees: the model is unfaithful on these arguments. Where the model
    makes no claim, the impl's result stands."
-  [cname impl model-fn args]
-  (let [claim (m/opt-value (apply model-fn (map m/edn->cljv args)))
+  [cname impl model-fn args & [arity]]
+  (let [claim (m/opt-value (apply model-fn (m/pack-args arity (map m/edn->cljv args))))
         disagree (fn [data cause]
                    (ex-info (str "clj-model: the model of " cname " disagrees with its Clojure source")
                             (merge {:kind :clj-model/model-disagrees :fn cname :args (vec args)
@@ -212,13 +212,15 @@
         rc (codec ret-type)
         model-name (str fn-name ".clj")
         model-form (translate/model-defn model-name impl-form ns-sym fn-name)
-        _ (when (not= (* 3 (count pairs)) (count (nth model-form 2)))
+        arity (select-keys (meta model-form) [:clj-model/fixed :clj-model/rest?])
+        _ (when-not (translate/accepts? arity (count pairs))
             (throw (ex-info "clj-model: the fn literal's arity differs from the declared parameters"
                             {:params params :impl impl-form})))
         model-fn (binding [a/*verbose* false config/*clj-surface* false *ns* (the-ns ns-sym)]
                    @(eval model-form))
         args (mapv first pairs)
-        model-app (list* (symbol model-name) (map (fn [p c] (list (symbol (:enc c)) p)) args codecs))
+        model-app (list* (symbol model-name)
+                         (translate/pack-args arity (map (fn [p c] (list (symbol (:enc c)) p)) args codecs)))
         result (list 'Option.bind model-app (symbol (:dec rc)))
         body (list 'Option.getD result (:default rc))
         statement (list '= 'Bool (list 'Option.isSome result) true)
@@ -236,7 +238,7 @@
                     (if-let [g @ported]
                       (apply g xs)
                       (let [args (map #(%1 %2) ->clj xs)
-                            r (if @paranoid (paranoid-call cname impl model-fn args) (apply impl args))]
+                            r (if @paranoid (paranoid-call cname impl model-fn args arity) (apply impl args))]
                         (if (and (= :proved @cell) (not= 'Value ret-type))
                           (normalize-int r)
                           (if-let [{v :some} (m/opt-value (dec-fn (m/edn->cljv r)))]
@@ -245,7 +247,7 @@
                                                  ret-type " (outside its asserted type)")
                                             {:kind :clj-model/nonconforming :fn cname :args (vec xs) :result r})))))))]
       (swap! registry assoc cname {:impl impl :params params :ret ret-type :pairs pairs :codecs codecs
-                                   :ret-codec rc :model-name model-name :model-fn model-fn :ns ns-sym
+                                   :ret-codec rc :model-name model-name :model-fn model-fn :ns ns-sym :arity arity
                                    :statement statement :status cell :paranoid paranoid :ported ported
                                    :source impl-form})
       (println "⚠ modelled:" fn-name "— a definition from its Clojure source; conformance :tested, not proved")

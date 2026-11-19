@@ -1,6 +1,7 @@
 (ns ansatz.clj-model
-  "A kernel model of plain Clojure (PR G1): the universe `CljM.V`, truthiness, and the G1
-   clojure.core ops, each `V… → Option V`, where `none` means NO CLAIM (clojure.core throws,
+  "A kernel model of plain Clojure: the universe `CljM.V`, truthiness, numbers, equality and
+   the scalar/lookup ops here (G1); sequences, maps, sets, higher-order functions and strings in
+   ansatz.clj-model.colls (G2). Each op is `V… → Option V`, where `none` means NO CLAIM (clojure.core throws,
    the op is not modelled, a long overflows, or the answer depends on something the model does
    not track). Adequacy is one-directional: the model returning `some v` means clojure.core
    returns a value whose EDN is `v`.
@@ -52,18 +53,18 @@
 
 (def ctor-index (into {} (map-indexed (fn [i [c _]] [c i]) ctors)))
 
-(def ^:private OV '(Option CljM.V))
-(def ^:private OB '(Option Bool))
-(def ^:private OOV '(Option (Option CljM.V)))
+(def OV '(Option CljM.V))
+(def OB '(Option Bool))
+(def OOV '(Option (Option CljM.V)))
 
-(defn- none-of [t] (list (symbol "@Option.none") t))
-(def ^:private noneV (none-of 'CljM.V))
-(def ^:private noneB (none-of 'Bool))
-(def ^:private noneOV (none-of OV))
-(def ^:private someT '(Option.some true))
-(def ^:private someF '(Option.some false))
+(defn none-of [t] (list (symbol "@Option.none") t))
+(def noneV (none-of 'CljM.V))
+(def noneB (none-of 'Bool))
+(def noneOV (none-of OV))
+(def someT '(Option.some true))
+(def someF '(Option.some false))
 
-(defn- c [ctor & args]
+(defn c [ctor & args]
   (let [s (symbol (str "CljM.V." ctor))] (if (seq args) (list* s args) s)))
 
 (defn vm
@@ -77,13 +78,13 @@
                   (if (empty? fs) (list ct dflt) (list ct (vec (repeatedly (count fs) #(gensym "_"))) dflt))))
               ctors)))
 
-(defn- defm [nm params ret body]
+(defn defm [nm params ret body]
   (list 'ansatz.core/defn nm (vec (mapcat (fn [[p t]] [p :- t]) params)) ret body))
 
-(defn- bindV [x [v] body] (list 'Option.bind x (list 'fn [v :- 'CljM.V] body)))
-(defn- bindB [x [v] body] (list 'Option.bind x (list 'fn [v :- 'Bool] body)))
-(defn- someV [x] (list 'Option.some x))
-(defn- boolV [b] (someV (c 'vbool b)))
+(defn bindV [x [v] body] (list 'Option.bind x (list 'fn [v :- 'CljM.V] body)))
+(defn bindB [x [v] body] (list 'Option.bind x (list 'fn [v :- 'Bool] body)))
+(defn someV [x] (list 'Option.some x))
+(defn boolV [b] (someV (c 'vbool b)))
 
 (def ^:private long-min -9223372036854775808)
 (def ^:private long-max 9223372036854775807)
@@ -119,7 +120,7 @@
 (defn- unary-num [nm long-body double-body]
   (defm nm '[[a CljM.V]] OV (vm 'a OV noneV {'vlong [['i] long-body] 'vdouble [['f] double-body]})))
 
-(defn- pred [nm overrides]
+(defn pred [nm overrides]
   (defm nm '[[a CljM.V]] OV (boolV (vm 'a 'Bool false overrides))))
 
 (defn- scalar-eq [nm ty ct]
@@ -134,7 +135,7 @@
   (let [rec (fn [m x y] (list 'CljM.eqF 'n m x y))
         seq-arm (fn [items] (list 'if '(== (CljM.seqKind b) 1) (rec 'mode items '(CljM.items b))
                                   (list 'if '(== (CljM.seqKind b) 0) someF noneB)))
-        coll-arm (fn [is?] (list 'if '(== mode 3) noneB
+        coll-arm (fn [is?] (list 'if '(== mode 3) (list 'if (list is? 'b) noneB someF)
                                  (list 'if (list is? 'b)
                                        (list 'if '(== (CljM.clen e) (CljM.clen (CljM.items b)))
                                              (rec 1 'e '(CljM.items b)) someF)
@@ -143,7 +144,8 @@
                   {'vnil [[] '(Option.some (CljM.isNil b))]
                    'vbool [['x] '(CljM.eqBool x b)]
                    'vlong [['i] '(CljM.eqLong i b)]
-                   'vdouble [['f] (list 'if '(== mode 3) noneB '(CljM.eqDouble f b))]
+                   ;; hashed: ±0.0 and NaN hash apart from equiv; a double never matches a non-double
+                   'vdouble [['f] (list 'if '(== mode 3) (vm 'b OB someF {'vdouble [['g] noneB]}) '(CljM.eqDouble f b))]
                    'vchar [['x] '(CljM.eqChar x b)]
                    'vstr [['s] '(CljM.eqStr s b)]
                    'vkw [['s] '(CljM.eqKw s b)]
@@ -176,7 +178,8 @@
             (list 'succ '[n] (list 'if '(== mode 1) sub (list 'if '(== mode 2) mem equiv)))))))
 
 (defn model-forms
-  "The `a/defn ^:lean` forms defining `CljM.V` and the G1 ops, in dependency order."
+  "The `a/defn ^:lean` forms defining `CljM.V` and the ops (G1 here, G2 in ansatz.clj-model.colls),
+   in dependency order."
   []
   (concat
    [(list* 'ansatz.core/inductive 'CljM.V []
@@ -205,6 +208,9 @@
                       vlist [[it] (+ 1 (CljM.size it))] vlseq [[o it] (+ 1 (CljM.size it))]
                       vvec [[it] (+ 1 (CljM.size it))] vmap [[it] (+ 1 (CljM.size it))]
                       vset [[it] (+ 1 (CljM.size it))]}))
+    ;; a string in the Basic Multilingual Plane: code points = Java's UTF-16 units
+    (defm 'CljM.bmpL '[[cs (List Char)]] 'Bool
+      '(match cs (List Char) Bool (nil true) (cons [h t] (Bool.and (< (Char.toNat h) 65536) (CljM.bmpL t)))))
     (defm 'CljM.cnth '[[c CljM.V] [n Nat]] 'CljM.V
       '(match n Nat CljM.V (zero (CljM.hd c)) (succ [j] (CljM.cnth (CljM.tl c) j))))
     ;; equality
@@ -329,12 +335,17 @@
     (defm 'CljM.count '[[m CljM.V]] OV
       (let [n (someV (c 'vlong '(Int.ofNat (CljM.clen it))))]
         (vm 'm OV noneV {'vnil [[] (someV (c 'vlong 0))]
-                         'vlist [['it] n] 'vlseq [['o 'it] n] 'vvec [['it] n] 'vmap [['it] n] 'vset [['it] n]})))]))
+                         'vlist [['it] n] 'vlseq [['o 'it] n] 'vvec [['it] n] 'vmap [['it] n] 'vset [['it] n]
+                         ;; a string: UTF-16 units, which are code points in the BMP
+                         'vstr [['s] (list 'if '(CljM.bmpL (String.toList s))
+                                           (someV (c 'vlong '(Int.ofNat (List.length (String.toList s))))) noneV)]})))]
+   ;; G2: sequences, maps, sets, higher-order functions, strings
+   ((requiring-resolve 'ansatz.clj-model.colls/model-forms))))
 
 ;; ── Installation ────────────────────────────────────────────────────────────────────────
 
 (defn installed? []
-  (some? (env/lookup (a/env) (name/from-string "CljM.count"))))
+  (some? (env/lookup (a/env) (name/from-string "CljM.invoke3"))))
 
 (def ^:private model-ns 'ansatz.clj-model.kernel)
 
@@ -343,7 +354,7 @@
       (let [n (create-ns model-ns)] (binding [*ns* n] (refer-clojure)) n)))
 
 (defn install-model!
-  "Define `CljM.V` and the G1 ops on the current env (an Init env: Int, Float, Char, String,
+  "Define `CljM.V` and the model's ops on the current env (an Init env: Int, Float, Char, String,
    Option). Idempotent. Returns :installed."
   []
   (locking #'install-model!
@@ -415,11 +426,22 @@
     6 (keyword (nth v 1))
     7 (symbol (nth v 1))
     10 (apply list (unchain (nth v 1)))
-    11 (lazy-seq (seq (unchain (nth v 2))))   ;; seq? but not list?, like (map f xs)
+    ;; seq? but not list?, like (map f xs); a hash-ordered seq is marked: its order is unknown
+    11 (cond-> (lazy-seq (seq (unchain (nth v 2)))) (not (nth v 1)) (with-meta {::unordered true}))
     12 (vec (unchain (nth v 1)))
     13 (reduce (fn [m [k x]] (assoc m k x)) {} (unchain (nth v 1)))
     14 (set (unchain (nth v 1)))
     (throw (ex-info "cljv->edn: a bare chain cell is not a value" {:v v}))))
+
+(defn pack-args
+  "A model's runtime arguments for `xs` (runtime CljM.V values): the fixed ones, then (for a
+   variadic model, `arity` {:clj-model/fixed n :clj-model/rest? true}) the extra ones as a seq
+   or nil, as Clojure passes them."
+  [{:clj-model/keys [fixed rest?]} xs]
+  (if rest?
+    (let [extra (drop fixed xs)]
+      (conj (vec (take fixed xs)) (if (empty? extra) [0] [(ctor-index 'vlseq) true (chain extra)])))
+    (vec xs)))
 
 (defn opt-value
   "Decode a compiled `Option` result in the runtime's representation
@@ -432,18 +454,29 @@
 
 (defn- seq-kind [x] (cond (vector? x) :vector (list? x) :list (seq? x) :seq))
 
+(declare strict=)
+
+(defn- same-elements? [xs ys]
+  (and (= (count xs) (count ys))
+       (empty? (reduce (fn [ys x]
+                         (let [i (first (keep-indexed (fn [i y] (when (strict= x y) i)) ys))]
+                           (if i (into (subvec ys 0 i) (subvec ys (inc i))) (reduced [::no]))))
+                       (vec ys) xs))))
+
 (defn strict=
   "Clojure `=` that also keeps what `=` forgets but the EDN shows: a vector is not a seq, a
    list is not another seq, integers and doubles differ, 0.0 ≠ -0.0; NaN equals NaN. Maps and
-   sets are compared order-free."
+   sets are compared order-free, and so is a seq the model marks hash-ordered (cljv->edn)."
   [x y]
   (cond
+    (and (or (::unordered (meta x)) (::unordered (meta y))) (= :seq (seq-kind x)) (= :seq (seq-kind y)))
+    (same-elements? x y)
     (and (integer? x) (integer? y)) (== x y)
     (and (instance? Double x) (instance? Double y)) (.equals ^Double x y)
     (or (number? x) (number? y)) false
     (and (map? x) (map? y)) (and (= (count x) (count y))
                                  (every? (fn [[k v]] (and (contains? y k) (strict= v (get y k)))) x))
-    (and (set? x) (set? y)) (and (= (count x) (count y)) (every? #(contains? y %) x))
+    (and (set? x) (set? y)) (same-elements? (seq x) (seq y))
     (or (map? x) (map? y) (set? x) (set? y)) false
     (and (seq-kind x) (seq-kind y)) (and (= (seq-kind x) (seq-kind y))
                                          (= (count x) (count y))

@@ -25,6 +25,10 @@
 (deftest control (check-group :control))
 (deftest types (check-group :types))
 (deftest collections (check-group :collections))
+(deftest sequences (check-group :sequences))
+(deftest maps (check-group :maps))
+(deftest functions (check-group :functions))
+(deftest strings (check-group :strings))
 
 (deftest a-model-without-answers-fails-its-row
   (let [row {:id :probe/none :form '(+ a b) :params '[[a :int] [b :int]] :max-no-claim 0.0}
@@ -42,4 +46,4 @@
     (is (number? (:max-no-claim r)) (str (:id r)))
     (is (every? (fn [[p k]] (and (symbol? p) (keyword? k))) (:params r)) (str (:id r))))
   (is (apply distinct? (map :id contract/rows)) "row ids are unique")
-  (is (<= 40 (count contract/rows))))
+  (is (<= 150 (count contract/rows))))

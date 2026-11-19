@@ -454,15 +454,22 @@
 
 (def ^:private long-edges [0 1 -1 2 7 -7 Long/MAX_VALUE Long/MIN_VALUE])
 (def ^:private double-edges [0.0 -0.0 1.5 -2.0 Double/NaN Double/POSITIVE_INFINITY])
-(def ^:private string-edges ["" "a" "ab" "😀"])
+(def ^:private string-edges ["" "a" "ab" "😀" " \t" "Ab/c"])
 (def ^:private keyword-edges [:a :b :c :ns/k])
 
 (defn- big-map [] (zipmap (map #(keyword (str "k" %)) (range 10)) (range 10)))
 
 (defn edn-edges
-  "Edge values of an EDN generator kind: :any :int :nat :num :bool :string :key :map :coll :value."
+  "Edge values of an EDN generator kind: :any :int :nat :num :bool :string :key :map :coll :value,
+   :ints (collections of integers), :kmap (keyword → integer maps),
+   :mixmap (as :kmap, half of them hash maps of 9-12 entries), :seqable (collections and strings)."
   [kind]
   (case kind
+    :ints [nil [] () [1 2 3] '(3 1 2) [2 2 1] [Long/MAX_VALUE 1] #{1 2 3} #{} (map inc [0 1 2]) (range 3) [-1]]
+    :kmap [{} {:a 1} {:a 1 :b 2} {:b 2 :a 1 :c 3} {:a Long/MAX_VALUE :b 1} (big-map)]
+    :mixmap [{} {:b 2 :a 1 :c 3} (zipmap [:i :h :g :f :e :d :c :b :a] (range 9)) (big-map)
+             (zipmap (map #(keyword (str (char (+ 97 %)))) (range 12)) (range 12))]
+    :seqable (into (edn-edges :coll) ["" "ab" "😀" [1 2 3] #{:a :b :c} (big-map)])
     :int long-edges
     :nat [0 1 2 7 Long/MAX_VALUE]
     :num (into long-edges double-edges)
@@ -488,6 +495,15 @@
       :nat (if (zero? (.nextInt rng 5)) (pick [0 Long/MAX_VALUE]) (long (.nextInt rng 40)))
       :num (case (.nextInt rng 3) 0 (pick double-edges) 1 (* 10.0 (- (.nextDouble rng) 0.5)) (random-edn rng :int 0))
       :bool (.nextBoolean rng)
+      :ints (let [xs (repeatedly (.nextInt rng 5) #(random-edn rng :int 0))]
+              (case (.nextInt rng 5) 0 (vec xs) 1 (apply list xs) 2 (set xs) 3 (map identity xs) (vec (map #(mod % 5) xs))))
+      :kmap (let [n (if (zero? (.nextInt rng 6)) (+ 9 (.nextInt rng 3)) (.nextInt rng 5))]
+              (into {} (map (fn [i] [(keyword (str (char (+ 97 i)))) (random-edn rng :int 0)]) (range n))))
+      ;; half small maps (array maps), half maps of 9-12 entries (hash maps)
+      :mixmap (let [n (if (.nextBoolean rng) (.nextInt rng 5) (+ 9 (.nextInt rng 4)))]
+                (into {} (map (fn [i] [(keyword (str (char (+ 97 i)))) (random-edn rng :int 0)])
+                              (take n (sort-by (fn [_] (.nextInt rng)) (range 14))))))
+      :seqable (case (.nextInt rng 3) 0 (random-edn rng :string 0) 1 (random-edn rng :ints 0) (random-edn rng :coll depth))
       :string (pick (into string-edges ["b" "abc"]))
       :key (pick (into keyword-edges [0 1 2 "a"]))
       :map (let [n (if (zero? (.nextInt rng 8)) (+ 9 (.nextInt rng 3)) (.nextInt rng 4))
@@ -525,8 +541,19 @@
     (vec (concat (take max-edges product)
                  (repeatedly n-random (fn [] (mapv #(random-edn rng % 2) kinds)))))))
 
-(defn- model-call [model-fn args]
-  (some-> (clj-model/opt-value (apply model-fn (map clj-model/edn->cljv args))) :some))
+(defn- model-call [model-fn arity args]
+  (some-> (clj-model/opt-value (apply model-fn (clj-model/pack-args arity (map clj-model/edn->cljv args)))) :some))
+
+(defn outside-domain?
+  "Does an input contain a hash map of at most 8 entries? The model reads a small map as an
+   array map (insertion order = iteration order, as for literals, assoc, into and every map
+   the Value boundary passes); a small hash map (from `hash-map`, or `dissoc` on a large map)
+   is outside its domain, so faithfulness checks skip such inputs."
+  [x]
+  (cond (instance? clojure.lang.PersistentHashMap x) (or (<= (count x) 8) (some outside-domain? (mapcat identity x)))
+        (map? x) (some outside-domain? (mapcat identity x))
+        (coll? x) (some outside-domain? x)
+        :else false))
 
 (defn model-verdict
   "Classify one call: the model's result (a runtime CljM.V, or nil for none) against the
@@ -541,13 +568,24 @@
         (:timeout c) :timeout
         :else {:threw (.getName (class (:ex c))) :message (.getMessage ^Throwable (:ex c))}))
 
-(defn- faithfulness [model-fn clj-f inputs timeout-ms]
+(defn- realize!
+  "Realize a result (a lazy seq may throw when realized), refusing one over 100000 elements."
+  [x]
+  (let [budget (volatile! 100000)]
+    (letfn [(walk [x]
+              (when (neg? (vswap! budget dec)) (throw (ex-info "clj-check: result too large to compare" {})))
+              (cond (map? x) (run! (fn [[k v]] (walk k) (walk v)) x)
+                    (coll? x) (run! walk x)))]
+      (walk x)
+      x)))
+
+(defn- faithfulness [model-fn arity clj-f inputs timeout-ms]
   (let [results (mapv (fn [args]
-                        (let [mv (model-call model-fn args)
-                              c (call-with-timeout #(apply clj-f args) timeout-ms)]
+                        (let [mv (model-call model-fn arity args)
+                              c (call-with-timeout #(realize! (apply clj-f args)) timeout-ms)]
                           {:verdict (model-verdict mv c) :args args
                            :model (if mv (clj-model/cljv->edn mv) :none) :clojure (outcome-edn c)}))
-                      inputs)]
+                      (remove outside-domain? inputs))]
     {:counts (merge {:agree 0 :throws 0 :no-claim 0 :model-bug 0} (frequencies (map :verdict results)))
      :model-bugs (vec (take 5 (filter #(= :model-bug (:verdict %)) results)))
      :no-claims (vec (take 3 (filter #(= :no-claim (:verdict %)) results)))}))
@@ -559,10 +597,11 @@
   (clj-model/install-model!)
   (let [fn-form (list 'fn (mapv first params) form)
         kname (str (row-kernel-name id) ".clj")
+        model-form (translate/model-defn kname fn-form (ns-name (the-scratch-ns)) nil)
         model-fn (binding [a/*verbose* false config/*clj-surface* false *ns* (the-scratch-ns)]
-                   @(eval (translate/model-defn kname fn-form scratch-ns nil)))
+                   @(eval model-form))
         inputs (gen-edn-inputs (map second params) :seed (or seed (hash id)) :n-random n-random)]
-    (assoc (faithfulness model-fn (reading {:params params :form form}) inputs timeout-ms)
+    (assoc (faithfulness model-fn (meta model-form) (reading {:params params :form form}) inputs timeout-ms)
            :id id)))
 
 (defn model-row-verdict
@@ -590,14 +629,14 @@
    witnesses being the domain inputs where conformance fails, with what clojure.core did there.
    Options: :runs (random tuples, default 60), :seed, :timeout-ms (default 2000)."
   [f & {:keys [runs seed timeout-ms] :or {runs 60 seed 42 timeout-ms 2000}}]
-  (let [{:keys [impl model-fn pairs ret-codec]} ((requiring-resolve 'ansatz.clj-model.boundary/info) f)
+  (let [{:keys [impl model-fn pairs ret-codec arity]} ((requiring-resolve 'ansatz.clj-model.boundary/info) f)
         dec-fn (clj-model/model-fn (:dec ret-codec))
         kinds (mapv (fn [[_ t]] (get domain-kind t :any)) pairs)
         domain (gen-edn-inputs kinds :seed seed :n-random runs)
         anything (gen-edn-inputs (repeat (count pairs) :any) :seed (inc seed) :n-random runs :max-edges 64)
-        faith (faithfulness model-fn impl (concat domain anything) timeout-ms)
+        faith (faithfulness model-fn arity impl (concat domain anything) timeout-ms)
         conf (mapv (fn [args]
-                     (let [mv (model-call model-fn args)]
+                     (let [mv (model-call model-fn arity args)]
                        (if (and mv (clj-model/opt-value (dec-fn mv)))
                          {:ok true}
                          {:args args :model (if mv (clj-model/cljv->edn mv) :none)
