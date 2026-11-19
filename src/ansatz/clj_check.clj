@@ -556,8 +556,13 @@
     (vec (concat (take max-edges product)
                  (repeatedly n-random (fn [] (mapv #(random-edn rng % 2) kinds)))))))
 
-(defn- model-call [model-fn arity args]
-  (some-> (clj-model/opt-value (apply model-fn (clj-model/pack-args arity (map clj-model/edn->cljv args)))) :some))
+(defn- model-call
+  "The compiled model's answer (a runtime CljM.V), or nil for none. The compiled fixpoint of a
+   recursive model takes a frame per level where Clojure's `recur` takes none; running out of
+   stack there is no claim."
+  [model-fn arity args]
+  (try (some-> (clj-model/opt-value (apply model-fn (clj-model/pack-args arity (map clj-model/edn->cljv args)))) :some)
+       (catch StackOverflowError _ nil)))
 
 (defn outside-domain?
   "Does an input contain a hash map of at most 8 entries? The model reads a small map as an
@@ -572,9 +577,13 @@
 
 (defn model-verdict
   "Classify one call: the model's result (a runtime CljM.V, or nil for none) against the
-   outcome of the Clojure call ({:v x} / {:ex t} / {:timeout true})."
+   outcome of the Clojure call ({:v x} / {:ex t} / {:timeout true}). A StackOverflowError or
+   OutOfMemoryError where the model answers is :resource: the model says what Clojure returns
+   given enough stack and heap (a non-tail self-call takes a JVM frame per level; `recur` and
+   `loop` take none), so running out of them is outside its claim, not a disagreement."
   [mv c]
   (cond (nil? mv) (if (contains? c :v) :no-claim :throws)
+        (or (instance? StackOverflowError (:ex c)) (instance? OutOfMemoryError (:ex c))) :resource
         (and (contains? c :v) (clj-model/strict= (clj-model/cljv->edn mv) (:v c))) :agree
         :else :model-bug))
 
@@ -601,7 +610,7 @@
                           {:verdict (model-verdict mv c) :args args
                            :model (if mv (clj-model/cljv->edn mv) :none) :clojure (outcome-edn c)}))
                       (remove outside-domain? inputs))]
-    {:counts (merge {:agree 0 :throws 0 :no-claim 0 :model-bug 0} (frequencies (map :verdict results)))
+    {:counts (merge {:agree 0 :throws 0 :no-claim 0 :model-bug 0 :resource 0} (frequencies (map :verdict results)))
      :model-bugs (vec (take 5 (filter #(= :model-bug (:verdict %)) results)))
      :no-claims (vec (take 3 (filter #(= :no-claim (:verdict %)) results)))}))
 

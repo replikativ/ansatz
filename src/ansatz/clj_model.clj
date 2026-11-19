@@ -1,9 +1,9 @@
 (ns ansatz.clj-model
   "A kernel model of plain Clojure: the universe `CljM.V`, truthiness, numbers, equality and
    the scalar/lookup ops here (G1); sequences, maps, sets, higher-order functions and strings in
-   ansatz.clj-model.colls (G2). Each op is `V… → Option V`, where `none` means NO CLAIM (clojure.core throws,
-   the op is not modelled, a long overflows, or the answer depends on something the model does
-   not track). Adequacy is one-directional: the model returning `some v` means clojure.core
+   ansatz.clj-model.colls (G2); the fuel-indexed fixpoints recursion runs on here (G3). Each op
+   is `V… → Option V`, where `none` means NO CLAIM (clojure.core throws, the op is not
+   modelled, a long overflows, or the answer depends on something the model does not track). Adequacy is one-directional: the model returning `some v` means clojure.core
    returns a value whose EDN is `v`.
 
    The DSL keeps Lean semantics; Clojure's semantics lives here. `a/foreign ^:model` translates
@@ -177,6 +177,8 @@
             (list 'zero noneB)
             (list 'succ '[n] (list 'if '(== mode 1) sub (list 'if '(== mode 2) mem equiv)))))))
 
+(declare recursion-forms)
+
 (defn model-forms
   "The `a/defn ^:lean` forms defining `CljM.V` and the ops (G1 here, G2 in ansatz.clj-model.colls),
    in dependency order."
@@ -340,12 +342,63 @@
                          'vstr [['s] (list 'if '(CljM.bmpL (String.toList s))
                                            (someV (c 'vlong '(Int.ofNat (List.length (String.toList s))))) noneV)]})))]
    ;; G2: sequences, maps, sets, higher-order functions, strings
-   ((requiring-resolve 'ansatz.clj-model.colls/model-forms))))
+   ((requiring-resolve 'ansatz.clj-model.colls/model-forms))
+   ;; G3: recursion
+   (recursion-forms)))
+
+;; ── Recursion (G3) ──────────────────────────────────────────────────────────────────────
+;; A recursive Clojure function (self-calls, `recur`, `loop`, `letfn`, mutually recursive
+;; a/defmodel functions) is a GROUP of members, one per arity, translated into one functional
+;;   F : (Nat → V → … → Option V) → Nat → V → … → Option V      (self, member tag, arguments)
+;; and run by `CljM.fix<k> F fuel tag x…`: structural recursion on the Nat fuel, `none` (no
+;; claim) when it runs out. Fuel bounds the DEPTH of nested calls, not their number.
+
+(def max-fix-arity
+  "The most arguments a recursive member takes (`CljM.fix1` … `CljM.fix8`)."
+  8)
+
+(defn fix-type
+  "`Nat → V → … → Option V` with `k` value arguments: a group's `self`."
+  [k]
+  (list '=> 'Nat (reduce (fn [acc _] (list '=> 'CljM.V acc)) OV (range k))))
+
+(defn- fix-form [k]
+  (let [nm (symbol (str "CljM.fix" k))
+        xs (mapv #(symbol (str "x" %)) (range 1 (inc k)))
+        ys (mapv #(symbol (str "y" %)) (range 1 (inc k)))
+        vs (fn [zs] (vec (mapcat (fn [z] [z :- 'CljM.V]) zs)))]
+    (list 'ansatz.core/defn nm (into ['F :- (list '=> (fix-type k) (fix-type k)) 'fuel :- 'Nat 'tag :- 'Nat] (vs xs)) OV
+          (list 'match 'fuel 'Nat OV
+                (list 'zero noneV)
+                ;; the approximant is eta-expanded, so a compiled fix runs lazily
+                (list 'succ '[n] (list* 'F (list 'fn (into '[t :- Nat] (vs ys)) (list* nm 'F 'n 't ys)) 'tag xs))))))
+
+(defn recursion-forms
+  "`CljM.weight` (the default fuel measure), `CljM.toFuel` (a user `:fuel` value) and the
+   fixpoint combinators `CljM.fix1` … `CljM.fix8`."
+  []
+  (into
+   [;; nodes, where an integer counts |i| + 1 and a string its length + 1: recursion that
+    ;; walks a collection, shortens a string or counts an integer toward 0 has depth below it
+    (defm 'CljM.weight '[[v CljM.V]] 'Nat
+      (vm 'v 'Nat 1 '{vlong [[i] (+ (Int.natAbs i) 1)]
+                      vstr [[s] (+ (List.length (String.toList s)) 1)]
+                      vcons [[h t] (+ (+ (CljM.weight h) (CljM.weight t)) 1)]
+                      ventry [[k w r] (+ (+ (CljM.weight k) (+ (CljM.weight w) (CljM.weight r))) 1)]
+                      vlist [[it] (+ (CljM.weight it) 1)] vlseq [[o it] (+ (CljM.weight it) 1)]
+                      vvec [[it] (+ (CljM.weight it) 1)] vmap [[it] (+ (CljM.weight it) 1)]
+                      vset [[it] (+ (CljM.weight it) 1)]}))
+    (defm 'CljM.toFuel [['r OV]] 'Nat
+      (list 'Option.getD (list 'Option.bind 'r (list 'fn '[v :- CljM.V]
+                                                     (vm 'v '(Option Nat) (none-of 'Nat)
+                                                         {'vlong [['i] '(Option.some (Int.toNat i))]})))
+            0))]
+   (map fix-form (range 1 (inc max-fix-arity)))))
 
 ;; ── Installation ────────────────────────────────────────────────────────────────────────
 
 (defn installed? []
-  (some? (env/lookup (a/env) (name/from-string "CljM.invoke3"))))
+  (some? (env/lookup (a/env) (name/from-string (str "CljM.fix" max-fix-arity)))))
 
 (def ^:private model-ns 'ansatz.clj-model.kernel)
 

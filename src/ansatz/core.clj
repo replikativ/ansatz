@@ -3272,12 +3272,15 @@
 (defmacro defmodel
   "A drop-in `defn` that records its source for the Clojure model: `(a/foreign ^:model g
    [x :- T …] R f)` with `f` defined here translates `f`'s source (the definition `g` gets),
-   and `f` stays the runtime.
+   and `f` stays the runtime. A function a model calls is modelled from its a/defmodel source
+   too (recursive and mutually recursive ones included). `^{:fuel form}` on the name sets the
+   fuel of a recursive function: a Clojure form over its parameters (default: the weight of the
+   arguments, ansatz.clj-model.translate/default-fuel).
      (a/defmodel total [m] (+ (:a m 0) (:b m 0)))
      (a/foreign ^:model total-of [m :- Value] Int total)"
   [fname & fdecl]
   (let [src ((requiring-resolve 'ansatz.clj-model.translate/defn->fn) (list* 'defn fname fdecl))]
-    `(do (clojure.core/defn ~fname ~@fdecl)
+    `(do (clojure.core/defn ~(vary-meta fname dissoc :fuel) ~@fdecl)
          (ansatz.surface.ingest/record-model-source!
           '~(symbol (str (ns-name *ns*)) (str fname))
           {:ns '~(ns-name *ns*) :form '~src :from :defmodel})

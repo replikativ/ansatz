@@ -176,6 +176,12 @@
       (go (vec (map-indexed (fn [i t] (free t i)) ptys)) depth))
     @out))
 
+(defn- fix-op?
+  "A fixpoint combinator `CljM.fix<k>` (G3): it matches on its Nat fuel, not on a value, so
+   constructor lemmas do not apply (a proof unfolds it at a successor fuel)."
+  [op]
+  (boolean (re-matches #"CljM\.fix\d+" op)))
+
 (defn ensure-op-lemmas!
   "Install the constructor lemmas of the model ops `ops` (names) not yet done, and add them to
    the `clj_model` simp set. Ops already handled are recorded in the :clj-model-lemmas
@@ -183,7 +189,7 @@
   [ops]
   (locking #'ensure-op-lemmas!
     (let [done (env/get-extension @state/ansatz-env :clj-model-lemmas {})
-          todo (remove #(contains? done %) (distinct ops))]
+          todo (remove #(or (contains? done %) (fix-op? %)) (distinct ops))]
       (when (seq todo)
         (let [env @state/ansatz-env
               allow (delta-allow-set env)
@@ -218,12 +224,26 @@
         (when (.isDef ci) (walk (.value ci)))))
     (vec out)))
 
+(defn user-model-defs
+  "The definitions of modelled Clojure functions (ansatz.clj-model.callees: `clj.<ns>.<name>.…`)
+   that the declaration `decl` reaches, for a proof to unfold."
+  [env decl]
+  (if-not (env/lookup env (nm (str decl)))
+    []
+    (vec (keep (fn [^ConstantInfo ci]
+                 (let [n (name/->string (.name ci))]
+                   (when (and (str/starts-with? n "clj.") (.isDef ci)) n)))
+               (writer/closure-constants env [(str decl)])))))
+
 (defn ensure-lemmas!
-  "The constructor lemmas `decl` needs: those of the model ops its value mentions, and of the ops
-   their right sides mention, transitively; plus `extra-ops` (e.g. the result decoder). Returns
-   the op names."
+  "The constructor lemmas `decl` needs: those of the model ops its value (and the modelled
+   functions it calls, `user-model-defs`) mentions, and of the ops their right sides mention,
+   transitively; plus `extra-ops` (e.g. the result decoder). Returns the op names."
   [decl extra-ops]
-  (loop [todo (into (vec extra-ops) (model-ops @state/ansatz-env decl)) seen #{}]
+  (loop [todo (into (vec extra-ops)
+                    (mapcat #(model-ops @state/ansatz-env %)
+                            (cons decl (user-model-defs @state/ansatz-env decl))))
+         seen #{}]
     (let [new (remove seen todo)]
       (if (empty? new)
         (vec seen)
@@ -325,12 +345,13 @@
 
 (defn default-script
   "The tactics `(a/conforms f)` runs when given none, for `f` with parameters `pairs`
-   ([[sym type] …]): case-split `case-split-types` parameters, unfold the model `f.clj` and
-   compute it with `clj_model` (the constructor lemmas fire on the encoded arguments),
-   case-split every `if` the computation could not decide, finish each branch with simp_all, and
-   close the arithmetic side conditions (long overflow against the declared types) with omega."
+   ([[sym type] …]): case-split `case-split-types` parameters, unfold the model `f.clj` (and the
+   modelled functions it calls) and compute it with `clj_model` (the constructor lemmas fire on
+   the encoded arguments), case-split every `if` the computation could not decide, finish each
+   branch with simp_all, and close the arithmetic side conditions (long overflow against the
+   declared types) with omega. A recursive model needs an induction this script does not do."
   [f pairs]
-  (compute-script pairs [(symbol (str f ".clj"))]))
+  (compute-script pairs (map symbol (cons (str f ".clj") (user-model-defs @state/ansatz-env (str f ".clj"))))))
 
 (defn port-script
   "The tactics `(a/port f g)` runs when given none, proving `f x… = g x…`: the conformance
@@ -347,18 +368,23 @@
 (defn trust-report
   "What the declaration `decl` rests on beyond the kernel, from its dependency closure:
    {:declaration, :axioms {:standard […] :other […]} (`:other` holds every other axiom: an
-   `a/foreign` function, a `^:partial` definition, `sorryAx`), :modelled {f status} for the
-   `a/foreign ^:model` functions reached, and :tested [f …], those still `:tested`. A `:tested`
-   function is a definition a proof may unfold, so a theorem through it holds of the model,
-   which answers the default d_R where it makes no claim; `:proved` and `:ported` close that."
+   `a/foreign` function, a `^:partial` definition, `sorryAx`, an opaque callee), :modelled
+   {f status} for the `a/foreign ^:model` functions reached, :tested [f …], those still
+   `:tested`, and :opaque [g …], the Clojure functions a model calls without modelling them
+   (ansatz.clj-model.callees: each an axiom assuming `g` is pure). A `:tested` function is a
+   definition a proof may unfold, so a theorem through it holds of the model, which answers the
+   default d_R where it makes no claim; `:proved` and `:ported` close that. An opaque callee
+   stays an assumption at every status."
   ([decl] (trust-report @state/ansatz-env decl))
   ([env decl]
    (let [cis (writer/closure-constants env [(str decl)])
          names (map #(name/->string (.name ^ConstantInfo %)) cis)
          axioms (sort (keep (fn [^ConstantInfo ci] (when (.isAxiom ci) (name/->string (.name ci)))) cis))
          statuses (env/get-extension env :clj-model {})
-         modelled (into (sorted-map) (keep (fn [n] (when-let [{:keys [status]} (get statuses n)] [n status]))) names)]
+         modelled (into (sorted-map) (keep (fn [n] (when-let [{:keys [status]} (get statuses n)] [n status]))) names)
+         opaque (env/get-extension env :clj-model-opaque {})]
      {:declaration (str decl)
       :axioms {:standard (filterv standard-axioms axioms) :other (filterv (complement standard-axioms) axioms)}
       :modelled modelled
-      :tested (vec (keep (fn [[n st]] (when (= :tested st) n)) modelled))})))
+      :tested (vec (keep (fn [[n st]] (when (= :tested st) n)) modelled))
+      :opaque (vec (sort (distinct (keep opaque axioms))))})))
