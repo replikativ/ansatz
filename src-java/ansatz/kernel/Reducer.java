@@ -86,6 +86,23 @@ public final class Reducer {
         this.deltaAllowSet = names;
     }
 
+    // When transparencyMode=0 (reducible), ALSO unfold the names this predicate accepts: a
+    // transparency given by a rule (Lean's reducibility status) rather than a finite list.
+    private java.util.function.Predicate<Name> deltaAllowPredicate = null;
+
+    /** Set the allow-predicate for reducible mode (transparency=0). Pass null to clear. */
+    public void setDeltaAllowPredicate(java.util.function.Predicate<Name> pred) {
+        this.deltaAllowPredicate = pred;
+    }
+
+    /** May the definition `name` be delta-unfolded at the current transparency? Always outside
+     *  reducible mode (0); in it, only names in the allow set or accepted by the allow predicate. */
+    public boolean canUnfold(Name name) {
+        if (transparencyMode != 0) return true;
+        return (deltaAllowSet != null && deltaAllowSet.contains(name))
+            || (deltaAllowPredicate != null && deltaAllowPredicate.test(name));
+    }
+
     // Callbacks for K-recursor support
     private InferFn inferFn;
     private IsDefEqFn isDefEqFn;
@@ -1639,10 +1656,8 @@ public final class Reducer {
         if (value == null) return null;
 
         // Transparency check: in reducible mode (0), only unfold allowed names
-        if (transparencyMode == 0) {
-            if (deltaAllowSet == null || !deltaAllowSet.contains(name)) {
-                return null;  // Not allowed to unfold this definition
-            }
+        if (!canUnfold(name)) {
+            return null;  // Not allowed to unfold this definition
         }
 
         // Validate level param count (Lean Kernel Arena: constlevels.ndjson)

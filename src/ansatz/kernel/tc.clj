@@ -345,6 +345,27 @@
             (when cache (swap! cache assoc lctx tc))
             tc)))))
 
+(defn java-tc-restricted
+  "Like `java-tc`, but the TypeChecker unfolds only the definitions `pred` (a
+   java.util.function.Predicate on Names) accepts: the kernel's defeq at a restricted
+   transparency (Reducer transparency 0 with an allow predicate; beta, iota, projections and
+   Nat/Int literal arithmetic are not delta and stay). Cached on the tc-state under
+   [`cache-key` lctx]; nil when the lctx has let-bindings."
+  ^TypeChecker [st cache-key ^java.util.function.Predicate pred]
+  (let [cache (:java-tc-cache st)
+        lctx (:lctx st)
+        k [cache-key lctx]]
+    (or (when cache (get @cache k))
+        (when (every? (fn [[_ d]] (= :local (:tag d))) lctx)
+          (let [tc (TypeChecker. ^Env (:env st))]
+            (.setTransparency tc 0)
+            (.setDeltaAllowPredicate tc pred)
+            (doseq [[id d] lctx]
+              (when (:type d)
+                (.addLocal tc (long id) (str (or (:name d) "x")) (:type d))))
+            (when cache (swap! cache assoc k tc))
+            tc)))))
+
 (defn is-def-eq
   "Check definitional equality of two expressions. Delegates to the Java
    kernel TypeChecker (lazy delta reduction) whenever the lctx permits — the
