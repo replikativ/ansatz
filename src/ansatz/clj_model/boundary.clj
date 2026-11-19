@@ -436,7 +436,14 @@
         tactics (if (seq tactics)
                   tactics
                   (do (proof/prepare! model-name codecs ret-codec)
-                      (proof/default-script cname (mapv (fn [[p t]] [p t]) pairs))))]
+                      (if (proof/recursive-model? cname)
+                        ;; prove the recursive groups first; the script then applies them
+                        (proof/with-deep-stack
+                          #((requiring-resolve 'ansatz.clj-model.recursion/recursive-script)
+                            params statement
+                            (proof/compute-script (mapv (fn [[p t]] [p t]) pairs) (proof/model-unfold cname) true)
+                            (proof/model-unfold cname) cname))
+                        (proof/default-script cname (mapv (fn [[p t]] [p t]) pairs)))))]
     (proof/with-deep-stack #(a/prove-theorem (symbol (str cname ".conforms")) params statement tactics))
     ;; f.spec by the generic lemma; the kernel unfolds the (irreducible) f to check it
     (let [spec-type (:type-ansatz (a/elab-signature (a/env) pairs

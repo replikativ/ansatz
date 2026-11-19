@@ -33,6 +33,15 @@
   ([xs] (cnt xs 0))
   ([xs acc] (if (seq xs) (recur (next xs) (inc acc)) acc)))
 
+;; recursion that conforms at its declared types (no arithmetic that can overflow):
+;; a loop, mutual recursion, an arity calling the next with an accumulator, a non-tail `and`
+(a/defmodel has-zero? [xs] (loop [s (seq xs)] (cond (nil? s) false (= 0 (first s)) true :else (recur (next s)))))
+(declare od-len?)
+(a/defmodel ev-len? [xs] (if (seq xs) (od-len? (next xs)) true))
+(a/defmodel od-len? [xs] (if (seq xs) (ev-len? (next xs)) false))
+(a/defmodel lastv ([xs] (lastv xs 0)) ([xs acc] (if (seq xs) (recur (next xs) (first xs)) acc)))
+(a/defmodel all-pos? [xs] (if (seq xs) (and (pos? (first xs)) (all-pos? (next xs))) true))
+
 ;; a modelled function calling a DSL function and an unmodelled Clojure function
 (defn ext-width
   "Not an a/defmodel: calls of it are opaque."
@@ -64,7 +73,11 @@
   (a/foreign ^:model even-nat [n :- Nat] Bool ev?)
   (a/foreign ^:model count-of [xs :- (List Int)] Nat cnt)
   (a/foreign ^:model quad-of [x :- Int] Int quad)
-  (a/foreign ^:model width-of [m :- Value] Int widths))
+  (a/foreign ^:model width-of [m :- Value] Int widths)
+  (a/foreign ^:model has-zero-of [xs :- (List Int)] Bool has-zero?)
+  (a/foreign ^:model ev-len-of [xs :- (List Int)] Bool ev-len?)
+  (a/foreign ^:model last-of [xs :- (List Int)] Int lastv)
+  (a/foreign ^:model all-pos-of [xs :- (List Int)] Bool all-pos?))
 
 (defn- setup [f]
   (binding [a/*verbose* false]
@@ -138,10 +151,24 @@
 (deftest conformance-proofs
   (testing "a model calling a DSL function: the default script unfolds the callee's model"
     (binding [a/*verbose* false] (a/conforms quad-of))
-    (is (= :proved (b/status 'quad-of))))
-  (testing "a recursive model is not proved by the default script (it needs an induction)"
-    (is (thrown? Throwable (binding [a/*verbose* false] (b/prove-conforms! 'even-nat []))))
-    (is (= :tested (b/status 'even-nat)))))
+    (is (= :proved (b/status 'quad-of)))))
+
+(deftest recursive-conformance
+  (testing "recursion that conforms is proved by the default script (ansatz.clj-model.recursion)"
+    (doseq [f '[has-zero-of ev-len-of last-of all-pos-of]]
+      (binding [a/*verbose* false] (b/prove-conforms! f []))
+      (is (= :proved (b/status f)) (str f))
+      (is (= :conforming (:status (cc/check-model! f :runs 40))) (str f " agrees with testing"))))
+  (testing "the generic adequacy lemma, once per arity"
+    (is (some? (ansatz.kernel.env/lookup (a/env) (ansatz.kernel.name/from-string "CljM.fix1.induct"))))
+    (is (some? (ansatz.kernel.env/lookup (a/env) (ansatz.kernel.name/from-string "CljM.fix2.induct")))))
+  (testing "recursion that does not conform at its declared types stays :tested"
+    ;; even-nat: past Long/MAX_VALUE `dec` makes no claim where Clojure's BigInt answers;
+    ;; count-of: `inc` overflows on a list of 2^63 elements (too long for check-model! to find)
+    (doseq [f '[even-nat count-of]]
+      (is (thrown? Throwable (binding [a/*verbose* false] (b/prove-conforms! f []))) (str f))
+      (is (= :tested (b/status f)) (str f)))
+    (is (= :nonconforming (:status (cc/check-model! 'even-nat :runs 40))))))
 
 (deftest refusals
   (doseq [[form reason] '[[(fn [x] (vdsl x)) :unmodelled-fn]

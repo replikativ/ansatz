@@ -90,6 +90,10 @@
                   :app (do (walk (e/app-fn x)) (walk (e/app-arg x)))
                   :lam (do (walk (e/lam-type x)) (walk (e/lam-body x)))
                   :forall (do (walk (e/forall-type x)) (walk (e/forall-body x)))
+                  ;; a structural recursion's whnf is a projection of its brecOn
+                  :proj (walk (e/proj-struct x))
+                  :let (do (walk (e/let-type x)) (walk (e/let-value x)) (walk (e/let-body x)))
+                  :mdata (walk (e/mdata-expr x))
                   nil)))]
       (walk x))
     @found))
@@ -100,6 +104,10 @@
     (when allow (.setTransparency tc 0) (.setDeltaAllowSet tc allow))
     tc))
 
+(def ^:private fresh-local
+  "Ids of the locals `normalize` opens binders on (above the ids lemma patterns use)."
+  (atom 6000000000))
+
 (defn- normalize
   "whnf by `tc`, then by `light` (model matches only, kept where it gets stuck) in every argument:
    `some (vbool (Bool.not (isNil vnil)))` → `some (vbool (Bool.not true))`."
@@ -107,19 +115,33 @@
   (let [r (.whnf (.getReducer tc) x)
         r (if (and (identical? tc light) (stuck? r)) x r)
         [h args] (e/get-app-fn-args r)]
-    (if (seq args)
-      (apply e/app* h (map #(normalize light light %) args))
-      r)))
+    (cond
+      (seq args) (apply e/app* h (map #(normalize light light %) args))
+      ;; a continuation (`Option.bind m (fun it => …)`): its body, opened on a fresh local
+      (e/lam? r) (let [id (swap! fresh-local inc)]
+                   (.addLocal light (long id) (str (e/lam-name r)) ^ansatz.kernel.Expr (e/lam-type r))
+                   (e/lam (e/lam-name r) (e/lam-type r)
+                          (e/abstract1 (normalize light light (e/instantiate1 (e/lam-body r) (e/fvar id))) id)
+                          (e/lam-info r)))
+      :else r)))
 
 (defn- evaluate
   "The right side for `lhs`, or nil. First `lhs` unfolded only through model matches and aliases
    (it keeps the source's spelling: `i < j`, `CljM.lres (i + j)`); where that is stuck, its
-   whnf (`CljM.eq` goes through fuel and `Option.bind`). Either must be free of stuck matches."
-  [env locals allow lhs]
-  (let [light (checker env locals allow)]
-    (some (fn [tc] (let [r (normalize tc light lhs)]
-                     (when (and (not= r lhs) (not (stuck? r))) r)))
-          [light (checker env locals nil)])))
+   whnf (`CljM.eq` goes through fuel and `Option.bind`). Either must be free of stuck matches.
+   `last?` (the pattern cannot be refined further): finally the op itself unfolded once, its
+   arguments as before. An op that wraps another (`CljM.first v := Option.bind (CljM.oelems v)
+   …`) is neither a match nor an alias, and its whnf is stuck where the wrapped op matches on an
+   unknown field (`vlseq b c`, a chain of unknown length)."
+  [env locals allow lhs last?]
+  (let [light (checker env locals allow)
+        h (e/get-app-fn lhs)
+        self (when (and last? (e/const? h))
+               (doto (java.util.HashSet. ^java.util.Collection allow) (.add (e/const-name h))))]
+    (some (fn [[tc args-tc]] (let [r (normalize tc args-tc lhs)]
+                               (when (and (not= r lhs) (not (stuck? r))) r)))
+          (cond-> [[light light] [(checker env locals nil) light]]
+            self (conj [(checker env locals self) light])))))
 
 (defn- field-types [env ctor]
   (loop [t (.type ^ConstantInfo (env/lookup! env (nm ctor))) acc []]
@@ -167,7 +189,8 @@
     (letfn [(go [args depth]
                 (let [locals (vec (mapcat :locals args))
                       lhs (apply e/app* (const op) (map :e args))]
-                  (if-let [rhs (evaluate env locals allow lhs)]
+                  (if-let [rhs (evaluate env locals allow lhs
+                                         (not (and (pos? depth) (some :type args))))]
                     (let [thm (str op ".ctor_" (str/join "_" (map :tag args)))]
                       (vswap! out conj [thm (theorem-of env locals lhs rhs thm)]))
                     (when-let [p (and (pos? depth) (first (keep-indexed (fn [i a] (when (:type a) i)) args)))]
@@ -182,10 +205,24 @@
   [op]
   (boolean (re-matches #"CljM\.fix\d+" op)))
 
+(defn- recursive-op?
+  "A structurally recursive model definition (it has smart unfolding, `op._sunfold`)."
+  [env op]
+  (some? (env/lookup env (nm (str op "._sunfold")))))
+
+(defn- equation-lemmas
+  "The equation lemmas `op.eq_1` … of a recursive op, one per constructor pattern (Lean's
+   `f.eq_<n>`). Evaluating such an op on a pattern with a free argument unfolds its recursion
+   into the brecOn encoding, which is no usable right side; its equations are what simp uses
+   for a recursive definition in Lean."
+  [env op]
+  (vec (take-while #(env/lookup env (nm %)) (map #(str op ".eq_" %) (iterate inc 1)))))
+
 (defn ensure-op-lemmas!
   "Install the constructor lemmas of the model ops `ops` (names) not yet done, and add them to
    the `clj_model` simp set. Ops already handled are recorded in the :clj-model-lemmas
-   extension, so each op is evaluated once per environment."
+   extension, so each op is evaluated once per environment. A recursive op (`recursive-op?`)
+   contributes its equation lemmas instead."
   [ops]
   (locking #'ensure-op-lemmas!
     (let [done (env/get-extension @state/ansatz-env :clj-model-lemmas {})
@@ -193,14 +230,21 @@
       (when (seq todo)
         (let [env @state/ansatz-env
               allow (delta-allow-set env)
-              made (into {} (map (fn [op] [op (op-lemmas env allow op 2)])) todo)]
+              {rec true plain false} (group-by #(recursive-op? env %) todo)
+              made (into {} (map (fn [op] [op (op-lemmas env allow op 2)])) plain)
+              eqns (into {} (map (fn [op] [op (equation-lemmas env op)])) rec)]
           (swap! state/ansatz-env
                  (fn [env]
-                   (reduce (fn [env [op ls]]
-                             (-> (reduce (fn [env [_ ci]] (env/check-constant env ci)) env ls)
-                                 (attrs/add-to-simp-set simp-set (map first ls))
-                                 (env/update-extension :clj-model-lemmas {} assoc op (mapv first ls))))
-                           env made)))))
+                   (as-> env env
+                     (reduce (fn [env [op ls]]
+                               (-> (reduce (fn [env [_ ci]] (env/check-constant env ci)) env ls)
+                                   (attrs/add-to-simp-set simp-set (map first ls))
+                                   (env/update-extension :clj-model-lemmas {} assoc op (mapv first ls))))
+                             env made)
+                     (reduce (fn [env [op ls]]
+                               (-> (attrs/add-to-simp-set env simp-set ls)
+                                   (env/update-extension :clj-model-lemmas {} assoc op ls)))
+                             env eqns))))))
       (select-keys (env/get-extension @state/ansatz-env :clj-model-lemmas {}) ops))))
 
 (defn model-ops
@@ -262,11 +306,13 @@
 (defn- parameter-split
   "The first tactic for a parameter of type `t`: cases for `case-split-types` and the G2 codecs'
    `Prod`/`Option` (their encoder is a match on the value), induction for `List` (its encoder
-   recurses over the list, and so does a model that walks the encoded chain), nil otherwise."
-  [p t]
+   recurses over the list, and so does a model that walks the encoded chain), nil otherwise.
+   For a recursive model (`rec?`) a `List` is only case-split: the recursion is argued by
+   ansatz.clj-model.recursion, whose templates read the list's head and tail."
+  [p t rec?]
   (let [head (if (seq? t) (first t) t)]
     (cond (case-split-types t) (list 'cases p)
-          (= 'List head) (list 'induction p)
+          (= 'List head) (list (if rec? 'cases 'induction) p)
           (#{'Prod 'Option} head) (list 'cases p))))
 
 (defn- spelling-lemmas
@@ -332,16 +378,34 @@
     (let [{:keys [v ex]} @p]
       (if ex (throw ex) v))))
 
-(defn- compute-script
+(defn compute-script
   "Case-split `pairs`' `case-split-types` parameters, simp with `unfold` and `clj_model`, then
    repeatedly split the `if`s and simp each branch with its conditions (simp_all, which also
-   turns them into the comparisons omega reads; a branch can expose a further `if`), omega."
-  [pairs unfold]
-  (let [s (symbol simp-set)]
-    (vec (concat (keep (fn [[p t]] (parameter-split p t)) pairs)
-                 [(list 'all_goals (list 'simp (conj (vec unfold) s)))
-                  (list 'repeat '(any_goals (split_ifs)) (list 'all_goals (list 'try (list 'simp_all [s]))))
-                  '(all_goals (try (omega)))]))))
+   turns them into the comparisons omega reads; a branch can expose a further `if`), omega.
+   `rec?`: see `parameter-split`."
+  ([pairs unfold] (compute-script pairs unfold false))
+  ([pairs unfold rec?]
+   (let [s (symbol simp-set)]
+     (vec (concat (keep (fn [[p t]] (parameter-split p t rec?)) pairs)
+                  [(list 'all_goals (list 'simp (conj (vec unfold) s)))
+                   ;; a recursive model's entry can apply a modelled function only once a branch
+                   ;; is split (`(Option.bind (dite …) g)`), so its branches unfold them too
+                   (list 'repeat '(any_goals (split_ifs))
+                         (list 'all_goals (list 'try (list 'simp_all (if rec? (conj (vec unfold) s) [s])))))
+                   '(all_goals (try (omega)))])))))
+
+(defn model-unfold
+  "The definitions a proof about `f` unfolds: its model `f.clj` and the modelled functions it
+   calls (a recursive group's functional among them)."
+  [f]
+  (map symbol (cons (str f ".clj") (user-model-defs @state/ansatz-env (str f ".clj")))))
+
+(defn recursive-model?
+  "Does the model of `f` (or a modelled function it calls) enter a recursive group?"
+  [f]
+  (let [env @state/ansatz-env
+        n (str f ".clj")]
+    (boolean (some fix-op? (mapcat #(model-ops env %) (cons n (user-model-defs env n)))))))
 
 (defn default-script
   "The tactics `(a/conforms f)` runs when given none, for `f` with parameters `pairs`
@@ -349,9 +413,10 @@
    modelled functions it calls) and compute it with `clj_model` (the constructor lemmas fire on
    the encoded arguments), case-split every `if` the computation could not decide, finish each
    branch with simp_all, and close the arithmetic side conditions (long overflow against the
-   declared types) with omega. A recursive model needs an induction this script does not do."
+   declared types) with omega. A recursive model is proved by ansatz.clj-model.recursion
+   (boundary/prove-conforms! dispatches on `recursive-model?`)."
   [f pairs]
-  (compute-script pairs (map symbol (cons (str f ".clj") (user-model-defs @state/ansatz-env (str f ".clj"))))))
+  (compute-script pairs (model-unfold f)))
 
 (defn port-script
   "The tactics `(a/port f g)` runs when given none, proving `f x… = g x…`: the conformance
