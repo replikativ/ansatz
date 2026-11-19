@@ -430,7 +430,16 @@ public final class Expr {
         return new Expr(LET, d, name, type, value, body, 0);
     }
 
-    /** Natural number literal. Always stores value as BigInteger for consistent equality. */
+    /**
+     * Natural number literal. Always stores value as BigInteger for consistent equality.
+     *
+     * <p>Lean's {@code Literal.natVal} has type {@code Nat}, so a negative Nat literal cannot be
+     * expressed. The kernel's literal reasoning (the GMP-style Nat extension, {@code Nat.succ n}
+     * as {@code n+1}, nat_lit_to_constructor) depends on it: with a negative value
+     * {@code Nat.succ (lit -1)} reduces to {@code 0}, and {@code Nat.succ_ne_zero} proves
+     * {@code False}. Refused here, the single construction point, so no deserializer, import or
+     * tactic can build one.
+     */
     public static Expr litNat(Object n) {
         BigInteger val;
         if (n instanceof BigInteger) {
@@ -442,6 +451,9 @@ public final class Expr {
         } else {
             val = new BigInteger(n.toString());
         }
+        if (val.signum() < 0)
+            throw new IllegalArgumentException(
+                "a Nat literal must be non-negative (Lean's Literal.natVal : Nat), got " + val);
         int h = val.hashCode() * 31 + LIT_NAT;
         long d = packData(0, h, false, false, false);
         return new Expr(LIT_NAT, d, val, null, null, null, 0);

@@ -362,7 +362,8 @@
   (when-let [val (reify-num st expr)]
     ;; Only simplify if the result is a simple literal
     ;; (avoid replacing complex expressions with identical structure)
-    (when (integer? val)
+    ;; a Nat literal is a natural number: a negative value has no literal form
+    (when (and (integer? val) (not (neg? val)))
       (let [result-expr (e/lit-nat val)]
         ;; Check it's actually different from the input
         (when (and (not= expr result-expr)

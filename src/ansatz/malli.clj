@@ -180,7 +180,7 @@
   "An Int literal as a closed kernel term: `Int.ofNat n` or `Int.negSucc n` (−n−1)."
   [v]
   (if (neg? v)
-    (e/app (kconst "Int.negSucc") (e/lit-nat (- (- v) 1)))
+    (e/app (kconst "Int.negSucc") (e/lit-nat (dec' (-' v))))
     (e/app (kconst "Int.ofNat") (e/lit-nat v))))
 
 (defn- int-le [a b] (e/app* (e/const' (nm "LE.le") [lvl/zero]) (kconst "Int")
@@ -211,10 +211,12 @@
     (or (ksubtype-int mn mx) (kconst "Int"))))
 
 (defn- bound-prop
-  "Prop body over (bvar 0 : Nat): ge ≤ v [∧ v < lt], or nil when unbounded."
+  "Prop body over (bvar 0 : Nat): ge ≤ v [∧ v < lt], or nil when unbounded. Over Nat a
+   bound below 0 means the same as 0 (`v < -3` and `v < 0` are both empty; `-3 ≤ v` and
+   `0 ≤ v` both hold), and a Nat literal is a natural number."
   [ge lt]
-  (let [lo (when ge (nat-le (e/lit-nat ge) (e/bvar 0)))
-        hi (when lt (nat-lt (e/bvar 0) (e/lit-nat lt)))]
+  (let [lo (when ge (nat-le (e/lit-nat (max 0 ge)) (e/bvar 0)))
+        hi (when lt (nat-lt (e/bvar 0) (e/lit-nat (max 0 lt))))]
     (cond (and lo hi) (kand lo hi) lo lo hi hi :else nil)))
 
 (defn- ksubtype-nat
@@ -229,8 +231,11 @@
    The refinement is carried in the TYPE and erased at runtime (a plain String value)."
   [mn mx]
   (let [len (e/app (e/const' (nm "String.length") []) (e/bvar 0))
-        lo (when mn (nat-le (e/lit-nat mn) len))
-        hi (when mx (nat-le len (e/lit-nat mx)))
+        ;; a length is a Nat: a negative :min holds always, a negative :max never
+        lo (when mn (nat-le (e/lit-nat (max 0 mn)) len))
+        hi (when mx (if (neg? mx)
+                      (nat-lt len (e/lit-nat 0))
+                      (nat-le len (e/lit-nat mx))))
         body (cond (and lo hi) (kand lo hi) lo lo hi hi :else nil)]
     (when body
       (e/app* (e/const' (nm "Subtype") [u1]) (kconst "String")

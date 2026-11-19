@@ -253,6 +253,11 @@ public final class ExprStore implements Closeable {
     }
 
     public void storeLitNat(int id, BigInteger n) throws IOException {
+        // Refuse at import time what Expr.litNat would refuse at read time (a Nat literal is
+        // a natural number), so a bad export fails at the offending record, not on first use.
+        if (n.signum() < 0)
+            throw new IllegalArgumentException(
+                "a Nat literal must be non-negative (Lean's Literal.natVal : Nat), got " + n);
         setOffset(id, writePos);
         byte[] bytes = n.toByteArray();
         writer.writeByte(TAG_LIT_NAT);

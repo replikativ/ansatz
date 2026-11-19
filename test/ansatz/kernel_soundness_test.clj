@@ -600,3 +600,34 @@
         (is (e/app? w))
         (is (= (n "Lean.reduceBool") (e/const-name (e/get-app-fn w))))
         (is (not (.isDefEq (fresh-tc env) call (c "Bool.false"))))))))
+
+;; ============================================================
+;; Nat literals are natural numbers (Lean's `Literal.natVal : Nat`)
+;; ============================================================
+;;
+;; `Expr.litNat` used to accept any BigInteger. With a negative literal the kernel's Nat-literal
+;; extension computes `Nat.succ (lit -1)` to `lit 0`, so `Nat.succ_ne_zero (lit -1)` applied to
+;; `Eq.refl 0` checked as a proof of `False` through `check-constant` (bundled Init only). In
+;; Lean the literal cannot be written; here `Expr.litNat` (the single construction point) and
+;; `ExprStore.storeLitNat` (lean4export import) refuse it.
+
+(deftest nat-literals-are-non-negative
+  (testing "a negative Nat literal cannot be constructed"
+    (doseq [v [-1 (biginteger -1) (bigint -1) -9223372036854775808 (- (bigint Long/MIN_VALUE) 1)]]
+      (is (thrown-with-msg? IllegalArgumentException #"non-negative" (e/lit-nat v)) (str v)))
+    (is (= 0 (e/lit-nat-val (e/lit-nat 0)))))
+  (testing "nor imported from a lean4export record"
+    (is (thrown-with-msg? IllegalArgumentException #"non-negative"
+                          (parser/parse-ndjson-string "{\"ie\":0,\"natVal\":\"-1\"}"))))
+  (testing "the False derivation needs one: Nat.succ_ne_zero k (Eq.refl 0) is rejected for every
+   literal k that can be built"
+    (let [proof (fn [k] (e/app* (c "Nat.succ_ne_zero") (lit k)
+                                (e/app* (c "Eq.refl" [l1]) @Nat (lit 0))))]
+      (is (thrown? IllegalArgumentException (proof -1)))
+      (doseq [k [0 1 41]]
+        (is (not (env/verifies? @E (c "False") (proof k))) (str k))
+        (is (some? (rejection @E (env/mk-thm (n "ksNegLitFalse") [] (c "False") (proof k))))))))
+  (testing "literal arithmetic never yields a negative value: Nat.sub truncates as Lean does"
+    (is (= 0 (e/lit-nat-val (reduce-nat-binop Name/NAT_SUB 3 5))))
+    (is (= 0 (e/lit-nat-val (whnf @E (e/app* (c "Nat.sub") (lit 0) (lit 1))))))
+    (is (= 2 (e/lit-nat-val (reduce-nat-binop Name/NAT_SUB 5 3))))))

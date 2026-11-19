@@ -560,16 +560,41 @@
     (mark-inst-implicit! est m)
     m))
 
+(defn- neg-numeral
+  "A negative surface integer `v` before its position fixes a type. A kernel Nat literal is a
+   natural number (Lean's `Literal.natVal : Nat`; `Expr.litNat` refuses a negative value), so
+   the carrier is the Int value `Int.negSucc (-v - 1)`: the type Lean's default `Neg`
+   instance gives `-n`. `num-lit-at-type` retypes it like a Nat literal."
+  [v]
+  (e/app (e/const' (name/from-string "Int.negSucc") []) (e/lit-nat (dec' (-' v)))))
+
+(defn- neg-numeral-val
+  "The value of a `neg-numeral` carrier, else nil."
+  [x]
+  (when (and (e/app? x) (e/lit-nat? (e/app-arg x)))
+    (let [f (e/app-fn x)]
+      (when (and (e/const? f) (= "Int.negSucc" (name/->string (e/const-name f))))
+        (-' (inc' (e/lit-nat-val (e/app-arg x))))))))
+
+(defn- numeral?
+  "A surface integer whose type is still open: a Nat literal or a `neg-numeral` carrier."
+  [x]
+  (or (e/lit-nat? x) (some? (neg-numeral-val x))))
+
+(defn- numeral-val [x]
+  (if (e/lit-nat? x) (e/lit-nat-val x) (neg-numeral-val x)))
+
 (defn- num-lit-at-type
   "Give a bare Nat literal the type `T` the surrounding arithmetic runs at (Lean's `OfNat`
    elaboration). Nat keeps the raw literal (it already has that type); Float uses its direct
    injection; every other type — Int included — gets `OfNat.ofNat T n ?inst`, which is how
    Lean states it, and matching Lean's spelling is what lets its lemmas apply: with
-   `Int.ofNat 0` here instead, `Int.add_zero` did not match `a + 0` on `Int`. Non-literals
-   pass through untouched."
+   `Int.ofNat 0` here instead, `Int.add_zero` did not match `a + 0` on `Int`. A negative
+   numeral (`neg-numeral`) gets `Neg.neg (OfNat.ofNat T n)`. Non-literals pass through
+   untouched."
   [est T tn x]
-  (if (e/lit-nat? x)
-    (let [v (e/lit-nat-val x)]
+  (if (numeral? x)
+    (let [v (numeral-val x)]
       (if (neg? v)
         ;; A negative surface integer is Lean's `-n`: `Neg.neg (OfNat.ofNat T n)`, never a raw
         ;; literal (a kernel Nat literal is a natural number). Over Nat there is no `Neg`.
@@ -579,7 +604,7 @@
             (let [u (type-sort-level est T)]
               (e/app* (e/const' (name/from-string "Neg.neg") [u]) T
                       (inst-mvar! est (e/app (e/const' (name/from-string "Neg") [u]) T))
-                      (num-lit-at-type est T tn (e/lit-nat (- v))))))
+                      (num-lit-at-type est T tn (e/lit-nat (-' v))))))
         (case tn
           "Nat" x
           "Float" (e/app (e/const' (name/from-string "Float.ofNat") []) x)
@@ -594,7 +619,7 @@
   "Lean's binop% applyCoe (Elab/Extra.lean): a leaf whose type is Nat in an Int arithmetic tree
    is coerced, `↑n` = `@Nat.cast Int instNatCastInt n` (NatCast Int, Init/Data/Int/Basic.lean)."
   [est x]
-  (if (and (not (e/lit-nat? x))
+  (if (and (not (numeral? x))
            (= "Nat" (type-head-name est (zonk est (infer-with-mvars est x)))))
     (e/app* (e/const' (name/from-string "Nat.cast") [lvl/zero])
             (e/const' (name/from-string "Int") [])
@@ -814,7 +839,7 @@
                   ;; A bare numeral takes the type the position expects — the same rule for a
                   ;; leaf: `(= Int a 0)` and `(le Real x 1)` put a literal where a carrier is
                   ;; expected, and it only ever worked when the carrier WAS Nat.
-                  arg-expr (if (e/lit-nat? arg-expr)
+                  arg-expr (if (numeral? arg-expr)
                              (let [d (zonk est dom-type)]
                                (num-lit-at-type est d (type-head-name est d) arg-expr))
                              arg-expr)
@@ -1205,23 +1230,24 @@
         at (fn [form] (if declared (assoc est :definition-body form) est))
         t0 (elab-term (at t-form) t-form)
         e0 (elab-term (at e-form) e-form)
-        T (or declared (infer-with-mvars est (if (e/lit-nat? t0) e0 t0)))
+        T (or declared (infer-with-mvars est (if (numeral? t0) e0 t0)))
         tn (type-head-name est T)]
     [(num-lit-at-type est T tn t0) (num-lit-at-type est T tn e0) T]))
 
 (defn- comparison-carrier
   "The carrier of a 2-arg comparison: the head constant of the type of the
-   first operand that is not a Nat literal (a literal takes the other
-   operand's type), \"Nat\" when both are literals."
+   first operand that is not a numeral (a numeral takes the other operand's
+   type); when both are numerals, \"Int\" if one is negative (Lean's default
+   `Neg` instance), else \"Nat\"."
   [est a0 b0]
   (or (some (fn [x]
-              (when-not (e/lit-nat? x)
+              (when-not (numeral? x)
                 (let [t (zonk est (infer-with-mvars est x))
                       [th _] (when t (e/get-app-fn-args t))]
                   (when (and th (e/const? th))
                     (name/->string (e/const-name th))))))
             [a0 b0])
-      "Nat"))
+      (if (some neg-numeral-val [a0 b0]) "Int" "Nat")))
 
 (defn- bool-type [] (e/const' (name/from-string "Bool") []))
 
@@ -1420,7 +1446,7 @@
                       (update :tc update :lctx red/lctx-add-local fid (str x) α))
             t0 (elab-term (at est-x t-form) t-form)
             e0 (when has-else? (elab-term (at est e-form) e-form))
-            T (zonk est (or declared (infer-with-mvars est-x (if (and e0 (e/lit-nat? t0)) e0 t0))))
+            T (zonk est (or declared (infer-with-mvars est-x (if (and e0 (numeral? t0)) e0 t0))))
             tn (type-head-name est T)
             t1 (num-lit-at-type est-x T tn t0)
             e1 (if has-else? (num-lit-at-type est T tn e0) (nil-at-type est sexpr T))
@@ -1520,20 +1546,23 @@
         b0 (if mixed (elab-arith-operand est mixed "Int" b-form) (elab-term est b-form))
         tn (comparison-carrier est a0 b0)
         _ (when (and (clj-surface? est) (= hs "=") (= tn "Float")
-                     (or (e/lit-nat? a0) (e/lit-nat? b0)))
+                     (or (numeral? a0) (numeral? b0)))
             (elab-refuse! :float-int-equality sexpr
                           "Clojure's = compares a double and an integer as unequal" "use =="))
-        coerce (fn [x] (if (e/lit-nat? x)
+        ;; an Int literal is `Int.ofNat k` or `Int.negSucc k` (k natural); a negative numeral
+        ;; already is the latter
+        coerce (fn [x] (cond
+                         (e/lit-nat? x)
                          (case tn
-                           ;; an Int literal is `Int.ofNat k` or `Int.negSucc k` (k natural)
-                           "Int"   (let [v (e/lit-nat-val x)]
-                                     (if (neg? v)
-                                       (e/app (e/const' (name/from-string "Int.negSucc") [])
-                                              (e/lit-nat (- (- v) 1)))
-                                       (e/app (e/const' (name/from-string "Int.ofNat") []) x)))
+                           "Int"   (e/app (e/const' (name/from-string "Int.ofNat") []) x)
                            "Float" (e/app (e/const' (name/from-string "Float.ofNat") []) x)
                            x)
-                         x))
+                         (neg-numeral-val x)
+                         (case tn
+                           "Int" x
+                           ("Nat" "Float") (num-lit-at-type est (e/const' (name/from-string tn) []) tn x)
+                           x)
+                         :else x))
         a (coerce a0) b (coerce b0)
         bool-op (fn [op] (e/app* (e/const' (name/from-string op) []) a b))
         decide (fn [propc decc]
@@ -1589,11 +1618,12 @@
       ;; A numeral in definition position takes the declared type, as Lean elaborates `0`
       ;; against its expected type (OfNat): a match alternative or body `0` of an Int function.
       (integer? sexpr)
-      (let [x (e/lit-nat sexpr)
+      (let [x (if (neg? sexpr) (neg-numeral sexpr) (e/lit-nat sexpr))
             T (when (= sexpr (:definition-body est)) (:definition-ret est))
             T (when T (zonk est T))
             tn (when (and T (not (e/mvar? T))) (type-head-name est T))]
-        (if (and tn (not= tn "Nat")) (num-lit-at-type est T tn x) x))
+        ;; at Nat a negative numeral is an error (num-lit-at-type refuses it)
+        (if (and tn (or (not= tn "Nat") (neg? sexpr))) (num-lit-at-type est T tn x) x))
     ;; FLOAT literal: a Clojure double → OfScientific.ofScientific Float inst m s e
     ;; (m × 10^±e; BigDecimal's shortest round-trip repr). Float is the computable
     ;; carrier (native double); Real is for proofs, so a bare double means Float.
