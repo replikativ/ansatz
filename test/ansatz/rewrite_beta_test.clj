@@ -12,7 +12,7 @@
         (reset! a/ansatz-env @test-env/checked-bundled-init-env)
         (binding [*ns* (the-ns 'ansatz.rewrite-beta-test)]
           (a/defn beta-all [p :- (=> Nat Bool), xs :- (List Nat)] Bool
-            (match xs [nil true] [(cons h t) (Bool.and (p h) (beta-all p t))]))
+            (match xs nil true (cons h t) (Bool.and (p h) (beta-all p t))))
           (a/defn beta-g [n :- Nat] Nat n)
           (a/theorem beta-g-eq [n :- Nat] (= (beta-g n) n) (rfl))
           (a/theorem beta-one [p :- (=> Nat Bool), n :- Nat]

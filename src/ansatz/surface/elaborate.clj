@@ -1730,40 +1730,33 @@
               "app"    (let [[_ f a] sexpr]
                          (e/app (elab-term est f) (elab-term est a)))
 
-        ;; Two surface forms funnel to the one inferring compiler (compile-match):
-        ;;  - inferring (proofs):    (match discr [pat rhs] …)            — vector alts
-        ;;  - explicit (a/defn):     (match scrut type ret (ctor [fields] body) …)
-        ;; The explicit form is desugared (drop type+ret, which are a bvar-era workaround
-        ;; and dead code respectively; ctor qualification is done inside compile-match).
-              "match"  (let [args (vec (rest sexpr))
-                             ;; A declared result type belongs to the match it was declared for:
-                             ;; one inherited from an enclosing match is not this one's
-                             ;; (`(some (match v …))` inside an Option-valued alternative).
-                             ;; Tail positions get it back from compile-match, as for `if`.
-                             est* (cond-> (assoc (dissoc est :declared-ret-type)
-                                                 :infer-fn infer-with-mvars
-                                                 :whnf-fn whnf-with-mvars
-                                                 :unify-fn unify!
-                                                 :zonk-fn zonk)
-                                    (and (:definition-ret est) (= sexpr (:definition-body est)))
-                                    (assoc :declared-ret-type (:definition-ret est)))]
-                         (if (vector? (get args 1))
-                           (match/compile-match est* elab-term (first args) (mapv vec (rest args)))
-                     ;; explicit form: (match scrut type ret (ctor [fields] body) …). Keep the
-                     ;; declared ret-type as the motive — it's the type-directed hint that lets
-                     ;; under-determined branches (e.g. a bare `nil`) resolve their element type.
-                           (let [scrut (first args)
-                                 declared-ret (try (elab-term est (nth args 2)) (catch Throwable _ nil))
-                                 alts (mapv (fn [c]
-                                              (let [ctor (first c)
-                                                    has-fields (and (> (count c) 2) (vector? (second c)))
-                                                    fields (if has-fields (second c) [])
-                                                    body (if has-fields (nth c 2) (second c))]
-                                                [(if (seq fields) (cons ctor (seq fields)) ctor) body]))
-                                            (drop 3 args))]
-                             (match/compile-match (cond-> est* declared-ret
-                                                          (assoc :declared-ret-type declared-ret))
-                                                  elab-term scrut alts))))
+              ("match" "match-as")
+              (let [[_ scrut & forms] sexpr
+                    ;; Only a match in return position inherits the enclosing result type.
+                    est* (cond-> (assoc (dissoc est :declared-ret-type)
+                                        :infer-fn infer-with-mvars
+                                        :whnf-fn whnf-with-mvars
+                                        :unify-fn unify!
+                                        :zonk-fn zonk)
+                           (and (:definition-ret est) (= sexpr (:definition-body est)))
+                           (assoc :declared-ret-type (:definition-ret est)))]
+                (if (= head 'match)
+                  (match/compile-match est* elab-term scrut (match/flat-arms forms))
+                  (let [[input result & branches] forms]
+                    (when-not (seq branches)
+                      (elab-error! "match-as expects input and result types and at least one branch"
+                                   {:form sexpr}))
+                    (let [input-type (elab-type est input)
+                          result-type (elab-type est result)
+                          discr (elab-term (assoc est :definition-body scrut :definition-ret input-type) scrut)
+                          alts (mapv (fn [branch]
+                                       (let [[ctor fields body] (match/explicit-arm branch)]
+                                         [(if (seq fields) (cons ctor fields) ctor) body]))
+                                     branches)]
+                      (when-not (unify! est (infer-with-mvars est discr) input-type)
+                        (elab-error! "match-as input type mismatch" {:scrutinee scrut :type input}))
+                      (match/compile-match (assoc est* :declared-ret-type result-type)
+                                           elab-term discr alts)))))
 
         ;; (=> A B) is handled by the unified arrow clause above (with currying + the → glyph).
 

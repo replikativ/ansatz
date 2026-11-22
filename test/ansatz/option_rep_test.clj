@@ -144,7 +144,7 @@
   (binding [*ns* (the-ns 'ansatz.option-rep-test)]
     (eval '(ansatz.core/defn optrep-wrap [A :- Type, x :- A] (Option A) (Option.some A x)))
     (eval '(ansatz.core/defn optrep-get [A :- Type, o :- (Option A), d :- A] A
-             (match o [none d] [(some x) x])))
+             (match o none d (some x) x)))
     (eval '(ansatz.core/defn optrep-wrap-nat [x :- Nat] (Option Nat) (Option.some Nat x)))
     (eval '(ansatz.core/defn optrep-wrap-opt [x :- (Option Nat)] (Option (Option Nat))
              (Option.some (Option Nat) x)))
@@ -154,7 +154,7 @@
     (eval '(ansatz.core/defn optrep-get-opt [o :- (Option (Option Nat))] (Option Nat)
              (optrep-get (Option Nat) o (Option.some Nat 42))))
     (eval '(ansatz.core/defn optrep-get-opt-mono [o :- (Option (Option Nat))] (Option Nat)
-             (match o [none (Option.some Nat 42)] [(some x) x]))))
+             (match o none (Option.some Nat 42) (some x) x))))
   (let [f #(deref (ns-resolve 'ansatz.option-rep-test %))]
     (doseq [x [0 5]]
       (is (= ((f 'optrep-wrap-nat) x) ((f 'optrep-poly-nat) x) x)))
@@ -171,7 +171,7 @@
 
 (deftest malli-maybe-crosses-unchanged
   (binding [*ns* (the-ns 'ansatz.option-rep-test)]
-    (eval '(ansatz.core/defn optrep-maybe-inc [o] (match o [none 0] [(some x) (+ x 1)]))))
+    (eval '(ansatz.core/defn optrep-maybe-inc [o] (match o none 0 (some x) (+ x 1)))))
   (let [f @(ns-resolve 'ansatz.option-rep-test 'optrep-maybe-inc)
         clj (fn [o] (if (nil? o) 0 (+ o 1)))]
     (doseq [o [nil 5 -3 0]]

@@ -17,23 +17,23 @@
 
 (a/defn rb-size [t :- (RBTree Nat)] Nat
   (match t
-    [leaf 0]
-    [(node color left key right) (+ 1 (+ (rb-size left) (rb-size right)))]))
+    leaf 0
+    (node color left key right) (+ 1 (+ (rb-size left) (rb-size right)))))
 
 (a/defn rb-sum [t :- (RBTree Nat)] Nat
   (match t
-    [leaf 0]
-    [(node color left key right) (+ key (+ (rb-sum left) (rb-sum right)))]))
+    leaf 0
+    (node color left key right) (+ key (+ (rb-sum left) (rb-sum right)))))
 
 (a/defn rb-member [t :- (RBTree Nat), k :- Nat] Bool
   (match t
-    [leaf false]
-    [(node color left key right)
+    leaf false
+    (node color left key right)
      (match (< k key)
-       [true (rb-member left k)]
-       [false (match (== k key)
-                [true true]
-                [false (rb-member right k)])])]))
+       true (rb-member left k)
+       false (match (== k key)
+                true true
+                false (rb-member right k)))))
 
 ;; === 3. Insert (native Clojure, same data representation) ===
 (println "\n━━━ 3. Native Insert + Balance ━━━\n")
@@ -109,33 +109,33 @@
 
 (a/defn is-black [t :- (RBTree Nat)] Bool
   (match t
-    [leaf true]
-    [(node color left key right) (match color [black true] [red false])]))
+    leaf true
+    (node color left key right) (match color black true red false)))
 
 (a/defn black-height [t :- (RBTree Nat)] Nat
   (match t
-    [leaf 0]
-    [(node color left key right)
+    leaf 0
+    (node color left key right)
      (match color
-       [black (+ 1 (black-height left))]
-       [red (black-height left)])]))
+       black (+ 1 (black-height left))
+       red (black-height left))))
 
 ;; Full RB invariant: subtrees valid + equal black-height + no red-red
 (a/defn is-rb [t :- (RBTree Nat)] Bool
   (match t
-    [leaf true]
-    [(node color left key right)
+    leaf true
+    (node color left key right)
      (match (is-rb left)
-       [false false]
-       [true (match (is-rb right)
-               [false false]
-               [true (match (== (black-height left) (black-height right))
-                       [false false]
-                       [true (match color
-                               [black true]
-                               [red (match (is-black left)
-                                      [false false]
-                                      [true (is-black right)])])])])])]))
+       false false
+       true (match (is-rb right)
+               false false
+               true (match (== (black-height left) (black-height right))
+                       false false
+                       true (match color
+                               black true
+                               red (match (is-black left)
+                                      false false
+                                      true (is-black right))))))))
 
 (println "\n━━━ 7. Balance Proofs ━━━\n")
 
@@ -186,75 +186,75 @@
 ;; 7-level nested pattern matching, fully CIC type-checked.
 (a/defn balance1 [l :- (RBTree Nat), v :- Nat, r :- (RBTree Nat)] (RBTree Nat)
   (match l
-    [leaf (RBTree.node Nat (RBColor.black) (RBTree.leaf Nat) v r)]
-    [(node lc ll lk lr)
+    leaf (RBTree.node Nat (RBColor.black) (RBTree.leaf Nat) v r)
+    (node lc ll lk lr)
      (match lc
-       [black (RBTree.node Nat (RBColor.black) l v r)]
-       [red
+       black (RBTree.node Nat (RBColor.black) l v r)
+       red
         (match ll
-          [leaf
+          leaf
            (match lr
-             [leaf (RBTree.node Nat (RBColor.black) l v r)]
-             [(node lrc lrl lrk lrr)
+             leaf (RBTree.node Nat (RBColor.black) l v r)
+             (node lrc lrl lrk lrr)
               (match lrc
-                [black (RBTree.node Nat (RBColor.black) l v r)]
-                [red (RBTree.node Nat (RBColor.red)
+                black (RBTree.node Nat (RBColor.black) l v r)
+                red (RBTree.node Nat (RBColor.red)
                        (RBTree.node Nat (RBColor.black) (RBTree.leaf Nat) lk lrl)
                        lrk
-                       (RBTree.node Nat (RBColor.black) lrr v r))])])]
-          [(node llc lll llk llr)
+                       (RBTree.node Nat (RBColor.black) lrr v r))))
+          (node llc lll llk llr)
            (match llc
-             [black
+             black
               (match lr
-                [leaf (RBTree.node Nat (RBColor.black) l v r)]
-                [(node lrc2 lrl2 lrk2 lrr2)
+                leaf (RBTree.node Nat (RBColor.black) l v r)
+                (node lrc2 lrl2 lrk2 lrr2)
                  (match lrc2
-                   [black (RBTree.node Nat (RBColor.black) l v r)]
-                   [red (RBTree.node Nat (RBColor.red)
+                   black (RBTree.node Nat (RBColor.black) l v r)
+                   red (RBTree.node Nat (RBColor.red)
                           (RBTree.node Nat (RBColor.black) ll lk lrl2)
                           lrk2
-                          (RBTree.node Nat (RBColor.black) lrr2 v r))])])]
-             [red (RBTree.node Nat (RBColor.red)
+                          (RBTree.node Nat (RBColor.black) lrr2 v r))))
+             red (RBTree.node Nat (RBColor.red)
                     (RBTree.node Nat (RBColor.black) lll llk llr)
                     lk
-                    (RBTree.node Nat (RBColor.black) lr v r))])])])]))
+                    (RBTree.node Nat (RBColor.black) lr v r)))))))
 
 ;; balance2 mirrors balance1 for red-red violations in the RIGHT subtree. It checks
 ;; the outer (right-right) grandchild first, as balance1 checks the left-left one.
 (a/defn balance2 [l :- (RBTree Nat), v :- Nat, r :- (RBTree Nat)] (RBTree Nat)
   (match r
-    [leaf (RBTree.node Nat (RBColor.black) l v (RBTree.leaf Nat))]
-    [(node rc rl rk rr)
+    leaf (RBTree.node Nat (RBColor.black) l v (RBTree.leaf Nat))
+    (node rc rl rk rr)
      (match rc
-       [black (RBTree.node Nat (RBColor.black) l v r)]
-       [red
+       black (RBTree.node Nat (RBColor.black) l v r)
+       red
         (match rr
-          [leaf
+          leaf
            (match rl
-             [leaf (RBTree.node Nat (RBColor.black) l v r)]
-             [(node rlc rll rlk rlr)
+             leaf (RBTree.node Nat (RBColor.black) l v r)
+             (node rlc rll rlk rlr)
               (match rlc
-                [black (RBTree.node Nat (RBColor.black) l v r)]
-                [red (RBTree.node Nat (RBColor.red)
+                black (RBTree.node Nat (RBColor.black) l v r)
+                red (RBTree.node Nat (RBColor.red)
                        (RBTree.node Nat (RBColor.black) l v rll)
                        rlk
-                       (RBTree.node Nat (RBColor.black) rlr rk (RBTree.leaf Nat)))])])]
-          [(node rrc rrl rrk rrr)
+                       (RBTree.node Nat (RBColor.black) rlr rk (RBTree.leaf Nat)))))
+          (node rrc rrl rrk rrr)
            (match rrc
-             [black
+             black
               (match rl
-                [leaf (RBTree.node Nat (RBColor.black) l v r)]
-                [(node rlc2 rll2 rlk2 rlr2)
+                leaf (RBTree.node Nat (RBColor.black) l v r)
+                (node rlc2 rll2 rlk2 rlr2)
                  (match rlc2
-                   [black (RBTree.node Nat (RBColor.black) l v r)]
-                   [red (RBTree.node Nat (RBColor.red)
+                   black (RBTree.node Nat (RBColor.black) l v r)
+                   red (RBTree.node Nat (RBColor.red)
                           (RBTree.node Nat (RBColor.black) l v rll2)
                           rlk2
-                          (RBTree.node Nat (RBColor.black) rlr2 rk rr))])])]
-             [red (RBTree.node Nat (RBColor.red)
+                          (RBTree.node Nat (RBColor.black) rlr2 rk rr))))
+             red (RBTree.node Nat (RBColor.red)
                     (RBTree.node Nat (RBColor.black) l v rl)
                     rk
-                    (RBTree.node Nat (RBColor.black) rrl rrk rrr))])])])]))
+                    (RBTree.node Nat (RBColor.black) rrl rrk rrr)))))))
 
 (println "\n━━━ 9. Balance Preservation Proofs ━━━\n")
 
@@ -315,23 +315,23 @@
 ;; set-black: force root to black
 (a/defn set-black [t :- (RBTree Nat)] (RBTree Nat)
   (match t
-    [leaf (RBTree.leaf Nat)]
-    [(node color left key right) (RBTree.node Nat (RBColor.black) left key right)]))
+    leaf (RBTree.leaf Nat)
+    (node color left key right) (RBTree.node Nat (RBColor.black) left key right)))
 
 ;; ins: recursive insert with balancing
 (a/defn ins [x :- Nat, t :- (RBTree Nat)] (RBTree Nat)
   (match t
-    [leaf (RBTree.node Nat (RBColor.red) (RBTree.leaf Nat) x (RBTree.leaf Nat))]
-    [(node color left key right)
+    leaf (RBTree.node Nat (RBColor.red) (RBTree.leaf Nat) x (RBTree.leaf Nat))
+    (node color left key right)
      (match (< x key)
-       [true (match color
-               [red (RBTree.node Nat (RBColor.red) (ins x left) key right)]
-               [black (balance1 (ins x left) key right)])]
-       [false (match (< key x)
-                [true (match color
-                        [red (RBTree.node Nat (RBColor.red) left key (ins x right))]
-                        [black (balance2 left key (ins x right))])]
-                [false (RBTree.node Nat color left x right)])])]))
+       true (match color
+               red (RBTree.node Nat (RBColor.red) (ins x left) key right)
+               black (balance1 (ins x left) key right))
+       false (match (< key x)
+                true (match color
+                        red (RBTree.node Nat (RBColor.red) left key (ins x right))
+                        black (balance2 left key (ins x right)))
+                false (RBTree.node Nat color left x right)))))
 
 ;; rb-insert: ins + blacken root
 (a/defn rb-insert [x :- Nat, t :- (RBTree Nat)] (RBTree Nat)
@@ -428,20 +428,20 @@
 ;; from section 8, but with only the LL pattern for clarity):
 (a/defn balance1s [l :- (RBTree Nat), v :- Nat, r :- (RBTree Nat)] (RBTree Nat)
   (match l
-    [leaf (RBTree.node Nat (RBColor.black) (RBTree.leaf Nat) v r)]
-    [(node lc ll lk lr)
+    leaf (RBTree.node Nat (RBColor.black) (RBTree.leaf Nat) v r)
+    (node lc ll lk lr)
      (match lc
-       [black (RBTree.node Nat (RBColor.black) l v r)]
-       [red
+       black (RBTree.node Nat (RBColor.black) l v r)
+       red
         (match ll
-          [leaf (RBTree.node Nat (RBColor.black) l v r)]
-          [(node llc lll llk llr)
+          leaf (RBTree.node Nat (RBColor.black) l v r)
+          (node llc lll llk llr)
            (match llc
-             [black (RBTree.node Nat (RBColor.black) l v r)]
-             [red (RBTree.node Nat (RBColor.red)
+             black (RBTree.node Nat (RBColor.black) l v r)
+             red (RBTree.node Nat (RBColor.red)
                     (RBTree.node Nat (RBColor.black) lll llk llr)
                     lk
-                    (RBTree.node Nat (RBColor.black) lr v r))])])])]))
+                    (RBTree.node Nat (RBColor.black) lr v r)))))))
 
 ;; THE THEOREM: balance1 preserves ValidRB.
 ;;

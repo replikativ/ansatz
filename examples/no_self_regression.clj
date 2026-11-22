@@ -25,24 +25,24 @@
   (install-one! "memq"
     '(ansatz.core/defn memq [x :- Nat, xs :- (List Nat)] Bool
        (match xs
-         [nil false]
-         [(cons h t) (if (Nat.beq x h) true (memq x t))]))))
+         nil false
+         (cons h t) (if (Nat.beq x h) true (memq x t))))))
 
 (defn- def-regressions! []
   (install-one! "regressions"
     '(ansatz.core/defn regressions [old :- (List Nat), new :- (List Nat)] (List Nat)
        (match new
-         [nil (List.nil Nat)]
-         [(cons h t) (if (memq h old)
+         nil (List.nil Nat)
+         (cons h t) (if (memq h old)
                        (regressions old t)
-                       (List.cons Nat h (regressions old t)))]))))
+                       (List.cons Nat h (regressions old t)))))))
 
 (defn- def-allmem! []
   (install-one! "allmem"
     '(ansatz.core/defn allmem [new :- (List Nat), old :- (List Nat)] Bool
        (match new
-         [nil true]
-         [(cons h t) (if (memq h old) (allmem t old) false)]))))
+         nil true
+         (cons h t) (if (memq h old) (allmem t old) false)))))
 
 ;; ── Promote — raw fact -> richer fact ─────────────────────────────────────────
 

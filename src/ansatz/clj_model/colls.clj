@@ -37,9 +37,9 @@
 (defn- bindI [x [v] body] (list 'Option.bind x (list 'fn [v :- 'Int] body)))
 (defn- vcons* [h t] (c 'vcons h t))
 (defn- lmatch
-  "`(match xs (List Char) ret (nil n) (cons [h t] k))`."
+  "`(match-as xs (List Char) ret (nil n) (cons [h t] k))`."
   [xs ret n [h t] k]
-  (list 'match xs LC ret (list 'nil n) (list 'cons [h t] k)))
+  (list 'match-as xs LC ret (list 'nil n) (list 'cons [h t] k)))
 (defn- chain-fold
   "A def recursing over the chain `cs`: `nil-body` at its end, `cons-body` (over h t) at a cell."
   [nm params ret nil-body cons-body]
@@ -117,12 +117,12 @@
    (defm 'CljM.lastC '[[a CljM.V]] 'CljM.V
      (vm 'a 'CljM.V vnil* {'vcons [['h 't] (list 'if '(CljM.isNil t) 'h '(CljM.lastC t))]}))
    (defm 'CljM.takeC '[[n Nat] [cs CljM.V]] 'CljM.V
-     (list 'match 'n 'Nat 'CljM.V (list 'zero vnil*)
+     (list 'match-as 'n 'Nat 'CljM.V (list 'zero vnil*)
            (list 'succ '[j] (vm 'cs 'CljM.V vnil* {'vcons [['h 't] (vcons* 'h '(CljM.takeC j t))]}))))
    (defm 'CljM.dropC '[[n Nat] [cs CljM.V]] 'CljM.V
-     (list 'match 'n 'Nat 'CljM.V '(zero cs) (list 'succ '[j] '(CljM.dropC j (CljM.tl cs)))))
+     (list 'match-as 'n 'Nat 'CljM.V '(zero cs) (list 'succ '[j] '(CljM.dropC j (CljM.tl cs)))))
    (defm 'CljM.rangeC '[[i Int] [step Int] [n Nat]] 'CljM.V
-     (list 'match 'n 'Nat 'CljM.V (list 'zero vnil*) (list 'succ '[j] (vcons* (c 'vlong 'i) '(CljM.rangeC (+ i step) step j)))))
+     (list 'match-as 'n 'Nat 'CljM.V (list 'zero vnil*) (list 'succ '[j] (vcons* (c 'vlong 'i) '(CljM.rangeC (+ i step) step j)))))
    ;; membership by hashed-key equivalence (as a hash set / map lookup): none = undecided
    (chain-fold 'CljM.memC '[[x CljM.V] [cs CljM.V]] OB someF
                (bindB '(CljM.keq x h) ['q] (list 'if 'q someT '(CljM.memC x t))))
@@ -443,7 +443,7 @@
 (def ^:private str-forms
   [;; decimal digits (Long.toString / BigInteger.toString), with fuel for 40 digits
    (defm 'CljM.digits [['fuel 'Nat] ['n 'Nat] ['acc LC]] '(Option (List Char))
-     (list 'match 'fuel 'Nat '(Option (List Char)) (list 'zero (m/none-of LC))
+     (list 'match-as 'fuel 'Nat '(Option (List Char)) (list 'zero (m/none-of LC))
            '(succ [f] (if (== (Nat.div n 10) 0)
                         (Option.some (List.cons (Char.ofNat (+ 48 (Nat.mod n 10))) acc))
                         (CljM.digits f (Nat.div n 10) (List.cons (Char.ofNat (+ 48 (Nat.mod n 10))) acc))))))

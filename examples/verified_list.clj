@@ -15,44 +15,44 @@
 ;; map: apply a function to every element
 (a/defn lmap [f :- (arrow Nat Nat), l :- (List Nat)] (List Nat)
   (match l
-    [nil nil]
-    [(cons hd tl) (cons (f hd) (lmap f tl))]))
+    nil nil
+    (cons hd tl) (cons (f hd) (lmap f tl))))
 
 ;; filter: keep elements satisfying a predicate
 (a/defn lfilter [p :- (arrow Nat Bool), l :- (List Nat)] (List Nat)
   (match l
-    [nil nil]
-    [(cons hd tl) (if (p hd) (cons hd (lfilter p tl)) (lfilter p tl))]))
+    nil nil
+    (cons hd tl) (if (p hd) (cons hd (lfilter p tl)) (lfilter p tl))))
 
 ;; length
 (a/defn llen [l :- (List Nat)] Nat
   (match l
-    [nil 0]
-    [(cons _ tl) (+ 1 (llen tl))]))
+    nil 0
+    (cons _ tl) (+ 1 (llen tl))))
 
 ;; append
 (a/defn lappend [xs :- (List Nat), ys :- (List Nat)] (List Nat)
   (match xs
-    [nil ys]
-    [(cons hd tl) (cons hd (lappend tl ys))]))
+    nil ys
+    (cons hd tl) (cons hd (lappend tl ys))))
 
 ;; nth with default
 (a/defn lnth [l :- (List Nat), n :- Nat, d :- Nat] Nat
   (match l
-    [nil d]
-    [(cons hd tl) (match n [zero hd] [(succ k) (lnth tl k d)])]))
+    nil d
+    (cons hd tl) (match n zero hd (succ k) (lnth tl k d))))
 
 ;; all: check predicate holds for all elements
 (a/defn lall [p :- (arrow Nat Bool), l :- (List Nat)] Bool
   (match l
-    [nil true]
-    [(cons hd tl) (if (p hd) (lall p tl) false)]))
+    nil true
+    (cons hd tl) (if (p hd) (lall p tl) false)))
 
 ;; any: check predicate holds for some element
 (a/defn lany [p :- (arrow Nat Bool), l :- (List Nat)] Bool
   (match l
-    [nil false]
-    [(cons hd tl) (if (p hd) true (lany p tl))]))
+    nil false
+    (cons hd tl) (if (p hd) true (lany p tl))))
 
 ;; --- Demo ---
 (println "(lmap inc '(1 2 3))          =>" (lmap inc '(1 2 3)))
@@ -122,15 +122,15 @@
 
 (a/defn insertSorted [x :- Nat, l :- (List Nat)] (List Nat)
   (match l
-    [nil (cons x nil)]
-    [(cons hd tl) (match (<= x hd)
-                    [true (cons x l)]
-                    [false (cons hd (insertSorted x tl))])]))
+    nil (cons x nil)
+    (cons hd tl) (match (<= x hd)
+                    true (cons x l)
+                    false (cons hd (insertSorted x tl)))))
 
 (a/defn isort [l :- (List Nat)] (List Nat)
   (match l
-    [nil nil]
-    [(cons hd tl) (insertSorted hd (isort tl))]))
+    nil nil
+    (cons hd tl) (insertSorted hd (isort tl))))
 
 (println "(isort '(5 3 1 4 2))  =>" (isort '(5 3 1 4 2)))
 

@@ -58,7 +58,7 @@
 
 (defn- dec-form [nm ty ct body]
   (defm nm '[[v CljM.V]] (list 'Option ty)
-    (list* 'match 'v 'CljM.V (list 'Option ty)
+    (list* 'match-as 'v 'CljM.V (list 'Option ty)
            (map (fn [[c fs]]
                   (if (= c ct) (list c '[i] body)
                       (let [none (list (symbol "@Option.none") ty)]
@@ -84,7 +84,7 @@
   '[[vnil 0] [vbool 1] [vint 1] [vstr 1] [vkw 1] [vcons 2] [vvec 1] [vmap 1] [ventry 3] [vfloat 1] [vset 1]])
 
 (defn- value-match [disc ret arms]
-  (list* 'match disc 'Value ret
+  (list* 'match-as disc 'Value ret
          (map (fn [[c ar]] (let [[bs body] (get arms c)] (if (zero? ar) (list c body) (list c bs body))))
               value-ctors)))
 
@@ -193,7 +193,7 @@
                                  (fn [a :- α] (Option.bind (db (CljM.hd (CljM.tl c))) (fn [b :- β] (Option.some (Prod.mk a b))))))
                    (none-t '(Prod α β)))]
     [(defn* 'CljM.encListC (into A '[e :- (=> α CljM.V), xs :- (List α)]) 'CljM.V
-       '(match xs (List α) CljM.V (nil CljM.V.vnil) (cons [h t] (CljM.V.vcons (e h) (CljM.encListC e t)))))
+       '(match-as xs (List α) CljM.V (nil CljM.V.vnil) (cons [h t] (CljM.V.vcons (e h) (CljM.encListC e t)))))
      (defn* 'CljM.encList (into A '[e :- (=> α CljM.V), xs :- (List α)]) 'CljM.V '(CljM.V.vvec (CljM.encListC e xs)))
      (defn* 'CljM.decListC (into A '[d :- (=> CljM.V (Option α)), c :- CljM.V]) '(Option (List α))
        (m/vm 'c '(Option (List α)) (none-t '(List α))
@@ -205,7 +205,7 @@
              (assoc (seq-arms '(List α) (fn [it] (list 'CljM.decListC 'd it)))
                     'vnil [[] (list 'Option.some (nil-list 'α))])))
      (defn* 'CljM.encOption (into A '[e :- (=> α CljM.V), o :- (Option α)]) 'CljM.V
-       '(match o (Option α) CljM.V (none CljM.V.vnil) (some [x] (e x))))
+       '(match-as o (Option α) CljM.V (none CljM.V.vnil) (some [x] (e x))))
      (defn* 'CljM.decOption (into A '[d :- (=> CljM.V (Option α)), v :- CljM.V]) '(Option (Option α))
        (list 'if '(CljM.isNil v) (list 'Option.some (none-t 'α))
              '(Option.bind (d v) (fn [x :- α] (Option.some (Option.some x))))))

@@ -26,8 +26,8 @@
           (if (Nat.beq n 0) (FrameOutcome.mk s true) (FrameOutcome.mk s false)))
         (a/defn probe-case-f [n :- Nat] (Option Nat)
           (match n
-            [0 (Option.some Nat 0)]
-            [_ (Option.none Nat)])))
+            0 (Option.some Nat 0)
+            _ (Option.none Nat))))
       (f))))
 
 (defn- proves [params target tactics]

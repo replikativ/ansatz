@@ -20,20 +20,20 @@
     (ansatz.core/structure St [] (open (List Nat)) (owns (List Own)))
 
     (ansatz.core/defn memq [x :- Nat, xs :- (List Nat)] Bool
-      (match xs [nil false] [(cons h t) (if (Nat.beq x h) true (memq x t))]))
+      (match xs nil false (cons h t) (if (Nat.beq x h) true (memq x t))))
 
     (ansatz.core/defn owners-open [os :- (List Own), op :- (List Nat)] Bool
-      (match os [nil true] [(cons o t) (if (memq (:scope o) op) (owners-open t op) false)]))
+      (match os nil true (cons o t) (if (memq (:scope o) op) (owners-open t op) false)))
 
     (ansatz.core/defn inv [s :- St] Bool (owners-open (:owns s) (:open s)))
 
     (ansatz.core/defn drop-owned [sc :- Nat, os :- (List Own)] (List Own)
-      (match os [nil (List.nil Own)]
-             [(cons o t) (if (Nat.beq (:scope o) sc) (drop-owned sc t) (List.cons Own o (drop-owned sc t)))]))
+      (match os nil (List.nil Own)
+             (cons o t) (if (Nat.beq (:scope o) sc) (drop-owned sc t) (List.cons Own o (drop-owned sc t)))))
 
     (ansatz.core/defn drop-nat [x :- Nat, xs :- (List Nat)] (List Nat)
-      (match xs [nil (List.nil Nat)]
-             [(cons h t) (if (Nat.beq h x) (drop-nat x t) (List.cons Nat h (drop-nat x t)))]))
+      (match xs nil (List.nil Nat)
+             (cons h t) (if (Nat.beq h x) (drop-nat x t) (List.cons Nat h (drop-nat x t)))))
 
     (ansatz.core/defn close [sc :- Nat, s :- St] St
       (St.mk (drop-nat sc (:open s)) (drop-owned sc (:owns s))))])

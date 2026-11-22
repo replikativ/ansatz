@@ -34,9 +34,9 @@
   (ac/install!)
   (when-not (has? "wsum")
     (eval '(ansatz.core/defn wsum [S :- Type :implicit, m :- (WAddMonoid S) :inst, xs :- (List S)] S
-             (match xs (List S) S
-                    (nil (WAddMonoid.zero m))
-                    (cons [hd tl] (WAddMonoid.add m hd (wsum tl)))))))
+             (match-as xs (List S) S
+                       (nil (WAddMonoid.zero m))
+                       (cons [hd tl] (WAddMonoid.add m hd (wsum tl)))))))
   ;; Loop-invariant hoist (Mathlib List.sum_map_mul_left / lean-wandler `sum_map_mul_const`): a
   ;; constant left-multiplier factors out of a summed map.  ∑ (b * f x) = b * ∑ f x  over a
   ;; (left-distributive) WSemiring. ELEMENT-POLYMORPHIC (`f : X → S` over `List X`) — the separable

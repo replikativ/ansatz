@@ -66,7 +66,7 @@
   ;; The structural reducer can leave Bool.casesOn here, unlike Lean's guard_hyp.
   (is (proves? '(a/theorem dsimp-matcher-location-closure
                            [P :- Prop, Q :- Prop, h1 :- P,
-                            h2 :- (match true [true Q] [false True])]
+                            h2 :- (match true true Q false True)]
                            Q (dsimp at h1 h2) (exact h2)))))
 
 (deftest closing-a-location-preserves-sibling-goals

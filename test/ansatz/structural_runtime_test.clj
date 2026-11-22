@@ -41,21 +41,21 @@
                       result))]
       (run! install!
             '[(ansatz.core/defn runtime-countdown [fuel :- Nat, n :- Nat] Nat
-                (match fuel [zero n]
-                       [(succ k) (if (Nat.beq n 0) 0 (runtime-countdown k (- n 1)))]))
+                (match fuel zero n
+                       (succ k) (if (Nat.beq n 0) 0 (runtime-countdown k (- n 1)))))
               (ansatz.core/defn runtime-factorial [n :- Nat] Nat
-                (match n [zero 1] [(succ k) (* (+ k 1) (runtime-factorial k))]))
+                (match n zero 1 (succ k) (* (+ k 1) (runtime-factorial k))))
               (ansatz.core/defn runtime-nested [fuel :- Nat, n :- Nat] Nat
                 (let [x n]
-                  (match fuel [zero x]
-                         [(succ k) (match x [zero 0] [(succ j) (runtime-nested k j)])])))
+                  (match fuel zero x
+                         (succ k) (match x zero 0 (succ j) (runtime-nested k j)))))
               (ansatz.core/defn runtime-list [xs :- (List Nat), n :- Nat] Nat
-                (match xs [nil n]
-                       [(cons h t) (if (Nat.beq n 0) 0 (runtime-list t (- n 1)))]))
+                (match xs nil n
+                       (cons h t) (if (Nat.beq n 0) 0 (runtime-list t (- n 1)))))
               (ansatz.core/inductive RuntimeFuel [] (zero) (succ [n RuntimeFuel]))
               (ansatz.core/defn runtime-custom [fuel :- RuntimeFuel, n :- Nat] Nat
-                (match fuel [zero n]
-                       [(succ k) (if (Nat.beq n 0) 0 (runtime-custom k (- n 1)))]))]))
+                (match fuel zero n
+                       (succ k) (if (Nat.beq n 0) 0 (runtime-custom k (- n 1)))))]))
     (is (= 0 ((runtime 'runtime-countdown) 10000 14)))
     (is (= 10000 ((runtime 'runtime-countdown) 0 10000)))
     (is (= 0 ((runtime 'runtime-countdown) 10000 10000)))
@@ -110,7 +110,7 @@
   (doseq [[cname define!]
           [['runtime-declined
             #(a/define-verified 'runtime-declined '[n :- Nat] 'Nat
-               '(match n [zero 0] [(succ k) (runtime-declined k)]))]
+               '(match n zero 0 (succ k) (runtime-declined k)))]
            ['runtime-wf-declined
             #(a/define-verified-wf 'runtime-wf-declined '[n :- Nat] 'Nat
                '(if (<= n 0) 0 (runtime-wf-declined (- n 1))) 'n)]]]
@@ -136,8 +136,8 @@
 
 (deftest recursive-runtime-implicit-prefix-is-retained
   (let [f (a/define-verified 'runtime-offset '[offset :- Nat :implicit, n :- Nat] 'Nat
-            (list 'match 'n ['zero 'offset]
-                  ['(succ k) (list '+ 'offset (list (symbol "@runtime-offset") 'offset 'k))]))
+            (list 'match 'n 'zero 'offset
+                  '(succ k) (list '+ 'offset (list (symbol "@runtime-offset") 'offset 'k))))
         convention (get @a/arity-registry "runtime-offset")]
     (is (= 0 (:erased convention)))
     (is (= 2 (:arity convention)))
@@ -150,7 +150,7 @@
           result (if proof? '(Eq Nat 0 0) 'Prop)
           base (if proof? '(Eq.refl Nat 0) 'True)
           body (if (= lane :structural)
-                 (list 'match 'n ['zero base] ['(succ k) (list cname 'k)])
+                 (list 'match 'n 'zero base '(succ k) (list cname 'k))
                  (list 'if '(<= n 0) base (list cname '(- n 1))))
           f (if (= lane :structural)
               (a/define-verified cname '[n :- Nat] result body)
@@ -164,8 +164,8 @@
 (deftest recursive-implicit-parameter-dependencies-are-closed
   (let [f (a/define-verified 'runtime-chain
             '[offset :- Nat :implicit, acc :- Nat :implicit, n :- Nat] 'Nat
-            (list 'match 'n ['zero 'acc]
-                  ['(succ k) (list (symbol "@runtime-chain") 'offset 'offset 'k)]))
+            (list 'match 'n 'zero 'acc
+                  '(succ k) (list (symbol "@runtime-chain") 'offset 'offset 'k)))
         convention (get @a/arity-registry "runtime-chain")]
     (is (= 0 (:erased convention)))
     (is (= 3 (:arity convention)))

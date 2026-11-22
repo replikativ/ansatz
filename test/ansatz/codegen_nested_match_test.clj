@@ -20,7 +20,7 @@
   [depth]
   (reduce (fn [inner i]
             (list 'match (symbol (str "v" i))
-                  '[a 0] '[(b x) x] '[(c x y) (+ x y)] ['(d t) inner]))
+                  'a 0 '(b x) 'x '(c x y) '(+ x y) '(d t) inner))
           1 (range depth)))
 
 (defn- define! [depth]

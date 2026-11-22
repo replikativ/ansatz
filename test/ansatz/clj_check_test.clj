@@ -17,7 +17,7 @@
     (define! '(do (ansatz.core/defn ^Nat cc-fact [^Nat n] (if (== n 0) 1 (* n (cc-fact (- n 1)))))
                   (ansatz.core/defn ^Int cc-clamp [^Bool neg ^Int x] (if neg (if (< x 0) (- x) x) (+ x 1)))
                   (ansatz.core/defn ^Nat cc-len [^{:- (List Nat)} xs]
-                    (match xs (List Nat) Nat (nil 0) (cons [h t] (+ 1 (cc-len t)))))))
+                    (match-as xs (List Nat) Nat (nil 0) (cons [h t] (+ 1 (cc-len t)))))))
     (f)))
 
 (use-fixtures :once fixtures/isolated-session init-once)

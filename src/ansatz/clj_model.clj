@@ -68,10 +68,10 @@
   (let [s (symbol (str "CljM.V." ctor))] (if (seq args) (list* s args) s)))
 
 (defn vm
-  "`(match disc CljM.V ret …)`: `dflt` for every constructor except `overrides`
+  "`(match-as disc CljM.V ret …)`: `dflt` for every constructor except `overrides`
    (ctor → [[field-binders] body])."
   [disc ret dflt overrides]
-  (list* 'match disc 'CljM.V ret
+  (list* 'match-as disc 'CljM.V ret
          (map (fn [[ct fs]]
                 (if-let [[bs body] (get overrides ct)]
                   (if (empty? fs) (list ct body) (list ct (vec bs) body))
@@ -173,7 +173,7 @@
                  'ventry [['k 'w 'r] (bindB (rec 3 '(CljM.hd a) 'k) ['q]
                                             (list 'if 'q (rec 0 '(CljM.ev a) 'w) (rec 2 'a 'r)))]})]
     (defm 'CljM.eqF '[[fuel Nat] [mode Nat] [a CljM.V] [b CljM.V]] OB
-      (list 'match 'fuel 'Nat OB
+      (list 'match-as 'fuel 'Nat OB
             (list 'zero noneB)
             (list 'succ '[n] (list 'if '(== mode 1) sub (list 'if '(== mode 2) mem equiv)))))))
 
@@ -212,9 +212,9 @@
                       vset [[it] (+ 1 (CljM.size it))]}))
     ;; a string in the Basic Multilingual Plane: code points = Java's UTF-16 units
     (defm 'CljM.bmpL '[[cs (List Char)]] 'Bool
-      '(match cs (List Char) Bool (nil true) (cons [h t] (Bool.and (< (Char.toNat h) 65536) (CljM.bmpL t)))))
+      '(match-as cs (List Char) Bool (nil true) (cons [h t] (Bool.and (< (Char.toNat h) 65536) (CljM.bmpL t)))))
     (defm 'CljM.cnth '[[c CljM.V] [n Nat]] 'CljM.V
-      '(match n Nat CljM.V (zero (CljM.hd c)) (succ [j] (CljM.cnth (CljM.tl c) j))))
+      '(match-as n Nat CljM.V (zero (CljM.hd c)) (succ [j] (CljM.cnth (CljM.tl c) j))))
     ;; equality
     (scalar-eq 'CljM.eqBool 'Bool 'vbool)
     (scalar-eq 'CljM.eqLong 'Int 'vlong)
@@ -311,7 +311,7 @@
     (defm 'CljM.assocN0 '[[c CljM.V] [v CljM.V]] OV
       (vm 'c OV noneV {'vnil [[] (someV (c 'vcons 'v (c 'vnil)))] 'vcons [['h 't] (someV (c 'vcons 'v 't))]}))
     (defm 'CljM.assocN '[[c CljM.V] [n Nat] [v CljM.V]] OV
-      (list 'match 'n 'Nat OV
+      (list 'match-as 'n 'Nat OV
             '(zero (CljM.assocN0 c v))
             (list 'succ '[j] (vm 'c OV noneV {'vcons [['h 't] (bindV '(CljM.assocN t j v) ['t2]
                                                                      (someV (c 'vcons 'h 't2)))]}))))
@@ -368,7 +368,7 @@
         ys (mapv #(symbol (str "y" %)) (range 1 (inc k)))
         vs (fn [zs] (vec (mapcat (fn [z] [z :- 'CljM.V]) zs)))]
     (list 'ansatz.core/defn nm (into ['F :- (list '=> (fix-type k) (fix-type k)) 'fuel :- 'Nat 'tag :- 'Nat] (vs xs)) OV
-          (list 'match 'fuel 'Nat OV
+          (list 'match-as 'fuel 'Nat OV
                 (list 'zero noneV)
                 ;; the approximant is eta-expanded, so a compiled fix runs lazily
                 (list 'succ '[n] (list* 'F (list 'fn (into '[t :- Nat] (vs ys)) (list* nm 'F 'n 't ys)) 'tag xs))))))

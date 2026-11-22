@@ -54,9 +54,9 @@
   (is (nil? (field "TsTriple")))
   (is (nil? (field "TsFuel")))
   (a/defn ts-make [n :- Nat] TsWrap (TsWrap.mk (* n 2)))
-  (a/defn ts-read [w :- TsWrap] Nat (match w [(mk x) (+ x 1)]))
+  (a/defn ts-read [w :- TsWrap] Nat (match w (mk x) (+ x 1)))
   (a/defn ts-triple [n :- Nat] TsTriple (TsTriple.mk n (+ n 1) (+ n 2)))
-  (a/defn ts-sum [t :- TsTriple] Nat (match t [(mk a b c) (+ a (+ b c))]))
+  (a/defn ts-sum [t :- TsTriple] Nat (match t (mk a b c) (+ a (+ b c))))
   (testing "the wrapper is its field at runtime; construction and matching agree"
     (is (= 8 ((run-fn 'ts-make) 4)))
     (is (= 9 ((run-fn 'ts-read) ((run-fn 'ts-make) 4))))

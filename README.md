@@ -21,7 +21,7 @@ If you already write [malli](https://github.com/metosin/malli)-instrumented Cloj
 ;; still compiles to an ordinary Clojure fn.
 (m/=> add2 [:=> [:cat nat-int? nat-int?] nat-int?])
 (a/defn add2 [x y]
-  (match x [zero y] [(succ k) (+ 1 (add2 k y))]))
+  (match x zero y (succ k) (+ 1 (add2 k y))))
 (add2 20 22) ;; => 42
 
 ;; :int is a Clojure long, negative values included, so it is Int (nat-int? is Nat)
@@ -53,13 +53,13 @@ in the kernel term):
 ```clojure
 (a/defn merge [xs :- (List Nat), ys :- (List Nat)] (List Nat)
   (match xs
-    [nil ys]
-    [(cons x xs')
+    nil ys
+    (cons x xs')
      (match ys
-       [nil (cons x xs')]
-       [(cons y ys') (if (<= x y)
+       nil (cons x xs')
+       (cons y ys') (if (<= x y)
                        (cons x (merge xs' (cons y ys')))
-                       (cons y (merge (cons x xs') ys')))])]))
+                       (cons y (merge (cons x xs') ys'))))))
 ;; explicit spellings also work:
 ;;   :termination-by (+ (sizeOf xs) (sizeOf ys))   or   [(sizeOf xs) (sizeOf ys)]
 
@@ -92,19 +92,19 @@ function values in verified bodies.
 ;; The types are inferred: the tree's from `t`, the result's from the signature.
 (a/defn rb-size [t :- (RBTree Nat)] Nat
   (match t
-    [leaf 0]
-    [(node color left key right) (+ 1 (+ (rb-size left) (rb-size right)))]))
+    leaf 0
+    (node color left key right) (+ 1 (+ (rb-size left) (rb-size right)))))
 
 ;; BST lookup — recursion into a subtree is an ordinary call
 (a/defn rb-member [t :- (RBTree Nat), k :- Nat] Bool
   (match t
-    [leaf false]
-    [(node color left key right)
+    leaf false
+    (node color left key right)
      (if (< k key)
        (rb-member left k)                 ;; recurse into left subtree
        (if (== k key)
          true                             ;; found it
-         (rb-member right k)))]))         ;; recurse into right subtree
+         (rb-member right k)))))         ;; recurse into right subtree
 
 ;; A verified constant (constructors are ordinary constants in term position)
 (a/defn tree [] (RBTree Nat)
@@ -530,17 +530,17 @@ right-nested, as Lean's `→`. `->` is always Clojure's threading macro, never a
 (a/defn ^Nat ack [^Nat m ^Nat n]
   :termination-by [m n]
   (match m
-    [zero (+ n 1)]
-    [(succ k) (match n [zero (ack k 1)] [(succ j) (ack k (ack (Nat.succ k) j))])]))
+    zero (+ n 1)
+    (succ k) (match n zero (ack k 1) (succ j) (ack k (ack (Nat.succ k) j)))))
 
 ;; Recursion over data structures — sizeOf measures (auto-guessed for List/custom inductives)
 (a/defn ^Nat pairs [^{:- (List Nat)} xs]                ; recurses on rest-of-rest
-  (match xs [nil 0] [(cons h t) (match t [nil 0] [(cons h2 t2) (+ 1 (pairs t2))])]))
+  (match xs nil 0 (cons h t) (match t nil 0 (cons h2 t2) (+ 1 (pairs t2)))))
 
 ;; Malli schemas as signatures (optional dep): defn → a/defn, schema unchanged
 (m/=> add2 [:=> [:cat nat-int? nat-int?] nat-int?])   ; :int is Int, nat-int? is Nat
 (a/defn add2 [x y]
-  (match x [zero y] [(succ k) (+ 1 (add2 k y))]))
+  (match x zero y (succ k) (+ 1 (add2 k y))))
 ;; [:map …] schemas become named-field records: keyword access verifies, runtime = plain maps
 (m/=> dot [:=> [:cat [:map [:x :int] [:y :int]]] :int])
 (a/defn dot [p] (+ (:x p) (:y p)))                       ; (dot {:x 2 :y 3}) => 5
@@ -620,23 +620,31 @@ and requires every extern of the bundled Init to be native, compiled or listed w
 
 ### Pattern Matching
 
+Write one pattern and one result per arm, in order. Each is a single reader form.
+To migrate an inferred match, remove the brackets around each arm. Keep vectors
+that belong to the pattern itself. For example, `(match [a b] [0 0] true [_ _] false)`
+matches two numbers. The first matching arm wins, and its pattern variables are
+in scope in its result. To migrate the explicit form, change its head to
+`match-as` and keep its constructor clauses. It also lets you supply a result
+type when a branch such as an empty list needs an expected element type.
+
 ```clojure
-;; Match on inductive types — uses CIC recursor under the hood. As in Lean, the
-;; inductive type comes from the scrutinee and the result type from the context.
+;; The scrutinee supplies the inductive type. The surrounding expression or
+;; the results of the arms can determine the result type.
 (match expr
-  [ctor1 body1]                          ;; constructor without fields
-  [(ctor2 field1 field2 ...) body2])     ;; constructor with field bindings
+  ctor1 body1                          ;; constructor without fields
+  (ctor2 field1 field2 ...) body2)     ;; constructor with field bindings
 
 ;; Recursion is an ordinary call on a field; the kernel checks it is structural
 ;; (or finds a terminating measure)
 (a/defn size [t :- (MyList Nat)] Nat
   (match t
-    [nil 0]
-    [(cons head tail) (+ 1 (size tail))]))
+    nil 0
+    (cons head tail) (+ 1 (size tail))))
 
 ;; The explicit form, with both types spelled out and induction hypotheses
-;; named after the recursive fields (ih_tail), is still accepted:
-;;   (match t (MyList Nat) Nat (nil 0) (cons [head tail] (+ 1 ih_tail)))
+;; named after the recursive fields, uses match-as:
+;;   (match-as t (MyList Nat) Nat (nil 0) (cons [head tail] (+ 1 ih_tail)))
 ```
 
 ### Tactics
@@ -730,25 +738,21 @@ is
 
 ### Writing proofs that stay stable
 
-The surface syntax is stable, but the terms ansatz elaborates underneath are still moving
-toward Lean's. Two planned changes are a Lean-style match compiler (matcher declarations,
-`f.eq_N` equations, structural recursion via `brecOn`) and compiling `if`/comparisons to
-`ite`/`decide` instead of `Bool.rec`/`Nat.ble`. Proofs written in Lean's style keep working
-across these changes; proofs that depend on today's internals may not. So:
+Ansatz elaborates pattern matches through Lean-style matcher declarations. Structural
+recursion is checked separately. Proofs can use the source definition even when
+reordering its patterns changes the generated declarations.
 
 - **Refer to definitions by name.** Write `(simp [f])` or `(grind [f])`, not the generated
   equation lemmas (`f.eq_2s1`, `f._match_1.eq_2`), whose names and number will change.
 - **Use Lean's lemma names** (`Nat.beq_eq`, `List.foldl_cons`, …), not lemmas that only exist
   because of the current encoding.
-- **Case-split on Bool terms you wrote yourself:** `(cases h (Nat.beq x y))` where your code
-  calls `Nat.beq`. Do not split on the compiled form of `(< x y)` or `(== x y)` (today
-  `Nat.blt`/`Nat.ble`/`Nat.beq`, later `decide`). For those, state the comparison as a
-  proposition and let `simp`, `omega` or `grind` bridge it.
+- **Case-split on a Bool term in the source.** Use `(cases h (Nat.beq x y))` where your code
+  calls `Nat.beq`. For comparisons such as `(< x y)`, state the comparison as a proposition
+  and let `simp`, `omega` or `grind` bridge it.
 - **Never mention compiled forms** (`Bool.rec`, `X.rec` applications, `_match_` auxiliaries) in
   statements or tactic arguments.
-- **Keep scripts close to the Lean script you would write.** They are the reference these
-  changes are tested against: the conformance suites in `test/lean/*.lean` pair every ansatz
-  proof with the Lean original.
+- **Keep scripts close to the Lean script you would write.** The conformance suites pair
+  Ansatz proofs with their Lean counterparts in `test/lean/*.lean`.
 
 ## Configuration
 

@@ -19,13 +19,13 @@
 ;; Int.ofNat spells the typed zero in the match base case explicitly.
 ;; Lean 4.33 rejects deprecated simp_arith; n19 uses Lean simp +arith.
 (def ^:private defs
-  '[(ansatz.core/defn tally [xs :- (List Nat)] Nat (match xs [nil 0] [(cons h t) (+ (tally t) 1)]))
-    (ansatz.core/defn total [xs :- (List Nat)] Nat (match xs [nil 0] [(cons h t) (+ h (total t))]))
-    (ansatz.core/defn zeros [n :- Nat] Nat (match n [zero 0] [(succ k) (+ (zeros k) 0)]))
-    (ansatz.core/defn power [a :- Nat, n :- Nat] Nat (match n [zero 1] [(succ k) (* (power a k) a)]))
-    (ansatz.core/defn factorial [n :- Nat] Nat (match n [zero 1] [(succ k) (* (+ k 1) (factorial k))]))
-    (ansatz.core/defn peak [xs :- (List Nat)] Nat (match xs [nil 0] [(cons h t) (if (Nat.ble h (peak t)) (peak t) h)]))
-    (ansatz.core/defn itotal [xs :- (List Int)] Int (match xs [nil (Int.ofNat 0)] [(cons h t) (+ h (itotal t))]))])
+  '[(ansatz.core/defn tally [xs :- (List Nat)] Nat (match xs nil 0 (cons h t) (+ (tally t) 1)))
+    (ansatz.core/defn total [xs :- (List Nat)] Nat (match xs nil 0 (cons h t) (+ h (total t))))
+    (ansatz.core/defn zeros [n :- Nat] Nat (match n zero 0 (succ k) (+ (zeros k) 0)))
+    (ansatz.core/defn power [a :- Nat, n :- Nat] Nat (match n zero 1 (succ k) (* (power a k) a)))
+    (ansatz.core/defn factorial [n :- Nat] Nat (match n zero 1 (succ k) (* (+ k 1) (factorial k))))
+    (ansatz.core/defn peak [xs :- (List Nat)] Nat (match xs nil 0 (cons h t) (if (Nat.ble h (peak t)) (peak t) h)))
+    (ansatz.core/defn itotal [xs :- (List Int)] Int (match xs nil (Int.ofNat 0) (cons h t) (+ h (itotal t))))])
 
 (def ^:private theorems
   '[[n01_zeros [n :- Nat]
@@ -118,10 +118,10 @@
 (deftest equation-generation-failure-is-reported
   (a/load-init!)
   (doseq [[nm params body suffix]
-          [['warnPeak '[xs :- (List Nat)] '(match xs [nil 0] [(cons h t) h]) ".eq_1"]
+          [['warnPeak '[xs :- (List Nat)] '(match xs nil 0 (cons h t) h) ".eq_1"]
            ['warnApply '[b :- Bool, x :- Nat]
-            '((match b [false (fn [z :- Nat] z)]
-                     [true (fn [z :- Nat] (+ z 1))]) x) ".eq_1"]]]
+            '((match b false (fn [z :- Nat] z)
+                     true (fn [z :- Nat] (+ z 1))) x) ".eq_1"]]]
     (let [check env/check-constant
           lemma (str nm suffix)
           result (atom nil)
@@ -166,8 +166,8 @@
   (a/load-init!)
   (let [result (binding [a/*verbose* false]
                  (a/define-verified 'regrNested '[b :- Bool, xs :- (List Nat)] 'Nat
-                   '(match xs [nil 0]
-                           [(cons h t) (if (if b true false) h (regrNested b t))])))]
+                   '(match xs nil 0
+                           (cons h t) (if (if b true false) h (regrNested b t)))))]
     (is (= {:errors []} (:equation-generation (meta result))))
     (if config/*lean-structural-matchers*
       (do
@@ -187,8 +187,8 @@
   (a/load-init!)
   (let [result (binding [a/*verbose* false]
                  (a/define-verified 'regrApply '[b :- Bool, x :- Nat] 'Nat
-                   '((match b [false (fn [z :- Nat] z)]
-                            [true (fn [z :- Nat] (+ z 1))]) x)))
+                   '((match b false (fn [z :- Nat] z)
+                            true (fn [z :- Nat] (+ z 1))) x)))
         equality (checked-equation "regrApply.eq_1")]
     (is (= {:errors []} (:equation-generation (meta result))))
     (when equality
@@ -198,16 +198,16 @@
   (a/load-init!)
   (doseq [[nm params body]
           [['regrRec '[xs :- (List Nat), n :- Nat]
-            '(match xs [nil 0]
-                    [(cons h t)
-                     (Nat.rec (fn [k :- Nat] Nat) 0
-                              (fn [k :- Nat, ih :- Nat] (+ ih 1)) n)])]
+            '(match xs nil 0
+                    (cons h t)
+                    (Nat.rec (fn [k :- Nat] Nat) 0
+                             (fn [k :- Nat, ih :- Nat] (+ ih 1)) n))]
            ['regrListRec '[xs :- (List Nat), ys :- (List Nat), b :- Bool]
-            '(match xs [nil 0]
-                    [(cons h t)
-                     (List.rec Nat (fn [ys :- (List Nat)] Nat) 0
-                               (fn [head :- Nat, tail :- (List Nat), ih :- Nat] (+ ih 1))
-                               (if b ys t))])]]]
+            '(match xs nil 0
+                    (cons h t)
+                    (List.rec Nat (fn [ys :- (List Nat)] Nat) 0
+                              (fn [head :- Nat, tail :- (List Nat), ih :- Nat] (+ ih 1))
+                              (if b ys t)))]]]
     (let [result (binding [a/*verbose* false] (a/define-verified nm params 'Nat body))
           matcher (str nm ".match_1")
           recursor (if (= nm 'regrRec) "Nat.rec" "List.rec")]

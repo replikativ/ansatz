@@ -95,9 +95,9 @@
 (deftest own-defn-tail-recursion-becomes-recur
   (binding [a/*verbose* false]
     (a/defn ^{:- Nat} sdt-len-acc [^{:- (List Nat)} xs ^{:- Nat} n]
-      (match xs (List Nat) Nat
-             (nil n)
-             (cons [h t] (sdt-len-acc t (Nat.succ n)))))
+      (match-as xs (List Nat) Nat
+                (nil n)
+                (cons [h t] (sdt-len-acc t (Nat.succ n)))))
     (is (= 3 (sdt-len-acc [1 2 3] 0)))
     (testing "tail-recursive accumulator defn runs at depths that overflowed the closure cascade"
       (is (= 100000 (sdt-len-acc (range 100000) 0))))
@@ -109,9 +109,9 @@
 (deftest own-defn-non-tail-still-correct
   (binding [a/*verbose* false]
     (a/defn ^{:- Nat} sdt-len [^{:- (List Nat)} xs]
-      (match xs (List Nat) Nat
-             (nil Nat.zero)
-             (cons [h t] (Nat.succ (sdt-len t)))))
+      (match-as xs (List Nat) Nat
+                (nil Nat.zero)
+                (cons [h t] (Nat.succ (sdt-len t)))))
     (is (= 3 (sdt-len [1 2 3])))
     (is (= 5000 (sdt-len (range 5000))) "non-tail recursion stays correct (stack-bound as before)")))
 

@@ -20,6 +20,7 @@
             [ansatz.export.replay :as replay]
             [ansatz.inductive :as inductive]
             [ansatz.meta.match.matcher-info :as matcher-info]
+            [ansatz.surface.match :as surface-match]
             [ansatz.codegen :as codegen :refer [ansatz->clj]]
             [ansatz.codegen.decl :as decl]
             [ansatz.config :as config]
@@ -183,8 +184,8 @@
    ansatz analogue of lean4's recursive-call context (Fix.lean). Returns a vector of
    {:args [arg-forms], :field-binders [[sym type-form] …], :guards [guard-form …]}.
    Match field types currently default to Nat (Stage-1 WF is over Nat measures).
-   Both match forms are read: the explicit `(match d T R (ctor [fields] body) …)` and the
-   pattern form `(match d [pattern body] …)`, whose guard needs d's type — known when d is
+   Both match forms are read: the explicit `(match-as d T R (ctor [fields] body) …)` and the
+   pattern form `(match d pattern body …)`, whose guard needs d's type — known when d is
    a parameter (from `pairs`), otherwise the call is collected without that guard."
   ([body fn-name n] (collect-rec-calls-with-guards body fn-name n nil))
   ([body fn-name n pairs]
@@ -204,10 +205,10 @@
                    (walk t (if gt (conj guards gt) guards) binders)
                    (walk e (if ge (conj guards ge) guards) binders))
 
-                 (and (seq? form) (= 'match (first form)) (vector? (nth form 2 nil)))
+                 (and (seq? form) (= 'match (first form)))
                  (let [[_ discr & alts] form
                        dtype (when (symbol? discr) (param-type discr))]
-                   (doseq [[pat rhs] alts]
+                   (doseq [[pat rhs] (surface-match/flat-arms alts)]
                      (let [[ctor-short fields] (cond (seq? pat) [(first pat) (vec (rest pat))]
                                                      (and (symbol? pat) (not= '_ pat)) [pat []]
                                                      :else [nil []])
@@ -217,11 +218,10 @@
                        (walk rhs (if guard (conj guards guard) guards)
                              (into binders (mapv (fn [f] [f 'Nat]) fields))))))
 
-                 (and (seq? form) (= 'match (first form)))
+                 (and (seq? form) (= 'match-as (first form)))
                  (let [[_ discr discr-type _result & branches] form]
                    (doseq [br branches]
-                     (let [[ctor-short x & more] br
-                           [fields bbody] (if (vector? x) [x (first more)] [[] x])
+                     (let [[ctor-short fields bbody] (surface-match/explicit-arm br)
                            field-bs (mapv (fn [f] [f 'Nat]) fields)
                            guard (list '= discr-type discr
                                        (wf-ctor-pattern discr-type ctor-short fields))]

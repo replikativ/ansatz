@@ -61,20 +61,28 @@ Lists are the bread and butter of Clojure. In Ansatz, `List Nat` is a verified l
 ;; Length of a list
 (a/defn len [l :- (List Nat)] Nat
   (match l
-    [nil 0]
-    [(cons hd tl) (+ 1 (len tl))]))
+    nil 0
+    (cons hd tl) (+ 1 (len tl))))
 ```
 
-The `match` expression does structural recursion on `l`:
-- If `l` is `nil` → return 0
-- If `l` is `cons hd tl` → return `1 + len tl`
-
-As in Lean, you write the recursive call yourself, and nothing about types: the list type comes from `l` and the result type from the signature. The call `(len tl)` is on `tl`, a structural subterm of `l`, so the kernel knows the recursion terminates. (When the recursion is not structural, Ansatz looks for a decreasing measure — see `:termination-by`.)
-
-This compiles to a `List.rec` application (the *recursor* — the only way to eliminate a `List` in CIC). The recursor is what makes termination checking possible.
+Read the arms in pairs. The pattern `nil` gives `0`. The pattern `(cons hd tl)`
+binds the head and tail in its result, `(+ 1 (len tl))`. The signature supplies
+the input and result types. Ansatz compiles the patterns into a matcher and
+checks the recursive call separately. Here `tl` is a structural subterm of `l`.
+For recursion that needs a decreasing measure, see `:termination-by`.
 
 ```clojure
 (len '(1 2 3)) ;; => 3
+```
+
+When the surrounding code leaves a type ambiguous, use `match-as`. For example,
+if `b` is a Bool, both branches below return an empty list. Spelling out
+`(List Nat)` determines its element type.
+
+```clojure
+(match-as b Bool (List Nat)
+  (true nil)
+  (false []))
 ```
 
 More examples:
@@ -83,23 +91,23 @@ More examples:
 ;; Append two lists
 (a/defn lappend [xs :- (List Nat), ys :- (List Nat)] (List Nat)
   (match xs
-    [nil ys]
-    [(cons hd tl) (cons hd (lappend tl ys))]))
+    nil ys
+    (cons hd tl) (cons hd (lappend tl ys))))
 
 (lappend '(1 2) '(3 4)) ;; => (1 2 3 4)
 
 ;; Map a function over a list
 (a/defn lmap [f :- (arrow Nat Nat), l :- (List Nat)] (List Nat)
   (match l
-    [nil nil]
-    [(cons hd tl) (cons (f hd) (lmap f tl))]))
+    nil nil
+    (cons hd tl) (cons (f hd) (lmap f tl))))
 
 (lmap inc '(1 2 3)) ;; => (2 3 4)
 ```
 
 ## 3. Equation Theorems
 
-When you define a function with `match`, Ansatz automatically generates *equation theorems* — one per branch:
+For `len`, Ansatz generates two *equation theorems*, one for each list constructor:
 
 ```
 len.eq_1 : len []       = 0
@@ -254,8 +262,8 @@ Type parameters (like `α` in `Tree`) are automatically inferred:
 ;; No need to write (Tree.node Nat ...) — α is inferred from val
 (a/defn tree-sum [t :- (Tree Nat)] Nat
   (match t
-    [leaf 0]
-    [(node l v r) (+ v (+ (tree-sum l) (tree-sum r)))]))
+    leaf 0
+    (node l v r) (+ v (+ (tree-sum l) (tree-sum r)))))
 ```
 
 Structures compile to Clojure records:
