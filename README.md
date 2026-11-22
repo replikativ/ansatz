@@ -629,8 +629,8 @@ in scope in its result. To migrate the explicit form, change its head to
 type when a branch such as an empty list needs an expected element type.
 
 ```clojure
-;; Match on inductive types — uses CIC recursor under the hood. As in Lean, the
-;; inductive type comes from the scrutinee and the result type from the context.
+;; The scrutinee supplies the inductive type. The surrounding expression or
+;; the results of the arms can determine the result type.
 (match expr
   ctor1 body1                          ;; constructor without fields
   (ctor2 field1 field2 ...) body2)     ;; constructor with field bindings
@@ -738,25 +738,21 @@ is
 
 ### Writing proofs that stay stable
 
-The surface syntax is stable, but the terms ansatz elaborates underneath are still moving
-toward Lean's. Two planned changes are a Lean-style match compiler (matcher declarations,
-`f.eq_N` equations, structural recursion via `brecOn`) and compiling `if`/comparisons to
-`ite`/`decide` instead of `Bool.rec`/`Nat.ble`. Proofs written in Lean's style keep working
-across these changes; proofs that depend on today's internals may not. So:
+Ansatz elaborates pattern matches through Lean-style matcher declarations. Structural
+recursion is checked separately. Proofs can use the source definition even when
+reordering its patterns changes the generated declarations.
 
 - **Refer to definitions by name.** Write `(simp [f])` or `(grind [f])`, not the generated
   equation lemmas (`f.eq_2s1`, `f._match_1.eq_2`), whose names and number will change.
 - **Use Lean's lemma names** (`Nat.beq_eq`, `List.foldl_cons`, …), not lemmas that only exist
   because of the current encoding.
-- **Case-split on Bool terms you wrote yourself:** `(cases h (Nat.beq x y))` where your code
-  calls `Nat.beq`. Do not split on the compiled form of `(< x y)` or `(== x y)` (today
-  `Nat.blt`/`Nat.ble`/`Nat.beq`, later `decide`). For those, state the comparison as a
-  proposition and let `simp`, `omega` or `grind` bridge it.
+- **Case-split on a Bool term in the source.** Use `(cases h (Nat.beq x y))` where your code
+  calls `Nat.beq`. For comparisons such as `(< x y)`, state the comparison as a proposition
+  and let `simp`, `omega` or `grind` bridge it.
 - **Never mention compiled forms** (`Bool.rec`, `X.rec` applications, `_match_` auxiliaries) in
   statements or tactic arguments.
-- **Keep scripts close to the Lean script you would write.** They are the reference these
-  changes are tested against: the conformance suites in `test/lean/*.lean` pair every ansatz
-  proof with the Lean original.
+- **Keep scripts close to the Lean script you would write.** The conformance suites pair
+  Ansatz proofs with their Lean counterparts in `test/lean/*.lean`.
 
 ## Configuration
 

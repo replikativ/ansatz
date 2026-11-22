@@ -68,7 +68,7 @@
   (let [s (symbol (str "CljM.V." ctor))] (if (seq args) (list* s args) s)))
 
 (defn vm
-  "`(match disc CljM.V ret …)`: `dflt` for every constructor except `overrides`
+  "`(match-as disc CljM.V ret …)`: `dflt` for every constructor except `overrides`
    (ctor → [[field-binders] body])."
   [disc ret dflt overrides]
   (list* 'match-as disc 'CljM.V ret

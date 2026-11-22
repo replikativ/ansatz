@@ -118,7 +118,7 @@
    ['vfloat 1] ['vset 1]])
 
 (defn- vmatch
-  "A `(match disc Value Bool …)` returning `dflt` for every ctor except those in `overrides`
+  "A `(match-as disc Value Bool …)` returning `dflt` for every ctor except those in `overrides`
    (ctor-sym → tail: `(body)` for nullary, `([binders] body)` otherwise)."
   [disc dflt overrides]
   (list* 'match-as disc 'Value 'Bool

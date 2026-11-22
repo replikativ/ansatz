@@ -11,6 +11,12 @@
        pat2 rhs2
        ...)
 
+   A vector of discriminants takes a vector pattern of the same length per arm:
+     (match [a b] [0 0] true [_ _] false)
+
+   For explicit input and result types, use constructor clauses:
+     (match-as xs (List Nat) Nat (nil 0) (cons [h t] h))
+
    Patterns:
      _                    — wildcard (ignored)
      symbol               — variable binding (lowercase) or constructor (if resolves)

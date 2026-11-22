@@ -74,13 +74,11 @@
 (deftest test-nat-match-zero-succ
   (testing "Match on Nat with zero and succ patterns"
     (let [env (require-env)]
-      ;; match 0 [zero => 10] [(succ n) => n]
       (let [r (whnf env (elab/elaborate env '(match Nat.zero
                                                Nat.zero 10
                                                (Nat.succ n) n)))]
         (is (e/lit-nat? r))
         (is (= 10 (e/lit-nat-val r))))
-      ;; match (succ (succ 0)) [zero => 10] [(succ n) => n]
       (let [r (whnf env (elab/elaborate env '(match (Nat.succ (Nat.succ Nat.zero))
                                                Nat.zero 10
                                                (Nat.succ n) n)))]
@@ -142,7 +140,6 @@
     (let [env (require-env)
           list-nat (e/app (e/const' (name/from-string "List") [lvl/zero])
                           (e/const' (name/from-string "Nat") []))
-          ;; Build: λ (xs : List Nat) => match xs [nil => 0] [(cons x _) => x]
           term (elab/elaborate-in-context
                 env
                 {42 {:tag :local :name "xs" :type list-nat}}
@@ -165,8 +162,6 @@
 (deftest test-nested-nat-patterns
   (testing "Nested Nat patterns (matching specific successor depths)"
     (let [env (require-env)]
-      ;; match n [0 => "zero"] [(succ 0) => "one"] [(succ (succ _)) => "many"]
-      ;; Using Nat return type since strings require more setup
       (let [r0 (whnf env (elab/elaborate env '(match Nat.zero
                                                 0 0
                                                 (Nat.succ Nat.zero) 1
