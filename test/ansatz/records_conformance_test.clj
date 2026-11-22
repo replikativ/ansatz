@@ -11,39 +11,39 @@
   '[(ansatz.core/structure Row [] (key Nat) (owner Nat) (active Bool) (value Nat))
     (ansatz.core/structure State [] (rows (List Row)) (owners (List Nat)))
     (ansatz.core/defn lookup [k :- Nat, xs :- (List Row)] Nat
-      (match xs [nil 0] [(cons r t) (if (Nat.beq k (:key r)) (:value r) (lookup k t))]))
+      (match xs nil 0 (cons r t) (if (Nat.beq k (:key r)) (:value r) (lookup k t))))
     (ansatz.core/defn update [k :- Nat, v :- Nat, xs :- (List Row)] (List Row)
-      (match xs [nil (List.nil Row)]
-             [(cons r t) (if (Nat.beq k (:key r))
+      (match xs nil (List.nil Row)
+             (cons r t) (if (Nat.beq k (:key r))
                            (List.cons Row (Row.mk (:key r) (:owner r) (:active r) v) (update k v t))
-                           (List.cons Row r (update k v t)))]))
+                           (List.cons Row r (update k v t)))))
     (ansatz.core/defn remove [k :- Nat, xs :- (List Row)] (List Row)
-      (match xs [nil (List.nil Row)]
-             [(cons r t) (if (Nat.beq k (:key r)) (remove k t) (List.cons Row r (remove k t)))]))
+      (match xs nil (List.nil Row)
+             (cons r t) (if (Nat.beq k (:key r)) (remove k t) (List.cons Row r (remove k t)))))
     (ansatz.core/defn pushRow [r :- Row, s :- State] State
       (State.mk (List.cons Row r (:rows s)) (:owners s)))
     (ansatz.core/defn enabled [xs :- (List Row)] (List Row)
-      (match xs [nil (List.nil Row)]
-             [(cons r t) (if (:active r) (List.cons Row r (enabled t)) (enabled t))]))
+      (match xs nil (List.nil Row)
+             (cons r t) (if (:active r) (List.cons Row r (enabled t)) (enabled t))))
     (ansatz.core/defn values [xs :- (List Row)] (List Nat)
-      (match xs [nil (List.nil Nat)] [(cons r t) (List.cons Nat (:value r) (values t))]))
+      (match xs nil (List.nil Nat) (cons r t) (List.cons Nat (:value r) (values t))))
     (ansatz.core/defn countRows [xs :- (List Row)] Nat
-      (match xs [nil 0] [(cons r t) (+ (countRows t) 1)]))
+      (match xs nil 0 (cons r t) (+ (countRows t) 1)))
     (ansatz.core/defn total [xs :- (List Row)] Nat
-      (match xs [nil 0] [(cons r t) (+ (:value r) (total t))]))
+      (match xs nil 0 (cons r t) (+ (:value r) (total t))))
     (ansatz.core/defn hasKey [k :- Nat, xs :- (List Row)] Bool
-      (match xs [nil false] [(cons r t) (Bool.or (Nat.beq k (:key r)) (hasKey k t))]))
+      (match xs nil false (cons r t) (Bool.or (Nat.beq k (:key r)) (hasKey k t))))
     (ansatz.core/defn distinct [xs :- (List Row)] Bool
-      (match xs [nil true] [(cons r t) (Bool.and (Bool.not (hasKey (:key r) t)) (distinct t))]))
+      (match xs nil true (cons r t) (Bool.and (Bool.not (hasKey (:key r) t)) (distinct t))))
     (ansatz.core/defn memOwner [k :- Nat, xs :- (List Nat)] Bool
-      (match xs [nil false] [(cons h t) (Bool.or (Nat.beq k h) (memOwner k t))]))
+      (match xs nil false (cons h t) (Bool.or (Nat.beq k h) (memOwner k t))))
     (ansatz.core/defn ownersPresent [op :- (List Nat), xs :- (List Row)] Bool
-      (match xs [nil true] [(cons r t) (Bool.and (memOwner (:owner r) op) (ownersPresent op t))]))
+      (match xs nil true (cons r t) (Bool.and (memOwner (:owner r) op) (ownersPresent op t))))
     ;; Function-valued recursion mirrors Lean exactly and keeps lo out of the fixed
     ;; recursion parameters (core/define-verified-impl requires those to stay unchanged).
     (ansatz.core/defn sortedFrom [xs :- (List Row)] (=> Nat Bool)
-      (match xs [nil (fn [lo :- Nat] true)]
-             [(cons r t) (fn [lo :- Nat] (Bool.and (Nat.ble lo (:key r)) (sortedFrom t (:key r))))]))])
+      (match xs nil (fn [lo :- Nat] true)
+             (cons r t) (fn [lo :- Nat] (Bool.and (Nat.ble lo (:key r)) (sortedFrom t (:key r))))))])
 
 (def ^:private theorems
   '[[r01_projection [k :- Nat, o :- Nat, v :- Nat, b :- Bool]
@@ -52,7 +52,7 @@
      [(rcases r with [k o b v]) (rfl)]]
     [r03_obtain [r :- Row] (> (+ (:value r) 1) (:value r))
      [(obtain [k o b v] := r) (omega)]]
-    [r04_match [r :- Row] (= (match r [(mk k o b v) v]) (:value r))
+    [r04_match [r :- Row] (= (match r (mk k o b v) v) (:value r))
      [(cases r) (rfl)]]
     [r05_arithmetic [r :- Row, h :- (<= (:value r) (:key r))]
      (<= (+ (:value r) 2) (+ (:key r) 2)) [(omega)]]

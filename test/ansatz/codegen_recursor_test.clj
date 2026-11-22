@@ -25,25 +25,25 @@
     (ansatz.core/inductive CGBox [α Type] (mk [x α]))
     (ansatz.core/inductive CGRose [] (leaf [n Nat]) (node [kids (List CGRose)]))
     (ansatz.core/defn cg-enum [x :- CGEnum] Nat
-      (match x [red 3] [green 5] [blue 7]))
+      (match x red 3 green 5 blue 7))
     (ansatz.core/defn cg-peano [x :- CGPeano] Nat
-      (match x [z 0] [(s p) (+ 1 (cg-peano p))]))
+      (match x z 0 (s p) (+ 1 (cg-peano p))))
     (ansatz.core/defn cg-tree [x :- CGTree] Nat
-      (match x [leaf 0] [(node n l r) (+ n (+ (cg-tree l) (cg-tree r)))]))
+      (match x leaf 0 (node n l r) (+ n (+ (cg-tree l) (cg-tree r)))))
     (ansatz.core/defn twsum [t :- Tw] Nat
-      (match t [(tleaf n) n] [(tnode n l r) (+ n (+ (twsum l) (twsum r)))]))
+      (match t (tleaf n) n (tnode n l r) (+ n (+ (twsum l) (twsum r)))))
     (ansatz.core/defn tw3 [k :- Nat] Nat (twsum (Tw.tnode k (Tw.tleaf 2) (Tw.tleaf 3))))
-    (ansatz.core/defn psum [p :- Pt] Nat (match p [(mk x y) (+ x y)]))
+    (ansatz.core/defn psum [p :- Pt] Nat (match p (mk x y) (+ x y)))
     (ansatz.core/defn p23 [k :- Nat] Nat (psum (Pt.mk k 3)))
-    (ansatz.core/defn cg-box [p :- (CGBox Nat)] Nat (match p [(mk x) x]))
+    (ansatz.core/defn cg-box [p :- (CGBox Nat)] Nat (match p (mk x) x))
     (ansatz.core/defn cg-list [xs :- (List Nat)] Nat
-      (match xs [nil 0] [(cons h t) (+ h (cg-list t))]))
+      (match xs nil 0 (cons h t) (+ h (cg-list t))))
     (ansatz.core/defn cg-nat [n :- Nat] Nat
-      (match n [zero 0] [(succ p) (+ 1 (cg-nat p))]))
+      (match n zero 0 (succ p) (+ 1 (cg-nat p))))
     (ansatz.core/defn cg-prod [p :- (Prod Nat Nat)] Nat
-      (match p [(mk x y) (+ x y)]))
+      (match p (mk x y) (+ x y)))
     (ansatz.core/defn cg-nested [x :- (Option (List Nat))] Nat
-      (match x [none 0] [(some xs) (cg-list xs)]))])
+      (match x none 0 (some xs) (cg-list xs)))])
 
 (defn- install! []
   (run! eval definitions)
@@ -127,8 +127,8 @@
         saved-instances @a/ansatz-instance-index]
     (try
       (binding [a/*verbose* false] (a/load-init!))
-      (let [body '(match xs [nil 0]
-                         [(List.cons h t) (Nat.succ (partialMatcherLength t))])
+      (let [body '(match xs nil 0
+                         (List.cons h t) (Nat.succ (partialMatcherLength t)))
             define! #(a/define-partial 'partialMatcherLength
                        '[xs :- (List Nat)] 'Nat body)]
         (is (thrown-with-msg?
@@ -160,8 +160,8 @@
         (run! eval
               '[(ansatz.core/defn round-probe [n :- Nat] (=> Nat Bool)
                   (match n
-                    [zero (fn [x :- Nat] true)]
-                    [(succ k) (fn [x :- Nat] ((round-probe k) x))]))
+                    zero (fn [x :- Nat] true)
+                    (succ k) (fn [x :- Nat] ((round-probe k) x))))
                 (ansatz.core/defn bad-call-probe [n :- Nat, x :- Nat] Bool
                   ((round-probe n) x))
                 (ansatz.core/theorem probe-kernel [] (= (bad-call-probe 2 3) true) (rfl))
@@ -173,8 +173,8 @@
                   (fn [y :- Nat] (+ n (+ x y))))
                 (ansatz.core/defn cg-result-recursive [n :- Nat, x :- Nat] (=> Nat Nat)
                   (match n
-                    [zero (fn [y :- Nat] (+ x y))]
-                    [(succ k) (fn [y :- Nat] (+ 1 ((cg-result-recursive k x) y)))]))
+                    zero (fn [y :- Nat] (+ x y))
+                    (succ k) (fn [y :- Nat] (+ 1 ((cg-result-recursive k x) y)))))
                 (ansatz.core/defn cg-result-eta [n :- Nat] (=> Nat Nat)
                   (fn [x :- Nat] (cg-result-flat n x 3)))
                 (ansatz.core/defn cg-result-partial [n :- Nat] (=> Nat Nat)
@@ -231,8 +231,8 @@
         (run! eval
               '[(ansatz.core/defn cg-result-oracle [n :- Nat, b :- Nat] (=> Nat Nat)
                   (match n
-                    [zero (fn [x :- Nat] (+ b x))]
-                    [(succ k) (fn [x :- Nat] (+ 1 ((cg-result-oracle k b) x)))]))
+                    zero (fn [x :- Nat] (+ b x))
+                    (succ k) (fn [x :- Nat] (+ 1 ((cg-result-oracle k b) x)))))
                 (ansatz.core/defn cg-result-oracle-value [] (=> Nat Nat)
                   (fn [x :- Nat] (+ x 1)))])
         (doseq [mode [:verified :partial :wf]
@@ -325,8 +325,8 @@
       (binding [*ns* (the-ns 'ansatz.codegen-recursor-test) a/*verbose* false]
         (a/load-init!)
         (eval '(ansatz.core/defn cc-oracle [n :- Nat] (=> Nat Nat)
-                 (match n [zero (fn [x :- Nat] x)]
-                        [(succ k) (fn [x :- Nat] (+ 1 ((cc-oracle k) x)))])))
+                 (match n zero (fn [x :- Nat] x)
+                        (succ k) (fn [x :- Nat] (+ 1 ((cc-oracle k) x))))))
         ;; Keep the large row check outside the nested sequence expansion.
         (doseq [[kind shape function? recursive? fallback?]
                 (for [kind [:verified :partial :wf :foreign]
@@ -375,10 +375,10 @@
                                                 (symbol (str "@" f)) f)
                                          (case shape :implicit ['S 'k] :instance ['inst 'k] ['k]))]
                          (list 'match 'n
-                               ['zero (if function? '(fn [x :- Nat] x) 0)]
-                               ['(succ k) (if function?
+                               'zero (if function? '(fn [x :- Nat] x) 0)
+                               '(succ k) (if function?
                                             (list 'fn '[x :- Nat] (list '+ 1 (list call 'x)))
-                                            (list '+ 1 call))]))
+                                            (list '+ 1 call))))
                        body)
                 impl (if nullary?
                        (if function?
@@ -785,7 +785,7 @@
               (is (= :codegen-error
                      (definition-error-kind
                        '(ansatz.core/defn cg-unsupported-pair [p :- Pt] Nat
-                          (match p [(mk x y) (+ x y)])))))
+                          (match p (mk x y) (+ x y))))))
               (swap! a/codegen-registry assoc "IndexedPair.mk" (fn [_ _ _] :opaque-indexed))
               (is (= :codegen-error
                      (definition-error-kind
@@ -798,19 +798,19 @@
               (is (= :codegen-error
                      (definition-error-kind
                        '(ansatz.core/defn cg-unsupported-leaf [p :- Bt] Nat
-                          (match p [bl 1] [(bn l r) 2] [bz 0])))))
+                          (match p bl 1 (bn l r) 2 bz 0)))))
               (swap! a/codegen-registry assoc "CGEnum.red" (fn [_ _ _] :same)
                      "CGEnum.green" (fn [_ _ _] :same))
               (is (= :codegen-error
                      (definition-error-kind
                        '(ansatz.core/defn cg-ambiguous-enum [x :- CGEnum] Nat
-                          (match x [red 1] [green 2] [blue 3])))))
+                          (match x red 1 green 2 blue 3)))))
               (finally (reset! a/codegen-registry original))))
           (doseq [[ctor v] [["CGEnum.red" :red] ["CGEnum.green" false] ["CGEnum.blue" nil]]]
             (swap! a/codegen-registry assoc ctor (fn [_ _ _] v))
             (is (= v (cg/ansatz->clj (a/env) (e/const' (name/from-string ctor) []) []))))
           (eval '(ansatz.core/defn cg-mixed-enum [x :- CGEnum] Nat
-                   (match x [red 1] [green 2] [blue 3])))
+                   (match x red 1 green 2 blue 3)))
           (differential-closed! '[(cg-mixed-enum CGEnum.red) (cg-mixed-enum CGEnum.green)
                                   (cg-mixed-enum CGEnum.blue)])))
       (finally

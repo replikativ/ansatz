@@ -14,7 +14,7 @@
     (try
       (binding [a/*verbose* false] (a/load-init!))
       (a/define-verified 'transportProbe '[^Bool b] 'Nat
-        '(match b [false 13] [true 21]))
+        '(match b false 13 true 21))
       (let [environment (a/env)
             f (env/lookup! environment (name/from-string "transportProbe"))
             ctx (u/context environment)

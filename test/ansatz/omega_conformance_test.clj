@@ -10,7 +10,7 @@
 ;; Division/modulo/min/max and negative Int use explicit Lean constants; / is Ratio division.
 (def ^:private defs
   '[(ansatz.core/defn omegaLen [xs :- (List Nat)] Nat
-      (match xs [nil 0] [(cons h t) (+ (omegaLen t) 1)]))])
+      (match xs nil 0 (cons h t) (+ (omegaLen t) 1)))])
 
 (def ^:private theorems
   '[[o01_nonneg [x :- Nat]

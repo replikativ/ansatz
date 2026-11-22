@@ -59,7 +59,7 @@
 
 (deftest generated-declarations-round-trip
   (a/inductive WxShape [] (dot) (box [w Nat] [h Nat]))
-  (a/defn wx-area [s :- WxShape] Nat (match s [dot 0] [(box w h) (* w h)]))
+  (a/defn wx-area [s :- WxShape] Nat (match s dot 0 (box w h) (* w h)))
   (a/defn ^Nat wx-fact [^Nat n] :termination-by n (if (== n 0) 1 (* n (wx-fact (- n 1)))))
   (a/defn wx-greet [] String "héllo \"λ\"\n")
   (a/theorem wx-area-dot [] (= (wx-area WxShape.dot) 0) (rfl))

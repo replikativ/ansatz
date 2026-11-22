@@ -21,10 +21,10 @@
     (binding [a/*verbose* false *ns* (the-ns 'ansatz.tactic.smart-unfolding-test)]
       (eval '(a/defn su-pick [best :- (Option Nat), es :- (List Nat)] (Option Nat)
                (match es
-                 [nil best]
-                 [(cons h t) (su-pick (match best [none (Option.some Nat h)]
-                                             [(some b) (if (Nat.blt h b) (Option.some Nat h) best)])
-                                      t)])))
+                 nil best
+                 (cons h t) (su-pick (match best none (Option.some Nat h)
+                                             (some b) (if (Nat.blt h b) (Option.some Nat h) best))
+                                      t))))
       (t))))
 
 (defn- failure [form]
@@ -77,8 +77,8 @@
     (is (= "su-pick.match_2" (head-name (first (e/get-app-args lhs))))))
   (is (nil? (failure '(a/theorem su-goal [best :- (Option Nat), h :- Nat, t :- (List Nat)]
                                  (= (su-pick best (List.cons Nat h t))
-                                    (su-pick (match best [none (Option.some Nat h)]
-                                                    [(some b) (if (Nat.blt h b) (Option.some Nat h) best)]) t))
+                                    (su-pick (match best none (Option.some Nat h)
+                                                    (some b) (if (Nat.blt h b) (Option.some Nat h) best)) t))
                                  (simp only [su-pick])))))
   (testing "the applicable split equation is still used"
     (is (nil? (failure '(a/theorem su-none [h :- Nat, t :- (List Nat)]

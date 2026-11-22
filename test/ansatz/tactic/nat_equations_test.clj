@@ -24,15 +24,15 @@
     (a/load-init!)
     (binding [a/*verbose* false *ns* (the-ns 'ansatz.tactic.nat-equations-test)]
       (eval '(a/defn offset-loop [n :- Nat, acc :- Nat] Nat
-               (match n [zero acc] [(succ k) (offset-loop k (+ acc 1))])))
+               (match n zero acc (succ k) (offset-loop k (+ acc 1)))))
       (eval '(a/defn offset-count [n :- Nat] Nat
-               (match n [zero 0] [(succ k) (Nat.succ (offset-count k))])))
+               (match n zero 0 (succ k) (Nat.succ (offset-count k)))))
       (eval '(a/defn offset-pair [n :- Nat, acc :- Nat] Nat
-               (match n [zero acc]
-                      [(succ k) (match k [zero (+ acc 1)]
-                                       [(succ j) (offset-pair j (+ acc 2))])])))
+               (match n zero acc
+                      (succ k) (match k zero (+ acc 1)
+                                       (succ j) (offset-pair j (+ acc 2))))))
       (eval '(a/defn offset-list [xs :- (List Nat), acc :- Nat] Nat
-               (match xs [nil acc] [(cons x tail) (offset-list tail (+ acc x))])))
+               (match xs nil acc (cons x tail) (offset-list tail (+ acc x)))))
       (t))))
 
 (defn- transformed-argument

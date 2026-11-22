@@ -36,17 +36,38 @@
 ;; Match expression tests
 ;; ============================================================
 
+(deftest flat-arm-grammar
+  (let [env (require-env)]
+    (doseq [form '[(match 0) (match 0 0 1 _)]]
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"pattern/result pairs"
+                            (elab/elaborate env form))))
+    (is (= '(([0 _] [1 2]) ([_ _] []))
+           (match/flat-arms '([0 _] [1 2] [_ _] []))))
+    (is (= 7 (e/lit-nat-val (whnf env (elab/elaborate env '(match [0] [0] 7 [_] 9))))))
+    (doseq [[form msg] [['(match [] [] 0) #"at least one discriminant"]
+                        ['(match [0 0] _ 1) #"vector of patterns"]
+                        ['(match [0 0] [_] 1) #"number of patterns"]]]
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo msg (elab/elaborate env form))))))
+
+(deftest explicit-match-checks-annotations
+  (let [env (require-env)]
+    (doseq [[form msg] [['(match-as Bool.true Nat Nat (true 1) (false 0)) #"input type mismatch"]
+                        ['(match-as Bool.true Bool Nat (true Bool.true) (false Bool.false)) #"result type mismatch"]
+                        ['(match-as Bool.true Bool UndeclaredType (true 1) (false 0)) #"UndeclaredType"]
+                        ['(match-as 0 Nat Nat (zero 0 1)) #"expects \(ctor body"]]]
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo msg (elab/elaborate env form))))))
+
 (deftest test-bool-match
   (testing "Match on Bool constants"
     (let [env (require-env)]
       (let [r (whnf env (elab/elaborate env '(match Bool.true
-                                               [Bool.false 0]
-                                               [Bool.true 1])))]
+                                               Bool.false 0
+                                               Bool.true 1)))]
         (is (e/lit-nat? r))
         (is (= 1 (e/lit-nat-val r))))
       (let [r (whnf env (elab/elaborate env '(match Bool.false
-                                               [Bool.false 0]
-                                               [Bool.true 1])))]
+                                               Bool.false 0
+                                               Bool.true 1)))]
         (is (e/lit-nat? r))
         (is (= 0 (e/lit-nat-val r)))))))
 
@@ -55,14 +76,14 @@
     (let [env (require-env)]
       ;; match 0 [zero => 10] [(succ n) => n]
       (let [r (whnf env (elab/elaborate env '(match Nat.zero
-                                               [Nat.zero 10]
-                                               [(Nat.succ n) n])))]
+                                               Nat.zero 10
+                                               (Nat.succ n) n)))]
         (is (e/lit-nat? r))
         (is (= 10 (e/lit-nat-val r))))
       ;; match (succ (succ 0)) [zero => 10] [(succ n) => n]
       (let [r (whnf env (elab/elaborate env '(match (Nat.succ (Nat.succ Nat.zero))
-                                               [Nat.zero 10]
-                                               [(Nat.succ n) n])))]
+                                               Nat.zero 10
+                                               (Nat.succ n) n)))]
         (is (e/lit-nat? r))
         (is (= 1 (e/lit-nat-val r)))))))
 
@@ -70,11 +91,11 @@
   (testing "Nat literal patterns desugar to zero/succ chains"
     (let [env (require-env)]
       (let [r0 (whnf env (elab/elaborate env '(match Nat.zero
-                                                [0 100] [1 200] [_ 999])))
+                                                0 100 1 200 _ 999)))
             r1 (whnf env (elab/elaborate env '(match (Nat.succ Nat.zero)
-                                                [0 100] [1 200] [_ 999])))
+                                                0 100 1 200 _ 999)))
             r2 (whnf env (elab/elaborate env '(match (Nat.succ (Nat.succ Nat.zero))
-                                                [0 100] [1 200] [_ 999])))]
+                                                0 100 1 200 _ 999)))]
         (is (= 100 (e/lit-nat-val r0)))
         (is (= 200 (e/lit-nat-val r1)))
         (is (= 999 (e/lit-nat-val r2)))))))
@@ -83,7 +104,7 @@
   (testing "Wildcard pattern matches any constructor"
     (let [env (require-env)]
       (let [r (whnf env (elab/elaborate env '(match (Nat.succ Nat.zero)
-                                               [_ 42])))]
+                                               _ 42)))]
         (is (e/lit-nat? r))
         (is (= 42 (e/lit-nat-val r)))))))
 
@@ -92,8 +113,8 @@
     (let [env (require-env)
           term (elab/elaborate env '(lam [b Bool]
                                          (match b
-                                           [Bool.false 0]
-                                           [Bool.true 1])))
+                                           Bool.false 0
+                                           Bool.true 1)))
           st (tc/mk-tc-state env)
           ty (tc/infer-type st term)]
       ;; Type should be Bool → Nat (after WHNF)
@@ -107,8 +128,8 @@
   (testing "Match result type-checks via kernel TypeChecker"
     (let [env (require-env)
           term (elab/elaborate env '(match (Nat.succ Nat.zero)
-                                      [Nat.zero 0]
-                                      [(Nat.succ n) n]))
+                                      Nat.zero 0
+                                      (Nat.succ n) n))
           tc (TypeChecker. env)
           inferred (.check tc term)]   ; STRICT well-typedness check
       ;; Should type-check without error
@@ -126,8 +147,8 @@
                 env
                 {42 {:tag :local :name "xs" :type list-nat}}
                 '(match xs
-                   [List.nil 0]
-                   [(List.cons x _) x]))
+                   List.nil 0
+                   (List.cons x _) x))
           ;; Type check in context
           st (tc/mk-tc-state env)
           st (assoc st :lctx (red/lctx-add-local {} 42 "xs" list-nat))
@@ -147,21 +168,21 @@
       ;; match n [0 => "zero"] [(succ 0) => "one"] [(succ (succ _)) => "many"]
       ;; Using Nat return type since strings require more setup
       (let [r0 (whnf env (elab/elaborate env '(match Nat.zero
-                                                [0 0]
-                                                [(Nat.succ Nat.zero) 1]
-                                                [(Nat.succ (Nat.succ _)) 2])))
+                                                0 0
+                                                (Nat.succ Nat.zero) 1
+                                                (Nat.succ (Nat.succ _)) 2)))
             r1 (whnf env (elab/elaborate env '(match (Nat.succ Nat.zero)
-                                                [0 0]
-                                                [(Nat.succ Nat.zero) 1]
-                                                [(Nat.succ (Nat.succ _)) 2])))
+                                                0 0
+                                                (Nat.succ Nat.zero) 1
+                                                (Nat.succ (Nat.succ _)) 2)))
             r2 (whnf env (elab/elaborate env '(match (Nat.succ (Nat.succ Nat.zero))
-                                                [0 0]
-                                                [(Nat.succ Nat.zero) 1]
-                                                [(Nat.succ (Nat.succ _)) 2])))
+                                                0 0
+                                                (Nat.succ Nat.zero) 1
+                                                (Nat.succ (Nat.succ _)) 2)))
             r5 (whnf env (elab/elaborate env '(match (Nat.succ (Nat.succ (Nat.succ (Nat.succ (Nat.succ Nat.zero)))))
-                                                [0 0]
-                                                [(Nat.succ Nat.zero) 1]
-                                                [(Nat.succ (Nat.succ _)) 2])))]
+                                                0 0
+                                                (Nat.succ Nat.zero) 1
+                                                (Nat.succ (Nat.succ _)) 2)))]
         (is (= 0 (e/lit-nat-val r0)))
         (is (= 1 (e/lit-nat-val r1)))
         (is (= 2 (e/lit-nat-val r2)))
@@ -370,4 +391,4 @@
       ;; Match on Nat with only zero case — succ is missing
       (is (thrown-with-msg? Exception #"non-exhaustive"
                             (elab/elaborate env '(match Nat.zero
-                                                   [Nat.zero 0])))))))
+                                                   Nat.zero 0)))))))

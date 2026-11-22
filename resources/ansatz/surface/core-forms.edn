@@ -23,7 +23,7 @@
     ;; map-level put — `(assoc mapValue k v)`: prepend into the vmap's entry-chain (shadowing),
     ;; re-tagging as a vmap. A non-map receiver becomes a fresh single-entry map (assoc nil → {}).
     (ansatz.core/defn vput [m :- Value, k :- Value, val :- Value] Value
-      (match m Value Value
+      (match-as m Value Value
              (vnil (Value.vmap (Value.ventry k val (Value.vnil))))
              (vbool [b] (Value.vmap (Value.ventry k val (Value.vnil))))
              (vint [i] (Value.vmap (Value.ventry k val (Value.vnil))))
@@ -38,7 +38,7 @@
 
     ;; get-head: the value of the first entry (vnil if not a map-entry).
     (ansatz.core/defn vget1 [m :- Value] Value
-      (match m Value Value
+      (match-as m Value Value
              (vnil (Value.vnil)) (vbool [b] (Value.vnil)) (vint [i] (Value.vnil))
              (vstr [s] (Value.vnil)) (vkw [s] (Value.vnil)) (vcons [h t] (Value.vnil))
              (vvec [it] (Value.vnil)) (vmap [en] (Value.vnil)) (ventry [k v r] v)
@@ -46,7 +46,7 @@
 
     ;; Structural node count — recursive (compiles via the auto-sizeOf measure).
     (ansatz.core/defn vcount [m :- Value] Nat
-      (match m Value Nat
+      (match-as m Value Nat
              (vnil 0) (vbool [b] 0) (vint [i] 0) (vstr [s] 0) (vkw [s] 0)
              (vcons [h t] (Nat.succ (Nat.add (vcount h) (vcount t))))
              (vvec [it] (Nat.succ (vcount it)))
@@ -62,18 +62,18 @@
 
     ;; ── SCHEMA-AS-REFINEMENT layer: a malli schema is a conformance PREDICATE over Value.
     ;; Type predicates (match on the constructor).
-    (ansatz.core/defn vint?   [v :- Value] Bool (match v Value Bool (vnil false) (vbool [b] false) (vint [i] true)  (vstr [s] false) (vkw [s] false) (vcons [h t] false) (vvec [it] false) (vmap [e] false) (ventry [k w r] false) (vfloat [f] false) (vset [it] false)))
-    (ansatz.core/defn vstr?   [v :- Value] Bool (match v Value Bool (vnil false) (vbool [b] false) (vint [i] false) (vstr [s] true)  (vkw [s] false) (vcons [h t] false) (vvec [it] false) (vmap [e] false) (ventry [k w r] false) (vfloat [f] false) (vset [it] false)))
-    (ansatz.core/defn vbool?  [v :- Value] Bool (match v Value Bool (vnil false) (vbool [b] true)  (vint [i] false) (vstr [s] false) (vkw [s] false) (vcons [h t] false) (vvec [it] false) (vmap [e] false) (ventry [k w r] false) (vfloat [f] false) (vset [it] false)))
-    (ansatz.core/defn vmap?   [v :- Value] Bool (match v Value Bool (vnil false) (vbool [b] false) (vint [i] false) (vstr [s] false) (vkw [s] false) (vcons [h t] false) (vvec [it] false) (vmap [e] true)  (ventry [k w r] false) (vfloat [f] false) (vset [it] false)))
-    (ansatz.core/defn vnil?   [v :- Value] Bool (match v Value Bool (vnil true)  (vbool [b] false) (vint [i] false) (vstr [s] false) (vkw [s] false) (vcons [h t] false) (vvec [it] false) (vmap [e] false) (ventry [k w r] false) (vfloat [f] false) (vset [it] false)))
-    (ansatz.core/defn vkw?    [v :- Value] Bool (match v Value Bool (vnil false) (vbool [b] false) (vint [i] false) (vstr [s] false) (vkw [s] true)  (vcons [h t] false) (vvec [it] false) (vmap [e] false) (ventry [k w r] false) (vfloat [f] false) (vset [it] false)))
-    (ansatz.core/defn vvec?   [v :- Value] Bool (match v Value Bool (vnil false) (vbool [b] false) (vint [i] false) (vstr [s] false) (vkw [s] false) (vcons [h t] false) (vvec [it] true)  (vmap [e] false) (ventry [k w r] false) (vfloat [f] false) (vset [it] false)))
-    (ansatz.core/defn vfloat? [v :- Value] Bool (match v Value Bool (vnil false) (vbool [b] false) (vint [i] false) (vstr [s] false) (vkw [s] false) (vcons [h t] false) (vvec [it] false) (vmap [e] false) (ventry [k w r] false) (vfloat [f] true)  (vset [it] false)))
-    (ansatz.core/defn vset?   [v :- Value] Bool (match v Value Bool (vnil false) (vbool [b] false) (vint [i] false) (vstr [s] false) (vkw [s] false) (vcons [h t] false) (vvec [it] false) (vmap [e] false) (ventry [k w r] false) (vfloat [f] false) (vset [it] true)))
+    (ansatz.core/defn vint?   [v :- Value] Bool (match-as v Value Bool (vnil false) (vbool [b] false) (vint [i] true)  (vstr [s] false) (vkw [s] false) (vcons [h t] false) (vvec [it] false) (vmap [e] false) (ventry [k w r] false) (vfloat [f] false) (vset [it] false)))
+    (ansatz.core/defn vstr?   [v :- Value] Bool (match-as v Value Bool (vnil false) (vbool [b] false) (vint [i] false) (vstr [s] true)  (vkw [s] false) (vcons [h t] false) (vvec [it] false) (vmap [e] false) (ventry [k w r] false) (vfloat [f] false) (vset [it] false)))
+    (ansatz.core/defn vbool?  [v :- Value] Bool (match-as v Value Bool (vnil false) (vbool [b] true)  (vint [i] false) (vstr [s] false) (vkw [s] false) (vcons [h t] false) (vvec [it] false) (vmap [e] false) (ventry [k w r] false) (vfloat [f] false) (vset [it] false)))
+    (ansatz.core/defn vmap?   [v :- Value] Bool (match-as v Value Bool (vnil false) (vbool [b] false) (vint [i] false) (vstr [s] false) (vkw [s] false) (vcons [h t] false) (vvec [it] false) (vmap [e] true)  (ventry [k w r] false) (vfloat [f] false) (vset [it] false)))
+    (ansatz.core/defn vnil?   [v :- Value] Bool (match-as v Value Bool (vnil true)  (vbool [b] false) (vint [i] false) (vstr [s] false) (vkw [s] false) (vcons [h t] false) (vvec [it] false) (vmap [e] false) (ventry [k w r] false) (vfloat [f] false) (vset [it] false)))
+    (ansatz.core/defn vkw?    [v :- Value] Bool (match-as v Value Bool (vnil false) (vbool [b] false) (vint [i] false) (vstr [s] false) (vkw [s] true)  (vcons [h t] false) (vvec [it] false) (vmap [e] false) (ventry [k w r] false) (vfloat [f] false) (vset [it] false)))
+    (ansatz.core/defn vvec?   [v :- Value] Bool (match-as v Value Bool (vnil false) (vbool [b] false) (vint [i] false) (vstr [s] false) (vkw [s] false) (vcons [h t] false) (vvec [it] true)  (vmap [e] false) (ventry [k w r] false) (vfloat [f] false) (vset [it] false)))
+    (ansatz.core/defn vfloat? [v :- Value] Bool (match-as v Value Bool (vnil false) (vbool [b] false) (vint [i] false) (vstr [s] false) (vkw [s] false) (vcons [h t] false) (vvec [it] false) (vmap [e] false) (ventry [k w r] false) (vfloat [f] true)  (vset [it] false)))
+    (ansatz.core/defn vset?   [v :- Value] Bool (match-as v Value Bool (vnil false) (vbool [b] false) (vint [i] false) (vstr [s] false) (vkw [s] false) (vcons [h t] false) (vvec [it] false) (vmap [e] false) (ventry [k w r] false) (vfloat [f] false) (vset [it] true)))
     ;; :any (always true) and :some (non-nil).
     (ansatz.core/defn vany?  [v :- Value] Bool true)
-    (ansatz.core/defn vsome? [v :- Value] Bool (match v Value Bool (vnil false) (vbool [b] true)  (vint [i] true)  (vstr [s] true)  (vkw [s] true)  (vcons [h t] true)  (vvec [it] true)  (vmap [e] true)  (ventry [k w r] true) (vfloat [f] true) (vset [it] true)))
+    (ansatz.core/defn vsome? [v :- Value] Bool (match-as v Value Bool (vnil false) (vbool [b] true)  (vint [i] true)  (vstr [s] true)  (vkw [s] true)  (vcons [h t] true)  (vvec [it] true)  (vmap [e] true)  (ventry [k w r] true) (vfloat [f] true) (vset [it] true)))
 
     ;; Decidable structural equality over the whole Value universe (for :enum / := / :not=).
     ;; Scalars compared by ==/Bool-iff; compounds by structural recursion. Total (fuel on x).
@@ -82,46 +82,46 @@
     ;; nested-match refinement (121 branches x embedded decrease proofs) — encoder
     ;; scaling is a filed follow-up. The TYPE is still kernel-checked.
     (ansatz.core/defn ^:partial veq [x :- Value, y :- Value] Bool
-      (match x Value Bool
-             (vnil (match y Value Bool (vnil true) (vbool [b] false) (vint [i] false) (vstr [s] false) (vkw [s] false) (vcons [h t] false) (vvec [it] false) (vmap [e] false) (ventry [k w r] false) (vfloat [f] false) (vset [it] false)))
-             (vbool [b1] (match y Value Bool (vnil false) (vbool [b2] (if b1 b2 (Bool.not b2))) (vint [i] false) (vstr [s] false) (vkw [s] false) (vcons [h t] false) (vvec [it] false) (vmap [e] false) (ventry [k w r] false) (vfloat [f] false) (vset [it] false)))
-             (vint [i1] (match y Value Bool (vnil false) (vbool [b] false) (vint [i2] (== i1 i2)) (vstr [s] false) (vkw [s] false) (vcons [h t] false) (vvec [it] false) (vmap [e] false) (ventry [k w r] false) (vfloat [f] false) (vset [it] false)))
-             (vstr [s1] (match y Value Bool (vnil false) (vbool [b] false) (vint [i] false) (vstr [s2] (== s1 s2)) (vkw [s] false) (vcons [h t] false) (vvec [it] false) (vmap [e] false) (ventry [k w r] false) (vfloat [f] false) (vset [it] false)))
-             (vkw [s1] (match y Value Bool (vnil false) (vbool [b] false) (vint [i] false) (vstr [s] false) (vkw [s2] (== s1 s2)) (vcons [h t] false) (vvec [it] false) (vmap [e] false) (ventry [k w r] false) (vfloat [f] false) (vset [it] false)))
-             (vcons [h1 t1] (match y Value Bool (vnil false) (vbool [b] false) (vint [i] false) (vstr [s] false) (vkw [s] false) (vcons [h2 t2] (Bool.and (veq h1 h2) (veq t1 t2))) (vvec [it] false) (vmap [e] false) (ventry [k w r] false) (vfloat [f] false) (vset [it] false)))
-             (vvec [it1] (match y Value Bool (vnil false) (vbool [b] false) (vint [i] false) (vstr [s] false) (vkw [s] false) (vcons [h t] false) (vvec [it2] (veq it1 it2)) (vmap [e] false) (ventry [k w r] false) (vfloat [f] false) (vset [it] false)))
-             (vmap [e1] (match y Value Bool (vnil false) (vbool [b] false) (vint [i] false) (vstr [s] false) (vkw [s] false) (vcons [h t] false) (vvec [it] false) (vmap [e2] (veq e1 e2)) (ventry [k w r] false) (vfloat [f] false) (vset [it] false)))
-             (ventry [k1 v1 r1] (match y Value Bool (vnil false) (vbool [b] false) (vint [i] false) (vstr [s] false) (vkw [s] false) (vcons [h t] false) (vvec [it] false) (vmap [e] false) (ventry [k2 v2 r2] (Bool.and (veq k1 k2) (Bool.and (veq v1 v2) (veq r1 r2)))) (vfloat [f] false) (vset [it] false)))
-             (vfloat [f1] (match y Value Bool (vnil false) (vbool [b] false) (vint [i] false) (vstr [s] false) (vkw [s] false) (vcons [h t] false) (vvec [it] false) (vmap [e] false) (ventry [k w r] false) (vfloat [f2] (== f1 f2)) (vset [it] false)))
-             (vset [it1] (match y Value Bool (vnil false) (vbool [b] false) (vint [i] false) (vstr [s] false) (vkw [s] false) (vcons [h t] false) (vvec [it] false) (vmap [e] false) (ventry [k w r] false) (vfloat [f] false) (vset [it2] (veq it1 it2))))))
+      (match-as x Value Bool
+             (vnil (match-as y Value Bool (vnil true) (vbool [b] false) (vint [i] false) (vstr [s] false) (vkw [s] false) (vcons [h t] false) (vvec [it] false) (vmap [e] false) (ventry [k w r] false) (vfloat [f] false) (vset [it] false)))
+             (vbool [b1] (match-as y Value Bool (vnil false) (vbool [b2] (if b1 b2 (Bool.not b2))) (vint [i] false) (vstr [s] false) (vkw [s] false) (vcons [h t] false) (vvec [it] false) (vmap [e] false) (ventry [k w r] false) (vfloat [f] false) (vset [it] false)))
+             (vint [i1] (match-as y Value Bool (vnil false) (vbool [b] false) (vint [i2] (== i1 i2)) (vstr [s] false) (vkw [s] false) (vcons [h t] false) (vvec [it] false) (vmap [e] false) (ventry [k w r] false) (vfloat [f] false) (vset [it] false)))
+             (vstr [s1] (match-as y Value Bool (vnil false) (vbool [b] false) (vint [i] false) (vstr [s2] (== s1 s2)) (vkw [s] false) (vcons [h t] false) (vvec [it] false) (vmap [e] false) (ventry [k w r] false) (vfloat [f] false) (vset [it] false)))
+             (vkw [s1] (match-as y Value Bool (vnil false) (vbool [b] false) (vint [i] false) (vstr [s] false) (vkw [s2] (== s1 s2)) (vcons [h t] false) (vvec [it] false) (vmap [e] false) (ventry [k w r] false) (vfloat [f] false) (vset [it] false)))
+             (vcons [h1 t1] (match-as y Value Bool (vnil false) (vbool [b] false) (vint [i] false) (vstr [s] false) (vkw [s] false) (vcons [h2 t2] (Bool.and (veq h1 h2) (veq t1 t2))) (vvec [it] false) (vmap [e] false) (ventry [k w r] false) (vfloat [f] false) (vset [it] false)))
+             (vvec [it1] (match-as y Value Bool (vnil false) (vbool [b] false) (vint [i] false) (vstr [s] false) (vkw [s] false) (vcons [h t] false) (vvec [it2] (veq it1 it2)) (vmap [e] false) (ventry [k w r] false) (vfloat [f] false) (vset [it] false)))
+             (vmap [e1] (match-as y Value Bool (vnil false) (vbool [b] false) (vint [i] false) (vstr [s] false) (vkw [s] false) (vcons [h t] false) (vvec [it] false) (vmap [e2] (veq e1 e2)) (ventry [k w r] false) (vfloat [f] false) (vset [it] false)))
+             (ventry [k1 v1 r1] (match-as y Value Bool (vnil false) (vbool [b] false) (vint [i] false) (vstr [s] false) (vkw [s] false) (vcons [h t] false) (vvec [it] false) (vmap [e] false) (ventry [k2 v2 r2] (Bool.and (veq k1 k2) (Bool.and (veq v1 v2) (veq r1 r2)))) (vfloat [f] false) (vset [it] false)))
+             (vfloat [f1] (match-as y Value Bool (vnil false) (vbool [b] false) (vint [i] false) (vstr [s] false) (vkw [s] false) (vcons [h t] false) (vvec [it] false) (vmap [e] false) (ventry [k w r] false) (vfloat [f2] (== f1 f2)) (vset [it] false)))
+             (vset [it1] (match-as y Value Bool (vnil false) (vbool [b] false) (vint [i] false) (vstr [s] false) (vkw [s] false) (vcons [h t] false) (vvec [it] false) (vmap [e] false) (ventry [k w r] false) (vfloat [f] false) (vset [it2] (veq it1 it2))))))
 
     ;; Scalar extractors — pull a primitive out of a Value (default for the wrong ctor; under a
     ;; conforms refinement the default is unreachable). Let native arithmetic/compare on EDN
     ;; fields work: `(< 18 (:age r))` elaborates the Value field via `vint-val`.
     (ansatz.core/defn vint-val [v :- Value] Int
-      (match v Value Int (vnil (Int.ofNat 0)) (vbool [b] (Int.ofNat 0)) (vint [i] i) (vstr [s] (Int.ofNat 0)) (vkw [s] (Int.ofNat 0)) (vcons [h t] (Int.ofNat 0)) (vvec [it] (Int.ofNat 0)) (vmap [e] (Int.ofNat 0)) (ventry [k w r] (Int.ofNat 0)) (vfloat [f] (Int.ofNat 0)) (vset [it] (Int.ofNat 0))))
+      (match-as v Value Int (vnil (Int.ofNat 0)) (vbool [b] (Int.ofNat 0)) (vint [i] i) (vstr [s] (Int.ofNat 0)) (vkw [s] (Int.ofNat 0)) (vcons [h t] (Int.ofNat 0)) (vvec [it] (Int.ofNat 0)) (vmap [e] (Int.ofNat 0)) (ventry [k w r] (Int.ofNat 0)) (vfloat [f] (Int.ofNat 0)) (vset [it] (Int.ofNat 0))))
     (ansatz.core/defn vfloat-val [v :- Value] Float
-      (match v Value Float (vnil 0.0) (vbool [b] 0.0) (vint [i] 0.0) (vstr [s] 0.0) (vkw [s] 0.0) (vcons [h t] 0.0) (vvec [it] 0.0) (vmap [e] 0.0) (ventry [k w r] 0.0) (vfloat [f] f) (vset [it] 0.0)))
+      (match-as v Value Float (vnil 0.0) (vbool [b] 0.0) (vint [i] 0.0) (vstr [s] 0.0) (vkw [s] 0.0) (vcons [h t] 0.0) (vvec [it] 0.0) (vmap [e] 0.0) (ventry [k w r] 0.0) (vfloat [f] f) (vset [it] 0.0)))
     (ansatz.core/defn vstr-val [v :- Value] String
-      (match v Value String (vnil "") (vbool [b] "") (vint [i] "") (vstr [s] s) (vkw [s] s) (vcons [h t] "") (vvec [it] "") (vmap [e] "") (ventry [k w r] "") (vfloat [f] "") (vset [it] "")))
+      (match-as v Value String (vnil "") (vbool [b] "") (vint [i] "") (vstr [s] s) (vkw [s] s) (vcons [h t] "") (vvec [it] "") (vmap [e] "") (ventry [k w r] "") (vfloat [f] "") (vset [it] "")))
     (ansatz.core/defn vbool-val [v :- Value] Bool
-      (match v Value Bool (vnil false) (vbool [b] b) (vint [i] false) (vstr [s] false) (vkw [s] false) (vcons [h t] false) (vvec [it] false) (vmap [e] false) (ventry [k w r] false) (vfloat [f] false) (vset [it] false)))
+      (match-as v Value Bool (vnil false) (vbool [b] b) (vint [i] false) (vstr [s] false) (vkw [s] false) (vcons [h t] false) (vvec [it] false) (vmap [e] false) (ventry [k w r] false) (vfloat [f] false) (vset [it] false)))
 
     ;; Element count — `(count v)` over a Value. vchain-len walks a vcons/ventry chain; vsize
     ;; gives the top-level element count (vstr → its String.length, like Clojure `count`).
     (ansatz.core/defn vchain-len [c :- Value] Nat
-      (match c Value Nat (vnil 0) (vbool [b] 0) (vint [i] 0) (vstr [s] 0) (vkw [s] 0)
+      (match-as c Value Nat (vnil 0) (vbool [b] 0) (vint [i] 0) (vstr [s] 0) (vkw [s] 0)
              (vcons [h t] (Nat.succ (vchain-len t))) (vvec [it] 0) (vmap [e] 0)
              (ventry [k v r] (Nat.succ (vchain-len r))) (vfloat [f] 0) (vset [it] 0)))
     (ansatz.core/defn vsize [v :- Value] Nat
-      (match v Value Nat (vnil 0) (vbool [b] 0) (vint [i] 0) (vstr [s] (String.length s)) (vkw [s] 0)
+      (match-as v Value Nat (vnil 0) (vbool [b] 0) (vint [i] 0) (vstr [s] (String.length s)) (vkw [s] 0)
              (vcons [h t] (Nat.succ (vchain-len t))) (vvec [it] (vchain-len it)) (vmap [e] (vchain-len e))
              (ventry [k v r] 0) (vfloat [f] 0) (vset [it] (vchain-len it))))
 
     ;; Key equality (keyword keys via String ==).
     (ansatz.core/defn vkeq [x :- Value, y :- Value] Bool
-      (match x Value Bool (vnil false) (vbool [b] false) (vint [i] false) (vstr [s] false)
-             (vkw [s1] (match y Value Bool (vnil false) (vbool [b] false) (vint [i] false) (vstr [s] false)
+      (match-as x Value Bool (vnil false) (vbool [b] false) (vint [i] false) (vstr [s] false)
+             (vkw [s1] (match-as y Value Bool (vnil false) (vbool [b] false) (vint [i] false) (vstr [s] false)
                               (vkw [s2] (== s1 s2)) (vcons [h t] false) (vvec [it] false) (vmap [e] false) (ventry [k w r] false) (vfloat [f] false) (vset [it] false)))
              (vcons [h t] false) (vvec [it] false) (vmap [e] false) (ventry [k w r] false) (vfloat [f] false) (vset [it] false)))
 
@@ -129,22 +129,22 @@
     ;; RECURSION over the entry-chain (Value-returning vget hits the custom-recursion gap, so
     ;; we inline the type-check instead). One per scalar malli type.
     (ansatz.core/defn key-int? [k :- Value, m :- Value] Bool
-      (match m Value Bool (vnil false) (vbool [b] false) (vint [i] false) (vstr [s] false) (vkw [s] false)
+      (match-as m Value Bool (vnil false) (vbool [b] false) (vint [i] false) (vstr [s] false) (vkw [s] false)
              (vcons [h t] false) (vvec [it] false) (vmap [en] (key-int? k en))
              (ventry [ek ev rest] (if (vkeq k ek) (vint? ev) (key-int? k rest))) (vfloat [f] false) (vset [it] false)))
     (ansatz.core/defn key-str? [k :- Value, m :- Value] Bool
-      (match m Value Bool (vnil false) (vbool [b] false) (vint [i] false) (vstr [s] false) (vkw [s] false)
+      (match-as m Value Bool (vnil false) (vbool [b] false) (vint [i] false) (vstr [s] false) (vkw [s] false)
              (vcons [h t] false) (vvec [it] false) (vmap [en] (key-str? k en))
              (ventry [ek ev rest] (if (vkeq k ek) (vstr? ev) (key-str? k rest))) (vfloat [f] false) (vset [it] false)))
     (ansatz.core/defn key-bool? [k :- Value, m :- Value] Bool
-      (match m Value Bool (vnil false) (vbool [b] false) (vint [i] false) (vstr [s] false) (vkw [s] false)
+      (match-as m Value Bool (vnil false) (vbool [b] false) (vint [i] false) (vstr [s] false) (vkw [s] false)
              (vcons [h t] false) (vvec [it] false) (vmap [en] (key-bool? k en))
              (ventry [ek ev rest] (if (vkeq k ek) (vbool? ev) (key-bool? k rest))) (vfloat [f] false) (vset [it] false)))
 
     ;; vget — lookup key `k` in map `m`, returning the VALUE (vnil if absent). A general
     ;; Value-RETURNING recursion (works since the #58 fuel-base-case fix).
     (ansatz.core/defn vget [k :- Value, m :- Value] Value
-      (match m Value Value (vnil (Value.vnil)) (vbool [b] (Value.vnil)) (vint [i] (Value.vnil))
+      (match-as m Value Value (vnil (Value.vnil)) (vbool [b] (Value.vnil)) (vint [i] (Value.vnil))
              (vstr [s] (Value.vnil)) (vkw [s] (Value.vnil)) (vcons [h t] (Value.vnil)) (vvec [it] (Value.vnil))
              (vmap [en] (vget k en))
              (ventry [ek ev rest] (if (vkeq k ek) ev (vget k rest))) (vfloat [f] (Value.vnil)) (vset [it] (Value.vnil))))
@@ -157,38 +157,38 @@
     ;; ── more native-over-Value map verbs (contains?/keys/vals/dissoc/merge) ──
     ;; contains? — does key k exist in map m? Bool recursion over the entry-chain.
     (ansatz.core/defn vcontains? [k :- Value, m :- Value] Bool
-      (match m Value Bool (vnil false) (vbool [b] false) (vint [i] false) (vstr [s] false) (vkw [s] false)
+      (match-as m Value Bool (vnil false) (vbool [b] false) (vint [i] false) (vstr [s] false) (vkw [s] false)
              (vcons [h t] false) (vvec [it] false) (vmap [en] (vcontains? k en))
              (ventry [ek ev rest] (if (vkeq k ek) true (vcontains? k rest))) (vfloat [f] false) (vset [it] false)))
 
     ;; map-chain extract (entry-chain of a vmap, vnil otherwise).
     (ansatz.core/defn vmap-chain [m :- Value] Value
-      (match m Value Value (vnil (Value.vnil)) (vbool [b] (Value.vnil)) (vint [i] (Value.vnil)) (vstr [s] (Value.vnil)) (vkw [s] (Value.vnil))
+      (match-as m Value Value (vnil (Value.vnil)) (vbool [b] (Value.vnil)) (vint [i] (Value.vnil)) (vstr [s] (Value.vnil)) (vkw [s] (Value.vnil))
              (vcons [h t] (Value.vnil)) (vvec [it] (Value.vnil)) (vmap [e] e)
              (ventry [k v r] (Value.vnil)) (vfloat [f] (Value.vnil)) (vset [it] (Value.vnil))))
 
     ;; keys/vals — collect the entry-chain's keys/values into a vcons chain, wrapped as a vvec.
     (ansatz.core/defn vkeys-chain [c :- Value] Value
-      (match c Value Value (vnil (Value.vnil)) (vbool [b] (Value.vnil)) (vint [i] (Value.vnil)) (vstr [s] (Value.vnil)) (vkw [s] (Value.vnil))
+      (match-as c Value Value (vnil (Value.vnil)) (vbool [b] (Value.vnil)) (vint [i] (Value.vnil)) (vstr [s] (Value.vnil)) (vkw [s] (Value.vnil))
              (vcons [h t] (Value.vnil)) (vvec [it] (Value.vnil)) (vmap [e] (Value.vnil))
              (ventry [k v rest] (Value.vcons k (vkeys-chain rest))) (vfloat [f] (Value.vnil)) (vset [it] (Value.vnil))))
     (ansatz.core/defn vkeys [m :- Value] Value (Value.vvec (vkeys-chain (vmap-chain m))))
     (ansatz.core/defn vvals-chain [c :- Value] Value
-      (match c Value Value (vnil (Value.vnil)) (vbool [b] (Value.vnil)) (vint [i] (Value.vnil)) (vstr [s] (Value.vnil)) (vkw [s] (Value.vnil))
+      (match-as c Value Value (vnil (Value.vnil)) (vbool [b] (Value.vnil)) (vint [i] (Value.vnil)) (vstr [s] (Value.vnil)) (vkw [s] (Value.vnil))
              (vcons [h t] (Value.vnil)) (vvec [it] (Value.vnil)) (vmap [e] (Value.vnil))
              (ventry [k v rest] (Value.vcons v (vvals-chain rest))) (vfloat [f] (Value.vnil)) (vset [it] (Value.vnil))))
     (ansatz.core/defn vvals [m :- Value] Value (Value.vvec (vvals-chain (vmap-chain m))))
 
     ;; dissoc — drop key k (rebuild the entry-chain without it). Value-returning recursion.
     (ansatz.core/defn vdissoc-chain [k :- Value, c :- Value] Value
-      (match c Value Value (vnil (Value.vnil)) (vbool [b] (Value.vnil)) (vint [i] (Value.vnil)) (vstr [s] (Value.vnil)) (vkw [s] (Value.vnil))
+      (match-as c Value Value (vnil (Value.vnil)) (vbool [b] (Value.vnil)) (vint [i] (Value.vnil)) (vstr [s] (Value.vnil)) (vkw [s] (Value.vnil))
              (vcons [h t] (Value.vnil)) (vvec [it] (Value.vnil)) (vmap [e] (Value.vnil))
              (ventry [ek ev rest] (if (vkeq k ek) (vdissoc-chain k rest) (Value.ventry ek ev (vdissoc-chain k rest)))) (vfloat [f] (Value.vnil)) (vset [it] (Value.vnil))))
     (ansatz.core/defn vdissoc [k :- Value, m :- Value] Value (Value.vmap (vdissoc-chain k (vmap-chain m))))
 
     ;; merge — b's entries shadow a's (prepend b's chain onto a's, matching Clojure merge).
     (ansatz.core/defn vmerge-chain [src :- Value, dst :- Value] Value
-      (match src Value Value (vnil dst) (vbool [b] dst) (vint [i] dst) (vstr [s] dst) (vkw [s] dst)
+      (match-as src Value Value (vnil dst) (vbool [b] dst) (vint [i] dst) (vstr [s] dst) (vkw [s] dst)
              (vcons [h t] dst) (vvec [it] dst) (vmap [e] dst)
              (ventry [k v rest] (Value.ventry k v (vmerge-chain rest dst))) (vfloat [f] dst) (vset [it] dst)))
     (ansatz.core/defn vmerge [a :- Value, b :- Value] Value

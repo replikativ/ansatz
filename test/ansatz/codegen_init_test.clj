@@ -224,7 +224,7 @@
     (is (true? (le -2 -2)))
     (is (false? (le 1 -2))))
   (let [magnitude (a/define-verified 'int-match-magnitude '[i :- Int] 'Nat
-                    '(match i [(ofNat n) n] [(negSucc n) n]))]
+                    '(match i (ofNat n) n (negSucc n) n))]
     (doseq [[value expected] [[-4 3] [-1 0] [0 0] [3 3]]]
       (is (= expected (magnitude value)))
       (let [arg (elab/elaborate (a/env)

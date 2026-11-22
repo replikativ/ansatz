@@ -89,11 +89,11 @@ Lean 4                                    Ansatz
 ────────────────────────────────────────  ──────────────────────────────────────
 def size : MyList Nat → Nat               (a/defn size [t :- (MyList Nat)] Nat
   | .nil => 0                               (match t
-  | .cons _ tail => 1 + size tail             [nil 0]
-                                              [(cons head tail) (+ 1 (size tail))]))
+  | .cons _ tail => 1 + size tail             nil 0
+                                              (cons head tail) (+ 1 (size tail))))
 ```
 
-As in Lean, the recursive call is written directly and the kernel checks that it is structural; the inductive type and the result type are inferred. The older explicit form `(match t (MyList Nat) Nat (nil 0) (cons [head tail] (+ 1 ih_tail)))`, with the induction hypothesis named after the field, is still accepted.
+As in Lean, the recursive call is written directly and the kernel checks that it is structural; the inductive type and the result type are inferred. Use `(match-as t (MyList Nat) Nat (nil 0) (cons [head tail] (+ 1 ih_tail)))` to supply both types explicitly and name the induction hypothesis after its recursive field.
 
 ## Kernel Compatibility
 

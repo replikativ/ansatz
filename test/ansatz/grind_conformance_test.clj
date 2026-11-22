@@ -9,22 +9,22 @@
 
 (def ^:private defs
   '[(ansatz.core/defn gcapp [xs :- (List Nat), ys :- (List Nat)] (List Nat)
-      (match xs [nil ys] [(cons h t) (List.cons Nat h (gcapp t ys))]))
+      (match xs nil ys (cons h t) (List.cons Nat h (gcapp t ys))))
     (ansatz.core/defn gclen [xs :- (List Nat)] Nat
-      (match xs [nil 0] [(cons h t) (+ (gclen t) 1)]))
+      (match xs nil 0 (cons h t) (+ (gclen t) 1)))
     (ansatz.core/defn gcmap [f :- (=> Nat Nat), xs :- (List Nat)] (List Nat)
-      (match xs [nil (List.nil Nat)] [(cons h t) (List.cons Nat (f h) (gcmap f t))]))
+      (match xs nil (List.nil Nat) (cons h t) (List.cons Nat (f h) (gcmap f t))))
     (ansatz.core/defn gcfilter [p :- (=> Nat Bool), xs :- (List Nat)] (List Nat)
-      (match xs [nil (List.nil Nat)] [(cons h t) (if (p h) (List.cons Nat h (gcfilter p t)) (gcfilter p t))]))
+      (match xs nil (List.nil Nat) (cons h t) (if (p h) (List.cons Nat h (gcfilter p t)) (gcfilter p t))))
     (ansatz.core/structure GCOwn [] (ent Nat) (scope Nat))
     (ansatz.core/defn gcmemq [x :- Nat, xs :- (List Nat)] Bool
-      (match xs [nil false] [(cons h t) (if (Nat.beq x h) true (gcmemq x t))]))
+      (match xs nil false (cons h t) (if (Nat.beq x h) true (gcmemq x t))))
     (ansatz.core/defn gcdropNat [x :- Nat, xs :- (List Nat)] (List Nat)
-      (match xs [nil (List.nil Nat)] [(cons h t) (if (Nat.beq h x) (gcdropNat x t) (List.cons Nat h (gcdropNat x t)))]))
+      (match xs nil (List.nil Nat) (cons h t) (if (Nat.beq h x) (gcdropNat x t) (List.cons Nat h (gcdropNat x t)))))
     (ansatz.core/defn gcownersOpen [os :- (List GCOwn), op :- (List Nat)] Bool
-      (match os [nil true] [(cons o t) (if (gcmemq (:scope o) op) (gcownersOpen t op) false)]))
+      (match os nil true (cons o t) (if (gcmemq (:scope o) op) (gcownersOpen t op) false)))
     (ansatz.core/defn gcdropOwned [sc :- Nat, os :- (List GCOwn)] (List GCOwn)
-      (match os [nil (List.nil GCOwn)] [(cons o t) (if (Nat.beq (:scope o) sc) (gcdropOwned sc t) (List.cons GCOwn o (gcdropOwned sc t)))]))])
+      (match os nil (List.nil GCOwn) (cons o t) (if (Nat.beq (:scope o) sc) (gcdropOwned sc t) (List.cons GCOwn o (gcdropOwned sc t)))))])
 
 (def ^:private theorems
   '[[g01_trans [a :- Nat, b :- Nat, c :- Nat, h1 :- (= a b), h2 :- (= b c)]

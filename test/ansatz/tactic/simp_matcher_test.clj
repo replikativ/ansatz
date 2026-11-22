@@ -18,15 +18,15 @@
     (a/load-init!)
     (binding [a/*verbose* false *ns* (the-ns 'ansatz.tactic.simp-matcher-test)]
       (eval '(a/defn matcher-option [n :- Nat] (Option Nat)
-               (match n [zero (Option.none Nat)] [(succ k) (Option.some Nat k)])))
+               (match n zero (Option.none Nat) (succ k) (Option.some Nat k))))
       (eval '(a/defn matcher-clamp [o :- (Option Nat)] Nat
-               (match o [none 0] [(some m) (match (Nat.ble m 5) [true m] [false 5])])))
+               (match o none 0 (some m) (match (Nat.ble m 5) true m false 5))))
       (eval '(a/inductive MatcherStore [] (mk [a Nat] [b Nat])))
       (eval '(a/defn matcher-store-option [s :- MatcherStore, o :- (Option Nat)] (Option Nat)
-               (match o [none (Option.some Nat 0)]
-                      [(some m) (match s [(mk a b) (match (Nat.ble m a)
-                                                     [true (Option.some Nat a)]
-                                                     [false (Option.some Nat b)])])])))
+               (match o none (Option.some Nat 0)
+                      (some m) (match s (mk a b) (match (Nat.ble m a)
+                                                     true (Option.some Nat a)
+                                                     false (Option.some Nat b))))))
       (t))))
 
 (deftest rewritten-discriminant-reduces-before-split
@@ -100,7 +100,7 @@
 
 (deftest matcher-discriminant-reduces-class-arithmetic
   (eval '(a/defn matcher-arithmetic [n :- Nat] Bool
-           (match (+ n 1) [zero false] [(succ k) true])))
+           (match (+ n 1) zero false (succ k) true)))
   (let [environment (a/env)
         unfolded (meta/unfold-const-app environment (e/app (c "matcher-arithmetic") (e/lit-nat 0)))
         result (#'simp/try-reduce-matcher (tc/mk-tc-state environment) unfolded)]
@@ -110,7 +110,7 @@
 
 (deftest matcher-numeric-fields-unfold-despite-irreducible-status
   (eval '(a/defn matcher-numeric [n :- Nat] Bool
-           (match n [zero false] [(succ k) true])))
+           (match n zero false (succ k) true)))
   (let [nat (c "Nat")
         cases [["OfNat.ofNat"
                 (e/app* (e/const' (name/from-string "OfNat.ofNat") [lvl/zero])

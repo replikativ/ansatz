@@ -27,8 +27,8 @@
   (a/structure CovHandle [] (id Nat) (spin Nat) (reachable Bool) (touched Bool) (dropped Bool))
   (a/structure CovEntity [] (id Nat) (tokens (List Nat)))
   (a/defn covmem [x :- Nat, xs :- (List Nat)] Bool
-    (match xs [nil false]
-           [(cons h t) (if (Nat.beq x h) true (covmem x t))]))
+    (match xs nil false
+           (cons h t) (if (Nat.beq x h) true (covmem x t))))
   (a/defn covone [h :- CovHandle, e :- CovEntity] Bool
     (if (Nat.beq (:spin h) (:id e))
       (Bool.and
@@ -37,8 +37,8 @@
          (covmem (:id h) (:tokens e)) true))
       true))
   (a/defn covall [h :- CovHandle, es :- (List CovEntity)] Bool
-    (match es [nil true]
-           [(cons e t) (Bool.and (covone h e) (covall h t))]))
+    (match es nil true
+           (cons e t) (Bool.and (covone h e) (covall h t))))
   (a/deftheorem cov-one-loss [h :- CovHandle, e :- CovEntity]
     (=> (= (covone h e) true)
         (= (covone (CovHandle.mk (:id h) (:spin h) false (:touched h) (:dropped h)) e) true))

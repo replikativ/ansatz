@@ -130,7 +130,7 @@
   (def cnameCD (nm "ex-cd"))
   (def tenvCD (env/add-constant (env/fork (a/env)) (env/mk-axiom cnameCD [] (e/forall' "n" NAT NAT :default))))
   (def rawCD (binding [sm/*use-cases-on?* true]
-               (let [b (bt tenvCD (parse '[^Nat n]) 'Nat '(match n Nat Nat (zero 0) (succ [pred] (ex-cd pred))))]
+               (let [b (bt tenvCD (parse '[^Nat n]) 'Nat '(match-as n Nat Nat (zero 0) (succ [pred] (ex-cd pred))))]
                  (loop [b b i 0] (if (and (< i 1) (e/lam? b)) (recur (e/lam-body b) (inc i)) b)))))
   (def mlam (e/lam "n" NAT (e/bvar 0) :default))
   (def termG (wf-fix-encode tenvCD cnameCD rawCD mlam NAT NAT))

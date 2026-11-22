@@ -95,9 +95,9 @@
   (a/theorem ifp-small-2 [] (= (ifp-small? 2) true) (rfl)))
 
 (deftest pattern-match-and-direct-recursion
-  (a/defn ifp-len [l :- (List Nat)] Nat (match l [nil 0] [(cons hd tl) (+ 1 (ifp-len tl))]))
+  (a/defn ifp-len [l :- (List Nat)] Nat (match l nil 0 (cons hd tl) (+ 1 (ifp-len tl))))
   (a/defn ifp-lappend [xs :- (List Nat), ys :- (List Nat)] (List Nat)
-    (match xs [nil ys] [(cons hd tl) (cons hd (ifp-lappend tl ys))]))
+    (match xs nil ys (cons hd tl) (cons hd (ifp-lappend tl ys))))
   (is (= 3 (ifp-len '(1 2 3))))
   (is (= '(1 2 3 4) (ifp-lappend '(1 2) '(3 4))))
   (a/theorem ifp-len-nil [] (= (ifp-len nil) 0) (rfl))
@@ -111,18 +111,18 @@
 
 (deftest structural-recursion-with-varying-parameters
   (a/defn ifp-vary [j :- Nat, n :- Nat] Nat
-    (match n [0 j] [(Nat.succ k) (ifp-vary (Nat.succ j) k)]))
+    (match n 0 j (Nat.succ k) (ifp-vary (Nat.succ j) k)))
   (is (= 7 (ifp-vary 3 4)))
   (is (some? (kenv/lookup (a/env) (kn/from-string "ifp-vary.eq_2"))))
   (is (empty? (:errors (:equation-generation (meta ifp-vary)))))
   (a/theorem ifp-vary-zero [j :- Nat] (= (ifp-vary j 0) j) (rfl))
   (a/defn ifp-vary-scrutinee [j :- Nat, v :- Nat, n :- Nat] Nat
     (match n
-      [0 (+ j v)]
-      [(Nat.succ k)
+      0 (+ j v)
+      (Nat.succ k)
        (match (ifp-vary-scrutinee (Nat.succ j) v k)
-         [0 v]
-         [(Nat.succ r) r])]))
+         0 v
+         (Nat.succ r) r)))
   (is (= 3 (ifp-vary-scrutinee 2 1 3)))
   (is (some? (kenv/lookup (a/env) (kn/from-string "ifp-vary-scrutinee.eq_2"))))
   (is (empty? (:errors (:equation-generation (meta ifp-vary-scrutinee))))))
@@ -131,15 +131,15 @@
   (testing "the rec-call collector reads the pattern form, so the sizeOf measure is found"
     (a/defn ifp-merge [xs :- (List Nat), ys :- (List Nat)] (List Nat)
       (match xs
-        [nil ys]
-        [(cons x xs') (match ys
-                        [nil (cons x xs')]
-                        [(cons y ys') (if (<= x y)
+        nil ys
+        (cons x xs') (match ys
+                        nil (cons x xs')
+                        (cons y ys') (if (<= x y)
                                         (cons x (ifp-merge xs' (cons y ys')))
-                                        (cons y (ifp-merge (cons x xs') ys')))])]))
+                                        (cons y (ifp-merge (cons x xs') ys'))))))
     (is (= '(1 2 3 4 5 6) (ifp-merge '(1 3 5) '(2 4 6))))
     (a/defn ^Nat ifp-pairs [^{:- (List Nat)} xs]
-      (match xs [nil 0] [(cons h t) (match t [nil 0] [(cons h2 t2) (+ 1 (ifp-pairs t2))])]))
+      (match xs nil 0 (cons h t) (match t nil 0 (cons h2 t2) (+ 1 (ifp-pairs t2)))))
     (is (= 2 (ifp-pairs '(1 2 3 4 5))))))
 
 (deftest pow-takes-the-base-type

@@ -21,7 +21,7 @@ If you already write [malli](https://github.com/metosin/malli)-instrumented Cloj
 ;; still compiles to an ordinary Clojure fn.
 (m/=> add2 [:=> [:cat nat-int? nat-int?] nat-int?])
 (a/defn add2 [x y]
-  (match x [zero y] [(succ k) (+ 1 (add2 k y))]))
+  (match x zero y (succ k) (+ 1 (add2 k y))))
 (add2 20 22) ;; => 42
 
 ;; :int is a Clojure long, negative values included, so it is Int (nat-int? is Nat)
@@ -53,13 +53,13 @@ in the kernel term):
 ```clojure
 (a/defn merge [xs :- (List Nat), ys :- (List Nat)] (List Nat)
   (match xs
-    [nil ys]
-    [(cons x xs')
+    nil ys
+    (cons x xs')
      (match ys
-       [nil (cons x xs')]
-       [(cons y ys') (if (<= x y)
+       nil (cons x xs')
+       (cons y ys') (if (<= x y)
                        (cons x (merge xs' (cons y ys')))
-                       (cons y (merge (cons x xs') ys')))])]))
+                       (cons y (merge (cons x xs') ys'))))))
 ;; explicit spellings also work:
 ;;   :termination-by (+ (sizeOf xs) (sizeOf ys))   or   [(sizeOf xs) (sizeOf ys)]
 
@@ -92,19 +92,19 @@ function values in verified bodies.
 ;; The types are inferred: the tree's from `t`, the result's from the signature.
 (a/defn rb-size [t :- (RBTree Nat)] Nat
   (match t
-    [leaf 0]
-    [(node color left key right) (+ 1 (+ (rb-size left) (rb-size right)))]))
+    leaf 0
+    (node color left key right) (+ 1 (+ (rb-size left) (rb-size right)))))
 
 ;; BST lookup — recursion into a subtree is an ordinary call
 (a/defn rb-member [t :- (RBTree Nat), k :- Nat] Bool
   (match t
-    [leaf false]
-    [(node color left key right)
+    leaf false
+    (node color left key right)
      (if (< k key)
        (rb-member left k)                 ;; recurse into left subtree
        (if (== k key)
          true                             ;; found it
-         (rb-member right k)))]))         ;; recurse into right subtree
+         (rb-member right k)))))         ;; recurse into right subtree
 
 ;; A verified constant (constructors are ordinary constants in term position)
 (a/defn tree [] (RBTree Nat)
@@ -530,17 +530,17 @@ right-nested, as Lean's `→`. `->` is always Clojure's threading macro, never a
 (a/defn ^Nat ack [^Nat m ^Nat n]
   :termination-by [m n]
   (match m
-    [zero (+ n 1)]
-    [(succ k) (match n [zero (ack k 1)] [(succ j) (ack k (ack (Nat.succ k) j))])]))
+    zero (+ n 1)
+    (succ k) (match n zero (ack k 1) (succ j) (ack k (ack (Nat.succ k) j)))))
 
 ;; Recursion over data structures — sizeOf measures (auto-guessed for List/custom inductives)
 (a/defn ^Nat pairs [^{:- (List Nat)} xs]                ; recurses on rest-of-rest
-  (match xs [nil 0] [(cons h t) (match t [nil 0] [(cons h2 t2) (+ 1 (pairs t2))])]))
+  (match xs nil 0 (cons h t) (match t nil 0 (cons h2 t2) (+ 1 (pairs t2)))))
 
 ;; Malli schemas as signatures (optional dep): defn → a/defn, schema unchanged
 (m/=> add2 [:=> [:cat nat-int? nat-int?] nat-int?])   ; :int is Int, nat-int? is Nat
 (a/defn add2 [x y]
-  (match x [zero y] [(succ k) (+ 1 (add2 k y))]))
+  (match x zero y (succ k) (+ 1 (add2 k y))))
 ;; [:map …] schemas become named-field records: keyword access verifies, runtime = plain maps
 (m/=> dot [:=> [:cat [:map [:x :int] [:y :int]]] :int])
 (a/defn dot [p] (+ (:x p) (:y p)))                       ; (dot {:x 2 :y 3}) => 5
@@ -620,23 +620,31 @@ and requires every extern of the bundled Init to be native, compiled or listed w
 
 ### Pattern Matching
 
+Write one pattern and one result per arm, in order. Each is a single reader form.
+To migrate an inferred match, remove the brackets around each arm. Keep vectors
+that belong to the pattern itself. For example, `(match [a b] [0 0] true [_ _] false)`
+matches two numbers. The first matching arm wins, and its pattern variables are
+in scope in its result. To migrate the explicit form, change its head to
+`match-as` and keep its constructor clauses. It also lets you supply a result
+type when a branch such as an empty list needs an expected element type.
+
 ```clojure
 ;; Match on inductive types — uses CIC recursor under the hood. As in Lean, the
 ;; inductive type comes from the scrutinee and the result type from the context.
 (match expr
-  [ctor1 body1]                          ;; constructor without fields
-  [(ctor2 field1 field2 ...) body2])     ;; constructor with field bindings
+  ctor1 body1                          ;; constructor without fields
+  (ctor2 field1 field2 ...) body2)     ;; constructor with field bindings
 
 ;; Recursion is an ordinary call on a field; the kernel checks it is structural
 ;; (or finds a terminating measure)
 (a/defn size [t :- (MyList Nat)] Nat
   (match t
-    [nil 0]
-    [(cons head tail) (+ 1 (size tail))]))
+    nil 0
+    (cons head tail) (+ 1 (size tail))))
 
 ;; The explicit form, with both types spelled out and induction hypotheses
-;; named after the recursive fields (ih_tail), is still accepted:
-;;   (match t (MyList Nat) Nat (nil 0) (cons [head tail] (+ 1 ih_tail)))
+;; named after the recursive fields, uses match-as:
+;;   (match-as t (MyList Nat) Nat (nil 0) (cons [head tail] (+ 1 ih_tail)))
 ```
 
 ### Tactics

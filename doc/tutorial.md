@@ -61,8 +61,8 @@ Lists are the bread and butter of Clojure. In Ansatz, `List Nat` is a verified l
 ;; Length of a list
 (a/defn len [l :- (List Nat)] Nat
   (match l
-    [nil 0]
-    [(cons hd tl) (+ 1 (len tl))]))
+    nil 0
+    (cons hd tl) (+ 1 (len tl))))
 ```
 
 The `match` expression does structural recursion on `l`:
@@ -83,16 +83,16 @@ More examples:
 ;; Append two lists
 (a/defn lappend [xs :- (List Nat), ys :- (List Nat)] (List Nat)
   (match xs
-    [nil ys]
-    [(cons hd tl) (cons hd (lappend tl ys))]))
+    nil ys
+    (cons hd tl) (cons hd (lappend tl ys))))
 
 (lappend '(1 2) '(3 4)) ;; => (1 2 3 4)
 
 ;; Map a function over a list
 (a/defn lmap [f :- (arrow Nat Nat), l :- (List Nat)] (List Nat)
   (match l
-    [nil nil]
-    [(cons hd tl) (cons (f hd) (lmap f tl))]))
+    nil nil
+    (cons hd tl) (cons (f hd) (lmap f tl))))
 
 (lmap inc '(1 2 3)) ;; => (2 3 4)
 ```
@@ -254,8 +254,8 @@ Type parameters (like `α` in `Tree`) are automatically inferred:
 ;; No need to write (Tree.node Nat ...) — α is inferred from val
 (a/defn tree-sum [t :- (Tree Nat)] Nat
   (match t
-    [leaf 0]
-    [(node l v r) (+ v (+ (tree-sum l) (tree-sum r)))]))
+    leaf 0
+    (node l v r) (+ v (+ (tree-sum l) (tree-sum r)))))
 ```
 
 Structures compile to Clojure records:

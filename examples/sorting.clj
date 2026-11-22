@@ -19,13 +19,13 @@
 (a/defn merge [xs :- (List Nat), ys :- (List Nat)] (List Nat)
   :termination-by (+ (sizeOf xs) (sizeOf ys))
   (match xs
-    [nil ys]
-    [(cons x xs')
+    nil ys
+    (cons x xs')
      (match ys
-       [nil (cons x xs')]
-       [(cons y ys') (if (<= x y)
+       nil (cons x xs')
+       (cons y ys') (if (<= x y)
                        (cons x (merge xs' (cons y ys')))
-                       (cons y (merge (cons x xs') ys')))])]))
+                       (cons y (merge (cons x xs') ys'))))))
 
 (println "(merge '(1 3 5) '(2 4 6)) =>" (merge '(1 3 5) '(2 4 6)))
 (println "(merge '() '(1 2))         =>" (merge '() '(1 2)))
@@ -39,13 +39,13 @@
 
 (a/defn take [n :- Nat, xs :- (List Nat)] (List Nat)
   (match n
-    [zero nil]
-    [(succ k) (match xs [nil nil] [(cons hd tl) (cons hd (take k tl))])]))
+    zero nil
+    (succ k) (match xs nil nil (cons hd tl) (cons hd (take k tl)))))
 
 (a/defn drop [n :- Nat, xs :- (List Nat)] (List Nat)
   (match n
-    [zero xs]
-    [(succ k) (match xs [nil nil] [(cons hd tl) (drop k tl)])]))
+    zero xs
+    (succ k) (match xs nil nil (cons hd tl) (drop k tl))))
 
 (println "(take 2 '(1 2 3 4)) =>" (take 2 '(1 2 3 4)))
 (println "(drop 2 '(1 2 3 4)) =>" (drop 2 '(1 2 3 4)))
@@ -63,16 +63,16 @@
 ;; omega-based termination check cannot use (Lean discharges it with decreasing_by).
 (a/defn ^:partial sort [xs :- (List Nat)] (List Nat)
   (match xs
-    [nil nil]
-    [(cons hd tl)
+    nil nil
+    (cons hd tl)
      (match tl
        ;; Single element — already sorted
-       [nil (cons hd nil)]
+       nil (cons hd nil)
        ;; Two or more — split, sort recursively, merge
-       [(cons hd2 tl2)
+       (cons hd2 tl2)
         (merge
           (sort (take (quot (+ 2 (List.length tl2)) 2) (cons hd (cons hd2 tl2))))
-          (sort (drop (quot (+ 2 (List.length tl2)) 2) (cons hd (cons hd2 tl2)))))])]))
+          (sort (drop (quot (+ 2 (List.length tl2)) 2) (cons hd (cons hd2 tl2))))))))
 
 (println "(sort '(5 3 1 4 2))     =>" (sort '(5 3 1 4 2)))
 (println "(sort '(9 1 8 2 7 3))   =>" (sort '(9 1 8 2 7 3)))
@@ -116,15 +116,15 @@
 
 (a/defn insertSorted [x :- Nat, l :- (List Nat)] (List Nat)
   (match l
-    [nil (cons x nil)]
-    [(cons hd tl) (match (<= x hd)
-                    [true (cons x l)]
-                    [false (cons hd (insertSorted x tl))])]))
+    nil (cons x nil)
+    (cons hd tl) (match (<= x hd)
+                    true (cons x l)
+                    false (cons hd (insertSorted x tl)))))
 
 (a/defn isort [l :- (List Nat)] (List Nat)
   (match l
-    [nil nil]
-    [(cons hd tl) (insertSorted hd (isort tl))]))
+    nil nil
+    (cons hd tl) (insertSorted hd (isort tl))))
 
 (println "(isort '(5 3 1 4 2)) =>" (isort '(5 3 1 4 2)))
 

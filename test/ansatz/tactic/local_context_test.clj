@@ -78,7 +78,7 @@
 (deftest split-matcher-fields-are-inaccessible-until-named
   (binding [a/*verbose* false config/*lean-matchers* true]
     (a/define-verified 'scope-match '[o :- (Option Nat)] 'Nat
-      '(match o [none 0] [(some x) x]))
+      '(match o none 0 (some x) x))
     (let [ty (elab/elaborate (a/env)
                              '(forall [o :- (Option Nat)] (= (scope-match o) (scope-match o))))
           [ps _] (proof/start-proof (a/env) ty)
@@ -98,7 +98,7 @@
 (deftest split-keeps-decomposed-equations-inaccessible
   (binding [a/*verbose* false config/*lean-matchers* true]
     (a/define-verified 'scope-eq-match '[n :- Nat] 'Nat
-      '(match n [(Nat.succ Nat.zero) 10] [(Nat.succ k) k] [Nat.zero 20]))
+      '(match n (Nat.succ Nat.zero) 10 (Nat.succ k) k Nat.zero 20))
     (let [ty (elab/elaborate (a/env)
                              '(forall [n :- Nat, f :- (=> Nat Nat)]
                                       (= (scope-eq-match (Nat.succ (f n)))

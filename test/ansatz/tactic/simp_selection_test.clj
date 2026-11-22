@@ -19,10 +19,10 @@
   (fn [t]
     (a/load-init!)
     (binding [a/*verbose* false *ns* (the-ns 'ansatz.tactic.simp-selection-test)]
-      (eval '(a/defn selected-inner [b :- Bool] Nat (match b [false 13] [true 21])))
+      (eval '(a/defn selected-inner [b :- Bool] Nat (match b false 13 true 21)))
       (eval '(a/defn selected-outer [b :- Bool] Nat (selected-inner b)))
       (eval '(a/defn selected-rec [xs :- (List Nat)] Nat
-               (match xs [nil 0] [(cons x tail) (selected-rec tail)])))
+               (match xs nil 0 (cons x tail) (selected-rec tail))))
       (t))))
 
 (defn- c [n] (e/const' (name/from-string n) []))
@@ -84,15 +84,15 @@
 (deftest selected-spend-preserves-option-and-store-callees
   (eval '(a/structure SelectedStore [] (wallet Nat) (live Nat)))
   (eval '(a/defn selected-amount [x :- Nat] (Option Nat)
-           (match x [zero (Option.none Nat)] [(succ n) (Option.some Nat n)])))
+           (match x zero (Option.none Nat) (succ n) (Option.some Nat n))))
   (eval '(a/defn selected-held [c :- Bool, live :- Nat, i :- Nat] (Option Nat)
-           (match c [false (Option.some Nat 0)] [true (Option.some Nat live)])))
+           (match c false (Option.some Nat 0) true (Option.some Nat live))))
   (eval '(a/defn selected-spendH [s :- SelectedStore, i :- Nat, n :- Nat, h :- (Option Nat)] Nat
-           (match h [none 0] [(some m) (+ n m)])))
+           (match h none 0 (some m) (+ n m))))
   (eval '(a/defn selected-spendN [c :- Bool, s :- SelectedStore, i :- Nat, x :- Nat] Nat
            (match (selected-amount x)
-             [none 0]
-             [(some n) (match s [(mk wallet live) (selected-spendH s i n (selected-held c live i))])])))
+             none 0
+             (some n) (match s (mk wallet live) (selected-spendH s i n (selected-held c live i))))))
   (let [expr (e/app* (c "selected-spendN") (e/fvar 100) (e/fvar 102) (e/fvar 103) (e/fvar 104))
         [result] (normal-form expr ["selected-spendN"]
                               {:extra-lctx {102 {:tag :local :id 102 :name "s" :type (c "SelectedStore")}
@@ -120,10 +120,10 @@
       (is (not-any? #(.startsWith (str %) (str callee "._match_")) constants)))))
 
 (deftest selected-sequence-preserves-pick-and-truthy
-  (eval '(a/defn selected-truthy [x :- Nat] Bool (match x [zero false] [(succ n) true])))
-  (eval '(a/defn selected-pick [b :- Bool, x :- Nat, y :- Nat] Nat (match b [false y] [true x])))
+  (eval '(a/defn selected-truthy [x :- Nat] Bool (match x zero false (succ n) true)))
+  (eval '(a/defn selected-pick [b :- Bool, x :- Nat, y :- Nat] Nat (match b false y true x)))
   (eval '(a/defn selected-seq1 [o :- Bool, fr :- (=> Nat Nat), done :- Nat] Nat
-           (match o [true done] [false (fr done)])))
+           (match o true done false (fr done))))
   (let [done (e/app* (c "selected-pick") (e/app (c "selected-truthy") (e/lit-nat 0))
                      (e/lit-nat 13) (e/lit-nat 21))
         fr (e/lam "x" (c "Nat") (e/bvar 0) :default)]
@@ -176,7 +176,7 @@
                              (forall [b :- G]
                                      (= G (List.foldl f b (List.filter p l))
                                         (List.foldl (fn [acc :- G, x :- A]
-                                                      (match (p x) [true (f acc x)] [false acc])) b l)))
+                                                      (match (p x) true (f acc x) false acc)) b l)))
                              (induction l)
                              (all_goals (intro b))
                              (all_goals (simp only [List.filter List.foldl]))

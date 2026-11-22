@@ -7,8 +7,8 @@
 
    Surface syntax:
      (match discr
-       [pat1 rhs1]
-       [pat2 rhs2]
+       pat1 rhs1
+       pat2 rhs2
        ...)
 
    Patterns:
@@ -175,6 +175,28 @@
          :bindings (if (= '_ form) {} {form {:fvar-id (:id d) :type type}}) :subst {}})
       :else (cases/tactic-error! "match: unsupported pattern" {:pattern form}))))
 
+(defn flat-arms
+  "Read alternating pattern and result forms without dropping a trailing pattern."
+  [forms]
+  (when (or (empty? forms) (odd? (count forms)))
+    (cases/tactic-error! "match expects one or more pattern/result pairs" {:forms forms}))
+  (partition 2 forms))
+
+(defn explicit-arm
+  "Read a match-as clause as [constructor fields result]. Only a three-form
+   clause introduces fields. A two-form clause may have a vector result."
+  [branch]
+  (cond
+    (and (seq? branch) (= 2 (count branch)))
+    [(first branch) [] (second branch)]
+
+    (and (seq? branch) (= 3 (count branch)) (vector? (second branch)))
+    (vec branch)
+
+    :else
+    (cases/tactic-error! "match-as expects (ctor body) or (ctor [fields] body)"
+                         {:branch branch})))
+
 (defn- lean-row [ctx discrs types forms]
   (when-not (= (count discrs) (count forms))
     (cases/tactic-error! "Incorrect number of patterns in match alternative"
@@ -207,6 +229,8 @@
            :tc (tc/attach-lctx (tc/mk-tc-state (lean-env est)) lctx))))
 
 (defn- compile-lean-match [est elab-fn discr-form alt-forms]
+  (when (and (vector? discr-form) (empty? discr-form))
+    (cases/tactic-error! "match expects at least one discriminant" {:discriminant discr-form}))
   (let [discr-forms (if (vector? discr-form) discr-form [discr-form])
         discrs (mapv #(elab-fn est %) discr-forms)
         types (mapv #(est-whnf est (est-infer est %)) discrs)
@@ -235,7 +259,11 @@
                          (if (env/lookup (lean-env est) (name/from-string n)) (recur) n)))
         ;; Allocate the outer match name before elaborating its branch bodies.
         rows (mapv (fn [[forms rhs]]
-                     (let [forms (if (= 1 (count discrs)) [forms] forms)
+                     (let [forms (cond
+                                   (not (vector? discr-form)) [forms]
+                                   (vector? forms) forms
+                                   :else (cases/tactic-error! "match on a vector of discriminants expects a vector of patterns"
+                                                              {:pattern forms}))
                            row (lean-row ctx (into discrs generalized) (into types generalized-types)
                                          (into (vec forms) (mapv (fn [_] (gensym "_generalized")) generalized)))
                            row (update row :patterns #(into (mapv (fn [x] (basic/inaccessible (subst/apply (:subst row) x))) indices) %))]

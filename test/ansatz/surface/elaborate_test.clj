@@ -183,7 +183,7 @@
 (deftest collecting-match-inlines-auxiliaries-through-metacontext
   (let [environment (require-init-medium)
         result (elab/elaborate-collecting
-                environment '(match Bool.true [Bool.false _] [Bool.true 0]))
+                environment '(match Bool.true Bool.false _ Bool.true 0))
         exprs (filter #(instance? ansatz.kernel.Expr %)
                       (tree-seq coll? seq result))]
     (is (= 1 (count (:holes result))))

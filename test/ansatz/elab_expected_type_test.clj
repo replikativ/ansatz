@@ -17,13 +17,22 @@
 (deftest nested-match-has-its-own-result-type
   (testing "a match under a constructor is not at the enclosing match's result type"
     (a/defn et-pick [o :- (Option Bool), u :- Nat, e :- Nat] (Option Nat)
-      (match o [(some v) (Option.some Nat (match v [true u] [false e]))] [none (Option.none Nat)]))
+      (match o (some v) (Option.some Nat (match v true u false e)) none (Option.none Nat)))
     (is (= [5 7 nil] (mapv #((run-fn 'et-pick) % 5 7) [true false nil]))))
   (testing "a match in tail position is"
     (a/defn et-keep [o :- (Option Bool), u :- Nat] (Option Nat)
-      (match o [(some v) (match v [true (Option.some Nat u)] [false (Option.none Nat)])]
-             [none (Option.none Nat)]))
+      (match o (some v) (match v true (Option.some Nat u) false (Option.none Nat))
+             none (Option.none Nat)))
     (is (= [4 nil nil] (mapv #((run-fn 'et-keep) % 4) [true false nil])))))
+
+(deftest explicit-result-for-an-intermediate-match
+  (a/defn et-head [b :- Bool] Nat
+    (match (match-as b Bool (List Nat)
+             (true nil)
+             (false [4]))
+      nil 7
+      (cons x _) x))
+  (is (= [7 4] (mapv (run-fn 'et-head) [true false]))))
 
 (deftest apply-numeral-takes-the-goal-type
   (is (proves '[] '(Exists (fn [n :- Nat] (= Nat n n))) '[(apply (Exists.intro 0)) (rfl)]))

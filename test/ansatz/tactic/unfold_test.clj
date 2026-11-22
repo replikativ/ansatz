@@ -33,7 +33,7 @@
 (deftest unfold-keeps-recursive-callees-folded
   (eval '(a/structure UnfoldSt [] (hs (List Nat)) (es (List Nat))))
   (eval '(a/defn unfold-hcov [hs :- (List Nat), es :- (List Nat)] Bool
-           (match hs [nil true] [(cons h t) (Bool.and (Nat.beq h 0) (unfold-hcov t es))])))
+           (match hs nil true (cons h t) (Bool.and (Nat.beq h 0) (unfold-hcov t es)))))
   (eval '(a/defn unfold-wrap [s :- UnfoldSt] Bool (unfold-hcov (:hs s) (:es s))))
   (testing "after unfolding the wrapper the callee is still syntactically present: rw finds it"
     (is (true? (proves? '(a/theorem unfold-wrap-of-hcov
@@ -61,7 +61,7 @@
 
 (deftest unfold-recursive-definition-still-reduces
   (eval '(a/defn unfold-rec [xs :- (List Nat)] Bool
-           (match xs [nil true] [(cons h t) (unfold-rec t)])))
+           (match xs nil true (cons h t) (unfold-rec t))))
   (is (rec-ext/is-recursive-definition (a/env) (name/from-string "unfold-rec")))
   (let [true-expr (c "Bool.true")
         eq #(e/app* (e/const' (name/from-string "Eq") [(lvl/succ lvl/zero)])
@@ -78,11 +78,11 @@
   (eval '(a/inductive UnfoldOut [] (val) (stuck [n Nat])))
   (eval '(a/structure UnfoldStore [] (w Nat) (l (List Nat))))
   (eval '(a/defn unfold-amount [x :- Nat] (Option Nat)
-           (match x [zero (Option.none Nat)] [(succ k) (Option.some Nat k)])))
+           (match x zero (Option.none Nat) (succ k) (Option.some Nat k))))
   (eval '(a/defn unfold-spendH [s :- UnfoldStore, n :- Nat] UnfoldOut (UnfoldOut.stuck n)))
   (eval '(a/defn unfold-spendN [s :- UnfoldStore, x :- Nat] UnfoldOut
-           (match (unfold-amount x) [none (UnfoldOut.stuck 0)]
-                  [(some n) (match s [(mk w l) (unfold-spendH s n)])])))
+           (match (unfold-amount x) none (UnfoldOut.stuck 0)
+                  (some n) (match s (mk w l) (unfold-spendH s n)))))
   (is (true? (proves? '(a/theorem unfold-spendN-nv [s :- UnfoldStore, x :- Nat]
                                   (Not (= UnfoldOut (unfold-spendN s x) UnfoldOut.val))
                                   (cases s) (unfold unfold-spendN) (cases qa (unfold-amount x))
@@ -186,9 +186,9 @@
 
 (deftest matcher-selects-field-and-respects-transparency-and-local-lets
   (eval '(a/defn matcher-field [x :- (Option Nat)] Nat
-           (match x [none 13] [(some n) n])))
+           (match x none 13 (some n) n)))
   (eval '(a/defn matcher-bool [x :- Bool] Nat
-           (match x [false 13] [true 21])))
+           (match x false 13 true 21)))
   (eval '(a/defn hidden-bool [] Bool true))
   (let [en (a/env)
         expand (fn [n arg]

@@ -32,7 +32,7 @@
   (let [saved @a/ansatz-env]
     (try
       (a/define-verified 'grindMatcherHint '[b :- Bool] 'Bool
-        '(match b [true true] [false false]))
+        '(match b true true false false))
       (is (nil? (eqns/eqns-for (a/env) "grindMatcherHint.match_1")))
       (with-redefs [legacy/grind main/grind]
         (a/prove-theorem 'grindMatcherHintProof '[] '(= Nat 0 0)
@@ -276,9 +276,9 @@
   (let [before (a/env)]
     (try
       (a/define-verified 'iv-app '[xs :- (List Nat), ys :- (List Nat)] '(List Nat)
-        '(match xs [nil ys] [(cons h t) (List.cons Nat h (iv-app t ys))]))
+        '(match xs nil ys (cons h t) (List.cons Nat h (iv-app t ys))))
       (a/define-verified 'iv-choose '[xs :- (List Nat), b :- Bool] 'Nat
-        '(match xs [nil 0] [(cons h t) (if b h 0)]))
+        '(match xs nil 0 (cons h t) (if b h 0)))
       (a/define-verified 'iv-id '[x :- Nat] 'Nat 'x)
       (is (nil? (eqns/eqns-for before "iv-app")) "the inventory is persistent")
       (is (= ["iv-app.eq_1" "iv-app.eq_2"] (mapv name/->string (eqns/eqns-for (a/env) 'iv-app))))
@@ -317,7 +317,7 @@
                         (throw (ex-info "injected equation admission failure" {:kind :test-failure}))
                         (check environment ci)))]
         (a/define-verified 'iv-failed '[xs :- (List Nat)] 'Nat
-          '(match xs [nil 0] [(cons h t) h])))
+          '(match xs nil 0 (cons h t) h)))
       (is (empty? (eqns/eqns-for (a/env) "iv-failed")))
       (is (= "iv-failed.eq_1" (:lemma (first (eqns/errors-for (a/env) "iv-failed")))))
       (is (thrown-with-msg? clojure.lang.ExceptionInfo #"equation generation errors"
@@ -332,7 +332,7 @@
   (let [before (a/env)]
     (try
       (a/define-verified 'iv-branch-app '[xs :- (List Nat), ys :- (List Nat)] '(List Nat)
-        '(match xs [nil ys] [(cons h t) (List.cons Nat h (iv-branch-app t ys))]))
+        '(match xs nil ys (cons h t) (List.cons Nat h (iv-branch-app t ys))))
       (check-script '[v2_recursive_branch [xs :- (List Nat), b :- Bool,
                                            h :- (= (iv-branch-app xs (List.nil Nat)) xs)]
                       (= (if b (iv-branch-app xs (List.nil Nat)) xs) xs) [(grind)]])

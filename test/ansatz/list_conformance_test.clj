@@ -13,23 +13,23 @@
 
 (def ^:private defs
   '[(ansatz.core/defn mylen [xs :- (List Nat)] Nat
-      (match xs [nil 0] [(cons h t) (+ (mylen t) 1)]))
+      (match xs nil 0 (cons h t) (+ (mylen t) 1)))
     (ansatz.core/defn myapp [xs :- (List Nat), ys :- (List Nat)] (List Nat)
-      (match xs [nil ys] [(cons h t) (List.cons Nat h (myapp t ys))]))
+      (match xs nil ys (cons h t) (List.cons Nat h (myapp t ys))))
     (ansatz.core/defn myrev [xs :- (List Nat)] (List Nat)
-      (match xs [nil (List.nil Nat)] [(cons h t) (myapp (myrev t) (List.cons Nat h (List.nil Nat)))]))
+      (match xs nil (List.nil Nat) (cons h t) (myapp (myrev t) (List.cons Nat h (List.nil Nat)))))
     (ansatz.core/defn mymap [f :- (=> Nat Nat), xs :- (List Nat)] (List Nat)
-      (match xs [nil (List.nil Nat)] [(cons h t) (List.cons Nat (f h) (mymap f t))]))
+      (match xs nil (List.nil Nat) (cons h t) (List.cons Nat (f h) (mymap f t))))
     (ansatz.core/defn myfilter [p :- (=> Nat Bool), xs :- (List Nat)] (List Nat)
-      (match xs [nil (List.nil Nat)] [(cons h t) (if (p h) (List.cons Nat h (myfilter p t)) (myfilter p t))]))
+      (match xs nil (List.nil Nat) (cons h t) (if (p h) (List.cons Nat h (myfilter p t)) (myfilter p t))))
     (ansatz.core/defn mysum [xs :- (List Nat)] Nat
-      (match xs [nil 0] [(cons h t) (+ h (mysum t))]))
+      (match xs nil 0 (cons h t) (+ h (mysum t))))
     (ansatz.core/defn mymem [x :- Nat, xs :- (List Nat)] Bool
-      (match xs [nil false] [(cons h t) (if (Nat.beq x h) true (mymem x t))]))
+      (match xs nil false (cons h t) (if (Nat.beq x h) true (mymem x t))))
     (ansatz.core/defn mycount [x :- Nat, xs :- (List Nat)] Nat
-      (match xs [nil 0] [(cons h t) (if (Nat.beq x h) (+ (mycount x t) 1) (mycount x t))]))
+      (match xs nil 0 (cons h t) (if (Nat.beq x h) (+ (mycount x t) 1) (mycount x t))))
     (ansatz.core/defn myall [p :- (=> Nat Bool), xs :- (List Nat)] Bool
-      (match xs [nil true] [(cons h t) (if (p h) (myall p t) false)]))])
+      (match xs nil true (cons h t) (if (p h) (myall p t) false)))])
 
 (def ^:private theorems
   "[name params statement tactics] in dependency order — the Lean scripts, translated."

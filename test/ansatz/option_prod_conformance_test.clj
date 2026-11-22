@@ -9,13 +9,13 @@
 ;; Lean reference: src/Lean/Elab/Tactic/{Induction,Simp,Decide}.lean,
 ;; evalInductionCore/evalCasesCore, evalSimp, evalDecideCore.
 (def ^:private defs
-  '[(ansatz.core/defn first [xs :- (List Nat)] (Option Nat) (match xs [nil (Option.none Nat)] [(cons h t) (Option.some Nat h)]))
-    (ansatz.core/defn find [p :- (=> Nat Bool), xs :- (List Nat)] (Option Nat) (match xs [nil (Option.none Nat)] [(cons h t) (if (p h) (Option.some Nat h) (find p t))]))
-    (ansatz.core/defn lookup [k :- Nat, xs :- (List (Prod Nat Nat))] (Option Nat) (match xs [nil (Option.none Nat)] [(cons h t) (if (Nat.beq k (Prod.fst Nat Nat h)) (Option.some Nat (Prod.snd Nat Nat h)) (lookup k t))]))
-    (ansatz.core/defn unpack [o :- (Option Nat)] Nat (match o [none 0] [(some x) x]))
+  '[(ansatz.core/defn first [xs :- (List Nat)] (Option Nat) (match xs nil (Option.none Nat) (cons h t) (Option.some Nat h)))
+    (ansatz.core/defn find [p :- (=> Nat Bool), xs :- (List Nat)] (Option Nat) (match xs nil (Option.none Nat) (cons h t) (if (p h) (Option.some Nat h) (find p t))))
+    (ansatz.core/defn lookup [k :- Nat, xs :- (List (Prod Nat Nat))] (Option Nat) (match xs nil (Option.none Nat) (cons h t) (if (Nat.beq k (Prod.fst Nat Nat h)) (Option.some Nat (Prod.snd Nat Nat h)) (lookup k t))))
+    (ansatz.core/defn unpack [o :- (Option Nat)] Nat (match o none 0 (some x) x))
     (ansatz.core/defn swap [p :- (Prod Nat Nat)] (Prod Nat Nat) (Prod.mk Nat Nat (Prod.snd Nat Nat p) (Prod.fst Nat Nat p)))
-    (ansatz.core/defn unzip [xs :- (List (Prod Nat Nat))] (Prod (List Nat) (List Nat)) (match xs [nil (Prod.mk (List Nat) (List Nat) (List.nil Nat) (List.nil Nat))] [(cons h t) (Prod.mk (List Nat) (List Nat) (List.cons Nat (Prod.fst Nat Nat h) (Prod.fst (List Nat) (List Nat) (unzip t))) (List.cons Nat (Prod.snd Nat Nat h) (Prod.snd (List Nat) (List Nat) (unzip t))))]))
-    (ansatz.core/defn partition [p :- (=> Nat Bool), xs :- (List Nat)] (Prod (List Nat) (List Nat)) (match xs [nil (Prod.mk (List Nat) (List Nat) (List.nil Nat) (List.nil Nat))] [(cons h t) (if (p h) (Prod.mk (List Nat) (List Nat) (List.cons Nat h (Prod.fst (List Nat) (List Nat) (partition p t))) (Prod.snd (List Nat) (List Nat) (partition p t))) (Prod.mk (List Nat) (List Nat) (Prod.fst (List Nat) (List Nat) (partition p t)) (List.cons Nat h (Prod.snd (List Nat) (List Nat) (partition p t)))))]))])
+    (ansatz.core/defn unzip [xs :- (List (Prod Nat Nat))] (Prod (List Nat) (List Nat)) (match xs nil (Prod.mk (List Nat) (List Nat) (List.nil Nat) (List.nil Nat)) (cons h t) (Prod.mk (List Nat) (List Nat) (List.cons Nat (Prod.fst Nat Nat h) (Prod.fst (List Nat) (List Nat) (unzip t))) (List.cons Nat (Prod.snd Nat Nat h) (Prod.snd (List Nat) (List Nat) (unzip t))))))
+    (ansatz.core/defn partition [p :- (=> Nat Bool), xs :- (List Nat)] (Prod (List Nat) (List Nat)) (match xs nil (Prod.mk (List Nat) (List Nat) (List.nil Nat) (List.nil Nat)) (cons h t) (if (p h) (Prod.mk (List Nat) (List Nat) (List.cons Nat h (Prod.fst (List Nat) (List Nat) (partition p t))) (Prod.snd (List Nat) (List Nat) (partition p t))) (Prod.mk (List Nat) (List Nat) (Prod.fst (List Nat) (List Nat) (partition p t)) (List.cons Nat h (Prod.snd (List Nat) (List Nat) (partition p t)))))))])
 
 (def ^:private theorems
   '[[o01_first_nil []
@@ -34,7 +34,7 @@
      (= (find p (List.cons Nat x xs)) (Option.some Nat x))
      [(simp [find h])]]
     [o06_find_match [p :- (=> Nat Bool), xs :- (List Nat)]
-     (= (unpack (find p xs)) (match (find p xs) [none 0] [(some x) x]))
+     (= (unpack (find p xs)) (match (find p xs) none 0 (some x) x))
      [(and_then (cases h (find p xs)) (simp [unpack]))]]
     [o07_map_id [xs :- (List Nat)]
      (= (Option.map Nat Nat (fn [x :- Nat] x) (first xs)) (first xs))

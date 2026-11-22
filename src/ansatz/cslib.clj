@@ -71,10 +71,10 @@
     (binding [a/*verbose* false]
       (a/defn cslib-merge [xs :- (List Nat), ys :- (List Nat)] (List Nat)
         :termination-by (+ (List.length xs) (List.length ys))
-        (match xs (List Nat) (List Nat)
+        (match-as xs (List Nat) (List Nat)
                (nil ys)
                (cons [x xs']
-                     (match ys (List Nat) (List Nat)
+                     (match-as ys (List Nat) (List Nat)
                             (nil (List.cons x xs'))
                             (cons [y ys']
                                   (if (<= x y)
@@ -82,23 +82,23 @@
                                     (List.cons y (cslib-merge (List.cons x xs') ys'))))))))
       (a/defn cslib-take [n :- Nat, xs :- (List Nat)] (List Nat)
         :termination-by n
-        (match n Nat (List Nat)
+        (match-as n Nat (List Nat)
                (zero (List.nil Nat))
-               (succ [k] (match xs (List Nat) (List Nat)
+               (succ [k] (match-as xs (List Nat) (List Nat)
                                 (nil (List.nil Nat))
                                 (cons [hd tl] (List.cons hd (cslib-take k tl)))))))
       (a/defn cslib-drop [n :- Nat, xs :- (List Nat)] (List Nat)
         :termination-by n
-        (match n Nat (List Nat)
+        (match-as n Nat (List Nat)
                (zero xs)
-               (succ [k] (match xs (List Nat) (List Nat)
+               (succ [k] (match-as xs (List Nat) (List Nat)
                                 (nil (List.nil Nat))
                                 (cons [hd tl] (cslib-drop k tl))))))
       (a/defn cslib-sort [xs :- (List Nat)] (List Nat)
         :termination-by (List.length xs)
-        (match xs (List Nat) (List Nat)
+        (match-as xs (List Nat) (List Nat)
                (nil (List.nil Nat))
-               (cons [hd tl] (match tl (List Nat) (List Nat)
+               (cons [hd tl] (match-as tl (List Nat) (List Nat)
                                     (nil (List.cons hd (List.nil Nat)))
                                     (cons [hd2 tl2]
                                           (cslib-merge

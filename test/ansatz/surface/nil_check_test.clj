@@ -52,14 +52,14 @@
       :termination-by n
       (if (<= n 0) 0 (if-let [x o] (+ x (nc-rec-wf (- n 1) o)) 1)))
     (ansatz.core/defn ^Nat nc-struct [^{:- (List (Option Nat))} xs]
-      (match xs (List (Option Nat)) Nat (nil 0) (cons [h t] (if-some [x h] (+ x (nc-struct t)) (nc-struct t)))))
+      (match-as xs (List (Option Nat)) Nat (nil 0) (cons [h t] (if-some [x h] (+ x (nc-struct t)) (nc-struct t)))))
     (ansatz.core/defn ^Nat nc-or-rec [^{:- (List (Option Nat))} xs]
-      (match xs (List (Option Nat)) Nat (nil 0) (cons [h t] (+ (or h 10) (nc-or-rec t)))))
+      (match-as xs (List (Option Nat)) Nat (nil 0) (cons [h t] (+ (or h 10) (nc-or-rec t)))))
     ;; a match on the narrowed binder, and if-some nested in a match alternative
     (ansatz.core/defn ^Nat nc-match-x [^{:- (Option (List Nat))} o]
-      (if-some [ys o] (match ys (List Nat) Nat (nil 100) (cons [h t] h)) 7))
+      (if-some [ys o] (match-as ys (List Nat) Nat (nil 100) (cons [h t] h)) 7))
     (ansatz.core/defn ^Nat nc-nested [^{:- (List (Option Nat))} xs ^{:- (Option Nat)} q]
-      (match xs (List (Option Nat)) Nat (nil 0)
+      (match-as xs (List (Option Nat)) Nat (nil 0)
              (cons [h t] (if-some [x h] (if-some [y q] (+ x y) x) 2))))
     (ansatz.core/defn ^Nat nc-loop [^{:- (Option Nat)} o ^Nat n]
       (loop [i n acc 0] (if (== i 0) acc (recur (dec i) (if-some [x o] (+ acc x) acc)))))])

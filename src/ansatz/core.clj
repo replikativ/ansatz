@@ -47,6 +47,7 @@
             [ansatz.wf :as wf]
             [ansatz.attrs :as attrs]
             [ansatz.matchers :as matchers]
+            [ansatz.surface.match :as surface-match]
             [ansatz.state :as state]
             [ansatz.config :as config])
   (:import [ansatz.kernel ConstantInfo]))
@@ -1960,25 +1961,24 @@
                          (map #(rewrite-rhs % ih-fields rec-pos
                                             (into shadowed (binder-symbols (second form))))
                               (drop 2 form)))
-                  (and (seq? form) (= 'match (first form)))
-                  (let [explicit? (not (vector? (nth form 2 nil)))
+                  (and (seq? form) (#{'match 'match-as} (first form)))
+                  (let [explicit? (= 'match-as (first form))
                         prefix (if explicit? 4 2)
-                        alts (map (fn [alt]
-                                    (if explicit?
-                                      (let [fields (when (vector? (second alt)) (second alt))
-                                            rhs-pos (if fields 2 1)]
-                                        (apply list (assoc (vec alt) rhs-pos
-                                                           (rewrite-rhs (nth alt rhs-pos)
-                                                                        ih-fields rec-pos
-                                                                        (into shadowed
-                                                                              (binder-symbols fields))))))
-                                      (let [[pat rhs] alt]
-                                        [pat (rewrite-rhs rhs ih-fields rec-pos
-                                                          (into shadowed (binder-symbols pat)))])))
-                                  (drop prefix form))]
-                    (apply list (concat ['match
-                                         (rewrite-rhs (second form) ih-fields rec-pos shadowed)]
-                                        (when explicit? (take 2 (drop 2 form))) alts)))
+                        arms (drop prefix form)
+                        rewritten (if explicit?
+                                    (map (fn [alt]
+                                           (let [[_ fields body] (surface-match/explicit-arm alt)]
+                                             (apply list (concat (butlast alt)
+                                                                 [(rewrite-rhs body ih-fields rec-pos
+                                                                               (into shadowed (binder-symbols fields)))]))))
+                                         arms)
+                                    (mapcat (fn [[pat rhs]]
+                                              [pat (rewrite-rhs rhs ih-fields rec-pos
+                                                                (into shadowed (binder-symbols pat)))])
+                                            (surface-match/flat-arms arms)))]
+                    (apply list (first form)
+                           (rewrite-rhs (second form) ih-fields rec-pos shadowed)
+                           (concat (when explicit? (take 2 (drop 2 form))) rewritten)))
                   (seq? form) (apply list (map #(rewrite-rhs % ih-fields rec-pos shadowed) form))
                   (vector? form) (mapv #(rewrite-rhs % ih-fields rec-pos shadowed) form)
                   :else form))
@@ -1986,18 +1986,15 @@
                 (cond
                   (and (seq? form) (= 'let (first form)) (= 3 (count form)))
                   (list 'let (second form) (rewrite-leading (nth form 2)))
-                  (and (seq? form) (= 'match (first form))
-                       (<= 0 (.indexOf param-names (second form)))
-                       (not (vector? (nth form 2 nil))))
+                  (and (seq? form) (= 'match-as (first form))
+                       (<= 0 (.indexOf param-names (second form))))
                   (let [rec-pos (.indexOf param-names (second form))
                         type-form (nth form 2)
                         ind-name (str (if (seq? type-form) (first type-form) type-form))
                         alts (map (fn [alt]
-                                    (let [ctor-name (name/from-string
-                                                     (str ind-name "." (or (first alt) 'nil)))
+                                    (let [[ctor fields body] (surface-match/explicit-arm alt)
+                                          ctor-name (name/from-string (str ind-name "." (or ctor 'nil)))
                                           ci (env/lookup environment ctor-name)
-                                          fields (when (vector? (second alt)) (second alt))
-                                          rhs-pos (if fields 2 1)
                                           ih-fields
                                           (when (and ci fields)
                                             (loop [type (.type ^ConstantInfo ci)
@@ -2010,10 +2007,9 @@
                                                               fields))
                                                 (recur (e/forall-body type) (inc i)
                                                        (conj names (str (e/forall-name type)))))))]
-                                      (apply list (assoc (vec alt) rhs-pos
-                                                         (rewrite-rhs (nth alt rhs-pos)
-                                                                      ih-fields rec-pos
-                                                                      (binder-symbols fields))))))
+                                      (apply list (concat (butlast alt)
+                                                          [(rewrite-rhs body ih-fields rec-pos
+                                                                        (binder-symbols fields))]))))
                                   (drop 4 form))]
                     (apply list (concat (take 4 form) alts)))
                   :else form))]
@@ -2141,7 +2137,7 @@
         explicit-ih? (some #(.startsWith (source-name %) "ih_") source-symbols)
         leading-match-body (loop [form body-form]
                              (cond
-                               (and (seq? form) (= 'match (first form))) form
+                               (and (seq? form) (#{'match 'match-as} (first form))) form
                                (and (seq? form) (= 'let (first form)) (= 3 (count form)))
                                (recur (nth form 2))
                                :else nil))
@@ -2189,7 +2185,7 @@
         ;; expression-only fallback uses a temporary axiom; surviving calls
         ;; redirect to well-founded recursion before kernel admission.
         tmp-env (env/add-constant (env/fork env) (env/mk-axiom cname [] type-ansatz))
-        top-match? (and (seq? body-form) (= 'match (first body-form)))
+        top-match? (and (seq? body-form) (#{'match 'match-as} (first body-form)))
         ;; Lean FixedParams: a parameter changed by a structural self-call belongs
         ;; in the recursor motive. Keep the ordinary, smaller motive for definitions
         ;; whose nonrecursive arguments are fixed.
