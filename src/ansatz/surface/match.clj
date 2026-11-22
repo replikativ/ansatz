@@ -24,6 +24,7 @@
             [ansatz.kernel.env :as env]
             [ansatz.kernel.name :as name]
             [ansatz.kernel.tc :as tc]
+            [ansatz.meta :as meta]
             [ansatz.meta.fvar-subst :as subst]
             [ansatz.meta.generalize-vars :as generalize]
             [ansatz.meta.constructions.util :as u]
@@ -294,6 +295,10 @@
                                [(conj xs v) (if (e/fvar? x) (subst/insert s (e/fvar-id x) v) s)]))
                            [[] {}] (map vector all-discrs all-types))
         ret-type (zonk @ret)
+        ;; The kernel needs the result type to build the matcher declaration.
+        _ (when (seq (meta/collect-expr-mvars ret-type))
+            (cases/tactic-error! "match: cannot infer the result type. Supply it with match-as."
+                                 {:result-type ret-type}))
         motive (u/mk-lambda-fvars ctx formal (subst/apply s ret-type))
         match-type (u/mk-forall-fvars ctx formal (subst/apply s ret-type))
         lhss (mapv (fn [row]

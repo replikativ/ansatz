@@ -34,6 +34,15 @@
       (cons x _) x))
   (is (= [7 4] (mapv (run-fn 'et-head) [true false]))))
 
+(deftest ambiguous-empty-list-result
+  (let [body (fn [inner] (list 'match inner nil 7 '(cons x _) 9))]
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"cannot infer the result type.*match-as"
+                          (a/define-verified 'et-ambiguous '[b :- Bool] 'Nat
+                            (body '(match b true nil false [])))))
+    (let [f (a/define-verified 'et-annotated '[b :- Bool] 'Nat
+              (body '(match-as b Bool (List Nat) (true nil) (false []))))]
+      (is (= [7 7] (mapv f [true false]))))))
+
 (deftest apply-numeral-takes-the-goal-type
   (is (proves '[] '(Exists (fn [n :- Nat] (= Nat n n))) '[(apply (Exists.intro 0)) (rfl)]))
   (is (proves '[] '(Exists (fn [n :- Int] (= Int n n))) '[(apply (Exists.intro 0)) (rfl)])
