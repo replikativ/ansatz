@@ -377,8 +377,8 @@
                          (list 'match 'n
                                'zero (if function? '(fn [x :- Nat] x) 0)
                                '(succ k) (if function?
-                                            (list 'fn '[x :- Nat] (list '+ 1 (list call 'x)))
-                                            (list '+ 1 call))))
+                                           (list 'fn '[x :- Nat] (list '+ 1 (list call 'x)))
+                                           (list '+ 1 call))))
                        body)
                 impl (if nullary?
                        (if function?

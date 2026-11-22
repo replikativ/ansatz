@@ -120,9 +120,9 @@
     (match n
       0 (+ j v)
       (Nat.succ k)
-       (match (ifp-vary-scrutinee (Nat.succ j) v k)
-         0 v
-         (Nat.succ r) r)))
+      (match (ifp-vary-scrutinee (Nat.succ j) v k)
+        0 v
+        (Nat.succ r) r)))
   (is (= 3 (ifp-vary-scrutinee 2 1 3)))
   (is (some? (kenv/lookup (a/env) (kn/from-string "ifp-vary-scrutinee.eq_2"))))
   (is (empty? (:errors (:equation-generation (meta ifp-vary-scrutinee))))))
@@ -133,10 +133,10 @@
       (match xs
         nil ys
         (cons x xs') (match ys
-                        nil (cons x xs')
-                        (cons y ys') (if (<= x y)
-                                        (cons x (ifp-merge xs' (cons y ys')))
-                                        (cons y (ifp-merge (cons x xs') ys'))))))
+                       nil (cons x xs')
+                       (cons y ys') (if (<= x y)
+                                      (cons x (ifp-merge xs' (cons y ys')))
+                                      (cons y (ifp-merge (cons x xs') ys'))))))
     (is (= '(1 2 3 4 5 6) (ifp-merge '(1 3 5) '(2 4 6))))
     (a/defn ^Nat ifp-pairs [^{:- (List Nat)} xs]
       (match xs nil 0 (cons h t) (match t nil 0 (cons h2 t2) (+ 1 (ifp-pairs t2)))))

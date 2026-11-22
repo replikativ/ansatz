@@ -30,7 +30,7 @@
       (eval '(a/defn offset-pair [n :- Nat, acc :- Nat] Nat
                (match n zero acc
                       (succ k) (match k zero (+ acc 1)
-                                       (succ j) (offset-pair j (+ acc 2))))))
+                                      (succ j) (offset-pair j (+ acc 2))))))
       (eval '(a/defn offset-list [xs :- (List Nat), acc :- Nat] Nat
                (match xs nil acc (cons x tail) (offset-list tail (+ acc x)))))
       (t))))

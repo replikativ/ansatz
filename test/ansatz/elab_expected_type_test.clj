@@ -28,8 +28,8 @@
 (deftest explicit-result-for-an-intermediate-match
   (a/defn et-head [b :- Bool] Nat
     (match (match-as b Bool (List Nat)
-             (true nil)
-             (false [4]))
+                     (true nil)
+                     (false [4]))
       nil 7
       (cons x _) x))
   (is (= [7 4] (mapv (run-fn 'et-head) [true false]))))

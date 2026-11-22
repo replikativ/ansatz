@@ -200,14 +200,14 @@
           [['regrRec '[xs :- (List Nat), n :- Nat]
             '(match xs nil 0
                     (cons h t)
-                     (Nat.rec (fn [k :- Nat] Nat) 0
-                              (fn [k :- Nat, ih :- Nat] (+ ih 1)) n))]
+                    (Nat.rec (fn [k :- Nat] Nat) 0
+                             (fn [k :- Nat, ih :- Nat] (+ ih 1)) n))]
            ['regrListRec '[xs :- (List Nat), ys :- (List Nat), b :- Bool]
             '(match xs nil 0
                     (cons h t)
-                     (List.rec Nat (fn [ys :- (List Nat)] Nat) 0
-                               (fn [head :- Nat, tail :- (List Nat), ih :- Nat] (+ ih 1))
-                               (if b ys t)))]]]
+                    (List.rec Nat (fn [ys :- (List Nat)] Nat) 0
+                              (fn [head :- Nat, tail :- (List Nat), ih :- Nat] (+ ih 1))
+                              (if b ys t)))]]]
     (let [result (binding [a/*verbose* false] (a/define-verified nm params 'Nat body))
           matcher (str nm ".match_1")
           recursor (if (= nm 'regrRec) "Nat.rec" "List.rec")]

@@ -27,7 +27,7 @@
         (let [f (a/define-verified 'structuralNested '[^Nat n] 'Nat
                   '(match n 0 0
                           (Nat.succ k)
-                           (match k 0 1 (Nat.succ j) (structuralNested j))))]
+                          (match k 0 1 (Nat.succ j) (structuralNested j))))]
           (is (= 1 (f 5)))
           (is (some? (env/lookup (a/env) (name/from-string "structuralNested.eq_2"))))
           (is (empty? (:errors (:equation-generation (meta f))))))
@@ -43,13 +43,13 @@
         (let [f (a/define-verified 'structuralScrutinee '[^Nat n] 'Nat
                   '(match n 0 0
                           (Nat.succ k)
-                           (match (structuralScrutinee k)
-                             0 1 (Nat.succ j) j)))]
+                          (match (structuralScrutinee k)
+                            0 1 (Nat.succ j) j)))]
           (is (= 0 (f 4))))
         (let [f (a/define-verified 'structuralLet '[^Nat n] 'Nat
                   '(match n 0 0
                           (Nat.succ k)
-                           (let [x (structuralLet k)] (Nat.succ x))))]
+                          (let [x (structuralLet k)] (Nat.succ x))))]
           (is (= 4 (f 4)))))
       (finally (reset! a/ansatz-env saved)))))
 
@@ -60,23 +60,23 @@
       (let [f (a/define-verified 'explicitIhShadow
                 '[xs :- (List Nat)] 'Nat
                 '(match-as xs (List Nat) Nat
-                        (nil 0)
-                        (cons [hd tl]
-                              (let [ih_tail 7] ih_tail))))]
+                           (nil 0)
+                           (cons [hd tl]
+                                 (let [ih_tail 7] ih_tail))))]
         (is (= 7 (f '(1 2 3)))))
       (let [f (a/define-verified 'explicitIhFnShadow
                 '[xs :- (List Nat)] 'Nat
                 '(match-as xs (List Nat) Nat
-                        (nil 0)
-                        (cons [hd tl] ((fn [ih_tail :- Nat] ih_tail) 8))))]
+                           (nil 0)
+                           (cons [hd tl] ((fn [ih_tail :- Nat] ih_tail) 8))))]
         (is (= 8 (f '(1 2 3)))))
       (let [f (a/define-verified 'explicitIhMatchShadow
                 '[xs :- (List Nat)] 'Nat
                 '(match-as xs (List Nat) Nat
-                        (nil 0)
-                        (cons [hd tl]
-                              (match hd 0 0
-                                     (Nat.succ ih_tail) ih_tail))))]
+                           (nil 0)
+                           (cons [hd tl]
+                                 (match hd 0 0
+                                        (Nat.succ ih_tail) ih_tail))))]
         (is (= 4 (f '(5 2 3)))))
       (finally (reset! a/ansatz-env saved)))))
 
@@ -114,8 +114,8 @@
       (let [f (a/define-verified 'explicitIhLength
                 '[xs :- (List Nat)] 'Nat
                 '(match-as xs (List Nat) Nat
-                        (nil 0)
-                        (cons [hd tl] (Nat.succ ih_tail))))
+                           (nil 0)
+                           (cons [hd tl] (Nat.succ ih_tail))))
             ci (env/lookup! (a/env) (name/from-string "explicitIhLength"))]
         (is (= 3 (f '(1 2 3))))
         (is (.contains (e/->string (.value ci)) "List.brecOn"))
@@ -196,7 +196,7 @@
                   t :- (StructuralFin (Nat.succ n))] 'Nat
                 '(match v nil 0
                         (cons k j xs)
-                         (Nat.succ (dependentIndexLengthExtra k j xs j))))]
+                        (Nat.succ (dependentIndexLengthExtra k j xs j))))]
         (is (= 2 (f 2 nil [1 nil [0 nil nil]] nil)))
         (is (some? (env/lookup (a/env) (name/from-string "dependentIndexLengthExtra.eq_1"))))
         (is (some? (env/lookup (a/env) (name/from-string "dependentIndexLengthExtra.eq_2"))))
@@ -222,7 +222,7 @@
                 '[flag :- Bool, n :- Nat] 'Nat
                 '(match flag
                    true (match n 0 0
-                                (Nat.succ k) (Nat.succ (outerMatchRec flag k)))
+                               (Nat.succ k) (Nat.succ (outerMatchRec flag k)))
                    false 0))]
         (is (= 3 (f true 3)))
         (is (= 0 (f false 3)))
@@ -238,10 +238,10 @@
                 '[m :- Nat, n :- Nat] 'Nat
                 '(match m
                    0 (match n 0 m
-                             (Nat.succ k) (trySecondArgRec (Nat.succ m) k))
+                            (Nat.succ k) (trySecondArgRec (Nat.succ m) k))
                    (Nat.succ j)
-                    (match n 0 m
-                           (Nat.succ k) (trySecondArgRec (Nat.succ m) k))))]
+                   (match n 0 m
+                          (Nat.succ k) (trySecondArgRec (Nat.succ m) k))))]
         (is (= 3 (f 0 3)))
         (is (= 5 (f 2 3)))
         (is (some? (env/lookup (a/env) (name/from-string "trySecondArgRec.match_1"))))
@@ -273,11 +273,11 @@
       (let [f (a/define-verified 'nestedCmpRec '[n :- Nat, k :- Nat] 'Bool
                 '(match n 0 false
                         (Nat.succ j)
-                         (match (< k j)
-                           true (nestedCmpRec j k)
-                           false (match (== k j)
-                                    true true
-                                    false false))))]
+                        (match (< k j)
+                          true (nestedCmpRec j k)
+                          false (match (== k j)
+                                  true true
+                                  false false))))]
         (is (true? (f 4 1)))
         (is (false? (f 1 2)))
         (is (some? (env/lookup (a/env) (name/from-string "nestedCmpRec.match_1"))))

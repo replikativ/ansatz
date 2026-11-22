@@ -60,7 +60,7 @@
       (if-some [ys o] (match-as ys (List Nat) Nat (nil 100) (cons [h t] h)) 7))
     (ansatz.core/defn ^Nat nc-nested [^{:- (List (Option Nat))} xs ^{:- (Option Nat)} q]
       (match-as xs (List (Option Nat)) Nat (nil 0)
-             (cons [h t] (if-some [x h] (if-some [y q] (+ x y) x) 2))))
+                (cons [h t] (if-some [x h] (if-some [y q] (+ x y) x) 2))))
     (ansatz.core/defn ^Nat nc-loop [^{:- (Option Nat)} o ^Nat n]
       (loop [i n acc 0] (if (== i 0) acc (recur (dec i) (if-some [x o] (+ acc x) acc)))))])
 

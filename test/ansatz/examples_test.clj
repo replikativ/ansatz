@@ -31,16 +31,16 @@
           (when-not (env/lookup (a/env) (name/from-string "ex-sorted"))
             (eval '(ansatz.core/defn ^Bool ex-sorted [^{:- (List Nat)} l]
                      (match-as l (List Nat) Bool
-                            (nil true) (cons [hd tl] (match-as tl (List Nat) Bool
-                                                            (nil true) (cons [hd2 tl2] (match-as (<= hd hd2) Bool Bool
-                                                                                              (true ih_tail) (false false))))))))
+                               (nil true) (cons [hd tl] (match-as tl (List Nat) Bool
+                                                                  (nil true) (cons [hd2 tl2] (match-as (<= hd hd2) Bool Bool
+                                                                                                       (true ih_tail) (false false))))))))
             (eval '(ansatz.core/defn ^{:- (List Nat)} ex-insertSorted [^Nat x ^{:- (List Nat)} l]
                      (match-as l (List Nat) (List Nat)
-                            (nil (cons x nil)) (cons [hd tl] (match-as (<= x hd) Bool (List Nat)
-                                                                    (true (cons x l)) (false (cons hd ih_tail)))))))
+                               (nil (cons x nil)) (cons [hd tl] (match-as (<= x hd) Bool (List Nat)
+                                                                          (true (cons x l)) (false (cons hd ih_tail)))))))
             (eval '(ansatz.core/defn ^{:- (List Nat)} ex-isort [^{:- (List Nat)} l]
                      (match-as l (List Nat) (List Nat)
-                            (nil nil) (cons [hd tl] ((ex-insertSorted hd) ih_tail)))))))
+                               (nil nil) (cons [hd tl] ((ex-insertSorted hd) ih_tail)))))))
         {:env @a/ansatz-env
          :idx @a/ansatz-instance-index}))))
 
@@ -172,8 +172,8 @@
         (eval '(ansatz.core/defn ^Nat ex-div2 [^Nat n]
                  :termination-by n
                  (match-as n Nat Nat (zero 0)
-                        (succ [p] (match-as p Nat Nat (zero 0)
-                                         (succ [k] (Nat.succ (ex-div2 k)))))))))
+                           (succ [p] (match-as p Nat Nat (zero 0)
+                                               (succ [k] (Nat.succ (ex-div2 k)))))))))
       (let [ci (env/lookup (a/env) (name/from-string "ex-div2"))]
         (is (some? ci) "div2 (n-2 recursion) defined")
         (is (some? (env/lookup (a/env) (name/from-string "ex-div2.match_1")))
@@ -190,14 +190,14 @@
   (binding [a/*verbose* false]
     (let [f (a/define-verified-wf 'ex-wf-nested-head '[n :- Nat] 'Nat
               '(match-as n Nat Nat
-                      (zero 0)
-                      (succ [p]
-                            (match-as p Nat Nat
-                                   (zero 0)
-                                   (succ [k]
-                                         (match-as true Bool Nat
-                                                (true (ex-wf-nested-head k))
-                                                (false 0)))))) 'n)
+                         (zero 0)
+                         (succ [p]
+                               (match-as p Nat Nat
+                                         (zero 0)
+                                         (succ [k]
+                                               (match-as true Bool Nat
+                                                         (true (ex-wf-nested-head k))
+                                                         (false 0)))))) 'n)
           ci (env/lookup (a/env) (name/from-string "ex-wf-nested-head"))
           eq (env/lookup (a/env) (name/from-string "ex-wf-nested-head.eq_3"))]
       (is (= 0 (f 4)))
@@ -240,8 +240,8 @@
         (eval '(ansatz.core/defn ^Nat ex-div2 [^Nat n]
                  :termination-by n
                  (match-as n Nat Nat (zero 0)
-                        (succ [p] (match-as p Nat Nat (zero 0)
-                                         (succ [k] (Nat.succ (ex-div2 k)))))))))
+                           (succ [p] (match-as p Nat Nat (zero 0)
+                                               (succ [k] (Nat.succ (ex-div2 k)))))))))
       ;; the three leaf equations exist (f 0 = 0, f 1 = 0, f (k+2) = (f k)+1)
       (is (some? (env/lookup (a/env) (name/from-string "ex-div2.eq_1"))) "eq_1 generated")
       (is (some? (env/lookup (a/env) (name/from-string "ex-div2.eq_2"))) "eq_2 generated")
@@ -294,10 +294,10 @@
         (eval '(ansatz.core/defn ^Nat ex-ack [^Nat m ^Nat n]
                  :termination-by [m n]
                  (match-as m Nat Nat
-                        (zero (+ n 1))
-                        (succ [k] (match-as n Nat Nat
-                                         (zero (ex-ack k 1))
-                                         (succ [j] (ex-ack k (ex-ack (Nat.succ k) j)))))))))
+                           (zero (+ n 1))
+                           (succ [k] (match-as n Nat Nat
+                                               (zero (ex-ack k 1))
+                                               (succ [j] (ex-ack k (ex-ack (Nat.succ k) j)))))))))
       (let [ci (env/lookup (a/env) (name/from-string "ex-ack"))]
         (is (some? ci) "Ackermann defined with lexicographic :termination-by [m n]")
         ;; uses the GENERAL WellFounded.fix (not the Nat fast path)
@@ -350,25 +350,25 @@
         (eval '(ansatz.core/defn ^Nat ex-pairs [^{:- (List Nat)} xs]
                  :termination-by (sizeOf xs)
                  (match-as xs (List Nat) Nat
-                        (nil 0)
-                        (cons [h t] (match-as t (List Nat) Nat
-                                           (nil 0)
-                                           (cons [h2 t2] (+ 1 (ex-pairs t2)))))))))
+                           (nil 0)
+                           (cons [h t] (match-as t (List Nat) Nat
+                                                 (nil 0)
+                                                 (cons [h2 t2] (+ 1 (ex-pairs t2)))))))))
       ;; auto-guessed (no annotation) — routes through the WF path, NOT the structural
       ;; rewrite (which is only sound when the match is the entire function body)
       (when-not (env/lookup (a/env) (name/from-string "ex-pairs-au"))
         (eval '(ansatz.core/defn ^Nat ex-pairs-au [^{:- (List Nat)} xs]
                  (match-as xs (List Nat) Nat
-                        (nil 0)
-                        (cons [h t] (match-as t (List Nat) Nat
-                                           (nil 0)
-                                           (cons [h2 t2] (+ 1 (ex-pairs-au t2)))))))))
+                           (nil 0)
+                           (cons [h t] (match-as t (List Nat) Nat
+                                                 (nil 0)
+                                                 (cons [h2 t2] (+ 1 (ex-pairs-au t2)))))))))
       ;; unannotated nested-match div2 over Nat — the canonical correctness regression
       (when-not (env/lookup (a/env) (name/from-string "ex-div2-au"))
         (eval '(ansatz.core/defn ^Nat ex-div2-au [^Nat n]
                  (match-as n Nat Nat (zero 0)
-                        (succ [p] (match-as p Nat Nat (zero 0)
-                                         (succ [k] (Nat.succ (ex-div2-au k)))))))))
+                           (succ [p] (match-as p Nat Nat (zero 0)
+                                               (succ [k] (Nat.succ (ex-div2-au k)))))))))
       (let [r (.getReducer (doto (ansatz.kernel.TypeChecker. (a/env)) (.setFuel 200000000)))
             lnil (e/app (e/const' (name/from-string "List.nil") [lvl/zero])
                         (e/const' (name/from-string "Nat") []))
@@ -401,10 +401,10 @@
       (when-not (env/lookup (a/env) (name/from-string "ex-cpairs"))
         (eval '(ansatz.core/defn ^Nat ex-cpairs [^ExL xs]
                  (match-as xs ExL Nat
-                        (enil 0)
-                        (econs [h t] (match-as t ExL Nat
-                                            (enil 0)
-                                            (econs [h2 t2] (+ 1 (ex-cpairs t2)))))))))
+                           (enil 0)
+                           (econs [h t] (match-as t ExL Nat
+                                                  (enil 0)
+                                                  (econs [h2 t2] (+ 1 (ex-cpairs t2)))))))))
       (let [ci (env/lookup (a/env) (name/from-string "ex-cpairs"))]
         (is (some? ci) "non-structural recursion over the custom type auto-verified")
         (let [r (.getReducer (doto (ansatz.kernel.TypeChecker. (a/env)) (.setFuel 200000000)))
@@ -430,8 +430,8 @@
         (eval '(ansatz.core/defn ^Nat ex-lexloop [^Nat n]
                  (loop [a n b n]
                    (match-as a Nat Nat
-                          (zero (match-as b Nat Nat (zero 0) (succ [j] (+ 1 (recur a j)))))
-                          (succ [i] (+ 1 (recur i n))))))))
+                             (zero (match-as b Nat Nat (zero 0) (succ [j] (+ 1 (recur a j)))))
+                             (succ [i] (+ 1 (recur i n))))))))
       (is (some? (env/lookup (a/env) (name/from-string "ex-lexloop"))) "lex loop verified")
       ;; Evaluated through the COMPILED runtime, not kernel whnf: a WF-defined function does not
       ;; reduce definitionally -- Acc.rec needs the accessibility THEOREM unfolded to Acc.intro,
@@ -449,10 +449,10 @@
         (eval '(ansatz.core/defn ^Nat ex-lex3 [^Nat a ^Nat b ^Nat c]
                  :termination-by [a b c]
                  (match-as a Nat Nat
-                        (zero (match-as b Nat Nat
-                                     (zero (match-as c Nat Nat (zero 0) (succ [k] (+ 1 (ex-lex3 0 0 k)))))
-                                     (succ [j] (+ 1 (ex-lex3 0 j (+ c 2))))))
-                        (succ [i] (+ 1 (ex-lex3 i (+ b 2) (+ c 2))))))))
+                           (zero (match-as b Nat Nat
+                                           (zero (match-as c Nat Nat (zero 0) (succ [k] (+ 1 (ex-lex3 0 0 k)))))
+                                           (succ [j] (+ 1 (ex-lex3 0 j (+ c 2))))))
+                           (succ [i] (+ 1 (ex-lex3 i (+ b 2) (+ c 2))))))))
       (let [ci (env/lookup (a/env) (name/from-string "ex-lex3"))]
         (is (some? ci) "3-arg 3-tuple lex function defined")
         ;; lower components may INCREASE when a higher one drops — only lex can verify this
@@ -472,10 +472,10 @@
       (when-not (env/lookup (a/env) (name/from-string "ex-ack-auto"))
         (eval '(ansatz.core/defn ^Nat ex-ack-auto [^Nat m ^Nat n]
                  (match-as m Nat Nat
-                        (zero (+ n 1))
-                        (succ [k] (match-as n Nat Nat
-                                         (zero (ex-ack-auto k 1))
-                                         (succ [j] (ex-ack-auto k (ex-ack-auto (Nat.succ k) j)))))))))
+                           (zero (+ n 1))
+                           (succ [k] (match-as n Nat Nat
+                                               (zero (ex-ack-auto k 1))
+                                               (succ [j] (ex-ack-auto k (ex-ack-auto (Nat.succ k) j)))))))))
       (let [ci (env/lookup (a/env) (name/from-string "ex-ack-auto"))]
         (is (some? ci) "unannotated Ackermann auto-verified via the guessed lex measure")
         ;; Evaluated through the COMPILED runtime, not kernel whnf: a WF-defined function does not
@@ -515,8 +515,8 @@
       ;; Define rb-size
       (let [f (a/define-verified 'ex-rb-size '[^{:- (TRBTree Nat)} t] 'Nat
                 '(match-as t (TRBTree Nat) Nat
-                        (leaf 0)
-                        (node [color left key right] (+ 1 (+ ih_left ih_right)))))]
+                           (leaf 0)
+                           (node [color left key right] (+ 1 (+ ih_left ih_right)))))]
         (is (fn? f))
         ;; Test: tree with 3 nodes
         (let [tree (reduce (fn [t k] [:black t k nil]) nil [3 1 4])]
@@ -529,13 +529,13 @@
       (let [f (a/define-verified 'ex-rb-member
                 '[^{:- (TRBTree Nat)} t ^Nat k] 'Bool
                 '(match-as t (TRBTree Nat) Bool
-                        (leaf false)
-                        (node [color left key right]
-                              (match-as (< k key) Bool Bool
-                                     (true ih_left)
-                                     (false (match-as (== k key) Bool Bool
-                                                   (true true)
-                                                   (false ih_right)))))))]
+                           (leaf false)
+                           (node [color left key right]
+                                 (match-as (< k key) Bool Bool
+                                           (true ih_left)
+                                           (false (match-as (== k key) Bool Bool
+                                                            (true true)
+                                                            (false ih_right)))))))]
         (is (fn? f))
         (let [tree (reduce (fn [t k] [:black t k nil]) nil [5 3 7 1 4])]
           (is (true? ((f tree) 4)))
@@ -547,8 +547,8 @@
     (binding [a/*verbose* false]
       (let [f (a/define-verified 'ex-rb-sum '[^{:- (TRBTree Nat)} t] 'Nat
                 '(match-as t (TRBTree Nat) Nat
-                        (leaf 0)
-                        (node [color left key right] (+ key (+ ih_left ih_right)))))]
+                           (leaf 0)
+                           (node [color left key right] (+ key (+ ih_left ih_right)))))]
         (is (fn? f))
         (let [tree (reduce (fn [t k] [:black t k nil]) nil [3 1 4])]
           (is (= 8 (long (f tree)))))))))
@@ -569,8 +569,8 @@
       ;; Uses omega to prove: rb-size l ≤ 1 + (rb-size l + rb-size r)
       (let [f (a/define-verified 'ex-rb-size3 '[^{:- (TRBTree Nat)} t] 'Nat
                 '(match-as t (TRBTree Nat) Nat
-                        (leaf 0)
-                        (node [color left key right] (+ 1 (+ ih_left ih_right)))))]
+                           (leaf 0)
+                           (node [color left key right] (+ 1 (+ ih_left ih_right)))))]
         (is (fn? f))
         (a/prove-theorem 'ex-left-le-size
                          '[c :- TRBColor, l :- (TRBTree Nat), k :- Nat, r :- (TRBTree Nat)]
@@ -585,20 +585,20 @@
       (a/define-verified 'ex-balance1
         '[^{:- (TRBTree Nat)} l ^Nat v ^{:- (TRBTree Nat)} r] '(TRBTree Nat)
         '(match-as l (TRBTree Nat) (TRBTree Nat)
-                (leaf (TRBTree.node Nat (TRBColor.black) (TRBTree.leaf Nat) v r))
-                (node [lc ll lk lr]
-                      (match-as lc TRBColor (TRBTree Nat)
-                             (black (TRBTree.node Nat (TRBColor.black) l v r))
-                             (red
-                              (match-as ll (TRBTree Nat) (TRBTree Nat)
-                                     (leaf (TRBTree.node Nat (TRBColor.black) l v r))
-                                     (node [llc lll llk llr]
-                                           (match-as llc TRBColor (TRBTree Nat)
-                                                  (black (TRBTree.node Nat (TRBColor.black) l v r))
-                                                  (red (TRBTree.node Nat (TRBColor.red)
-                                                                     (TRBTree.node Nat (TRBColor.black) lll llk llr)
-                                                                     lk
-                                                                     (TRBTree.node Nat (TRBColor.black) lr v r)))))))))))
+                   (leaf (TRBTree.node Nat (TRBColor.black) (TRBTree.leaf Nat) v r))
+                   (node [lc ll lk lr]
+                         (match-as lc TRBColor (TRBTree Nat)
+                                   (black (TRBTree.node Nat (TRBColor.black) l v r))
+                                   (red
+                                    (match-as ll (TRBTree Nat) (TRBTree Nat)
+                                              (leaf (TRBTree.node Nat (TRBColor.black) l v r))
+                                              (node [llc lll llk llr]
+                                                    (match-as llc TRBColor (TRBTree Nat)
+                                                              (black (TRBTree.node Nat (TRBColor.black) l v r))
+                                                              (red (TRBTree.node Nat (TRBColor.red)
+                                                                                 (TRBTree.node Nat (TRBColor.black) lll llk llr)
+                                                                                 lk
+                                                                                 (TRBTree.node Nat (TRBColor.black) lr v r)))))))))))
       ;; Prove left-left rotation (universally quantified)
       (a/prove-theorem 'ex-balance1-ll
                        '[a :- (TRBTree Nat), x :- Nat, b :- (TRBTree Nat),
@@ -676,8 +676,8 @@
           ;; Define insertSorted in the fresh env
           (eval '(ansatz.core/defn ^{:- (List Nat)} ex-insertSorted [^Nat x ^{:- (List Nat)} l]
                    (match-as l (List Nat) (List Nat)
-                          (nil (cons x nil)) (cons [hd tl] (match-as (<= x hd) Bool (List Nat)
-                                                                  (true (cons x l)) (false (cons hd ih_tail)))))))
+                             (nil (cons x nil)) (cons [hd tl] (match-as (<= x hd) Bool (List Nat)
+                                                                        (true (cons x l)) (false (cons hd ih_tail)))))))
           ;; Define Prop-valued Sorted indexed inductive:
           ;;   Sorted : List Nat → Prop
           ;;   nil    : Sorted []
@@ -750,8 +750,8 @@
           (reset! @(resolve 'ansatz.tactic.simp/fun-info-cache) {})
           (eval '(ansatz.core/defn ^{:- (List Nat)} ex-insertSorted [^Nat x ^{:- (List Nat)} l]
                    (match-as l (List Nat) (List Nat)
-                          (nil (cons x nil)) (cons [hd tl] (match-as (<= x hd) Bool (List Nat)
-                                                                  (true (cons x l)) (false (cons hd ih_tail)))))))
+                             (nil (cons x nil)) (cons [hd tl] (match-as (<= x hd) Bool (List Nat)
+                                                                        (true (cons x l)) (false (cons hd ih_tail)))))))
           (eval '(ansatz.core/inductive Sorted [] :in Prop :indices [l (List Nat)]
                                         (nil :where [(nil)])
                                         (single [a Nat] :where [(cons a nil)])
@@ -840,8 +840,8 @@
       (a/define-verified 'ex-balance1b
         '[^{:- (TRBTree Nat)} l ^Nat v ^{:- (TRBTree Nat)} r] '(TRBTree Nat)
         '(match-as l (TRBTree Nat) (TRBTree Nat)
-                (leaf (TRBTree.node Nat (TRBColor.black) (TRBTree.leaf Nat) v r))
-                (node [lc ll lk lr] (TRBTree.node Nat (TRBColor.black) l v r))))
+                   (leaf (TRBTree.node Nat (TRBColor.black) (TRBTree.leaf Nat) v r))
+                   (node [lc ll lk lr] (TRBTree.node Nat (TRBColor.black) l v r))))
       ;; Verify: eq_1 should have balance1 leaf v r on LHS
       (let [ci (env/lookup (a/env) (name/from-string "ex-balance1b.eq_1"))
             ^ansatz.kernel.TypeChecker tc (ansatz.kernel.TypeChecker. (a/env))]
@@ -858,8 +858,8 @@
       ;; The equation theorem eq_2 must be kernel-verifiable.
       (eval '(ansatz.core/defn ^{:- (List Nat)} ex-ins2 [^Nat x ^{:- (List Nat)} l]
                (match-as l (List Nat) (List Nat)
-                      (nil (cons x nil)) (cons [hd tl] (match-as (<= x hd) Bool (List Nat)
-                                                              (true (cons x l)) (false (cons hd ih_tail)))))))
+                         (nil (cons x nil)) (cons [hd tl] (match-as (<= x hd) Bool (List Nat)
+                                                                    (true (cons x l)) (false (cons hd ih_tail)))))))
       (let [^ansatz.kernel.TypeChecker tc (ansatz.kernel.TypeChecker. (a/env))]
         (.setFuel tc (int 50000000))
         (doseq [suffix ["1" "2"]]
@@ -877,20 +877,20 @@
         (a/define-verified 'ex-bal1c
           '[^{:- (TRBTree Nat)} l ^Nat v ^{:- (TRBTree Nat)} r] '(TRBTree Nat)
           '(match-as l (TRBTree Nat) (TRBTree Nat)
-                  (leaf (TRBTree.node Nat (TRBColor.black) (TRBTree.leaf Nat) v r))
-                  (node [lc ll lk lr]
-                        (match-as lc TRBColor (TRBTree Nat)
-                               (black (TRBTree.node Nat (TRBColor.black) l v r))
-                               (red
-                                (match-as ll (TRBTree Nat) (TRBTree Nat)
-                                       (leaf (TRBTree.node Nat (TRBColor.black) l v r))
-                                       (node [llc lll llk llr]
-                                             (match-as llc TRBColor (TRBTree Nat)
-                                                    (black (TRBTree.node Nat (TRBColor.black) l v r))
-                                                    (red (TRBTree.node Nat (TRBColor.red)
-                                                                       (TRBTree.node Nat (TRBColor.black) lll llk llr)
-                                                                       lk
-                                                                       (TRBTree.node Nat (TRBColor.black) lr v r)))))))))))
+                     (leaf (TRBTree.node Nat (TRBColor.black) (TRBTree.leaf Nat) v r))
+                     (node [lc ll lk lr]
+                           (match-as lc TRBColor (TRBTree Nat)
+                                     (black (TRBTree.node Nat (TRBColor.black) l v r))
+                                     (red
+                                      (match-as ll (TRBTree Nat) (TRBTree Nat)
+                                                (leaf (TRBTree.node Nat (TRBColor.black) l v r))
+                                                (node [llc lll llk llr]
+                                                      (match-as llc TRBColor (TRBTree Nat)
+                                                                (black (TRBTree.node Nat (TRBColor.black) l v r))
+                                                                (red (TRBTree.node Nat (TRBColor.red)
+                                                                                   (TRBTree.node Nat (TRBColor.black) lll llk llr)
+                                                                                   lk
+                                                                                   (TRBTree.node Nat (TRBColor.black) lr v r)))))))))))
         (let [ctx (a/make-context @a/ansatz-env @a/ansatz-instance-index)]
           ;; Leaf case: balance1 leaf v r = node black leaf v r → ValidRB
           (a/prove-theorem 'bal1-leaf-valid
@@ -954,20 +954,20 @@
           (a/define-verified 'ex-bal1full
             '[^{:- (TRBTree Nat)} l ^Nat v ^{:- (TRBTree Nat)} r] '(TRBTree Nat)
             '(match-as l (TRBTree Nat) (TRBTree Nat)
-                    (leaf (TRBTree.node Nat (TRBColor.black) (TRBTree.leaf Nat) v r))
-                    (node [lc ll lk lr]
-                          (match-as lc TRBColor (TRBTree Nat)
-                                 (black (TRBTree.node Nat (TRBColor.black) l v r))
-                                 (red
-                                  (match-as ll (TRBTree Nat) (TRBTree Nat)
-                                         (leaf (TRBTree.node Nat (TRBColor.black) l v r))
-                                         (node [llc lll llk llr]
-                                               (match-as llc TRBColor (TRBTree Nat)
-                                                      (black (TRBTree.node Nat (TRBColor.black) l v r))
-                                                      (red (TRBTree.node Nat (TRBColor.red)
-                                                                         (TRBTree.node Nat (TRBColor.black) lll llk llr)
-                                                                         lk
-                                                                         (TRBTree.node Nat (TRBColor.black) lr v r))))))))))))
+                       (leaf (TRBTree.node Nat (TRBColor.black) (TRBTree.leaf Nat) v r))
+                       (node [lc ll lk lr]
+                             (match-as lc TRBColor (TRBTree Nat)
+                                       (black (TRBTree.node Nat (TRBColor.black) l v r))
+                                       (red
+                                        (match-as ll (TRBTree Nat) (TRBTree Nat)
+                                                  (leaf (TRBTree.node Nat (TRBColor.black) l v r))
+                                                  (node [llc lll llk llr]
+                                                        (match-as llc TRBColor (TRBTree Nat)
+                                                                  (black (TRBTree.node Nat (TRBColor.black) l v r))
+                                                                  (red (TRBTree.node Nat (TRBColor.red)
+                                                                                     (TRBTree.node Nat (TRBColor.black) lll llk llr)
+                                                                                     lk
+                                                                                     (TRBTree.node Nat (TRBColor.black) lr v r))))))))))))
         ;; Prove: ∀ l v r, ValidRB l → ValidRB r → ValidRB(balance1 l v r)
         ;;
         ;; This is the full balance invariant for the left-left rotation case of
@@ -1124,40 +1124,40 @@
       (when-not (env/lookup (a/env) (name/from-string "ex-merge-au"))
         (eval '(ansatz.core/defn ^{:- (List Nat)} ex-merge-au [^{:- (List Nat)} xs ^{:- (List Nat)} ys]
                  (match-as xs (List Nat) (List Nat)
-                        (nil ys)
-                        (cons [x xs2]
-                              (match-as ys (List Nat) (List Nat)
-                                     (nil (cons x xs2))
-                                     (cons [y ys2]
-                                           (if (<= x y)
-                                             (cons x (ex-merge-au xs2 (cons y ys2)))
-                                             (cons y (ex-merge-au (cons x xs2) ys2))))))))))
+                           (nil ys)
+                           (cons [x xs2]
+                                 (match-as ys (List Nat) (List Nat)
+                                           (nil (cons x xs2))
+                                           (cons [y ys2]
+                                                 (if (<= x y)
+                                                   (cons x (ex-merge-au xs2 (cons y ys2)))
+                                                   (cons y (ex-merge-au (cons x xs2) ys2))))))))))
       ;; explicit sizeOf sum
       (when-not (env/lookup (a/env) (name/from-string "ex-merge-sum"))
         (eval '(ansatz.core/defn ^{:- (List Nat)} ex-merge-sum [^{:- (List Nat)} xs ^{:- (List Nat)} ys]
                  :termination-by (+ (sizeOf xs) (sizeOf ys))
                  (match-as xs (List Nat) (List Nat)
-                        (nil ys)
-                        (cons [x xs2]
-                              (match-as ys (List Nat) (List Nat)
-                                     (nil (cons x xs2))
-                                     (cons [y ys2]
-                                           (if (<= x y)
-                                             (cons x (ex-merge-sum xs2 (cons y ys2)))
-                                             (cons y (ex-merge-sum (cons x xs2) ys2))))))))))
+                           (nil ys)
+                           (cons [x xs2]
+                                 (match-as ys (List Nat) (List Nat)
+                                           (nil (cons x xs2))
+                                           (cons [y ys2]
+                                                 (if (<= x y)
+                                                   (cons x (ex-merge-sum xs2 (cons y ys2)))
+                                                   (cons y (ex-merge-sum (cons x xs2) ys2))))))))))
       ;; explicit lexicographic sizeOf tuple
       (when-not (env/lookup (a/env) (name/from-string "ex-merge-lex"))
         (eval '(ansatz.core/defn ^{:- (List Nat)} ex-merge-lex [^{:- (List Nat)} xs ^{:- (List Nat)} ys]
                  :termination-by [(sizeOf xs) (sizeOf ys)]
                  (match-as xs (List Nat) (List Nat)
-                        (nil ys)
-                        (cons [x xs2]
-                              (match-as ys (List Nat) (List Nat)
-                                     (nil (cons x xs2))
-                                     (cons [y ys2]
-                                           (if (<= x y)
-                                             (cons x (ex-merge-lex xs2 (cons y ys2)))
-                                             (cons y (ex-merge-lex (cons x xs2) ys2))))))))))
+                           (nil ys)
+                           (cons [x xs2]
+                                 (match-as ys (List Nat) (List Nat)
+                                           (nil (cons x xs2))
+                                           (cons [y ys2]
+                                                 (if (<= x y)
+                                                   (cons x (ex-merge-lex xs2 (cons y ys2)))
+                                                   (cons y (ex-merge-lex (cons x xs2) ys2))))))))))
       (doseq [f ["ex-merge-au" "ex-merge-sum" "ex-merge-lex"]]
         (is (some? (env/lookup (a/env) (name/from-string f))) (str f " kernel-verified")))
       (doseq [f '[ex-merge-au ex-merge-sum ex-merge-lex]]

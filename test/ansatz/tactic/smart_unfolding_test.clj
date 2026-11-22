@@ -23,8 +23,8 @@
                (match es
                  nil best
                  (cons h t) (su-pick (match best none (Option.some Nat h)
-                                             (some b) (if (Nat.blt h b) (Option.some Nat h) best))
-                                      t))))
+                                            (some b) (if (Nat.blt h b) (Option.some Nat h) best))
+                                     t))))
       (t))))
 
 (defn- failure [form]

@@ -25,8 +25,8 @@
       (eval '(a/defn matcher-store-option [s :- MatcherStore, o :- (Option Nat)] (Option Nat)
                (match o none (Option.some Nat 0)
                       (some m) (match s (mk a b) (match (Nat.ble m a)
-                                                     true (Option.some Nat a)
-                                                     false (Option.some Nat b))))))
+                                                   true (Option.some Nat a)
+                                                   false (Option.some Nat b))))))
       (t))))
 
 (deftest rewritten-discriminant-reduces-before-split
