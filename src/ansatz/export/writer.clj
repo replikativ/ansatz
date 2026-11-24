@@ -56,7 +56,7 @@
 
 (defn- const-levels [^Expr e] (seq (.o1 e)))
 
-(defn- expr-constants
+(defn expr-constants
   "Add to `out` the constants an expression references, including the
    constants the kernel needs to interpret its literals."
   [^Expr root ^LinkedHashSet out]

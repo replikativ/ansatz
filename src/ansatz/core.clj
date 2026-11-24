@@ -11,6 +11,7 @@
   "Verified Clojure — write proven programs using Ansatz types and tactics."
   (:refer-clojure :exclude [defn class])
   (:require [ansatz.bundle :as bundle]
+            [ansatz.proof-cache :as proof-cache]
             [ansatz.artifact-profile :as artifact-profile]
             [ansatz.discr-key-encoding :as key-encoding]
             [clojure.java.io]
@@ -2986,27 +2987,40 @@
          ;; through the SAME elaborator as function bodies (lean4: one elaborator for
          ;; terms and tactic goals).
          goal-type (if expr-goal? prop-form (:type-ansatz (elab-signature env pairs prop-form)))
-         [ps _] (proof/start-proof env goal-type)
          intro-names (if expr-goal? (mapv str params) (mapv (comp str first) pairs))
-         ps (if (seq intro-names) (basic/intros ps intro-names) ps)
-         ps (reduce run-tactic-reporting ps tactic-forms)]
-     (when-not (proof/solved? ps)
-       (let [mctx (:meta-mctx ps)
-             diagnostic (diagnostics/first-instance-diagnostic (:env ps) mctx (:goals ps))]
-         (throw (ex-info (or (:message diagnostic)
-                             (str "Proof incomplete\n" (proof/format-goals ps)))
-                         (merge {:ps ps} diagnostic)))))
-     (extract/verify ps)
-     (let [term (extract/extract ps)
-           final-env (:env ps)
-           cname (name/from-string (str thm-name))
-           ci (env/mk-thm cname [] goal-type term)]
-       ;; When using a context, add to context's env.
-       ;; When using global, swap! to avoid stale env race.
-       (if ctx
-         (env/check-constant final-env ci)
-         (swap! ansatz-env (fn [_] (env/check-constant final-env ci))))
-       (warn-if-uses-sorry! thm-name goal-type term))
+         cname (name/from-string (str thm-name))
+         ;; A cached proof term (ansatz.proof-cache) replaces the tactic run; the kernel still
+         ;; checks it, and a rejected entry falls through to the tactics.
+         cache-key (proof-cache/entry-key thm-name goal-type intro-names tactic-forms)
+         cached-env (when cache-key
+                      (proof-cache/replay cache-key env cname goal-type env/check-constant env/mk-thm))]
+     (if cached-env
+       (do (when-not ctx (swap! ansatz-env (fn [_] cached-env)))
+           (warn-if-uses-sorry! thm-name goal-type (.value ^ConstantInfo (env/lookup cached-env cname))))
+       (let [[ps _] (proof/start-proof env goal-type)
+             ps (if (seq intro-names) (basic/intros ps intro-names) ps)
+             ps (reduce run-tactic-reporting ps tactic-forms)]
+         (when-not (proof/solved? ps)
+           (let [mctx (:meta-mctx ps)
+                 diagnostic (diagnostics/first-instance-diagnostic (:env ps) mctx (:goals ps))]
+             (throw (ex-info (or (:message diagnostic)
+                                 (str "Proof incomplete\n" (proof/format-goals ps)))
+                             (merge {:ps ps} diagnostic)))))
+         (extract/verify ps)
+         (let [term (extract/extract ps)
+               final-env (:env ps)
+               ci (env/mk-thm cname [] goal-type term)]
+           ;; When using a context, add to context's env.
+           ;; When using global, swap! to avoid stale env race.
+           (if ctx
+             (env/check-constant final-env ci)
+             (swap! ansatz-env (fn [_] (env/check-constant final-env ci))))
+           (when cache-key
+             (let [aux (proof-cache/added-constants env final-env)]
+               (if (= ::proof-cache/uncacheable aux)
+                 (swap! proof-cache/stats update :uncacheable (fnil inc 0))
+                 (proof-cache/store! cache-key aux ci))))
+           (warn-if-uses-sorry! thm-name goal-type term))))
      (when *verbose* (println "✓" thm-name "proved")))))
 
 (clojure.core/defn prove-law
