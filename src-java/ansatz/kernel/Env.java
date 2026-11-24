@@ -193,6 +193,11 @@ public final class Env {
                        visibilityCheck, extensions.assoc(key, val));
     }
 
+    /** The whole extension map (identity tells whether a step changed any extension). */
+    public clojure.lang.IPersistentMap extensions() {
+        return extensions;
+    }
+
     public Object getExtension(Object key) {
         return extensions.valAt(key);
     }
