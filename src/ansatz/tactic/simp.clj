@@ -1802,7 +1802,7 @@
         [head args] (e/get-app-fn-args expr)]
     (when (and (e/const? head) (seq args))
       (when-let [ci (env/lookup env (e/const-name head))]
-        (when-let [v (and (= 0 (.hints ci)) (.getValue ci))]   ; reducible (abbrev) def
+        (when-let [v (and (= 0 (.hints ^ConstantInfo ci)) (.getValue ^ConstantInfo ci))]   ; reducible (abbrev) def
           (loop [body v np 0]
             (cond
               (e/lam? body) (recur (e/lam-body body) (inc np))
@@ -1834,7 +1834,7 @@
     "UInt8.ofNat" "UInt8.decEq" "UInt16.ofNat" "UInt16.decEq" "UInt32.ofNat" "UInt32.decEq"
     "UInt64.ofNat" "UInt64.decEq" "HMod.hMod" "Mod.mod"})
 
-(def ^:private instance-name-sets (java.util.WeakHashMap.))
+(def ^:private ^java.util.WeakHashMap instance-name-sets (java.util.WeakHashMap.))
 
 (defn- registered-instance-names
   "Names in the environment's @[instance] registry (memoized per registry value)."
@@ -2240,7 +2240,7 @@
   (let [head (e/get-app-fn expr)]
     (when (e/const? head)
       (let [hname (e/const-name head)
-            hstr (name/->string hname)
+            ^String hstr (name/->string hname)
             info (matcher-info/get-matcher-info-core? env hstr)
             args (e/get-app-args expr)
             matcher-ready?

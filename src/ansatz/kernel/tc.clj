@@ -341,7 +341,7 @@
           (let [tc (TypeChecker. ^Env (:env st))]
             (doseq [[id d] lctx]
               (when (:type d)
-                (.addLocal tc (long id) (str (or (:name d) "x")) (:type d))))
+                (.addLocal tc (long id) (str (or (:name d) "x")) ^ansatz.kernel.Expr (:type d))))
             (when cache (swap! cache assoc lctx tc))
             tc)))))
 

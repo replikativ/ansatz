@@ -479,10 +479,10 @@ public final class TypeChecker {
         this.definitionSafety = ConstantInfo.validateDefinitionSafety(definitionSafety);
         this.allowedLevelParams = mkAllowedLevelParamSet(allowedLevelParams);
         this.reducer = new Reducer(env);
-        this.inferCache = new ExprMap<>(1024);
-        this.inferOnlyCache = new ExprMap<>(1024);
-        this.success = new ExprPairSet(256);
-        this.failure = new ExprPairSet(256);
+        this.inferCache = new ExprMap<>(8);
+        this.inferOnlyCache = new ExprMap<>(8);
+        this.success = new ExprPairSet(8);
+        this.failure = new ExprPairSet(8);
         this.nextId = KERNEL_FRESH_BASE;
         this.lctx = new HashMap<>();
         this.reducer.setLctx(this.lctx);

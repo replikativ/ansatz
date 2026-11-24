@@ -75,7 +75,7 @@
   [^Env env inst-name & {:keys [priority] :or {priority 1000}}]
   (let [ci (or (env/lookup env inst-name)
                (throw (ex-info "add-instance: no such constant" {:name (name/->string inst-name)})))
-        cls (or (return-type-head (.type ci))
+        cls (or (return-type-head (.type ^ConstantInfo ci))
                 (throw (ex-info "add-instance: the type does not conclude in a class"
                                 {:name (name/->string inst-name)})))
         idx (or (env/get-extension env :instances nil) {})

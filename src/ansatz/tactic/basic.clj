@@ -830,11 +830,11 @@
                                 ;; Register goal's lctx with TC
                                    _ (doseq [[id decl] (:lctx goal)]
                                        (when (= :local (:tag decl))
-                                         (.addLocal jtc (long id) (str (:name decl)) (:type decl))))
+                                         (.addLocal jtc (long id) (str (:name decl)) ^ansatz.kernel.Expr (:type decl))))
                                 ;; Register unresolved mvars as locals so TC can handle them
                                    _ (doseq [mid arg-mvars]
                                        (when (proof/mvar-open? ps mid)
-                                         (.addLocal jtc (long mid) "?mvar" (proof/mvar-type ps mid))))]
+                                         (.addLocal jtc (long mid) "?mvar" ^ansatz.kernel.Expr (proof/mvar-type ps mid))))]
                             ;; Following Lean 4: isDefEq is the primary matching mechanism.
                             ;; First, try to resolve remaining mvars by WHNF-matching
                             ;; the resolved type against the goal type. This handles cases
@@ -2667,7 +2667,7 @@
                    (try
                      (when-let [ci (env/lookup env (name/from-string lemma-name))]
                        (apply-tac ps (e/const' (name/from-string lemma-name)
-                                               (vec (repeat (count (.levelParams ci))
+                                               (vec (repeat (count (.levelParams ^ConstantInfo ci))
                                                             lvl/zero)))))
                      (catch Exception _ nil)))
                  (case head-name
@@ -2904,8 +2904,8 @@
                 ^ConstantInfo ci (env/lookup! (:env ps) ctor-name)
                 ;; Lean RCases.lean align matches constructor names, including
                 ;; alternatives removed by index unification.
-                ctor-names (vec (.ctors (env/lookup! (:env ps) (.inductName ci))))
-                ctor-index (.indexOf ctor-names ctor-name)
+                ctor-names (vec (.ctors ^ConstantInfo (env/lookup! (:env ps) (.inductName ci))))
+                ctor-index (.indexOf ^java.util.List ctor-names ctor-name)
                 ;; Skip implicit fields as Lean's processConstructor does.
                 infos (loop [ty (.type ci) i 0 out []]
                         (if (e/forall? ty)
