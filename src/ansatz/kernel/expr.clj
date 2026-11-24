@@ -341,7 +341,7 @@
    Lean kernel/instantiate.cpp:instantiate_rev substitutes simultaneously,
    preserving sharing and avoiding substitution into the arguments themselves."
   [e vals]
-  (let [args (into-array Expr vals)]
+  (let [^"[Lansatz.kernel.Expr;" args (into-array Expr vals)]
     (Reducer/instantiateRev e (alength args) args 0)))
 
 (defn abstract1

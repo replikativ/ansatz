@@ -119,9 +119,9 @@ public final class Reducer {
 
     public Reducer(Env env) {
         this.env = env;
-        this.whnfCoreCache = new ExprMap<>(4096);
-        this.whnfCache = new ExprMap<>(4096);
-        this.unfoldCache = new ExprMap<>(1024);
+        this.whnfCoreCache = new ExprMap<>(8);
+        this.whnfCache = new ExprMap<>(8);
+        this.unfoldCache = new ExprMap<>(8);
         this.lctx = null;
         this.fuel = DEFAULT_FUEL;
         this.initialFuel = DEFAULT_FUEL;

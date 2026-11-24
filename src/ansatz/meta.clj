@@ -303,7 +303,7 @@
             jtc (ansatz.kernel.TypeChecker. env)
             _ (doseq [[fid d] lctx]
                 (when (:type d)
-                  (.addLocal jtc (long fid) (str (or (:name d) "x")) (:type d))))
+                  (.addLocal jtc (long fid) (str (or (:name d) "x")) ^ansatz.kernel.Expr (:type d))))
             [inferred ok?] (try
                              (let [inferred (.inferType jtc value)]
                                [inferred (.isDefEq jtc inferred type)])
@@ -887,14 +887,21 @@
   "Instantiate assigned expression and level metavariables in every declaration
    in an Ansatz local context."
   [mctx lctx]
-  (reduce-kv
-   (fn [lctx id decl]
-     (let [decl' (cond-> decl
-                   (:type decl) (update :type #(zonk-expr mctx %))
-                   (:value decl) (update :value #(zonk-expr mctx %)))]
-       (assoc lctx id decl')))
-   (red/empty-lctx)
-   lctx))
+  ;; A declaration whose type and value zonk to themselves (no assigned mvar in them, the
+  ;; common case) is kept, so a sorted lctx is only rebuilt along the keys that changed.
+  (let [zonk-decl (fn [decl]
+                    (let [t (:type decl) v (:value decl)
+                          t' (when t (zonk-expr mctx t))
+                          v' (when v (zonk-expr mctx v))]
+                      (if (and (identical? t t') (identical? v v'))
+                        decl
+                        (cond-> decl t (assoc :type t') v (assoc :value v')))))]
+    (if (sorted? lctx)
+      (reduce-kv (fn [acc id decl]
+                   (let [decl' (zonk-decl decl)]
+                     (if (identical? decl decl') acc (assoc acc id decl'))))
+                 lctx lctx)
+      (reduce-kv (fn [acc id decl] (assoc acc id (zonk-decl decl))) (red/empty-lctx) lctx))))
 
 (defn instantiate-mvar-decl-mvars
   "Instantiate assigned mvars in a metavariable declaration's local context and
