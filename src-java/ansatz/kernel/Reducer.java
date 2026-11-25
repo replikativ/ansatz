@@ -1633,6 +1633,7 @@ public final class Reducer {
         ConstantInfo ci = env.lookup((Name) head.o0);
         if (ci == null || !ci.isCtor()) return null;
 
+        if (e.longVal < 0 || e.longVal > Integer.MAX_VALUE) return null;
         int fieldStart = ci.numParams;
         int fieldIdx = fieldStart + (int) e.longVal;
         if (fieldIdx < structArgs.length) {

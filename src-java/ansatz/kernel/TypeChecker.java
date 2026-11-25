@@ -972,6 +972,11 @@ public final class TypeChecker {
                 break;
 
             case Expr.PROJ: {
+                // The field index is a Nat. Expr.proj refuses a negative one; the range check keeps
+                // the int conversions below exact (a wrapped index would type one field and reduce
+                // to another).
+                if (e.longVal < 0 || e.longVal > Integer.MAX_VALUE)
+                    throw new RuntimeException("Type error: invalid projection index " + e.longVal);
                 Expr structType = whnf(inferTypeCore((Expr) e.o1, inferOnly));
                 Object[] fa = Reducer.getAppFnArgs(structType);
                 Expr head = (Expr) fa[0];
