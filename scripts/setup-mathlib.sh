@@ -50,6 +50,8 @@ checkout_pinned() {
     if [ "$(git -C "$dir" describe --tags --exact-match 2>/dev/null || true)" != "$ref" ]; then
         echo ">>> Checking out $ref in $dir"
         git -C "$dir" fetch -q --tags origin
+        # this script rewrites lean-toolchain (see below); restore it, or the checkout refuses
+        git -C "$dir" checkout -q -- lean-toolchain 2>/dev/null || true
         git -C "$dir" checkout -q "$ref"
     else
         echo ">>> $dir is at $ref"
