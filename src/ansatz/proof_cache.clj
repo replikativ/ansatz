@@ -12,11 +12,19 @@
    levels and expressions, each written once, followed by the declarations. The constants they
    reference are not written; the kernel resolves them in its environment.
 
+   What a hit reuses is a valid proof, not the tactic run. The recorded auxiliary theorems are
+   replayed (kernel-checked); nothing else the tactics did is: their diagnostic output
+   (`trace_state`), and whether they would succeed now, are not observed. A tactic run that
+   changed an environment extension, the external view or the quotient state is never stored.
+   Any failure to compute a key, encode or decode is a miss, never an error of the declaration.
+
    Off unless a directory is set: the system property `ansatz.proof-cache` or the environment
-   variable `ANSATZ_PROOF_CACHE`, or `*dir*` bound directly. One directory can be shared by
-   several projects: keys are content digests."
+   variable `ANSATZ_PROOF_CACHE`, or `*dir*` bound directly. It is not used for proofs in an
+   isolated ProofContext. One directory can be shared by several projects: keys are content
+   digests."
   (:require [ansatz.export.writer :as writer]
-            [clojure.java.io :as io])
+            [clojure.java.io :as io]
+            [clojure.walk])
   (:import [ansatz.kernel ConstantInfo Env Expr Level Name]
            [clojure.lang Keyword]
            [java.io ByteArrayOutputStream DataInputStream DataOutputStream OutputStream]
@@ -29,7 +37,7 @@
 
 (def ^:private entry-format
   "Bump when the entry layout or the key changes; old entries are then never read."
-  "ansatz-proof-cache/2")
+  "ansatz-proof-cache/3")
 
 (def ^:dynamic *dir*
   "The cache directory (a string or File), or nil for no cache."
@@ -38,7 +46,8 @@
 (def stats
   "Counts since load: :hit, :miss, :rejected (an entry that is unreadable, has the wrong shape or
    that the kernel refused), :stored, :uncacheable (the tactics changed an environment
-   extension, or added a constant that is not a theorem)."
+   extension, the external view or the quotient state, or added a constant that is not a plain
+   theorem)."
   (atom {}))
 
 (defn- count! [k] (swap! stats update k (fnil inc 0)))
@@ -63,13 +72,19 @@
 
 (defn- write-str! [^DataOutputStream o ^String s]
   (let [b (.getBytes s StandardCharsets/UTF_8)]
+    ;; UTF-8 replaces an unpaired surrogate: such a string would not come back as written
+    (when-not (= s (String. b StandardCharsets/UTF_8))
+      (throw (ex-info "proof-cache: a string UTF-8 cannot represent exactly" {})))
     (.writeInt o (alength b))
     (.write o b)))
 
 (defn- read-str ^String [^DataInputStream in]
-  (let [b (byte-array (.readInt in))]
-    (.readFully in b)
-    (String. b StandardCharsets/UTF_8)))
+  (let [n (.readInt in)]
+    (when-not (<= 0 n (.available in))
+      (throw (ex-info "proof-cache: a string length beyond the entry" {:length n})))
+    (let [b (byte-array n)]
+      (.readFully in b)
+      (String. b StandardCharsets/UTF_8))))
 
 (defn- name-id ^long [^Enc e ^Name n]
   (if-let [i (.get ^HashMap (.names e) n)]
@@ -200,7 +215,9 @@
     (loop [thms []]
       (let [r (int (.readByte in))]
         (condp = r
-          r-end thms
+          r-end (if (zero? (.available in))
+                  thms
+                  (throw (ex-info "proof-cache: bytes after the end of the entry" {})))
           r-name-str (let [p (.readInt in)] (.add names (Name/mkStr (.get names p) (read-str in))) (recur thms))
           r-name-num (let [p (.readInt in)] (.add names (Name/mkNum (.get names p) (.readLong in))) (recur thms))
           r-level
@@ -220,7 +237,10 @@
                     0 (Expr/bvar (.readLong in))
                     1 (let [l (lvl (.readInt in))] (Expr/sort l (Level/hasParam l)))
                     2 (let [n (read-obj in names)
-                            ls (vec (repeatedly (.readInt in) #(lvl (.readInt in))))]
+                            ls (let [k (.readInt in)]
+                                 (when-not (<= 0 k (.available in))
+                                   (throw (ex-info "proof-cache: a count beyond the entry" {:count k})))
+                                 (vec (repeatedly k #(lvl (.readInt in)))))]
                         (Expr/mkConst n ls (boolean (some #(Level/hasParam %) ls))))
                     3 (let [f (ex (.readInt in))] (Expr/app f (ex (.readInt in))))
                     (4 5) (let [n (read-obj in names) ty (ex (.readInt in)) b (ex (.readInt in))
@@ -234,7 +254,10 @@
             (recur thms))
           r-thm
           (let [n (read-obj in names)
-                lps (vec (repeatedly (.readInt in) #(read-obj in names)))
+                lps (let [n (.readInt in)]
+                      (when-not (<= 0 n (.available in))
+                        (throw (ex-info "proof-cache: a count beyond the entry" {:count n})))
+                      (vec (repeatedly n #(read-obj in names))))
                 ty (ex (.readInt in))
                 v (ex (.readInt in))]
             (recur (conj thms (ConstantInfo/mkThm n (into-array Object lps) ty v (into-array Object [n]))))))))))
@@ -243,12 +266,24 @@
 ;; Keys and entries
 ;; ============================================================
 
-(defn entry-key
-  "The key of a theorem's entry, or nil when there is no cache or the script has no stable
-   printed form (it holds an object that prints with its identity)."
+(defn- without-positions
+  "`form` with the reader's source positions removed from all metadata, keeping the rest
+   (type hints such as ^Nat on fn binders, which the elaborator reads)."
+  [form]
+  (clojure.walk/postwalk
+   (fn [x]
+     (if-let [m (and (instance? clojure.lang.IObj x) (meta x))]
+       (let [m' (dissoc m :line :column :end-line :end-column :file :source)]
+         (with-meta x (not-empty m')))
+       x))
+   form))
+
+(defn- entry-key*
   [thm-name ^Expr goal-type intro-names tactic-forms]
   (when *dir*
-    (let [script (pr-str [intro-names tactic-forms])]
+    (let [script (binding [*print-length* nil *print-level* nil *print-meta* true
+                           *print-namespace-maps* false *print-dup* false *print-readably* true]
+                   (pr-str (without-positions [intro-names tactic-forms])))]
       (when-not (.contains script "#object[")
         (let [md (MessageDigest/getInstance "SHA-256")
               os (DigestOutputStream. (OutputStream/nullOutputStream) md)
@@ -261,6 +296,14 @@
             (doseq [b (.digest md)] (.append sb (format "%02x" (bit-and (int b) 0xff))))
             (.toString sb)))))))
 
+(defn entry-key
+  "The key of a theorem's entry, or nil when there is no cache, the script has no stable
+   printed form (it holds an object that prints with its identity), or the statement cannot be
+   encoded (mdata, a metavariable): the theorem is then proved without the cache."
+  [thm-name goal-type intro-names tactic-forms]
+  (try (entry-key* thm-name goal-type intro-names tactic-forms)
+       (catch Exception _ nil)))
+
 (defn- entry-file ^java.io.File [^String k]
   (io/file (str *dir*) (subs k 0 2) (subs k 2)))
 
@@ -271,7 +314,7 @@
   (let [f (entry-file k)]
     (when (.isFile f)
       (try
-        (with-open [in (DataInputStream. (io/input-stream f))]
+        (with-open [in (DataInputStream. (java.io.ByteArrayInputStream. (Files/readAllBytes (.toPath f))))]
           (read-entry in))
         (catch Throwable _ ::unreadable)))))
 
@@ -300,12 +343,16 @@
    constant."
   [^Env before ^Env after]
   (cond
-    (not (identical? (.extensions before) (.extensions after))) ::uncacheable
-    (= (.size before) (.size after)) []
+    (not (identical? (. before (extensions)) (. after (extensions)))) ::uncacheable
+    (not (.sameExternalView before after)) ::uncacheable
+    (not= (.isQuotEnabled before) (.isQuotEnabled after)) ::uncacheable
+    ;; the local count, not `size`: with an external store (Mathlib) `size` never changes
+    (= (.localCount before) (.localCount after)) []
     :else
     (let [added (filterv (fn [^ConstantInfo ci] (nil? (.lookup before (.name ci))))
                          (.allConstants after))]
-      (if (every? (fn [^ConstantInfo ci] (.isThm ci)) added)
+      ;; the entry stores theorems with the default `all` list only
+      (if (every? (fn [^ConstantInfo ci] (and (.isThm ci) (= [(.name ci)] (vec (.all ci))))) added)
         (dependency-order added)
         ::uncacheable))))
 

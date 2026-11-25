@@ -71,3 +71,50 @@
       (finally
         (reset! a/ansatz-env env0)
         (doseq [f (reverse (file-seq (io/file dir)))] (io/delete-file f true))))))
+
+(deftest the-key-ignores-printer-bindings
+  (binding [pc/*dir* "unused"]
+    (let [goal (:type-ansatz (a/elab-signature (a/env) (a/parse-params '[n :- Nat]) '(= Nat (+ n 0) n)))
+          script '[(simp [Nat.add_zero Nat.zero_add]) (rfl)]
+          k (pc/entry-key 'pc-key ["n"] goal script)]
+      (is (string? k))
+      (is (= k (binding [*print-length* 1 *print-level* 1] (pc/entry-key 'pc-key ["n"] goal script)))))))
+
+(deftest added-theorems-are-found-in-an-env-with-an-external-store
+  ;; With an external lookup (the Mathlib store) Env.size is the store's size and does not grow,
+  ;; so additions are detected by the local count.
+  (let [base (.withExternalLookup ^ansatz.kernel.Env (a/env) (fn [_] nil) 10000000)
+        ^ConstantInfo t (env/lookup (a/env) (name/from-string "Nat.add_zero"))
+        aux (env/mk-thm (name/from-string "pc-aux-copy") [] (.type t) (.value t))
+        after (.addConstant ^ansatz.kernel.Env base aux)]
+    (is (= (.size ^ansatz.kernel.Env base) (.size ^ansatz.kernel.Env after)))
+    (is (= [aux] (pc/added-constants base after)))))
+
+(deftest failures-to-key-or-decode-are-misses
+  (let [goal (:type-ansatz (a/elab-signature (a/env) (a/parse-params '[n :- Nat]) '(= Nat (+ n 0) n)))
+        dir (temp-dir)]
+    (try
+      (binding [pc/*dir* dir]
+        (testing "a statement the codec cannot encode (mdata) gives no key, not an error"
+          (is (nil? (pc/entry-key 'pc-md ["n"] (ansatz.kernel.Expr/mdata {} goal) '[(simp)]))))
+        (testing "type hints are part of the key, source positions are not"
+          (let [k (fn [script] (pc/entry-key 'pc-meta ["n"] goal script))]
+            (is (not= (k [(list 'f (with-meta 'x {:tag 'Nat}))])
+                      (k [(list 'f (with-meta 'x {:tag 'Bool}))])))
+            (is (= (k [(with-meta (list 'simp) {:line 1 :column 2})])
+                   (k [(with-meta (list 'simp) {:line 40 :column 7})])))))
+        (testing "an entry with trailing bytes, or cut short, is unreadable"
+          (let [^ConstantInfo t (env/lookup (a/env) (name/from-string "Nat.add_zero"))
+                k (pc/entry-key 'pc-dec ["n"] goal '[(simp)])
+                f (io/file dir (subs k 0 2) (subs k 2))]
+            (#'pc/store! k [] t)
+            (is (vector? (pc/lookup k)))
+            (let [bytes (java.nio.file.Files/readAllBytes (.toPath f))]
+              (java.nio.file.Files/write (.toPath f) (byte-array (concat bytes [7]))
+                                         ^"[Ljava.nio.file.OpenOption;" (make-array java.nio.file.OpenOption 0))
+              (is (= ::pc/unreadable (pc/lookup k)))
+              (java.nio.file.Files/write (.toPath f) (java.util.Arrays/copyOf bytes (- (alength bytes) 3))
+                                         ^"[Ljava.nio.file.OpenOption;" (make-array java.nio.file.OpenOption 0))
+              (is (= ::pc/unreadable (pc/lookup k)))))))
+      (finally
+        (doseq [f (reverse (file-seq (io/file dir)))] (io/delete-file f true))))))
