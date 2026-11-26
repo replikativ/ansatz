@@ -70,7 +70,10 @@ TOOLCHAIN="$(cat "$LIB_DIR/lean-toolchain")"
 # lean4export must run on the toolchain that built Mathlib's oleans (a patch release apart from
 # its own tag is fine — the export API does not move within a minor version). It is selected per
 # command with ELAN_TOOLCHAIN, so the checkout's lean-toolchain is never rewritten.
-echo ">>> lean4export builds on Mathlib's toolchain $TOOLCHAIN"
+# Every Lean command below (cache, exporter build, export, dumps) uses this one toolchain, also
+# when the caller's environment sets another ELAN_TOOLCHAIN.
+export ELAN_TOOLCHAIN="$TOOLCHAIN"
+echo ">>> Lean toolchain for every step: $TOOLCHAIN"
 echo ">>> Fetching Mathlib's olean cache for $MATHLIB_TAG (idempotent; several GB the first time)"
 (cd "$LIB_DIR" && lake exe cache get)
 
@@ -81,7 +84,7 @@ echo ">>> Fetching Mathlib's olean cache for $MATHLIB_TAG (idempotent; several G
 echo ""
 echo ">>> Building lean4export..."
 cd "$PARENT_DIR/lean4export"
-ELAN_TOOLCHAIN="$TOOLCHAIN" lake build
+lake build
 echo "    Built: $(ls .lake/build/bin/lean4export 2>/dev/null && echo 'OK' || echo 'FAILED')"
 
 # ============================================================

@@ -30,4 +30,17 @@ g tag v4 "$v2"
 checkout_pinned "$tmp/clone" v4 >/dev/null
 check "a tag missing locally is fetched by name" '[ "$(c rev-parse HEAD)" = "$v2" ]'
 
+c checkout -q main
+check "a branch already at the tag commit is detached" '[ "$(checkout_pinned "$tmp/clone" v1 >/dev/null; c rev-parse HEAD)" = "$v1" ] && ! c symbolic-ref -q HEAD >/dev/null'
+
+check "a revision expression is not a release" '! (checkout_pinned "$tmp/clone" "v2~1" >/dev/null 2>&1)'
+
+c branch -q "refs/tags/v5" "$v2"
+check "a branch literally named refs/tags/<tag> is not the tag" '! (checkout_pinned "$tmp/clone" v5 >/dev/null 2>&1)'
+
+g tag -f v1 "$v2" >/dev/null
+g tag v6 "$v2"
+checkout_pinned "$tmp/clone" v6 >/dev/null
+check "a moved unrelated tag on the remote does not fail fetching another" '[ "$(c rev-parse HEAD)" = "$v2" ]'
+
 exit $fail
