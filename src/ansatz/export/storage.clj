@@ -605,9 +605,12 @@
                      (fn [id] (pss-lookup-raw source id))
                      (fn [id] (store-get source [:expr id])))
         expr-cache-size (long-prop "ansatz.storage.expr-cache-size" 16384)
-        ^java.util.Map cache (proxy [java.util.LinkedHashMap] [(int expr-cache-size) (float 0.75) true]
-                               (removeEldestEntry [_entry]
-                                 (> (.size ^java.util.Map this) expr-cache-size)))]
+        ;; synchronized: env lookups run on several threads (e.g. instance annotation), and an
+        ;; access-ordered LinkedHashMap restructures itself even on get
+        ^java.util.Map cache (java.util.Collections/synchronizedMap
+                              (proxy [java.util.LinkedHashMap] [(int expr-cache-size) (float 0.75) true]
+                                (removeEldestEntry [_entry]
+                                  (> (.size ^java.util.Map this) expr-cache-size))))]
     (letfn [(decode-leaf [^bytes raw]
               (let [bb (java.nio.ByteBuffer/wrap raw)
                     tag (int (.get bb))]
@@ -733,9 +736,11 @@
         lookup-fn (if pss?
                     (fn [id] (pss-lookup-raw source id))
                     (fn [id] (store-get source [:name id])))
-        ^java.util.Map cache (proxy [java.util.LinkedHashMap] [16384 (float 0.75) true]
-                               (removeEldestEntry [_entry]
-                                 (> (.size ^java.util.Map this) 131072)))]
+        ;; synchronized: see create-expr-resolver
+        ^java.util.Map cache (java.util.Collections/synchronizedMap
+                              (proxy [java.util.LinkedHashMap] [16384 (float 0.75) true]
+                                (removeEldestEntry [_entry]
+                                  (> (.size ^java.util.Map this) 131072))))]
     (fn [id]
       (let [id (long id)]
         (or (.get cache (Long/valueOf id))
@@ -753,7 +758,8 @@
         lookup-fn (if pss?
                     (fn [id] (pss-lookup-raw source id))
                     (fn [id] (store-get source [:level id])))
-        cache (java.util.HashMap. 8192)]
+        ;; synchronized: see create-expr-resolver
+        ^java.util.Map cache (java.util.Collections/synchronizedMap (java.util.HashMap. 8192))]
     (fn [id]
       (let [id (long id)]
         (or (.get cache (Long/valueOf id))

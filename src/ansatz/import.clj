@@ -24,9 +24,10 @@
      <store>/inputs/          the small inputs as received, for regeneration without Lean
 
    The keying passes resolve every declaration's type out of the store (hours for Mathlib
-   serially); they run on `:parallelism` workers, each with its OWN resolver — the resolver
-   caches are not thread-safe."
+   serially); they run on `:parallelism` workers, each with its OWN resolver (the resolver caches
+   are synchronized; separate resolvers avoid contention)."
   (:require [ansatz.export.storage :as storage]
+            [ansatz.kernel.name :as name]
             [ansatz.store :as store]
             [ansatz.bundle :as bundle]
             [ansatz.attrs :as attrs]
@@ -168,10 +169,13 @@
             _ (log! lw "  recall keys:" (count recall-entries) "in" (elapsed-s t-recall) "s")
             ;; 6. simp keys + the trie over them (lemma rfl-flags read the PROOF: keep values)
             t-simp (System/nanoTime)
-            simp-env (storage/load-env sm branch :value-policy :defs-only :keep-value? simp-names)
+            ;; resolve-ci-shell asks keep-value? with the declaration's kernel Name, not a string:
+            ;; with the string set no body was kept, so rfl lemmas lost their rfl flag
+            keep-simp-value? (into #{} (map name/from-string) simp-names)
+            simp-env (storage/load-env sm branch :value-policy :defs-only :keep-value? keep-simp-value?)
             simp-entries (parallel-keying (vec (sort simp-names)) parallelism
                                           #(storage/branch-resolver sm branch :value-policy :defs-only
-                                                                    :keep-value? simp-names)
+                                                                    :keep-value? keep-simp-value?)
                                           (fn [resolve-fn names] (si/lemma-keys names simp-env resolve-fn)))
             _ (storage/write-derived! kstore branch :simp-keys (si/key-entries-artifact simp-entries))
             _ (storage/write-derived! kstore branch :simp-trie (si/build-simp-trie (si/key-entries-artifact simp-entries)))
