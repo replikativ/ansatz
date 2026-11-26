@@ -154,7 +154,11 @@ public final class Reducer {
     private static IdentityHashMap<Expr, Expr> getDepthCache(ArrayList<IdentityHashMap<Expr, Expr>> caches, int depth) {
         while (caches.size() <= depth) caches.add(null);
         IdentityHashMap<Expr, Expr> m = caches.get(depth);
-        if (m == null) { m = new IdentityHashMap<>(); caches.set(depth, m); }
+        if (m == null) {
+            // Each binder depth has its own table; most start with only a few live terms.
+            m = new IdentityHashMap<>(4);
+            caches.set(depth, m);
+        }
         return m;
     }
 
