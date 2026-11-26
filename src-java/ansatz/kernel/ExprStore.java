@@ -286,6 +286,8 @@ public final class ExprStore implements Closeable {
     }
 
     public void storeProj(int id, int nameId, int projIdx, int structId) throws IOException {
+        if (projIdx < 0)
+            throw new IllegalArgumentException("a projection index must be non-negative, got " + projIdx);
         setOffset(id, writePos);
         writer.writeByte(TAG_PROJ);
         writer.writeInt(nameId);

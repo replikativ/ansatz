@@ -331,10 +331,11 @@
       (when (e/const? head)
         (when-let [^ConstantInfo ci (env/lookup env (e/const-name head))]
           (when (.isCtor ci)
+            ;; compare before adding, so a huge index cannot overflow (Reducer.projField)
             (let [field-start (.numParams ci)
-                  field-idx (+ field-start (e/proj-idx e))]
-              (when (< field-idx (count args))
-                (nth args field-idx)))))))))
+                  i (long (e/proj-idx e))]
+              (when (and (<= 0 i) (< i (- (count args) field-start)))
+                (nth args (+ field-start i))))))))))
 
 ;; ============================================================
 ;; Delta reduction (definition unfolding)
