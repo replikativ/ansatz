@@ -485,7 +485,9 @@
                                                                   (e/arrow (e/bvar 2) (eq (e/bvar 4) (e/lit-nat 0))) :default) :default) :default) :default) :default)
         [ps _] (proof/start-proof env ty)
         ps (basic/intros ps ["n" "m" "p" "h" "ih"])
-        ps (simp/simp-all ps [] {:only? true})]
+        ;; Lean: simp_all only [] leaves `p → True` (the target pass uses the same `only`
+        ;; set as the hypotheses); simp_all only [implies_true] closes it (checked in Lean)
+        ps (simp/simp-all ps ["implies_true"] {:only? true})]
     ;; Closing alone could use the original IH after rewriting the target.
     ;; Require simp_all to have actually asserted the normalized conditional IH.
     (is (some #(= "ih'" (:name %))
