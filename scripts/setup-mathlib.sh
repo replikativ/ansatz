@@ -104,8 +104,8 @@ else
     # kernel trace/reduction behavior more closely.
     cd "$PARENT_DIR/mathlib4"
     # tmp + mv: a killed export must not leave a truncated file the "already exists" check reuses
-    lake env "$PARENT_DIR/lean4export/.lake/build/bin/lean4export" --export-mdata Mathlib > "$NDJSON.partial" \
-        && mv "$NDJSON.partial" "$NDJSON"
+    lake env "$PARENT_DIR/lean4export/.lake/build/bin/lean4export" --export-mdata Mathlib > "$NDJSON.partial"
+    mv "$NDJSON.partial" "$NDJSON"
     echo "    Exported: $(du -h "$NDJSON" | cut -f1)"
 fi
 
@@ -127,8 +127,8 @@ else
     echo ""
     echo ">>> Dumping Mathlib @[instance] registry into $INSTANCES_TSV ..."
     cd "$LIB_DIR"
-    lake env lean --run "$PROJECT_DIR/scripts/dump_instances.lean" Mathlib > "$INSTANCES_TSV.partial" \
-        && mv "$INSTANCES_TSV.partial" "$INSTANCES_TSV"
+    lake env lean --run "$PROJECT_DIR/scripts/dump_instances.lean" Mathlib > "$INSTANCES_TSV.partial"
+    mv "$INSTANCES_TSV.partial" "$INSTANCES_TSV"
     echo "    Wrote $(wc -l < "$INSTANCES_TSV") instances"
 fi
 
@@ -148,8 +148,8 @@ else
     echo ""
     echo ">>> Dumping Mathlib @[simp]/@[csimp]/@[extern] into $ATTRS_GZ ..."
     cd "$LIB_DIR"
-    lake env lean --run "$PROJECT_DIR/scripts/dump_attrs.lean" Mathlib | gzip -c > "$ATTRS_GZ.partial" \
-        && mv "$ATTRS_GZ.partial" "$ATTRS_GZ"
+    lake env lean --run "$PROJECT_DIR/scripts/dump_attrs.lean" Mathlib | gzip -c > "$ATTRS_GZ.partial"
+    mv "$ATTRS_GZ.partial" "$ATTRS_GZ"
     echo "    Wrote $(zcat "$ATTRS_GZ" | wc -l) attribute lines"
 fi
 
@@ -165,8 +165,8 @@ else
     echo ""
     echo ">>> Dumping Mathlib modules + docstrings into $MODULES_GZ ..."
     cd "$LIB_DIR"
-    lake env lean --run "$PROJECT_DIR/scripts/dump_modules.lean" Mathlib | gzip -c > "$MODULES_GZ.partial" \
-        && mv "$MODULES_GZ.partial" "$MODULES_GZ"
+    lake env lean --run "$PROJECT_DIR/scripts/dump_modules.lean" Mathlib | gzip -c > "$MODULES_GZ.partial"
+    mv "$MODULES_GZ.partial" "$MODULES_GZ"
     echo "    Wrote $(zcat "$MODULES_GZ" | wc -l) declarations"
 fi
 
