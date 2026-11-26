@@ -61,3 +61,7 @@
     (is (false? (.isDefEq tc (proj 4294967296 (pair-of 1 2)) (proj 4294967296 (pair-of 1 3)))))
     (is (true? (.isDefEq tc (proj 0 (pair-of 1 2)) (proj 0 (pair-of 1 3)))))))
 
+(deftest a-missing-field-is-refused-at-admission
+  (let [d (env/mk-def (name/from-string "proj-missing") [] (c "Nat") (proj 2 (pair)))]
+    (is (thrown? Exception (env/check-constant (a/env) d))))
+  (is (thrown? IllegalArgumentException (e/proj (name/from-string "Prod") -0.5 (pair)))))

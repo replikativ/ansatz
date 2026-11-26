@@ -325,7 +325,8 @@
 (defn- try-reduce-proj
   "Try to reduce a projection."
   [^Env env e whnf-fn]
-  (when (e/proj? e)
+  ;; an index no field can have is refused before the target is normalized
+  (when (and (e/proj? e) (<= 0 (e/proj-idx e) Integer/MAX_VALUE))
     (let [struct (whnf-fn env (e/proj-struct e))
           [head args] (e/get-app-fn-args struct)]
       (when (e/const? head)

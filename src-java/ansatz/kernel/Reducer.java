@@ -1614,6 +1614,8 @@ public final class Reducer {
 
     private Expr tryReduceProj(Expr e, boolean cheapRec, boolean cheapProj) {
         if (e.tag != Expr.PROJ) return null;
+        // no field can have this index: do not spend fuel normalizing the target first
+        if (e.longVal < 0 || e.longVal > Integer.MAX_VALUE) return null;
         reducerTrace("proj.enter cheapRec=" + cheapRec + " cheapProj=" + cheapProj, e, null);
         // Lean 4's reduce_proj: cheapProj → whnf_core(struct, cheapRec, cheapProj), else whnf(struct)
         Expr struct = cheapProj ? whnfCore((Expr) e.o1, cheapRec, cheapProj) : whnf((Expr) e.o1);
