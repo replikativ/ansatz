@@ -197,7 +197,10 @@
 
 (deftest native-natural-decisions-agree-with-kernel
   (doseq [native '[Nat.decEq Nat.decLe Nat.decLt]
-          [x y] [[2 2] [2 3] [3 2]]
+          ;; large numerals: the decision reduces through the accelerated Nat.beq/Nat.ble
+          [x y] [[2 2] [2 3] [3 2]
+                 [1000000000000000000000 1000000000000000000000]
+                 [1000000000000000000000 1000000000000000000001]]
           application [(list native x y) (list 'let ['f native] (list 'f x y))]]
     (let [decision (elab/elaborate (a/env) application)
           tc (TypeChecker. (a/env))

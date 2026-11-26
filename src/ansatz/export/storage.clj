@@ -1428,7 +1428,10 @@
   [^java.io.File f cp]
   (let [tmp (io/file (str (.getPath f) ".tmp"))]
     (spit tmp (pr-str (assoc cp :updated (java.util.Date.))))
-    (.renameTo tmp f)))
+    (java.nio.file.Files/move (.toPath tmp) (.toPath f)
+                              (into-array java.nio.file.CopyOption
+                                          [java.nio.file.StandardCopyOption/REPLACE_EXISTING
+                                           java.nio.file.StandardCopyOption/ATOMIC_MOVE]))))
 
 (defn- slice-starts
   "Contiguous slice boundaries over `total` declarations, each start moved FORWARD off an
@@ -1527,7 +1530,10 @@
   "Re-verify the declarations a `verify-corpus!` run recorded as failures — typically at a
    higher `:fuel` and longer `:timeout-ms` — one at a time, each against every earlier
    declaration admitted. Rewrites the checkpoint's error lists to what still fails. Returns
-   {:fixed [names] :still-failing [{:name :error}]}."
+   {:fixed [names] :still-failing [{:name :error}]}.
+
+   Only recorded failures are re-checked: after a kernel change, declarations the old kernel
+   accepted are not, so certifying a store under a changed kernel takes a fresh run."
   [store-map branch & {:keys [fuel timeout-ms] :or {fuel (* 10 default-fuel) timeout-ms 600000}}]
   (let [f (checkpoint-file store-map branch)
         cp (read-checkpoint store-map branch)
@@ -1551,9 +1557,10 @@
         lw ^java.io.Writer (:log-writer ctx)
         n (count by-head)
         done (atom 0)
-        ;; The checkpoint is rewritten after EVERY head — a retry killed mid-way (or one head
-        ;; that exhausts its budget) leaves the verdicts so far on disk, and the next retry
-        ;; sees only what is still recorded.
+        ;; Verdicts reach the checkpoint at most every 30 s and once at the end: writing it
+        ;; costs ~1.5 s on Mathlib (tens of MB of EDN), far more than a typical check. A retry
+        ;; killed mid-way (or one head that exhausts its budget) leaves the verdicts up to the
+        ;; last save on disk, and the next retry sees only what is still recorded.
         apply-verdicts (fn [cp verdicts]
                          (let [verdict (into {} (map (fn [[n st err]] [n [st err]])) verdicts)
                                rewrite (fn [entries]
@@ -1579,24 +1586,33 @@
                                               :error-names (:error-names sl) :errors (:errors sl))))
                 (locking f (save-checkpoint! f (dissoc cp' :files))))
         state (atom cp)
+        save-interval-ns (* 30 1000000000)
+        last-save (atom (System/nanoTime))
         results (try
                   (log! lw (str "Retrying " (count (:error-names cp)) " recorded entries via " n " heads"))
                   (into [] (mapcat (fn [[head entries]]
                                      (let [r (try (verify-by-name! ctx head :fuel fuel :timeout-ms timeout-ms)
                                                   (catch Exception e
                                                     {:status :error :error (str (.getClass e) ": " (ex-message e))}))
-                                           verdicts (mapv (fn [{:keys [name]}] [name (:status r) (:error r)]) entries)]
+                                           verdicts (mapv (fn [{:keys [name]}] [name (:status r) (:error r)]) entries)
+                                           cp' (swap! state apply-verdicts verdicts)]
                                        (log! lw (str "  [" (swap! done inc) "/" n "] " (name (:status r)) " " head
                                                      " (" (count entries) " recorded, "
                                                      (long (or (:elapsed-ms r) 0)) " ms)"
                                                      (when (not= :ok (:status r)) (str " — " (:error r)))))
-                                       (save! (swap! state apply-verdicts verdicts))
+                                       (when (>= (- (System/nanoTime) @last-save) save-interval-ns)
+                                         (save! cp')
+                                         (reset! last-save (System/nanoTime)))
                                        verdicts)))
                         by-head)
+                  (catch Throwable t
+                    ;; keep the verdicts so far; the loop's exception is the one reported
+                    (try (save! @state) (catch Throwable s (.addSuppressed t s)))
+                    (throw t))
                   (finally (.close lw)))
+        _ (save! @state)
         still (into [] (keep (fn [[n st err]] (when (not= st :ok) {:name n :error err}))) results)
         fixed (into [] (keep (fn [[n st _]] (when (= st :ok) n))) results)]
-    (when (empty? by-head) (save! @state))
     {:fixed fixed :still-failing still}))
 
 (defn verify-from-store!

@@ -163,9 +163,10 @@ The Ansatz-generated sample covered an `a/inductive` with recursors regenerated
 by Lean, a structure, matchers, structural, well-founded and lexicographic
 recursion, `loop`/`recur`, and proofs by `rfl`, `omega` and `simp`.
 
-Our kernel natively evaluates `Int` arithmetic on literals and `Nat.decEq`.
-Lean's kernel only accelerates the `Nat` binary operations, so Lean checks
-these by unfolding. A proof that leans on them can be slow in Lean.
+Our kernel natively evaluates `Int` arithmetic on literals. Lean's kernel only
+accelerates the `Nat` binary operations, so Lean checks these by unfolding. A
+proof that leans on them can be slow in Lean. Decisions on `Nat` (`Nat.decEq`,
+`instDecidableEqNat`) reduce through the accelerated `Nat.beq`, as in Lean.
 
 ## Trace Comparison
 

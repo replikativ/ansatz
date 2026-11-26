@@ -1517,20 +1517,25 @@ public final class TypeChecker {
         return false;
     }
 
-    // Holder for lazy delta reduction output
+    // Output of lazyDeltaReduction on an "unknown" (0) result: the pair it reduced to, which
+    // the caller reads immediately. Nested isDefEq calls (from the Nat/Int probes, the quick
+    // check's binder comparison, argument comparison, K) run lazyDeltaReduction themselves and
+    // overwrite this array, so the loop keeps its pair in locals and writes it here only on
+    // return — like Lean's lazy_delta_reduction, which updates the caller's own references.
     private final Expr[] deltaHolder = new Expr[2];
 
-    /**
-     * Lazy delta reduction. Returns: 1=equal, -1=not equal, 0=unknown.
-     * Updates deltaHolder[0] and deltaHolder[1] with the final tn, sn.
-     */
-    private int lazyDeltaReduction(Expr tn, Expr sn) {
+    private int lazyDeltaUnknown(Expr tn, Expr sn) {
         deltaHolder[0] = tn;
         deltaHolder[1] = sn;
+        return 0;
+    }
 
+    /**
+     * Lazy delta reduction. Returns: 1=equal, -1=not equal, 0=unknown; on 0, deltaHolder
+     * holds the reduced pair.
+     */
+    private int lazyDeltaReduction(Expr tn, Expr sn) {
         for (int iter = 0; iter < 10000; iter++) {
-            tn = deltaHolder[0];
-            sn = deltaHolder[1];
             emitDeltaTrace("start", tn, sn);
 
             // Nat offset check
@@ -1582,7 +1587,7 @@ public final class TypeChecker {
 
             if (!dtHasDelta && !dsHasDelta) {
                 emitDeltaTrace("unknown.noDelta", tn, sn);
-                return 0; // Neither side can be unfolded
+                return lazyDeltaUnknown(tn, sn); // Neither side can be unfolded
             }
 
             if (dtHasDelta && !dsHasDelta) {
@@ -1594,7 +1599,7 @@ public final class TypeChecker {
                     emitDeltaTrace("proj.right", tn, sn);
                 } else {
                     Expr unfolded = reducer.tryUnfoldDef(tnHead);
-                    if (unfolded == null) return 0;
+                    if (unfolded == null) return lazyDeltaUnknown(tn, sn);
                     tn = reducer.whnfCore(Reducer.mkApps(unfolded, (Expr[]) tnFA[1]), false, true);
                     emitDeltaTrace("unfold.left", tn, sn);
                 }
@@ -1607,7 +1612,7 @@ public final class TypeChecker {
                     emitDeltaTrace("proj.left", tn, sn);
                 } else {
                     Expr unfolded = reducer.tryUnfoldDef(snHead);
-                    if (unfolded == null) return 0;
+                    if (unfolded == null) return lazyDeltaUnknown(tn, sn);
                     sn = reducer.whnfCore(Reducer.mkApps(unfolded, (Expr[]) snFA[1]), false, true);
                     emitDeltaTrace("unfold.right", tn, sn);
                 }
@@ -1620,13 +1625,13 @@ public final class TypeChecker {
                 if (cmp < 0) {
                     // Unfold left (higher height / more complex)
                     Expr unfolded = reducer.tryUnfoldDef(tnHead);
-                    if (unfolded == null) return 0;
+                    if (unfolded == null) return lazyDeltaUnknown(tn, sn);
                     tn = reducer.whnfCore(Reducer.mkApps(unfolded, (Expr[]) tnFA[1]), false, true);
                     emitDeltaTrace("unfold.left", tn, sn);
                 } else if (cmp > 0) {
                     // Unfold right
                     Expr unfolded = reducer.tryUnfoldDef(snHead);
-                    if (unfolded == null) return 0;
+                    if (unfolded == null) return lazyDeltaUnknown(tn, sn);
                     sn = reducer.whnfCore(Reducer.mkApps(unfolded, (Expr[]) snFA[1]), false, true);
                     emitDeltaTrace("unfold.right", tn, sn);
                 } else {
@@ -1643,8 +1648,6 @@ public final class TypeChecker {
                             Object[] tLvls = Reducer.constLevels(tnHead);
                             Object[] sLvls = Reducer.constLevels(snHead);
                             if (levelsEq(tLvls, sLvls) && isDefEqArgs(tn, sn)) {
-                                deltaHolder[0] = tn;
-                                deltaHolder[1] = sn;
                                 return 1; // Equal via argument comparison
                             }
                             cacheFailure(tn, sn);
@@ -1654,7 +1657,7 @@ public final class TypeChecker {
                     // Unfold both
                     Expr unfoldedT = reducer.tryUnfoldDef(tnHead);
                     Expr unfoldedS = reducer.tryUnfoldDef(snHead);
-                    if (unfoldedT == null && unfoldedS == null) return 0;
+                    if (unfoldedT == null && unfoldedS == null) return lazyDeltaUnknown(tn, sn);
                     if (unfoldedT != null) {
                         tn = reducer.whnfCore(Reducer.mkApps(unfoldedT, (Expr[]) tnFA[1]), false, true);
                     }
@@ -1667,8 +1670,6 @@ public final class TypeChecker {
             }
 
             // Quick check after update (Lean 4 line 996: quick_is_def_eq, use_hash=false default)
-            deltaHolder[0] = tn;
-            deltaHolder[1] = sn;
             {
                 int q = quickIsDefEq(tn, sn, false);
                 if (q != 0) emitPhase("lazyDelta.postQuick.hit");
@@ -1680,7 +1681,7 @@ public final class TypeChecker {
             }
         }
 
-        return 0; // Iteration limit
+        return lazyDeltaUnknown(tn, sn); // Iteration limit
     }
 
     /**
