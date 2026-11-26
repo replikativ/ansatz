@@ -1344,15 +1344,11 @@
    Jumps to its index, verifies one, then returns the result.
    Options are passed through to verify-one! (e.g. :fuel)."
   [ctx name-str & opts]
-  (let [{:keys [decl-order]} ctx
-        matches (into [] (comp (map-indexed (fn [i n] [i n]))
-                               (filter (fn [[_ n]] (= n name-str))))
-                      decl-order)]
-    (when (empty? matches)
+  (let [i (.indexOf ^java.util.List (:decl-order ctx) name-str)]
+    (when (neg? i)
       (throw (ex-info "Declaration not found" {:name name-str})))
-    (let [[i _] (first matches)]
-      (skip-to! ctx i)
-      (apply verify-one! ctx opts))))
+    (skip-to! ctx i)
+    (apply verify-one! ctx opts)))
 
 (defn verify-batch!
   "Verify the next `n` declarations. Stops on first error by default.
