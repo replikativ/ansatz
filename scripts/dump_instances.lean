@@ -1,7 +1,7 @@
 -- Standalone instance dumper: emit every @[instance] registration of the imported Lean modules as
 -- TSV (one per line: `class<TAB>instance<TAB>priority`), so ansatz can inherit Lean's AUTHORITATIVE
 -- typeclass instance registry (name-INDEPENDENT discovery; replaces PSS name-guessing). The class is
--- the head constant of the instance type's conclusion. Lines come out in MODULE (declaration)
+-- the class Lean indexed the instance under (see `instanceClass?`). Lines come out in MODULE (declaration)
 -- order with Lean's real priorities — both are load-bearing: Lean tries instances by priority,
 -- and the most recently declared first among equals (ansatz.tactic.instance/parse-instance-tsv). Run where the module is importable (a lake
 -- project with its oleans built):
@@ -27,8 +27,15 @@ def foldModuleEntries [Inhabited σ] (ext : PersistentEnvExtension α β σ)
 -- checkNonClassInstance): open the type's telescope reducing, then `isClass?` on the target, so a
 -- conclusion that is a reducible definition unfolding to a class counts (Mathlib v4.36's
 -- instSMulDistribClassAlgEquiv), not only a syntactic class head.
-def instanceClass? (type : Expr) : CoreM (Option Name) :=
-  (forallTelescopeReducing type fun _ target => isClass? target).run'
+-- Lean records that class when it registers the instance: the root of its discrimination-tree keys
+-- is `.const <class> _`. The recorded root is used when it names a class, so a later change of an
+-- alias's reducibility cannot change or lose it; otherwise the class is computed as above.
+def instanceClass? (entry : InstanceEntry) (type : Expr) : CoreM (Option Name) := do
+  match entry.keys[0]? with
+  | some (DiscrTree.Key.const c _) =>
+    if isClass (← getEnv) c then return some c
+    (forallTelescopeReducing type fun _ target => isClass? target).run'
+  | _ => (forallTelescopeReducing type fun _ target => isClass? target).run'
 
 def emit (entry : InstanceEntry) : CoreM Unit := do
   match entry.globalName? with
@@ -37,7 +44,7 @@ def emit (entry : InstanceEntry) : CoreM Unit := do
     match (← getEnv).find? name with
     | none => throwError "global instance declaration is missing: {name}"
     | some ci =>
-      match (← instanceClass? ci.type) with
+      match (← instanceClass? entry ci.type) with
       | some className =>
         let classText := className.toString
         let nameText := name.toString
@@ -61,5 +68,8 @@ unsafe def main (args : List String) : IO Unit := do
   let modNames := if args.isEmpty then ["Mathlib"] else args
   let mods := modNames.toArray.map (fun m => ({ module := m.toName } : Import))
   -- loadExts: extension states (the class registry isClass? reads) are initialised
+  -- module initializers run now and may print: keep stdout for the TSV only
+  let out ← IO.setStdout (← IO.getStderr)
   let env ← importModules mods {} (loadExts := true)
+  discard <| IO.setStdout out
   discard <| dumpInstances.toIO { fileName := "<dump_instances>", fileMap := default } { env := env }

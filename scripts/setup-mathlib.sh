@@ -119,7 +119,8 @@ fi
 # of `One.toOfNat1`. The importer folds it into the store's derived `:instances` blob; the raw
 # file is kept under <store>/inputs/ for regeneration.
 
-INSTANCES_TSV="$PROJECT_DIR/test-data/mathlib-$MATHLIB_TAG-instances.tsv"
+# -v2: classes found as Lean finds them (dump_instances.lean); a dump from the old script is not reused
+INSTANCES_TSV="$PROJECT_DIR/test-data/mathlib-$MATHLIB_TAG-instances-v2.tsv"
 if [ -f "$INSTANCES_TSV" ]; then
     echo ""
     echo ">>> instances already dumped at $INSTANCES_TSV ($(wc -l < "$INSTANCES_TSV") lines). Delete it to re-dump."
