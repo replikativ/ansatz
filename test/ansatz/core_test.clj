@@ -228,8 +228,17 @@
   (testing "Prove by induction on Nat"
     (binding [a/*verbose* false]
       (a/prove-theorem 'add-zero-ind '[^Nat n] '(= Nat (+ n 0) n)
-                       '[(induction n) (rfl) (simp Nat.add_succ)])
-      (is true "theorem proved"))))
+                       '[(induction n) (rfl) (simp)])
+      (is true "theorem proved")))
+  (testing "Lean parity: `simp [Nat.add_succ]` loops on `succ n + 0 = succ n`"
+    ;; Lean 4 reports "Possibly looping simp theorem: `Nat.add_succ` … caused by
+    ;; `Nat.succ_eq_add_one` and `Nat.add_zero`" and hits maxRecDepth: post-order, `succ n`
+    ;; becomes `n + 1`, which `add_succ` turns into `succ (n + 0)`. Ansatz's pre phase used to try
+    ;; every rule top-down, so `add_zero` fired at the root first and hid the loop.
+    (binding [a/*verbose* false]
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"maximum recursion depth"
+                            (a/prove-theorem 'add-zero-ind-loop '[^Nat n] '(= Nat (+ n 0) n)
+                                             '[(induction n) (rfl) (simp Nat.add_succ)]))))))
 
 (deftest test-theorem-with-separator
   (testing "Prove theorem (metadata-typed direct call)"

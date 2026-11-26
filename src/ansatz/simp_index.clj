@@ -201,9 +201,12 @@
 
 (defn candidate-names
   "Lemma NAMES whose LHS structurally matches `expr` (over-approximate — the disc tree; simp's
-   own pattern match is the exact gate). Deduped."
+   own pattern match is the exact gate). Deduped. The query is matched raw and modulo eta
+   (dt/query-keys-modulo-eta)."
   [trie st env expr]
-  (distinct (dt/trie-match trie (query-keys st env expr (key-encoding trie)))))
+  (let [v (key-encoding trie)]
+    (distinct (mapcat #(dt/trie-match trie (ke/path-artifact v (edn-safe-keys %)))
+                      (dt/query-keys-modulo-eta st env expr v)))))
 
 (defn rules-for
   "The extracted simp rule(s) for lemma `name-str`, at its inherited @[simp] priority

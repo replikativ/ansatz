@@ -1212,7 +1212,7 @@
       (when (tc/is-def-eq st a b) mctx)
       (catch Exception _ nil))))
 
-(declare closed-defeq-at-transparency)
+(declare closed-defeq-at-transparency whnf-t)
 
 (defn- closed-kernel-defeq-zonked
   "Like `closed-kernel-defeq` but assumes `a`/`b` are already zonked, so it uses
@@ -1225,6 +1225,18 @@
     (try
       (closed-defeq-at-transparency mctx st a b)
       (catch Exception _ nil))))
+
+(defn- spine-type
+  "The type of the application `x`, walking its spine iteratively: the head's type instantiated
+   with each argument in turn (Lean's inferAppType), so a long spine costs no stack per argument."
+  [mctx st x]
+  (let [[h args] (e/get-app-fn-args x)]
+    (loop [t (infer-type mctx st h) args (seq args)]
+      (if-not args
+        t
+        (let [t (if (e/forall? t) t (whnf-t mctx st t))]
+          (when (e/forall? t)
+            (recur (e/instantiate1 (e/forall-body t) (first args)) (next args))))))))
 
 (defn- is-def-eq-core
   [mctx st bound a b]
@@ -1312,7 +1324,14 @@
 
        :fvar (when (= (e/fvar-id a) (e/fvar-id b)) mctx)
        (:lit-nat :lit-str :bvar) (when (= a b) mctx)
-       nil))))
+       nil))
+   ;; Lean isDefEqEta (ExprDefEq.lean): `fun x => t =?= f` compares `t` with `f x`
+   (when (not= (e/lam? a) (e/lam? b))
+     (let [[l f] (if (e/lam? a) [a b] [b a])]
+       (when-let [ft (try (some->> (spine-type mctx st f) (whnf-t mctx st)) (catch clojure.lang.ExceptionInfo _ nil))]
+         (when (e/forall? ft)
+           (is-def-eq mctx st bound l (e/lam (e/forall-name ft) (e/forall-type ft) (e/app f (e/bvar 0))
+                                             (e/forall-info ft)))))))))
 
 (defn- whnf-opts
   [mctx st]
