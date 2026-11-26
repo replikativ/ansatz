@@ -1545,9 +1545,10 @@
         lw ^java.io.Writer (:log-writer ctx)
         n (count by-head)
         done (atom 0)
-        ;; The checkpoint is rewritten after EVERY head — a retry killed mid-way (or one head
-        ;; that exhausts its budget) leaves the verdicts so far on disk, and the next retry
-        ;; sees only what is still recorded.
+        ;; Verdicts reach the checkpoint at most every 30 s and once at the end: writing it
+        ;; costs ~1.5 s on Mathlib (tens of MB of EDN), far more than a typical check. A retry
+        ;; killed mid-way (or one head that exhausts its budget) leaves the verdicts up to the
+        ;; last save on disk, and the next retry sees only what is still recorded.
         apply-verdicts (fn [cp verdicts]
                          (let [verdict (into {} (map (fn [[n st err]] [n [st err]])) verdicts)
                                rewrite (fn [entries]
@@ -1573,6 +1574,8 @@
                                               :error-names (:error-names sl) :errors (:errors sl))))
                 (locking f (save-checkpoint! f (dissoc cp' :files))))
         state (atom cp)
+        save-interval-ns (* 30 1000000000)
+        last-save (atom (System/nanoTime))
         results (try
                   (log! lw (str "Retrying " (count (:error-names cp)) " recorded entries via " n " heads"))
                   (into [] (mapcat (fn [[head entries]]
@@ -1584,13 +1587,17 @@
                                                      " (" (count entries) " recorded, "
                                                      (long (or (:elapsed-ms r) 0)) " ms)"
                                                      (when (not= :ok (:status r)) (str " — " (:error r)))))
-                                       (save! (swap! state apply-verdicts verdicts))
+                                       (let [cp' (swap! state apply-verdicts verdicts)]
+                                         (when (>= (- (System/nanoTime) @last-save) save-interval-ns)
+                                           (save! cp')
+                                           (reset! last-save (System/nanoTime))))
                                        verdicts)))
                         by-head)
-                  (finally (.close lw)))
+                  (finally
+                    (save! @state)
+                    (.close lw)))
         still (into [] (keep (fn [[n st err]] (when (not= st :ok) {:name n :error err}))) results)
         fixed (into [] (keep (fn [[n st _]] (when (= st :ok) n))) results)]
-    (when (empty? by-head) (save! @state))
     {:fixed fixed :still-failing still}))
 
 (defn verify-from-store!
