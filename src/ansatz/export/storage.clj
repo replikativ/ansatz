@@ -912,6 +912,7 @@
         env-entries (atom (transient []))
         count-atom (atom 0)
         quot-enabled? (atom false)
+        seen (java.util.HashSet.)
         lw (java.io.FileWriter. (str log-file) false)]
     (log! lw "Streaming import of" path "into branch" (pr-str branch-name) "...")
     ;; Phase 1: Parse NDJSON, collect CI-shells
@@ -924,6 +925,9 @@
                         (reduced nil)
                         (let [ci-name (:name ci-shell)
                               name-str (.toString ^Name ci-name)]
+                          (when-not (.add seen ci-name)
+                            (throw (ex-info (str "Declaration order repeats a name: " name-str)
+                                            {:name name-str})))
                           (swap! env-entries conj! [ci-name (CIShell. ci-shell)])
                           (swap! decl-order conj! name-str)
                           (when (= 4 (:tag ci-shell))
@@ -1304,7 +1308,8 @@
 (defn skip!
   "Advance idx by `n` without verifying. For resuming past known-good ranges.
    With PSS-backed external lookup, declarations are loaded on demand so we
-   just advance the index. Quot is already enabled from branch metadata in load-env."
+   just advance the index. Quotient reduction follows Env.isQuotEnabled: on once the four
+   canonical primitives are visible."
   [ctx n]
   (let [{:keys [idx decl-order]} ctx
         start-idx @idx

@@ -78,7 +78,8 @@
       (is (= :error (:status result))))
     (let [[trusted result] (replay/replay-one original q false)]
       (is (= :ok (:status result)))
-      (is (env/quot-enabled? trusted)))))
+      (testing "trust mode admits the row, but one primitive does not initialize the module"
+        (is (not (env/quot-enabled? trusted)))))))
 
 (deftest noncanonical-equality-bootstrap-test
   (let [fake (env/mk-axiom (name/from-string "Eq") [] (expr/sort' level/zero))
@@ -103,7 +104,9 @@
       (is (= 3 (get-in result [:stats :errors])))
       (is (= (count missing) (get-in result [:stats :total])))
       (is (not (env/quot-enabled? (:env result)))))
-    (is (env/quot-enabled? (:env (replay/replay missing :verify? false)))))
+    (testing "a truncated package does not enable reduction, even when trusted"
+      (is (not (env/quot-enabled? (:env (replay/replay missing :verify? false)))))
+      (is (env/quot-enabled? (:env (replay/replay (into (bootstrap) (package)) :verify? false))))))
   (let [qs (package)
         bad (assoc qs 3 (replace-primitive (nth qs 3) {:type (expr/sort' level/zero)}))
         declarations (into (bootstrap) bad)]

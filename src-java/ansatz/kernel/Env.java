@@ -29,6 +29,7 @@ public final class Env {
     private final ConcurrentHashMap<Name, SoftReference<ConstantInfo>> sharedCache;
 
     private final boolean quotEnabled;
+    private byte quotPackage;   // isQuotEnabled's memo: 0 unknown, 1 present, 2 absent (a benign race)
 
     /**
      * Optional external lookup function for PSS-backed environments.
@@ -207,18 +208,16 @@ public final class Env {
     }
 
     /**
-     * Whether the quotient module is initialized (Lean's is_quot_initialized). In a staged view
-     * (a visibility predicate, as store verification uses) it is initialized only once the four
-     * primitives have been admitted, like Lean's atomic add_quot.
+     * Whether the quotient module is initialized (Lean's is_quot_initialized): the flag set when
+     * the package is admitted or loaded, and the four primitives add_quot generates actually
+     * present (and, in a staged view, admitted). Computed once per Env; an Env's declarations do
+     * not change.
      */
     public boolean isQuotEnabled() {
         if (!quotEnabled) return false;
-        if (visibilityCheck == null) return true;
-        return visible(Name.QUOT) && visible(Name.QUOT_MK) && visible(Name.QUOT_LIFT) && visible(Name.QUOT_IND);
-    }
-
-    private boolean visible(Name name) {
-        return locals.containsKey(name) || truthy(visibilityCheck.invoke(name));
+        byte r = quotPackage;
+        if (r == 0) quotPackage = r = TypeChecker.hasQuotPackage(this) ? (byte) 1 : (byte) 2;
+        return r == 1;
     }
 
     /** Whether `other` has this env's local overlay itself (no constant added, removed or replaced). */

@@ -1,7 +1,9 @@
 (ns ansatz.kernel.external-cache-test
   "Real external lookup views and independently well-typed declarations. A
    descriptive store ID cannot authorize sharing a different handler's cache."
-  (:require [clojure.test :refer [deftest is testing]])
+  (:require [clojure.java.io :as io]
+            [clojure.test :refer [deftest is testing]]
+            [ansatz.export.parser :as parser])
   (:import [ansatz.kernel Env Name Level Expr ConstantInfo TypeChecker Reducer]))
 
 (def ^:private declaration-name (Name/fromString "ExternalCache.x"))
@@ -13,6 +15,12 @@
   ;; Sort n : Sort (n+1), so these are real, individually valid definitions.
   (ConstantInfo/mkDefWithHints nm (object-array []) (sort-at (inc n)) (sort-at n)
                                ConstantInfo/REDUCIBILITY_ABBREV (byte 0) (object-array [nm])))
+(def ^:private quotient-package
+  ;; The four canonical primitives (quotient reduction needs them, not only the flag).
+  (delay (let [state (parser/parse-ndjson-string
+                      (slurp (io/resource "ansatz/export/fixtures/quotient-4.29.ndjson") :encoding "UTF-8"))]
+           (try (filterv #(.isQuot ^ConstantInfo %) (:decls state))
+                (finally (.close ^ansatz.kernel.ExprStore (:exprs state)))))))
 (defn fixture []
   (let [a (definition declaration-name 0) b (definition declaration-name 1)
         calls (atom {:a 0 :b 0})
@@ -143,7 +151,8 @@
     (let [{:keys [a fa fb base calls]} (fixture)
           original (.withExternalLookup ^Env base fa 1) _ (.lookup original declaration-name)
           local (definition declaration-name 2) extra (definition local-name 0)
-          shadow (-> base (.addConstant local) (.withExternalLookup fa 1) (.addConstant extra)
+          shadow (-> (reduce (fn [^Env e ci] (.addConstant e ci)) base @quotient-package)
+                     (.addConstant local) (.withExternalLookup fa 1) (.addConstant extra)
                      (.enableQuot) (.withExtension :retained-extension {:local true}))
           changed (changed-view shadow fb filtered?)
           hidden (.withExternalLookupFiltered shadow fb 1 (constantly false))]

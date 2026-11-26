@@ -85,20 +85,50 @@
         (is (thrown-with-msg? Exception #"of its kind"
                               (TypeChecker/checkConstant (quot-free-env) q')))))))
 
+(deftest a-quotient-primitive-only-mentions-admitted-primitives
+  (let [[quot mk] (mapv #(env/lookup! (a/env) (n %)) ["Quot" "Quot.mk"])]
+    (testing "an ordinary Quot (here an axiom of the same type) cannot stand in for the quotient type under the genuine Quot.mk"
+      (let [fake (env/mk-axiom (n "Quot") [(n "u")] (.type ^ConstantInfo quot))
+            env' (TypeChecker/checkConstant (quot-free-env) fake)]
+        (is (thrown-with-msg? Exception #"refers to Quot, which is not an admitted quotient primitive"
+                              (TypeChecker/checkConstant env' mk)))))
+    (testing "the genuine Quot.mk is admitted after the genuine Quot"
+      (is (some? (TypeChecker/checkConstant (TypeChecker/checkConstant (quot-free-env) quot) mk))))))
+
 (deftest quotient-reduction-needs-the-four-primitives
   (let [prims (mapv #(env/lookup! (a/env) (n %)) ["Quot" "Quot.mk" "Quot.lift" "Quot.ind"])
-        [quot _ lift ind] prims]
-    (testing "an ordinary declaration in the Quot.mk slot leaves reduction off"
-      (let [fake-mk (env/mk-axiom (n "Quot.mk") [] (e/sort' lvl/zero))
-            env' (reduce (fn [^Env acc ci] (TypeChecker/checkConstant acc ci))
-                         (quot-free-env) [quot fake-mk lift ind])]
-        (is (some? (.lookup ^Env env' (n "Quot.ind"))))
+        [quot _ lift ind] prims
+        fake-mk (env/mk-axiom (n "Quot.mk") [] (e/sort' lvl/zero))]
+    (testing "an ordinary declaration in the Quot.mk slot: Quot.ind (which mentions it) is refused"
+      (let [env' (reduce (fn [^Env acc ci] (TypeChecker/checkConstant acc ci))
+                         (quot-free-env) [quot fake-mk lift])]
+        (is (thrown-with-msg? Exception #"refers to Quot.mk"
+                              (TypeChecker/checkConstant env' ind)))
         (is (not (.isQuotEnabled ^Env env')))))
+    (testing "the package is judged by its declarations, not by the flag that says it is loaded"
+      (let [loaded (fn [cis] (.enableQuot ^Env (reduce (fn [^Env acc ci] (.addConstant acc ci)) (quot-free-env) cis)))]
+        (is (.isQuotEnabled ^Env (loaded prims)))
+        (is (not (.isQuotEnabled ^Env (loaded [quot fake-mk lift ind]))))
+        (is (not (.isQuotEnabled ^Env (loaded [quot lift ind]))))))
     (testing "in a staged view quotients are initialized only once all four are visible"
-      (let [hidden #{(n "Quot.ind")}
-            staged (fn [hidden]
+      (let [staged (fn [hidden]
                      (.withExternalLookupFiltered (.enableQuot (Env.))
                                                   (fn [nm] (env/lookup (a/env) nm)) 1000000
                                                   (fn [nm] (not (contains? hidden nm)))))]
-        (is (not (.isQuotEnabled ^Env (staged hidden))))
+        (is (not (.isQuotEnabled ^Env (staged #{(n "Quot.ind")}))))
         (is (.isQuotEnabled ^Env (staged #{})))))))
+
+(deftest one-fuel-budget-for-header-and-body
+  (let [env0 (env/check-constant (a/env) (env/mk-axiom (n "adm-fuel-ax") [] nat :unsafe? true))
+        ;; a header that needs reduction: (fun x => x) Nat
+        ty (e/app (e/lam-default (n "x") (e/sort' (lvl/succ lvl/zero)) (e/bvar 0)) nat)
+        header (TypeChecker/checkConstantFuel env0 (env/mk-axiom (n "adm-fuel-h") [] ty :unsafe? true) 1000000000)
+        d (env/mk-def (n "adm-fuel-d") [] ty (e/app (e/lam-default (n "y") nat (e/bvar 0)) (c "adm-fuel-ax"))
+                      :safety :unsafe)
+        total (TypeChecker/checkConstantFuel env0 d 1000000000)]
+    (is (pos? header))
+    (testing "usage covers both phases"
+      (is (> total header)))
+    (testing "a header that spends the whole budget leaves the body none (not an unlimited budget)"
+      (is (thrown-with-msg? Exception #"fuel exhausted" (TypeChecker/checkConstantFuel env0 d header))))
+    (is (= total (TypeChecker/checkConstantFuel env0 d total)))))

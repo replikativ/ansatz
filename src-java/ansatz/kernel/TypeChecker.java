@@ -535,6 +535,11 @@ public final class TypeChecker {
         return this.reducer.getFuelUsed();
     }
 
+    /** Spend what remains of prev's fuel budget, as one declaration checked in two phases. */
+    void continueFuel(TypeChecker prev) {
+        this.reducer.continueFuel(prev.reducer);
+    }
+
     /** Get instrumentation counters from the Reducer. */
     public HashMap<String, Long> getReducerStats() {
         HashMap<String, Long> stats = this.reducer.getStats();
@@ -2405,9 +2410,9 @@ public final class TypeChecker {
                 // An unsafe or partial definition may refer to itself: Lean checks the header,
                 // adds the declaration, then checks the body (add_definition's unsafe branch, and
                 // add_mutual for a block of one).
-                long headerFuel = tc.getFuelUsed();
+                TypeChecker header = tc;
                 tc = newChecker(env.addConstant(ci), ci, safety, fuel, traceWriter, phaseTracing);
-                tc.setFuel(fuel - headerFuel);   // one budget for the declaration
+                tc.continueFuel(header);   // one budget for the declaration
             }
             checkValue(tc, ci, type, value, phaseTracing);
             return new ConstantCheckState(tc);
@@ -2491,18 +2496,61 @@ public final class TypeChecker {
         if (env.lookup(ci.name) != null) {
             throw new RuntimeException("Constant already declared: " + ci.name);
         }
-        Object kind = QUOT_KINDS.get(ci.name);
-        if (kind == null || !kind.equals(ci.quotKind)) {
-            throw new RuntimeException("Invalid quotient declaration '" + ci.name +
-                "': not a canonical quotient primitive (Quot / Quot.mk / Quot.lift / Quot.ind) of its kind");
-        }
+        String why = nonCanonicalQuot(ci);
+        if (why != null) throw new RuntimeException("Invalid quotient declaration '" + ci.name + "': " + why);
         checkDuplicateUnivParams(ci.levelParams, ci.name);
         checkQuotEq(env);
+        // add_quot generates the four together; a row given one at a time may only mention
+        // primitives already admitted as add_quot generates them (Quot.mk's `Quot` must be the
+        // quotient type, not an ordinary declaration of that name).
+        java.util.Set<Name> refs = new java.util.HashSet<>();
+        quotRefs(ci.type, refs);
+        refs.remove(ci.name);
+        for (Name ref : refs) {
+            ConstantInfo r = env.lookup(ref);
+            if (r == null || nonCanonicalQuot(r) != null) {
+                throw new RuntimeException("Invalid quotient declaration '" + ci.name + "': refers to " + ref +
+                    ", which is not an admitted quotient primitive");
+            }
+        }
+    }
+
+    /** Why ci is not the primitive add_quot generates under its name, or null if it is. */
+    private static String nonCanonicalQuot(ConstantInfo ci) {
+        Object kind = QUOT_KINDS.get(ci.name);
+        if (!ci.isQuot() || kind == null || !kind.equals(ci.quotKind)) {
+            return "not a canonical quotient primitive (Quot / Quot.mk / Quot.lift / Quot.ind) of its kind";
+        }
         Expr expected = expectedQuotType((Name) ci.name, ci.levelParams);
         if (expected == null || !LeanExprKey.exprEquals(ci.type, expected)) {
-            throw new RuntimeException("Invalid quotient declaration '" + ci.name +
-                "': type is not the one the kernel generates for this quotient primitive");
+            return "type is not the one the kernel generates for this quotient primitive";
         }
+        return null;
+    }
+
+    /** The quotient primitives a (generated, binder/app/sort/const) quotient type mentions. */
+    private static void quotRefs(Expr e, java.util.Set<Name> out) {
+        if (e.tag == Expr.CONST) {
+            if (QUOT_KINDS.containsKey(e.o0)) out.add((Name) e.o0);
+            return;
+        }
+        if (e.o0 instanceof Expr) quotRefs((Expr) e.o0, out);
+        if (e.o1 instanceof Expr) quotRefs((Expr) e.o1, out);
+        if (e.o2 instanceof Expr) quotRefs((Expr) e.o2, out);
+        if (e.o3 instanceof Expr) quotRefs((Expr) e.o3, out);
+    }
+
+    /**
+     * Whether env holds (visibly) the four primitives add_quot generates. Quotient reduction
+     * relies on it, so it is derived from the declarations themselves rather than from how they
+     * were admitted or loaded.
+     */
+    static boolean hasQuotPackage(Env env) {
+        for (Name n : QUOT_KINDS.keySet()) {
+            ConstantInfo q = env.lookup(n);
+            if (q == null || nonCanonicalQuot(q) != null) return false;
+        }
+        return true;
     }
 
     private static final java.util.Map<Name, Object> QUOT_KINDS = java.util.Map.of(
@@ -2537,17 +2585,10 @@ public final class TypeChecker {
         }
     }
 
-    /**
-     * Admit a checked quotient primitive; reduction is enabled once all four slots hold quotient
-     * primitives of their kind (each admitted through checkQuotPrimitive), as add_quot does.
-     */
+    /** Admit a checked quotient primitive; the module is initialized once the package is complete. */
     private static Env addQuotPrimitive(Env env, ConstantInfo ci) {
         Env added = env.addConstant(ci);
-        for (java.util.Map.Entry<Name, Object> p : QUOT_KINDS.entrySet()) {
-            ConstantInfo q = added.lookup(p.getKey());
-            if (q == null || !q.isQuot() || !p.getValue().equals(q.quotKind)) return added;
-        }
-        return added.enableQuot();
+        return hasQuotPackage(added) ? added.enableQuot() : added;
     }
 
     /** Kernel-expected type for a canonical quotient primitive, or null if the name/arity is not canonical. */
@@ -2630,6 +2671,7 @@ public final class TypeChecker {
         Object[] levelParams = cis.get(0).levelParams;
         if (safety == DEFN_SAFE)
             throw new RuntimeException("invalid mutual definition, declaration is not tagged as unsafe/partial: " + cis.get(0).name);
+        TypeChecker prev = null;   // the block is one declaration: one fuel budget across its checkers
         for (ConstantInfo ci : cis) {
             if (!ci.isDef()) throw new RuntimeException("invalid mutual definition, not a definition: " + ci.name);
             if (ci.getDefinitionSafety() != safety)
@@ -2638,19 +2680,22 @@ public final class TypeChecker {
             // before checking headers; each member being well formed individually is insufficient.
             if (!java.util.Arrays.equals(levelParams, ci.levelParams))
                 throw new RuntimeException("invalid mutual definition, declarations must have the same universe level parameters: " + ci.name);
-            TypeChecker tc = new TypeChecker(env, safety, ci.levelParams);
-            tc.setFuel(fuel);
-            checkConstantVal(env, ci, tc, Expr.shareCommon(ci.type));
+            prev = budgeted(new TypeChecker(env, safety, ci.levelParams), prev, fuel);
+            checkConstantVal(env, ci, prev, Expr.shareCommon(ci.type));
         }
         Env newEnv = env;
         for (ConstantInfo ci : cis) newEnv = newEnv.addConstant(ci);
         for (ConstantInfo ci : cis) {
-            TypeChecker tc = new TypeChecker(newEnv, safety, ci.levelParams);
-            tc.setFuel(fuel);
+            TypeChecker tc = prev = budgeted(new TypeChecker(newEnv, safety, ci.levelParams), prev, fuel);
             checkValue(tc, ci, Expr.shareCommon(ci.type),
                        ci.value != null ? Expr.shareCommon(ci.value) : null, false);
         }
         return newEnv;
+    }
+
+    private static TypeChecker budgeted(TypeChecker tc, TypeChecker prev, long fuel) {
+        if (prev == null) tc.setFuel(fuel); else tc.continueFuel(prev);
+        return tc;
     }
 
     static void checkInductiveHeader(Env env, ConstantInfo ci, long fuel) {
