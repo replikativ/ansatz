@@ -2,9 +2,7 @@
   "Atomic import of Lean's canonical quotient package. Lean kernel/quot.cpp's
    add_quot checks the existing Eq family and generates all four primitives.
    Imports instead validate every supplied primitive before publishing a new Env."
-  (:require [ansatz.kernel.expr :as expr]
-            [ansatz.kernel.level :as level])
-  (:import [ansatz.kernel ConstantInfo Env Name TypeChecker]))
+  (:import [ansatz.kernel ConstantInfo Env TypeChecker]))
 
 (def canonical-order ["Quot" "Quot.mk" "Quot.lift" "Quot.ind"])
 (def canonical-kinds {"Quot" :type "Quot.mk" :ctor "Quot.lift" :lift "Quot.ind" :ind})
@@ -23,27 +21,10 @@
   declarations)
 
 (defn validate-bootstrap!
-  "Check the already admitted Eq family before quotient initialization, following
-   native add_quot. Binder names do not affect definitional equality."
+  "Check the already admitted Eq family before quotient initialization: the kernel's
+   structural check, Lean's check_eq_type (quot.cpp)."
   [^Env checked]
-  (let [eq-name (Name/mkStr Name/ANONYMOUS_NAME "Eq")
-        ^ConstantInfo eq (.lookup checked eq-name)]
-    (when-not (and eq (.isInduct eq) (= 1 (count (.levelParams eq))) (= 1 (count (.ctors eq))))
-      (throw (ex-info "Quotient initialization requires the canonical checked Eq family" {})))
-    (let [u (level/param (first (.levelParams eq)))
-          expected (expr/forall' "α" (expr/sort' u)
-                                 (expr/forall' "a" (expr/bvar 0)
-                                               (expr/forall' "b" (expr/bvar 1) (expr/sort' level/zero) :default) :default) :implicit)
-          ^ConstantInfo refl (.lookup checked (first (.ctors eq)))]
-      (when-not (and refl (.isCtor refl) (= eq-name (.inductName refl)) (= 1 (count (.levelParams refl))))
-        (throw (ex-info "Quotient initialization requires the canonical checked Eq constructor" {})))
-      (let [v (level/param (first (.levelParams refl)))
-            expected-refl (expr/forall' "α" (expr/sort' v)
-                                        (expr/forall' "a" (expr/bvar 0)
-                                                      (expr/app* (expr/const' eq-name [v]) (expr/bvar 1) (expr/bvar 0) (expr/bvar 0)) :default) :implicit)
-            tc (TypeChecker. checked)]
-        (when-not (and (.isDefEq tc (.type eq) expected) (.isDefEq tc (.type refl) expected-refl))
-          (throw (ex-info "Quotient initialization has noncanonical Eq or constructor type" {}))))))
+  (TypeChecker/checkQuotEq checked)
   checked)
 
 (defn admit-package!

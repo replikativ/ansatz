@@ -660,6 +660,28 @@ public final class TypeChecker {
      * abstracting fvarIds. When removeDeadLet=true, let bindings that
      * aren't referenced in the body are dropped.
      */
+    /** The locals a binder telescope introduces, in order (Lean's `buffer<expr> fvars`). */
+    private static final class Telescope {
+        Expr[] fvars = new Expr[8];
+        long[] ids = new long[8];
+        int n = 0;
+
+        void push(long id) {
+            if (n == ids.length) {
+                fvars = java.util.Arrays.copyOf(fvars, 2 * n);
+                ids = java.util.Arrays.copyOf(ids, 2 * n);
+            }
+            fvars[n] = Expr.fvar(id);
+            ids[n] = id;
+            n++;
+        }
+
+        /** Restore the context the telescope started from (Lean's `flet<local_ctx>`). */
+        void removeFrom(TypeChecker tc) {
+            for (int i = n - 1; i >= 0; i--) tc.lctxRemove(ids[i]);
+        }
+    }
+
     private Expr mkPi(long[] fvarIds, int n, Expr body, boolean removeDeadLet) {
         // Step 1: abstract all fvars in the body
         Expr r = Reducer.abstractFvars(body, n, fvarIds);
@@ -842,117 +864,73 @@ public final class TypeChecker {
             }
 
             case Expr.LAM: {
-                // Matching Lean 4's infer_lambda (type_checker.cpp:150-166)
-                java.util.ArrayList<Long> fvarIdList = new java.util.ArrayList<>();
-                Expr cur = e;
-                while (cur.tag == Expr.LAM) {
-                    Expr[] fvarArr = fvarIdList.isEmpty() ? new Expr[0] :
-                        fvarIdList.stream().map(id -> Expr.fvar(id)).toArray(Expr[]::new);
-                    Expr d = Reducer.instantiateRev(
-                        (Expr) cur.o1, fvarArr.length, fvarArr, 0);
-                    long fvId = freshId();
-                    Expr fv = Expr.fvar(fvId);
-                    lctxAddLocalWithInfo(fvId, cur.o0, d, cur.o3);
-                    fvarIdList.add(fvId);
-                    if (!inferOnly) {
-                        ensureSort(inferTypeCore(d, false));
-                    }
-                    cur = (Expr) cur.o2;
-                }
+                // Lean 4 v4.36 infer_lambda: check each domain, then extend the context.
+                Telescope t = new Telescope();
                 try {
-                    Expr[] fvarArr = fvarIdList.stream()
-                        .map(id -> Expr.fvar(id)).toArray(Expr[]::new);
-                    Expr body = Reducer.instantiateRev(
-                        cur, fvarArr.length, fvarArr, 0);
-                    Expr r = inferTypeCore(body, inferOnly);
-                    r = Reducer.cheapBetaReduce(r);
-                    long[] fvarIds = new long[fvarIdList.size()];
-                    for (int i = 0; i < fvarIds.length; i++)
-                        fvarIds[i] = fvarIdList.get(i);
-                    result = mkPi(fvarIds, fvarIds.length, r, false);
+                    Expr cur = e;
+                    while (cur.tag == Expr.LAM) {
+                        Expr d = Reducer.instantiateRev((Expr) cur.o1, t.n, t.fvars, 0);
+                        if (!inferOnly) ensureSort(inferTypeCore(d, false));
+                        long id = freshId();
+                        lctxAddLocalWithInfo(id, cur.o0, d, cur.o3);
+                        t.push(id);
+                        cur = (Expr) cur.o2;
+                    }
+                    Expr r = inferTypeCore(Reducer.instantiateRev(cur, t.n, t.fvars, 0), inferOnly);
+                    result = mkPi(t.ids, t.n, Reducer.cheapBetaReduce(r), false);
                 } finally {
-                    for (int i = fvarIdList.size() - 1; i >= 0; i--)
-                        lctxRemove(fvarIdList.get(i));
+                    t.removeFrom(this);
                 }
                 break;
             }
 
             case Expr.FORALL: {
-                // Matching Lean 4's infer_pi (type_checker.cpp:168-190)
-                java.util.ArrayList<Long> fvarIdList = new java.util.ArrayList<>();
+                // Lean 4 v4.36 infer_pi: check each domain, then extend the context.
+                Telescope t = new Telescope();
                 java.util.ArrayList<Level> us = new java.util.ArrayList<>();
-                Expr cur = e;
-                while (cur.tag == Expr.FORALL) {
-                    Expr[] fvarArr = fvarIdList.isEmpty() ? new Expr[0] :
-                        fvarIdList.stream().map(id -> Expr.fvar(id)).toArray(Expr[]::new);
-                    Expr d = Reducer.instantiateRev(
-                        (Expr) cur.o1, fvarArr.length, fvarArr, 0);
-                    Expr t1 = ensureSort(inferTypeCore(d, inferOnly));
-                    us.add((Level) t1.o0);
-                    long fvId = freshId();
-                    Expr fv = Expr.fvar(fvId);
-                    lctxAddLocal(fvId, cur.o0, d);
-                    fvarIdList.add(fvId);
-                    cur = (Expr) cur.o2;
-                }
                 try {
-                    Expr[] fvarArr = fvarIdList.stream()
-                        .map(id -> Expr.fvar(id)).toArray(Expr[]::new);
-                    Expr body = Reducer.instantiateRev(
-                        cur, fvarArr.length, fvarArr, 0);
-                    Expr s = ensureSort(inferTypeCore(body, inferOnly));
-                    Level r = (Level) s.o0;
-                    int i = fvarIdList.size();
-                    while (i > 0) {
-                        --i;
-                        r = Level.imax(us.get(i), r);
+                    Expr cur = e;
+                    while (cur.tag == Expr.FORALL) {
+                        Expr d = Reducer.instantiateRev((Expr) cur.o1, t.n, t.fvars, 0);
+                        us.add((Level) ensureSort(inferTypeCore(d, inferOnly)).o0);
+                        long id = freshId();
+                        lctxAddLocal(id, cur.o0, d);
+                        t.push(id);
+                        cur = (Expr) cur.o2;
                     }
+                    Expr s = ensureSort(inferTypeCore(Reducer.instantiateRev(cur, t.n, t.fvars, 0), inferOnly));
+                    Level r = (Level) s.o0;
+                    for (int i = us.size() - 1; i >= 0; i--) r = Level.imax(us.get(i), r);
                     result = Expr.sort(r, Level.hasParam(r));
                 } finally {
-                    for (int i = fvarIdList.size() - 1; i >= 0; i--)
-                        lctxRemove(fvarIdList.get(i));
+                    t.removeFrom(this);
                 }
                 break;
             }
 
             case Expr.LET: {
-                // Matching Lean 4's infer_let (type_checker.cpp:232-253)
-                java.util.ArrayList<Long> fvarIdList = new java.util.ArrayList<>();
-                Expr cur = e;
-                while (cur.tag == Expr.LET) {
-                    Expr[] fvarArr = fvarIdList.isEmpty() ? new Expr[0] :
-                        fvarIdList.stream().map(id -> Expr.fvar(id)).toArray(Expr[]::new);
-                    Expr type = Reducer.instantiateRev(
-                        (Expr) cur.o1, fvarArr.length, fvarArr, 0);
-                    Expr val = Reducer.instantiateRev(
-                        (Expr) cur.o2, fvarArr.length, fvarArr, 0);
-                    long fvId = freshId();
-                    Expr fv = Expr.fvar(fvId);
-                    lctxAddLet(fvId, cur.o0, type, val);
-                    fvarIdList.add(fvId);
-                    if (!inferOnly) {
-                        ensureSort(inferTypeCore(type, false));
-                        Expr valType = inferTypeCore(val, false);
-                        if (!isDefEq(valType, type)) {
-                            throw new RuntimeException("Type error: Let value type mismatch");
-                        }
-                    }
-                    cur = (Expr) cur.o3;
-                }
+                // Lean 4 v4.36 infer_let: check the type and the value, then extend the context.
+                Telescope t = new Telescope();
                 try {
-                    Expr[] fvarArr = fvarIdList.stream()
-                        .map(id -> Expr.fvar(id)).toArray(Expr[]::new);
-                    Expr body = Reducer.instantiateRev(
-                        cur, fvarArr.length, fvarArr, 0);
-                    Expr r = inferTypeCore(body, inferOnly);
-                    r = Reducer.cheapBetaReduce(r);
-                    long[] fvarIds = new long[fvarIdList.size()];
-                    for (int i = 0; i < fvarIds.length; i++)
-                        fvarIds[i] = fvarIdList.get(i);
-                    result = mkPi(fvarIds, fvarIds.length, r, true);
+                    Expr cur = e;
+                    while (cur.tag == Expr.LET) {
+                        Expr type = Reducer.instantiateRev((Expr) cur.o1, t.n, t.fvars, 0);
+                        Expr val = Reducer.instantiateRev((Expr) cur.o2, t.n, t.fvars, 0);
+                        if (!inferOnly) {
+                            ensureSort(inferTypeCore(type, false));
+                            if (!isDefEq(inferTypeCore(val, false), type)) {
+                                throw new RuntimeException("Type error: Let value type mismatch");
+                            }
+                        }
+                        long id = freshId();
+                        lctxAddLet(id, cur.o0, type, val);
+                        t.push(id);
+                        cur = (Expr) cur.o3;
+                    }
+                    Expr r = inferTypeCore(Reducer.instantiateRev(cur, t.n, t.fvars, 0), inferOnly);
+                    result = mkPi(t.ids, t.n, Reducer.cheapBetaReduce(r), true);
                 } finally {
-                    for (int i = fvarIdList.size() - 1; i >= 0; i--)
-                        lctxRemove(fvarIdList.get(i));
+                    t.removeFrom(this);
                 }
                 break;
             }
@@ -2391,62 +2369,107 @@ public final class TypeChecker {
         return r;
     }
 
+    /**
+     * Check one non-inductive, non-quotient declaration against {@code env} the way Lean's
+     * environment::add_axiom / add_definition / add_theorem / add_opaque do (environment.cpp),
+     * without adding it. Returns the checker that checked the value (or the header), for fuel and
+     * statistics.
+     */
     private static ConstantCheckState checkConstantPreAdd(Env env, ConstantInfo ci, long fuel,
             Writer traceWriter, boolean phaseTracing) {
         if (ci.isInduct() || ci.isCtor() || ci.isRecursor()) {
             throw new RuntimeException("inductive declarations must be admitted through checkInductiveBundle: " + ci.name);
         }
-
-        // === Check 0: Duplicate universe level parameters ===
-        // Following Lean 4 environment.cpp:111-125.
-        checkDuplicateUnivParams(ci.levelParams, ci.name);
-
+        if (ci.isQuot()) {
+            throw new RuntimeException("quotient primitives are admitted through checkConstant: " + ci.name);
+        }
         // Share common sub-expressions before type-checking.
         java.util.HashMap<Expr, Expr> scCache = new java.util.HashMap<>(4096);
         java.util.IdentityHashMap<Expr, Expr> scVisited = new java.util.IdentityHashMap<>(4096);
         Expr type = Expr.shareCommon(ci.type, scCache, scVisited);
         Expr value = ci.value != null ? Expr.shareCommon(ci.value, scCache, scVisited) : null;
 
-        TypeChecker tc = new TypeChecker(env, getDefinitionSafety(ci), ci.levelParams);
-        tc.setFuel(fuel);
-        if (traceWriter != null) tc.setTraceWriter(traceWriter);
-        tc.setPhaseTracing(phaseTracing);
+        byte safety = admissionSafety(ci);
+        TypeChecker tc = newChecker(env, ci, safety, fuel, traceWriter, phaseTracing);
         try {
-            return checkConstantWith(tc, ci, type, value, phaseTracing);
+            if (phaseTracing) tc.emitPhase("checkType");
+            checkConstantVal(env, ci, tc, type);
+            if (ci.isThm()) {
+                if (phaseTracing) tc.emitPhase("isProp");
+                if (!tc.isProp(type)) {
+                    throw new RuntimeException("Type error: Theorem type is not a proposition for " + ci.name);
+                }
+            }
+            if (ci.isAxiom()) return new ConstantCheckState(tc);
+            if (ci.isDef() && safety != DEFN_SAFE) {
+                // An unsafe or partial definition may refer to itself: Lean checks the header,
+                // adds the declaration, then checks the body (add_definition's unsafe branch, and
+                // add_mutual for a block of one).
+                tc = newChecker(env.addConstant(ci), ci, safety, fuel, traceWriter, phaseTracing);
+            }
+            checkValue(tc, ci, type, value, phaseTracing);
+            return new ConstantCheckState(tc);
         } finally {
             if (CACHE_REPORT) lastCacheReport = tc.cacheReport();
         }
     }
 
-    private static ConstantCheckState checkConstantWith(TypeChecker tc, ConstantInfo ci, Expr type, Expr value,
-            boolean phaseTracing) {
-        // Theorem: check is_prop first, matching Lean 4's add_theorem.
-        if (ci.isThm()) {
-            if (phaseTracing) tc.emitPhase("isProp");
-            if (!tc.isProp(type)) {
-                throw new RuntimeException("Type error: Theorem type is not a proposition for " + ci.name);
-            }
-        }
+    private static TypeChecker newChecker(Env env, ConstantInfo ci, byte safety, long fuel,
+            Writer traceWriter, boolean phaseTracing) {
+        TypeChecker tc = new TypeChecker(env, safety, ci.levelParams);
+        tc.setFuel(fuel);
+        if (traceWriter != null) tc.setTraceWriter(traceWriter);
+        tc.setPhaseTracing(phaseTracing);
+        return tc;
+    }
 
-        // Check type is well-formed (must be a sort).
-        if (phaseTracing) tc.emitPhase("checkType");
+    /**
+     * The checker mode Lean uses for each declaration kind: an axiom is checked as unsafe when it
+     * is unsafe; a definition by its own safety; theorems and opaques always as safe
+     * (add_theorem and add_opaque construct the default, safe, type_checker).
+     */
+    private static byte admissionSafety(ConstantInfo ci) {
+        if (ci.isDef()) return ci.getDefinitionSafety();
+        if (ci.isAxiom() && ci.isUnsafeDeclaration()) return DEFN_UNSAFE;
+        return DEFN_SAFE;
+    }
+
+    /** Lean's check_constant_val: a fresh name, distinct universe parameters, a closed type that is a type. */
+    private static void checkConstantVal(Env env, ConstantInfo ci, TypeChecker tc, Expr type) {
+        if (env.lookup(ci.name) != null) {
+            throw new RuntimeException("Type error: '" + ci.name + "' has already been declared");
+        }
+        if (ci.levelParams == null) {
+            throw new RuntimeException("Type error: declaration '" + ci.name + "' has no universe parameter list");
+        }
+        checkDuplicateUnivParams(ci.levelParams, ci.name);
+        checkNoMVarNoFVar(ci.name, type);
         tc.ensureSort(tc.check(type));
+    }
 
-        // For definitions, theorems, and opaques: check value matches type.
-        if (value != null && (ci.isDef() || ci.isThm() || ci.isOpaq())) {
-            if (phaseTracing) tc.emitPhase("checkValue");
-            Expr inferred = tc.check(value);
-            if (phaseTracing) tc.emitPhase("valueDefEqType");
-            if (!tc.isDefEq(inferred, type)) {
-                String infStr = inferred.toString();
-                String declStr = ci.type.toString();
-                if (infStr.length() > 300) infStr = infStr.substring(0, 300) + "...";
-                if (declStr.length() > 300) declStr = declStr.substring(0, 300) + "...";
-                throw new RuntimeException("Type error: Declaration value type does not match declared type for " + ci.name +
-                    "\n  inferred: " + infStr + "\n  declared: " + declStr);
-            }
+    /** Lean's check_no_metavar_no_fvar: declarations are closed terms without metavariables. */
+    private static void checkNoMVarNoFVar(Name declName, Expr e) {
+        if (e.hasMVar()) throw new RuntimeException("Type error: declaration '" + declName + "' has metavariables");
+        if (e.hasFVar()) throw new RuntimeException("Type error: declaration '" + declName + "' has free variables");
+    }
+
+    /** The value of a definition, theorem or opaque must be present, closed, and of the declared type. */
+    private static void checkValue(TypeChecker tc, ConstantInfo ci, Expr type, Expr value, boolean phaseTracing) {
+        if (value == null) {
+            throw new RuntimeException("Type error: declaration '" + ci.name + "' has no value");
         }
-        return new ConstantCheckState(tc);
+        checkNoMVarNoFVar(ci.name, value);
+        if (phaseTracing) tc.emitPhase("checkValue");
+        Expr inferred = tc.check(value);
+        if (phaseTracing) tc.emitPhase("valueDefEqType");
+        if (!tc.isDefEq(inferred, type)) {
+            String infStr = inferred.toString();
+            String declStr = ci.type.toString();
+            if (infStr.length() > 300) infStr = infStr.substring(0, 300) + "...";
+            if (declStr.length() > 300) declStr = declStr.substring(0, 300) + "...";
+            throw new RuntimeException("Type error: Declaration value type does not match declared type for " + ci.name +
+                "\n  inferred: " + infStr + "\n  declared: " + declStr);
+        }
     }
 
     private static final Object QUOT_BI = clojure.lang.Keyword.intern(null, "default");
@@ -2455,27 +2478,69 @@ public final class TypeChecker {
     }
 
     /**
-     * Validate a quotient-primitive declaration before admitting it.
-     *
-     * Lean's kernel never accepts external quotient declarations: {@code environment::add_quot}
-     * (kernel/quot.cpp) GENERATES exactly Quot / Quot.mk / Quot.lift / Quot.ind with
-     * kernel-computed types. We import the primitives instead, so the kernel must validate that
-     * an admitted quot-kind constant is one of those four canonical primitives with the expected
-     * type — otherwise a raw declaration (e.g. from a corrupt export) could inject an arbitrary
-     * unchecked axiom such as {@code BogusQuot : False}. Throws on any mismatch.
+     * Check a quotient primitive. Lean's kernel never accepts quotient declarations from outside:
+     * environment::add_quot (quot.cpp) checks the Eq family and generates Quot, Quot.mk, Quot.lift
+     * and Quot.ind itself. An exported primitive is therefore admitted only if it is exactly what
+     * add_quot generates: a canonical name with its kind, distinct universe parameters, and a type
+     * structurally equal (binder names and info aside) to the generated one, with Eq as add_quot
+     * requires it.
      */
-    static void validateQuotDeclaration(Env env, ConstantInfo ci) {
+    public static void checkQuotPrimitive(Env env, ConstantInfo ci) {
+        if (env.lookup(ci.name) != null) {
+            throw new RuntimeException("Type error: '" + ci.name + "' has already been declared");
+        }
+        Object kind = QUOT_KINDS.get(ci.name);
+        if (kind == null || !kind.equals(ci.quotKind)) {
+            throw new RuntimeException("Invalid quotient declaration '" + ci.name +
+                "': not a canonical quotient primitive (Quot / Quot.mk / Quot.lift / Quot.ind) of its kind");
+        }
+        checkDuplicateUnivParams(ci.levelParams, ci.name);
+        checkQuotEq(env);
         Expr expected = expectedQuotType((Name) ci.name, ci.levelParams);
-        if (expected == null) {
+        if (expected == null || !LeanExprKey.exprEquals(ci.type, expected)) {
             throw new RuntimeException("Invalid quotient declaration '" + ci.name +
-                "': not a canonical quotient primitive (Quot / Quot.mk / Quot.lift / Quot.ind) " +
-                "with the expected universe parameters");
+                "': type is not the one the kernel generates for this quotient primitive");
         }
-        TypeChecker tc = new TypeChecker(env, getDefinitionSafety(ci), ci.levelParams);
-        if (!tc.isDefEq(ci.type, expected)) {
-            throw new RuntimeException("Invalid quotient declaration '" + ci.name +
-                "': type does not match the kernel-expected type for this quotient primitive");
+    }
+
+    private static final java.util.Map<Name, Object> QUOT_KINDS = java.util.Map.of(
+        Name.QUOT, clojure.lang.Keyword.intern(null, "type"),
+        Name.QUOT_MK, clojure.lang.Keyword.intern(null, "ctor"),
+        Name.QUOT_LIFT, clojure.lang.Keyword.intern(null, "lift"),
+        Name.QUOT_IND, clojure.lang.Keyword.intern(null, "ind"));
+
+    /** Lean's check_eq_type (quot.cpp): Eq.{u} : {α : Sort u} → α → α → Prop with the one constructor Eq.refl. */
+    public static void checkQuotEq(Env env) {
+        ConstantInfo eq = env.lookup(Name.EQ);
+        if (eq == null || !eq.isInduct() || eq.levelParams.length != 1 || eq.ctors == null || eq.ctors.length != 1) {
+            throw new RuntimeException("failed to initialize quot module, environment does not have the expected 'Eq' type");
         }
+        Expr PROP = Expr.sort(Level.ZERO_LEVEL, false);
+        Level u = Level.param(eq.levelParams[0]);
+        // {α : Sort u} → α → α → Prop
+        Expr eqType = qPi("α", Expr.sort(u, true), qPi("a", Expr.bvar(0), qPi("b", Expr.bvar(1), PROP)));
+        if (!LeanExprKey.exprEquals(eq.type, eqType)) {
+            throw new RuntimeException("failed to initialize quot module, 'Eq' has an unexpected type");
+        }
+        ConstantInfo refl = env.lookup(eq.ctors[0]);
+        if (refl == null || !refl.isCtor() || refl.levelParams.length != 1) {
+            throw new RuntimeException("failed to initialize quot module, unexpected 'Eq' constructor");
+        }
+        Level v = Level.param(refl.levelParams[0]);
+        // {α : Sort v} → (a : α) → @Eq.{v} α a a
+        Expr reflType = qPi("α", Expr.sort(v, true), qPi("a", Expr.bvar(0),
+            Expr.app(Expr.app(Expr.app(Expr.mkConst(Name.EQ, new Object[]{v}, true), Expr.bvar(1)), Expr.bvar(0)), Expr.bvar(0))));
+        if (!LeanExprKey.exprEquals(refl.type, reflType)) {
+            throw new RuntimeException("failed to initialize quot module, unexpected type for 'Eq' type constructor");
+        }
+    }
+
+    /** Admit a checked quotient primitive; reduction is enabled once all four are present, as add_quot does. */
+    private static Env addQuotPrimitive(Env env, ConstantInfo ci) {
+        Env added = env.addConstant(ci);
+        boolean complete = added.lookup(Name.QUOT) != null && added.lookup(Name.QUOT_MK) != null
+            && added.lookup(Name.QUOT_LIFT) != null && added.lookup(Name.QUOT_IND) != null;
+        return complete ? added.enableQuot() : added;
     }
 
     /** Kernel-expected type for a canonical quotient primitive, or null if the name/arity is not canonical. */
@@ -2536,15 +2601,11 @@ public final class TypeChecker {
         // declarations — but we MUST validate they are the canonical Quot/Quot.mk/Quot.lift/
         // Quot.ind with the expected types before admitting (Lean generates these internally).
         if (ci.isQuot()) {
-            validateQuotDeclaration(env, ci);
-            return env.enableQuot().addConstant(ci);
+            checkQuotPrimitive(env, ci);
+            return addQuotPrimitive(env, ci);
         }
-
-        try {
-            checkConstantPreAdd(env, ci, fuel, null, false);
-            return env.addConstant(ci);
-        } finally {
-        }
+        checkConstantPreAdd(env, ci, fuel, null, false);
+        return env.addConstant(ci);
     }
 
     /**
@@ -2570,19 +2631,17 @@ public final class TypeChecker {
             // before checking headers; each member being well formed individually is insufficient.
             if (!java.util.Arrays.equals(levelParams, ci.levelParams))
                 throw new RuntimeException("invalid mutual definition, declarations must have the same universe level parameters: " + ci.name);
-            checkDuplicateUnivParams(ci.levelParams, ci.name);
             TypeChecker tc = new TypeChecker(env, safety, ci.levelParams);
             tc.setFuel(fuel);
-            tc.ensureSort(tc.check(Expr.shareCommon(ci.type)));
+            checkConstantVal(env, ci, tc, Expr.shareCommon(ci.type));
         }
         Env newEnv = env;
         for (ConstantInfo ci : cis) newEnv = newEnv.addConstant(ci);
         for (ConstantInfo ci : cis) {
             TypeChecker tc = new TypeChecker(newEnv, safety, ci.levelParams);
             tc.setFuel(fuel);
-            Expr inferred = tc.check(Expr.shareCommon(ci.value));
-            if (!tc.isDefEq(inferred, Expr.shareCommon(ci.type)))
-                throw new RuntimeException("Type error: Declaration value type does not match declared type for " + ci.name);
+            checkValue(tc, ci, Expr.shareCommon(ci.type),
+                       ci.value != null ? Expr.shareCommon(ci.value) : null, false);
         }
         return newEnv;
     }
@@ -2643,29 +2702,23 @@ public final class TypeChecker {
     /** Type-check a declaration with structured NDJSON trace output. */
     public static Env checkConstantTraced(Env env, ConstantInfo ci, long fuel, Writer traceWriter) {
         if (ci.isQuot()) {
-            validateQuotDeclaration(env, ci);
-            return env.enableQuot().addConstant(ci);
+            checkQuotPrimitive(env, ci);
+            return addQuotPrimitive(env, ci);
         }
-        try {
-            checkConstantPreAdd(env, ci, fuel, traceWriter, false);
-            try { traceWriter.flush(); } catch (IOException e) {}
-            return env.addConstant(ci);
-        } finally {
-        }
+        checkConstantPreAdd(env, ci, fuel, traceWriter, false);
+        try { traceWriter.flush(); } catch (IOException e) {}
+        return env.addConstant(ci);
     }
 
     /** Like checkConstantTraced, but emits simple phase markers for theorem/definition checking. */
     public static Env checkConstantTracedPhased(Env env, ConstantInfo ci, long fuel, Writer traceWriter) {
         if (ci.isQuot()) {
-            validateQuotDeclaration(env, ci);
-            return env.enableQuot().addConstant(ci);
+            checkQuotPrimitive(env, ci);
+            return addQuotPrimitive(env, ci);
         }
-        try {
-            checkConstantPreAdd(env, ci, fuel, traceWriter, true);
-            try { traceWriter.flush(); } catch (IOException e) { throw new RuntimeException(e); }
-            return env.addConstant(ci);
-        } finally {
-        }
+        checkConstantPreAdd(env, ci, fuel, traceWriter, true);
+        try { traceWriter.flush(); } catch (IOException e) { throw new RuntimeException(e); }
+        return env.addConstant(ci);
     }
 
     private static final String[] EMPTY_REDUCER_TRACE = new String[0];
@@ -2675,14 +2728,10 @@ public final class TypeChecker {
      */
     public static long checkConstantFuel(Env env, ConstantInfo ci, long fuel) {
         if (ci.isQuot()) {
-            // Callers must handle env.enableQuot().addConstant(ci)
+            checkQuotPrimitive(env, ci);
             return 0;
         }
-        try {
-            ConstantCheckState state = checkConstantPreAdd(env, ci, fuel, null, false);
-            return state.tc.getFuelUsed();
-        } finally {
-        }
+        return checkConstantPreAdd(env, ci, fuel, null, false).tc.getFuelUsed();
     }
 
     /**
@@ -2691,8 +2740,12 @@ public final class TypeChecker {
      */
     public static Object[] checkConstantFuelStats(Env env, ConstantInfo ci, long fuel) {
         if (ci.isQuot()) {
-            // Callers must handle env.enableQuot().addConstant(ci)
-            return new Object[]{0L, new HashMap<String, Long>(), new String[0], null};
+            try {
+                checkQuotPrimitive(env, ci);
+                return new Object[]{0L, new HashMap<String, Long>(), EMPTY_REDUCER_TRACE, null};
+            } catch (RuntimeException ex) {
+                return new Object[]{0L, new HashMap<String, Long>(), EMPTY_REDUCER_TRACE, ex.getMessage()};
+            }
         }
         try {
             TypeChecker tc = null;

@@ -796,7 +796,8 @@
       ;; DEF
        1 (let [h (hints/code (:hints m))
                s (case (:safety m)
-                   :safe (byte 0) :unsafe (byte 1) :partial (byte 2) (byte 0))]
+                   :safe (byte 0) :unsafe (byte 1) :partial (byte 2)
+                   (throw (ex-info "unknown definition safety" {:name (:name m) :safety (:safety m)})))]
            (ConstantInfo/mkDefWithHints (:name m) lps type-expr
                                         (resolve-expr-fn (:value-id m))
                                         (long h) s

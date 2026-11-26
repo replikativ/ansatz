@@ -32,7 +32,8 @@
 (defn mk-def [name level-params type value & {:keys [hints safety all]
                                               :or {hints :opaque safety :safe all nil}}]
   (let [h (hints/code hints)
-        s (case safety :safe (byte 0) :unsafe (byte 1) :partial (byte 2) (byte 0))]
+        s (case safety :safe (byte 0) :unsafe (byte 1) :partial (byte 2)
+                (throw (ex-info "unknown definition safety" {:name name :safety safety})))]
     (ConstantInfo/mkDefWithHints name (into-array Object level-params) type value
                                  (long h) s (into-array Object (or all [name])))))
 
