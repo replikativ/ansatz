@@ -920,56 +920,6 @@ public final class Reducer {
     }
 
     /**
-     * Construct Decidable.isTrue(@Eq.refl Nat n) for native Nat.decEq when n == m.
-     * Sound by proof irrelevance: any proof of (n = n) is valid, and Eq.refl is canonical.
-     */
-    private static Expr mkNatDecEqTrue(Expr litN) {
-        // @Eq.{1} Nat n n
-        Expr eqType = Expr.app(Expr.app(
-            Expr.app(Expr.mkConst(Name.EQ, new Object[]{Level.succ(Level.ZERO_LEVEL)}, false),
-                     Expr.mkConst(Name.NAT, clojure.lang.PersistentVector.EMPTY, false)),
-            litN), litN);
-        // @Eq.refl.{1} Nat n
-        Expr proof = Expr.app(
-            Expr.app(Expr.mkConst(Name.EQ_REFL, new Object[]{Level.succ(Level.ZERO_LEVEL)}, false),
-                     Expr.mkConst(Name.NAT, clojure.lang.PersistentVector.EMPTY, false)),
-            litN);
-        // @Decidable.isTrue (n = n) proof
-        return Expr.app(
-            Expr.app(Expr.mkConst(Name.DECIDABLE_IS_TRUE, clojure.lang.PersistentVector.EMPTY, false),
-                     eqType),
-            proof);
-    }
-
-    /**
-     * Try native reduction of Nat.decEq / instDecidableEqNat.
-     * When both args are equal Nat literals, returns Decidable.isTrue(Eq.refl n).
-     * When unequal, returns null (falls through to normal evaluation).
-     * Sound: proof irrelevance makes any proof of (n = n) equivalent.
-     */
-    private Expr tryReduceNatDecEq(Expr[] args) {
-        if (args.length != 2) return null;
-        Expr a = whnfToNat(args[0]);
-        if (a == null) return null;
-        Expr b = whnfToNat(args[1]);
-        if (b == null) return null;
-        if (((BigInteger) a.o0).equals((BigInteger) b.o0)) {
-            return mkNatDecEqTrue(a);
-        }
-        return null; // unequal — let normal processing handle isFalse case
-    }
-
-    /** Cheap version: only when args are already Nat literals. */
-    private static Expr tryCheapReduceNatDecEq(Expr[] args) {
-        if (args.length != 2) return null;
-        if (args[0].tag != Expr.LIT_NAT || args[1].tag != Expr.LIT_NAT) return null;
-        if (((BigInteger) args[0].o0).equals((BigInteger) args[1].o0)) {
-            return mkNatDecEqTrue(args[0]);
-        }
-        return null;
-    }
-
-    /**
      * Cheap version of tryReduceNat: only fires when args are ALREADY Nat literals.
      * No whnf/whnfToNat calls — avoids deep recursive chains in whnfCoreImpl.
      * Used inside whnfCoreImpl to catch operations before they unfold to Nat.rec.
@@ -977,10 +927,6 @@ public final class Reducer {
     private Expr tryCheapReduceNat(Expr head, Expr[] args) {
         if (head.tag != Expr.CONST) return null;
         Name opName = (Name) head.o0;
-        // Nat.decEq / instDecidableEqNat — cheap version
-        if (opName == Name.NAT_DEC_EQ || opName == Name.INST_DECIDABLE_EQ_NAT) {
-            return tryCheapReduceNatDecEq(args);
-        }
         if (args.length == 1 && opName == Name.NAT_SUCC) {
             if (args[0].tag == Expr.LIT_NAT)
                 return Expr.litNat(((BigInteger) args[0].o0).add(BigInteger.ONE));
@@ -1052,11 +998,6 @@ public final class Reducer {
     private Expr tryReduceNat(Expr head, Expr[] args) {
         if (head.tag != Expr.CONST) return null;
         Name opName = (Name) head.o0;
-
-        // Nat.decEq / instDecidableEqNat — native to avoid O(n) proof recursion
-        if (opName == Name.NAT_DEC_EQ || opName == Name.INST_DECIDABLE_EQ_NAT) {
-            return tryReduceNatDecEq(args);
-        }
 
         // 1-arg: Nat.succ (matching Lean 4's reduce_nat lines 647-654)
         if (args.length == 1 && opName == Name.NAT_SUCC) {
