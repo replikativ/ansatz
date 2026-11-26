@@ -49,11 +49,11 @@
     (testing "q does reduce to a: q = a holds by rfl"
       (is (some? (env/check-constant env (thm "lazy-delta-ok" (eq-nat (c "lazy-delta-q") a') refl-a)))))
     (testing "Nat.succ q = a is refused (it would give Nat.succ a = a)"
-      (is (thrown? Exception
-                   (env/check-constant env (thm "lazy-delta-bad"
-                                                (eq-nat (e/app (c "Nat.succ") (c "lazy-delta-q")) a')
-                                                refl-a))))
-      (is (thrown? Exception
-                   (env/check-constant env (thm "lazy-delta-bad'"
-                                                (eq-nat a' (e/app (c "Nat.succ") (c "lazy-delta-q")))
-                                                refl-a)))))))
+      (is (thrown-with-msg? Exception #"does not match declared type"
+                            (env/check-constant env (thm "lazy-delta-bad"
+                                                         (eq-nat (e/app (c "Nat.succ") (c "lazy-delta-q")) a')
+                                                         refl-a))))
+      (is (thrown-with-msg? Exception #"does not match declared type"
+                            (env/check-constant env (thm "lazy-delta-bad'"
+                                                         (eq-nat a' (e/app (c "Nat.succ") (c "lazy-delta-q")))
+                                                         refl-a)))))))
