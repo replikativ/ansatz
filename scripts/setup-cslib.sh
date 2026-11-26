@@ -60,6 +60,9 @@ fi
 echo ""
 echo ">>> Building cslib (downloads mathlib dependency, ~1-2h first time)..."
 cd "$PARENT_DIR/cslib"
+# Every Lean command below (cslib build, exporter build, export, dumps) uses cslib's toolchain,
+# also when the caller's environment sets another ELAN_TOOLCHAIN.
+export ELAN_TOOLCHAIN="$(cat "$PARENT_DIR/cslib/lean-toolchain")"
 lake build
 echo "    Build complete."
 
@@ -72,8 +75,9 @@ echo ">>> Building lean4export..."
 cd "$PARENT_DIR/lean4export"
 
 # Match lean4export's toolchain to cslib's
-CSLIB_TOOLCHAIN=$(cat "$PARENT_DIR/cslib/lean-toolchain")
-echo "$CSLIB_TOOLCHAIN" > lean-toolchain
+CSLIB_TOOLCHAIN="$ELAN_TOOLCHAIN"
+# the toolchain comes from ELAN_TOOLCHAIN (above), so the shared checkout's lean-toolchain is
+# never rewritten
 lake build
 echo "    Built lean4export for $CSLIB_TOOLCHAIN"
 
