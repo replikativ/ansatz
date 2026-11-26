@@ -210,13 +210,13 @@ public final class Env {
         return quotEnabled;
     }
 
-    /** The number of constants added to this env itself (its session overlay), not counting
-     *  those reachable only through the external lookup. */
     /** Whether `other` has this env's local overlay itself (no constant added, removed or replaced). */
     public boolean sameLocals(Env other) {
         return other != null && locals == other.locals;
     }
 
+    /** The number of constants added to this env itself (its session overlay), not counting
+     *  those reachable only through the external lookup. */
     public int localCount() {
         return locals.count();
     }

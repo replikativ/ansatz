@@ -155,3 +155,21 @@
             (is (= [] (pc/added-constants with-a with-a))))))
       (finally
         (doseq [f (reverse (file-seq (io/file dir)))] (io/delete-file f true))))))
+
+(deftest review-round-two
+  (let [goal (:type-ansatz (a/elab-signature (a/env) (a/parse-params '[n :- Nat]) '(= Nat (+ n 0) n)))]
+    (binding [pc/*dir* "unused"]
+      (testing "an infinite lazy sequence in the script is a miss, and the key computation ends"
+        (is (nil? (deref (future (pc/entry-key 'pc-inf goal ["n"] [(list 'rfl (range))])) 20000 ::timeout))))
+      (testing ":type metadata, which the printer drops, still distinguishes keys"
+        (is (not= (pc/entry-key 'pc-ty goal ["n"] [(list 'f (with-meta 'x {:type :variant/a}))])
+                  (pc/entry-key 'pc-ty goal ["n"] [(list 'f (with-meta 'x {:type :variant/b}))])))))
+    (testing "auxiliary theorems that refer to each other are not stored"
+      (let [^ConstantInfo t (env/lookup (a/env) (name/from-string "Nat.add_zero"))
+            ca (env/mk-thm (name/from-string "pc-cyc-a") [] (.type t)
+                           (ansatz.kernel.Expr/mkConst (name/from-string "pc-cyc-b") [] false))
+            cb (env/mk-thm (name/from-string "pc-cyc-b") [] (.type t)
+                           (ansatz.kernel.Expr/mkConst (name/from-string "pc-cyc-a") [] false))
+            base (a/env)
+            after (-> ^ansatz.kernel.Env base (.addConstant ca) (.addConstant cb))]
+        (is (thrown? Exception (pc/added-constants base after)))))))
