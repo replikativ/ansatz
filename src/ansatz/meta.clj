@@ -1679,8 +1679,9 @@
                 :else nil))]
       (ev x))))
 
-(defn- nat-offset
-  "Lean's `isOffset?`: [s k] with `x` ≡ `s + k` (k > 0), or nil."
+(defn nat-offset
+  "Lean's `isOffset?` (Meta/Offset.lean:89): [s k] with `x` ≡ `s + k` syntactically (Nat.succ,
+   Nat.add / Add.add / HAdd.hAdd at Nat with an evaluable second operand), or nil."
   [mctx x]
   (let [x (zonk-expr mctx x)
         get-offset (fn [a] (or (nat-offset mctx a) [a 0]))

@@ -78,7 +78,9 @@
    '(ansatz.core/theorem CljM.some_getD [α :- Type, o :- (Option α), d :- α,
                                          h :- (= Bool (Option.isSome o) true)]
                          (= (Option α) o (Option.some (Option.getD o d)))
-                         (cases o) (simp_all) (rfl))])
+                         ;; `Option.isSome none` is no constructor until isSome unfolds (simp's
+                         ;; constructor probe runs at reducible-and-instances transparency)
+                         (cases o) (simp_all [Option.isSome]) (rfl))])
 
 (def ^:private value-ctors
   '[[vnil 0] [vbool 1] [vint 1] [vstr 1] [vkw 1] [vcons 2] [vvec 1] [vmap 1] [ventry 3] [vfloat 1] [vset 1]])

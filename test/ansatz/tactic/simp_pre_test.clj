@@ -309,7 +309,7 @@
         ite-uv (e/app* (e/const' (name/from-string "ite") [(lvl/succ lvl/zero)]) nat (c "True") (c "SimpPre.dec")
                        (c "SimpPre.u") (c "SimpPre.v"))
         env (ax env "SimpPre.h_ite" (eqn ite-uv (c "SimpPre.w")))
-        r (run env ["SimpPre.h_ite"] ite-uv {:simprocs? false :simproc-names #{"reduceIte"}})]
+        r (run env ["SimpPre.h_ite"] ite-uv {:simprocs? false :simproc-phases {"reduceIte" #{:post}}})]
     (is (= (c "SimpPre.w") (:expr r)))
     (is (checks? env ite-uv r))
     (testing "with the default (pre) registration the branch is selected first"
@@ -541,3 +541,250 @@
     (let [env (env/update-extension env :simp-lemmas #{} conj "SimpPre.post_rule")]
       (is (= (e/app (c "SimpPre.G") (c "SimpPre.a"))
              (:expr (simp/simp-expr-result st env post goal 20 {:ext-trie trie})))))))
+
+;; ── simproc phases (Lean SimprocsArray, Simproc.lean; Elab/Tactic/Simp.lean:448-461) ──────
+
+(defn- simproc-env []
+  (-> (pre-env)
+      (ax "SimpPre.dec" (e/app (c "Decidable") (c "True")))
+      (ax "SimpPre.S" (e/arrow nat nat))
+      ;; grow : ∀ n, F n = F (S n) — rewrites forever if F x is ever visited
+      (ax "SimpPre.grow" (e/forall' "n" nat (eqn (e/app (c "SimpPre.F") (e/bvar 0))
+                                                 (e/app (c "SimpPre.F") (e/app (c "SimpPre.S") (e/bvar 0)))) :default))))
+
+(defn- ite* [ty cnd inst a b]
+  (e/app* (e/const' (name/from-string "ite") [(lvl/succ lvl/zero)]) ty cnd inst a b))
+
+(defn- run-procs [env entries expr state]
+  (let [st (tc/mk-tc-state env)
+        [post pre] (simp/build-simp-indexes st env (simp/make-simp-lemmas env entries))]
+    (simp/simp-expr-result st env post expr 20 (merge {:pre-index pre :max-steps (atom 0)} state))))
+
+(deftest simproc-phases-select-exactly
+  (let [env (simproc-env)
+        fx (e/app (c "SimpPre.F") (c "SimpPre.x"))
+        goal (ite* nat (c "True") (c "SimpPre.dec") (c "SimpPre.a") fx)]
+    (testing "simp only [↓ reduceIte, grow]: the dead branch is never visited"
+      (let [r (run-procs (-> env (ax "SimpPre.x" nat)) ["SimpPre.grow"] goal
+                         {:simprocs? false :simproc-phases {"reduceIte" #{:pre}}})]
+        (is (= (c "SimpPre.a") (:expr r)))))
+    (testing "simp only [↑ reduceIte, grow] registers it post only: the branch is simplified first"
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"maximum recursion depth|maximum number of steps"
+                            (run-procs (-> env (ax "SimpPre.x" nat)) ["SimpPre.grow"] goal
+                                       {:simprocs? false :simproc-phases {"reduceIte" #{:post}}}))))
+    (testing "simp only [↓ reduceIte, -reduceIte]: erased in both phases"
+      (let [goal (ite* nat (c "True") (c "SimpPre.dec") (c "SimpPre.a") (c "SimpPre.d"))
+            r (run-procs env [] goal {:simprocs? false :simproc-phases {"reduceIte" #{:pre}}
+                                      :simproc-erased #{"reduceIte"}})]
+        (is (= goal (:expr r)))))
+    (testing "the default registration is pre"
+      (let [goal (ite* nat (c "True") (c "SimpPre.dec") (c "SimpPre.a") (c "SimpPre.d"))
+            r (run-procs env [] goal {})]
+        (is (= (c "SimpPre.a") (:expr r)))
+        (is (checks? env goal r))))))
+
+(deftest reduce-ctor-eq-in-the-pre-phase
+  ;; simp only [↓ reduceCtorEq, grow] on some (F x) = none: decided before F x is visited
+  (let [env (-> (simproc-env) (ax "SimpPre.x" nat))
+        opt (e/app (e/const' (name/from-string "Option") [lvl/zero]) nat)
+        goal (e/app* (e/const' (name/from-string "Eq") [(lvl/succ lvl/zero)]) opt
+                     (e/app* (e/const' (name/from-string "Option.some") [lvl/zero]) nat (e/app (c "SimpPre.F") (c "SimpPre.x")))
+                     (e/app (e/const' (name/from-string "Option.none") [lvl/zero]) nat))
+        r (run-procs env ["SimpPre.grow"] goal {:simprocs? false :simproc-phases {"reduceCtorEq" #{:pre}}})]
+    (is (= (c "False") (:expr r)))
+    (is (checks? env goal r))))
+
+(deftest reduce-dite-both-branches
+  (let [env (simproc-env)
+        prop-eq (fn [x y] (eqn x y))
+        dite* (fn [cnd] (e/app* (e/const' (name/from-string "dite") [(lvl/succ lvl/zero)]) nat cnd
+                                (e/app (c "SimpPre.dec_any") cnd)
+                                (e/lam "h" cnd (c "SimpPre.a") :default)
+                                (e/lam "h" (e/app (c "Not") cnd) (c "SimpPre.d") :default)))
+        env (ax env "SimpPre.dec_any" (e/forall' "p" (e/sort' lvl/zero) (e/app (c "Decidable") (e/bvar 0)) :default))]
+    (testing "a condition simp rewrites to True (x = x)"
+      (let [goal (dite* (prop-eq (c "SimpPre.a") (c "SimpPre.a")))
+            r (run-procs env ["eq_self"] goal {})]
+        (is (= (c "SimpPre.a") (:expr r)))
+        (is (checks? env goal r))))
+    (testing "a condition simp rewrites to False (1 = 2)"
+      (let [goal (dite* (prop-eq (e/lit-nat 1) (e/lit-nat 2)))
+            r (run-procs env [] goal {})]
+        (is (= (c "SimpPre.d") (:expr r)))
+        (is (checks? env goal r))))
+    (testing "a definitional condition (True) takes the reflexivity proof path"
+      (let [goal (dite* (c "True"))
+            r (run-procs env [] goal {})]
+        (is (= (c "SimpPre.a") (:expr r)))
+        (is (checks? env goal r))))))
+
+(deftest function-valued-ite-with-extra-arguments
+  ;; (@ite (Nat → Nat) True d (fun _ => 0) g) (F x): the prefix is selected, the argument
+  ;; reattached by congrFun and beta-reduced before F x is visited
+  (let [env (-> (simproc-env) (ax "SimpPre.x" nat) (ax "SimpPre.g" (e/arrow nat nat)))
+        nn (e/arrow nat nat)
+        f-ite (e/app* (e/const' (name/from-string "ite") [(lvl/succ lvl/zero)]) nn (c "True") (c "SimpPre.dec")
+                      (e/lam "y" nat (e/lit-nat 0) :default) (c "SimpPre.g"))
+        goal (e/app f-ite (e/app (c "SimpPre.F") (c "SimpPre.x")))
+        r (run-procs env ["SimpPre.grow"] goal {})]
+    (is (= (e/lit-nat 0) (:expr r)))
+    (is (checks? env goal r))))
+
+(deftest a-terminal-simproc-result-is-not-revisited
+  ;; Lean reduceCtorEq returns `.done False`: with h : False = (true = false) as a pre rule,
+  ;; revisiting False would cycle back to the constructor clash
+  (let [bool (c "Bool")
+        tf (e/app* (e/const' (name/from-string "Eq") [(lvl/succ lvl/zero)]) bool (c "Bool.true") (c "Bool.false"))
+        env (ax (pre-env) "SimpPre.h_cyc" (e/app* (e/const' (name/from-string "Eq") [(lvl/succ lvl/zero)]) prop (c "False") tf))
+        r (run-procs env [{:name "SimpPre.h_cyc" :post false}] tf
+                     {:simprocs? false :simproc-phases {"reduceCtorEq" #{:pre}}})]
+    (is (= (c "False") (:expr r)))
+    (is (checks? env tf r))))
+
+(deftest nat-literal-disequality-is-nat-reduceEqDiff
+  ;; Lean's reduceCtorEq leaves 1 = 2 (two Nat.succ constructors); Nat.reduceEqDiff decides it
+  (let [env (pre-env)
+        goal (eqn (e/lit-nat 1) (e/lit-nat 2))]
+    (is (= goal (:expr (run-procs env [] goal {:simprocs? false :simproc-phases {"reduceCtorEq" #{:pre}}}))))
+    (let [r (run-procs env [] goal {:simprocs? false :simproc-phases {"Nat.reduceEqDiff" #{:post}}})]
+      (is (= (c "False") (:expr r)))
+      (is (checks? env goal r)))
+    (is (= goal (:expr (run-procs env [] goal {:simproc-erased #{"Nat.reduceEqDiff"}
+                                               :simproc-phases {}}))))))
+
+(deftest an-opaque-condition-does-not-select-a-branch
+  ;; Lean reduceIte selects only when simp turns the condition into True/False: an opaque p
+  ;; with an explicit Decidable.isTrue p hp instance stays
+  (let [env (-> (simproc-env) (ax "SimpPre.p" prop) (ax "SimpPre.hp" (c "SimpPre.p")))
+        goal (ite* nat (c "SimpPre.p") (e/app* (c "Decidable.isTrue") (c "SimpPre.p") (c "SimpPre.hp"))
+                   (c "SimpPre.a") (c "SimpPre.d"))]
+    (is (= goal (:expr (run-procs env [] goal {}))))))
+
+(deftest a-terminal-result-inside-a-visit-is-not-reopened
+  ;; Lean simpLoop (Main.lean:677-710): a pre `.visit` returns its composed recursive result and
+  ;; only the post continuation revisits. P ↦ (true = false) ↦ False (reduceCtorEq, `.done`):
+  ;; the pre rule False = Q must not reopen it
+  (let [tf (e/app* (e/const' (name/from-string "Eq") [(lvl/succ lvl/zero)]) (c "Bool") (c "Bool.true") (c "Bool.false"))
+        peq (fn [x y] (e/app* (e/const' (name/from-string "Eq") [(lvl/succ lvl/zero)]) prop x y))
+        env (-> (pre-env) (ax "SimpPre.Pp" prop) (ax "SimpPre.Qq" prop)
+                (ax "SimpPre.h1" (peq (c "SimpPre.Pp") tf))
+                (ax "SimpPre.h2" (peq (c "False") (c "SimpPre.Qq"))))
+        state {:simprocs? false :simproc-phases {"reduceCtorEq" #{:pre}}}]
+    (testing "reached through a pre rewrite"
+      (let [r (run-procs env [{:name "SimpPre.h1" :post false} {:name "SimpPre.h2" :post false}]
+                         (c "SimpPre.Pp") state)]
+        (is (= (c "False") (:expr r)))
+        (is (checks? env (c "SimpPre.Pp") r))))
+    (testing "reached through a post rewrite"
+      (let [r (run-procs env ["SimpPre.h1" {:name "SimpPre.h2" :post false}] (c "SimpPre.Pp") state)]
+        (is (= (c "False") (:expr r)))
+        (is (checks? env (c "SimpPre.Pp") r))))))
+
+(deftest reduce-ctor-eq-sees-the-constructors-of-nat-literals
+  ;; Lean's constructor view of literals: 0 = 1 is Nat.zero = Nat.succ 0, a clash (1 = 2 is not)
+  (let [env (pre-env)
+        goal (eqn (e/lit-nat 0) (e/lit-nat 1))
+        r (run-procs env [] goal {:simprocs? false :simproc-phases {"reduceCtorEq" #{:pre}}
+                                  :simproc-erased #{"Nat.reduceEqDiff"}})]
+    (is (= (c "False") (:expr r)))
+    (is (checks? env goal r))))
+
+(def ^:private no-ctor-idx-env
+  ;; the bundled Init without Nat.ctorIdx and Bool.ctorIdx, as a dependency closure of Nat,
+  ;; eq_false, Nat.noConfusion and noConfusion_of_Nat omits them (trust replay)
+  (delay
+    (parser/with-parser-state
+      (parser/parse-ndjson-string @test-env/bundled-init-text)
+      (fn [parsed]
+        (:env (replay/replay (remove #(#{"Nat.ctorIdx" "Bool.ctorIdx"} (str (.name ^ansatz.kernel.ConstantInfo %)))
+                                     (:decls parsed))
+                             :verify? false :stop-on-error? true))))))
+
+(deftest a-nat-constructor-clash-needs-no-ctor-idx
+  ;; 0 = 1 is closed by Nat.noConfusion; a clash of another inductive uses ctorIdx only when the
+  ;; environment declares it
+  (let [env @no-ctor-idx-env
+        state {:simprocs? false :simproc-phases {"reduceCtorEq" #{:pre}} :simproc-erased #{"Nat.reduceEqDiff"}}
+        goal (eqn (e/lit-nat 0) (e/lit-nat 1))
+        r (run-procs env [] goal state)
+        tf (e/app* (e/const' (name/from-string "Eq") [(lvl/succ lvl/zero)]) (c "Bool") (c "Bool.true") (c "Bool.false"))]
+    (is (nil? (env/lookup env (name/from-string "Nat.ctorIdx"))))
+    (is (= (c "False") (:expr r)))
+    (is (checks? env goal r))
+    (testing "without Bool.ctorIdx true = false is left alone"
+      (is (= tf (:expr (run-procs env [] tf state)))))))
+
+(deftest the-constructor-probe-runs-at-reducible-and-instances-transparency
+  ;; Lean reduceCtorEq runs withReducibleAndInstances (Core.lean:88): `def one := 1` stays
+  ;; folded, a reducible alias is seen through
+  (let [env (-> (pre-env)
+                (env/check-constant (env/mk-def (name/from-string "SimpPre.one") [] nat (e/lit-nat 1)))
+                (env/check-constant (env/mk-def (name/from-string "SimpPre.one_r") [] nat (e/lit-nat 1) :hints :abbrev))
+                (env/update-extension :reducibility-status {} assoc "SimpPre.one" "semireducible"
+                                      "SimpPre.one_r" "reducible"))
+        state {:simprocs? false :simproc-phases {"reduceCtorEq" #{:pre}} :simproc-erased #{"Nat.reduceEqDiff"}}
+        folded (eqn (e/lit-nat 0) (c "SimpPre.one"))
+        alias (eqn (e/lit-nat 0) (c "SimpPre.one_r"))
+        r (run-procs env [] alias state)]
+    (is (= folded (:expr (run-procs env [] folded state))))
+    (is (= (c "False") (:expr r)))
+    (is (checks? env alias r))
+    (testing "the same without reducibility metadata (the abbrev hint decides)"
+      (let [bare (env/update-extension env :reducibility-status {} (constantly {}))]
+        (is (= folded (:expr (run-procs bare [] folded state))))
+        (is (= (c "False") (:expr (run-procs bare [] alias state))))))))
+
+(deftest the-constructor-probe-recognizes-offsets-and-int-literals
+  ;; Lean constructorApp'? (CtorRecognizer.lean:100): a Nat offset is Nat.succ before any whnf,
+  ;; so F x + (0 + 1) = 0 closes before F x is visited (grow would loop); `-1` is Int.negSucc 0
+  ;; (litToCtor), so -1 = Int.ofNat n is a clash
+  (let [nat-add (fn [x y] (e/app* (c "Nat.add") x y))
+        env (-> (pre-env) (ax "SimpPre.Sg" (e/arrow nat nat)) (ax "SimpPre.xg" nat) (ax "SimpPre.ng" nat)
+                (ax "SimpPre.grow" (e/forall' "n" nat (eqn (e/app (c "SimpPre.F") (e/bvar 0))
+                                                           (e/app (c "SimpPre.F") (e/app (c "SimpPre.Sg") (e/bvar 0))))
+                                              :default)))
+        state {:simprocs? false :simproc-phases {"reduceCtorEq" #{:pre}} :simproc-erased #{"Nat.reduceEqDiff"}}
+        offset (eqn (nat-add (e/app (c "SimpPre.F") (c "SimpPre.xg")) (nat-add (e/lit-nat 0) (e/lit-nat 1))) (e/lit-nat 0))
+        r (run-procs env ["SimpPre.grow"] offset state)
+        int (c "Int")
+        int-lit (fn [n] (e/app* (e/const' (name/from-string "OfNat.ofNat") [lvl/zero]) int (e/lit-nat n)
+                                (e/app (c "instOfNat") (e/lit-nat n))))
+        neg1 (e/app* (e/const' (name/from-string "Neg.neg") [lvl/zero]) int (c "Int.instNegInt") (int-lit 1))
+        int-eq (e/app* (e/const' (name/from-string "Eq") [(lvl/succ lvl/zero)]) int neg1 (e/app (c "Int.ofNat") (c "SimpPre.ng")))
+        ri (run-procs env [] int-eq state)]
+    (is (= (c "False") (:expr r)))
+    (is (checks? env offset r))
+    (is (= (c "False") (:expr ri)))
+    (is (checks? env int-eq ri))))
+
+(deftest a-terminal-result-of-a-head-reduction-is-not-revisited
+  ;; (fun _ => true = false) 0 head-reduces to the clash, which reduceCtorEq closes (`.done`); the
+  ;; post rule False = Q must not run on it
+  (let [tf (e/app* (e/const' (name/from-string "Eq") [(lvl/succ lvl/zero)]) (c "Bool") (c "Bool.true") (c "Bool.false"))
+        env (-> (pre-env) (ax "SimpPre.Qh" prop)
+                (ax "SimpPre.fq" (e/app* (e/const' (name/from-string "Eq") [(lvl/succ lvl/zero)]) prop (c "False") (c "SimpPre.Qh"))))
+        goal (e/app (e/lam "_" nat tf :default) (e/lit-nat 0))
+        r (run-procs env ["SimpPre.fq"] goal {:simprocs? false :simproc-phases {"reduceCtorEq" #{:pre}}})]
+    (is (= (c "False") (:expr r)))
+    (is (checks? env goal r))))
+
+(deftest the-literal-shortcut-needs-the-standard-numeral-instances
+  ;; test/lean-parity/simp/q4_nonstandard_numeral.lean: Lean v4.36.0 ignores the instance and its
+  ;; kernel rejects the resulting proof; Ansatz reads a numeral only with the standard instance
+  (let [ofnat (fn [t n inst] (e/app* (e/const' (name/from-string "OfNat.ofNat") [lvl/zero]) t (e/lit-nat n) inst))
+        int (c "Int")
+        env (-> (pre-env)
+                (env/check-constant
+                 (env/mk-def (name/from-string "SimpPre.weird") [] (e/app* (e/const' (name/from-string "OfNat") [lvl/zero]) nat (e/lit-nat 1))
+                             (e/app* (e/const' (name/from-string "OfNat.mk") [lvl/zero]) nat (e/lit-nat 1) (e/lit-nat 0))))
+                (ax "SimpPre.negI" (e/app (e/const' (name/from-string "Neg") [lvl/zero]) int))
+                (ax "SimpPre.nn" nat))
+        state {:simprocs? false :simproc-phases {"reduceCtorEq" #{:pre}} :simproc-erased #{"Nat.reduceEqDiff"}}
+        weird-eq (eqn (ofnat nat 1 (c "SimpPre.weird")) (e/lit-nat 0))
+        neg (e/app* (e/const' (name/from-string "Neg.neg") [lvl/zero]) int (c "SimpPre.negI")
+                    (ofnat int 1 (e/app (c "instOfNat") (e/lit-nat 1))))
+        neg-eq (e/app* (e/const' (name/from-string "Eq") [(lvl/succ lvl/zero)]) int neg (e/app (c "Int.ofNat") (c "SimpPre.nn")))]
+    (testing "OfNat Nat 1 := ⟨0⟩ is no successor: a true equality is not turned into False"
+      (is (= weird-eq (:expr (run-procs env [] weird-eq state)))))
+    (testing "an opaque Neg Int: no constructor, no rewrite"
+      (is (= neg-eq (:expr (run-procs env [] neg-eq state)))))))

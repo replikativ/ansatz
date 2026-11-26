@@ -625,7 +625,7 @@
     (testing "a simproc member joins the call's simprocs"
       (let [e (ansatz.attrs/add-to-simp-set env "procs" ["Nat.reduceAdd"])]
         (is (= [{:name "Nat.reduceAdd" :post true}] (:simprocs (ansatz.attrs/simp-set-entries e "procs"))))
-        (is (= [{:set "procs" :names #{"Nat.reduceAdd"} :pre #{} :erased #{}}]
+        (is (= [{:set "procs" :phases {"Nat.reduceAdd" #{:post}} :erased #{}}]
                (:simproc-sets (simp/elab-simp-args e [{:simp-set "procs"}] {}))))))
     (testing "a repeated registration keeps its first slot"
       (is (= ["Nat.add_zero" "Nat.zero_add"]
@@ -679,7 +679,7 @@
                  (simp-type goal [{:simp-set "set_ite"} 'SetI.h_ite] only-with-simprocs))))
         (testing "[s, -reduceIte]: the erasure reaches the set too"
           (let [r (simp/elab-simp-args (a/env) [{:simp-set "set_ite"} {:erase "reduceIte"}] {})]
-            (is (= [{:set "set_ite" :names #{"reduceIte"} :pre #{} :erased #{"reduceIte"}}] (:simproc-sets r)))))
+            (is (= [{:set "set_ite" :phases {"reduceIte" #{:post}} :erased #{"reduceIte"}}] (:simproc-sets r)))))
         (testing "a set's simproc runs: 2 + 3 simplifies to 5 under simp only [procs]"
           (let [e (ansatz.attrs/add-to-simp-set (a/env) "procs" ["Nat.reduceAdd"])
                 two-three (ansatz.kernel.expr/app (k "SetI.P")
@@ -693,19 +693,41 @@
             (is (= (ansatz.kernel.expr/app (k "SetI.P") (ansatz.kernel.expr/lit-nat 5))
                    (simp-type two-three [{:simp-set "procs"}] {:only? true})))
             (is (= two-three (simp-type two-three [] {:only? true})))))
-        (testing "a `↓` simproc member is refused until set simprocs carry their phase"
-          (let [e (ansatz.attrs/add-to-simp-set (a/env) "pre_procs" [{:name "Nat.reduceAdd" :post false}])]
-            (is (thrown-with-msg? clojure.lang.ExceptionInfo #"is not supported"
-                                  (simp/elab-simp-args e [{:simp-set "pre_procs"}] {})))))))))
+        (testing "a `↓` set member runs pre, before a post theorem on the same term"
+          (let [add23 (ansatz.kernel.expr/app* (ansatz.kernel.expr/const' (ansatz.kernel.name/from-string "HAdd.hAdd")
+                                                                          (repeat 3 ansatz.kernel.level/zero))
+                                               nat nat nat
+                                               (ansatz.kernel.expr/app* (ansatz.kernel.expr/const' (ansatz.kernel.name/from-string "instHAdd")
+                                                                                                   [ansatz.kernel.level/zero])
+                                                                        nat (k "instAddNat"))
+                                               (ansatz.kernel.expr/lit-nat 2) (ansatz.kernel.expr/lit-nat 3))
+                e (-> (a/env)
+                      (ax* "SetI.k" nat) (ax* "SetI.t23" (eqn* add23 (k "SetI.k")))
+                      (ansatz.attrs/add-to-simp-set "pre_procs" [{:name "Nat.reduceAdd" :post false}])
+                      (ansatz.attrs/add-to-simp-set "post_procs" ["Nat.reduceAdd"]))
+                goal (ansatz.kernel.expr/app (k "SetI.P") add23)]
+            (reset! a/ansatz-env e)
+            (is (= (ansatz.kernel.expr/app (k "SetI.P") (ansatz.kernel.expr/lit-nat 5))
+                   (simp-type goal [{:simp-set "pre_procs"} 'SetI.t23] {:only? true})))
+            (is (= (ansatz.kernel.expr/app (k "SetI.P") (k "SetI.k"))
+                   (simp-type goal [{:simp-set "post_procs"} 'SetI.t23] {:only? true})))))))))
 
 (deftest a-later-erasure-disables-a-sets-pre-simproc
-  ;; Lean adds the set, then processes `-p` (SimprocsArray.erase): only a `↓` simproc still live
-  ;; after every argument is refused
-  (with-axioms #(ansatz.attrs/add-to-simp-set (setT-env %) "pre_set" [{:name "Nat.reduceAdd" :post false} "SetT.f_ax"])
+  ;; Lean adds the set, then processes `-p` (SimprocsArray.erase): only a `↓` simproc whose
+  ;; execution is not ported and that is still live after every argument is refused
+  (with-axioms #(ansatz.attrs/add-to-simp-set (setT-env %) "pre_set" [{:name "Nat.reduceGcd" :post false} "SetT.f_ax"])
     (fn []
-      (is (proves? '(a/theorem pre-set-erased [x :- Nat] (= Nat (SetT.f x x) x) (simp only [pre_set -Nat.reduceAdd]))))
-      (is (fails-with? #"`↓` simproc `Nat.reduceAdd` in the simp set `pre_set` is not supported"
-                       '(a/theorem pre-set-live [x :- Nat] (= Nat (SetT.f x x) x) (simp only [-Nat.reduceAdd pre_set])))))))
+      (is (proves? '(a/theorem pre-set-erased [x :- Nat] (= Nat (SetT.f x x) x) (simp only [pre_set -Nat.reduceGcd]))))
+      (is (fails-with? #"`↓` simproc `Nat.reduceGcd` in the simp set `pre_set` is not supported"
+                       '(a/theorem pre-set-live [x :- Nat] (= Nat (SetT.f x x) x) (simp only [-Nat.reduceGcd pre_set]))))))
+  ;; test/lean-parity/simp/q5_set_pre_simproc_erasure.lean: with a ported ↓ simproc Lean closes
+  ;; the goal in both argument orders
+  (with-axioms #(ansatz.attrs/add-to-simp-set (setT-env %) "pre_set_ported" [{:name "Nat.reduceAdd" :post false} "SetT.f_ax"])
+    (fn []
+      (is (proves? '(a/theorem pre-set-ported-erased [x :- Nat] (= Nat (SetT.f x x) x)
+                               (simp only [pre_set_ported -Nat.reduceAdd]))))
+      (is (proves? '(a/theorem pre-set-ported-live [x :- Nat] (= Nat (SetT.f x x) x)
+                               (simp only [-Nat.reduceAdd pre_set_ported])))))))
 
 (deftest dsimp-keeps-its-erase-warning-with-a-pre-simproc-set
   ;; dsimp elaborates its arguments only for their diagnostics: a set's `↓` simproc is no error
@@ -765,3 +787,26 @@
     (let [after (ansatz.attrs/simp-set-entries staged "staged_set")]
       (is (not= before after))
       (is (some #{"ArgV.d"} (map str (:to-unfold after)))))))
+
+(deftest simproc-arguments-select-phases
+  (let [env (a/env)]
+    (is (= {"reduceIte" #{:pre}} (:simproc-phases (simp/elab-simp-args env [{:name "reduceIte" :post false}] {}))))
+    (is (= {"reduceIte" #{:post}} (:simproc-phases (simp/elab-simp-args env ['reduceIte] {}))))
+    (is (= {"reduceCtorEq" #{:pre :post}}
+           (:simproc-phases (simp/elab-simp-args env [{:name "reduceCtorEq" :post false} 'reduceCtorEq] {}))))
+    (testing "re-adding a simproc clears its erasure (Simproc.lean:153-154)"
+      (is (= #{} (:simproc-erased (simp/elab-simp-args env [{:erase "reduceIte"} {:name "reduceIte" :post false}] {})))))
+    (testing "↓ on a catalogued simproc whose execution is not ported"
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"not ported"
+                            (simp/elab-simp-args env [{:name "Nat.reduceGcd" :post false}] {}))))
+    (testing "← on a simproc (simp_leftarrow_simproc.lean)"
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Invalid `←` modifier: `reduceIte` is a simproc"
+                            (simp/elab-simp-args env [{:name "reduceIte" :inv true}] {}))))))
+
+(deftest ite-simprocs-through-the-tactic
+  (is (proves? '(a/theorem ite-cond-simp [x :- Nat, a :- Nat, b :- Nat]
+                           (= Nat (ite (= Nat x x) a b) a) (simp))))
+  (is (proves? '(a/theorem ite-cond-false [a :- Nat, b :- Nat]
+                           (= Nat (ite (= Nat 1 2) a b) b) (simp))))
+  (is (proves? '(a/theorem ite-simp-all [x :- Nat, a :- Nat, b :- Nat, h :- (= Nat (ite (= Nat x x) a b) b)]
+                           (= Nat a b) (simp_all)))))
