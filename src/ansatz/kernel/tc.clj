@@ -454,23 +454,3 @@
                  (e/app (e/lift t 1 0) fv)
                  (e/instantiate1 (e/lam-body s) fv)))
     :else false))
-
-;; ============================================================
-;; Declaration checking
-;; ============================================================
-
-(defn check-constant
-  "Type-check a ConstantInfo and add it to the environment.
-   Returns the updated environment."
-  [^Env env ^ConstantInfo ci]
-  (let [st (mk-tc-state env)]
-    (ensure-sort st (infer-type st (.type ci)))
-    (when-let [value (.value ci)]
-      (when (or (.isDef ci) (.isThm ci) (.isOpaq ci))
-        (let [inferred (infer-type st value)]
-          (when-not (is-def-eq st inferred (.type ci))
-            (tc-error! "Declaration value type does not match declared type"
-                       {:name (.name ci)
-                        :declared (.type ci)
-                        :inferred inferred})))))
-    (env/add-constant env ci)))

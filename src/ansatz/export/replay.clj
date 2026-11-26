@@ -71,9 +71,7 @@
 
          :else
          (let [env (if verify?
-                     (if (non-safe/non-safe-definition? ci)
-                       (TypeChecker/checkMutualDefinitions env [ci] (long default-fuel))
-                       (TypeChecker/checkConstant env ci default-fuel))
+                     (TypeChecker/checkConstant env ci default-fuel)
                      (.addConstant env ci))]
            ;; Note: do NOT strip theorem values — downstream isDefEq may need them.
            [env {:status :ok :name name-str :tag (env/ci-tag ci)}]))

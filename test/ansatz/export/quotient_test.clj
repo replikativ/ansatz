@@ -54,7 +54,7 @@
     (is (env/quot-enabled? admitted))
     (doseq [ci (package)]
       (is (identical? ci (env/lookup admitted (.name ^ConstantInfo ci)))))
-    (is (thrown-with-msg? Exception #"canonical checked Eq"
+    (is (thrown-with-msg? Exception #"does not have the expected 'Eq' type"
                           (quotient/admit-package! (env/empty-env) (package))))))
 
 (deftest malformed-quotient-package-test
@@ -78,12 +78,13 @@
       (is (= :error (:status result))))
     (let [[trusted result] (replay/replay-one original q false)]
       (is (= :ok (:status result)))
-      (is (env/quot-enabled? trusted)))))
+      (testing "trust mode admits the row, but one primitive does not initialize the module"
+        (is (not (env/quot-enabled? trusted)))))))
 
 (deftest noncanonical-equality-bootstrap-test
   (let [fake (env/mk-axiom (name/from-string "Eq") [] (expr/sort' level/zero))
         unchecked (.addConstant (env/empty-env) fake)]
-    (is (thrown-with-msg? Exception #"canonical checked Eq"
+    (is (thrown-with-msg? Exception #"does not have the expected 'Eq' type"
                           (quotient/admit-package! unchecked (package))))))
 
 (deftest vector-and-stream-noncontiguous-quotients-test
@@ -103,7 +104,9 @@
       (is (= 3 (get-in result [:stats :errors])))
       (is (= (count missing) (get-in result [:stats :total])))
       (is (not (env/quot-enabled? (:env result)))))
-    (is (env/quot-enabled? (:env (replay/replay missing :verify? false)))))
+    (testing "a truncated package does not enable reduction, even when trusted"
+      (is (not (env/quot-enabled? (:env (replay/replay missing :verify? false)))))
+      (is (env/quot-enabled? (:env (replay/replay (into (bootstrap) (package)) :verify? false))))))
   (let [qs (package)
         bad (assoc qs 3 (replace-primitive (nth qs 3) {:type (expr/sort' level/zero)}))
         declarations (into (bootstrap) bad)]
@@ -133,5 +136,5 @@
         bad-eq (env/mk-induct (.name eq) (vec (.levelParams eq)) (expr/sort' level/zero)
                               :ctors (vec (.ctors eq)))
         unchecked (-> (env/empty-env) (.addConstant bad-eq) (.addConstant refl))]
-    (is (thrown-with-msg? Exception #"noncanonical Eq"
+    (is (thrown-with-msg? Exception #"'Eq' has an unexpected type"
                           (quotient/admit-package! unchecked (package))))))

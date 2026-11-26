@@ -89,7 +89,8 @@
         (fn [^Env env]
           (let [local (ci (name/from-string "Local")) child (.addConstant env local)]
             (is (.sameExternalView env child))
-            (is (.isQuotEnabled child))
+            ;; Quotient readiness is the view's (Env.isQuotEnabled reads the primitives).
+            (is (= (.isQuotEnabled env) (.isQuotEnabled child)))
             (is (identical? local (.lookup child (.name local))))
             (is (identical? (.lookup env a) (.lookup child a))))))
       (is (= 1 (:materialized-count (view/inspect! model))))

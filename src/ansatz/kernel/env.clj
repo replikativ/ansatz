@@ -32,7 +32,8 @@
 (defn mk-def [name level-params type value & {:keys [hints safety all]
                                               :or {hints :opaque safety :safe all nil}}]
   (let [h (hints/code hints)
-        s (case safety :safe (byte 0) :unsafe (byte 1) :partial (byte 2) (byte 0))]
+        s (case safety :safe (byte 0) :unsafe (byte 1) :partial (byte 2)
+                (throw (ex-info "unknown definition safety" {:name name :safety safety})))]
     (ConstantInfo/mkDefWithHints name (into-array Object level-params) type value
                                  (long h) s (into-array Object (or all [name])))))
 
@@ -117,10 +118,8 @@
    every application argument, the way mathlib declarations are verified. Use this (not an
    `inferType`+`isDefEq` shorthand) to validate tactic-built proofs in tests.
 
-   A `nil` proof (or goal) is FALSE, never true: `mk-thm` with a nil value is an
-   axiom-shaped declaration that `check-constant` would accept WITHOUT a proof, so a
-   caller passing `(when (solved? ps) (extract …))` that yields nil on failure would
-   otherwise get a false-positive 'verified'."
+   A `nil` proof (or goal) is false, as is any proof the kernel refuses (theorem admission
+   requires a value)."
   [^Env env goal proof]
   (boolean
    (and (some? goal) (some? proof)

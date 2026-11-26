@@ -538,17 +538,24 @@
       (is (thrown-with-msg?
            Exception #"not a canonical quotient primitive"
            (TypeChecker/checkConstant E (env/mk-quot (name/from-string "BogusQuot") [] False* :ind) 5000000)))
-      ;; A canonical name with a bogus type is rejected too.
-      (is (thrown-with-msg?
-           Exception #"canonical quotient primitive|does not match the kernel-expected"
-           (TypeChecker/checkConstant E (env/mk-quot (name/from-string "Quot.mk") [] False* :ctor) 5000000)))
-      ;; Admit the real primitives in order into a fresh environment.
-      (reduce (fn [checked nm]
-                (let [ci (env/lookup E (name/from-string nm))
-                      admitted (TypeChecker/checkConstant checked ci 5000000)]
-                  (is (some? admitted) (str nm " should pass quotient validation"))
-                  admitted))
-              (env/empty-env) ["Quot" "Quot.mk" "Quot.lift" "Quot.ind"]))))
+      ;; Quotients need Eq (Lean's check_eq_type); a fresh environment with only Eq.
+      (let [with-eq (reduce (fn [^Env acc nm] (.addConstant acc (env/lookup E (name/from-string nm))))
+                            (env/empty-env) ["Eq" "Eq.refl"])]
+        ;; A canonical name with a bogus type is rejected too.
+        (is (thrown-with-msg?
+             Exception #"not the one the kernel generates"
+             (TypeChecker/checkConstant with-eq (env/mk-quot (name/from-string "Quot.mk") ["u"] False* :ctor) 5000000)))
+        ;; A canonical name already declared is refused (Lean's check_name).
+        (is (thrown-with-msg?
+             Exception #"Constant already declared"
+             (TypeChecker/checkConstant E (env/lookup E (name/from-string "Quot.mk")) 5000000)))
+        ;; Admit the real primitives in order into the fresh environment.
+        (reduce (fn [checked nm]
+                  (let [ci (env/lookup E (name/from-string nm))
+                        admitted (TypeChecker/checkConstant checked ci 5000000)]
+                    (is (some? admitted) (str nm " should pass quotient validation"))
+                    admitted))
+                with-eq ["Quot" "Quot.mk" "Quot.lift" "Quot.ind"])))))
 
 (deftest reject-corrupt-imported-recursor-rule-test
   (testing "InductiveChecker rejects imported recursor rules that differ from Lean-generated iota rules"
@@ -609,8 +616,9 @@
     (testing "a self-referential partial def is admitted, headers before bodies"
       (let [env' (TypeChecker/checkMutualDefinitions base [self] 1000000)]
         (is (some? (.lookup env' (nm "f._unsafe_rec"))))))
-    (testing "the one-at-a-time path cannot see the recursive reference"
-      (is (thrown? Exception (TypeChecker/checkConstant base self 1000000))))
+    (testing "the one-at-a-time path checks a non-safe definition as a block of one: the body
+              sees the declaration (Lean's add_mutual / add_definition for unsafe)"
+      (is (some? (.lookup (TypeChecker/checkConstant base self 1000000) (nm "f._unsafe_rec")))))
     (testing "a mutual partial group is admitted together"
       (let [env' (TypeChecker/checkMutualDefinitions base [g h] 1000000)]
         (is (some? (.lookup env' (nm "g"))))

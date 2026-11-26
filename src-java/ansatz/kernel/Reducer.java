@@ -130,6 +130,8 @@ public final class Reducer {
     /** Set fuel limit. 0 means unlimited (no fuel checking). */
     public void setFuel(long fuel) { this.fuel = fuel; this.initialFuel = fuel; }
     public long getFuelUsed() { return initialFuel > 0 ? initialFuel - fuel : -fuel; }
+    /** Continue prev's budget: same limit, what it has left (an exhausted budget stays exhausted). */
+    void continueFuel(Reducer prev) { this.fuel = prev.fuel; this.initialFuel = prev.initialFuel; }
     public void setLctx(HashMap<Long, Object[]> lctx) { this.lctx = lctx; }
     public void setCallbacks(InferFn inferFn, IsDefEqFn isDefEqFn) {
         this.inferFn = inferFn;
@@ -1520,7 +1522,7 @@ public final class Reducer {
     // ============================================================
 
     private Expr tryReduceQuot(Expr head, Expr[] args) {
-        if (head.tag != Expr.CONST || !env.isQuotEnabled()) return null;
+        if (head.tag != Expr.CONST) return null;
         Name name = (Name) head.o0;
 
         int mkPos, argPos;
@@ -1532,7 +1534,7 @@ public final class Reducer {
             return null;
         }
 
-        if (args.length <= mkPos) return null;
+        if (args.length <= mkPos || !env.isQuotEnabled()) return null;
 
         // Lean 4 calls whnf on the critical quotient argument before checking
         Expr mk = whnf(args[mkPos]);

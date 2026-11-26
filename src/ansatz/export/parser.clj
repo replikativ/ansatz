@@ -220,7 +220,8 @@
     "safe" :safe
     "unsafe" :unsafe
     "partial" :partial
-    :safe))
+    nil :safe
+    (throw (ex-info "unknown definition safety in export" {:safety s}))))
 
 (defn- parse-axiom [st obj]
   (env/mk-axiom
