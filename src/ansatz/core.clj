@@ -948,8 +948,10 @@
   [ps args locs opts]
   (let [g (or (proof/current-goal ps)
               (throw (ex-info "Tactic error: No goals" {:kind :tactic-error})))
-        ;; Lean mkSimpContext elaborates arguments before simpLocation/dsimpLocation.
+        ;; Lean mkSimpContext elaborates arguments before simpLocation/dsimpLocation, once:
+        ;; its erasure warnings are reported once for all locations.
         lemma-args (simp-lemma-args ps args)
+        _ (simp/report-simp-arg-warnings! (:env ps) lemma-args opts)
         wildcard? (= ['*] (vec locs))
         target? (or (nil? locs) wildcard? (some #{'⊢} locs))
         ids (if wildcard?
@@ -1394,7 +1396,9 @@
                       [args locs] (split-with #(not= 'at %) args)]
                   (if (seq locs)
                     (simp-location ps args (rest locs) {:only? only?})
-                    (simp/simp ps (simp-lemma-args ps args) {:only? only?}))))
+                    (let [lemma-args (simp-lemma-args ps args)]
+                      (simp/report-simp-arg-warnings! (:env ps) lemma-args {:only? only?})
+                      (simp/simp ps lemma-args {:only? only?})))))
    'simp_all  (fn [ps args]
                 (let [only? (= 'only (first args))
                       args  (if only? (rest args) args)
@@ -1402,13 +1406,18 @@
                           (throw (ex-info "Tactic error: simp_all does not accept locations" {:kind :tactic-error})))]
                   (cond
                     ;; Elab/Tactic/Simp.lean:808 simp_all: eraseLocal := true, `*` ignored
-                    only?      (simp/simp-all ps (simp-lemma-args ps args {:erase-local? true}) {:only? true})
-                    (seq args) (simp/simp-all ps (simp-lemma-args ps args {:erase-local? true}))
+                    (seq args)
+                    ;; reported once, before any round can close the goal
+                    (let [lemma-args (simp-lemma-args ps args {:erase-local? true})]
+                      (simp/report-simp-arg-warnings! (:env ps) lemma-args {:only? only?})
+                      (simp/simp-all ps lemma-args {:only? only?}))
+                    only?      (simp/simp-all ps [] {:only? true})
                     :else      (simp/simp-all ps))))
    'dsimp     (fn [ps args]
-                (let [args (if (= 'only (first args)) (rest args) args)
+                (let [only? (= 'only (first args))
+                      args (if only? (rest args) args)
                       [args locs] (split-with #(not= 'at %) args)]
-                  (simp-location ps args (when (seq locs) (rest locs)) {:dsimp? true})))
+                  (simp-location ps args (when (seq locs) (rest locs)) {:dsimp? true :only? only?})))
    'intro     (fn [ps args] (if (seq args) (intro-names ps args) (intro-inaccessible ps)))
    'intros    (fn [ps args]
                 (if (seq args) (intro-names ps args)

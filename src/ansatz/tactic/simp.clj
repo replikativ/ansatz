@@ -3772,7 +3772,7 @@
    :erase-results}: a definition argument contributes its equation theorems to `:decls` and
    itself to `:to-unfold`; un-erasing an inherited origin reveals its `masked` entries, seeded
    before the explicit ones as the inherited entries they are."
-  [env args {:keys [erased inherited? unfold? unfold-thms masked]
+  [env args {:keys [erased inherited? unfold? unfold-thms masked dsimp?]
              :or {erased #{} unfold? (constantly false) unfold-thms (constantly nil)
                   masked (constantly nil)}}]
   (let [result
@@ -3822,7 +3822,9 @@
                    (and ci (not theorem?))
                    (simp-arg-error! (str "Invalid `←` modifier: `" n "` is a declaration name to be unfolded")
                                     {:name n})))
-               (when (and (not post) simproc?)
+               ;; dsimp only elaborates its arguments for their diagnostics here: a `↓`
+               ;; simproc is a valid registration (Elab/Tactic/Simp.lean:367)
+               (when (and (not post) simproc? (not dsimp?))
                  (simp-arg-error! (str "`↓` on the simproc `" n "` is not supported") {:name n}))
                (let [;; Lean uneraseSimpEntry + addSimpEntry for one theorem entry. Erasure leaves the
                      ;; inherited tree entries in place (SimpTheorems.lean:612-622), so un-erasing an
@@ -3856,7 +3858,12 @@
                                  (add-entry acc eq-name true false {:name eq-name :priority priority}))
                                (-> acc (update :unfold conj n) (update :erased-unfold disj n))))
                            (update acc :decl-names conj n)
-                           (simp-theorems/mk-simp-entry-of-decl-to-unfold env n))
+                           ;; dsimp registers the declaration to unfold only (`.toUnfold`); so
+                           ;; does simp for a non-definition such as a constructor, which
+                           ;; mkSimpEntryOfDeclToUnfold accepts as a plain unfold entry
+                           ;; (SimpTheorems.lean:559-591)
+                           (let [entries (when-not dsimp? (simp-theorems/mk-simp-entry-of-decl-to-unfold env n))]
+                             (if (seq entries) entries [{:kind :to-unfold :name n}])))
                    (cond-> (-> (add-entry acc n post inv
                                           (cond descriptor (assoc descriptor :name n :post post :inv inv)
                                                 (or (not post) inv) {:name n :post post :inv inv}
@@ -3899,25 +3906,49 @@
    the hand-curated core plus the inherited :simp-lemmas, the declarations it unfolds
    (:simp-unfold, :simp-unfold-thms) and its erased origins."
   [env opts]
-  (if (:only? opts)
-    (let [builtins (set (when (get opts :simp-only-builtins? true) simp-only-builtins))]
-      {:erased (or (:erased opts) #{})
-       :inherited? (fn [[n inv]] (and (false? inv) (contains? builtins n)))})
-    (let [forward (env/get-extension env :simp-lemmas #{})
-          origins (env/get-extension env :simp-origins {})
-          masked (env/get-extension env :simp-masked {})
-          erased-registered (env/get-extension env :simp-erased-registered #{})
-          unfold (env/get-extension env :simp-unfold #{})
-          unfold-thms (env/get-extension env :simp-unfold-thms {})
-          core (set (default-core-lemmas env))]
-      {:erased (into (or (:erased opts) #{}) (env/get-extension env :simp-erased #{}))
-       :inherited? (fn [[n inv :as k]]
-                     (or (contains? erased-registered k)
-                         (boolean (some #(= inv (:inv %)) (get origins n)))
-                         (and (false? inv) (or (contains? forward n) (contains? core n)))))
-       :masked #(get masked %)
-       :unfold? #(or (contains? unfold %) (contains? unfold-thms %))
-       :unfold-thms #(get unfold-thms %)})))
+  (cond->
+   (if (:only? opts)
+     (let [builtins (set (when (get opts :simp-only-builtins? true) simp-only-builtins))]
+       {:erased (or (:erased opts) #{})
+        :inherited? (fn [[n inv]] (and (false? inv) (contains? builtins n)))})
+     (let [forward (env/get-extension env :simp-lemmas #{})
+           origins (env/get-extension env :simp-origins {})
+           masked (env/get-extension env :simp-masked {})
+           erased-registered (env/get-extension env :simp-erased-registered #{})
+           unfold (env/get-extension env :simp-unfold #{})
+           unfold-thms (env/get-extension env :simp-unfold-thms {})
+           core (set (default-core-lemmas env))]
+       {:erased (into (or (:erased opts) #{}) (env/get-extension env :simp-erased #{}))
+        :inherited? (fn [[n inv :as k]]
+                      (or (contains? erased-registered k)
+                          (boolean (some #(= inv (:inv %)) (get origins n)))
+                          (and (false? inv) (or (contains? forward n) (contains? core n)))))
+        :masked #(get masked %)
+        :unfold? #(or (contains? unfold %) (contains? unfold-thms %))
+        :unfold-thms #(get unfold-thms %)}))
+    ;; Lean SimpKind.dsimp (Elab/Tactic/Simp.lean:283-285): a definition is only unfolded
+    (:dsimp? opts) (assoc :dsimp? true)))
+
+(defn simp-arg-warnings
+  "Lean SimpTheorems.erase's warning (SimpTheorems.lean:689) for each `-thm` argument that,
+   at its position in the argument list, names neither a registered origin nor a declaration
+   to unfold."
+  [env args opts]
+  (into [] (comp (filter :warning) (map #(str "`" (:name %) "` does not have the `[simp]` attribute")))
+        (:erase-results (elab-simp-args env args (default-simp-arg-context env opts)))))
+
+(defn report-simp-arg-warnings!
+  "Print simp-arg-warnings like the other elaboration warnings (core warn-if-uses-sorry!).
+   Tactic entry points call it once per invocation (Lean logs while elaborating the arguments)."
+  [env args opts]
+  (when-let [ws (seq (if (:dsimp? opts)
+                       ;; dsimp does not elaborate its arguments into rules yet: a simp-specific
+                       ;; elaboration error must not make the diagnostic pass fail the tactic
+                       (try (simp-arg-warnings env args opts)
+                            (catch clojure.lang.ExceptionInfo _ nil))
+                       (simp-arg-warnings env args opts)))]
+    (binding [*out* *err*]
+      (doseq [w ws] (println (str "warning: simp: " w))))))
 
 (defn- simp-setup
   "The simp context for `goal`: [ps st env lemma-index config]. `:exclude-hyp` drops that local
