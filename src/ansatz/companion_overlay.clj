@@ -47,14 +47,64 @@
    :alts (mapv (fn [{:keys [numFields numOverlaps unitThunk]}]
                  {:num-fields numFields :num-overlaps numOverlaps :unit-thunk unitThunk}) alts)})
 
-(defn- add-attribute [charge! current {:keys [kind name target prio theorems] :as row}]
+(defn- simp-tuple
+  "The attribute tuple a simp row replays (attrs/import-attr-tuples), else nil."
+  [{:keys [kind name prio] :as row}]
+  (when (= "simp" kind)
+    (let [origin (metadata/simp-origin row)]
+      (cond-> ["simp" name nil (or prio attrs/default-simp-priority)] origin (conj origin)))))
+
+(defn- simp-name-state
+  "The replayed @[simp] state of one declaration in `e` (attrs/add-simp-entry)."
+  [e n]
+  (let [of-n (fn [k] (let [s (env/get-extension e k #{})] (into #{} (filter #(contains? s %)) [[n false] [n true]])))]
+    {:forward (contains? (env/get-extension e :simp-lemmas #{}) n)
+     :priority (get (env/get-extension e :simp-priorities {}) n)
+     :origins (get (env/get-extension e :simp-origins {}) n)
+     :masked (get (env/get-extension e :simp-masked {}) n)
+     :erased (of-n :simp-erased)
+     :erased-registered (of-n :simp-erased-registered)}))
+
+(defn- applied-simp-names
+  "The declarations whose simp rows the captured `base` already carries. A role whose whole
+   simp-row sequence was prepared over this session before (recorded by value, in order, under
+   `:simp-overlay-corpora`) is applied entirely. Otherwise a declaration counts when replaying its
+   rows in order on a fresh state (they act on that name only — converse erasure stays within a
+   declaration) gives exactly its state in `base`: the base carries the same corpus. Replaying
+   applied rows again would run Lean's converse erasure a second time (`n, ←n` would erase its
+   last live rule); any other declaration replays all its rows, in order."
+  [base rows]
+  (let [simp-rows (filterv #(= "simp" (:kind %)) rows)]
+    (if (contains? (env/get-extension base :simp-overlay-corpora #{}) simp-rows)
+      (into #{} (map :name) simp-rows)
+      (into #{}
+            (keep (fn [[n tuples]]
+                    (let [[fresh _] (attrs/import-attr-tuples (env/empty-env) tuples {:present? (constantly true)})]
+                      (when (= (simp-name-state base n) (simp-name-state fresh n)) n))))
+            (group-by second (keep simp-tuple simp-rows))))))
+
+(defn- add-attribute [charge! applied current {:keys [kind name target prio theorems] :as row}]
   (when (metadata/unsupported-attribute? row)
     (fail "Unsupported native attribute semantics in role overlay" {:kind kind :name name}))
   (let [target (if (= "unfold-thms" kind) theorems target)
+        ;; A pre-phase / inverse simp row (Lean Origin.decl n post inv) is registered beside
+        ;; any forward one; the priority checks below concern the forward origin only.
+        origin (metadata/simp-origin row)
+        kind (if origin "simp-origin" kind)
         extension (get {"simp" :simp-lemmas "unfold" :simp-unfold "unfold-thms" :simp-unfold-thms "extern" :extern
                         "csimp" :csimp "impl" :implemented-by} kind)
         previous (env/get-extension current extension (if target {} #{}))
         priority (or prio attrs/default-simp-priority)]
+    (when (and origin
+               (some #(and (= (:post %) (:post origin)) (= (:inv %) (:inv origin))
+                           (not= (:prio %) priority))
+                     (concat (get (env/get-extension current :simp-origins {}) name)
+                             (get (env/get-extension current :simp-masked {}) name))))
+      (fail "Conflicting inherited attribute registration" {:kind "simp" :name name}))
+    (when (and (= "simp" kind)
+               (some #(and (:post %) (not (:inv %)) (not= (:prio %) priority))
+                     (get (env/get-extension current :simp-masked {}) name)))
+      (fail "Conflicting inherited simp priority" {:name name}))
     (when (contains? previous name)
       (preflight! (if target (get previous name)
                       (get (env/get-extension current :simp-priorities {}) name attrs/default-simp-priority)) charge!))
@@ -69,8 +119,13 @@
                       (not= priority (get (env/get-extension current :simp-priorities {})
                                           name attrs/default-simp-priority)))))
       (fail "Conflicting inherited attribute registration" {:kind kind :name name}))
-    (first (attrs/import-attr-tuples current [[kind name target (when (= "simp" kind) priority)]]
-                                     {:present? (constantly true)}))))
+    (if (and (#{"simp" "simp-origin"} kind) (contains? applied name))
+      ;; the captured base already carries this declaration's rows (applied-simp-names)
+      current
+      (first (attrs/import-attr-tuples current [(cond-> [(if origin "simp" kind) name target
+                                                         (when (or origin (= "simp" kind)) priority)]
+                                                  origin (conj origin))]
+                                       {:present? (constantly true)})))))
 
 (defn- kernel-name [^String text]
   ;; Name interning/equality can recurse through prefixes. Metadata byte bounds
@@ -163,7 +218,8 @@
             _ (preflight! previous-eager charge!)
             _ (when-not (every? string? previous-eager)
                 (fail "Captured eager simp registrations contain a non-name" {}))
-            with-attrs (reduce (partial add-attribute charge!) admitted-env (:attrs rows))
+            with-attrs (reduce (partial add-attribute charge! (applied-simp-names admitted-env (:attrs rows)))
+                               admitted-env (:attrs rows))
             with-matchers (reduce (fn [current {:keys [name] :as row}]
                                     (let [info (matcher-info row)
                                           previous (get (env/get-extension current :matcher-info {}) name)]
@@ -181,7 +237,9 @@
                           previous-eager (:attrs rows))
             loaded (-> with-matchers
                        (env/with-extension :instances registry)
-                       (env/with-extension si/eager-overlay-key eager))]
+                       (env/with-extension si/eager-overlay-key eager)
+                       (env/update-extension :simp-overlay-corpora #{} conj
+                                             (filterv #(= "simp" (:kind %)) (:attrs rows))))]
         (assoc captured :env loaded :instance-index registry :synth-cache (atom {})
                :simp-trie nil :instance-caches {} :simp-index-caches nil
                :simp-caches {:env nil :entries {}})))))

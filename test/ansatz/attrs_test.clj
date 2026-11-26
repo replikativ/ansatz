@@ -2,7 +2,7 @@
   "Inheriting Lean's @[simp]/@[csimp]/@[extern] attributes (dumped by scripts/dump_attrs.lean as
    NDJSON, bundled as resources/ansatz/init-attrs.ndjson.gz) into Env extensions. load-init!
    auto-imports them, so the inherited set is ON BY DEFAULT (intersected with the store)."
-  (:require [clojure.test :refer [deftest is use-fixtures]]
+  (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [clojure.java.io :as io]
             [ansatz.core :as a]
             [ansatz.codegen :as cg]
@@ -31,9 +31,7 @@
 (deftest unsupported-and-malformed-attributes-never-mutate-or-probe-presence
   (let [before (a/env)
         valid "{\"kind\":\"extern\",\"name\":\"WouldBeInstalled\"}"
-        bad ["{\"kind\":\"simp\",\"name\":\"Absent\",\"post\":true,\"inv\":true}"
-             "{\"kind\":\"simp\",\"name\":\"Absent\",\"post\":false,\"inv\":false}"
-             "{\"kind\":\"unknown\",\"name\":\"Absent\"}"
+        bad ["{\"kind\":\"unknown\",\"name\":\"Absent\"}"
              "{\"kind\":\"simp\",\"name\":\"Absent\",\"name\":\"Duplicate\"}"
              "{\"kind\":\"simp\",\"name\":\"Absent\",\"extra\":true}"
              "{\"kind\":\"simp\",\"name\":\"Absent\",\"prio\":-1}"
@@ -54,7 +52,13 @@
 (deftest persisted-tuples-are-validated-as-a-complete-batch
   (doseq [bad [["unknown" "x" nil nil] ["unfold-thms" "x" nil nil]
                ["csimp" "x" nil nil] ["simp" "x" nil -1]
-               ["simp" "x" nil nil :ignored]]]
+               ["simp" "x" nil nil :ignored]
+               ;; a 5th element only on simp, only exactly {:post :inv}, never the default origin
+               ["simp" "x" nil nil {:post true :inv false}]
+               ["simp" "x" nil nil {:post false}]
+               ["simp" "x" nil nil {:post false :inv "true"}]
+               ["simp" "x" nil nil {:post false :inv false :prio 1}]
+               ["extern" "x" nil nil {:post false :inv false}]]]
     (let [before (a/env) global (atom before)]
       (with-redefs [state/ansatz-env global]
         (is (thrown? clojure.lang.ExceptionInfo
@@ -176,3 +180,66 @@
     (is (= {:recursive-defs 1 :smart-unfolding-defs 1} stats))
     (is (contains? (env/get-extension forked :recursive-defs #{}) "List.foldl"))
     (is (contains? (env/get-extension forked :smart-unfolding-defs #{}) "List.foldl"))))
+
+;; ── Lean Origin.decl n post inv: pre-phase and inverse rows ────────────────────────────────
+
+(deftest pre-and-inverse-rows-become-five-tuples
+  (let [tuples (attrs/parse-attr-lines
+                ["{\"inv\":false,\"kind\":\"simp\",\"name\":\"fwd\",\"post\":true,\"prio\":1000}"
+                 "{\"inv\":false,\"kind\":\"simp\",\"name\":\"pre\",\"post\":false,\"prio\":10000}"
+                 "{\"inv\":true,\"kind\":\"simp\",\"name\":\"inv\",\"post\":true,\"prio\":1000}"
+                 "{\"inv\":true,\"kind\":\"simp\",\"name\":\"preinv\",\"post\":false,\"prio\":1000}"])]
+    (is (= [["simp" "fwd" nil 1000]
+            ["simp" "pre" nil 10000 {:post false :inv false}]
+            ["simp" "inv" nil 1000 {:post true :inv true}]
+            ["simp" "preinv" nil 1000 {:post false :inv true}]] tuples))
+    (is (true? (:simp-origin-fields? (meta tuples))))
+    (is (false? (:simp-origin-fields? (meta (attrs/parse-attr-lines ["{\"kind\":\"simp\",\"name\":\"legacy\",\"prio\":1000}"])))))
+    (let [[loaded stats] (attrs/import-attr-tuples (env/empty-env) tuples {:present? (constantly true)})]
+      (is (= #{"fwd"} (env/get-extension loaded :simp-lemmas #{})))
+      (is (= {"pre" #{{:post false :inv false :prio 10000}}
+              "inv" #{{:post true :inv true :prio 1000}}
+              "preinv" #{{:post false :inv true :prio 1000}}}
+             (env/get-extension loaded :simp-origins {})))
+      ;; a ↓ high origin's priority stays with that origin
+      (is (empty? (env/get-extension loaded :simp-priorities {})))
+      (is (= {:simp-lemmas 1 :simp-origins 3} stats)))))
+
+(deftest replay-follows-lean-addSimpTheorem
+  ;; SimpTheorems.lean:612-652: addSimpTheorem erases the registered converse in either
+  ;; direction, and never un-erases (tests/elab/issue5828.lean)
+  (let [replay #(first (attrs/import-attr-tuples (env/empty-env) % {:present? (constantly true)}))
+        fwd ["simp" "n" nil 1000] inv ["simp" "n" nil 1000 {:post true :inv true}]
+        pre ["simp" "n" nil 1000 {:post false :inv false}]
+        ext #(env/get-extension %1 %2 nil)]
+    (testing "n, ←n: the inverse erases the forward rule"
+      (let [e (replay [fwd inv])]
+        (is (not (contains? (ext e :simp-lemmas) "n")))
+        (is (= #{["n" false]} (ext e :simp-erased)))
+        (is (= {"n" #{{:post true :inv true :prio 1000}}} (ext e :simp-origins)))
+        (is (= {"n" #{{:post true :inv false :prio 1000}}} (ext e :simp-masked)))))
+    (testing "←n, n: the forward rule erases the inverse"
+      (let [e (replay [inv fwd])]
+        (is (contains? (ext e :simp-lemmas) "n"))
+        (is (= #{["n" true]} (ext e :simp-erased)))
+        (is (empty? (ext e :simp-origins)))))
+    (testing "n, ←n, n: both directions erased; the last registration stays masked"
+      (let [e (replay [fwd inv fwd])]
+        (is (not (contains? (ext e :simp-lemmas) "n")))
+        (is (empty? (ext e :simp-origins)))
+        (is (= #{["n" false] ["n" true]} (ext e :simp-erased)))
+        (is (= #{["n" false]} (ext e :simp-erased-registered)))
+        (is (attrs/simp-registered? e "n" false))
+        (is (not (attrs/simp-registered? e "n" true)))))
+    (testing "the forward pre origin is erased too (BEq ignores the phase)"
+      (let [e (replay [pre inv])]
+        (is (= {"n" #{{:post true :inv true :prio 1000}}} (ext e :simp-origins)))
+        (is (= {"n" #{{:post false :inv false :prio 1000}}} (ext e :simp-masked)))))
+    (testing "re-registering in the same phase replaces the priority"
+      (let [e (replay [["simp" "n" nil 2000 {:post false :inv false}] ["simp" "n" nil 1000 {:post false :inv false}]])]
+        (is (= {"n" #{{:post false :inv false :prio 1000}}} (ext e :simp-origins)))))
+    (testing "forward-simp-names: exactly what a persistent index keys"
+      (is (= #{"a" "c"}
+             (attrs/forward-simp-names [["simp" "a" nil 1000] ["simp" "b" nil 1000 {:post false :inv false}]
+                                        ["simp" "c" nil 1000] ["simp" "d" nil 1000]
+                                        ["simp" "d" nil 1000 {:post true :inv true}] ["csimp" "e" "f" nil]]))))))

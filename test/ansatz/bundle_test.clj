@@ -364,18 +364,18 @@
     {:manifest (bundle/generated-manifest generation producer rows)
      :resources (assoc resources path payload)}))
 
-(deftest generated-unsupported-metadata-is-staged-but-not-consumed
-  (doseq [row [{:kind "simp" :name "Fixture.inv" :prio 1000 :post true :inv true}
-               {:kind "simp" :name "Fixture.pre" :prio 1000 :post false :inv false}]]
+(deftest generated-pre-and-inverse-simp-metadata-is-consumed-with-its-origin
+  ;; Lean Origin.decl n post inv (SimpTheorems.lean:69-91) is kept as the tuple's 5th element.
+  (doseq [[row origin] [[{:kind "simp" :name "Fixture.inv" :prio 1000 :post true :inv true} {:post true :inv true}]
+                        [{:kind "simp" :name "Fixture.pre" :prio 1000 :post false :inv false} {:post false :inv false}]]]
     (let [{:keys [manifest resources]} (generated-fixture-with-attrs [row])
           options {:manifest manifest :read-resource resources}]
       (is (= manifest (bundle/verify! options)))
-      (is (= [row] (:unsupported-attrs (bundle/consumption-report options))))
-      (is (false? (:consumable? (bundle/consumption-report options))))
-      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"unsupported consumer semantics"
-                            (bundle/assert-consumable! options)))
-      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"unsupported consumer semantics"
-                            (bundle/with-verified options (fn [_] (attrs/bundled-attrs))))))))
+      (is (= [] (:unsupported-attrs (bundle/consumption-report options))))
+      (is (true? (:consumable? (bundle/consumption-report options))))
+      (is (= manifest (bundle/assert-consumable! options)))
+      (is (= [["simp" (:name row) nil 1000 origin]]
+             (bundle/with-verified options (fn [_] (attrs/bundled-attrs))))))))
 
 (deftest generated-supported-attributes-use-json-decoded-names
   (let [n "Fixture.\"quoted\\λ"

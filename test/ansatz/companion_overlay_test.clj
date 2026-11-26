@@ -88,11 +88,14 @@
                (assoc-in rows [:instances 0 :priority] 20)
                (update rows :instances conj {:class "role.target" :name "role.first" :priority 1000})
                (assoc-in rows [:attrs 1 :target] "missing")
-               (assoc-in rows [:attrs 0 :name] "outside-role")
-               (assoc-in rows [:attrs 0] {:kind "simp" :name "role.simp" :prio 1000 :post false :inv false})]
+               (assoc-in rows [:attrs 0 :name] "outside-role")]
         activated (prepare base)]
     (doseq [selected cases]
       (is (some? (error-data #(prepare activated selected)))))
+    ;; a pre-phase origin registered again at another priority conflicts as well
+    (let [pre-rows (assoc-in rows [:attrs 0] {:kind "simp" :name "role.simp" :prio 1000 :post false :inv false})
+          pre-activated (prepare base pre-rows)]
+      (is (some? (error-data #(prepare pre-activated (assoc-in pre-rows [:attrs 0 :prio] 100))))))
     (is (identical? (:env global-before) (:env (session/capture))))
     (is (identical? (:instance-index global-before) (:instance-index (session/capture))))))
 
@@ -196,3 +199,88 @@
     (is (some? (error-data #(prepare prepared
                                      (assoc-in selected [:attrs 0 :theorems]
                                                ["role.last" "role.first"])))))))
+
+(deftest pre-and-inverse-rows-install-as-origins
+  ;; Lean Origin.decl n post inv: served eagerly beside the base trie, never as forward rules
+  (let [selected (assoc-in rows [:attrs 0] {:kind "simp" :name "role.simp" :prio 1000 :post true :inv true})
+        loaded (:env (prepare (model-session) selected))]
+    (is (= #{"base.simp"} (env/get-extension loaded :simp-lemmas nil)))
+    (is (= {"role.simp" #{{:post true :inv true :prio 1000}}} (env/get-extension loaded :simp-origins nil)))
+    (is (= #{} (si/eager-lemma-names loaded {:base :trie})))
+    (is (= [{:name "role.simp" :post true :inv true :priority 1000}] (si/eager-origins loaded)))))
+
+(deftest preparing-a-converse-pair-twice-keeps-the-live-rule
+  ;; rows n, ←n leave ←n live (Lean eraseFwdIfBwd); preparing again, or over a base that
+  ;; already carries the pair, must not replay them and erase the last live rule
+  (let [pair (assoc rows :attrs [{:kind "simp" :name "role.simp" :prio 1000}
+                                 {:kind "simp" :name "role.simp" :prio 1000 :post true :inv true}
+                                 {:kind "impl" :name "role.source" :target "role.target"}])
+        live #(get (env/get-extension (:env %) :simp-origins {}) "role.simp")
+        once (prepare (model-session) pair)
+        twice (prepare once pair)
+        preloaded (let [base (model-session)]
+                    (assoc base :env (first (attrs/import-attr-tuples
+                                             (:env base) [["simp" "role.simp" nil 1000]
+                                                          ["simp" "role.simp" nil 1000 {:post true :inv true}]]
+                                             {:present? (constantly true)}))))
+        over (prepare preloaded pair)]
+    (doseq [p [once twice over]]
+      (is (= #{{:post true :inv true :prio 1000}} (live p)))
+      (is (= #{["role.simp" false]} (env/get-extension (:env p) :simp-erased nil))))))
+
+(deftest a-fresh-converse-triple-replays-in-order
+  ;; rows n, ←n, n on a fresh base: the third row is a fresh occurrence, so it replays and
+  ;; erases ←n (Lean eraseFwdIfBwd), exactly as import-attr-tuples does; preparing again is a no-op
+  (let [triple (assoc rows :attrs [{:kind "simp" :name "role.simp" :prio 1000}
+                                   {:kind "simp" :name "role.simp" :prio 1000 :post true :inv true}
+                                   {:kind "simp" :name "role.simp" :prio 1000}
+                                   {:kind "impl" :name "role.source" :target "role.target"}])
+        base (model-session)
+        expected (first (attrs/import-attr-tuples
+                         (:env base) [["simp" "role.simp" nil 1000]
+                                      ["simp" "role.simp" nil 1000 {:post true :inv true}]
+                                      ["simp" "role.simp" nil 1000]]
+                         {:present? (constantly true)}))
+        once (prepare base triple)
+        twice (prepare once triple)]
+    (is (contains? (env/get-extension expected :simp-erased #{}) ["role.simp" true]))
+    (doseq [p [once twice]
+            k [:simp-erased :simp-erased-registered :simp-origins :simp-masked :simp-lemmas]]
+      (is (= (env/get-extension expected k nil) (env/get-extension (:env p) k nil)) (str k)))))
+
+(deftest reactivating-a-repeated-row-keeps-the-live-inverse
+  ;; rows n, n, ←n leave ←n live; preparing again (the base already carries the rows) must not
+  ;; replay the second n, which would erase ←n
+  (let [triple (assoc rows :attrs [{:kind "simp" :name "role.simp" :prio 1000}
+                                   {:kind "simp" :name "role.simp" :prio 1000}
+                                   {:kind "simp" :name "role.simp" :prio 1000 :post true :inv true}
+                                   {:kind "impl" :name "role.source" :target "role.target"}])
+        base (model-session)
+        expected (first (attrs/import-attr-tuples
+                         (:env base) [["simp" "role.simp" nil 1000]
+                                      ["simp" "role.simp" nil 1000]
+                                      ["simp" "role.simp" nil 1000 {:post true :inv true}]]
+                         {:present? (constantly true)}))
+        once (prepare base triple)
+        twice (prepare once triple)]
+    (is (= {"role.simp" #{{:post true :inv true :prio 1000}}} (env/get-extension expected :simp-origins nil)))
+    (doseq [p [once twice]
+            k [:simp-erased :simp-erased-registered :simp-origins :simp-masked :simp-lemmas]]
+      (is (= (env/get-extension expected k nil) (env/get-extension (:env p) k nil)) (str k)))))
+
+(deftest reactivating-over-a-base-with-another-phase-keeps-the-live-inverse
+  ;; the base carries ↓n; rows n, ←n leave ←n live, and preparing them again (the role's corpus
+  ;; is recorded as prepared) must not replay them
+  (let [pair (assoc rows :attrs [{:kind "simp" :name "role.simp" :prio 1000}
+                                 {:kind "simp" :name "role.simp" :prio 1000 :post true :inv true}
+                                 {:kind "impl" :name "role.source" :target "role.target"}])
+        base (let [b (model-session)]
+               (assoc b :env (first (attrs/import-attr-tuples
+                                     (:env b) [["simp" "role.simp" nil 1000 {:post false :inv false}]]
+                                     {:present? (constantly true)}))))
+        live #(get (env/get-extension (:env %) :simp-origins {}) "role.simp")
+        once (prepare base pair)
+        twice (prepare once pair)]
+    (doseq [p [once twice]]
+      (is (= #{{:post true :inv true :prio 1000}} (live p))))
+    (is (= (env/get-extension (:env once) :simp-erased nil) (env/get-extension (:env twice) :simp-erased nil)))))

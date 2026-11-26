@@ -20,7 +20,8 @@
             [ansatz.kernel.env :as env]
             [ansatz.kernel.expr :as e]
             [ansatz.kernel.name :as name]
-            [ansatz.kernel.level :as lvl]))
+            [ansatz.kernel.level :as lvl]
+            [ansatz.tactic.simp :as simp]))
 
 (def ^:dynamic *ndjson* nil)
 (def ^:private declaration-count
@@ -195,3 +196,88 @@
           (doseq [[^java.io.File f perms] permissions]
             (java.nio.file.Files/setPosixFilePermissions (.toPath f) perms))
           (doseq [^java.io.File f (reverse files)] (.delete f)))))))
+
+(deftest pre-and-inverse-simp-origins-are-persisted-and-served-eagerly
+  ;; Lean Origin.decl n post inv (SimpTheorems.lean:69-91): the importer keys only the replayed
+  ;; forward post @[simp] rules; pre-phase and inverse origins ride on the :attrs tuples.
+  (let [attrs-file (java.io.File/createTempFile "ansatz-origin-attrs" ".ndjson")
+        _ (spit attrs-file
+                (str "{\"inv\":false,\"kind\":\"simp\",\"name\":\"Nat.add_zero\",\"post\":true,\"prio\":1000}\n"
+                     "{\"inv\":false,\"kind\":\"simp\",\"name\":\"Nat.zero_add\",\"post\":false,\"prio\":1000}\n"
+                     "{\"inv\":true,\"kind\":\"simp\",\"name\":\"Nat.succ_eq_add_one\",\"post\":true,\"prio\":1000}\n"
+                     "{\"inv\":false,\"kind\":\"simp\",\"name\":\"List.length_nil\",\"post\":true,\"prio\":1000}\n"
+                     "{\"inv\":true,\"kind\":\"simp\",\"name\":\"List.length_nil\",\"post\":true,\"prio\":1000}\n"))
+        dir (tmp-store "origins")
+        m (try (import-medium! dir :attrs (.getPath attrs-file)) (finally (.delete attrs-file)))]
+    (is (= {:source :dump-fields :pre 1 :inv 2} (get-in m [:artifacts :simp-origins])))
+    (binding [a/*verbose* false] (a/init! dir "init"))
+    (let [kstore (:store (:store-map @state/ansatz-store))
+          tuples (storage/read-derived kstore "init" :attrs)
+          keyed (into #{} (map first) (si/key-entries (storage/read-derived kstore "init" :simp-keys)))]
+      (is (= [["simp" "Nat.add_zero" nil 1000]
+              ["simp" "Nat.zero_add" nil 1000 {:post false :inv false}]
+              ["simp" "Nat.succ_eq_add_one" nil 1000 {:post true :inv true}]
+              ["simp" "List.length_nil" nil 1000]
+              ["simp" "List.length_nil" nil 1000 {:post true :inv true}]]
+             (filterv #(= "simp" (first %)) tuples)))
+      (testing "the persistent index keys only live forward post rules, encoding unchanged"
+        (is (= #{"Nat.add_zero"} keyed))
+        (is (= si/write-key-encoding (si/key-encoding (storage/read-derived kstore "init" :simp-keys)))))
+      (testing "init! replays the origins: ← erases the forward rule, the rest is served eagerly"
+        (is (= #{"Nat.add_zero"} (env/get-extension (a/env) :simp-lemmas #{})))
+        (is (= #{["List.length_nil" false]} (si/inherited-erased (a/env))))
+        (is (= #{{:name "Nat.zero_add" :post false :inv false :priority 1000}
+                 {:name "Nat.succ_eq_add_one" :post true :inv true :priority 1000}
+                 {:name "List.length_nil" :post true :inv true :priority 1000}}
+               (set (si/eager-origins (a/env))))))
+      (testing "both persisted key artifacts carry the literal encoding 2"
+        (is (= 2 (:key-encoding (storage/read-derived kstore "init" :simp-keys))))
+        (is (= 2 (:key-encoding (storage/read-derived kstore "init" :simp-trie)))))
+      (testing "after reopening, simp rewrites with the inverse and the pre rule (kernel-checked)"
+        (let [trace (atom [])
+              fired #(set (keep (fn [t] (when (:phase t) [(:phase t) (:origin t)])) @trace))]
+          (binding [simp/*simp-trace* trace a/*verbose* false]
+            (a/prove-theorem 'origin-inv '[^Nat n ^{:- (=> Nat Prop)} P ^{:- (P (Nat.succ n))} h]
+                             '(P (+ n 1)) '[(simp) (exact h)]))
+          ;; the hard-coded core no longer reintroduces the forward Nat.succ_eq_add_one
+          (is (contains? (set (map second (fired))) "← Nat.succ_eq_add_one"))
+          (is (not (contains? (set (map second (fired))) "Nat.succ_eq_add_one")))
+          (reset! trace [])
+          (binding [simp/*simp-trace* trace a/*verbose* false]
+            (a/prove-theorem 'origin-pre '[^Nat n ^{:- (=> Nat Prop)} P ^{:- (P n)} h]
+                             '(P (+ 0 n)) '[(simp) (exact h)]))
+          (is (contains? (fired) [:pre "↓ Nat.zero_add"]))
+          (reset! trace [])
+          (binding [simp/*simp-trace* trace a/*verbose* false]
+            (a/prove-theorem 'origin-pre-all '[^Nat n ^{:- (=> Nat Prop)} P ^{:- (P n)} h]
+                             '(P (+ 0 n)) '[(simp_all) (exact h)]))
+          (is (contains? (fired) [:pre "↓ Nat.zero_add"]))))
+      (testing "an explicit simp [n] restores an erased inherited forward rule and erases ←n"
+        (let [r (simp/elab-simp-args (a/env) ['List.length_nil] (#'simp/default-simp-arg-context (a/env) {}))]
+          (is (contains? (:erased r) ["List.length_nil" true]))
+          (is (not (contains? (:erased r) ["List.length_nil" false])))
+          ;; the masked entry is seeded as the inherited entry it is; the explicit forward entry
+          ;; replaces it in its phase (no duplicate)
+          (is (= ['List.length_nil] (#'simp/replace-registrations (:decls r)))))))))
+
+(deftest a-definition-argument-replaces-an-inherited-inverse-equation
+  ;; `simp [f]` adds f's equation f.eq_1 forward; an inherited `@[simp ←] f.eq_1` is erased by it
+  ;; (Lean addSimpTheorem/eraseFwdIfBwd in argument order); `-f.eq_1` erases whichever is live
+  (let [env @test-env/bundled-init-env
+        eq1 (first (ansatz.eqns/get-eqns-for? env (name/from-string "List.length")))
+        _ (is (some? eq1) "List.length has a registered equation")
+        eq1 (str eq1)
+        [env _] (ansatz.attrs/import-attr-tuples env [["simp" eq1 nil 1000 {:post true :inv true}]]
+                                                 {:present? (constantly true)})
+        ctx (#'simp/default-simp-arg-context env {})]
+    (let [r (simp/elab-simp-args env ['List.length] ctx)]
+      (is (contains? (:erased r) [eq1 true]))
+      (is (not (contains? (:erased r) [eq1 false]))))
+    (testing "[f, -f.eq_1]: the forward equation is erased"
+      (let [r (simp/elab-simp-args env ['List.length {:erase eq1}] ctx)]
+        (is (contains? (:erased r) [eq1 false]))
+        (is (contains? (:erased r) [eq1 true]))))
+    (testing "[-f.eq_1, f]: the inherited inverse is erased first, f re-adds the forward equation"
+      (let [r (simp/elab-simp-args env [{:erase eq1} 'List.length] ctx)]
+        (is (contains? (:erased r) [eq1 true]))
+        (is (not (contains? (:erased r) [eq1 false])))))))

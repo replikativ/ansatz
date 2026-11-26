@@ -4,7 +4,6 @@
             [ansatz.bundle-test :as bundle-test]
             [ansatz.attrs :as attrs]
             [ansatz.session :as session]
-            [ansatz.wf :as wf]
             [ansatz.core :as a]
             [ansatz.state :as state]
             [ansatz.kernel.env :as env]
@@ -31,24 +30,20 @@
       (is (= "4.33.1" (get-in manifest [:producer :lean :version])))
       (is (= 6 (count (:resources manifest)))))))
 
-(deftest unsupported-generated-attributes-fail-before-all-bundled-activation-paths
-  (let [candidate (assoc (session/capture) :env (env/empty-env) :instance-index {} :synth-cache (atom {}))]
+(deftest pre-and-inverse-generated-attributes-install-as-origins
+  (let [rows [{:kind "simp" :name "Fixture.inv" :prio 1000 :post true :inv true}
+              {:kind "simp" :name "Fixture.pre" :prio 10000 :post false :inv false}]
+        {:keys [manifest resources]} (bundle-test/generated-fixture-with-attrs rows)
+        candidate (assoc (session/capture) :env (env/empty-env) :instance-index {} :synth-cache (atom {}))]
     (session/with-session candidate
       (fn []
-        (let [snapshot #(update (into {} (session/capture)) :synth-cache deref)
-              before (snapshot)]
-          (doseq [row [{:kind "simp" :name "Fixture.inv" :prio 1000 :post true :inv true}
-                       {:kind "simp" :name "Fixture.pre" :prio 1000 :post false :inv false}]]
-            (let [{:keys [manifest resources]} (bundle-test/generated-fixture-with-attrs [row])]
-              (bundle/with-verified {:manifest manifest :read-resource resources}
-                (fn [_]
-                  (doseq [activate [#(a/init!) #(a/load-init!)
-                                    #((ns-resolve 'ansatz.core 'setup-env!) (env/empty-env))
-                                    #(attrs/load-bundled-attrs! {:present? (constantly true)})
-                                    #(wf/wf-fix-ensure-lex-prelude!)
-                                    #(wf/wf-fix-ensure-sizeof-prelude!)]]
-                    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"unsupported consumer semantics" (activate)))
-                    (is (= before (snapshot)))))))))))))
+        (bundle/with-verified {:manifest manifest :read-resource resources}
+          (fn [_]
+            (is (= {:simp-origins 2} (attrs/load-bundled-attrs! {:present? (constantly true)})))
+            (is (= #{} (env/get-extension (a/env) :simp-lemmas #{})))
+            (is (= {"Fixture.inv" #{{:post true :inv true :prio 1000}}
+                    "Fixture.pre" #{{:post false :inv false :prio 10000}}}
+                   (env/get-extension (a/env) :simp-origins {})))))))))
 
 (deftest supported-generated-attributes-install-with-decoded-identities-and-priority
   (let [n "Fixture.\"quoted\\λ"

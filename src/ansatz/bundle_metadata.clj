@@ -101,10 +101,21 @@
                     (assoc row :prio 0) row) 1)
      row)))
 
-(defn unsupported-attribute?
-  "Whether the current attribute consumer cannot preserve this native row."
+(defn simp-origin
+  "The phase and direction of a simp row (Lean SimpTheorems.lean:69-91
+   `Origin.decl n (post := true) (inv := false)`) when NOT the default, else nil. Rows of
+   dumps without the fields (legacy) are default origins."
   [row]
-  (and (= "simp" (:kind row)) (or (true? (:inv row)) (false? (:post row)))))
+  (when (and (= "simp" (:kind row)) (or (true? (:inv row)) (false? (:post row))))
+    {:post (boolean (:post row true)) :inv (boolean (:inv row false))}))
+
+(defn unsupported-attribute?
+  "Whether the current attribute consumer cannot preserve this native row. Pre-phase
+   (`post:false`) and inverse (`inv:true`) simp rows are represented (ansatz.attrs keeps their
+   origin), so no valid row is unsupported today; the predicate stays the gate for any future
+   native semantics."
+  [_row]
+  false)
 
 (defn parse
   "Parse every row, rejecting blank/malformed/unknown fields without defaults.
