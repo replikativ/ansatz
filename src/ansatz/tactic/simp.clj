@@ -53,6 +53,7 @@
             [ansatz.tactic.proof :as proof]
             [ansatz.tactic.instance :as inst]
             [ansatz.simp-index :as si]
+            [ansatz.attrs :as attrs]
             [ansatz.eqns :as eqns]
             [ansatz.meta.app-builder :as app-builder]
             [ansatz.meta.constructions.util :as construction]
@@ -1297,15 +1298,15 @@
                                     raw-proof)]
                         (mk-result rhs proof)))))))))))))
 
-(declare ^:dynamic *simp-trace*)
+(declare ^:dynamic *simp-trace* rewrite-sets)
 
 (defn- erased?
   "Lean Rewrite.lean:283-284 `inErasedSet thm := erased.contains thm.origin`: a candidate whose
-   origin (name and direction, SimpTheorems.lean:105-112) is in the call's erased set is skipped.
-   Erasure filters candidates instead of removing them, so it also covers the lazily served
-   persistent index."
-  [config rule]
-  (when-let [erased (not-empty (:erased config))]
+   origin (name and direction, SimpTheorems.lean:105-112) is in its SimpTheorems' erased set is
+   skipped. Erasure filters candidates instead of removing them, so it also covers the lazily
+   served persistent index."
+  [erased rule]
+  (when (seq erased)
     (contains? erased (simp-theorems/rule-origin-key rule))))
 
 (defn- rewrite?
@@ -1314,10 +1315,11 @@
    synthesis and proof-construction path. `phase` (:pre/:post) only labels trace entries,
    like Lean's `tag`. The candidates come from the query's keys modulo eta (the tree
    normalizes each node it inspects, dt/lookup-simp-tree); each is matched against `expr`
-   itself, so progress is judged against the original term."
-  [st env lemma-index expr config candidates phase]
+   itself, so progress is judged against the original term. `erased` is the erased set of the
+   SimpTheorems the candidates come from."
+  [st env lemma-index expr config candidates phase erased]
   (some (fn [rule]
-          (when-not (erased? config rule)
+          (when-not (erased? erased rule)
             (when-let [r (try-theorem st env lemma-index expr config rule)]
               (when *simp-trace*
                 (swap! *simp-trace* conj
@@ -1333,19 +1335,35 @@
   ([st env lemma-index expr config]
    (try-rewrite-step st env lemma-index expr config :post))
   ([st env lemma-index expr config phase]
-   (rewrite? st env lemma-index expr config (lookup-lemmas st env lemma-index expr config) phase)))
+   (or (rewrite? st env lemma-index expr config (lookup-lemmas st env lemma-index expr config) phase
+                 (:erased config))
+       (rewrite-sets st env lemma-index expr config :post phase))))
 
 (defn- empty-index? [index]
   (not (or (seq (:children index)) (seq (:values index)))))
+
+(defn- rewrite-sets
+  "Lean rewritePre/rewritePost loop over the SimpTheoremsArray (Rewrite.lean:389-399): after the
+   main set, each simp set given as an argument (`:ext-sets`, in argument order), each with its
+   own trees and its own erased set."
+  [st env lemma-index expr config tree phase]
+  (some (fn [ext]
+          (let [index (get ext tree)]
+            (when (and index (not (empty-index? index)))
+              (rewrite? st env lemma-index expr config (dt/lookup-simp-tree st env index expr) phase
+                        (:erased ext)))))
+        (:ext-sets config)))
 
 (defn- rewrite-pre
   "Lean Rewrite.lean:389-393 rewritePre: rewrite? over SimpTheorems.pre (`:pre-index`, the
    `@[simp ↓]` / `simp [↓ h]` rules) only; the caller treats a result as `.visit`. The default
    (post) set is never tried top-down (preDefault, Rewrite.lean:536-540)."
   [st env lemma-index expr config]
-  (when-let [pre (:pre-index config)]
-    (when-not (empty-index? pre)
-      (rewrite? st env lemma-index expr config (dt/lookup-simp-tree st env pre expr) :pre))))
+  (or (when-let [pre (:pre-index config)]
+        (when-not (empty-index? pre)
+          (rewrite? st env lemma-index expr config (dt/lookup-simp-tree st env pre expr) :pre
+                    (:erased config))))
+      (rewrite-sets st env lemma-index expr config :pre :pre)))
 
 ;; ============================================================
 ;; Built-in simprocs — arithmetic reduction
@@ -1432,11 +1450,23 @@
   ;; independent of whether the simproc's execution has been ported.
   (simproc/is-builtin-simproc n))
 
-(defn- simproc-enabled? [config proc-name]
+(defn- main-simproc-enabled? [config proc-name]
   ;; Elab/Tactic/Simp.lean elabSimpArgs: explicit additions follow the
   ;; (possibly empty) default simproc set; `-p` erases p (Simproc.lean:112-113, 238).
   (and (not (contains? (:simproc-erased config) proc-name))
        (or (get config :simprocs? true) (contains? (:simproc-names config) proc-name))))
+
+(defn- set-simproc-enabled?
+  "Lean SimprocsArray (Simproc.lean:269-303): a simp set given as an argument joins as its own
+   Simprocs with its own erased set — `-p` erases p from every set present at that point
+   (SimprocsArray.erase), a later `p` re-adds it to the main set only. Set members are post
+   registrations here (a `↓` member is rejected at elaboration)."
+  [config proc-name]
+  (boolean (some #(and (contains? (:names %) proc-name) (not (contains? (:erased %) proc-name)))
+                 (:simproc-sets config))))
+
+(defn- simproc-enabled? [config proc-name]
+  (or (main-simproc-enabled? config proc-name) (set-simproc-enabled? config proc-name)))
 
 (defn- try-nat-literal-reduce
   "Reduce arithmetic on Nat literals.
@@ -1808,7 +1838,7 @@
    Simp.lean:572)."
   [st env lemma-index expr config]
   (let [proc (ite-simproc-name expr)]
-    (when (and proc (get config :simprocs? true) (simproc-enabled? config proc))
+    (when (and proc (get config :simprocs? true) (main-simproc-enabled? config proc))
       (reduce-ite st env lemma-index expr config))))
 
 (defn- explicit-post-simprocs
@@ -1817,7 +1847,8 @@
    runs after the post theorem lookup."
   [st env lemma-index expr config]
   (let [proc (ite-simproc-name expr)]
-    (when (and proc env (contains? (:simproc-names config) proc) (simproc-enabled? config proc))
+    (when (and proc env (or (and (contains? (:simproc-names config) proc) (main-simproc-enabled? config proc))
+                            (set-simproc-enabled? config proc)))
       (reduce-ite st env lemma-index expr config))))
 
 (def ^:private nat-name (name/from-string "Nat"))
@@ -3597,6 +3628,16 @@
                (env/check-constant env (env/mk-thm cn [] (bind e/forall' type) (bind e/lam value)))))))))
    env ["Nat.add_eq" "Nat.sub_eq" "Nat.mul_eq" "Nat.le_eq"]))
 
+(defn ensure-derivable
+  "`env` with the declaration named `n` when it is one Ansatz derives on demand for older Init
+   exports (Nat.ble_eq, the Nat packing theorems), else `env`: the resolution simp arguments and
+   simp set registrations share."
+  [env n]
+  (let [n (str n)]
+    (cond (env/lookup env (name/from-string n)) env
+          (= "Nat.ble_eq" n) (or (ensure-ble-eq env) env)
+          :else (or (ensure-nat-packing env [n]) env))))
+
 (defn- try-close-eq-rfl
   "If expr is Eq T a b where a and b are def-eq, return rfl proof. Else nil."
   [st expr]
@@ -3789,7 +3830,10 @@
              (let [n (str (:erase arg))]
                (if (builtin-simproc? n)
                  ;; Elab/Tactic/Simp.lean:340-341, 460-461: `.eraseSimproc`
-                 (update acc :simproc-erased conj n)
+                 (-> acc
+                     (update :simproc-erased conj n)
+                     ;; SimprocsArray.erase: from every simproc set present (Simproc.lean:281-282)
+                     (update :simproc-sets (fn [ss] (mapv #(update % :erased conj n) ss))))
                  (let [{:keys [state erased-unfold warning]}
                        (simp-theorems/erase (:state acc) n
                                             ;; Lean eraseCore removes the name from toUnfold, so a
@@ -3805,6 +3849,21 @@
 
              (and (map? arg) (contains? arg :erase-fvar))
              (update acc :state simp-theorems/erase-core [:fvar (:erase-fvar arg)])
+
+             ;; Elab/Tactic/Simp.lean:462-466: a simp set joins as its own SimpTheorems
+             (and (map? arg) (contains? arg :simp-set))
+             (let [set-name (str (:simp-set arg))
+                   {:keys [entries simprocs]} (attrs/simp-set-entries env set-name)]
+               ;; the set's simprocs join as their own Simprocs, with their own erased set
+               ;; (SimprocsArray.push, Elab/Tactic/Simp.lean:462-466) — the main set's erasures
+               ;; stay; its theorem names are prepared like explicit ones (ensure-nat-packing).
+               ;; Its `↓` simprocs are kept by phase (`:pre`) for the check after elaboration.
+               (-> acc
+                   (update :simp-sets conj set-name)
+                   (update :decl-names into (map :name) entries)
+                   (update :simproc-sets conj {:set set-name :names (set (map :name simprocs))
+                                               :pre (set (map :name (remove :post simprocs)))
+                                               :erased #{}})))
 
              :else
              (let [descriptor (when (map? arg) arg)
@@ -3870,10 +3929,18 @@
                                                 :else arg))
                                (update :decl-names conj n))
                      simproc? (update :simproc-erased disj n)))))))
-         {:decls [] :decl-names [] :terms [] :simproc-erased #{} :erased-unfold #{} :unfold #{}
-          :erase-results [] :revealed [] :seeded #{}
+         {:decls [] :decl-names [] :terms [] :simproc-erased #{} :simproc-sets [] :erased-unfold #{} :unfold #{}
+          :erase-results [] :simp-sets [] :revealed [] :seeded #{}
           :state {:inherited? inherited? :erased (set erased) :added #{} :removed #{}}}
          args)]
+    ;; the phase of a set's simproc is not carried yet: a `↓` simproc still live once every
+    ;; argument is elaborated (a later `-p` erases it) is refused rather than run post; dsimp
+    ;; only elaborates its arguments for their diagnostics
+    (when-not dsimp?
+      (doseq [{:keys [set pre erased]} (:simproc-sets result)
+              p pre :when (not (contains? erased p))]
+        (simp-arg-error! (str "`↓` simproc `" p "` in the simp set `" set "` is not supported")
+                         {:name p :set set})))
     (-> result
         (assoc :erased (:erased (:state result)) :to-unfold (:unfold result)
                :decls (into (:revealed result) (:decls result)))
@@ -3899,6 +3966,19 @@
                                                    (assoc (select-keys arg [:post :inv]) :st st))
                    star (map #(assoc % :hyp-fvar-id (e/fvar-id term)))))
                term-args)))
+
+(defn- simp-set-theorems
+  "Lean's SimpTheorems of a custom simp set (register_simp_attr) for `simp [s]`: the live
+   theorems attrs/simp-set-entries replays — a definition member already expanded into its
+   equation theorems in the member's phase (Attr.lean:16-31) — at the set's own priorities, with
+   the set's own erased origins and declarations to unfold. {:pre :post :erased :to-unfold}."
+  [st env set-name]
+  (let [{:keys [entries erased to-unfold]} (attrs/simp-set-entries env set-name)
+        rules (make-simp-lemmas env (mapv (fn [{:keys [name post inv prio]}]
+                                            {:name name :post post :inv inv :priority prio})
+                                          entries))
+        [post pre] (build-simp-indexes st env rules)]
+    {:pre pre :post post :erased (or erased #{}) :to-unfold (set to-unfold)}))
 
 (defn- default-simp-arg-context
   "The simp set elab-simp-args extends (Lean mkSimpContext, Elab/Tactic/Simp.lean:567-572):
@@ -3954,7 +4034,7 @@
   "The simp context for `goal`: [ps st env lemma-index config]. `:exclude-hyp` drops that local
    from the contextual / term lemmas (Lean erases the simplified hypothesis itself in `simp at h`)."
   [ps goal lemma-names opts]
-  (let [{:keys [decls decl-names terms erased erased-unfold simproc-erased] arg-unfold :to-unfold}
+  (let [{:keys [decls decl-names terms erased erased-unfold simproc-erased simproc-sets simp-sets] arg-unfold :to-unfold}
         (elab-simp-args (:env ps) lemma-names (default-simp-arg-context (:env ps) opts))
         env (ensure-nat-packing
              (if (:only? opts)
@@ -4009,15 +4089,19 @@
                                (extract-simp-lemma env (env/lookup! env name) priority))) entries)
         all-lemmas (concat lemmas term-lemmas hyp-lemmas eqn-lemmas)
         [lemma-index pre-index] (build-simp-indexes st env all-lemmas)
-        ;; Lean eraseCore drops an erased declaration from toUnfold (SimpTheorems.lean:615)
-        ;; the inherited `@[simp]` definitions to unfold (Lean toUnfold) outside `simp only`
-        to-unfold (into (into (set arg-unfold)
-                              (when-not (:only? opts)
-                                (remove erased-unfold (env/get-extension env :simp-unfold #{}))))
+        ext-sets (mapv #(simp-set-theorems st env %) simp-sets)
+        ;; Lean eraseCore drops an erased declaration from toUnfold (SimpTheorems.lean:615);
+        ;; isDeclToUnfold asks every SimpTheorems of the array (:791-792); the inherited
+        ;; `@[simp]` definitions to unfold (Lean toUnfold) count outside `simp only`
+        to-unfold (into (-> (set arg-unfold)
+                            (into (mapcat :to-unfold) ext-sets)
+                            (into (when-not (:only? opts)
+                                    (remove erased-unfold (env/get-extension env :simp-unfold #{})))))
                         (comp (keep #(when (= :to-unfold (:kind %)) (str (:name %))))
                               (remove erased-unfold))
                         entries)
         config {:max-depth (or (:max-depth opts) 20)
+                :ext-sets ext-sets
                 :single-pass? (:single-pass? opts)
                 :contextual? (:contextual? opts)
                 ;; Init/MetaTypes.lean Config; Elab/Tactic/Simp.lean mkSimpContext.
@@ -4026,6 +4110,7 @@
                 :simprocs? (get opts :simprocs? (not (:only? opts)))
                 :simproc-names (set decl-names)
                 :simproc-erased simproc-erased
+                :simproc-sets simproc-sets
                 :max-steps (atom 0)
                 :cache (atom {})
                 :to-unfold to-unfold
@@ -4356,7 +4441,7 @@
         _ (when-not goal (tactic-error! "No goals" {}))
         ;; Lean elabSimpArgs (Elab/Tactic/Simp.lean:415-470); the goal step below re-elaborates
         ;; the same arguments through simp-setup.
-        {:keys [decls decl-names terms erased erased-unfold simproc-erased] arg-unfold :to-unfold}
+        {:keys [decls decl-names terms erased erased-unfold simproc-erased simproc-sets simp-sets] arg-unfold :to-unfold}
         (elab-simp-args (:env ps) lemma-names (default-simp-arg-context (:env ps) opts))
         env (ensure-nat-packing
              (if (:only? opts)
@@ -4383,9 +4468,11 @@
           eqn-lemmas (mapcat (fn [{:keys [kind name priority]}]
                                (when (= kind :thm)
                                  (extract-simp-lemma env (env/lookup! env name) priority))) entries)
-          to-unfold (into (into (set arg-unfold)
-                                (when-not (:only? opts)
-                                  (remove erased-unfold (env/get-extension env :simp-unfold #{}))))
+          ext-sets (mapv #(simp-set-theorems st env %) simp-sets)
+          to-unfold (into (-> (set arg-unfold)
+                              (into (mapcat :to-unfold) ext-sets)
+                              (into (when-not (:only? opts)
+                                      (remove erased-unfold (env/get-extension env :simp-unfold #{})))))
                           (comp (keep #(when (= :to-unfold (:kind %)) (str (:name %))))
                                 (remove erased-unfold))
                           entries)
@@ -4425,11 +4512,11 @@
                      config {:max-depth 20 :single-pass? false :decide? (get opts :decide? false)
                              :ground? (get opts :ground? false)
                              :simprocs? (get opts :simprocs? (not (:only? opts)))
-                             :simproc-names (set decl-names) :simproc-erased simproc-erased
+                             :simproc-names (set decl-names) :simproc-erased simproc-erased :simproc-sets simproc-sets
                              :max-steps (atom 0) :cache (atom {})
                              :to-unfold to-unfold :discharge-depth 0
                              :ext-trie ext-trie :inst-index inst-index
-                             :pre-index pre-index :erased erased
+                             :pre-index pre-index :erased erased :ext-sets ext-sets
                              :eager-origins (into #{} (keep #(when (:name %) (registration-key %))) all-lemmas)}
                      result (simp-expr* st env lemma-index (:type decl) config)]
                  (if (or (identical? (:expr result) (:type decl))

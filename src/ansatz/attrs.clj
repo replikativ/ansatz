@@ -27,8 +27,12 @@
             [ansatz.bundle-metadata :as metadata]
             [ansatz.kernel.env :as env]
             [ansatz.kernel.name :as name]
+            [ansatz.meta :as meta]
             [ansatz.state :as state]
             [ansatz.simp-sources :as simp-sources]
+            [ansatz.tactic.simp.simp-theorems :as simp-theorems]
+            [ansatz.tactic.simp.simproc :as simproc]
+            [ansatz.kernel.tc :as tc]
             [clojure.string :as str]
             [clojure.java.io :as io]))
 
@@ -304,14 +308,104 @@
 ;; is the :simp-sets extension {set-name → [declaration-name …]}: a theorem is a rewrite rule,
 ;; a definition is unfolded (its equation lemmas, as `simp [d]`). It branches with the env.
 
+(defn- simp-set-member
+  "A member as stored: a name string (Lean's default origin) or, for `attribute [s ↓]` /
+   `[s ←]`, an origin {:name n :post p :inv i} (Lean SimpEntry.thm with Origin.decl n post inv)."
+  [entry]
+  (if (map? entry)
+    (let [post (boolean (:post entry true)) inv (boolean (:inv entry false))
+          n (str (:name entry))]
+      (if (and post (not inv)) n {:name n :post post :inv inv}))
+    (str entry)))
+
+(defn- prop-decl?
+  "Lean `isProp info.type` (Meta/Tactic/Simp/Attr.lean:53)."
+  [env n]
+  (when-let [ci (env/lookup env (name/from-string n))]
+    (meta/prop? (tc/mk-tc-state env) (.type ^ansatz.kernel.ConstantInfo ci))))
+
 (defn add-to-simp-set
-  "`env` with the declarations `names` (strings or symbols) added to the simp set `set-name`
-   (Lean `attribute [set-name] names…`), in order, without duplicates."
+  "`env` with the declarations `names` registered in the simp set `set-name` (Lean
+   `attribute [set-name] names…`), in order. An entry is a name (string or symbol) or an origin
+   {:name n :post bool :inv bool} (`attribute [set-name ↓ ←] n`). The members are the set's
+   registration log; simp-theorems/replay-set gives its state (Lean addSimpTheorem: a later
+   converse registration erases the earlier one, in either direction). `←` on a definition is
+   rejected as Lean's attribute does (Attr.lean:18-21). An inverse member is resolved and
+   preprocessed when it is registered — a declaration Ansatz derives on demand (Nat.ble_eq,
+   Nat packing: simp/ensure-derivable) first — so a pending or irreversible `←` entry never
+   enters the replay."
   [env set-name names]
-  (env/update-extension env :simp-sets {} update (str set-name)
-                        (fn [old] (into (or old []) (comp (map str) (remove (set old)) (distinct)) names))))
+  (let [ensure (requiring-resolve 'ansatz.tactic.simp/ensure-derivable)
+        [env members]
+        (reduce (fn [[env members] entry]
+                  (let [m (simp-set-member entry)
+                        n (when (map? m) (:name m))
+                        env (if (:inv m) (ensure env n) env)]
+                    (when (:inv m)
+                      ;; Lean resolves the declaration before applying an attribute
+                      (when-not (env/lookup env (name/from-string n))
+                        (throw (ex-info (str "Unknown constant: " n) {:kind :elab-error :name n})))
+                      (when-not (prop-decl? env n)
+                        (throw (ex-info (str "Invalid `←` modifier: `" n "` is a declaration name to be unfolded")
+                                        {:kind :elab-error :name n})))
+                      ;; Lean preprocesses at registration (SimpTheorems.lean:726-729): an
+                      ;; irreversible theorem is rejected before it can mask anything
+                      ((requiring-resolve 'ansatz.tactic.simp/make-simp-lemmas) env [{:name n :inv true}]))
+                    [env (if (= m (peek members)) members (conj members m))]))
+                [env (get (env/get-extension env :simp-sets {}) (str set-name) [])] names)]
+    (env/update-extension env :simp-sets {} assoc (str set-name) members)))
+
+(defn- ignore-equations?
+  "Lean Simp.ignoreEquations (SimpTheorems.lean:535-536): a projection function or a reducible
+   definition (ReducibilityAttrs isReducible, metadata over the abbrev hint)."
+  [env n]
+  (or (some? (meta/projection-fn-info env n)) (meta/reducible-const? env n)))
+
+(defn- expand-set-member
+  "What `attribute [s ↓ ←] n` registers (Meta/Tactic/Simp/Attr.lean:43-56): a simproc goes to
+   the set's simproc extension; a proposition is one theorem at the custom attribute's own
+   default priority (not the default set's); a definition goes through addDeclToUnfold."
+  [env {:keys [name post inv] :as entry}]
+  (cond
+    (simproc/is-builtin-simproc name) {:simprocs [{:name name :post post}]}
+    (or (prop-decl? env name) (nil? (env/lookup env (ansatz.kernel.name/from-string name))))
+    {:theorems [(assoc entry :prio default-simp-priority)]}
+    :else (simp-theorems/attr-entries-of-decl env name post default-simp-priority
+                                              #(ignore-equations? env %))))
+
+(def ^:private set-state-cache
+  "simp-set-entries for one immutable Env identity (a single slot, like simp-index/rules-for):
+   a simp call reads its sets' states several times, and each replay expands every member. A
+   staged Env (Env.isStaged) is not cached: its declarations become visible on the same object."
+  (atom {:env nil :states {}}))
+
+(defn simp-set-entries
+  "The simp set `set-name`'s replayed state {:entries [{:name :post :inv :prio}] :erased
+   :to-unfold :simprocs} (Lean's SimpTheorems and simprocs of that extension), or nil when no
+   such set exists."
+  [env set-name]
+  (when-let [members (get (env/get-extension env :simp-sets {}) (str set-name))]
+    (let [k (str set-name)
+          replay #(simp-theorems/replay-set members (fn [m] (expand-set-member env m)))]
+      (if (.isStaged ^ansatz.kernel.Env env)
+        (replay)
+        (let [cache (let [c @set-state-cache]
+                      (if (identical? (:env c) env) c (reset! set-state-cache {:env env :states {}})))]
+          (if-let [hit (find (:states cache) k)]
+            (val hit)
+            (let [state (replay)]
+              (swap! set-state-cache (fn [c] (if (identical? (:env c) env) (assoc-in c [:states k] state) c)))
+              state)))))))
 
 (defn simp-set
-  "The members of the simp set `set-name` in `env` (strings), or nil when no such set exists."
+  "The names of the simp set `set-name`'s members in `env` (strings, registration order, without
+   duplicates; a member erased by a later converse registration is left out), or nil when no such
+   set exists. simp-set-entries carries origins, equations and simprocs."
   [env set-name]
-  (get (env/get-extension env :simp-sets {}) (str set-name)))
+  (when-let [members (get (env/get-extension env :simp-sets {}) (str set-name))]
+    ;; the erasures of the expanded replay: a definition's generated equations count
+    (let [{:keys [erased]} (simp-set-entries env set-name)]
+      (->> members
+           (map simp-theorems/set-member->entry)
+           (remove #(contains? erased [(:name %) (:inv %)]))
+           (map :name) distinct vec))))

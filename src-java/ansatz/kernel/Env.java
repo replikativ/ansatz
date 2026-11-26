@@ -221,6 +221,14 @@ public final class Env {
         return r == 1;
     }
 
+    /**
+     * Whether this is a staged view: its external declarations become visible as the verifier
+     * admits them, so what a lookup returns can change on this same Env object.
+     */
+    public boolean isStaged() {
+        return visibilityCheck != null;
+    }
+
     /** Whether `other` has this env's local overlay itself (no constant added, removed or replaced). */
     public boolean sameLocals(Env other) {
         return other != null && locals == other.locals;
