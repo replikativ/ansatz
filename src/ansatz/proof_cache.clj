@@ -327,8 +327,8 @@
   (when *dir*
     (let [script (when (within-budget? [intro-names tactic-forms])
                    (binding [*print-length* nil *print-level* nil *print-meta* false
-                           *print-namespace-maps* false *print-dup* false *print-readably* true]
-                   (pr-str (without-positions [intro-names tactic-forms]))))]
+                             *print-namespace-maps* false *print-dup* false *print-readably* true]
+                     (pr-str (without-positions [intro-names tactic-forms]))))]
       (when (and script (not (.contains ^String script "#object[")))
         (let [md (MessageDigest/getInstance "SHA-256")
               os (DigestOutputStream. (OutputStream/nullOutputStream) md)

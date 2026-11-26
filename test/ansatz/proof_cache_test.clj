@@ -112,10 +112,10 @@
             (let [bytes (java.nio.file.Files/readAllBytes (.toPath f))]
               (java.nio.file.Files/write (.toPath f) (byte-array (concat bytes [7]))
                                          ^"[Ljava.nio.file.OpenOption;" (make-array java.nio.file.OpenOption 0))
-              (is (= ::pc/unreadable (pc/lookup k)))
+              (is (= :ansatz.proof-cache/unreadable (pc/lookup k)))
               (java.nio.file.Files/write (.toPath f) (java.util.Arrays/copyOf bytes (- (alength bytes) 3))
                                          ^"[Ljava.nio.file.OpenOption;" (make-array java.nio.file.OpenOption 0))
-              (is (= ::pc/unreadable (pc/lookup k)))))))
+              (is (= :ansatz.proof-cache/unreadable (pc/lookup k)))))))
       (finally
         (doseq [f (reverse (file-seq (io/file dir)))] (io/delete-file f true))))))
 
@@ -151,7 +151,7 @@
                 base (a/env)
                 with-a (.addConstant ^ansatz.kernel.Env base (env/mk-thm (name/from-string "pc-local-a") [] (.type t) (.value t)))
                 with-b (.addConstant ^ansatz.kernel.Env base (env/mk-thm (name/from-string "pc-local-b") [] (.type t) (.value t)))]
-            (is (= ::pc/uncacheable (pc/added-constants with-a with-b)))
+            (is (= :ansatz.proof-cache/uncacheable (pc/added-constants with-a with-b)))
             (is (= [] (pc/added-constants with-a with-a))))))
       (finally
         (doseq [f (reverse (file-seq (io/file dir)))] (io/delete-file f true))))))
