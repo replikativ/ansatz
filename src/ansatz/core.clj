@@ -2991,7 +2991,8 @@
          cname (name/from-string (str thm-name))
          ;; A cached proof term (ansatz.proof-cache) replaces the tactic run; the kernel still
          ;; checks it, and a rejected entry falls through to the tactics.
-         cache-key (proof-cache/entry-key thm-name goal-type intro-names tactic-forms)
+         ;; not in an isolated ProofContext: its result does not reach the global env
+         cache-key (when-not ctx (proof-cache/entry-key thm-name goal-type intro-names tactic-forms))
          cached-env (when cache-key
                       (proof-cache/replay cache-key env cname goal-type env/check-constant env/mk-thm))]
      (if cached-env
@@ -3016,7 +3017,9 @@
              (env/check-constant final-env ci)
              (swap! ansatz-env (fn [_] (env/check-constant final-env ci))))
            (when cache-key
-             (let [aux (proof-cache/added-constants env final-env)]
+             (let [aux (try (proof-cache/added-constants env final-env)
+                            (catch Exception _ ::proof-cache/uncacheable)
+                            (catch StackOverflowError _ ::proof-cache/uncacheable))]
                (if (= ::proof-cache/uncacheable aux)
                  (swap! proof-cache/stats update :uncacheable (fnil inc 0))
                  (proof-cache/store! cache-key aux ci))))

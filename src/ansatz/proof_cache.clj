@@ -12,11 +12,19 @@
    levels and expressions, each written once, followed by the declarations. The constants they
    reference are not written; the kernel resolves them in its environment.
 
+   What a hit reuses is a valid proof, not the tactic run. The recorded auxiliary theorems are
+   replayed (kernel-checked); nothing else the tactics did is: their diagnostic output
+   (`trace_state`), and whether they would succeed now, are not observed. A tactic run that
+   changed an environment extension, the external view or the quotient state is never stored.
+   Any failure to compute a key, encode or decode is a miss, never an error of the declaration.
+
    Off unless a directory is set: the system property `ansatz.proof-cache` or the environment
-   variable `ANSATZ_PROOF_CACHE`, or `*dir*` bound directly. One directory can be shared by
-   several projects: keys are content digests."
+   variable `ANSATZ_PROOF_CACHE`, or `*dir*` bound directly. It is not used for proofs in an
+   isolated ProofContext. One directory can be shared by several projects: keys are content
+   digests."
   (:require [ansatz.export.writer :as writer]
-            [clojure.java.io :as io])
+            [clojure.java.io :as io]
+            [clojure.walk])
   (:import [ansatz.kernel ConstantInfo Env Expr Level Name]
            [clojure.lang Keyword]
            [java.io ByteArrayOutputStream DataInputStream DataOutputStream OutputStream]
@@ -29,7 +37,11 @@
 
 (def ^:private entry-format
   "Bump when the entry layout or the key changes; old entries are then never read."
-  "ansatz-proof-cache/2")
+  "ansatz-proof-cache/3")
+
+(def ^:private max-entry-bytes
+  "Entries larger than this are not read (a proof term of this size is far beyond any seen)."
+  (* 64 1024 1024))
 
 (def ^:dynamic *dir*
   "The cache directory (a string or File), or nil for no cache."
@@ -38,7 +50,8 @@
 (def stats
   "Counts since load: :hit, :miss, :rejected (an entry that is unreadable, has the wrong shape or
    that the kernel refused), :stored, :uncacheable (the tactics changed an environment
-   extension, or added a constant that is not a theorem)."
+   extension, the external view or the quotient state, or added a constant that is not a plain
+   theorem)."
   (atom {}))
 
 (defn- count! [k] (swap! stats update k (fnil inc 0)))
@@ -63,13 +76,23 @@
 
 (defn- write-str! [^DataOutputStream o ^String s]
   (let [b (.getBytes s StandardCharsets/UTF_8)]
+    ;; UTF-8 replaces an unpaired surrogate: such a string would not come back as written
+    (when-not (= s (String. b StandardCharsets/UTF_8))
+      (throw (ex-info "proof-cache: a string UTF-8 cannot represent exactly" {})))
     (.writeInt o (alength b))
     (.write o b)))
 
 (defn- read-str ^String [^DataInputStream in]
-  (let [b (byte-array (.readInt in))]
-    (.readFully in b)
-    (String. b StandardCharsets/UTF_8)))
+  (let [n (.readInt in)]
+    (when-not (<= 0 n (.available in))
+      (throw (ex-info "proof-cache: a string length beyond the entry" {:length n})))
+    (let [b (byte-array n)]
+      (.readFully in b)
+      ;; strict: malformed bytes are an error, not U+FFFD in a string literal
+      (str (.decode (doto (.newDecoder StandardCharsets/UTF_8)
+                      (.onMalformedInput java.nio.charset.CodingErrorAction/REPORT)
+                      (.onUnmappableCharacter java.nio.charset.CodingErrorAction/REPORT))
+                    (java.nio.ByteBuffer/wrap b))))))
 
 (defn- name-id ^long [^Enc e ^Name n]
   (if-let [i (.get ^HashMap (.names e) n)]
@@ -177,6 +200,9 @@
     (long (.get ids root))))
 
 (defn- write-thm! [^Enc e ^ConstantInfo ci]
+  ;; the reader rebuilds `all` as [name]; anything else would not round-trip
+  (when-not (and (.isThm ci) (= [(.name ci)] (vec (.all ci))))
+    (throw (ex-info "proof-cache: only plain theorems are written" {:name (str (.name ci))})))
   (let [n (obj-ref e (.name ci))
         lps (mapv #(obj-ref e %) (.levelParams ci))
         ty (expr-id e (.type ci))
@@ -200,7 +226,9 @@
     (loop [thms []]
       (let [r (int (.readByte in))]
         (condp = r
-          r-end thms
+          r-end (if (zero? (.available in))
+                  thms
+                  (throw (ex-info "proof-cache: bytes after the end of the entry" {})))
           r-name-str (let [p (.readInt in)] (.add names (Name/mkStr (.get names p) (read-str in))) (recur thms))
           r-name-num (let [p (.readInt in)] (.add names (Name/mkNum (.get names p) (.readLong in))) (recur thms))
           r-level
@@ -220,7 +248,10 @@
                     0 (Expr/bvar (.readLong in))
                     1 (let [l (lvl (.readInt in))] (Expr/sort l (Level/hasParam l)))
                     2 (let [n (read-obj in names)
-                            ls (vec (repeatedly (.readInt in) #(lvl (.readInt in))))]
+                            ls (let [k (.readInt in)]
+                                 (when-not (<= 0 (* 4 k) (.available in))
+                                   (throw (ex-info "proof-cache: a count beyond the entry" {:count k})))
+                                 (vec (repeatedly k #(lvl (.readInt in)))))]
                         (Expr/mkConst n ls (boolean (some #(Level/hasParam %) ls))))
                     3 (let [f (ex (.readInt in))] (Expr/app f (ex (.readInt in))))
                     (4 5) (let [n (read-obj in names) ty (ex (.readInt in)) b (ex (.readInt in))
@@ -234,7 +265,10 @@
             (recur thms))
           r-thm
           (let [n (read-obj in names)
-                lps (vec (repeatedly (.readInt in) #(read-obj in names)))
+                lps (let [n (.readInt in)]
+                      (when-not (<= 0 n (.available in))
+                        (throw (ex-info "proof-cache: a count beyond the entry" {:count n})))
+                      (vec (repeatedly n #(read-obj in names))))
                 ty (ex (.readInt in))
                 v (ex (.readInt in))]
             (recur (conj thms (ConstantInfo/mkThm n (into-array Object lps) ty v (into-array Object [n]))))))))))
@@ -243,13 +277,59 @@
 ;; Keys and entries
 ;; ============================================================
 
-(defn entry-key
-  "The key of a theorem's entry, or nil when there is no cache or the script has no stable
-   printed form (it holds an object that prints with its identity)."
+(def ^:private max-key-nodes
+  "A script or statement with more nodes than this is not cached (key computation must stay
+   cheap, and must end on tactic data such as an infinite lazy sequence)."
+  100000)
+
+(defn- within-budget?
+  "Whether `form`, its metadata included, has at most `max-key-nodes` nodes. Realizes at most
+   that many elements of any lazy sequence."
+  [form]
+  (let [stack (java.util.ArrayDeque.)]
+    (.push stack (if (nil? form) ::nil form))
+    (loop [n 0]
+      (cond
+        (> n max-key-nodes) false
+        (.isEmpty stack) true
+        :else
+        (let [x (.pop stack)]
+          (when-let [m (and (instance? clojure.lang.IObj x) (meta x))]
+            (doseq [v (vals m)] (.push stack (if (nil? v) ::nil v))))
+          (if (coll? x)
+            ;; push at most the remaining budget of children, so an infinite seq stops here
+            (let [room (- (inc max-key-nodes) n)
+                  kids (take room (if (map? x) (mapcat identity x) (seq x)))]
+              (doseq [c kids] (.push stack (if (nil? c) ::nil c)))
+              (recur (+ n 1 (if (< (count kids) room) 0 room))))
+            (recur (inc n))))))))
+
+(defn- without-positions
+  "`form` with the reader's source positions removed from all metadata, and the metadata kept
+   (type hints such as ^Nat on fn binders, which the elaborator reads) turned into data:
+   x with metadata m becomes [::meta m x]. Printing then sees it directly; the printer itself
+   would drop some of it (e.g. :type)."
+  [form]
+  (clojure.walk/postwalk
+   (fn [x]
+     (if-let [m (and (instance? clojure.lang.IObj x) (meta x))]
+       (let [m' (dissoc m :line :column :end-line :end-column :file :source)
+             ;; type forms in metadata (^{:- (List Nat)}) carry reader positions of their own
+             m' (into (sorted-map-by #(compare (pr-str %1) (pr-str %2)))
+                      (map (fn [[k v]] [k (without-positions v)])) m')
+             x' (with-meta x nil)]
+         (if (seq m') [::meta m' x'] x'))
+       x))
+   form))
+
+(defn- entry-key*
   [thm-name ^Expr goal-type intro-names tactic-forms]
   (when *dir*
-    (let [script (pr-str [intro-names tactic-forms])]
-      (when-not (.contains script "#object[")
+    (let [script (when (within-budget? [intro-names tactic-forms])
+                   (binding [*print-length* nil *print-level* nil *print-meta* false
+                             *print-namespace-maps* false *print-dup* false *print-readably* true]
+                     (pr-str (without-positions [intro-names tactic-forms]))))]
+      (when (and script (not (.contains ^String script "#object[")))
         (let [md (MessageDigest/getInstance "SHA-256")
               os (DigestOutputStream. (OutputStream/nullOutputStream) md)
               e (enc os)
@@ -261,6 +341,16 @@
             (doseq [b (.digest md)] (.append sb (format "%02x" (bit-and (int b) 0xff))))
             (.toString sb)))))))
 
+(defn entry-key
+  "The key of a theorem's entry, or nil when there is no cache, the script has no stable
+   printed form (it holds an object that prints with its identity), or the statement cannot be
+   encoded (mdata, a metavariable): the theorem is then proved without the cache."
+  [thm-name goal-type intro-names tactic-forms]
+  (try (entry-key* thm-name goal-type intro-names tactic-forms)
+       (catch Exception _ nil)
+       ;; a deeply nested script or statement must not fail the declaration either
+       (catch StackOverflowError _ nil)))
+
 (defn- entry-file ^java.io.File [^String k]
   (io/file (str *dir*) (subs k 0 2) (subs k 2)))
 
@@ -271,8 +361,12 @@
   (let [f (entry-file k)]
     (when (.isFile f)
       (try
-        (with-open [in (DataInputStream. (io/input-stream f))]
-          (read-entry in))
+        ;; the budget holds for the bytes actually read, also if the file is replaced meanwhile
+        (let [^bytes b (with-open [s (java.io.FileInputStream. f)] (.readNBytes s (inc max-entry-bytes)))]
+          (when (> (alength b) max-entry-bytes)
+            (throw (ex-info "proof-cache: entry larger than the budget" {})))
+          (with-open [in (DataInputStream. (java.io.ByteArrayInputStream. b))]
+            (read-entry in)))
         (catch Throwable _ ::unreadable)))))
 
 (defn- dependency-order
@@ -284,28 +378,45 @@
                  (writer/expr-constants (.type ci) acc)
                  (writer/expr-constants (.value ci) acc)
                  (remove #(= (.name ci) %) (filter by-name acc))))]
-    (loop [todo (vec (keys by-name)) done #{} out []]
-      (if-let [n (peek todo)]
-        (if (done n)
-          (recur (pop todo) done out)
-          (let [pending (remove done (refs (by-name n)))]
-            (if (seq pending)
-              (recur (into todo pending) done out)
-              (recur (pop todo) (conj done n) (conj out (by-name n))))))
+    ;; depth-first, with the names on the current path: a reference back onto the path is a
+    ;; cycle, which no entry can replay in order
+    (loop [todo (mapv (fn [n] [n false]) (keys by-name)) done #{} path #{} out []]
+      (if-let [[n expanded?] (peek todo)]
+        (cond
+          expanded? (recur (pop todo) (conj done n) (disj path n) (conj out (by-name n)))
+          (done n) (recur (pop todo) done path out)
+          (path n) (throw (ex-info "proof-cache: auxiliary theorems refer to each other" {:name (str n)}))
+          :else (let [pending (remove done (refs (by-name n)))]
+                  (when-let [c (some path pending)]
+                    (throw (ex-info "proof-cache: auxiliary theorems refer to each other" {:name (str c)})))
+                  (recur (into (conj (pop todo) [n true]) (map (fn [p] [p false]) pending))
+                         done (conj path n) out)))
         out))))
 
 (defn added-constants
   "The theorems `after` holds that `before` does not, in dependency order, or ::uncacheable
-   when the step between them also changed an environment extension or added another kind of
-   constant."
+   when the step between them did anything else: changed an environment extension, the
+   external view or the quotient state, replaced or dropped an earlier local constant, or added
+   a constant that is not a plain theorem (default `all` list)."
   [^Env before ^Env after]
   (cond
-    (not (identical? (.extensions before) (.extensions after))) ::uncacheable
-    (= (.size before) (.size after)) []
+    (not (identical? (. before (extensions)) (. after (extensions)))) ::uncacheable
+    (not (.sameExternalView before after)) ::uncacheable
+    (not= (.isQuotEnabled before) (.isQuotEnabled after)) ::uncacheable
+    ;; the same local overlay: nothing added (with an external store `size` does not show it)
+    (.sameLocals before after) []
     :else
-    (let [added (filterv (fn [^ConstantInfo ci] (nil? (.lookup before (.name ci))))
-                         (.allConstants after))]
-      (if (every? (fn [^ConstantInfo ci] (.isThm ci)) added)
+    (let [locals (.allConstants after)
+          added (filterv (fn [^ConstantInfo ci] (nil? (.lookupLocal before (.name ci)))) locals)
+          ;; every earlier local kept, identically; a tactic that replaced or dropped one (e.g. by
+          ;; switching to a sibling env) cannot be replayed as an addition
+          kept? (and (= (.localCount after) (+ (.localCount before) (count added)))
+                     (every? (fn [^ConstantInfo ci]
+                               (let [old (.lookupLocal before (.name ci))]
+                                 (or (nil? old) (identical? old ci))))
+                             locals))]
+      ;; the entry stores theorems with the default `all` list only
+      (if (and kept? (every? (fn [^ConstantInfo ci] (and (.isThm ci) (= [(.name ci)] (vec (.all ci))))) added))
         (dependency-order added)
         ::uncacheable))))
 
@@ -314,20 +425,24 @@
    A failure to write only means no entry."
   [k aux ^ConstantInfo thm]
   (try
-    (let [f (entry-file k)
-          dir (doto (.getParentFile f) (.mkdirs))
-          tmp (java.io.File/createTempFile "entry" ".tmp" dir)
-          bytes (ByteArrayOutputStream.)
+    (let [bytes (ByteArrayOutputStream.)
           e (enc bytes)]
       (write-str! (.out e) entry-format)
       (doseq [ci (conj (vec aux) thm)] (write-thm! e ci))
       (.writeByte ^DataOutputStream (.out e) r-end)
       (.flush ^DataOutputStream (.out e))
-      (Files/write (.toPath tmp) (.toByteArray bytes) ^"[Ljava.nio.file.OpenOption;" (make-array java.nio.file.OpenOption 0))
-      (Files/move (.toPath tmp) (.toPath f)
-                  (into-array java.nio.file.CopyOption [StandardCopyOption/ATOMIC_MOVE
-                                                        StandardCopyOption/REPLACE_EXISTING]))
-      (count! :stored))
+      ;; an entry the reader would refuse is not written
+      (when (<= (.size bytes) max-entry-bytes)
+        (let [f (entry-file k)
+              dir (doto (.getParentFile f) (.mkdirs))
+              tmp (java.io.File/createTempFile "entry" ".tmp" dir)]
+          (try
+            (Files/write (.toPath tmp) (.toByteArray bytes) ^"[Ljava.nio.file.OpenOption;" (make-array java.nio.file.OpenOption 0))
+            (Files/move (.toPath tmp) (.toPath f)
+                        (into-array java.nio.file.CopyOption [StandardCopyOption/ATOMIC_MOVE
+                                                              StandardCopyOption/REPLACE_EXISTING]))
+            (count! :stored)
+            (finally (.delete tmp))))))
     (catch Throwable _ nil)))
 
 (defn replay
