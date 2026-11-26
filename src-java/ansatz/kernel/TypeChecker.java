@@ -2389,8 +2389,8 @@ public final class TypeChecker {
             throw new RuntimeException("quotient primitives are admitted through checkConstant: " + ci.name);
         }
         // Share common sub-expressions before type-checking.
-        java.util.HashMap<Expr, Expr> scCache = new java.util.HashMap<>(4096);
-        java.util.IdentityHashMap<Expr, Expr> scVisited = new java.util.IdentityHashMap<>(4096);
+        java.util.HashMap<Expr, Expr> scCache = new java.util.HashMap<>();
+        java.util.IdentityHashMap<Expr, Expr> scVisited = new java.util.IdentityHashMap<>();
         Expr type = Expr.shareCommon(ci.type, scCache, scVisited);
         Expr value = ci.value != null ? Expr.shareCommon(ci.value, scCache, scVisited) : null;
 
