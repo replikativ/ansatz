@@ -207,7 +207,7 @@
 (deftest erasure-covers-the-lazy-index
   ;; A forward rule served only by the persistent index (lookup-lemmas' :ext-trie) is filtered
   ;; by origin like an eager one (Lean inErasedSet, Rewrite.lean:283-284).
-  (let [env (pre-env)
+  (let [env (env/update-extension (pre-env) :simp-lemmas #{} conj "SimpPre.post_rule")
         st (tc/mk-tc-state env)
         trie (si/build-simp-trie (si/key-entries-artifact (si/lemma-keys ["SimpPre.post_rule"] env #(env/lookup env (name/from-string %)))))
         [post _] (simp/build-simp-indexes st env [])
@@ -242,7 +242,7 @@
 
 (deftest default-rules-served-by-the-persistent-index-stay-post
   ;; the same discriminator with the default rule served only by a captured trie
-  (let [env (pre-env)
+  (let [env (env/update-extension (pre-env) :simp-lemmas #{} into ["SimpPre.pre_rule_f" "SimpPre.post_rule"])
         st (tc/mk-tc-state env)
         trie (si/build-simp-trie (si/key-entries-artifact
                                   (si/lemma-keys ["SimpPre.pre_rule_f" "SimpPre.post_rule"] env
@@ -527,3 +527,17 @@
     (is (= (e/lit-nat 0) (:expr r)))
     (is (checks? env goal r))
     (is (not= (e/lit-nat 0) swapped) "rf first: no terminal 0")))
+
+(deftest the-persistent-index-serves-only-registered-simp-rules
+  ;; an index entry whose name the env does not register as a forward @[simp] rule (e.g. a
+  ;; @[csimp] source keyed by an older importer) is never served
+  (let [env (pre-env)
+        st (tc/mk-tc-state env)
+        trie (si/build-simp-trie (si/key-entries-artifact
+                                  (si/lemma-keys ["SimpPre.post_rule"] env #(env/lookup env (name/from-string %)))))
+        [post _] (simp/build-simp-indexes st env [])
+        goal (e/app (c "SimpPre.F") (c "SimpPre.a"))]
+    (is (= goal (:expr (simp/simp-expr-result st env post goal 20 {:ext-trie trie}))))
+    (let [env (env/update-extension env :simp-lemmas #{} conj "SimpPre.post_rule")]
+      (is (= (e/app (c "SimpPre.G") (c "SimpPre.a"))
+             (:expr (simp/simp-expr-result st env post goal 20 {:ext-trie trie})))))))

@@ -206,7 +206,9 @@
                      "{\"inv\":false,\"kind\":\"simp\",\"name\":\"Nat.zero_add\",\"post\":false,\"prio\":1000}\n"
                      "{\"inv\":true,\"kind\":\"simp\",\"name\":\"Nat.succ_eq_add_one\",\"post\":true,\"prio\":1000}\n"
                      "{\"inv\":false,\"kind\":\"simp\",\"name\":\"List.length_nil\",\"post\":true,\"prio\":1000}\n"
-                     "{\"inv\":true,\"kind\":\"simp\",\"name\":\"List.length_nil\",\"post\":true,\"prio\":1000}\n"))
+                     "{\"inv\":true,\"kind\":\"simp\",\"name\":\"List.length_nil\",\"post\":true,\"prio\":1000}\n"
+                     ;; a csimp row names the replaced function; it is never a simp rule
+                     "{\"kind\":\"csimp\",\"name\":\"List.map\",\"target\":\"List.mapTR\"}\n"))
         dir (tmp-store "origins")
         m (try (import-medium! dir :attrs (.getPath attrs-file)) (finally (.delete attrs-file)))]
     (is (= {:source :dump-fields :pre 1 :inv 2} (get-in m [:artifacts :simp-origins])))
@@ -222,6 +224,7 @@
              (filterv #(= "simp" (first %)) tuples)))
       (testing "the persistent index keys only live forward post rules, encoding unchanged"
         (is (= #{"Nat.add_zero"} keyed))
+        (is (= {"List.map" "List.mapTR"} (env/get-extension (a/env) :csimp {})))
         (is (= si/write-key-encoding (si/key-encoding (storage/read-derived kstore "init" :simp-keys)))))
       (testing "init! replays the origins: ← erases the forward rule, the rest is served eagerly"
         (is (= #{"Nat.add_zero"} (env/get-extension (a/env) :simp-lemmas #{})))

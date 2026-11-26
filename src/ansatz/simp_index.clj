@@ -226,7 +226,14 @@
         rules))))
 
 (defn candidate-rules
-  "Every rule of every lemma in `trie` whose LHS structurally matches `expr` — the lazily-served
-   share of a simp call's candidate set."
+  "Every rule of every lemma in `trie` whose LHS structurally matches `expr` and that `env`
+   registers as a forward post @[simp] rule — the lazily-served share of a simp call's candidate
+   set. candidate-names (like the catalogue, which reads persisted keys) reports every keyed name,
+   including a stale one an older store may still carry."
   [trie st env expr]
-  (into [] (mapcat #(rules-for env %)) (candidate-names trie st env expr)))
+  ;; Only names the env registers as forward post @[simp] rules (Lean serves only SimpTheorems
+  ;; entries): an index written by an older importer may also key the source of a @[csimp]
+  ;; replacement, which is no simp rule.
+  (let [forward (env/get-extension env :simp-lemmas #{})]
+    (into [] (comp (filter #(contains? forward %)) (mapcat #(rules-for env %)))
+          (candidate-names trie st env expr))))
