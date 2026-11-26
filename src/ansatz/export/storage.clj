@@ -1114,7 +1114,10 @@
           admitted-ranks (java.util.BitSet. (count decl-order))
           decl-ranks (java.util.HashMap. (* 2 (count decl-order)))
           _ (doseq [[i name-str] (map-indexed vector decl-order)]
-              (.put decl-ranks (ansatz-name/from-string name-str) (long i)))
+              ;; a name is declared once (Lean's check_name); a repeated row would be checked
+              ;; twice against an environment that never shows it
+              (when (.put decl-ranks (ansatz-name/from-string name-str) (long i))
+                (throw (ex-info "Declaration order repeats a name" {:name name-str :rank i}))))
           visible? (fn [^Name name]
                      (when-let [rank (.get decl-ranks name)]
                        (let [rank (long rank)]

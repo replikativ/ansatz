@@ -118,10 +118,8 @@
    every application argument, the way mathlib declarations are verified. Use this (not an
    `inferType`+`isDefEq` shorthand) to validate tactic-built proofs in tests.
 
-   A `nil` proof (or goal) is FALSE, never true: `mk-thm` with a nil value is an
-   axiom-shaped declaration that `check-constant` would accept WITHOUT a proof, so a
-   caller passing `(when (solved? ps) (extract …))` that yields nil on failure would
-   otherwise get a false-positive 'verified'."
+   A `nil` proof (or goal) is false, as is any proof the kernel refuses (theorem admission
+   requires a value)."
   [^Env env goal proof]
   (boolean
    (and (some? goal) (some? proof)

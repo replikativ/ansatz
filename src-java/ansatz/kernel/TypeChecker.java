@@ -2405,7 +2405,9 @@ public final class TypeChecker {
                 // An unsafe or partial definition may refer to itself: Lean checks the header,
                 // adds the declaration, then checks the body (add_definition's unsafe branch, and
                 // add_mutual for a block of one).
+                long headerFuel = tc.getFuelUsed();
                 tc = newChecker(env.addConstant(ci), ci, safety, fuel, traceWriter, phaseTracing);
+                tc.setFuel(fuel - headerFuel);   // one budget for the declaration
             }
             checkValue(tc, ci, type, value, phaseTracing);
             return new ConstantCheckState(tc);
@@ -2437,7 +2439,7 @@ public final class TypeChecker {
     /** Lean's check_constant_val: a fresh name, distinct universe parameters, a closed type that is a type. */
     private static void checkConstantVal(Env env, ConstantInfo ci, TypeChecker tc, Expr type) {
         if (env.lookup(ci.name) != null) {
-            throw new RuntimeException("Type error: '" + ci.name + "' has already been declared");
+            throw new RuntimeException("Constant already declared: " + ci.name);
         }
         if (ci.levelParams == null) {
             throw new RuntimeException("Type error: declaration '" + ci.name + "' has no universe parameter list");
@@ -2487,7 +2489,7 @@ public final class TypeChecker {
      */
     public static void checkQuotPrimitive(Env env, ConstantInfo ci) {
         if (env.lookup(ci.name) != null) {
-            throw new RuntimeException("Type error: '" + ci.name + "' has already been declared");
+            throw new RuntimeException("Constant already declared: " + ci.name);
         }
         Object kind = QUOT_KINDS.get(ci.name);
         if (kind == null || !kind.equals(ci.quotKind)) {
@@ -2535,12 +2537,17 @@ public final class TypeChecker {
         }
     }
 
-    /** Admit a checked quotient primitive; reduction is enabled once all four are present, as add_quot does. */
+    /**
+     * Admit a checked quotient primitive; reduction is enabled once all four slots hold quotient
+     * primitives of their kind (each admitted through checkQuotPrimitive), as add_quot does.
+     */
     private static Env addQuotPrimitive(Env env, ConstantInfo ci) {
         Env added = env.addConstant(ci);
-        boolean complete = added.lookup(Name.QUOT) != null && added.lookup(Name.QUOT_MK) != null
-            && added.lookup(Name.QUOT_LIFT) != null && added.lookup(Name.QUOT_IND) != null;
-        return complete ? added.enableQuot() : added;
+        for (java.util.Map.Entry<Name, Object> p : QUOT_KINDS.entrySet()) {
+            ConstantInfo q = added.lookup(p.getKey());
+            if (q == null || !q.isQuot() || !p.getValue().equals(q.quotKind)) return added;
+        }
+        return added.enableQuot();
     }
 
     /** Kernel-expected type for a canonical quotient primitive, or null if the name/arity is not canonical. */

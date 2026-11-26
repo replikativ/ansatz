@@ -547,7 +547,7 @@
              (TypeChecker/checkConstant with-eq (env/mk-quot (name/from-string "Quot.mk") ["u"] False* :ctor) 5000000)))
         ;; A canonical name already declared is refused (Lean's check_name).
         (is (thrown-with-msg?
-             Exception #"already been declared"
+             Exception #"Constant already declared"
              (TypeChecker/checkConstant E (env/lookup E (name/from-string "Quot.mk")) 5000000)))
         ;; Admit the real primitives in order into the fresh environment.
         (reduce (fn [checked nm]

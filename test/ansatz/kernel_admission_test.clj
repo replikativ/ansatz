@@ -45,7 +45,7 @@
                   (env/mk-axiom (n "adm-level-mvar") [] (e/sort' (Level/mvar 7)))))))
 
 (deftest a-name-is-declared-once
-  (is (refused? #"already been declared" (env/mk-axiom (n "Nat.add") [] nat))))
+  (is (refused? #"Constant already declared" (env/mk-axiom (n "Nat.add") [] nat))))
 
 (deftest safety-follows-lean
   (let [env0 (env/check-constant (a/env) (env/mk-axiom (n "adm-unsafe-ax") [] nat :unsafe? true))]
@@ -84,3 +84,21 @@
             q' (ConstantInfo/mkQuot (.name q) (.levelParams q) (.type q) (keyword "lift"))]
         (is (thrown-with-msg? Exception #"of its kind"
                               (TypeChecker/checkConstant (quot-free-env) q')))))))
+
+(deftest quotient-reduction-needs-the-four-primitives
+  (let [prims (mapv #(env/lookup! (a/env) (n %)) ["Quot" "Quot.mk" "Quot.lift" "Quot.ind"])
+        [quot _ lift ind] prims]
+    (testing "an ordinary declaration in the Quot.mk slot leaves reduction off"
+      (let [fake-mk (env/mk-axiom (n "Quot.mk") [] (e/sort' lvl/zero))
+            env' (reduce (fn [^Env acc ci] (TypeChecker/checkConstant acc ci))
+                         (quot-free-env) [quot fake-mk lift ind])]
+        (is (some? (.lookup ^Env env' (n "Quot.ind"))))
+        (is (not (.isQuotEnabled ^Env env')))))
+    (testing "in a staged view quotients are initialized only once all four are visible"
+      (let [hidden #{(n "Quot.ind")}
+            staged (fn [hidden]
+                     (.withExternalLookupFiltered (.enableQuot (Env.))
+                                                  (fn [nm] (env/lookup (a/env) nm)) 1000000
+                                                  (fn [nm] (not (contains? hidden nm)))))]
+        (is (not (.isQuotEnabled ^Env (staged hidden))))
+        (is (.isQuotEnabled ^Env (staged #{})))))))
