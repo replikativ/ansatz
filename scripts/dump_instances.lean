@@ -1,7 +1,12 @@
 -- Standalone instance dumper: emit every @[instance] registration of the imported Lean modules as
 -- TSV (one per line: `class<TAB>instance<TAB>priority`), so ansatz can inherit Lean's AUTHORITATIVE
 -- typeclass instance registry (name-INDEPENDENT discovery; replaces PSS name-guessing). The class is
--- the class Lean indexed the instance under (see `instanceClass?`). Lines come out in MODULE (declaration)
+-- the class Lean indexed the instance under (see `instanceClass?`).
+--
+-- Contract: the TSV carries each global instance's CLASS (and priority, in registration order),
+-- not Lean's discrimination-tree key root. Ansatz computes its own instance keys at import
+-- (ansatz.tactic.instance-index). Where Lean's recorded root is not the class itself (an alias
+-- that reaches its class only through a `let`, or a `no_index` root), the dump emits the class. Lines come out in MODULE (declaration)
 -- order with Lean's real priorities — both are load-bearing: Lean tries instances by priority,
 -- and the most recently declared first among equals (ansatz.tactic.instance/parse-instance-tsv). Run where the module is importable (a lake
 -- project with its oleans built):
