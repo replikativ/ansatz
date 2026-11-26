@@ -118,3 +118,40 @@
               (is (= ::pc/unreadable (pc/lookup k)))))))
       (finally
         (doseq [f (reverse (file-seq (io/file dir)))] (io/delete-file f true))))))
+
+(deftest review-edge-cases
+  (let [goal (:type-ansatz (a/elab-signature (a/env) (a/parse-params '[n :- Nat]) '(= Nat (+ n 0) n)))
+        dir (temp-dir)]
+    (try
+      (binding [pc/*dir* dir]
+        (testing "a script too deeply nested to print is a miss, not a StackOverflowError"
+          (let [deep (reduce (fn [acc _] [acc]) [] (range 200000))]
+            (is (nil? (pc/entry-key 'pc-deep goal ["n"] [(list 'rfl deep)])))))
+        (testing "reader positions inside metadata values do not change the key"
+          (let [k (fn [line] (pc/entry-key 'pc-mv goal ["n"]
+                                           [(list 'f (with-meta 'x {:- (with-meta (list 'List 'Nat) {:line line})}))]))]
+            (is (= (k 1) (k 99)))))
+        (testing "strings round-trip, supplementary characters included; malformed UTF-8 is refused"
+          (let [bytes (java.io.ByteArrayOutputStream.)
+                out (java.io.DataOutputStream. bytes)]
+            (#'pc/write-str! out "a😀b")
+            (is (= "a😀b" (#'pc/read-str (java.io.DataInputStream. (java.io.ByteArrayInputStream. (.toByteArray bytes))))))
+            (is (thrown? Exception (#'pc/write-str! out (str "x" (char 0xD800)))))
+            (is (thrown? Exception (#'pc/read-str (java.io.DataInputStream.
+                                                   (java.io.ByteArrayInputStream. (byte-array [0 0 0 2 (unchecked-byte 0xC3) 0x28]))))))))
+        (testing "only plain theorems are written"
+          (let [^ConstantInfo t (env/lookup (a/env) (name/from-string "Nat.add_zero"))
+                odd (env/mk-thm (name/from-string "pc-odd") [] (.type t) (.value t)
+                                :all [(name/from-string "pc-odd") (name/from-string "pc-other")])
+                k (pc/entry-key 'pc-odd goal ["n"] '[(simp)])]
+            (#'pc/store! k [] odd)
+            (is (nil? (pc/lookup k)))))
+        (testing "a step that replaced an earlier local constant is not an addition"
+          (let [^ConstantInfo t (env/lookup (a/env) (name/from-string "Nat.add_zero"))
+                base (a/env)
+                with-a (.addConstant ^ansatz.kernel.Env base (env/mk-thm (name/from-string "pc-local-a") [] (.type t) (.value t)))
+                with-b (.addConstant ^ansatz.kernel.Env base (env/mk-thm (name/from-string "pc-local-b") [] (.type t) (.value t)))]
+            (is (= ::pc/uncacheable (pc/added-constants with-a with-b)))
+            (is (= [] (pc/added-constants with-a with-a))))))
+      (finally
+        (doseq [f (reverse (file-seq (io/file dir)))] (io/delete-file f true))))))

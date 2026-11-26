@@ -3018,7 +3018,8 @@
              (swap! ansatz-env (fn [_] (env/check-constant final-env ci))))
            (when cache-key
              (let [aux (try (proof-cache/added-constants env final-env)
-                            (catch Exception _ ::proof-cache/uncacheable))]
+                            (catch Exception _ ::proof-cache/uncacheable)
+                            (catch StackOverflowError _ ::proof-cache/uncacheable))]
                (if (= ::proof-cache/uncacheable aux)
                  (swap! proof-cache/stats update :uncacheable (fnil inc 0))
                  (proof-cache/store! cache-key aux ci))))

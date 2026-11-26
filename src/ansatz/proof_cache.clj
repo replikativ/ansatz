@@ -39,6 +39,10 @@
   "Bump when the entry layout or the key changes; old entries are then never read."
   "ansatz-proof-cache/3")
 
+(def ^:private max-entry-bytes
+  "Entries larger than this are not read (a proof term of this size is far beyond any seen)."
+  (* 64 1024 1024))
+
 (def ^:dynamic *dir*
   "The cache directory (a string or File), or nil for no cache."
   (not-empty (or (System/getProperty "ansatz.proof-cache") (System/getenv "ANSATZ_PROOF_CACHE"))))
@@ -84,7 +88,11 @@
       (throw (ex-info "proof-cache: a string length beyond the entry" {:length n})))
     (let [b (byte-array n)]
       (.readFully in b)
-      (String. b StandardCharsets/UTF_8))))
+      ;; strict: malformed bytes are an error, not U+FFFD in a string literal
+      (str (.decode (doto (.newDecoder StandardCharsets/UTF_8)
+                      (.onMalformedInput java.nio.charset.CodingErrorAction/REPORT)
+                      (.onUnmappableCharacter java.nio.charset.CodingErrorAction/REPORT))
+                    (java.nio.ByteBuffer/wrap b))))))
 
 (defn- name-id ^long [^Enc e ^Name n]
   (if-let [i (.get ^HashMap (.names e) n)]
@@ -192,6 +200,9 @@
     (long (.get ids root))))
 
 (defn- write-thm! [^Enc e ^ConstantInfo ci]
+  ;; the reader rebuilds `all` as [name]; anything else would not round-trip
+  (when-not (and (.isThm ci) (= [(.name ci)] (vec (.all ci))))
+    (throw (ex-info "proof-cache: only plain theorems are written" {:name (str (.name ci))})))
   (let [n (obj-ref e (.name ci))
         lps (mapv #(obj-ref e %) (.levelParams ci))
         ty (expr-id e (.type ci))
@@ -238,7 +249,7 @@
                     1 (let [l (lvl (.readInt in))] (Expr/sort l (Level/hasParam l)))
                     2 (let [n (read-obj in names)
                             ls (let [k (.readInt in)]
-                                 (when-not (<= 0 k (.available in))
+                                 (when-not (<= 0 (* 4 k) (.available in))
                                    (throw (ex-info "proof-cache: a count beyond the entry" {:count k})))
                                  (vec (repeatedly k #(lvl (.readInt in)))))]
                         (Expr/mkConst n ls (boolean (some #(Level/hasParam %) ls))))
@@ -273,7 +284,9 @@
   (clojure.walk/postwalk
    (fn [x]
      (if-let [m (and (instance? clojure.lang.IObj x) (meta x))]
-       (let [m' (dissoc m :line :column :end-line :end-column :file :source)]
+       (let [m' (dissoc m :line :column :end-line :end-column :file :source)
+             ;; type forms in metadata (^{:- (List Nat)}) carry reader positions of their own
+             m' (into {} (map (fn [[k v]] [k (without-positions v)])) m')]
          (with-meta x (not-empty m')))
        x))
    form))
@@ -302,7 +315,9 @@
    encoded (mdata, a metavariable): the theorem is then proved without the cache."
   [thm-name goal-type intro-names tactic-forms]
   (try (entry-key* thm-name goal-type intro-names tactic-forms)
-       (catch Exception _ nil)))
+       (catch Exception _ nil)
+       ;; a deeply nested script or statement must not fail the declaration either
+       (catch StackOverflowError _ nil)))
 
 (defn- entry-file ^java.io.File [^String k]
   (io/file (str *dir*) (subs k 0 2) (subs k 2)))
@@ -314,6 +329,8 @@
   (let [f (entry-file k)]
     (when (.isFile f)
       (try
+        (when (> (.length f) max-entry-bytes)
+          (throw (ex-info "proof-cache: entry larger than the budget" {:bytes (.length f)})))
         (with-open [in (DataInputStream. (java.io.ByteArrayInputStream. (Files/readAllBytes (.toPath f))))]
           (read-entry in))
         (catch Throwable _ ::unreadable)))))
@@ -339,20 +356,28 @@
 
 (defn added-constants
   "The theorems `after` holds that `before` does not, in dependency order, or ::uncacheable
-   when the step between them also changed an environment extension or added another kind of
-   constant."
+   when the step between them did anything else: changed an environment extension, the
+   external view or the quotient state, replaced or dropped an earlier local constant, or added
+   a constant that is not a plain theorem (default `all` list)."
   [^Env before ^Env after]
   (cond
     (not (identical? (. before (extensions)) (. after (extensions)))) ::uncacheable
     (not (.sameExternalView before after)) ::uncacheable
     (not= (.isQuotEnabled before) (.isQuotEnabled after)) ::uncacheable
-    ;; the local count, not `size`: with an external store (Mathlib) `size` never changes
-    (= (.localCount before) (.localCount after)) []
+    ;; the same local overlay: nothing added (with an external store `size` does not show it)
+    (.sameLocals before after) []
     :else
-    (let [added (filterv (fn [^ConstantInfo ci] (nil? (.lookup before (.name ci))))
-                         (.allConstants after))]
+    (let [locals (.allConstants after)
+          added (filterv (fn [^ConstantInfo ci] (nil? (.lookupLocal before (.name ci)))) locals)
+          ;; every earlier local kept, identically; a tactic that replaced or dropped one (e.g. by
+          ;; switching to a sibling env) cannot be replayed as an addition
+          kept? (and (= (.localCount after) (+ (.localCount before) (count added)))
+                     (every? (fn [^ConstantInfo ci]
+                               (let [old (.lookupLocal before (.name ci))]
+                                 (or (nil? old) (identical? old ci))))
+                             locals))]
       ;; the entry stores theorems with the default `all` list only
-      (if (every? (fn [^ConstantInfo ci] (and (.isThm ci) (= [(.name ci)] (vec (.all ci))))) added)
+      (if (and kept? (every? (fn [^ConstantInfo ci] (and (.isThm ci) (= [(.name ci)] (vec (.all ci))))) added))
         (dependency-order added)
         ::uncacheable))))
 
