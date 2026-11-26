@@ -284,7 +284,7 @@
     (let [script (binding [*print-length* nil *print-level* nil *print-meta* true
                            *print-namespace-maps* false *print-dup* false *print-readably* true]
                    (pr-str (without-positions [intro-names tactic-forms])))]
-      (when-not (.contains script "#object[")
+      (when-not (.contains ^String script "#object[")
         (let [md (MessageDigest/getInstance "SHA-256")
               os (DigestOutputStream. (OutputStream/nullOutputStream) md)
               e (enc os)

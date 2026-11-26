@@ -76,9 +76,9 @@
   (binding [pc/*dir* "unused"]
     (let [goal (:type-ansatz (a/elab-signature (a/env) (a/parse-params '[n :- Nat]) '(= Nat (+ n 0) n)))
           script '[(simp [Nat.add_zero Nat.zero_add]) (rfl)]
-          k (pc/entry-key 'pc-key ["n"] goal script)]
+          k (pc/entry-key 'pc-key goal ["n"] script)]
       (is (string? k))
-      (is (= k (binding [*print-length* 1 *print-level* 1] (pc/entry-key 'pc-key ["n"] goal script)))))))
+      (is (= k (binding [*print-length* 1 *print-level* 1] (pc/entry-key 'pc-key goal ["n"] script)))))))
 
 (deftest added-theorems-are-found-in-an-env-with-an-external-store
   ;; With an external lookup (the Mathlib store) Env.size is the store's size and does not grow,
@@ -96,16 +96,16 @@
     (try
       (binding [pc/*dir* dir]
         (testing "a statement the codec cannot encode (mdata) gives no key, not an error"
-          (is (nil? (pc/entry-key 'pc-md ["n"] (ansatz.kernel.Expr/mdata {} goal) '[(simp)]))))
+          (is (nil? (pc/entry-key 'pc-md (ansatz.kernel.Expr/mdata {} goal) ["n"] '[(simp)]))))
         (testing "type hints are part of the key, source positions are not"
-          (let [k (fn [script] (pc/entry-key 'pc-meta ["n"] goal script))]
+          (let [k (fn [script] (pc/entry-key 'pc-meta goal ["n"] script))]
             (is (not= (k [(list 'f (with-meta 'x {:tag 'Nat}))])
                       (k [(list 'f (with-meta 'x {:tag 'Bool}))])))
             (is (= (k [(with-meta (list 'simp) {:line 1 :column 2})])
                    (k [(with-meta (list 'simp) {:line 40 :column 7})])))))
         (testing "an entry with trailing bytes, or cut short, is unreadable"
           (let [^ConstantInfo t (env/lookup (a/env) (name/from-string "Nat.add_zero"))
-                k (pc/entry-key 'pc-dec ["n"] goal '[(simp)])
+                k (pc/entry-key 'pc-dec goal ["n"] '[(simp)])
                 f (io/file dir (subs k 0 2) (subs k 2))]
             (#'pc/store! k [] t)
             (is (vector? (pc/lookup k)))
