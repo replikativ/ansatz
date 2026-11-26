@@ -210,11 +210,12 @@ public final class Env {
     /**
      * Whether the quotient module is initialized (Lean's is_quot_initialized): the flag set when
      * the package is admitted or loaded, and the four primitives add_quot generates actually
-     * present (and, in a staged view, admitted). Computed once per Env; an Env's declarations do
-     * not change.
+     * present (and, in a staged view, admitted). Memoized when the view is stable; a staged
+     * view's visibility moves with the verifier (forward and back), so it is asked each time.
      */
     public boolean isQuotEnabled() {
         if (!quotEnabled) return false;
+        if (visibilityCheck != null) return TypeChecker.hasQuotPackage(this);
         byte r = quotPackage;
         if (r == 0) quotPackage = r = TypeChecker.hasQuotPackage(this) ? (byte) 1 : (byte) 2;
         return r == 1;

@@ -2498,7 +2498,6 @@ public final class TypeChecker {
         }
         String why = nonCanonicalQuot(ci);
         if (why != null) throw new RuntimeException("Invalid quotient declaration '" + ci.name + "': " + why);
-        checkDuplicateUnivParams(ci.levelParams, ci.name);
         checkQuotEq(env);
         // add_quot generates the four together; a row given one at a time may only mention
         // primitives already admitted as add_quot generates them (Quot.mk's `Quot` must be the
@@ -2520,6 +2519,9 @@ public final class TypeChecker {
         Object kind = QUOT_KINDS.get(ci.name);
         if (!ci.isQuot() || kind == null || !kind.equals(ci.quotKind)) {
             return "not a canonical quotient primitive (Quot / Quot.mk / Quot.lift / Quot.ind) of its kind";
+        }
+        if (ci.levelParams == null || new java.util.HashSet<>(java.util.Arrays.asList(ci.levelParams)).size() != ci.levelParams.length) {
+            return "universe parameters are not distinct";
         }
         Expr expected = expectedQuotType((Name) ci.name, ci.levelParams);
         if (expected == null || !LeanExprKey.exprEquals(ci.type, expected)) {

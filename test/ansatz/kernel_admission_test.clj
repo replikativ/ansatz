@@ -110,6 +110,29 @@
         (is (.isQuotEnabled ^Env (loaded prims)))
         (is (not (.isQuotEnabled ^Env (loaded [quot fake-mk lift ind]))))
         (is (not (.isQuotEnabled ^Env (loaded [quot lift ind]))))))
+    (testing "a Quot.lift whose two universe parameters are one is not what add_quot generates"
+      (let [[u v] (vec (.levelParams ^ConstantInfo lift))
+            collapsed (ConstantInfo/mkQuot (.name ^ConstantInfo lift) (object-array [u u])
+                                           (e/instantiate-level-params (.type ^ConstantInfo lift)
+                                                                       {u (lvl/param u) v (lvl/param u)})
+                                           (.quotKind ^ConstantInfo lift))
+            loaded (.enableQuot ^Env (reduce (fn [^Env acc ci] (.addConstant acc ci)) (quot-free-env)
+                                             [quot (second prims) collapsed ind]))]
+        (is (not (.isQuotEnabled loaded)))
+        (is (thrown-with-msg? Exception #"not distinct"
+                              (TypeChecker/checkConstant (reduce (fn [^Env acc ci] (TypeChecker/checkConstant acc ci))
+                                                                 (quot-free-env) [quot (second prims)])
+                                                         collapsed)))))
+    (testing "a staged view follows its visibility as the verifier advances and rewinds"
+      (let [hidden (atom #{(n "Quot.ind")})
+            view (.withExternalLookupFiltered (.enableQuot (Env.))
+                                              (fn [nm] (env/lookup (a/env) nm)) 1000000
+                                              (fn [nm] (not (contains? @hidden nm))))]
+        (is (not (.isQuotEnabled ^Env view)))
+        (reset! hidden #{})
+        (is (.isQuotEnabled ^Env view))
+        (reset! hidden #{(n "Quot.ind")})
+        (is (not (.isQuotEnabled ^Env view)))))
     (testing "in a staged view quotients are initialized only once all four are visible"
       (let [staged (fn [hidden]
                      (.withExternalLookupFiltered (.enableQuot (Env.))

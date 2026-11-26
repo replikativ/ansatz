@@ -914,112 +914,113 @@
         quot-enabled? (atom false)
         seen (java.util.HashSet.)
         lw (java.io.FileWriter. (str log-file) false)]
-    (log! lw "Streaming import of" path "into branch" (pr-str branch-name) "...")
+    (try
+      (log! lw "Streaming import of" path "into branch" (pr-str branch-name) "...")
     ;; Phase 1: Parse NDJSON, collect CI-shells
-    (let [result (parser/parse-ndjson-file-streaming-raw
-                  path
-                  nil
-                  (fn [_state ci-shell]
-                    (let [n (swap! count-atom inc)]
-                      (if (and max-count (> n max-count))
-                        (reduced nil)
-                        (let [ci-name (:name ci-shell)
-                              name-str (.toString ^Name ci-name)]
-                          (when-not (.add seen ci-name)
-                            (throw (ex-info (str "Declaration order repeats a name: " name-str)
-                                            {:name name-str})))
-                          (swap! env-entries conj! [ci-name (CIShell. ci-shell)])
-                          (swap! decl-order conj! name-str)
-                          (when (= 4 (:tag ci-shell))
-                            (reset! quot-enabled? true))
-                          (when (and verbose? (zero? (mod n 10000)))
-                            (let [rt (Runtime/getRuntime)
-                                  used (quot (- (.totalMemory rt) (.freeMemory rt)) 1048576)]
-                              (log! lw (str "  [" n "] " name-str " mem=" used "MB"))))
-                          nil)))))
-          parser-st (:parser-state result)
-          ^ExprStore expr-store (:exprs parser-st)
-          ^ArrayList names-al (:names parser-st)
-          ^ArrayList levels-al (:levels parser-st)
-          decl-count @count-atom
-          order-vec (persistent! @decl-order)
-          t1 (System/currentTimeMillis)]
-      (log! lw "  Parsing done:" decl-count "declarations in" (- t1 start-time) "ms")
+      (let [result (parser/parse-ndjson-file-streaming-raw
+                    path
+                    nil
+                    (fn [_state ci-shell]
+                      (let [n (swap! count-atom inc)]
+                        (if (and max-count (> n max-count))
+                          (reduced nil)
+                          (let [ci-name (:name ci-shell)
+                                name-str (.toString ^Name ci-name)]
+                            (when-not (.add seen ci-name)
+                              (throw (ex-info (str "Declaration order repeats a name: " name-str)
+                                              {:name name-str})))
+                            (swap! env-entries conj! [ci-name (CIShell. ci-shell)])
+                            (swap! decl-order conj! name-str)
+                            (when (= 4 (:tag ci-shell))
+                              (reset! quot-enabled? true))
+                            (when (and verbose? (zero? (mod n 10000)))
+                              (let [rt (Runtime/getRuntime)
+                                    used (quot (- (.totalMemory rt) (.freeMemory rt)) 1048576)]
+                                (log! lw (str "  [" n "] " name-str " mem=" used "MB"))))
+                            nil)))))
+            parser-st (:parser-state result)
+            ^ExprStore expr-store (:exprs parser-st)
+            ^ArrayList names-al (:names parser-st)
+            ^ArrayList levels-al (:levels parser-st)
+            decl-count @count-atom
+            order-vec (persistent! @decl-order)
+            t1 (System/currentTimeMillis)]
+        (log! lw "  Parsing done:" decl-count "declarations in" (- t1 start-time) "ms")
 
       ;; Phase 2: Build env-PSS from CI-shell entries
-      (log! lw "  Building env-PSS...")
-      (let [entries (persistent! @env-entries)
-            sorted-entries (vec (sort-by (fn [[^Name n _]] (.toString n)) entries))
-            _ (log! lw "  " (count sorted-entries) "sorted entries")
-            [env-root env-count] (persist-pss! sorted-entries name-cmp storage "env")
-            t2 (System/currentTimeMillis)]
-        (log! lw "  env-PSS built:" (- t2 t1) "ms")
+        (log! lw "  Building env-PSS...")
+        (let [entries (persistent! @env-entries)
+              sorted-entries (vec (sort-by (fn [[^Name n _]] (.toString n)) entries))
+              _ (log! lw "  " (count sorted-entries) "sorted entries")
+              [env-root env-count] (persist-pss! sorted-entries name-cmp storage "env")
+              t2 (System/currentTimeMillis)]
+          (log! lw "  env-PSS built:" (- t2 t1) "ms")
 
         ;; Phase 3: Build exprs-PSS incrementally (streaming, bf=512)
-        (let [max-id (.maxId expr-store)]
-          (log! lw "  Building exprs-PSS..." max-id "expressions (streaming, bf=512)")
-          (let [[exprs-root exprs-count]
-                (persist-pss-streaming!
-                 max-id
-                 (fn [i] (when-let [raw (try (.readRaw expr-store (int i))
-                                             (catch Exception _ nil))]
-                           [(long i) raw]))
-                 id-cmp storage "exprs" lw
-                 :branching-factor 512 :flush-interval 100000)
-                t3 (System/currentTimeMillis)]
-            (.close expr-store)
-            (log! lw "  exprs-PSS built:" (- t3 t2) "ms")
+          (let [max-id (.maxId expr-store)]
+            (log! lw "  Building exprs-PSS..." max-id "expressions (streaming, bf=512)")
+            (let [[exprs-root exprs-count]
+                  (persist-pss-streaming!
+                   max-id
+                   (fn [i] (when-let [raw (try (.readRaw expr-store (int i))
+                                               (catch Exception _ nil))]
+                             [(long i) raw]))
+                   id-cmp storage "exprs" lw
+                   :branching-factor 512 :flush-interval 100000)
+                  t3 (System/currentTimeMillis)]
+              (.close expr-store)
+              (log! lw "  exprs-PSS built:" (- t3 t2) "ms")
 
             ;; Phase 4: Build names-PSS (in-memory, small enough)
-            (log! lw "  Building names-PSS..." (.size names-al) "names")
-            (let [name-entries (into []
-                                     (for [i (range (.size names-al))
-                                           :let [n (.get names-al i)]
-                                           :when (some? n)]
-                                       [(long i) n]))
-                  [names-root names-count] (persist-pss! name-entries id-cmp storage "names"
-                                                         :branching-factor 512)
-                  t4 (System/currentTimeMillis)]
-              (log! lw "  names-PSS built:" (- t4 t3) "ms")
+              (log! lw "  Building names-PSS..." (.size names-al) "names")
+              (let [name-entries (into []
+                                       (for [i (range (.size names-al))
+                                             :let [n (.get names-al i)]
+                                             :when (some? n)]
+                                         [(long i) n]))
+                    [names-root names-count] (persist-pss! name-entries id-cmp storage "names"
+                                                           :branching-factor 512)
+                    t4 (System/currentTimeMillis)]
+                (log! lw "  names-PSS built:" (- t4 t3) "ms")
 
               ;; Phase 5: Build levels-PSS (in-memory, small enough)
-              (log! lw "  Building levels-PSS..." (.size levels-al) "levels")
-              (let [level-entries (into []
-                                        (for [i (range (.size levels-al))
-                                              :let [l (.get levels-al i)]
-                                              :when (some? l)]
-                                          [(long i) l]))
-                    [levels-root levels-count] (persist-pss! level-entries id-cmp storage "levels"
-                                                             :branching-factor 512)
-                    t5 (System/currentTimeMillis)]
-                (log! lw "  levels-PSS built:" (- t5 t4) "ms")
+                (log! lw "  Building levels-PSS..." (.size levels-al) "levels")
+                (let [level-entries (into []
+                                          (for [i (range (.size levels-al))
+                                                :let [l (.get levels-al i)]
+                                                :when (some? l)]
+                                            [(long i) l]))
+                      [levels-root levels-count] (persist-pss! level-entries id-cmp storage "levels"
+                                                               :branching-factor 512)
+                      t5 (System/currentTimeMillis)]
+                  (log! lw "  levels-PSS built:" (- t5 t4) "ms")
 
                 ;; Phase 6: Save metadata — chunk decl-order for large imports
-                (let [chunk-size 10000
-                      order-chunks (partition-all chunk-size order-vec)
-                      num-chunks (count (seq order-chunks))]
-                  (log! lw "  Saving decl-order:" (count order-vec) "entries in" num-chunks "chunks")
-                  (doseq [[i chunk] (map-indexed vector order-chunks)]
-                    (store-put store [:decl-order branch-name i] (vec chunk)))
-                  (let [branch-meta {:env-root env-root
-                                     :env-count env-count
-                                     :exprs-root exprs-root
-                                     :exprs-count exprs-count
-                                     :names-root names-root
-                                     :names-count names-count
-                                     :levels-root levels-root
-                                     :levels-count levels-count
-                                     :quot-enabled @quot-enabled?
-                                     :timestamp (System/currentTimeMillis)
-                                     :dag-storage? true
-                                     :decl-order-chunks num-chunks
-                                     :decl-order-total (count order-vec)}]
-                    (store-put store [:branches branch-name] branch-meta)
-                    (let [elapsed (- (System/currentTimeMillis) start-time)]
-                      (log! lw "Import done:" decl-count "declarations,"
-                            max-id "expressions in" elapsed "ms")
-                      (.close lw)
-                      branch-meta)))))))))))
+                  (let [chunk-size 10000
+                        order-chunks (partition-all chunk-size order-vec)
+                        num-chunks (count (seq order-chunks))]
+                    (log! lw "  Saving decl-order:" (count order-vec) "entries in" num-chunks "chunks")
+                    (doseq [[i chunk] (map-indexed vector order-chunks)]
+                      (store-put store [:decl-order branch-name i] (vec chunk)))
+                    (let [branch-meta {:env-root env-root
+                                       :env-count env-count
+                                       :exprs-root exprs-root
+                                       :exprs-count exprs-count
+                                       :names-root names-root
+                                       :names-count names-count
+                                       :levels-root levels-root
+                                       :levels-count levels-count
+                                       :quot-enabled @quot-enabled?
+                                       :timestamp (System/currentTimeMillis)
+                                       :dag-storage? true
+                                       :decl-order-chunks num-chunks
+                                       :decl-order-total (count order-vec)}]
+                      (store-put store [:branches branch-name] branch-meta)
+                      (let [elapsed (- (System/currentTimeMillis) start-time)]
+                        (log! lw "Import done:" decl-count "declarations,"
+                              max-id "expressions in" elapsed "ms")
+                        branch-meta)))))))))
+      (finally (.close lw)))))
 
 ;; ============================================================
 ;; Large-stack thread helper
@@ -1103,7 +1104,6 @@
   [store-map branch-name & {:keys [log-file append?]
                             :or {log-file (str (System/getProperty "java.io.tmpdir") "/ansatz-verify.log")}}]
   (let [{:keys [store]} store-map
-        lw (java.io.FileWriter. (str log-file) (boolean append?))
         loader (branch-loader store-map branch-name)
         {:keys [branch-meta lookup-ci]} loader]
     (let [decl-order (if-let [num-chunks (:decl-order-chunks branch-meta)]
@@ -1122,6 +1122,7 @@
               ;; twice against an environment that never shows it
               (when (.put decl-ranks (ansatz-name/from-string name-str) (long i))
                 (throw (ex-info "Declaration order repeats a name" {:name name-str :rank i}))))
+          lw (java.io.FileWriter. (str log-file) (boolean append?))
           visible? (fn [^Name name]
                      (when-let [rank (.get decl-ranks name)]
                        (let [rank (long rank)]
