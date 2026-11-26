@@ -73,8 +73,8 @@ cd "$PARENT_DIR/lean4export"
 
 # Match lean4export's toolchain to cslib's
 CSLIB_TOOLCHAIN=$(cat "$PARENT_DIR/cslib/lean-toolchain")
-echo "$CSLIB_TOOLCHAIN" > lean-toolchain
-lake build
+# selected per command, so the shared checkout's lean-toolchain is never rewritten
+ELAN_TOOLCHAIN="$CSLIB_TOOLCHAIN" lake build
 echo "    Built lean4export for $CSLIB_TOOLCHAIN"
 
 # ============================================================

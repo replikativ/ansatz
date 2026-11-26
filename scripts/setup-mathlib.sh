@@ -39,26 +39,7 @@ LIB_DIR="$PARENT_DIR/mathlib4"
 MATHLIB_TAG="${MATHLIB_TAG:-v4.33.1}"
 LEAN4EXPORT_TAG="${LEAN4EXPORT_TAG:-v4.33.0}"
 
-# Check out `ref` in a clone, refusing to discard someone's uncommitted work.
-checkout_pinned() {
-    local dir="$1" ref="$2"
-    # (lean-toolchain is excluded: this script rewrites lean4export's to Mathlib's, see below)
-    if [ -n "$(git -C "$dir" status --porcelain --untracked-files=no -- . ':!lean-toolchain')" ]; then
-        echo "ERROR: $dir has uncommitted changes; commit or stash them before pinning to $ref" >&2
-        exit 1
-    fi
-    if [ "$(git -C "$dir" describe --tags --exact-match 2>/dev/null || true)" != "$ref" ]; then
-        echo ">>> Checking out $ref in $dir"
-        # a failed fetch (e.g. a moved tag) only matters if the ref is not here
-        git -C "$dir" fetch -q --tags origin \
-            || git -C "$dir" rev-parse -q --verify "$ref^{commit}" >/dev/null
-        # this script rewrites lean-toolchain (see below); restore it, or the checkout refuses
-        git -C "$dir" checkout -q -- lean-toolchain 2>/dev/null || true
-        git -C "$dir" checkout -q "$ref"
-    else
-        echo ">>> $dir is at $ref"
-    fi
-}
+source "$(dirname "${BASH_SOURCE[0]}")/lib/checkout-pinned.sh"
 
 echo "=== Ansatz Mathlib Setup ==="
 echo "Project:  $PROJECT_DIR"
@@ -87,11 +68,9 @@ checkout_pinned "$LIB_DIR" "$MATHLIB_TAG"
 checkout_pinned "$PARENT_DIR/lean4export" "$LEAN4EXPORT_TAG"
 TOOLCHAIN="$(cat "$LIB_DIR/lean-toolchain")"
 # lean4export must run on the toolchain that built Mathlib's oleans (a patch release apart from
-# its own tag is fine — the export API does not move within a minor version).
-if [ "$(cat "$PARENT_DIR/lean4export/lean-toolchain")" != "$TOOLCHAIN" ]; then
-    echo ">>> Aligning lean4export to Mathlib's toolchain $TOOLCHAIN"
-    echo "$TOOLCHAIN" > "$PARENT_DIR/lean4export/lean-toolchain"
-fi
+# its own tag is fine — the export API does not move within a minor version). It is selected per
+# command with ELAN_TOOLCHAIN, so the checkout's lean-toolchain is never rewritten.
+echo ">>> lean4export builds on Mathlib's toolchain $TOOLCHAIN"
 echo ">>> Fetching Mathlib's olean cache for $MATHLIB_TAG (idempotent; several GB the first time)"
 (cd "$LIB_DIR" && lake exe cache get)
 
@@ -102,7 +81,7 @@ echo ">>> Fetching Mathlib's olean cache for $MATHLIB_TAG (idempotent; several G
 echo ""
 echo ">>> Building lean4export..."
 cd "$PARENT_DIR/lean4export"
-lake build
+ELAN_TOOLCHAIN="$TOOLCHAIN" lake build
 echo "    Built: $(ls .lake/build/bin/lean4export 2>/dev/null && echo 'OK' || echo 'FAILED')"
 
 # ============================================================
