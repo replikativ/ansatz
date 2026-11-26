@@ -86,8 +86,11 @@
   (Expr/mdata data expr))
 
 (defn proj
-  "Structure projection."
+  "Structure projection. The index is Lean's Nat: a non-negative integer (a fraction such as
+   -0.5 is refused rather than coerced to field 0)."
   [type-name idx ^Expr struct]
+  (when-not (and (integer? idx) (<= 0 idx Long/MAX_VALUE))
+    (throw (IllegalArgumentException. (str "a projection index must be a non-negative integer, got " idx))))
   (Expr/proj type-name (long idx) struct))
 
 (defn fvar

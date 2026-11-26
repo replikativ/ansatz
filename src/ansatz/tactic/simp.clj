@@ -1821,9 +1821,11 @@
                 (when (e/const? sh)
                   (when-let [cci (env/lookup env (e/const-name sh))]
                     (when (.isCtor ^ConstantInfo cci)
-                      (let [fidx (+ (.numParams ^ConstantInfo cci) (e/proj-idx body))]
-                        (when (< fidx (count sargs))
-                          (mk-result (nth sargs fidx))))))))
+                      ;; compare before adding, so a huge index cannot overflow (Reducer.projField)
+                      (let [i (long (e/proj-idx body))
+                            np (.numParams ^ConstantInfo cci)]
+                        (when (and (<= 0 i) (< i (- (count sargs) np)))
+                          (mk-result (nth sargs (+ np i)))))))))
               :else nil)))))))
 
 (def ^:private match-unfold-whitelist

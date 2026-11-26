@@ -622,10 +622,12 @@
                   (let [struct (step (e/proj-struct head) true)
                         [sh sa] (e/get-app-fn-args struct)
                         ci (when (e/const? sh) (env/lookup env (e/const-name sh)))
-                        idx (when (and ci (.isCtor ^ConstantInfo ci))
+                        ;; compare before adding, so a huge index cannot overflow
+                        idx (when (and ci (.isCtor ^ConstantInfo ci)
+                                       (<= 0 (e/proj-idx head) (- (count sa) (.numParams ^ConstantInfo ci) 1)))
                               (+ (.numParams ^ConstantInfo ci) (e/proj-idx head)))]
                     (cond
-                      (and idx (< idx (count sa)))
+                      idx
                       (step (reduce e/app (nth sa idx) args))
                       ;; Variable/nested symbolic instances use the existing representation-aware
                       ;; Expr.proj lowering (registered record field or constructor-vector slot).

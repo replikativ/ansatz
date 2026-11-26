@@ -1614,6 +1614,8 @@ public final class Reducer {
 
     private Expr tryReduceProj(Expr e, boolean cheapRec, boolean cheapProj) {
         if (e.tag != Expr.PROJ) return null;
+        // no field can have this index: do not spend fuel normalizing the target first
+        if (e.longVal < 0 || e.longVal > Integer.MAX_VALUE) return null;
         reducerTrace("proj.enter cheapRec=" + cheapRec + " cheapProj=" + cheapProj, e, null);
         // Lean 4's reduce_proj: cheapProj → whnf_core(struct, cheapRec, cheapProj), else whnf(struct)
         Expr struct = cheapProj ? whnfCore((Expr) e.o1, cheapRec, cheapProj) : whnf((Expr) e.o1);
@@ -1633,14 +1635,19 @@ public final class Reducer {
         ConstantInfo ci = env.lookup((Name) head.o0);
         if (ci == null || !ci.isCtor()) return null;
 
-        int fieldStart = ci.numParams;
-        int fieldIdx = fieldStart + (int) e.longVal;
-        if (fieldIdx < structArgs.length) {
-            Expr r = structArgs[fieldIdx];
-            reducerTrace("proj.reduced cheapRec=" + cheapRec + " cheapProj=" + cheapProj, e, r);
-            return r;
-        }
-        return null;
+        Expr r = projField(ci, structArgs, e.longVal);
+        if (r != null) reducerTrace("proj.reduced cheapRec=" + cheapRec + " cheapProj=" + cheapProj, e, r);
+        return r;
+    }
+
+    /**
+     * Field `idx` (Lean's Nat) of a constructor application with arguments `args`, or null when
+     * the index is negative or past the last argument. Compares before adding the parameter
+     * count, so no index can wrap (Lean type_checker.cpp:237 checks the index fits too).
+     */
+    static Expr projField(ConstantInfo ctor, Expr[] args, long idx) {
+        if (idx < 0 || idx >= (long) args.length - ctor.numParams) return null;
+        return args[(int) (ctor.numParams + idx)];
     }
 
     // ============================================================

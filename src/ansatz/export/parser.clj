@@ -180,7 +180,11 @@
       (let [data (get obj "proj")]
         (.storeProj exprs idx
                     (int (get data "typeName"))
-                    (int (get data "idx"))
+                    (let [i (get data "idx")]
+                      ;; Lean's Nat: a fraction or a negative number is not coerced to a field
+                      (when-not (and (integer? i) (<= 0 i Integer/MAX_VALUE))
+                        (throw (ex-info "Invalid projection index" {:idx i})))
+                      (int i))
                     (int (get data "struct")))
         st)
 

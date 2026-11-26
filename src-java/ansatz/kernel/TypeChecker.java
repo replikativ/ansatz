@@ -972,6 +972,11 @@ public final class TypeChecker {
                 break;
 
             case Expr.PROJ: {
+                // The field index is a Nat. Expr.proj refuses a negative one; the range check keeps
+                // the int conversions below exact (a wrapped index would type one field and reduce
+                // to another).
+                if (e.longVal < 0 || e.longVal > Integer.MAX_VALUE)
+                    throw new RuntimeException("Type error: invalid projection index " + e.longVal);
                 Expr structType = whnf(inferTypeCore((Expr) e.o1, inferOnly));
                 Object[] fa = Reducer.getAppFnArgs(structType);
                 Expr head = (Expr) fa[0];
@@ -1421,7 +1426,7 @@ public final class TypeChecker {
         // Step 5b: Projection structure check
         if (tn.tag == Expr.PROJ && sn.tag == Expr.PROJ &&
             tn.longVal == sn.longVal) {
-            if (lazyDeltaProjReduction((Expr) tn.o1, (Expr) sn.o1, (int) tn.longVal)) {
+            if (lazyDeltaProjReduction((Expr) tn.o1, (Expr) sn.o1, tn.longVal)) {
                 if (doEmit) emitTrace(lFp, rFp, true, "proj_delta");
                 return true;
             }
@@ -1911,7 +1916,7 @@ public final class TypeChecker {
      * When both sides are projections with the same index, try lazy delta
      * on the struct arguments, then fall back to reduce_proj_core.
      */
-    private boolean lazyDeltaProjReduction(Expr tc, Expr sc, int idx) {
+    private boolean lazyDeltaProjReduction(Expr tc, Expr sc, long idx) {
         // Run lazy delta reduction steps on the struct expressions
         Expr[] holder = new Expr[]{tc, sc};
         for (int iter = 0; iter < 10000; iter++) {
@@ -2044,7 +2049,7 @@ public final class TypeChecker {
      * Given a constructor application, extract the field at index idx.
      * Does NOT call whnf — only works if the expression is already a constructor.
      */
-    private Expr reduceProjCore(Expr c, int idx) {
+    private Expr reduceProjCore(Expr c, long idx) {
         Object[] fa = Reducer.getAppFnArgs(c);
         Expr head = (Expr) fa[0];
         Expr[] args = (Expr[]) fa[1];
@@ -2053,11 +2058,7 @@ public final class TypeChecker {
         ConstantInfo ci = env.lookup((Name) head.o0);
         if (ci == null || !ci.isCtor()) return null;
 
-        int fieldIdx = ci.numParams + idx;
-        if (fieldIdx < args.length) {
-            return args[fieldIdx];
-        }
-        return null;
+        return Reducer.projField(ci, args, idx);
     }
 
     /**

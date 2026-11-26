@@ -473,8 +473,11 @@ public final class Expr {
         return new Expr(MDATA, dd, data, expr, null, null, 0);
     }
 
-    /** Structure projection. */
+    /** Structure projection. The field index is Lean's `Nat`: a negative index is refused. */
     public static Expr proj(Object typeName, long idx, Expr struct) {
+        if (idx < 0)
+            throw new IllegalArgumentException(
+                "a projection index must be non-negative (Lean's Expr.proj takes a Nat), got " + idx);
         int h = (Objects.hashCode(typeName) * 31 + Long.hashCode(idx) * 17
                 + struct.structuralHash()) * 31 + PROJ;
         long d = packData(struct.bvarRange(), h, struct.hasFVar(), struct.hasMVar(), struct.hasLevelParam());
