@@ -355,11 +355,14 @@ cd ../lean4export && lake build
 # 2. Export Mathlib to NDJSON (~5 min, ~5GB)
 # Preserve mdata so imported declarations stay closer to Lean kernel trace space.
 cd ../mathlib4
-lake env ../lean4export/.lake/build/bin/lean4export --export-mdata Mathlib > ../ansatz/test-data/mathlib.ndjson
+lake env ../lean4export/.lake/build/bin/lean4export --export-mdata Mathlib > ../ansatz/test-data/mathlib.ndjson.partial
+mv ../ansatz/test-data/mathlib.ndjson.partial ../ansatz/test-data/mathlib.ndjson
 
 # 3. Dump Lean's @[instance] registry (~2 min) — module order and real priorities, both
 #    load-bearing for synthesis (see scripts/dump_instances.lean)
-lake env lean --run ../ansatz/scripts/dump_instances.lean Mathlib > ../ansatz/test-data/mathlib-instances.tsv
+#    (write to a temporary file and move it only when the dump succeeds)
+lake env lean --run ../ansatz/scripts/dump_instances.lean Mathlib > ../ansatz/test-data/mathlib-instances.tsv.partial
+mv ../ansatz/test-data/mathlib-instances.tsv.partial ../ansatz/test-data/mathlib-instances.tsv
 
 # 4. Dump the attributes (co-generated with the export)
 lake env lean --run ../ansatz/scripts/dump_attrs.lean Mathlib | gzip -c > ../ansatz/test-data/mathlib-attrs.ndjson.gz
