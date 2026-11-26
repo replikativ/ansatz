@@ -148,6 +148,7 @@ public final class Reducer {
      * Lift (shift) free de Bruijn indices in e by d, starting from cutoff c.
      */
     public static Expr lift(Expr e, int d, int c) {
+        if (d == 0 || e.bvarRange() <= c) return e;
         return liftGo(e, d, c, new ArrayList<>());
     }
 
@@ -272,17 +273,21 @@ public final class Reducer {
                 }
                 case Expr.APP: {
                     // Nested argument visits use the stack above this frame.
+                    // Prefixes are memoized like any subterm: a prefix shared elsewhere in the
+                    // term is rebuilt once.
                     int base = spine.size();
-                    Expr fn = e;
+                    Expr fn = e, head = null;
                     while (fn.tag == Expr.APP && fn.bvarRange() > depth) {
+                        if (fn != e && (head = cache.get(fn)) != null) break;
                         spine.add(fn);
                         fn = (Expr) fn.o0;
                     }
-                    result = apply(fn, depth);
+                    result = head != null ? head : apply(fn, depth);
                     while (spine.size() > base) {
                         Expr app = spine.remove(spine.size() - 1);
                         Expr arg = apply((Expr) app.o1, depth);
                         result = result == app.o0 && arg == app.o1 ? app : Expr.app(result, arg);
+                        if (app != e) cache.put(app, result);
                     }
                     break;
                 }

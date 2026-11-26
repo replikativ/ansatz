@@ -1344,8 +1344,8 @@
    Jumps to its index, verifies one, then returns the result.
    Options are passed through to verify-one! (e.g. :fuel)."
   [ctx name-str & opts]
-  (let [i (.indexOf ^java.util.List (:decl-order ctx) name-str)]
-    (when (neg? i)
+  (let [i (first (keep-indexed (fn [i n] (when (= n name-str) i)) (:decl-order ctx)))]
+    (when-not i
       (throw (ex-info "Declaration not found" {:name name-str})))
     (skip-to! ctx i)
     (apply verify-one! ctx opts)))

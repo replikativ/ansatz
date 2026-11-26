@@ -455,3 +455,32 @@
               result (replay-fn (:decls st) :verbose? false)]
           (is (zero? (:errors (:stats result))))
           (is (pos? (:ok (:stats result)))))))))
+
+(deftest instantiate-keeps-identity-and-sharing
+  (let [f (mk-const "f") g (mk-const "g") a (mk-const "a")]
+    (testing "closed terms and empty slices come back as the same object"
+      (let [closed (e/app f a)]
+        (is (identical? closed (Reducer/instantiate1 closed a)))
+        (is (identical? closed (Reducer/instantiateRev closed 0 (into-array Expr [a]) 0)))))
+    (testing "an unchanged application prefix is reused"
+      (let [x (e/bvar 0) p (e/app f x) t (e/app p (e/bvar 1))
+            r (Reducer/instantiate1 t x)]
+        ;; bvar 0 := bvar 0 (itself); bvar 1 lowers to bvar 0
+        (is (identical? p (.o0 ^Expr r)))))
+    (testing "a prefix shared as function and argument is rebuilt once"
+      (let [p (e/app f (e/bvar 0)) t (e/app p p)
+            ^Expr r (Reducer/instantiate1 t a)]
+        (is (= (e/app (e/app f a) (e/app f a)) r))
+        (is (identical? (.o0 r) (.o1 r)))))
+    (testing "an argument with its own spine, visited while outer frames are pending"
+      (let [inner (e/app (e/app g (e/bvar 0)) (e/bvar 1))
+            t (e/app (e/app f inner) (e/bvar 0))
+            r (Reducer/instantiateRev t 2 (into-array Expr [a f]) 0)]
+        ;; application order: bvar 1 := a, bvar 0 := f
+        (is (= (e/app (e/app f (e/app (e/app g f) a)) f) r))))
+    (testing "the same open subtree under two binder depths"
+      (let [s (e/app f (e/bvar 0))
+            t (e/app (e/lam "y" type0 (e/app s (e/bvar 1)) bi) s)
+            r (Reducer/instantiate1 t (e/bvar 3))]
+        ;; outside: bvar 0 := bvar 3; under λy: bvar 0 is y, bvar 1 := bvar 4 (lifted)
+        (is (= (e/app (e/lam "y" type0 (e/app (e/app f (e/bvar 0)) (e/bvar 4)) bi) (e/app f (e/bvar 3))) r))))))
