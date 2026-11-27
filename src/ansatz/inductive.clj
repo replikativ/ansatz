@@ -237,14 +237,20 @@
                         mask (reduce (fn [mask i]
                                        (if (and (< i (count xs)) (= (nth xs i) (nth rargs i))) mask (assoc mask i false)))
                                      mask (range n-params arity))
+                        ;; Lean forEachWhere: at a family application inspect its argument
+                        ;; vector and stop; elsewhere visit every child
                         occurrences (fn occ [x]
                                       (let [[h as] (e/get-app-fn-args x)]
-                                        (concat (when (and (e/const? h) (= (e/const-name h) ind-name)) [(vec as)])
-                                                (case (e/tag x)
-                                                  :app (mapcat occ as)
-                                                  :forall (concat (occ (e/forall-type x)) (occ (e/forall-body x)))
-                                                  :lam (concat (occ (e/lam-type x)) (occ (e/lam-body x)))
-                                                  nil))))]
+                                        (if (and (e/const? h) (= (e/const-name h) ind-name))
+                                          [(vec as)]
+                                          (case (e/tag x)
+                                            :app (concat (occ (e/app-fn x)) (occ (e/app-arg x)))
+                                            :forall (concat (occ (e/forall-type x)) (occ (e/forall-body x)))
+                                            :lam (concat (occ (e/lam-type x)) (occ (e/lam-body x)))
+                                            :let (concat (occ (e/let-type x)) (occ (e/let-value x)) (occ (e/let-body x)))
+                                            :mdata (occ (e/mdata-expr x))
+                                            :proj (occ (e/proj-struct x))
+                                            nil))))]
                     (reduce (fn [mask as]
                               (reduce (fn [mask i]
                                         (if (and (< i (count as)) (= (nth as i) (nth rargs i))) mask (assoc mask i false)))
@@ -270,6 +276,10 @@
                           inferResultingUniverse; a type with one constructor whose fields are
                           all proofs is a Prop, empty and fieldless types are Type)
        :indices         - flat vector [idx-name idx-type ...] for indexed families
+       :promote-indices? - promote a fixed prefix of the indices to parameters (Lean's
+                          inductive.autoPromoteIndices). Default true; a/inductive takes it
+                          after :indices, e.g. `:indices [n Nat] :promote-indices? false`.
+       Binder kinds: a parameter, index or field symbol with ^:implicit, ^:inst or ^:strict.
        :no-confusion?   - emit T.noConfusionType and T.noConfusion. Default true.
                           Set false to omit these auxiliaries explicitly.
 

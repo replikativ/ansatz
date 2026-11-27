@@ -197,12 +197,13 @@
 
    Returns: updated env with the instance added."
   [env type-name-str ctor-specs]
-  ;; Validate: all constructors must have zero fields (simple enum)
-  (doseq [[ctor-name fields] ctor-specs]
-    (when (seq fields)
-      (throw (ex-info (str "derive DecidableEq: constructor " ctor-name
+  ;; Validate: every checked constructor has zero fields (a promoted index is a parameter,
+  ;; not a field, whatever the source spelled)
+  (doseq [c (.ctors ^ansatz.kernel.ConstantInfo (env/lookup! env (name/from-string type-name-str)))]
+    (when (pos? (.numFields ^ansatz.kernel.ConstantInfo (env/lookup! env c)))
+      (throw (ex-info (str "derive DecidableEq: constructor " c
                            " has fields — only zero-field enums are supported")
-                      {:constructor ctor-name :fields fields}))))
+                      {:constructor (str c)}))))
   (let [type-nm (name/from-string type-name-str)
         ^ansatz.kernel.ConstantInfo ind-ci (env/lookup! env type-nm)
         _ (when (pos? (.numIndices ind-ci))

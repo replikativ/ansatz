@@ -32,11 +32,24 @@
              (conj acc {:name (str (first syms)) :sym (first syms)
                         :compiled-type (e/forall-type type)})))))
 
+(defn- binder-info [sym]
+  (let [m (meta sym)]
+    (cond (:inst m) :inst-implicit (:implicit m) :implicit (:strict m) :strict-implicit :else :default)))
+
+(defn- with-binder-infos [type syms]
+  (if (and (seq syms) (e/forall? type))
+    (e/forall' (e/forall-name type) (e/forall-type type)
+               (with-binder-infos (e/forall-body type) (rest syms)) (binder-info (first syms)))
+    type))
+
 (defn elab-headers [environment param-pairs index-pairs result-level]
   (let [pairs (into param-pairs index-pairs)
         form (list 'forall (vec (mapcat (fn [[s t]] [s (surface-form t)]) pairs))
                    (e/sort' result-level))
         type (term/elaborate-in-context environment {} form nil {:type-position true})
+        ;; the header binders' kinds (symbol metadata) are part of the family local too, so a
+        ;; recursive occurrence `(R x)` elaborates against `R {α} …`
+        type (with-binder-infos type (map first pairs))
         [params rest-type] (telescope type (map first param-pairs))
         [indices _] (telescope rest-type (map first index-pairs))]
     ;; Lean elabHeadersAux preserves the family's explicit binders. elabCtors'

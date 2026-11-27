@@ -70,3 +70,26 @@
     (eval '(ansatz.core/inductive BkBox [^:implicit α Type] (mk [^:implicit n Nat] [x α]))))
   (is (= [:implicit] (infos "BkBox")))
   (is (= [:implicit :implicit :default] (infos "BkBox.mk"))))
+
+(deftest review-cases
+  (testing "a recursive occurrence elaborates against the header's implicit binder"
+    (let [out (ind/define-inductive (a/env) "BkR" ['^:implicit α 'Type] [['base '[x α] '[x]] ['cons '[x α tail (BkR x)] '[x]]]
+                :indices '[a α] :promote-indices? false)]
+      (is (some? (env/lookup out (name/from-string "BkR.cons"))))))
+  (testing "a varying recursive occurrence under a let blocks promotion"
+    (let [out (ind/define-inductive (a/env) "BkLet" [] [['nil '[n Nat] '[n]]
+                                                        ['step '[n Nat tail (let [j Nat (Nat.succ n)] (BkLet j))] '[n]]]
+                :indices '[k Nat])]
+      (is (= 0 (.numParams (env/lookup out (name/from-string "BkLet")))))))
+  (testing "a promoted index is no field: DecidableEq deriving sees a fieldless constructor"
+    (binding [a/*verbose* false *ns* (the-ns 'ansatz.binder-kinds-test)]
+      (eval '(ansatz.core/inductive BkTag [] :indices [n Nat] (mk [n Nat] :where [n]) :deriving [DecidableEq])))
+    (is (= 1 (.numParams (env/lookup (a/env) (name/from-string "BkTag")))))
+    (is (some? (env/lookup (a/env) (name/from-string "instDecidableEqBkTag")))))
+  (testing "a bare constructor keeps its strict-implicit binder (Lean processStrictImplicitArg)"
+    (ind/define-inductive (a/env) "BkPack" [] [['mk ['^:strict n 'Nat 'f '(Fin n)]]])
+    (let [bare ((requiring-resolve 'ansatz.surface.elaborate/elaborate) (a/env) 'BkPack.mk)]
+      (is (= (e/const' (name/from-string "BkPack.mk") []) bare) "no hole inserted for ⦃n⦄"))
+    (binding [a/*verbose* false *ns* (the-ns 'ansatz.binder-kinds-test)]
+      (eval '(ansatz.core/defn bk-pack-app [f :- (Fin 3)] BkPack (BkPack.mk f))))
+    (is (some? (env/lookup (a/env) (name/from-string "bk-pack-app"))) "applied: n inferred from f")))

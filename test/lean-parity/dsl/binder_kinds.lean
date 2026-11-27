@@ -45,6 +45,6 @@ inductive Fix : Type u → Type u where
 
 -- promotion happens before universe inference: the promoted index is no field, so `mk` has
 -- no proof field and the type is not a Prop candidate
-inductive PI (p : Prop) : p → Type where | mk (h : p) : PI p h
+inductive PI (p : Prop) : p → Sort _ where | mk (h : p) : PI p h
 /-- info: PI (p : Prop) : p → Type -/
 #guard_msgs in #check PI
