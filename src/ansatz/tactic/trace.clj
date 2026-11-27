@@ -48,6 +48,13 @@
                    (number? a) a
                    (keyword? a) (clojure.core/name a)
                    (instance? ansatz.kernel.Expr a) (e/->string a)
+                   ;; simp argument descriptors: a hypothesis `*` added renders as before, an
+                   ;; origin/erasure with Lean's modifier spelling
+                   (and (map? a) (contains? a :term))
+                   (str (when (false? (:post a)) "↓ ") (when (:inv a) "← ") (e/->string (:term a)))
+                   (and (map? a) (contains? a :erase)) (str "-" (:erase a))
+                   (and (map? a) (contains? a :name))
+                   (str (when (false? (:post a)) "↓ ") (when (:inv a) "← ") (:name a))
                    :else (str a)))
                (or args []))
    :goal-id goal-id})

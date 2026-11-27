@@ -11,7 +11,7 @@
 ;; rule map carries the same identity as `:name` (a kernel Name), `:post` and `:inv`; hypothesis
 ;; rules carry `:hyp-fvar-id` (Lean `.fvar`); proof-term rules carry neither (Lean `.stx`).
 
-(defn- name-str [n]
+(defn name-str [n]
   (cond (nil? n) nil
         (instance? ansatz.kernel.Name n) (name/->string n)
         :else (str n)))
@@ -51,6 +51,56 @@
         :else nil))
 
 (defn rule-origin-key [rule] (some-> (rule-origin rule) origin-key))
+
+;; ── Registration state: Lean SimpTheorems.lemmaNames / erased ────────────────────────────
+;; A simp set's registrations as origin keys (origin-key): `:added`/`:removed` adjust the
+;; registrations inherited through `:inherited?` (a predicate, so the inherited corpus is never
+;; copied), and `:erased` is Lean's `erased`. Rule maps stay where they are; visibility is
+;; `(not (contains? erased (rule-origin-key rule)))`, as Lean's `inErasedSet`.
+
+(defn registered?
+  "Lean `lemmaNames.contains k` (SimpTheorems.lean:668-669)."
+  [{:keys [added removed inherited?]} k]
+  (and (not (contains? removed k))
+       (or (contains? added k) (boolean (and inherited? (inherited? k))))))
+
+(defn erase-core
+  "Lean `eraseCore` (SimpTheorems.lean:612-622) for one origin key: erased, no longer registered."
+  [state k]
+  (-> state (update :erased (fnil conj #{}) k) (update :added (fnil disj #{}) k)
+      (update :removed (fnil conj #{}) k)))
+
+(defn add-theorem
+  "Lean `addSimpTheorem` (SimpTheorems.lean:643-652) on the registration state: erase the
+   registered converse — in EITHER direction, despite the name `eraseFwdIfBwd` (:634-638) —
+   then register the origin. It never un-erases the origin itself."
+  [state o]
+  (let [k (origin-key o)
+        kc (some-> (origin-converse o) origin-key)
+        state (if (and kc (registered? state kc)) (erase-core state kc) state)]
+    (-> state (update :added (fnil conj #{}) k) (update :removed (fnil disj #{}) k))))
+
+(defn unerase
+  "Lean `uneraseSimpEntry` (SimpTheorems.lean:702-705): what `simp [thm]` does before adding."
+  [state k]
+  (update state :erased (fnil disj #{}) k))
+
+(defn erase
+  "Lean `SimpTheorems.erase` (SimpTheorems.lean:675-690) for a declaration `n` (a string):
+   the forward origin when it is registered or `n` is a declaration to unfold (`unfold?`, with
+   its registered equation theorems `unfold-thms`, which eraseCore also erases, :616-618);
+   otherwise `←n` when that is registered; otherwise nothing changes and the result carries
+   `:warning` (Lean's warning that `n` does not have the `[simp]` attribute, :689). Returns
+   {:state :erased-unfold n-or-nil :warning bool}."
+  [state n {:keys [unfold? unfold-thms] :or {unfold? (constantly false) unfold-thms (constantly nil)}}]
+  (let [fwd [n false] bwd [n true]
+        cascade (fn [st] (reduce #(erase-core %1 [(str %2) false]) st (unfold-thms n)))]
+    (cond
+      (or (registered? state fwd) (unfold? n) (seq (unfold-thms n)))
+      {:state (cascade (erase-core state fwd)) :erased-unfold n}
+      (registered? state bwd)
+      {:state (cascade (erase-core state bwd)) :erased-unfold n}
+      :else {:state state :warning true})))
 
 ;; ── Declarations to unfold ────────────────────────────────────────────────────────────────
 

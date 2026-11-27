@@ -998,6 +998,68 @@
             (zonk-expr mctx (e/forall-type ty))
             (recur (e/instantiate1 (e/forall-body ty) (e/proj sname i struct)) (inc i))))))))
 
+(defn- always-zero?
+  "Lean Level.isAlwaysZero."
+  [l]
+  (cond (lvl/level-zero? l) true
+        (lvl/max? l) (and (always-zero? (lvl/max-lhs l)) (always-zero? (lvl/max-rhs l)))
+        (lvl/imax? l) (always-zero? (lvl/imax-rhs l))
+        :else false))
+
+(defn- arrow-prop
+  "Lean InferType.lean isArrowProp: is `t` of the form `A₁ → … → Aₙ → Prop` (:true / :false /
+   :undef). `subst` instantiates the universe parameters of the final sort."
+  [t n subst]
+  (cond
+    (e/mdata? t) (recur (e/mdata-expr t) n subst)
+    (e/let? t) (recur (e/let-body t) n subst)
+    (and (e/sort? t) (zero? n))
+    (if (always-zero? (cond-> (e/sort-level t) (seq subst) (lvl/instantiate subst))) :true :false)
+    (and (e/forall? t) (zero? n)) :false
+    (e/forall? t) (recur (e/forall-body t) (dec n) subst)
+    :else :undef))
+
+(defn- head-arrow-prop
+  "isArrowProp of the type of a constant or local head applied to `n` arguments."
+  [st h n]
+  (cond
+    (e/const? h) (if-let [^ansatz.kernel.ConstantInfo ci (env/lookup (:env st) (e/const-name h))]
+                   (arrow-prop (.type ci) n (zipmap (vec (.levelParams ci)) (e/const-levels h)))
+                   :undef)
+    (e/fvar? h) (if-let [t (:type (get (:lctx st) (e/fvar-id h)))] (arrow-prop t n nil) :undef)
+    :else :undef))
+
+(defn prop-quick
+  "Lean InferType.lean isPropQuick: whether `x` is a proposition (:true / :false / :undef)
+   from its head's type alone, without inferring the type of `x`'s subterms."
+  [st x]
+  (cond
+    (or (e/lit-nat? x) (e/lit-str? x) (e/sort? x) (e/lam? x)) :false
+    (e/let? x) (recur st (e/let-body x))
+    (e/forall? x) (recur st (e/forall-body x))
+    (e/mdata? x) (recur st (e/mdata-expr x))
+    (or (e/const? x) (e/fvar? x)) (head-arrow-prop st x 0)
+    (e/app? x) (loop [f x n 0]
+                 (cond
+                   (e/app? f) (recur (e/app-fn f) (inc n))
+                   (e/mdata? f) (recur (e/mdata-expr f) n)
+                   (e/let? f) (recur (e/let-body f) n)
+                   (and (e/lam? f) (zero? n)) :false
+                   (e/lam? f) (recur (e/lam-body f) (dec n))
+                   :else (head-arrow-prop st f n)))
+    :else :undef))
+
+(defn prop?
+  "Lean Meta.isProp (InferType.lean): isPropQuick, else whether the inferred type of `x` is
+   `Prop`."
+  [st x]
+  (case (prop-quick st x)
+    :true true
+    :false false
+    (try (let [s (#'tc/cached-whnf st (tc/infer-type st x))]
+           (and (e/sort? s) (= lvl/zero (e/sort-level s))))
+         (catch clojure.lang.ExceptionInfo _ false))))
+
 (defn infer-type
   "Infer the type of `expr` while consulting a Lean-shaped metacontext.
 

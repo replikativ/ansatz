@@ -789,70 +789,158 @@
                           {:kind :elab-error :form form :levels param-names})))
         expr))))
 
+(clojure.core/defn- simp-arg-units
+  "Lean Init/Tactics.lean:694-705: `simpLemma := (simpPre <|> simpPost)? (\"← \" <|> \"<- \")? term`,
+   `simpErase := \"-\" term:max`. Group a surface argument list into
+   {:arg x :post bool :inv bool :modified? bool} / {:erase x} units: `↓`/`↑` then `←`/`<-`
+   prefix the next argument; `- x` erases, and so does `-x` unless `literal?` says the symbol
+   `-x` itself names something."
+  [args literal?]
+  (loop [args (seq args) post true inv false modified? false units []]
+    (if-not args
+      (do (when modified?
+            (throw (ex-info "Elaboration error: simp: a `↓`, `↑` or `←` modifier needs an argument"
+                            {:kind :elab-error})))
+          units)
+      (let [a (first args)]
+        (cond
+          (and (not modified?) (= '- a))
+          (if-let [x (second args)]
+            (recur (nnext args) true false false (conj units {:erase x}))
+            (throw (ex-info "Elaboration error: simp: `-` needs a name" {:kind :elab-error})))
+          (and (not modified?) (symbol? a) (nil? (namespace a))
+               (> (count (name a)) 1) (clojure.string/starts-with? (name a) "-")
+               (not (literal? a)))
+          (recur (next args) true false false (conj units {:erase (symbol (subs (name a) 1))}))
+          (and (#{'↓ '↑} a) (not modified?))
+          (recur (next args) (= '↑ a) inv true units)
+          (and (#{'← '<-} a) (not inv))
+          (recur (next args) post true true units)
+          :else
+          (recur (next args) true false false
+                 (conj units {:arg a :post post :inv inv :modified? modified?})))))))
+
 (clojure.core/defn- simp-lemma-args
   "Resolve a surface `(simp …)` argument list into simp's lemma vector. A bare symbol stays a
    symbol (env name resolution / @[simp]-set merge). A COMPOUND form — `(WSemiring.mul_zero m)`,
    `(h x)` — is elaborated in the current goal's context into a proof TERM (an ansatz.kernel.Expr),
    which simp/simp accepts directly (it infers the term's type and extracts its rewrite rule). This
    is what lets a bundled typeclass axiom be applied to its instance and fed to simp thinly —
-   `simp [(WSemiring.mul_add m) …]` — the way Lean's `simp [m.mul_add]` does."
-  [ps args]
-  (let [;; Accept both `(simp a b)` (flat) and `(simp [a b])` (a single vector) — the latter is the
+   `simp [(WSemiring.mul_add m) …]` — the way Lean's `simp [m.mul_add]` does.
+   Modifiers follow Lean's simp argument syntax (simp-arg-units): `↓ x` (pre), `← x` (inverse),
+   `-x` (erase); see ansatz.tactic.simp/elab-simp-args for the entry shapes produced."
+  ([ps args] (simp-lemma-args ps args {}))
+  ([ps args {:keys [erase-local?]}]
+   (let [;; Accept both `(simp a b)` (flat) and `(simp [a b])` (a single vector) — the latter is the
         ;; common surface form; without flattening, the whole vector would be treated as one arg and
         ;; (mis)elaborated as a term, throwing (and under all_goals that throw is swallowed → the
         ;; tactic silently no-ops).
-        args (if (and (= 1 (count args)) (vector? (first args))) (first args) args)
-        g (proof/current-goal ps)
-        lctx (:lctx g)
+         args (if (and (= 1 (count args)) (vector? (first args))) (first args) args)
+         g (proof/current-goal ps)
+         lctx (:lctx g)
         ;; Lean's `simp [*]`: every Prop hypothesis of the goal is a rewrite rule
-        prop-hyps (fn []
-                    (let [st (tc/attach-lctx (tc/mk-tc-state (:env ps)) lctx)]
-                      (keep (fn [[id d]]
-                              (when (and (= :local (:tag d))
-                                         (try (let [s (#'tc/cached-whnf st (tc/infer-type st (:type d)))]
-                                                (and (e/sort? s) (= lvl/zero (e/sort-level s))))
-                                              (catch clojure.lang.ExceptionInfo _ false)))
-                                (e/fvar id)))
-                            (sort-by key lctx))))]
-    (into []
-          (mapcat (fn [a]
-                    (cond
-                      (= '* a) (prop-hyps)
-                      ;; Lean resolveSimpIdTheorem?: a name that is no local and no constant but
-                      ;; a simp set (`register_simp_attr`, ansatz.attrs/simp-set) means its members.
-                      (and (symbol? a) (not (latest-local-id-by-name lctx a))
-                           (not (env/lookup (:env ps) (name/from-string (str a))))
-                           (attrs/simp-set (:env ps) a))
-                      (mapv symbol (attrs/simp-set (:env ps) a))
-              ;; A symbol naming a local hypothesis (newest wins, as Lean's name lookup) is that
-              ;; hypothesis — `simp [h]` rewrites with `h`. Otherwise it is a lemma/def NAME
-              ;; (resolved by simp). This is the ONE canonical way to name things in the tactic DSL.
-                      (symbol? a) (if-let [fid (latest-local-id-by-name lctx a)]
-                                    [(e/fvar fid)]
-                                    (do
-                                      ;; Lean Elab/Tactic/Simp.lean elabSimpArg resolves
-                                      ;; identifiers before constructing the simp context.
-                                      ;; Older Init exports derive these Lean declarations on demand.
-                                      (when-not (or (env/lookup (:env ps) (name/from-string (str a)))
-                                                    (simp/builtin-simproc? a)
-                                                    (env/lookup (simp/ensure-nat-packing
-                                                                 (or (simp/ensure-ble-eq (:env ps)) (:env ps)) [a])
-                                                                (name/from-string (str a))))
-                                        (throw (ex-info (str "Elaboration error: Unknown constant: " a)
-                                                        {:kind :elab-error :name (str a)})))
-                                      [a]))
-              ;; A string is NOT a name — the surface elaborator turns it into a `String` literal
-              ;; (a value), which is useless as a simp lemma and silently makes simp a no-op. This
-              ;; is a footgun (esp. for programmatically-built tactics that stringify const names):
-              ;; reject it loudly so the mistake fails fast. Write the name as a symbol.
-                      (string? a)
-                      (throw (ex-info (str "simp: lemma argument must be a name (symbol) or a proof term, "
-                                           "got the string " (pr-str a) " — write it as a symbol, e.g. "
-                                           "(simp [" a "]) not (simp [" (pr-str a) "]).")
-                                      {:kind :tactic-error :arg a}))
-              ;; Anything else (a compound form) elaborates to a proof term in the goal context.
-                      :else [(simp-term-arg ps (:lctx g) a)]))
-                  args))))
+         prop-hyps (fn []
+                     (let [st (tc/attach-lctx (tc/mk-tc-state (:env ps)) lctx)]
+                       (keep (fn [[id d]]
+                               (when (and (= :local (:tag d))
+                                          (try (let [s (#'tc/cached-whnf st (tc/infer-type st (:type d)))]
+                                                 (and (e/sort? s) (= lvl/zero (e/sort-level s))))
+                                               (catch clojure.lang.ExceptionInfo _ false)))
+                                 (e/fvar id)))
+                             (sort-by key lctx))))
+         known-name? (fn [a]
+                       (or (env/lookup (:env ps) (name/from-string (str a)))
+                           (simp/builtin-simproc? a)
+                           (env/lookup (simp/ensure-nat-packing
+                                        (or (simp/ensure-ble-eq (:env ps)) (:env ps)) [a])
+                                       (name/from-string (str a)))))
+        ;; Elab/Tactic/Simp.lean:353-374: wrap a resolved entry with its phase and direction.
+         with-origin (fn [x post inv]
+                       (cond
+                         (not (instance? ansatz.kernel.Expr x)) (simp/name-arg-entry (:env ps) x post inv)
+                         (and post (not inv)) x
+                         :else {:term x :post post :inv inv}))
+        ;; Elab/Tactic/Simp.lean:284-299: a local argument must be a proposition (a let
+        ;; declaration cannot be refolded by `←`).
+         check-local! (fn [a fid inv]
+                        (let [d (get lctx fid)
+                              st (tc/attach-lctx (tc/mk-tc-state (:env ps)) lctx)
+                              prop? (try (let [s (#'tc/cached-whnf st (tc/infer-type st (:type d)))]
+                                           (and (e/sort? s) (= lvl/zero (e/sort-level s))))
+                                         (catch clojure.lang.ExceptionInfo _ true))]
+                          (when (and inv (not prop?))
+                            (throw (ex-info (str "Elaboration error: simp: "
+                                                 (if (:value d)
+                                                   (str "Invalid `←` modifier: `" a "` is a let-declaration name to be unfolded")
+                                                   (str "Invalid argument: Variable `" a "` is not a proposition or let-declaration")))
+                                            {:kind :elab-error :name (str a)})))))
+         literal? (fn [a] (or (latest-local-id-by-name lctx a) (known-name? a)
+                              (attrs/simp-set (:env ps) a)))]
+     (:out
+      (reduce
+       (fn [{:keys [star?] :as acc} {:keys [arg post inv erase modified?] :as unit}]
+         (if (contains? unit :erase)
+          ;; Elab/Tactic/Simp.lean:332-349 simpErase: a local only when locals may be erased —
+          ;; `simp_all`, or once `*` added the hypotheses (:430 `eraseLocal || starArg`) —
+          ;; otherwise a global declaration (or simproc).
+           (let [a erase
+                 fid (when (and (symbol? a) (or erase-local? star?)) (latest-local-id-by-name lctx a))]
+             (update acc :out conj
+                     (cond
+                       fid {:erase-fvar fid}
+                       (and (symbol? a) (known-name? a)) {:erase (str a)}
+                       :else (throw (ex-info (str "Elaboration error: Unknown constant: " a)
+                                             {:kind :elab-error :name (str a)})))))
+           (let [a arg
+                 out
+                 (cond
+                   (= '* a) (cond
+                              modified?
+                              (throw (ex-info "Elaboration error: simp: `*` takes no modifier"
+                                              {:kind :elab-error}))
+                                     ;; simp_all already uses every hypothesis (ignoreStarArg,
+                                     ;; Elab/Tactic/Simp.lean:808)
+                              erase-local? []
+                                     ;; Lean adds the hypotheses with their `.fvar` origins
+                              :else (mapv (fn [h] {:term h :post true :inv false :star true}) (prop-hyps)))
+                          ;; Lean resolveSimpIdTheorem?: a name that is no local and no constant but
+                          ;; a simp set (`register_simp_attr`, ansatz.attrs/simp-set) means its members.
+                   (and (symbol? a) (not (latest-local-id-by-name lctx a))
+                        (not (env/lookup (:env ps) (name/from-string (str a))))
+                        (attrs/simp-set (:env ps) a))
+                   (if inv
+                            ;; Elab/Tactic/Simp.lean:368-370 (Lean 4.36)
+                     (throw (ex-info "Elaboration error: simp: Invalid `←` modifier: Cannot be used on a simp extension"
+                                     {:kind :elab-error :name (str a)}))
+                     (mapv symbol (attrs/simp-set (:env ps) a)))
+                          ;; A symbol naming a local hypothesis (newest wins, as Lean's name lookup) is that
+                          ;; hypothesis — `simp [h]` rewrites with `h`. Otherwise it is a lemma/def NAME
+                          ;; (resolved by simp). This is the ONE canonical way to name things in the tactic DSL.
+                   (symbol? a) (if-let [fid (latest-local-id-by-name lctx a)]
+                                 (do (check-local! a fid inv)
+                                     [(with-origin (e/fvar fid) post inv)])
+                                 (do
+                                          ;; Lean Elab/Tactic/Simp.lean elabSimpArg resolves
+                                          ;; identifiers before constructing the simp context.
+                                          ;; Older Init exports derive these Lean declarations on demand.
+                                   (when-not (known-name? a)
+                                     (throw (ex-info (str "Elaboration error: Unknown constant: " a)
+                                                     {:kind :elab-error :name (str a)})))
+                                   [(with-origin a post inv)]))
+                          ;; A string is NOT a name — the surface elaborator turns it into a `String` literal
+                          ;; (a value), which is useless as a simp lemma and silently makes simp a no-op. This
+                          ;; is a footgun (esp. for programmatically-built tactics that stringify const names):
+                          ;; reject it loudly so the mistake fails fast. Write the name as a symbol.
+                   (string? a)
+                   (throw (ex-info (str "simp: lemma argument must be a name (symbol) or a proof term, "
+                                        "got the string " (pr-str a) " — write it as a symbol, e.g. "
+                                        "(simp [" a "]) not (simp [" (pr-str a) "]).")
+                                   {:kind :tactic-error :arg a}))
+                          ;; Anything else (a compound form) elaborates to a proof term in the goal context.
+                   :else [(simp/term-arg-entry (:env ps) (simp-term-arg ps (:lctx g) a) post inv)])]
+             (-> acc (update :out into out) (assoc :star? (or star? (= '* a)))))))
+       {:out [] :star? false}
+       (simp-arg-units args literal?))))))
 
 (clojure.core/defn- simp-location
   ;; Lean Elab/Tactic/Simp.lean simpLocation/dsimpLocation resolve every name
@@ -1313,8 +1401,9 @@
                       _ (when (some #{'at} args)
                           (throw (ex-info "Tactic error: simp_all does not accept locations" {:kind :tactic-error})))]
                   (cond
-                    only?      (simp/simp-all ps (simp-lemma-args ps args) {:only? true})
-                    (seq args) (simp/simp-all ps (simp-lemma-args ps args))
+                    ;; Elab/Tactic/Simp.lean:808 simp_all: eraseLocal := true, `*` ignored
+                    only?      (simp/simp-all ps (simp-lemma-args ps args {:erase-local? true}) {:only? true})
+                    (seq args) (simp/simp-all ps (simp-lemma-args ps args {:erase-local? true}))
                     :else      (simp/simp-all ps))))
    'dsimp     (fn [ps args]
                 (let [args (if (= 'only (first args)) (rest args) args)

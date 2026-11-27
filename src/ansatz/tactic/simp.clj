@@ -759,6 +759,13 @@
   (let [{pre false post true} (group-by #(boolean (:post % true)) rules)]
     [(build-lemma-index st env post) (when (seq pre) (build-lemma-index st env pre))]))
 
+(defn- registration-key
+  "A simp-set entry's identity for replacement: declaration, phase and direction."
+  [entry]
+  (if (map? entry)
+    [(simp-theorems/name-str (:name entry)) (boolean (:post entry true)) (boolean (:inv entry false))]
+    [(simp-theorems/name-str entry) true false]))
+
 (defn- lookup-lemmas
   "Look up candidate lemmas from the discrimination tree.
    Expands query nodes on demand while walking exact and wildcard branches;
@@ -776,7 +783,10 @@
          eager (when (or (seq (:children lemma-index)) (seq (:values lemma-index)))
                  (dt/lookup-simp-tree st env lemma-index expr))]
      (if-let [trie (:ext-trie config)]
-       (concat eager (si/candidate-rules trie st env expr))
+       (let [eager-origins (:eager-origins config)]
+         ;; a declaration re-registered for this call replaces its inherited entry (insertVal)
+         (concat eager (cond->> (si/candidate-rules trie st env expr)
+                         (seq eager-origins) (remove #(contains? eager-origins (registration-key %))))))
        eager))))
 
 ;; ============================================================
@@ -1421,8 +1431,9 @@
 
 (defn- simproc-enabled? [config proc-name]
   ;; Elab/Tactic/Simp.lean elabSimpArgs: explicit additions follow the
-  ;; (possibly empty) default simproc set.
-  (or (get config :simprocs? true) (contains? (:simproc-names config) proc-name)))
+  ;; (possibly empty) default simproc set; `-p` erases p (Simproc.lean:112-113, 238).
+  (and (not (contains? (:simproc-erased config) proc-name))
+       (or (get config :simprocs? true) (contains? (:simproc-names config) proc-name))))
 
 (defn- try-nat-literal-reduce
   "Reduce arithmetic on Nat literals.
@@ -3622,16 +3633,201 @@
                                      :goal-type goal-type :simplified simplified})
                  (proof/record-tactic :simp lemma-names (:id goal))))))))))
 
+;; ── simp arguments: Lean Elab/Tactic/Simp.lean elabSimpArg / elabSimpArgs ─────────────────
+
+(defn- simp-arg-entry-name
+  "The declaration name (string) a decl simp-arg entry names: a name or an origin descriptor."
+  [entry]
+  (str (if (map? entry) (:name entry) entry)))
+
+(defn- simp-arg-error! [msg data]
+  (throw (ex-info (str "Elaboration error: simp: " msg) (merge {:kind :elab-error} data))))
+
+(defn- prop-typed?
+  "Lean `isProp info.type` (Elab/Tactic/Simp.lean:272): a theorem-like declaration."
+  [env ^ConstantInfo ci]
+  (meta/prop? (tc/mk-tc-state env) (.type ci)))
+
+(defn name-arg-entry
+  "Lean elabDeclToUnfoldOrTheorem (Elab/Tactic/Simp.lean:274-285) at the surface boundary: a
+   theorem named in `simp [t]` is added by mkSimpTheoremFromConst at the explicit default priority
+   (`eval_prio default`, SimpTheorems.lean:453), not at an inherited one, in its phase and
+   direction. Any other name (a definition to unfold, a simproc) stays the name it is."
+  [env n post inv]
+  (let [ci (env/lookup env (if (instance? ansatz.kernel.Name n) n (name/from-string (str n))))]
+    (cond
+      (and ci (prop-typed? env ci))
+      {:name (simp-theorems/name-str n) :post post :inv inv :priority default-simp-priority}
+      (and post (not inv)) n
+      :else {:name (str n) :post post :inv inv})))
+
+(defn term-arg-entry
+  "Lean addSimpTheorem/mkSimpTheoremFromExpr (Elab/Tactic/Simp.lean, SimpTheorems.lean:493-495)
+   at the surface boundary: the elaborated term `t` of a `simp [(t)]` argument, with its phase
+   and direction. A term that elaborates to a theorem constant goes through
+   mkSimpTheoremFromConst, as a named theorem does (name-arg-entry): it is the declaration, with
+   its origin (so erasure and converse erasure see it) at the explicit default priority. Anything
+   else, `(t x)` included, stays a proof term. elab-simp-args keeps an Expr that a programmatic
+   caller passes exactly as given (its universe levels and kernel Name included)."
+  [env t post inv]
+  (let [ci (when (e/const? t) (env/lookup env (e/const-name t)))]
+    (cond
+      (and ci (prop-typed? env ci)) (name-arg-entry env (e/const-name t) post inv)
+      (and post (not inv)) t
+      :else {:term t :post post :inv inv})))
+
+(defn- replace-registrations
+  "Lean DiscrTree insertVal (DiscrTree/Basic.lean:135-148; SimpTheorem BEq is proof equality,
+   SimpTheorems.lean:276-277): registering a declaration again in the same phase and direction
+   replaces the earlier entry in its slot — its priority wins — instead of adding a second copy.
+   `simp [f.eq_1, f]` therefore leaves one `f.eq_1` at the priority `f` gives it."
+  [entries]
+  (let [[order by-key] (reduce (fn [[order by-key] x]
+                                 (let [k (registration-key x)]
+                                   [(if (contains? by-key k) order (conj order k)) (assoc by-key k x)]))
+                               [[] {}] entries)]
+    (mapv by-key order)))
+
+(defn elab-simp-args
+  "Lean Elab/Tactic/Simp.lean:322-470 elabSimpArg/elabSimpArgs over an Ansatz simp argument
+   list, in order. An argument is
+     a name (symbol/string/Name)            — `simp [thm]`
+     an Expr                                 — `simp [term]` (incl. a hypothesis fvar)
+     {:name n :post b :inv b ...}            — `simp [↓ ← thm]` (an origin descriptor)
+     {:term t :post b :inv b :star b}        — `simp [↓ ← term]`; `:star` for a hypothesis `*` added
+     {:erase n} / {:erase-fvar id}           — `simp [-thm]` / `simp_all [-h]`, `simp [*, -h]`
+   `context` describes the simp set the arguments extend (default-simp-arg-context): its
+   `:erased` origins and the registrations `:inherited?` / `:unfold?` / `:unfold-thms`.
+   Each addition un-erases its origin and registers it (simp-theorems/unerase, add-theorem,
+   which erases a registered converse in either direction); each erasure follows
+   simp-theorems/erase, a simproc's its own erased set (Simproc.lean:112-113, 153-154).
+   Returns {:decls :decl-names :terms :erased :erased-unfold :to-unfold :simproc-erased
+   :erase-results}: a definition argument contributes its equation theorems to `:decls` and
+   itself to `:to-unfold`."
+  [env args {:keys [erased inherited? unfold? unfold-thms]
+             :or {erased #{} unfold? (constantly false) unfold-thms (constantly nil)}}]
+  (let [result
+        (reduce
+         (fn [acc arg]
+           (cond
+             (instance? ansatz.kernel.Expr arg)
+             (update acc :terms conj {:term arg :post true :inv false})
+
+             (and (map? arg) (contains? arg :term))
+             (update acc :terms conj (merge {:post true :inv false} arg))
+
+             (and (map? arg) (contains? arg :erase))
+             (let [n (str (:erase arg))]
+               (if (builtin-simproc? n)
+                 ;; Elab/Tactic/Simp.lean:340-341, 460-461: `.eraseSimproc`
+                 (update acc :simproc-erased conj n)
+                 (let [{:keys [state erased-unfold warning]}
+                       (simp-theorems/erase (:state acc) n
+                                            ;; Lean eraseCore removes the name from toUnfold, so a
+                                            ;; second erase finds no plain unfolding (toUnfoldThms
+                                            ;; stays, SimpTheorems.lean:612-622)
+                                            {:unfold? #(or ((:unfold acc) %)
+                                                           (and (unfold? %) (not ((:erased-unfold acc) %))))
+                                             :unfold-thms unfold-thms})]
+                   (cond-> (assoc acc :state state)
+                     erased-unfold (-> (update :erased-unfold conj erased-unfold)
+                                       (update :unfold disj erased-unfold))
+                     true (update :erase-results conj {:name n :warning (boolean warning)})))))
+
+             (and (map? arg) (contains? arg :erase-fvar))
+             (update acc :state simp-theorems/erase-core [:fvar (:erase-fvar arg)])
+
+             :else
+             (let [descriptor (when (map? arg) arg)
+                   n (simp-arg-entry-name arg)
+                   post (:post descriptor true)
+                   inv (:inv descriptor false)
+                   simproc? (builtin-simproc? n)
+                   ci (env/lookup env (name/from-string n))
+                   theorem? (and ci (prop-typed? env ci))]
+               (when inv
+                 ;; Elab/Tactic/Simp.lean:277-281 and :365-366: classify by the type
+                 (cond
+                   simproc?
+                   (simp-arg-error! (str "Invalid `←` modifier: `" n "` is a simproc") {:name n})
+                   (and ci (not theorem?))
+                   (simp-arg-error! (str "Invalid `←` modifier: `" n "` is a declaration name to be unfolded")
+                                    {:name n})))
+               (when (and (not post) simproc?)
+                 (simp-arg-error! (str "`↓` on the simproc `" n "` is not supported") {:name n}))
+               (if (and ci (not theorem?))
+                 ;; Elab/Tactic/Simp.lean:283-285 elabDeclToUnfoldOrTheorem: a definition's entries
+                 ;; (mkSimpEntryOfDeclToUnfold, SimpTheorems.lean:559-591) — its equation theorems,
+                 ;; each un-erased and registered in argument order like any theorem (so converse
+                 ;; erasure applies to them), and the declaration itself to unfold. `↓` is ignored.
+                 (reduce (fn [acc {:keys [kind name priority]}]
+                           (if (= kind :thm)
+                             (let [eq-name (simp-theorems/name-str name)
+                                   o (simp-theorems/origin eq-name true false)]
+                               (-> acc
+                                   (update :decls conj {:name eq-name :priority priority})
+                                   (update :state #(simp-theorems/add-theorem
+                                                    (simp-theorems/unerase % (simp-theorems/origin-key o)) o))))
+                             (-> acc (update :unfold conj n) (update :erased-unfold disj n))))
+                         (update acc :decl-names conj n)
+                         (simp-theorems/mk-simp-entry-of-decl-to-unfold env n))
+                 (let [o (simp-theorems/origin n post inv)]
+                   (cond-> (-> acc
+                               (update :decls conj (cond descriptor (assoc descriptor :name n :post post :inv inv)
+                                                         (or (not post) inv) {:name n :post post :inv inv}
+                                                         :else arg))
+                               (update :decl-names conj n)
+                               (update :state #(simp-theorems/add-theorem (simp-theorems/unerase % (simp-theorems/origin-key o)) o)))
+                     simproc? (update :simproc-erased disj n)))))))
+         {:decls [] :decl-names [] :terms [] :simproc-erased #{} :erased-unfold #{} :unfold #{}
+          :erase-results []
+          :state {:inherited? inherited? :erased (set erased) :added #{} :removed #{}}}
+         args)]
+    (-> result
+        (assoc :erased (:erased (:state result)) :to-unfold (:unfold result))
+        (dissoc :state :unfold))))
+
+(defn- term-arg-lemmas
+  "Rules from proof-term simp arguments (Lean mkSimpTheoremFromExpr). A hypothesis that `*`
+   contributed keeps its `.fvar` origin, so `[*, -h]` / `simp_all [-h]` erase it; an explicitly
+   given proof has no erasable origin (Lean `.stx`)."
+  [st env term-args]
+  (vec (mapcat (fn [{:keys [term star] :as arg}]
+                 (cond->> (extract-simp-lemma-term env (tc/infer-type st term) (or (:priority arg) default-simp-priority) term
+                                                   (assoc (select-keys arg [:post :inv]) :st st))
+                   star (map #(assoc % :hyp-fvar-id (e/fvar-id term)))))
+               term-args)))
+
+(defn- default-simp-arg-context
+  "The simp set elab-simp-args extends (Lean mkSimpContext, Elab/Tactic/Simp.lean:567-572):
+   `simp only` starts from `simpOnlyBuiltins` alone, otherwise from the default @[simp] set —
+   the hand-curated core plus the inherited :simp-lemmas, the declarations it unfolds
+   (:simp-unfold, :simp-unfold-thms) and its erased origins."
+  [env opts]
+  (if (:only? opts)
+    (let [builtins (set (when (get opts :simp-only-builtins? true) simp-only-builtins))]
+      {:erased (or (:erased opts) #{})
+       :inherited? (fn [[n inv]] (and (false? inv) (contains? builtins n)))})
+    (let [forward (env/get-extension env :simp-lemmas #{})
+          unfold (env/get-extension env :simp-unfold #{})
+          unfold-thms (env/get-extension env :simp-unfold-thms {})
+          core (set default-simp-lemmas)]
+      {:erased (or (:erased opts) #{})
+       :inherited? (fn [[n inv]] (and (false? inv) (or (contains? forward n) (contains? core n))))
+       :unfold? #(or (contains? unfold %) (contains? unfold-thms %))
+       :unfold-thms #(get unfold-thms %)})))
+
 (defn- simp-setup
   "The simp context for `goal`: [ps st env lemma-index config]. `:exclude-hyp` drops that local
    from the contextual / term lemmas (Lean erases the simplified hypothesis itself in `simp at h`)."
   [ps goal lemma-names opts]
-  (let [env (ensure-nat-packing
+  (let [{:keys [decls decl-names terms erased erased-unfold simproc-erased] arg-unfold :to-unfold}
+        (elab-simp-args (:env ps) lemma-names (default-simp-arg-context (:env ps) opts))
+        env (ensure-nat-packing
              (if (:only? opts)
                (or (ensure-ble-eq (:env ps)) (:env ps))
                (ensure-nat-packing (or (ensure-ble-eq (:env ps)) (:env ps)) default-simp-lemmas true))
-             ;; an origin descriptor names its declaration
-             (map #(if (map? %) (:name %) %) lemma-names))
+             decl-names)
          ;; Update proof state with enriched env (e.g., derived Nat.ble_eq)
         ps (if (not (identical? env (:env ps))) (assoc ps :env env) ps)
          ;; attach-lctx (NOT plain assoc): bumps :next-id above the goal's max fvar id so
@@ -3645,8 +3841,8 @@
          ;; Lean's `simp [h]` accepts any proof TERM, not just a lemma name. Split the user list:
          ;; Expr entries are proof terms (e.g. a projected typeclass axiom `WSemiring.mul_zero S inst`,
          ;; or a hypothesis fvar); everything else is a name to resolve against the env.
-        term-args (filter #(instance? ansatz.kernel.Expr %) lemma-names)
-        name-args (remove #(instance? ansatz.kernel.Expr %) lemma-names)
+        term-args terms
+        name-args decls
          ;; Lean 4 `simp only`: start from `simpOnlyBuiltins` (reflexive closers) + the user
          ;; lemmas ONLY — the default @[simp] corpus and @[simp]-extension are excluded.
          ;; Otherwise the inherited @[simp] extension is part of the default set. When the store
@@ -3655,17 +3851,16 @@
          ;; (resolve+extract+key, equation-theorem probe, unfold probe — ~91k hydrations per call
          ;; on Mathlib). Without one (the bundled Init tiers) it stays eager.
         ext-trie (when-not (:only? opts) (si/ensure-simp-trie! env))
-        all-names (if (:only? opts)
-                    (distinct (concat (when (get opts :simp-only-builtins? true)
-                                        simp-only-builtins) name-args))
-                    (distinct (concat default-simp-lemmas
-                                      (si/eager-lemma-names env ext-trie)
-                                      name-args)))
+        all-names (->> (if (:only? opts)
+                         (concat (when (get opts :simp-only-builtins? true)
+                                   simp-only-builtins) name-args)
+                         (concat default-simp-lemmas
+                                 (si/eager-lemma-names env ext-trie)
+                                 name-args))
+                       replace-registrations)
         lemmas (make-simp-lemmas env all-names)
          ;; Proof-term lemmas: infer each term's type and extract its rewrite rule.
-        term-lemmas (vec (mapcat (fn [t]
-                                   (extract-simp-lemma-term env (tc/infer-type st t) 1000 t))
-                                 term-args))
+        term-lemmas (term-arg-lemmas st env term-args)
          ;; Contextual: add hypotheses as lemmas
          ;; Lean 4: SimpTheorems.lean preprocess — handles Eq, Iff, And (split),
          ;; implications (conditional rewrites), and general props (→ True).
@@ -3674,14 +3869,20 @@
                      (make-hyp-lemmas st (:lctx goal)))
          ;; For user definitions with equation theorems, add those as rewrite lemmas
         entries (mapcat #(simp-theorems/mk-simp-entry-of-decl-to-unfold env %)
-                        (remove (set (map (comp str :name) lemmas))
-                                (map #(str (if (map? %) (:name %) %)) all-names)))
+                        (remove (set (map (comp str :name) lemmas)) (distinct (map simp-arg-entry-name all-names))))
         eqn-lemmas (mapcat (fn [{:keys [kind name priority]}]
                              (when (= kind :thm)
                                (extract-simp-lemma env (env/lookup! env name) priority))) entries)
         all-lemmas (concat lemmas term-lemmas hyp-lemmas eqn-lemmas)
         [lemma-index pre-index] (build-simp-indexes st env all-lemmas)
-        to-unfold (into #{} (keep #(when (= :to-unfold (:kind %)) (str (:name %)))) entries)
+        ;; Lean eraseCore drops an erased declaration from toUnfold (SimpTheorems.lean:615)
+        ;; the inherited `@[simp]` definitions to unfold (Lean toUnfold) outside `simp only`
+        to-unfold (into (into (set arg-unfold)
+                              (when-not (:only? opts)
+                                (remove erased-unfold (env/get-extension env :simp-unfold #{}))))
+                        (comp (keep #(when (= :to-unfold (:kind %)) (str (:name %))))
+                              (remove erased-unfold))
+                        entries)
         config {:max-depth (or (:max-depth opts) 20)
                 :single-pass? (:single-pass? opts)
                 :contextual? (:contextual? opts)
@@ -3689,7 +3890,8 @@
                 :decide? (get opts :decide? false)
                 :ground? (get opts :ground? false)
                 :simprocs? (get opts :simprocs? (not (:only? opts)))
-                :simproc-names (set (map str name-args))
+                :simproc-names (set decl-names)
+                :simproc-erased simproc-erased
                 :max-steps (atom 0)
                 :cache (atom {})
                 :to-unfold to-unfold
@@ -3697,7 +3899,8 @@
                 :ext-trie ext-trie
                 ;; Lean SimpTheorems.pre / .erased (SimpTheorems.lean:599-610)
                 :pre-index pre-index
-                :erased (get opts :erased #{})
+                :erased erased
+                :eager-origins (into #{} (keep #(when (:name %) (registration-key %))) all-lemmas)
                  ;; Lazy instance index for TC synthesis in discharge
                 :inst-index (delay (inst/index-for env))}]
     [ps st env lemma-index config]))
@@ -3770,6 +3973,15 @@
                                           (:type goal) (e/fvar new-id))}))
       ps)))
 
+(defn- without-own-hypothesis
+  "Lean simpGoal erases the simplified hypothesis' own `.fvar` origin (Main.lean simpGoal,
+   `eraseTheorem (.fvar fvarId)`): drop it from the hypotheses `*` contributed, and — as Ansatz
+   always did — a bare fvar argument naming it."
+  [hyp-id lemma-names]
+  (remove #(or (and (instance? ansatz.kernel.Expr %) (e/fvar? %) (= hyp-id (e/fvar-id %)))
+               (and (map? %) (:star %) (e/fvar? (:term %)) (= hyp-id (e/fvar-id (:term %)))))
+          lemma-names))
+
 (defn simp-at
   "Lean's `simp [lemmas] at h` (Meta/Tactic/Simp/Main.lean `simpLocalDecl`/`applySimpResultToLocalDecl`):
    simplify the TYPE of hypothesis `hyp-id` with the simp set (not containing `h` itself).
@@ -3782,8 +3994,7 @@
          _ (when-not goal (tactic-error! "No goals" {}))
          decl (red/lctx-lookup (:lctx goal) hyp-id)
          _ (when-not decl (tactic-error! "simp at: hypothesis not in context" {:id hyp-id}))
-         lemma-names (remove #(and (instance? ansatz.kernel.Expr %) (e/fvar? %) (= hyp-id (e/fvar-id %)))
-                             lemma-names)
+         lemma-names (without-own-hypothesis hyp-id lemma-names)
          [ps st env lemma-index config] (simp-setup ps goal lemma-names opts)
          old-type (:type decl)
          result (simp-expr* st env lemma-index old-type config)
@@ -3838,8 +4049,7 @@
       (if-let [id (first ids)]
         (let [g (proof/current-goal ps)
               decl (red/lctx-lookup (:lctx g) id)
-              names (remove #(and (instance? ansatz.kernel.Expr %) (e/fvar? %)
-                                  (= id (e/fvar-id %))) lemma-names)
+              names (without-own-hypothesis id lemma-names)
               [ps st env index config] (simp-setup ps g names opts)
               result (simp-expr* st env index (:type decl) config)]
           (cond
@@ -4010,40 +4220,50 @@
   [ps lemma-names opts]
   (let [goal (proof/current-goal ps)
         _ (when-not goal (tactic-error! "No goals" {}))
+        ;; Lean elabSimpArgs (Elab/Tactic/Simp.lean:415-470); the goal step below re-elaborates
+        ;; the same arguments through simp-setup.
+        {:keys [decls decl-names terms erased erased-unfold simproc-erased] arg-unfold :to-unfold}
+        (elab-simp-args (:env ps) lemma-names (default-simp-arg-context (:env ps) opts))
         env (ensure-nat-packing
              (if (:only? opts)
                (or (ensure-ble-eq (:env ps)) (:env ps))
                (ensure-nat-packing (or (ensure-ble-eq (:env ps)) (:env ps)) default-simp-lemmas true))
-             ;; an origin descriptor names its declaration (as in simp-setup)
-             (map #(if (map? %) (:name %) %) lemma-names))
+             decl-names)
         ps (if (not (identical? env (:env ps))) (assoc ps :env env) ps)
          ;; the inherited @[simp] extension: lazy via the persistent index when present (see simp)
         ext-trie (when-not (:only? opts) (si/ensure-simp-trie! env))
-        all-names (if (:only? opts)
-                    (distinct (concat simp-only-builtins lemma-names))
-                    (distinct (concat default-simp-lemmas
-                                      (si/eager-lemma-names env ext-trie)
-                                      lemma-names)))]
+        all-names (->> (if (:only? opts)
+                         (concat simp-only-builtins decls)
+                         (concat default-simp-lemmas
+                                 (si/eager-lemma-names env ext-trie)
+                                 decls))
+                       replace-registrations)]
     ;; Phase 1: hypothesis simplification (Lean SimpAll.loop).
     (let [goal' goal
           lctx (:lctx goal')
           st (tc/attach-lctx (tc/mk-tc-state env) lctx)
           base-lemmas (make-simp-lemmas env all-names)
           entries (mapcat #(simp-theorems/mk-simp-entry-of-decl-to-unfold env %)
-                          (remove (set (map (comp str :name) base-lemmas))
-                                  (map #(str (if (map? %) (:name %) %)) all-names)))
+                          (remove (set (map (comp str :name) base-lemmas)) (distinct (map simp-arg-entry-name all-names))))
           eqn-lemmas (mapcat (fn [{:keys [kind name priority]}]
                                (when (= kind :thm)
                                  (extract-simp-lemma env (env/lookup! env name) priority))) entries)
-          to-unfold (into #{} (keep #(when (= :to-unfold (:kind %)) (str (:name %)))) entries)
+          to-unfold (into (into (set arg-unfold)
+                                (when-not (:only? opts)
+                                  (remove erased-unfold (env/get-extension env :simp-unfold #{}))))
+                          (comp (keep #(when (= :to-unfold (:kind %)) (str (:name %))))
+                                (remove erased-unfold))
+                          entries)
+          ;; explicit proof terms rewrite hypotheses too (one Simp.Context, SimpAll.lean)
+          term-lemmas (term-arg-lemmas st env terms)
           inst-index (delay (inst/index-for env))
            ;; an entry a previous round already simplified stays in the context (its original
            ;; form keeps rewriting the goal: `(<= x y)` in code is `Nat.ble x y`, which the
            ;; normal form `x ≤ y` no longer matches) but is not simplified again — Lean erases the
            ;; replaced entry; re-simplifying it would re-add the same entry every round.
           superseded (if *simp-all-superseded* @*simp-all-superseded* #{})
-          ;; SimpAll.lean:39-53 initEntries: an erased hypothesis is neither simplified nor used
-          erased (get opts :erased #{})
+          ;; SimpAll.lean:39-53 initEntries: an erased hypothesis (`simp_all [-h]`) is neither
+          ;; simplified nor used
           hyps (vec (filter (fn [[id d]] (and (= :local (:tag d)) (not (superseded id))
                                               (not (contains? erased [:fvar id]))))
                             lctx))
@@ -4065,16 +4285,17 @@
                      ;; remain available to the goal for our Bool encoding, but
                      ;; must not simplify their own replacements back to True.
                      hyp-lemmas (make-hyp-lemmas st (apply dissoc lctx superseded) :exclude-id id)
-                     all-lemmas (concat base-lemmas eqn-lemmas hyp-lemmas)
+                     all-lemmas (concat base-lemmas term-lemmas eqn-lemmas hyp-lemmas)
                      [lemma-index pre-index] (build-simp-indexes st env all-lemmas)
                      config {:max-depth 20 :single-pass? false :decide? (get opts :decide? false)
                              :ground? (get opts :ground? false)
                              :simprocs? (get opts :simprocs? (not (:only? opts)))
-                             :simproc-names (set (map str lemma-names))
+                             :simproc-names (set decl-names) :simproc-erased simproc-erased
                              :max-steps (atom 0) :cache (atom {})
                              :to-unfold to-unfold :discharge-depth 0
                              :ext-trie ext-trie :inst-index inst-index
-                             :pre-index pre-index :erased (get opts :erased #{})}
+                             :pre-index pre-index :erased erased
+                             :eager-origins (into #{} (keep #(when (:name %) (registration-key %))) all-lemmas)}
                      result (simp-expr* st env lemma-index (:type decl) config)]
                  (if (or (identical? (:expr result) (:type decl))
                          (= (:expr result) (:type decl)))
