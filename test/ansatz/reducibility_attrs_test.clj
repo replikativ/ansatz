@@ -104,8 +104,9 @@
           :let [n (name/from-string n)]]
     (is (= "reducible" (meta/get-reducibility-status (a/env) n)))
     (is (not= :abbrev (env/get-reducibility-hints (env/lookup (a/env) n))))
-    (is (not= (e/const' n [])
-              (meta/whnf-at meta/empty-context {:env (a/env) :lctx {}} (e/const' n []) :reducible)))))
+    ;; outParam.{u}: applied to its one universe (a wrong-arity constant is no delta candidate)
+    (let [c (e/const' n [(lvl/succ lvl/zero)])]
+      (is (not= c (meta/whnf-at meta/empty-context {:env (a/env) :lctx {}} c :reducible))))))
 
 (deftest ordinary-local-definitions-default-to-semireducible
   (a/defn reducibilityOrdinary [n :- Nat] Nat n)

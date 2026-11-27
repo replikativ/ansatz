@@ -8,7 +8,8 @@
             [ansatz.kernel.expr :as e]
             [ansatz.kernel.level :as lvl]
             [ansatz.kernel.name :as name]
-            [ansatz.kernel.reduce :as red])
+            [ansatz.kernel.reduce :as red]
+            [ansatz.kernel.tc :as ktc])
   (:import [ansatz.kernel ConstantInfo Env Expr KernelAbort LeanExprKey Name Reducer TypeChecker]))
 
 (def ^:private fuel 20000000)
@@ -368,3 +369,23 @@
                         (.whnf (.getReducer checker) term)))]
     (is (same? (e/proj (n "Prod") 0 (e/fvar 1)) (reduce-with true)))
     (is (= (n "Prod.rec") (e/const-name (e/get-app-fn (reduce-with false)))))))
+
+;; ------------------------------------------------------------------ K2 verification round
+
+(deftest the-clojure-reducer-follows-the-kernel-through-its-public-whnf
+  (testing "Nat.succ.{0} is not the successor (every path matches complete constants)"
+    (let [term (e/app (c "Nat.succ" [l0]) (lit 2))]
+      (is (same? term (red/whnf @base term)))))
+  (testing "a definition applied to the wrong universe arity is not unfolded"
+    (let [term (e/app* (c "Nat.add" [l0]) (lit 2) (lit 3))]
+      (is (same? term (red/whnf @base term)))))
+  (testing "a projection of an unknown constant is an error (env.get)"
+    (is (re-find #"Unknown constant: KMissing"
+                 (str (kernel-error #(red/whnf @st-env (e/proj (n "KS") 0 (c "KMissing"))))))))
+  (testing "the let-local fallback of tc/is-def-eq does not accept Nat.succ.{0} 2 = 3"
+    (let [st (ktc/attach-lctx (ktc/mk-tc-state @base)
+                              (red/lctx-add-let (red/empty-lctx) 7 "v" (c "Nat") (lit 0)))]
+      (is (nil? (ktc/java-tc st)) "a let-local sends the comparison to the Clojure fallback")
+      (is (not (true? (try (ktc/is-def-eq st (e/app (c "Nat.succ" [l0]) (lit 2)) (lit 3))
+                           (catch Exception _ :error)))))
+      (is (true? (ktc/is-def-eq st (e/app (c "Nat.succ") (lit 2)) (lit 3)))))))
