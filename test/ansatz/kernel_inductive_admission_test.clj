@@ -362,3 +362,17 @@
           [_ recs] (generate env [] 0 [["KHT" type0 [["KHT.node" (pi "b" (e/app (c box) (c "KHT")) (c "KHT"))]]]])]
       (is (= [(name/from-string (str box ".mk"))]
              (mapv #(.ctor ^ConstantInfo$RecursorRule %) (.rules ^ConstantInfo (by-name recs "KHT.rec_1"))))))))
+
+(deftest rows-may-name-their-universe-parameters-independently
+  ;; positional universe matching applies to every row: a constructor row I.mk.{v} : I.{v}
+  ;; for I.{u} is the same declaration
+  (let [u (n "u")
+        [_ honest] (generate @base [u] 0 [["KP" (e/sort' (lvl/succ (P "u"))) [["KP.mk" (c "KP" [(P "u")])]]]])
+        ctor-as (fn [lps ty] (replace-record honest "KP.mk"
+                                             #(ConstantInfo/mkCtor (.name ^ConstantInfo %) (into-array Object lps) ty
+                                                                   (.inductName ^ConstantInfo %) 0 0 0 false)))]
+    (is (admits? @base honest))
+    (is (admits? @base (ctor-as [(n "v")] (c "KP" [(P "v")]))))
+    (is (re-find #"undeclared universe parameter 'w'"
+                 (str (rejection @base (ctor-as [(n "v")] (c "KP" [(P "w")]))))))
+    (is (re-find #"universe parameters" (str (rejection @base (ctor-as [] (c "KP" [l0]))))))))

@@ -48,14 +48,64 @@ public final class InductiveImport {
                     throw new RuntimeException("invalid inductive block: '" + ind.name + "' lists constructor '" + cn + "', which has no record");
                 if (!listed.add(cn))
                     throw new RuntimeException("invalid inductive block: constructor '" + cn + "' is listed twice");
-                ctors.add(new InductiveDecl.Constructor(cn, row.type));
+                ctors.add(new InductiveDecl.Constructor(cn, intoBlock(row, b.levelParams)));
             }
-            types.add(new InductiveDecl.Type(ind.name, ind.type, ctors));
+            types.add(new InductiveDecl.Type(ind.name, intoBlock(ind, b.levelParams), ctors));
         }
         for (ConstantInfo c : b.ctors)
             if (!listed.contains(c.name))
                 throw new RuntimeException("invalid inductive block: constructor record '" + c.name + "' is not listed by any of its inductive types");
         return new InductiveDecl(b.levelParams, b.numParams, b.isUnsafe, types);
+    }
+
+    /**
+     * A row's type with its own universe parameters renamed, by position, to the block's. The
+     * row must declare as many distinct parameters as the block and mention no others.
+     */
+    static Expr intoBlock(ConstantInfo row, Object[] block) {
+        Object[] lps = row.levelParams;
+        if (lps == null || lps.length != block.length)
+            throw new RuntimeException("invalid inductive block: '" + row.name + "' has " + (lps == null ? 0 : lps.length)
+                + " universe parameters, the block " + block.length);
+        HashSet<Object> declared = new HashSet<>();
+        HashMap<Object, Level> rename = new HashMap<>();
+        for (int i = 0; i < lps.length; i++) {
+            if (!(lps[i] instanceof Name) || !declared.add(lps[i]))
+                throw new RuntimeException("invalid inductive block: '" + row.name + "' has a duplicate or invalid universe parameter");
+            if (!lps[i].equals(block[i])) rename.put(lps[i], Level.param(block[i]));
+        }
+        for (Object p : levelParamsOf(row.type))
+            if (!declared.contains(p))
+                throw new RuntimeException("invalid inductive block: '" + row.name + "' mentions the undeclared universe parameter '" + p + "'");
+        return rename.isEmpty() ? row.type : Reducer.instantiateLevelParams(row.type, rename);
+    }
+
+    private static HashSet<Object> levelParamsOf(Expr root) {
+        HashSet<Object> out = new HashSet<>();
+        java.util.IdentityHashMap<Expr, Boolean> seen = new java.util.IdentityHashMap<>();
+        ArrayList<Expr> todo = new ArrayList<>();
+        todo.add(root);
+        while (!todo.isEmpty()) {
+            Expr e = todo.remove(todo.size() - 1);
+            if (!e.hasLevelParam() || seen.put(e, Boolean.TRUE) != null) continue;
+            switch (e.tag) {
+                case Expr.SORT: collectParams((Level) e.o0, out); break;
+                case Expr.CONST: for (Object l : Reducer.constLevels(e)) collectParams((Level) l, out); break;
+                case Expr.APP: todo.add((Expr) e.o0); todo.add((Expr) e.o1); break;
+                case Expr.LAM: case Expr.FORALL: todo.add((Expr) e.o1); todo.add((Expr) e.o2); break;
+                case Expr.LET: todo.add((Expr) e.o1); todo.add((Expr) e.o2); todo.add((Expr) e.o3); break;
+                case Expr.MDATA: case Expr.PROJ: todo.add((Expr) e.o1); break;
+                default: break;
+            }
+        }
+        return out;
+    }
+
+    private static void collectParams(Level l, HashSet<Object> out) {
+        if (!Level.hasParam(l)) return;
+        if (l.tag == Level.PARAM) { out.add(l.paramName()); return; }
+        collectParams((Level) l.o0, out);
+        if (l.o1 != null) collectParams((Level) l.o1, out);
     }
 
     /** One-to-one comparison of the exported records with the generated constants. */
