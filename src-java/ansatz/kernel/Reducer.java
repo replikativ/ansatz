@@ -874,27 +874,54 @@ public final class Reducer {
 
     /**
      * lean4#14849: the largest `Nat` numeral the kernel builds, in bytes — Lean's
-     * LEAN_NAT_MAX_SIZE (default 128 MiB), read as an unsigned decimal; a malformed value
-     * keeps the default. The JVM property ansatz.kernel.natMaxBytes takes precedence.
+     * LEAN_NAT_MAX_SIZE (default 128 MiB), read as read_nat_size_env reads it. The JVM property
+     * ansatz.kernel.natMaxBytes takes precedence.
      */
+    public static final long NAT_MAX_BYTES_DEFAULT = 128L * 1024 * 1024;
     public static final long NAT_MAX_BYTES = natMaxBytes();
     private static long natMaxBytes() {
         String v = System.getProperty("ansatz.kernel.natMaxBytes");
         if (v == null) v = System.getenv("LEAN_NAT_MAX_SIZE");
-        if (v != null) { try { return Long.parseUnsignedLong(v); } catch (NumberFormatException ignored) {} }
-        return 128L * 1024 * 1024;
+        return v == null ? NAT_MAX_BYTES_DEFAULT : readNatSizeSetting(v, NAT_MAX_BYTES_DEFAULT);
+    }
+
+    /**
+     * Lean's read_nat_size_env: `strtoull(s, &end, 10)`, falling back to the default when no
+     * digit was read or characters follow the number. Like strtoull: leading C whitespace and
+     * one sign are accepted, a minus negates modulo 2^64, an out-of-range magnitude reads as
+     * ULLONG_MAX. The result is an unsigned 64-bit value.
+     */
+    public static long readNatSizeSetting(String s, long dflt) {
+        int i = 0, n = s.length();
+        while (i < n && " \t\n\u000B\f\r".indexOf(s.charAt(i)) >= 0) i++;
+        boolean neg = false;
+        if (i < n && (s.charAt(i) == '+' || s.charAt(i) == '-')) { neg = s.charAt(i) == '-'; i++; }
+        int start = i;
+        long v = 0;
+        boolean overflow = false;
+        for (; i < n && s.charAt(i) >= '0' && s.charAt(i) <= '9'; i++) {
+            int d = s.charAt(i) - '0';
+            if (overflow) continue;
+            if (Long.compareUnsigned(v, Long.divideUnsigned(-1L - d, 10)) > 0) overflow = true;
+            else v = v * 10 + d;
+        }
+        if (i == start || i != n) return dflt;
+        if (overflow) return -1L;   // ULLONG_MAX
+        return neg ? -v : v;
     }
 
     /** Lean's lean_nat_size_in_bytes on a 64-bit runtime: a scalar (below 2^63) is one machine
      *  word, a big number its 64-bit limbs. */
-    static long natBytes(BigInteger n) {
+    public static long natBytes(BigInteger n) {
         int bits = n.bitLength();
         return bits <= 63 ? 8 : ((bits + 63L) / 64) * 8;
     }
 
     /** Lean's check_nat_size: `numBytes` bounds the size of a numeral. */
-    static void checkNatSize(long numBytes) {
-        if (Long.compareUnsigned(numBytes, NAT_MAX_BYTES) > 0)
+    static void checkNatSize(long numBytes) { checkNatSize(numBytes, NAT_MAX_BYTES); }
+
+    static void checkNatSize(long numBytes, long maxBytes) {
+        if (Long.compareUnsigned(numBytes, maxBytes) > 0)
             throw new RuntimeException("the kernel refused a `Nat` numeral because its size exceeds the maximum; "
                 + "increase the LEAN_NAT_MAX_SIZE environment variable to allow it");
     }
@@ -907,6 +934,19 @@ public final class Reducer {
             throw new RuntimeException("the kernel refused to evaluate `" + op
                 + "` because its second argument does not fit in a 32-bit unsigned integer");
         return count.longValue();
+    }
+
+    /**
+     * A BigInteger holds fewer than 2^31 bits. Lean's numerals are bounded only by
+     * LEAN_NAT_MAX_SIZE; when a configured limit admits a result the JVM cannot hold, the kernel
+     * refuses it (a resource error, like Lean's own size limit) rather than narrowing a count.
+     */
+    static final long JVM_MAX_NAT_BITS = Integer.MAX_VALUE - 64L;
+
+    private static void checkRepresentable(long bits, String op) {
+        if (bits < 0 || bits > JVM_MAX_NAT_BITS)
+            throw new RuntimeException("the kernel refused to evaluate `" + op
+                + "` because the result cannot be represented on this JVM (at most " + JVM_MAX_NAT_BITS + " bits)");
     }
 
     private static Expr mkBool(boolean b) {
@@ -924,8 +964,10 @@ public final class Reducer {
             if (!isNatSuccConst(f)) return null;
             BigInteger v = natLitExt(whnf((Expr) e.o1));
             if (v == null) return null;
+            checkRepresentable(v.bitLength() + 1L, "Nat.succ");
             v = v.add(BigInteger.ONE);
             checkNatSize(v);
+            checkFuel();
             return Expr.litNat(v);
         }
         Expr op = (Expr) f.o0;
@@ -944,15 +986,27 @@ public final class Reducer {
         Name.NAT_ADD, Name.NAT_SUB, Name.NAT_MUL, Name.NAT_DIV, Name.NAT_MOD, Name.NAT_POW, Name.NAT_GCD,
         Name.NAT_BEQ, Name.NAT_BLE, Name.NAT_LAND, Name.NAT_LOR, Name.NAT_XOR, Name.NAT_SHIFT_LEFT, Name.NAT_SHIFT_RIGHT);
 
-    private static Expr checked(BigInteger r) {
-        checkNatSize(r);
+    private static Expr checked(BigInteger r, long maxBytes) {
+        checkNatSize(natBytes(r), maxBytes);
         return Expr.litNat(r);
     }
 
-    private static Expr natBinop(Name op, BigInteger a, BigInteger b) {
-        if (op == Name.NAT_ADD) return checked(a.add(b));
-        if (op == Name.NAT_SUB) return checked(a.subtract(b).max(BIG_ZERO));
-        if (op == Name.NAT_MUL) return checked(a.multiply(b));
+    static Expr natBinop(Name op, BigInteger a, BigInteger b) { return natBinop(op, a, b, NAT_MAX_BYTES); }
+
+    /**
+     * The primitive `op` on literals, under the numeral limit `maxBytes` (Lean's reduce_bin_nat_op,
+     * reduce_pow, reduce_shiftLeft, reduce_bin_nat_pred). Shared with the Clojure reducer.
+     */
+    public static Expr natBinop(Name op, BigInteger a, BigInteger b, long maxBytes) {
+        if (op == Name.NAT_ADD) {
+            checkRepresentable(Math.max(a.bitLength(), b.bitLength()) + 1L, "Nat.add");
+            return checked(a.add(b), maxBytes);
+        }
+        if (op == Name.NAT_SUB) return checked(a.subtract(b).max(BIG_ZERO), maxBytes);
+        if (op == Name.NAT_MUL) {
+            checkRepresentable((long) a.bitLength() + b.bitLength(), "Nat.mul");
+            return checked(a.multiply(b), maxBytes);
+        }
         if (op == Name.NAT_DIV) return Expr.litNat(b.signum() == 0 ? BIG_ZERO : a.divide(b));
         if (op == Name.NAT_MOD) return Expr.litNat(b.signum() == 0 ? a : a.mod(b));
         if (op == Name.NAT_GCD) return Expr.litNat(a.gcd(b));
@@ -965,16 +1019,19 @@ public final class Reducer {
             long k = countArg(b, "Nat.pow");
             // base^k has at most size(base) * k bytes; compare by division (no overflow)
             if (a.compareTo(BigInteger.ONE) > 0 && k != 0
-                    && Long.compareUnsigned(natBytes(a), Long.divideUnsigned(NAT_MAX_BYTES, k)) > 0)
+                    && Long.compareUnsigned(natBytes(a), Long.divideUnsigned(maxBytes, k)) > 0)
                 throw new RuntimeException("the kernel refused to evaluate `Nat.pow` because the result would exceed "
                     + "the maximum numeral size; increase the LEAN_NAT_MAX_SIZE environment variable to allow it");
             if (a.compareTo(BigInteger.ONE) <= 0) return Expr.litNat(a.signum() == 0 && k != 0 ? BIG_ZERO : BigInteger.ONE);
+            // base^k < 2^(bitLength(base) * k): the count narrows only once the result fits
+            checkRepresentable(a.bitLength() * k, "Nat.pow");
             return Expr.litNat(a.pow((int) k));
         }
         if (op == Name.NAT_SHIFT_LEFT) {
             if (a.signum() == 0) return Expr.litNat(BIG_ZERO);
             long k = countArg(b, "Nat.shiftLeft");
-            checkNatSize(natBytes(a) + k / 8 + 1);
+            checkNatSize(natBytes(a) + k / 8 + 1, maxBytes);
+            checkRepresentable(a.bitLength() + k, "Nat.shiftLeft");
             return Expr.litNat(a.shiftLeft((int) k));
         }
         if (op == Name.NAT_SHIFT_RIGHT) {

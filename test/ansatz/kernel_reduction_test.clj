@@ -61,6 +61,41 @@
     (is (re-find #"Universe level mismatch for Nat.zero"
                  (str (kernel-error #(defeq? @base (c "Nat.zero" [l0]) (lit 0))))))))
 
+(deftest nat-results-the-jvm-cannot-represent-are-refused
+  ;; under a configured limit that admits them (600 MiB / unlimited) Lean computes these; a
+  ;; BigInteger cannot hold them, and narrowing the count made `1 <<< 4294967295` zero. The
+  ;; refusal comes before any allocation.
+  (let [mib600 (* 600 1024 1024)]
+    (is (thrown-with-msg? RuntimeException #"cannot be represented"
+                          (Reducer/natBinop Name/NAT_SHIFT_LEFT BigInteger/ONE (biginteger 4294967295) mib600)))
+    (is (thrown-with-msg? RuntimeException #"cannot be represented"
+                          (Reducer/natBinop Name/NAT_POW (biginteger 2) (biginteger 4294967295) -1)))
+    (testing "within the default limit the same count is Lean's size refusal"
+      (is (thrown-with-msg? RuntimeException #"exceeds the maximum"
+                            (Reducer/natBinop Name/NAT_SHIFT_LEFT BigInteger/ONE (biginteger 4294967295)
+                                              Reducer/NAT_MAX_BYTES_DEFAULT))))))
+
+(deftest nat-size-setting-reads-as-strtoull
+  (let [d 99
+        rd #(Reducer/readNatSizeSetting % d)]
+    (is (= 7 (rd " 7")) "leading whitespace")
+    (is (= 7 (rd "\t+7")))
+    (is (= -1 (rd "-1")) "a minus negates modulo 2^64")
+    (is (= -1 (rd "99999999999999999999999")) "out of range reads as ULLONG_MAX")
+    (is (= -1 (rd "18446744073709551615")))
+    (is (= 0 (rd "-0")))
+    (doseq [s ["" " " "-" "7 " "7x" "abc" "0x10"]]
+      (is (= d (rd s)) (pr-str s))))
+  (testing "byte sizes: a value below 2^63 is one word, larger ones whole 64-bit limbs"
+    (is (= 8 (Reducer/natBytes BigInteger/ZERO)))
+    (is (= 8 (Reducer/natBytes (.subtract (.shiftLeft BigInteger/ONE 63) BigInteger/ONE))))
+    (is (= 8 (Reducer/natBytes (.shiftLeft BigInteger/ONE 63))))
+    (is (= 16 (Reducer/natBytes (.shiftLeft BigInteger/ONE 64)))))
+  (testing "with a 7-byte limit even 0 (one 8-byte word) is refused"
+    (is (thrown-with-msg? RuntimeException #"exceeds the maximum"
+                          (Reducer/natBinop Name/NAT_ADD BigInteger/ZERO BigInteger/ZERO 7)))
+    (is (some? (Reducer/natBinop Name/NAT_ADD BigInteger/ZERO BigInteger/ZERO 8)))))
+
 (deftest int-reduces-through-its-definitions
   (testing "Int.neg on a bare Nat literal unfolds to Int.rec and sticks there (Lean prints
    `Int.rec (fun a => …) (fun a => …) 3`)"
