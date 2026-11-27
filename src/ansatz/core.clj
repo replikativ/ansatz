@@ -3559,8 +3559,10 @@
    (../lean4 Structure.lean: `fromSubobject` fields have no own projection; access is the parent
    projection composed with the subobject projection). Lean inlines this at elaboration; we have
    no subobject-aware dot-notation, so we materialize each as an `:abbrev` def
-     CHILD.f := λ {params} (s : CHILD params) => PARENT.f params (CHILD.to{PARENT} params s)
-   which unfolds to exactly that composition. Parent field names come from the structure-registry
+     CHILD.f := λ {params} (s : CHILD params) => PARENT.f parentArgs (CHILD.to{PARENT} params s)
+   which unfolds to exactly that composition; `parentArgs` (and the levels) are those of the
+   subobject's type (`Child α extends Parent (List α)`: `Parent.f (List α) (Child.toParent α s)`).
+   Parent field names come from the structure-registry
    (the parent was defined via `a/structure`). Skips any field the child overrides (its own
    projection wins) and the already-generated `to{PARENT}` projection. `n-params` = carrier arity."
   [child-str parent-str to-field n-params]
@@ -3582,16 +3584,23 @@
         ;; Inside (λ {params} (self) => BODY): self = bvar 0, param i = bvar(n-params - i)
         param-bvar (fn [i] (e/bvar (- n-params i)))
         ;; CHILD.to{PARENT} params self  : PARENT p…
+        to-name (name/from-string (str child-str "." to-field))
         to-app (e/app (reduce (fn [a i] (e/app a (param-bvar i)))
-                              (e/const' (name/from-string (str child-str "." to-field)) lvl-levels)
+                              (e/const' to-name lvl-levels)
                               (range n-params))
-                      (e/bvar 0))]
+                      (e/bvar 0))
+        ;; The subobject's type `PARENT args` (`Child α extends Parent (List α)` gives
+        ;; `Parent (List α)`): its arguments and levels, read off the projection's own type under
+        ;; the binders {params} (self), whose bvars are the ones inside the accessor body.
+        [parent-head parent-args] (e/get-app-fn-args
+                                   (loop [t (.type ^ConstantInfo (env/lookup! env0 to-name)) k 0]
+                                     (if (<= k n-params) (recur (e/forall-body t) (inc k)) t)))]
     (doseq [f parent-fields
             :let [child-f (name/from-string (str child-str "." f))]
             :when (not (env/lookup (env) child-f))]
-      (let [parent-f (reduce (fn [a i] (e/app a (param-bvar i)))
-                             (e/const' (name/from-string (str parent-str "." f)) lvl-levels)
-                             (range n-params))
+      (let [parent-f (reduce e/app (e/const' (name/from-string (str parent-str "." f))
+                                             (e/const-levels parent-head))
+                             parent-args)
             body (e/app parent-f to-app)
             val  (e/lam "self" ind-applied body :default)
             val  (loop [i (dec n-params) b val]
@@ -3602,25 +3611,95 @@
                 (env/check-constant (env) cidef))))))
 
 (clojure.core/defn rewrite-inherited-field-refs
-  "Rewrite bare references to a parent's field names inside a child structure field-type form
-   into explicit subobject projections — mirroring Lean's `fromSubobject` resolution (../lean4
-   Structure.lean: parent fields are opened into scope as projections of the subobject while
-   elaborating child fields). A reference to parent field `f` becomes `(@Parent.f carrier… toField)`:
-   the parent projection applied (carrier args explicit) to the embedded subobject. This keeps the
-   child's axiom fields (e.g. `mul_add : mul a (add b c) = …`) explicit when the
-   projection is partially applied through the term elaborator. `field-set` = parent field-name
-   strings; `carrier-args` = the carrier s-exprs from `:extends (Parent carrier…)`; `to-field` = the subobject field symbol.
-   Assumes no local binder shadows a parent field name (parent fields are ops/axioms like add/zero;
-   child binders are a/b/c — no collision)."
+  "Rewrite references to a parent's field names inside a child structure field-type form into
+   explicit subobject projections — Lean's `fromSubobject` resolution (Elab/Structure.lean: the
+   parent fields are local declarations of the child's field context, so they are in scope exactly
+   where no inner binder shadows them). A free reference to parent field `f` becomes
+   `(@Parent.f carrier… toField)`: the parent projection applied (carrier args explicit) to the
+   embedded subobject.
+
+   Binders the walk knows (spellings it recognizes; whether one elaborates is the elaborator's
+   business): `forall`/`lam`/`∀`/`λ`/`exists`/`∃` binder vectors
+   `[x T y U …]` (with optional `:-`/`,`), each type in the scope of the binders before it;
+   `fn`/`fn*` parameters (any parse-params form, a name and a single wrapped arity allowed);
+   `let` as a typed `[x T v]` or Clojure name/value pairs. A name bound there is that binder in its
+   scope. A binder that shadows the subobject field or a carrier symbol, with an inherited field
+   referenced in its scope, is refused: the generated projection would be captured.
+   `field-set` = parent field-name strings; `carrier-args` = the carrier s-exprs from
+   `:extends (Parent carrier…)`; `to-field` = the subobject field symbol."
   [form field-set parent-sym carrier-args to-field]
-  (cond
-    (and (symbol? form) (contains? field-set (str form)))
-    (apply list (symbol (str "@" parent-sym "." form)) (concat carrier-args [to-field]))
-    (seq? form)
-    (apply list (map #(rewrite-inherited-field-refs % field-set parent-sym carrier-args to-field) form))
-    (vector? form)
-    (mapv #(rewrite-inherited-field-refs % field-set parent-sym carrier-args to-field) form)
-    :else form))
+  (let [generated (into #{(str to-field)}
+                        (map str) (filter symbol? (tree-seq coll? seq (vec carrier-args))))
+        sep? #(contains? #{":" ":-" ","} (str %))]
+    (letfn [(bind [scope n]
+              (let [n (str n)]
+                (cond-> (update scope :fields disj n)
+                  (generated n) (update :captured conj n))))
+            (rw [form scope]
+              (cond
+                (and (symbol? form) (contains? (:fields scope) (str form)))
+                (if (seq (:captured scope))
+                  (throw (ex-info (str "structure: the inherited field `" form "` is referenced under a binder "
+                                       "that shadows " (pr-str (vec (:captured scope))))
+                                  {:field (str form) :shadowed (:captured scope)}))
+                  (apply list (symbol (str "@" parent-sym "." form)) (concat carrier-args [to-field])))
+
+                (and (seq? form) (symbol? (first form)) (vector? (second form))
+                     (contains? #{"forall" "∀" "lam" "λ" "exists" "∃"} (str (first form))))
+                ;; each binder's type in the incoming scope, then its name shadows
+                (let [[head binders & body] form
+                      [out scope'] (loop [ts binders out [] scope scope pending nil]
+                                     (if-let [t (first ts)]
+                                       (cond
+                                         (sep? t) (recur (rest ts) (conj out t) scope pending)
+                                         (nil? pending) (recur (rest ts) (conj out t) scope [t])
+                                         :else (recur (rest ts) (conj out (rw t scope))
+                                                      (bind scope (first pending)) nil))
+                                       [out scope]))]
+                  (apply list head out (map #(rw % scope') body)))
+
+                (and (seq? form) (contains? #{"fn" "fn*"} (str (first form))))
+                (let [[head & more] form
+                      [self more] (if (symbol? (first more)) [(first more) (rest more)] [nil more])
+                      [wrapped? params body] (cond
+                                               (vector? (first more)) [false (first more) (rest more)]
+                                               (and (seq? (first more)) (vector? (ffirst more)) (nil? (next more)))
+                                               [true (ffirst more) (rest (first more))]
+                                               :else [nil nil nil])]
+                  (if (nil? params)
+                    (apply list (map #(rw % scope) form))
+                    (let [[params' scope'] (reduce (fn [[out scope] [n t binfo]]
+                                                     [(cond-> (conj out n :- (rw t scope))
+                                                        (= binfo :inst-implicit) (conj :inst)
+                                                        (= binfo :implicit) (conj :implicit))
+                                                      (bind scope n)])
+                                                   ;; the elaborator does not bind a fn's self name
+                                                   [[] scope]
+                                                   (ingest/parse-params params))
+                          body' (map #(rw % scope') body)]
+                      (apply list head (concat (when self [self])
+                                               (if wrapped? [(apply list params' body')] (cons params' body')))))))
+
+                (and (seq? form) (= "let" (str (first form))) (vector? (second form)))
+                (let [[head bindings & body] form
+                      ;; the elaborator's rule: a typed surface let is [x T v] (with `:`/`:-`/`=`/`,`
+                      ;; separators) and one body; anything else is Clojure's let
+                      typed (vec (remove #(contains? #{":" ":-" "=" ","} (str %)) bindings))]
+                  (if (and (= 3 (count typed)) (= 1 (count body)))
+                    (let [[n t v] typed]
+                      (apply list head [n (rw t scope) (rw v scope)] (map #(rw % (bind scope n)) body)))
+                    ;; Clojure let: sequential name/value pairs (an odd trailing token stays as it is)
+                    (let [[out scope'] (reduce (fn [[out scope] [n & v]]
+                                                 (if (seq v)
+                                                   [(conj out n (rw (first v) scope)) (bind scope n)]
+                                                   [(conj out n) scope]))
+                                               [[] scope] (partition-all 2 bindings))]
+                      (apply list head out (map #(rw % scope') body)))))
+
+                (seq? form) (apply list (map #(rw % scope) form))
+                (vector? form) (mapv #(rw % scope) form)
+                :else form))]
+      (rw form {:fields (set field-set) :captured #{}}))))
 
 (clojure.core/defn add-parent-instances!
   "Lean Elab/Structure.lean:addParentInstances (v4.33.1), for one direct parent.
