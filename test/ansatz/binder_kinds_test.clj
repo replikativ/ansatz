@@ -49,13 +49,13 @@
 
 (deftest fixed-indices-become-parameters
   (testing "an index fixed in every constructor is promoted (Lean's Fix has one parameter)"
-    (let [out (ind/define-inductive (a/env) "BkFix" [] [['wrap '[α Type a α] '[α]]] :indices '[β Type])]
+    (let [out (ind/define-inductive (a/env) "BkFix" [] [['wrap '[α Type a α] '[α]]] :indices '[β Type] :in 'Type)]
       (is (= 1 (.numParams (env/lookup out (name/from-string "BkFix")))))
       (is (= [:implicit :implicit :default :default] (infos "BkFix.rec")))))
-  (testing "with promotion off the field's universe is too big, as in Lean"
+  (testing "with promotion off the field's universe is too big for the written sort, as in Lean"
     (is (thrown-with-msg? clojure.lang.ExceptionInfo #"rejected by the kernel"
                           (ind/define-inductive (a/env) "BkFix2" [] [['wrap '[α Type a α] '[α]]]
-                            :indices '[β Type] :promote-indices? false))))
+                            :indices '[β Type] :in 'Type :promote-indices? false))))
   (testing "promotion precedes universe inference (Lean's PI p h : Type, not Prop)"
     (let [out (ind/define-inductive (a/env) "BkPI" '[p Prop] [['mk '[h p] '[h]]] :indices '[i p])
           t (.type (env/lookup out (name/from-string "BkPI")))]
