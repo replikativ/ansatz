@@ -27,3 +27,20 @@ inductive Solo where | only
 
 example : @Solo.noConfusionType = fun P (_ _ : Solo) => P → P := rfl
 example : @Solo.noConfusion = fun {P} {_ _ : Solo} (_ : _ = _) (p : P) => p := rfl
+
+/-! Sort-polymorphic enums (Lean tests/elab/issue14904.lean): with several constructors the type
+eliminates only into `Prop`, so there is no `ctorIdx` and the enum shortcut does not apply; the
+core construction skips it too. A single constructor keeps both. -/
+set_option bootstrap.inductiveCheckResultingUniverse false
+
+inductive Bool2 : Sort u where | yes | no
+
+/-- error: Unknown constant `Bool2.ctorIdx` -/
+#guard_msgs in #check @Bool2.ctorIdx
+/-- error: Unknown constant `Bool2.noConfusion` -/
+#guard_msgs in #check @Bool2.noConfusion
+
+inductive Unit2 : Sort u where | unit
+
+/-- info: @Unit2.noConfusion : {P : Sort u_1} → {x y : Unit2} → x = y → Unit2.noConfusionType P x y -/
+#guard_msgs in #check @Unit2.noConfusion

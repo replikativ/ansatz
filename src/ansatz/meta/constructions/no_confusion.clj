@@ -221,7 +221,8 @@
   "Apply the prelude helper `hn` (`noConfusionTypeEnum` / `noConfusionEnum`) along its own
    telescope, as Lean's mkAppM does from the explicit arguments. Lean 4.36 takes
    `{α} (f : α → Nat)` at two universe levels; Lean 4.33.1 took
-   `{α} {β} [DecidableEq β] (f : α → β)` at three. Each binder is filled by its name, the tag
+   `{α} {β} [DecidableEq β] (f : α → β)` at three. Each binder is filled by its name (the
+   binder names both preludes use: α β inst f P x y h; any other binder is an error), the tag
    function `f` with `T.ctorIdx` (a `Nat`-valued tag, so `β := Nat`), and each universe parameter
    from the sort binder that carries it."
   [ctx hn vals]
@@ -239,7 +240,9 @@
                               (.levelParams ci)))
            (map (comp val-of first) binders))))
 
-(defn mk-no-confusion-enum [env n]
+(declare mk-no-confusion-core)
+
+(defn- mk-no-confusion-enum-imp [env n]
   (let [info (env/lookup! env (name/from-string (str n))) ctx (u/context env)
         us (mapv lvl/param (.levelParams info))
         ;; Lean uses a fresh `v` here, rather than the recursor elimination level.
@@ -262,6 +265,16 @@
     (u/add-definition env ctx (str n ".noConfusion") lps [p x y h]
                       (u/app (u/const' (str n ".noConfusionType") ls) [p x y]) val)))
 
+(defn mk-no-confusion-enum
+  "Lean 4.36 mkNoConfusionEnum: the enum shortcut needs both the prelude helper and `T.ctorIdx`
+   (a sort-polymorphic enum with several constructors eliminates only into Prop and has no tag);
+   otherwise the core construction, which skips such types."
+  [env n]
+  (if (and (env/lookup env (name/from-string "noConfusionEnum"))
+           (env/lookup env (name/mk-str (name/from-string (str n)) "ctorIdx")))
+    (mk-no-confusion-enum-imp env n)
+    (mk-no-confusion-core env n)))
+
 (defn mk-no-confusion-core [env n]
   (let [info (env/lookup! env (name/from-string (str n)))
         rec (env/lookup! env (name/from-string (str n ".rec")))]
@@ -271,9 +284,6 @@
 
 (defn mk-no-confusion [env n]
   (let [info (env/lookup! env (name/from-string (str n)))]
-    ;; Lean 4.36 mkNoConfusionEnum: the enum shortcut needs both the prelude helper and
-    ;; `T.ctorIdx` (a sort-polymorphic enum has no tag); otherwise the core construction.
-    (if (and (u/is-enum-type? env info) (env/lookup env (name/from-string "noConfusionEnum"))
-             (env/lookup env (name/mk-str (name/from-string (str n)) "ctorIdx")))
+    (if (u/is-enum-type? env info)
       (mk-no-confusion-enum env n)
       (mk-no-confusion-core env n))))

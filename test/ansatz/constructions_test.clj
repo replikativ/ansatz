@@ -18,8 +18,10 @@
             [ansatz.meta.constructions.rec-on :as rec]
             [ansatz.meta.constructions.brec-on :as brec]
             [ansatz.meta.constructions.no-confusion :as nc]
-            [ansatz.meta.constructions.util :as u])
-  (:import [java.util.zip GZIPInputStream]))
+            [ansatz.meta.constructions.util :as u]
+            [ansatz.meta.constructions.ctor-idx :as ctor-idx])
+  (:import [java.util.zip GZIPInputStream]
+           [ansatz.kernel TypeChecker]))
 
 (def oracle
   (delay
@@ -220,6 +222,40 @@
                       (e/app (cases motive beq fls (u/mk-lambda-fvars ctx [h2 q] q))
                              (u/mk-eq-refl ctx beq)))))
 
+(defn- sort-poly-enum
+  "`inductive n : Sort u` with nullary constructors, admitted at the kernel level as Lean 4.36
+   does (the DSL's parameterless form defaults to Type): with two or more constructors it
+   eliminates only into Prop, with one into any Sort. Then the DSL's construction sequence."
+  [base n ctors]
+  (let [un (name/from-string "u") U (lvl/param un)
+        nm (name/from-string n) T (e/const' nm [U])
+        cn #(name/from-string (str n "." %))
+        ind (env/mk-induct nm [un] (e/sort' U) :ctors (mapv cn ctors))
+        cis (vec (map-indexed (fn [i c] (env/mk-ctor (cn c) [un] T nm i 0 0)) ctors))
+        large? (= 1 (count ctors))
+        vn (name/from-string "u_1")
+        rlps (if large? [vn un] [un])
+        k (count ctors)
+        ;; ∀ {motive : T → Sort}, motive c₀ → … → ∀ t, motive t
+        body (e/forall' (name/from-string "t") T (e/app (e/bvar (inc k)) (e/bvar 0)) :default)
+        body (reduce (fn [b i] (e/forall' (name/from-string (nth ctors i))
+                                          (e/app (e/bvar i) (e/const' (cn (nth ctors i)) [U])) b :default))
+                     body (reverse (range k)))
+        rty (e/forall' (name/from-string "motive")
+                       (e/arrow T (e/sort' (if large? (lvl/param vn) lvl/zero))) body :implicit)
+        rn (name/from-string (str n ".rec"))
+        rec #(env/mk-recursor rn rlps rty :all [nm] :num-motives 1 :num-minors k :rules %)
+        rules (vec (TypeChecker/generateExpectedRecursorRules
+                    base (env/mk-inductive-bundle [un] 0 false [ind] cis [(rec [])]) 0 1000000))
+        env (env/check-inductive-bundle base (env/mk-inductive-bundle [un] 0 false [ind] cis [(rec rules)]))
+        env (rec/mk-rec-on env n)
+        env (cases/mk-cases-on env n)
+        env (ctor-idx/mk-ctor-idx env n)]
+    (nc/mk-no-confusion env n)))
+
+(defn- binder-infos [t]
+  (loop [t t acc []] (if (e/forall? t) (recur (e/forall-body t) (conj acc (e/forall-info t))) acc)))
+
 (defn- enum-no-confusion-body
   "The helper application under `T.noConfusion`'s four binders `{P} {x y} h`."
   [env n]
@@ -245,6 +281,15 @@
             (is (= [(lvl/succ lvl/zero) v] (vec (e/const-levels hd))))
             (is (= 6 (count args)) "α f P x y h: no codomain or dictionary")
             (is (= "T36.Color.ctorIdx" (str (e/const-name (nth args 1)))))
+            (let [nct-ci (lookup out "T36.Color.noConfusionType")
+                  [th targs] (e/get-app-fn-args (-> (.value nct-ci) e/lam-body e/lam-body e/lam-body))]
+              (is (= "noConfusionTypeEnum" (str (e/const-name th))))
+              (is (= [(lvl/succ lvl/zero) (lvl/param (first (.levelParams nct-ci)))] (vec (e/const-levels th))))
+              (is (= ["T36.Color" "T36.Color.ctorIdx"] (mapv #(str (e/const-name %)) (subvec targs 0 2))))
+              (is (= [(e/bvar 2) (e/bvar 1) (e/bvar 0)] (subvec targs 2)) "P x y")
+              (is (= [:default :default :default] (binder-infos (.type nct-ci))))
+              (is (= [:implicit :implicit :implicit :default]
+                     (binder-infos (.type (lookup out "T36.Color.noConfusion"))))))
             (is (tc/is-def-eq st (nct p "red" "blue") p) "distinct constructors: P")
             (is (tc/is-def-eq st (nct p "green" "green") (e/arrow p p)) "equal constructors: P → P")
             ;; red ≠ green := fun h => Color.noConfusion h
@@ -260,6 +305,14 @@
               (let [out (ind/define-inductive base "T36.Solo" [] [['only []]])
                     body (enum-no-confusion-body out "T36.Solo")]
                 (is (and (e/lam? body) (= (e/bvar 0) (e/lam-body body))))))))
+        (testing "sort-polymorphic enums (Lean tests/elab/issue14904.lean)"
+          (let [base (with-lean-4-36-enum-helpers @test-env/bundled-init-env)
+                b2 (sort-poly-enum base "T36.Bool2" ["true" "false"])
+                u2 (sort-poly-enum base "T36.Unit2" ["unit"])]
+            (doseq [s ["ctorIdx" "noConfusionType" "noConfusion"]]
+              (is (nil? (lookup b2 (str "T36.Bool2." s))) (str "Bool2 eliminates only into Prop: no " s))
+              (is (some? (lookup u2 (str "T36.Unit2." s))) (str "Unit2." s)))
+            (is (= (e/bvar 0) (e/lam-body (enum-no-confusion-body u2 "T36.Unit2"))))))
         (testing "Lean 4.33.1 prelude: three levels, codomain Nat and instDecidableEqNat"
           (let [out (ind/define-inductive @oracle "T33.Color" [] color)
                 [hd args] (e/get-app-fn-args (enum-no-confusion-body out "T33.Color"))]
