@@ -976,7 +976,8 @@ public final class TypeChecker {
     /** Lean's is_def_eq_core, phase for phase. */
     private boolean isDefEqCore(Expr t, Expr s) {
         checkSystem();
-        reducer.checkFuelPublic();
+        // fuel is ours (Lean has none): a comparison of a term with itself costs nothing
+        if (t != s) reducer.checkFuelPublic();
         if (++isDefEqDepth > MAX_ISDEFEQ_DEPTH)
             throw new KernelAbort("isDefEq recursion depth exceeded (" + MAX_ISDEFEQ_DEPTH + ")");
         try {
