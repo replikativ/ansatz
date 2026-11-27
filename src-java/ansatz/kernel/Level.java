@@ -683,18 +683,10 @@ public final class Level {
         return Long.compare(ka[0], kb[0]);
     }
 
-    /** A total order on universe parameter names: component-wise from the root. */
+    /** Lean's order on universe parameter names (name::cmp_core). */
     private static int compareNames(Object a, Object b) {
-        if (!(a instanceof Name) || !(b instanceof Name)) return String.valueOf(a).compareTo(String.valueOf(b));
-        Name x = (Name) a, y = (Name) b;
-        if (x.equals(y)) return 0;
-        if (x.tag == Name.ANONYMOUS) return -1;
-        if (y.tag == Name.ANONYMOUS) return 1;
-        int c = compareNames(x.prefix == null ? Name.ANONYMOUS_NAME : x.prefix,
-                             y.prefix == null ? Name.ANONYMOUS_NAME : y.prefix);
-        if (c != 0) return c;
-        if (x.tag != y.tag) return x.tag == Name.NUM ? -1 : 1;
-        return x.tag == Name.NUM ? Long.compare(x.num, y.num) : x.str.compareTo(y.str);
+        if (a instanceof Name && b instanceof Name) return Name.compare((Name) a, (Name) b);
+        return String.valueOf(a).compareTo(String.valueOf(b));
     }
 
     // --- Equality and hashing ---

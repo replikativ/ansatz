@@ -788,32 +788,7 @@ public final class AddInductive {
 
     /** Lean's Name.appendAfter (via modifyBase: a hygienic name keeps its macro scopes). */
     static Object appendAfter(Object n, String suffix) {
-        if (!(n instanceof Name)) return String.valueOf(n) + suffix;
-        Name name = (Name) n;
-        if (hasMacroScopes(name)) {
-            ArrayList<Name> scopes = new ArrayList<>();
-            Name base = name;
-            while (!(base.isStr() && "_@".equals(base.str))) { scopes.add(base); base = base.prefix; }
-            Name out = concat((Name) appendAfter(base.prefix, suffix), Name.mkStr(Name.ANONYMOUS_NAME, "_@"));
-            for (int i = scopes.size() - 1; i >= 0; i--) {
-                Name s = scopes.get(i);
-                out = s.isStr() ? Name.mkStr(out, s.str) : Name.mkNum(out, s.num);
-            }
-            return out;
-        }
-        return name.isStr() ? Name.mkStr(name.prefix, name.str + suffix) : Name.mkStr(name, suffix);
-    }
-
-    private static boolean hasMacroScopes(Name n) {
-        for (Name p = n; p != null && !p.isAnonymous(); p = p.prefix) {
-            if (p.isStr()) {
-                if (!"_hyg".equals(p.str)) return false;
-                for (Name q = p.prefix; q != null && !q.isAnonymous(); q = q.prefix)
-                    if (q.isStr() && "_@".equals(q.str)) return true;
-                return false;
-            }
-        }
-        return false;
+        return n instanceof Name ? ((Name) n).appendAfter(suffix) : String.valueOf(n) + suffix;
     }
 
     /** Lean's consumeTypeAnnotations: strip optParam, autoParam, outParam and semiOutParam. */

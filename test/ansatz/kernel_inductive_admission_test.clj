@@ -13,7 +13,7 @@
             [ansatz.kernel.level :as lvl]
             [ansatz.kernel.name :as name]
             [ansatz.kernel.reduce :as red])
-  (:import [ansatz.kernel ConstantInfo ConstantInfo$RecursorRule Env Expr Reducer TypeChecker]))
+  (:import [ansatz.kernel ConstantInfo ConstantInfo$RecursorRule Env Expr Level Name Reducer TypeChecker]))
 
 ;; ============================================================
 ;; Helpers
@@ -343,3 +343,22 @@
                                             fuel)
                          nil
                          (catch Throwable ex (.getMessage ex)))))))
+
+(deftest level-normal-forms-order-names-from-the-root
+  ;; Lean's name::cmp_core compares components from the root: a.b < z (Java once put z first)
+  (let [z (P "z") ab (lvl/param (name/from-string "a.b"))]
+    (is (= (lvl/level-max ab z) (Level/normalize (lvl/level-max z ab))))
+    (is (neg? (Name/compare (name/from-string "a.b") (name/from-string "z"))))
+    (is (neg? (Name/compare (name/from-string "a") (name/from-string "a.b"))))))
+
+(deftest auxiliary-names-keep-macro-scopes
+  ;; Lean's appendIndexAfter modifies the base name and keeps the macro scopes
+  (is (= (name/from-string "x_1._@.M._hyg.3") (.appendAfter ^Name (name/from-string "x._@.M._hyg.3") (int 1))))
+  (is (= (name/from-string "x_ih._@.M._hyg.3") (.appendAfter ^Name (name/from-string "x._@.M._hyg.3") "_ih")))
+  (testing "nesting through a container with a hygienic name restores its constructor names"
+    (let [box "KBox._@.M._hyg.3"
+          [env _] (generate @base [] 1 [[box (pi "α" type0 type0)
+                                         [[(str box ".mk") (ipi "α" type0 (pi "a" (bv 0) (e/app (c box) (bv 1))))]]]])
+          [_ recs] (generate env [] 0 [["KHT" type0 [["KHT.node" (pi "b" (e/app (c box) (c "KHT")) (c "KHT"))]]]])]
+      (is (= [(name/from-string (str box ".mk"))]
+             (mapv #(.ctor ^ConstantInfo$RecursorRule %) (.rules ^ConstantInfo (by-name recs "KHT.rec_1"))))))))

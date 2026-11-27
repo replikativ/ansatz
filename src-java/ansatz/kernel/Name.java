@@ -205,14 +205,70 @@ public final class Name {
         else if (tag == NUM) sb.append(num);
     }
 
-    /**
-     * If the last component is a string, append "_i" to it. Otherwise add a
-     * new final string component "_i". Matches Lean's name::append_after(unsigned).
-     */
+    /** Lean's Name.appendIndexAfter (name::append_after(unsigned)): "_i" after the base name. */
     public Name appendAfter(int i) {
-        String suffix = "_" + i;
-        if (tag == STR) return mkStr(prefix, str + suffix);
-        return mkStr(this, suffix);
+        return appendAfter("_" + i);
+    }
+
+    /**
+     * Lean's Name.appendAfter (name::append_after(char const*)). Both go through modifyBase:
+     * on a hygienic name the suffix goes after the base name and the macro scopes are kept.
+     */
+    public Name appendAfter(String suffix) {
+        if (hasMacroScopes()) {
+            java.util.ArrayList<Name> scopes = new java.util.ArrayList<>();
+            Name at = this;
+            while (at != null && !(at.tag == STR && "_@".equals(at.str))) { scopes.add(at); at = at.prefix; }
+            if (at != null && at.prefix != null) {
+                Name out = mkStr(at.prefix.appendBase(suffix), "_@");
+                for (int k = scopes.size() - 1; k >= 0; k--) {
+                    Name c = scopes.get(k);
+                    out = c.tag == STR ? mkStr(out, c.str) : mkNum(out, c.num);
+                }
+                return out;
+            }
+        }
+        return appendBase(suffix);
+    }
+
+    private Name appendBase(String suffix) {
+        return tag == STR ? mkStr(prefix, str + suffix) : mkStr(this, suffix);
+    }
+
+    /** Lean's Name.hasMacroScopes: the last string component is "_hyg". */
+    public boolean hasMacroScopes() {
+        Name n = this;
+        while (n != null && n.tag == NUM) n = n.prefix;
+        return n != null && n.tag == STR && "_hyg".equals(n.str);
+    }
+
+    /** Lean's name comparison (name::cmp_core): component-wise from the root, a numeral
+     *  before a string, strings by their UTF-8 bytes, a proper prefix first. */
+    public static int compare(Name a, Name b) {
+        java.util.ArrayList<Name> la = limbs(a), lb = limbs(b);
+        for (int k = 0; k < la.size() && k < lb.size(); k++) {
+            Name x = la.get(k), y = lb.get(k);
+            if (x.tag != y.tag) return x.tag == STR ? 1 : -1;
+            int c = x.tag == STR ? compareUtf8(x.str, y.str) : Long.compareUnsigned(x.num, y.num);
+            if (c != 0) return c;
+        }
+        return Integer.compare(la.size(), lb.size());
+    }
+
+    private static java.util.ArrayList<Name> limbs(Name n) {
+        java.util.ArrayList<Name> out = new java.util.ArrayList<>();
+        for (Name p = n; p != null && p.tag != ANONYMOUS; p = p.prefix) out.add(p);
+        java.util.Collections.reverse(out);
+        return out;
+    }
+
+    private static int compareUtf8(String a, String b) {
+        byte[] x = a.getBytes(java.nio.charset.StandardCharsets.UTF_8), y = b.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        for (int k = 0; k < x.length && k < y.length; k++) {
+            int c = Integer.compare(x[k] & 0xff, y[k] & 0xff);
+            if (c != 0) return c;
+        }
+        return Integer.compare(x.length, y.length);
     }
 
     /**
