@@ -87,8 +87,15 @@
    declarations and zeta-reduces the recursive argument in toBelowAux)."
   {})
 
-(defn- zeta [x]
-  (if-let [v (and (e/fvar? x) (get *let-values* (e/fvar-id x)))] (recur v) x))
+(defn- zeta
+  "Lean zetaReduce on the recursive argument: substitute every let-bound local (also at
+   application heads) and beta-reduce the head."
+  [x]
+  (let [x (loop [x x n (count *let-values*)]
+            (let [x' (reduce (fn [x [id v]] (e/instantiate1 (e/abstract1 x id) v)) x *let-values*)]
+              (if (or (= x' x) (neg? n)) x' (recur x' (dec n)))))
+        [f args] (e/get-app-fn-args x)]
+    (if (e/lam? f) (u/beta f args) x)))
 
 (defn- to-below [ctx motive below target-args]
   (let [raw-type (u/infer-type ctx below)

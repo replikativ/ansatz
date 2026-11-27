@@ -207,11 +207,17 @@
   [env params-spec specs]
   (let [param-pairs (vec (partition 2 params-spec))
         n-params (count param-pairs)
-        level-param-names (vec (distinct (keep (fn [[_ t]] (type-level-param t)) param-pairs)))
-        levels (mapv lvl/param level-param-names)
-        default-level (if (empty? level-param-names)
+        param-level-names (vec (distinct (keep (fn [[_ t]] (type-level-param t)) param-pairs)))
+        default-level (if (empty? param-level-names)
                         (lvl/succ lvl/zero)
-                        (reduce lvl/level-max (map #(lvl/succ (lvl/param %)) level-param-names)))
+                        (reduce lvl/level-max (map #(lvl/succ (lvl/param %)) param-level-names)))
+        ;; a universe named only in a result sort `(Type u)` is a universe of the block too
+        in-level-names (keep (fn [[_ _ & {:keys [in]}]]
+                               (when (and (seq? in) (= 2 (count in)) (= 'Type (first in)) (symbol? (second in)))
+                                 (name/from-string (str (second in)))))
+                             specs)
+        level-param-names (vec (distinct (concat param-level-names in-level-names)))
+        levels (mapv lvl/param level-param-names)
         specs (mapv (fn [[n ctors & {:keys [indices in]}]]
                       {:name n :ind-name (name/from-string n) :ctors-spec ctors
                        :index-pairs (vec (partition 2 (or indices [])))
