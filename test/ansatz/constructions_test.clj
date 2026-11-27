@@ -17,7 +17,8 @@
             [ansatz.meta.constructions.cases-on :as cases]
             [ansatz.meta.constructions.rec-on :as rec]
             [ansatz.meta.constructions.brec-on :as brec]
-            [ansatz.meta.constructions.no-confusion :as nc])
+            [ansatz.meta.constructions.no-confusion :as nc]
+            [ansatz.meta.constructions.util :as u])
   (:import [java.util.zip GZIPInputStream]))
 
 (def oracle
@@ -171,4 +172,99 @@
           (is (= (+ n 2) ((deref (ns-resolve *ns* 'spin-program)) n))))
         (is (= [0 0 0 5 5]
                (mapv (deref (ns-resolve *ns* 'spin-fuel-program)) (range 5)))))
+      (finally (reset! a/ansatz-env saved)))))
+
+;; ---------------------------------------------------------------------------
+;; Enum noConfusion against both preludes (test/lean-parity/dsl/enum_no_confusion.lean)
+;; ---------------------------------------------------------------------------
+
+(defn- with-lean-4-36-enum-helpers
+  "Add Lean v4.36.0's Init/Core.lean `noConfusionTypeEnum` / `noConfusionEnum` (two universe
+   levels, tag `f : α → Nat`, no codomain or DecidableEq dictionary) to an environment
+   that has neither (the bundled Init export omits both)."
+  [env]
+  (let [ctx (u/context env)
+        un (name/from-string "u") wn (name/from-string "w")
+        U (lvl/param un) W (lvl/param wn)
+        nat (u/const' "Nat" []) bool (u/const' "Bool" [])
+        ff (u/const' "Bool.false" []) tt (u/const' "Bool.true" [])
+        a (u/local-decl ctx "α" (e/sort' U) :implicit)
+        f (u/local-decl ctx "f" (u/mk-arrow ctx a nat))
+        p (u/local-decl ctx "P" (e/sort' W))
+        x (u/local-decl ctx "x" a) y (u/local-decl ctx "y" a)
+        beq (u/app (u/const' "Nat.beq" []) [(e/app f x) (e/app f y)])
+        cases (fn [motive t fls tru]
+                (u/app (u/const' "Bool.casesOn" [(u/get-level ctx (e/app motive tt))]) [motive t fls tru]))
+        sort-w (e/lam (name/from-string "b") bool (e/sort' W) :default)
+        ;; ((f x).beq (f y)).casesOn P (P → P)
+        env (u/add-definition env ctx "noConfusionTypeEnum" [un wn] [a f p x y] (e/sort' W)
+                              (cases sort-w beq p (u/mk-arrow ctx p p)))
+        _ (u/set-env! ctx env)
+        _ (u/implicit! ctx [p x y])
+        h (u/local-decl ctx "h" (u/mk-eq ctx x y))
+        b (u/local-decl ctx "b" bool)
+        motive (u/mk-lambda-fvars ctx [b] (u/mk-arrow ctx (u/mk-eq ctx beq b)
+                                                      (cases sort-w b p (u/mk-arrow ctx p p))))
+        h1 (u/local-decl ctx "h'" (u/mk-eq ctx beq ff))
+        fls (u/mk-lambda-fvars
+             ctx [h1]
+             (u/app (u/const' "False.elim" [W])
+                    [(cases sort-w ff p (u/mk-arrow ctx p p))
+                     (u/app (u/const' "Nat.ne_of_beq_eq_false" [])
+                            [(e/app f x) (e/app f y) h1
+                             (u/app (u/const' "congrArg" [U (lvl/succ lvl/zero)]) [a nat x y f h])])]))
+        h2 (u/local-decl ctx "h'" (u/mk-eq ctx beq tt))
+        q (u/local-decl ctx "a" p)]
+    (u/add-definition env ctx "noConfusionEnum" [un wn] [a f p x y h]
+                      (u/app (u/const' "noConfusionTypeEnum" [U W]) [a f p x y])
+                      (e/app (cases motive beq fls (u/mk-lambda-fvars ctx [h2 q] q))
+                             (u/mk-eq-refl ctx beq)))))
+
+(defn- enum-no-confusion-body
+  "The helper application under `T.noConfusion`'s four binders `{P} {x y} h`."
+  [env n]
+  (let [v (.value (lookup env (str n ".noConfusion")))]
+    (-> v e/lam-body e/lam-body e/lam-body e/lam-body)))
+
+(deftest enum-no-confusion-follows-the-helper-telescope
+  (let [saved @a/ansatz-env
+        color [['red []] ['green []] ['blue []]]]
+    (try
+      (binding [a/*verbose* false]
+        (testing "Lean 4.36 prelude: two levels, `noConfusionEnum T T.ctorIdx P x y h`"
+          (let [base (with-lean-4-36-enum-helpers @test-env/bundled-init-env)
+                out (ind/define-inductive base "T36.Color" [] color)
+                [hd args] (e/get-app-fn-args (enum-no-confusion-body out "T36.Color"))
+                v (lvl/param (first (.levelParams (lookup out "T36.Color.noConfusion"))))
+                st (tc/mk-tc-state out)
+                c #(e/const' (name/from-string (str "T36.Color." %)) [])
+                nct (fn [p a b] (e/app* (e/const' (name/from-string "T36.Color.noConfusionType") [lvl/zero])
+                                        p (c a) (c b)))
+                p (e/const' (name/from-string "True") [])]
+            (is (= "noConfusionEnum" (str (e/const-name hd))))
+            (is (= [(lvl/succ lvl/zero) v] (vec (e/const-levels hd))))
+            (is (= 6 (count args)) "α f P x y h: no codomain or dictionary")
+            (is (= "T36.Color.ctorIdx" (str (e/const-name (nth args 1)))))
+            (is (tc/is-def-eq st (nct p "red" "blue") p) "distinct constructors: P")
+            (is (tc/is-def-eq st (nct p "green" "green") (e/arrow p p)) "equal constructors: P → P")
+            ;; red ≠ green := fun h => Color.noConfusion h
+            (let [eq (e/app* (e/const' (name/from-string "Eq") [(lvl/succ lvl/zero)])
+                             (e/const' (name/from-string "T36.Color") []) (c "red") (c "green"))
+                  fls (e/const' (name/from-string "False") [])]
+              (is (env/verifies? out (e/arrow eq fls)
+                                 (e/lam (name/from-string "h") eq
+                                        (e/app* (e/const' (name/from-string "T36.Color.noConfusion") [lvl/zero])
+                                                fls (c "red") (c "green") (e/bvar 0))
+                                        :default))))
+            (testing "one constructor: `P → P` and the identity"
+              (let [out (ind/define-inductive base "T36.Solo" [] [['only []]])
+                    body (enum-no-confusion-body out "T36.Solo")]
+                (is (and (e/lam? body) (= (e/bvar 0) (e/lam-body body))))))))
+        (testing "Lean 4.33.1 prelude: three levels, codomain Nat and instDecidableEqNat"
+          (let [out (ind/define-inductive @oracle "T33.Color" [] color)
+                [hd args] (e/get-app-fn-args (enum-no-confusion-body out "T33.Color"))]
+            (is (= "noConfusionEnum" (str (e/const-name hd))))
+            (is (= 3 (count (e/const-levels hd))))
+            (is (= ["Nat" "instDecidableEqNat" "T33.Color.ctorIdx"]
+                   (mapv #(str (e/const-name %)) (subvec args 1 4)))))))
       (finally (reset! a/ansatz-env saved)))))
