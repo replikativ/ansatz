@@ -750,6 +750,15 @@
    (let [sorted (sort-by (comp - :priority) lemmas)]
      (dt/make-simp-tree st env sorted))))
 
+(defn build-simp-indexes
+  "Lean SimpTheorems {pre, post} (SimpTheorems.lean:599-610) filled by addSimpTheorem (:643-652):
+   a rule goes into `pre` when its origin is `↓` (`:post false`), else into `post`. Returns
+   [post-index pre-index] — the post tree is the `lemma-index` threaded through simp; the pre tree
+   (nil when empty) rides in the config as `:pre-index`."
+  [st env rules]
+  (let [{pre false post true} (group-by #(boolean (:post % true)) rules)]
+    [(build-lemma-index st env post) (when (seq pre) (build-lemma-index st env pre))]))
+
 (defn- lookup-lemmas
   "Look up candidate lemmas from the discrimination tree.
    Expands query nodes on demand while walking exact and wildcard branches;
@@ -1066,7 +1075,10 @@
     (when (< depth max-depth)
       ;; Strategy 1: find matching hypothesis in local context
       (or (some (fn [[id decl]]
+                  ;; an erased hypothesis (`[*, -h]`, `simp_all [-h]`) is not an assumption
+                  ;; simp may use; the local context itself stays for type checking
                   (when (and (= :local (:tag decl))
+                             (not (contains? (:erased config) [:fvar id]))
                              (tc/is-def-eq st (:type decl) obligation-type))
                     (e/fvar id)))
                 (:lctx st))
@@ -1272,12 +1284,55 @@
                                     raw-proof)]
                         (mk-result rhs proof)))))))))))))
 
+(declare ^:dynamic *simp-trace*)
+
+(defn- erased?
+  "Lean Rewrite.lean:283-284 `inErasedSet thm := erased.contains thm.origin`: a candidate whose
+   origin (name and direction, SimpTheorems.lean:105-112) is in the call's erased set is skipped.
+   Erasure filters candidates instead of removing them, so it also covers the lazily served
+   persistent index."
+  [config rule]
+  (when-let [erased (not-empty (:erased config))]
+    (contains? erased (simp-theorems/rule-origin-key rule))))
+
+(defn- rewrite?
+  "Lean Simp/Rewrite.lean:207-288 rewrite?/rewriteUsingIndex?: sort the candidates by priority
+   once (:220), skip erased ones (:224), and apply each theorem through the same matching,
+   synthesis and proof-construction path. `phase` (:pre/:post) only labels trace entries,
+   like Lean's `tag`."
+  [st env lemma-index expr config candidates phase]
+  (some (fn [rule]
+          (when-not (erased? config rule)
+            (when-let [r (try-theorem st env lemma-index expr config rule)]
+              (when *simp-trace*
+                (swap! *simp-trace* conj
+                       {:phase phase
+                        :origin (some-> (simp-theorems/rule-origin rule) simp-theorems/pp-origin)
+                        :before expr :after (:expr r)}))
+              r)))
+        (sort-by (comp - :priority) candidates)))
+
 (defn- try-rewrite-step
-  "Lean Simp/Rewrite.lean rewriteUsingIndex?: sort once and apply each theorem
-   through the same matching, synthesis and proof-construction path."
+  "Lean Rewrite.lean:395-399 rewritePost: rewrite? over SimpTheorems.post — the eager post
+   tree `lemma-index` plus the lazily served persistent index (lookup-lemmas)."
+  ([st env lemma-index expr config]
+   (try-rewrite-step st env lemma-index expr config :post))
+  ([st env lemma-index expr config phase]
+   (rewrite? st env lemma-index expr config (lookup-lemmas st env lemma-index expr config) phase)))
+
+(defn- empty-index? [index]
+  (not (or (seq (:children index)) (seq (:values index)))))
+
+(defn- rewrite-pre
+  "Lean Rewrite.lean:389-393 rewritePre: rewrite? over SimpTheorems.pre (`:pre-index`, the
+   `@[simp ↓]` / `simp [↓ h]` rules); the caller treats a result as `.visit`.
+   DIVERGENCE (until the pre phase follows Lean): the post set is still tried top-down here
+   too, as Ansatz always did; Lean's pre phase never sees `thms.post`."
   [st env lemma-index expr config]
-  (some #(try-theorem st env lemma-index expr config %)
-        (sort-by (comp - :priority) (lookup-lemmas st env lemma-index expr config))))
+  (or (when-let [pre (:pre-index config)]
+        (when-not (empty-index? pre)
+          (rewrite? st env lemma-index expr config (dt/lookup-simp-tree st env pre expr) :pre)))
+      (try-rewrite-step st env lemma-index expr config :pre)))
 
 ;; ============================================================
 ;; Built-in simprocs — arithmetic reduction
@@ -3106,8 +3161,9 @@
       (mk-result expr))))
 
 (def ^:dynamic *simp-trace*
-  "When bound to an atom, simp-expr* logs rewrites for debugging.
-   Each entry: {:expr-before :expr-after :phase :depth :lemma-name}"
+  "When bound to an atom, simp-expr* logs each theorem rewrite as
+   {:phase :pre|:post :origin \"↓ ← name\" :before :after} (rewrite?), plus the
+   Bool-corruption diagnostic entries {:depth :before :after :n-candidates :matching-lemmas}."
   nil)
 
 (defn- cached-result [cache expr]
@@ -3150,7 +3206,7 @@
                   (mk-result expr)
 
                   ;; PRE-PHASE
-                  (let [pre-step (try-rewrite-step st env lemma-index expr config)]
+                  (let [pre-step (rewrite-pre st env lemma-index expr config)]
                     (if pre-step
                       ;; .visit: recurse on result
                       (let [inner (simp-expr* st env lemma-index (:expr pre-step) (update config :max-depth dec))]
@@ -3228,7 +3284,7 @@
     ;; .done, followed only by reduceMatcher?. The neutral context does no other rewrites.
     (or (cached-result (:cache config) expr)
         (with-inc-rec-depth 1 expr
-          (let [result (if-let [r (try-rewrite-step st env lemma-index expr config)]
+          (let [result (if-let [r (try-rewrite-step st env lemma-index expr config :pre)]
                          (if-let [m (try-reduce-matcher st (:expr r))]
                            (assoc r :expr (:expr m)) r)
                          (simp-subterms st env lemma-index expr config))]
@@ -3273,6 +3329,9 @@
   ([st env lemma-index expr max-depth state]
    ;; Grind/Simp.lean simpCore reuses Simp.State across calls. :on-step runs
    ;; only after the simpLoop cache miss, including recursive/discharger work.
+   ;; A supplied :cache belongs to ONE simp context (Lean's Simp.State is per
+   ;; Simp.Context): reusing it with another :pre-index, :erased or rule set
+   ;; returns the earlier context's results.
    (simp-expr* st env lemma-index expr
                (merge {:max-depth max-depth :single-pass? false
                        :max-steps (atom 0) :cache (atom {})
@@ -3571,7 +3630,8 @@
              (if (:only? opts)
                (or (ensure-ble-eq (:env ps)) (:env ps))
                (ensure-nat-packing (or (ensure-ble-eq (:env ps)) (:env ps)) default-simp-lemmas true))
-             lemma-names)
+             ;; an origin descriptor names its declaration
+             (map #(if (map? %) (:name %) %) lemma-names))
          ;; Update proof state with enriched env (e.g., derived Nat.ble_eq)
         ps (if (not (identical? env (:env ps))) (assoc ps :env env) ps)
          ;; attach-lctx (NOT plain assoc): bumps :next-id above the goal's max fvar id so
@@ -3614,12 +3674,13 @@
                      (make-hyp-lemmas st (:lctx goal)))
          ;; For user definitions with equation theorems, add those as rewrite lemmas
         entries (mapcat #(simp-theorems/mk-simp-entry-of-decl-to-unfold env %)
-                        (remove (set (map (comp str :name) lemmas)) (map str all-names)))
+                        (remove (set (map (comp str :name) lemmas))
+                                (map #(str (if (map? %) (:name %) %)) all-names)))
         eqn-lemmas (mapcat (fn [{:keys [kind name priority]}]
                              (when (= kind :thm)
                                (extract-simp-lemma env (env/lookup! env name) priority))) entries)
         all-lemmas (concat lemmas term-lemmas hyp-lemmas eqn-lemmas)
-        lemma-index (build-lemma-index st env all-lemmas)
+        [lemma-index pre-index] (build-simp-indexes st env all-lemmas)
         to-unfold (into #{} (keep #(when (= :to-unfold (:kind %)) (str (:name %)))) entries)
         config {:max-depth (or (:max-depth opts) 20)
                 :single-pass? (:single-pass? opts)
@@ -3634,6 +3695,9 @@
                 :to-unfold to-unfold
                 :discharge-depth 0
                 :ext-trie ext-trie
+                ;; Lean SimpTheorems.pre / .erased (SimpTheorems.lean:599-610)
+                :pre-index pre-index
+                :erased (get opts :erased #{})
                  ;; Lazy instance index for TC synthesis in discharge
                 :inst-index (delay (inst/index-for env))}]
     [ps st env lemma-index config]))
@@ -3924,7 +3988,8 @@
                            ;; become pattern vars) via the proof-TERM path, with the hyp fvar as the
                            ;; proof — so the IH fires at any accumulator. hyp-type->lemmas only peels
                            ;; Prop implications, so it mis-classifies this as a general prop (`→ True`).
-                         (extract-simp-lemma-term env ty 2000 (e/fvar id))
+                         (mapv #(assoc % :hyp-fvar-id id)  ; Lean origin `.fvar h` for every contextual entry
+                               (extract-simp-lemma-term env ty 2000 (e/fvar id)))
                          (hyp-type->lemmas st ty id)))))
                  lctx))))
 
@@ -3949,7 +4014,8 @@
              (if (:only? opts)
                (or (ensure-ble-eq (:env ps)) (:env ps))
                (ensure-nat-packing (or (ensure-ble-eq (:env ps)) (:env ps)) default-simp-lemmas true))
-             lemma-names)
+             ;; an origin descriptor names its declaration (as in simp-setup)
+             (map #(if (map? %) (:name %) %) lemma-names))
         ps (if (not (identical? env (:env ps))) (assoc ps :env env) ps)
          ;; the inherited @[simp] extension: lazy via the persistent index when present (see simp)
         ext-trie (when-not (:only? opts) (si/ensure-simp-trie! env))
@@ -3964,7 +4030,8 @@
           st (tc/attach-lctx (tc/mk-tc-state env) lctx)
           base-lemmas (make-simp-lemmas env all-names)
           entries (mapcat #(simp-theorems/mk-simp-entry-of-decl-to-unfold env %)
-                          (remove (set (map (comp str :name) base-lemmas)) (map str all-names)))
+                          (remove (set (map (comp str :name) base-lemmas))
+                                  (map #(str (if (map? %) (:name %) %)) all-names)))
           eqn-lemmas (mapcat (fn [{:keys [kind name priority]}]
                                (when (= kind :thm)
                                  (extract-simp-lemma env (env/lookup! env name) priority))) entries)
@@ -3975,7 +4042,11 @@
            ;; normal form `x ≤ y` no longer matches) but is not simplified again — Lean erases the
            ;; replaced entry; re-simplifying it would re-add the same entry every round.
           superseded (if *simp-all-superseded* @*simp-all-superseded* #{})
-          hyps (vec (filter (fn [[id d]] (and (= :local (:tag d)) (not (superseded id)))) lctx))
+          ;; SimpAll.lean:39-53 initEntries: an erased hypothesis is neither simplified nor used
+          erased (get opts :erased #{})
+          hyps (vec (filter (fn [[id d]] (and (= :local (:tag d)) (not (superseded id))
+                                              (not (contains? erased [:fvar id]))))
+                            lctx))
              ;; Compute simplified hypothesis types
           replacements
           (reduce
@@ -3995,14 +4066,15 @@
                      ;; must not simplify their own replacements back to True.
                      hyp-lemmas (make-hyp-lemmas st (apply dissoc lctx superseded) :exclude-id id)
                      all-lemmas (concat base-lemmas eqn-lemmas hyp-lemmas)
-                     lemma-index (build-lemma-index st env all-lemmas)
+                     [lemma-index pre-index] (build-simp-indexes st env all-lemmas)
                      config {:max-depth 20 :single-pass? false :decide? (get opts :decide? false)
                              :ground? (get opts :ground? false)
                              :simprocs? (get opts :simprocs? (not (:only? opts)))
                              :simproc-names (set (map str lemma-names))
                              :max-steps (atom 0) :cache (atom {})
                              :to-unfold to-unfold :discharge-depth 0
-                             :ext-trie ext-trie :inst-index inst-index}
+                             :ext-trie ext-trie :inst-index inst-index
+                             :pre-index pre-index :erased (get opts :erased #{})}
                      result (simp-expr* st env lemma-index (:type decl) config)]
                  (if (or (identical? (:expr result) (:type decl))
                          (= (:expr result) (:type decl)))
@@ -4037,7 +4109,7 @@
            hyps)]
       (if (empty? replacements)
            ;; No hypothesis changes — just simp the goal directly
-        (try (simp ps lemma-names {:contextual? true})
+        (try (simp ps lemma-names (assoc opts :contextual? true))
              (catch clojure.lang.ExceptionInfo ex
                (if (and (= :tactic-error (:kind (ex-data ex)))
                         (not (:limit (ex-data ex)))
@@ -4107,7 +4179,7 @@
                                                 (:type goal') (e/fvar (:new-fvar-id false-rep)))}))
              ;; Phase 3 (Lean 4 order): simp the goal AFTER hypothesis expansion.
              ;; The goal's eq-proof is now built in the expanded lctx — consistent!
-            (try (simp ps'' lemma-names {:contextual? true})
+            (try (simp ps'' lemma-names (assoc opts :contextual? true))
                  (catch clojure.lang.ExceptionInfo ex
                    (if (and (= :tactic-error (:kind (ex-data ex)))
                             (not (:limit (ex-data ex)))
