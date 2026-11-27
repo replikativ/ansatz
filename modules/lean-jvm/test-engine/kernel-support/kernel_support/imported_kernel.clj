@@ -352,7 +352,10 @@
                  {:env checked :kernel-provenance {:base-basis :strict-fresh}
                   :projection-sources (immutable-projection-sources world)
                   :constants (into {} (map (fn [{:keys [guest ^ConstantInfo constant]}] [(.name constant) guest])) entries)
-                  :projected (into {} (map (fn [{:keys [^ConstantInfo constant]}] [(.name constant) constant])) entries)
+                  ;; the checked objects: inductive admission installs the records it generates
+                  ;; (compared with, not identical to, the projected guest records)
+                  :projected (into {} (map (fn [{:keys [^ConstantInfo constant]}]
+                                             [(.name constant) (.lookup checked (.name constant))])) entries)
                   :order order :axioms (set (map #(.name ^ConstantInfo (:constant %)) (filter #(.isAxiom ^ConstantInfo (:constant %)) entries)))}))
              (let [key (nth queue cursor) members (get members-by-key key)
                    checked (case (first key)

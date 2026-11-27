@@ -104,6 +104,25 @@ public final class Expr {
              | (hasLevelParam ? Long.MIN_VALUE : 0L); // bit 63
     }
 
+    /** True iff any level in the CONST level list contains a universe parameter. */
+    private static boolean levelsHaveParam(Object levels) {
+        if (levels == null) return false;
+        if (levels instanceof Object[]) {
+            for (Object l : (Object[]) levels) if (l != null && Level.hasParam((Level) l)) return true;
+            return false;
+        }
+        if (levels instanceof java.util.List) {
+            for (Object l : (java.util.List<?>) levels) if (l != null && Level.hasParam((Level) l)) return true;
+            return false;
+        }
+        if (levels instanceof clojure.lang.IPersistentVector) {
+            clojure.lang.IPersistentVector v = (clojure.lang.IPersistentVector) levels;
+            for (int i = 0; i < v.count(); i++) { Object l = v.nth(i); if (l != null && Level.hasParam((Level) l)) return true; }
+            return false;
+        }
+        return false;
+    }
+
     /** True iff any level in the CONST level list contains a metavariable. */
     private static boolean levelsHaveMVar(Object levels) {
         if (levels == null) return false;
@@ -311,7 +330,7 @@ public final class Expr {
                         }
                     }
                     if (changed) {
-                        result = mkConst(e.o0, norm, e.hasLevelParam());
+                        result = mkConstOwned(e.o0, norm);
                     } else {
                         result = e;
                     }
@@ -323,7 +342,7 @@ public final class Expr {
                         norm[i] = simplified;
                         if (simplified != v.nth(i)) changed = true;
                     }
-                    result = changed ? mkConst(e.o0, norm, e.hasLevelParam()) : e;
+                    result = changed ? mkConstOwned(e.o0, norm) : e;
                 } else {
                     result = e;
                 }
@@ -359,20 +378,55 @@ public final class Expr {
         return result;
     }
 
-    /** Sort (universe). Prop = sort(zero), Type u = sort(succ u). */
-    public static Expr sort(Object level, boolean levelHasParam) {
+    /** Sort (universe). Prop = sort(zero), Type u = sort(succ u). The has-level-parameter
+     *  flag is derived from the level, like Lean's Expr.mkData; the boolean argument is ignored
+     *  (a caller-supplied flag that disagreed with the level made instantiation skip it). */
+    public static Expr sort(Object level, boolean ignoredLevelHasParam) {
+        return sort(level);
+    }
+
+    public static Expr sort(Object level) {
         int h = Objects.hashCode(level) * 31 + SORT;
-        long d = packData(0, h, false, level instanceof Level && Level.hasMVar((Level) level), levelHasParam);
+        boolean lvl = level instanceof Level;
+        long d = packData(0, h, false, lvl && Level.hasMVar((Level) level), lvl && Level.hasParam((Level) level));
         return new Expr(SORT, d, level, null, null, null, 0);
     }
 
-    /** Reference to a global constant with universe level arguments. */
-    public static Expr mkConst(Object name, Object levels, boolean levelsHaveParam) {
+    /** Reference to a global constant with universe level arguments. The has-level-parameter
+     *  flag is derived from the levels; the boolean argument is ignored. */
+    public static Expr mkConst(Object name, Object levels, boolean ignoredLevelsHaveParam) {
+        return mkConst(name, levels);
+    }
+
+    public static Expr mkConst(Object name, Object levels) {
+        return mkConstOwned(name, snapshotLevels(levels));
+    }
+
+    private static final Object[] NO_LEVELS = new Object[0];
+
+    /** An immutable view of a level list: a caller's mutable array or list is copied (the empty
+     *  list is one shared array); persistent vectors are kept. The hash and the flags are computed
+     *  from what the node stores, so a caller reusing its array cannot make them disagree. */
+    private static Object snapshotLevels(Object levels) {
+        if (levels instanceof Object[]) {
+            Object[] a = (Object[]) levels;
+            return a.length == 0 ? NO_LEVELS : a.clone();
+        }
+        if (levels instanceof java.util.List && !(levels instanceof clojure.lang.IPersistentCollection)) {
+            java.util.List<?> l = (java.util.List<?>) levels;
+            return l.isEmpty() ? NO_LEVELS : l.toArray();
+        }
+        return levels;
+    }
+
+    /** mkConst for a level container the caller owns and never mutates (a fresh array, or the
+     *  levels of an existing node): no copy. Kernel-internal. */
+    static Expr mkConstOwned(Object name, Object levels) {
         // Use structural hash for levels so CONSTs with equal level contents (but
         // different Object[] instances — common after normalization) hash to the same
         // bucket and are recognized as equal by the intern table.
         int h = (Objects.hashCode(name) * 31 + levelsHashCode(levels)) * 31 + CONST;
-        long d = packData(0, h, false, levelsHaveMVar(levels), levelsHaveParam);
+        long d = packData(0, h, false, levelsHaveMVar(levels), levelsHaveParam(levels));
         return new Expr(CONST, d, name, levels, null, null, 0);
     }
 

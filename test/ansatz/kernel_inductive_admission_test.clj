@@ -1,0 +1,475 @@
+(ns ansatz.kernel-inductive-admission-test
+  "Inductive admission against Lean v4.36.0's `environment::add_inductive` (inductive.cpp).
+
+   Each test names the finding of the K4 kernel audit it pins. The import path
+   (`check-inductive-bundle`) must derive every judgment from the declaration — the type and
+   constructor sequence — and compare the exported records with what it generates; metadata on
+   the records must never decide admission. The Lean outcomes cited here are observed with
+   Lean v4.36.0 in test/lean-parity/kernel/*.lean."
+  (:require [clojure.test :refer [deftest testing is]]
+            [ansatz.test-env :as te]
+            [ansatz.kernel.env :as env]
+            [ansatz.kernel.expr :as e]
+            [ansatz.kernel.level :as lvl]
+            [ansatz.kernel.name :as name]
+            [ansatz.kernel.reduce :as red]
+            [ansatz.kernel.tc :as tc])
+  (:import [ansatz.kernel ConstantInfo ConstantInfo$RecursorRule Env Expr Level Name Reducer TypeChecker]))
+
+;; ============================================================
+;; Helpers
+;; ============================================================
+
+(def ^:private fuel 5000000)
+
+(defn- n [s] (name/from-string s))
+(defn- c ([s] (e/const' (n s) [])) ([s lvls] (e/const' (n s) lvls)))
+(def ^:private l0 lvl/zero)
+(def ^:private l1 (lvl/succ lvl/zero))
+(def ^:private prop (e/sort' l0))
+(def ^:private type0 (e/sort' l1))
+(defn- pi [nm dom body] (e/forall' nm dom body :default))
+(defn- ipi [nm dom body] (e/forall' nm dom body :implicit))
+(defn- lam [nm dom body] (e/lam nm dom body :default))
+(defn- bv [i] (e/bvar i))
+(defn- P [s] (lvl/param (n s)))
+
+(def ^:private base (delay @te/bundled-init-env))
+
+(defn- rejection
+  "The kernel's message if the exported records are rejected, nil if admitted."
+  [^Env env records]
+  (let [inds (filterv #(.isInduct ^ConstantInfo %) records)
+        ^ConstantInfo i0 (first inds)]
+    (try (env/check-inductive-bundle
+          env (env/mk-inductive-bundle (vec (.levelParams i0)) (.numParams i0) (.isUnsafe i0)
+                                       inds
+                                       (filterv #(.isCtor ^ConstantInfo %) records)
+                                       (filterv #(.isRecursor ^ConstantInfo %) records))
+          fuel)
+         nil
+         (catch Throwable ex (or (.getMessage ex) (str ex))))))
+
+(defn- admits? [env records] (nil? (rejection env records)))
+
+(defn- generate
+  "The records the kernel generates for a declaration (Lean's `inductive_decl`):
+   `types` is [[name type [[ctor-name ctor-type] ...]] ...]. Returns [env records], the records
+   in Lean's order: each type, its constructors and recursor, then the auxiliary recursors."
+  [^Env env lps np types & {:keys [unsafe?]}]
+  (let [decl (env/mk-inductive-decl lps np (boolean unsafe?) types)
+        env' (env/add-inductive env decl fuel)]
+    [env' (env/inductive-decl-constants env' decl)]))
+
+(defn- by-name [records s] (first (filter #(= (n s) (.name ^ConstantInfo %)) records)))
+
+(defn- replace-record [records s f]
+  (mapv #(if (= (n s) (.name ^ConstantInfo %)) (f %) %) records))
+
+(defn- induct-with
+  [^ConstantInfo ci & {:keys [all ctors rec? num-params num-nested]}]
+  (ConstantInfo/mkInduct (.name ci) (.levelParams ci) (.type ci)
+                         (int (or num-params (.numParams ci))) (.numIndices ci)
+                         (or all (.all ci)) (or ctors (.ctors ci))
+                         (int (or num-nested (.numNested ci)))
+                         (boolean (if (some? rec?) rec? (.isRec ci)))
+                         (.isReflexive ci) (.isUnsafe ci)))
+
+(defn- ctor-with [^ConstantInfo ci & {:keys [num-params]}]
+  (ConstantInfo/mkCtor (.name ci) (.levelParams ci) (.type ci) (.inductName ci) (.cidx ci)
+                       (int (or num-params (.numParams ci))) (.numFields ci) (.isUnsafe ci)))
+
+(defn- rec-with [^ConstantInfo ci & {:keys [name lps type rules]}]
+  (ConstantInfo/mkRecursor (or name (.name ci)) (or lps (.levelParams ci)) (or type (.type ci))
+                           (.all ci) (.numParams ci) (.numIndices ci) (.numMotives ci)
+                           (.numMinors ci) (or rules (.rules ci)) (.isK ci) (.isUnsafe ci)))
+
+(defn- rename-levels [ex from to]
+  (Reducer/instantiateLevelParams ex (java.util.HashMap. {(n from) (P to)})))
+
+;; ============================================================
+;; Finding 2 — one constructor sequence, a bijection with the records
+;; ============================================================
+
+(deftest f2-constructor-membership-is-a-bijection
+  (let [[_ honest] (generate @base [] 0 [["KE" prop []]])
+        intro (env/mk-ctor (n "KE.intro") [] (c "KE") (n "KE") 0 0 0)]
+    (testing "control: the empty proposition is admitted"
+      (is (admits? @base honest)))
+    (testing "its motive stays explicit (strict infer_implicit; Lean: E.rec (motive : E → Sort u))"
+      (is (= :default (e/forall-info (.type ^ConstantInfo (by-name honest "KE.rec"))))))
+    (testing "a constructor record outside the inductive's constructor list is rejected"
+      ;; KE.rec eliminates into every universe with no minor premise; with KE.intro admitted
+      ;; too, the environment proves False.
+      (is (re-find #"KE.intro" (str (rejection @base (conj honest intro))))))
+    (testing "a constructor listed by the inductive but absent from the records is rejected"
+      (is (some? (rejection @base (replace-record honest "KE" #(induct-with % :ctors (into-array ansatz.kernel.Name [(n "KE.intro")])))))))
+    (testing "duplicate constructor records are rejected"
+      (let [[_ unit] (generate @base [] 0 [["KU" type0 [["KU.mk" (c "KU")]]]])]
+        (is (some? (rejection @base (conj unit (by-name unit "KU.mk")))))))
+    (testing "an ordinary family without its recursor record is rejected"
+      (let [[_ unit] (generate @base [] 0 [["KU" type0 [["KU.mk" (c "KU")]]]])]
+        (is (re-find #"KU.rec" (str (rejection @base (filterv #(not (.isRecursor ^ConstantInfo %)) unit)))))))))
+
+;; ============================================================
+;; Finding 3 — metadata is derived, never taken from the records
+;; ============================================================
+
+(deftest f3-mutual-all-cannot-hide-a-negative-occurrence
+  ;; mutual A, B with B.mk : (B → Nat) → B; Lean: "arg #1 of 'B.mk' has a non positive
+  ;; occurrence of the datatypes being declared" (NestedPositivity.lean). B.all = [A] used to
+  ;; drop B from the occurrence test.
+  (let [A (n "KA") B (n "KB")
+        inds [(env/mk-induct A [] type0 :all [A B] :ctors [(n "KA.mk")] :rec? true)
+              (env/mk-induct B [] type0 :all [A] :ctors [(n "KB.mk")] :rec? true)]
+        ctors [(env/mk-ctor (n "KA.mk") [] (pi "b" (c "KB") (c "KA")) A 0 0 1)
+               (env/mk-ctor (n "KB.mk") [] (pi "f" (pi "x" (c "KB") (c "Nat")) (c "KB")) B 0 0 1)]]
+    (is (re-find #"non positive occurrence" (str (rejection @base (into inds ctors)))))))
+
+(deftest f3-record-metadata-is-compared
+  (testing "a false isRec (which would enable structure eta on a recursive family) is rejected"
+    (let [[_ honest] (generate @base [] 0 [["KR" type0 [["KR.mk" (pi "f" (pi "x" (c "Nat") (c "KR")) (c "KR"))]]]])]
+      (is (admits? @base honest))
+      (is (re-find #"isRec" (str (rejection @base (replace-record honest "KR" #(induct-with % :rec? false))))))))
+  (testing "a wrong constructor numParams (where projections find fields) is rejected"
+    (let [W (c "KW")
+          [_ honest] (generate @base [] 1 [["KW" (pi "α" type0 type0)
+                                            [["KW.mk" (ipi "α" type0 (pi "a" (bv 0) (e/app W (bv 1))))]]]])]
+      (is (admits? @base honest))
+      (is (re-find #"numParams" (str (rejection @base (replace-record honest "KW.mk" #(ctor-with % :num-params 0)))))))))
+
+;; ============================================================
+;; Finding 4 — nested positivity goes through the auxiliary block
+;; ============================================================
+
+(deftest f4-contravariant-container-is-not-a-positive-nesting
+  ;; Lean: Bad.mk : Contra Bad → Bad is rejected — `_nested.Contra_1.mk` has the field
+  ;; `Bad → Nat` (NestedPositivity.lean). numNested = 0 used to skip the auxiliary block.
+  (let [[env _] (generate @base [] 1 [["KContra" (pi "α" type0 type0)
+                                       [["KContra.mk" (ipi "α" type0 (pi "f" (pi "x" (bv 0) (c "Nat"))
+                                                                         (e/app (c "KContra") (bv 1))))]]]])
+        bad (n "KBad")
+        records [(env/mk-induct bad [] type0 :all [bad] :ctors [(n "KBad.mk")])
+                 (env/mk-ctor (n "KBad.mk") [] (pi "c" (e/app (c "KContra") (c "KBad")) (c "KBad")) bad 0 0 1)]]
+    (is (re-find #"non positive occurrence" (str (rejection env records))))))
+
+;; ============================================================
+;; Findings 5 and 6 — recursor rules are compared structurally, in the record's universes
+;; ============================================================
+
+(deftest f5-ill-typed-rule-rhs-is-rejected
+  ;; `(fun (x : Nat) => mk) Prop` beta-reduces to the generated `mk`, but is ill-typed.
+  (let [[_ honest] (generate @base [] 0 [["KU5" type0 [["KU5.mk" (c "KU5")]]]])
+        ^ConstantInfo rec (by-name honest "KU5.rec")
+        ^ConstantInfo$RecursorRule rule (first (.rules rec))
+        rhs (.rhs rule)                 ; fun motive mk => mk
+        bad-rhs (lam (e/lam-name rhs) (e/lam-type rhs)
+                     (let [inner (e/lam-body rhs)]
+                       (lam (e/lam-name inner) (e/lam-type inner)
+                            (e/app (lam "x" (c "Nat") (bv 1)) prop))))
+        tampered (replace-record honest "KU5.rec"
+                                 #(rec-with % :rules (into-array ConstantInfo$RecursorRule
+                                                                 [(env/mk-recursor-rule (.ctor rule) (.nfields rule) bad-rhs)])))]
+    (is (admits? @base honest))
+    (is (re-find #"rule" (str (rejection @base tampered))))))
+
+(deftest f6-recursor-universe-renaming-applies-to-rules
+  (let [[_ honest] (generate @base [] 0 [["KU6" type0 [["KU6.mk" (c "KU6")]]]])
+        ^ConstantInfo rec (by-name honest "KU6.rec")
+        u (str (first (.levelParams rec)))
+        renamed-type (rename-levels (.type rec) u "v")
+        lps (into-array Object [(n "v")])]
+    (testing "type renamed but rules still in the generator's universe: rejected"
+      (is (some? (rejection @base (replace-record honest "KU6.rec" #(rec-with % :lps lps :type renamed-type))))))
+    (testing "type and rules renamed consistently: admitted"
+      (let [rules (into-array ConstantInfo$RecursorRule
+                              (for [^ConstantInfo$RecursorRule r (.rules rec)]
+                                (env/mk-recursor-rule (.ctor r) (.nfields r) (rename-levels (.rhs r) u "v"))))]
+        (is (admits? @base (replace-record honest "KU6.rec" #(rec-with % :lps lps :type renamed-type :rules rules))))))))
+
+;; ============================================================
+;; Finding 7 — uniform occurrences are checked on the syntax
+;; ============================================================
+
+(deftest f7-nonuniform-occurrence-under-a-beta-redex-is-rejected
+  ;; Lean: "invalid occurrence of datatype 'T' being declared: it must be applied to the
+  ;; parameters and universe levels of the mutual declaration" (Admission.lean).
+  (let [T (n "KT7")
+        redex (e/app (lam "x" type0 (c "Unit")) (e/app (c "KT7") (c "Nat")))
+        records [(env/mk-induct T [] (pi "α" type0 type0) :num-params 1 :all [T] :ctors [(n "KT7.mk")])
+                 (env/mk-ctor (n "KT7.mk") [] (ipi "α" type0 (pi "a" redex (e/app (c "KT7") (bv 1)))) T 0 1 1)]]
+    (is (re-find #"invalid occurrence of datatype 'KT7'" (str (rejection @base records))))))
+
+(deftest f7-parameters-of-the-first-header-must-be-manifest
+  ;; Lean's get_params does not reduce: `I6 : HA` with HA := Type → Type and one parameter is
+  ;; "invalid inductive datatype declaration, incorrect number of parameters" (Admission.lean).
+  (let [env (env/check-constant @base (env/mk-def (n "KHA") [] (e/sort' (lvl/succ l1)) (pi "x" type0 type0)
+                                                  :hints {:regular 1})
+                                fuel)]
+    (is (re-find #"incorrect number of parameters"
+                 (str (try (env/add-inductive env (env/mk-inductive-decl [] 1 false [["KI6" (c "KHA") []]]) fuel) nil
+                           (catch Throwable ex (.getMessage ex))))))))
+
+;; ============================================================
+;; Finding 10 — closedness and the reserved `_nested` prefix
+;; ============================================================
+
+(deftest f10-closedness-and-reserved-prefix
+  (testing "a universe metavariable in the header (Lean: declaration has metavariables)"
+    (let [I (n "KI10")]
+      (is (re-find #"metavariables"
+                   (str (rejection @base [(env/mk-induct I [] (e/sort' (lvl/mvar 7)) :all [I] :ctors [])]))))))
+  (testing "a free variable in a constructor (Lean: declaration has free variables)"
+    (let [I (n "KI10b")]
+      (is (re-find #"free variables"
+                   (str (rejection @base [(env/mk-induct I [] type0 :all [I] :ctors [(n "KI10b.mk")])
+                                          (env/mk-ctor (n "KI10b.mk") [] (pi "a" (e/fvar 1) (c "KI10b")) I 0 0 1)]))))))
+  (testing "a reference to `_nested.*` (Lean: it uses the reserved prefix '_nested')"
+    (let [env (env/check-constant @base (env/mk-axiom (n "_nested.KX_1") [] type0) fuel)
+          I (n "KI10c")]
+      (is (re-find #"reserved prefix '_nested'"
+                   (str (rejection env [(env/mk-induct I [] type0 :all [I] :ctors [(n "KI10c.mk")])
+                                        (env/mk-ctor (n "KI10c.mk") [] (pi "a" (c "_nested.KX_1") (c "KI10c")) I 0 0 1)])))))))
+
+;; ============================================================
+;; Finding 11 — field universes use `is_geq`, mutual headers `is_equivalent`
+;; ============================================================
+
+(def ^:private s11 (lvl/imax (P "a") (P "b")))
+(defn- hdr11 [l] (pi "P" (e/sort' (P "a")) (pi "Q" (e/sort' (P "b")) (e/sort' l))))
+(defn- ctor11 [I field]
+  (ipi "P" (e/sort' (P "a")) (ipi "Q" (e/sort' (P "b")) (pi "f" field (e/app* I (bv 2) (bv 1))))))
+(def ^:private PQ (pi "x" (bv 1) (bv 1)))
+
+(deftest f11-field-universe-uses-lean-is-geq
+  (testing "s = imax a b; a field of Sort s does not fit Sort (imax c s) (Lean rejects)"
+    (let [I (n "KI4")
+          lps [(n "a") (n "b") (n "c")]]
+      (is (re-find #"too big"
+                   (str (rejection @base [(env/mk-induct I lps (hdr11 (lvl/imax (P "c") s11)) :num-params 2 :all [I] :ctors [(n "KI4.mk")])
+                                          (env/mk-ctor (n "KI4.mk") lps (ctor11 (c "KI4" [(P "a") (P "b") (P "c")]) PQ) I 0 2 1)]))))))
+  (testing "a field of Sort (imax s b) fits Sort s (Lean accepts)"
+    (let [[_ honest] (generate @base [(n "a") (n "b")] 2
+                               [["KI5" (hdr11 s11)
+                                 [["KI5.mk" (ctor11 (c "KI5" [(P "a") (P "b")]) (pi "g" PQ (bv 1)))]]]])]
+      (is (admits? @base honest))))
+  (testing "mutual headers Sort s and Sort (max s b) are not equivalent (Lean rejects)"
+    (let [M1 (n "KM1") M2 (n "KM2") lps [(n "a") (n "b")]]
+      (is (re-find #"same universe"
+                   (str (rejection @base [(env/mk-induct M1 lps (hdr11 s11) :num-params 2 :all [M1 M2] :ctors [])
+                                          (env/mk-induct M2 lps (hdr11 (lvl/level-max s11 (P "b"))) :num-params 2 :all [M1 M2] :ctors [])])))))))
+
+;; ============================================================
+;; Nested occurrences: identity up to binder names; canonical auxiliary recursor names
+;; ============================================================
+
+(deftest nested-occurrences-are-identified-up-to-binder-names
+  ;; Lean: numNested = 1, T.rec has two motives (NestedAndRecursor.lean).
+  (let [[env _] (generate @base [] 2 [["KC" (pi "f" (pi "x" (c "Nat") (c "Nat")) (pi "α" type0 type0))
+                                       [["KC.mk" (ipi "f" (pi "x" (c "Nat") (c "Nat"))
+                                                      (ipi "α" type0 (pi "a" (bv 0) (e/app* (c "KC") (bv 2) (bv 1)))))]]]])
+        idx (lam "x" (c "Nat") (bv 0))
+        idy (lam "y" (c "Nat") (bv 0))
+        [env' _] (generate env [] 0 [["KTn" type0
+                                      [["KTn.node" (pi "a" (e/app* (c "KC") idx (c "KTn"))
+                                                       (pi "b" (e/app* (c "KC") idy (c "KTn")) (c "KTn")))]]]])]
+    (is (= 1 (.numNested ^ConstantInfo (env/lookup env' (n "KTn")))))
+    (is (= 2 (.numMotives ^ConstantInfo (env/lookup env' (n "KTn.rec")))))))
+
+(deftest nested-auxiliary-recursor-must-carry-its-canonical-name
+  (let [[_ honest] (generate @base [] 0 [["KTree" type0
+                                          [["KTree.node" (pi "c" (e/app (c "List" [l0]) (c "KTree")) (c "KTree"))]]]])]
+    (is (some? (by-name honest "KTree.rec_1")))
+    (is (= [(n "List.nil") (n "List.cons")] (mapv #(.ctor ^ConstantInfo$RecursorRule %) (.rules ^ConstantInfo (by-name honest "KTree.rec_1")))))
+    (is (= 1 (.numNested ^ConstantInfo (by-name honest "KTree"))))
+    (is (admits? @base honest))
+    (testing "the auxiliary recursor under a temporary name is rejected"
+      (is (some? (rejection @base (replace-record honest "KTree.rec_1" #(rec-with % :name (n "List.nested_1.rec")))))))
+    (testing "a missing auxiliary recursor is rejected"
+      (is (some? (rejection @base (filterv #(not= (n "KTree.rec_1") (.name ^ConstantInfo %)) honest)))))))
+
+;; ============================================================
+;; Adjacent: the Clojure reducer's Quot.ind major premise
+;; ============================================================
+
+(deftest quot-ind-major-is-argument-four
+  ;; Quot.ind {α} {r} {β} (mk : ∀ a, β (Quot.mk r a)) (q : Quot r) : β q — the major is
+  ;; argument 4 of 5, as in Lean's quot_reduce_rec (mk_pos = 4) and the Java reducer.
+  (let [env @base
+        u [l1]
+        alpha (c "Nat")
+        r (lam "a" alpha (lam "b" alpha prop))
+        beta (lam "q" (e/app* (c "Quot" u) alpha r) prop)
+        mk (e/fvar 4242)
+        a (e/lit-nat 3)
+        q (e/app* (c "Quot.mk" u) alpha r a)
+        term (e/app* (c "Quot.ind" u) alpha r beta mk q)]
+    (is (= (e/app mk a) (red/whnf-no-delta env term)))
+    (testing "the major is reduced first (here a let), as Lean whnf's it"
+      (is (= (e/app mk a)
+             (red/whnf-no-delta env (e/app* (c "Quot.ind" u) alpha r beta mk
+                                            (e/let' (n "q") (e/app* (c "Quot" u) alpha r) q (bv 0)))))))
+    (testing "Quot.mk must carry exactly three arguments"
+      (let [over (e/app* (c "Quot.ind" u) alpha r beta mk (e/app q a))]
+        (is (= over (red/whnf-no-delta env over)))))
+    (testing "Quot.lift: major 5 of 6, extra arguments reapplied"
+      (let [f (e/fvar 4243) extra (e/fvar 4244)]
+        (is (= (e/app (e/app f a) extra)
+               (red/whnf-no-delta env (e/app* (c "Quot.lift" [l1 l1]) alpha r (c "Nat") f mk q extra))))))))
+
+;; ============================================================
+;; Review follow-ups: universe-parameter flags and level conversion
+;; ============================================================
+
+(deftest sort-and-const-factories-derive-the-level-parameter-flag
+  ;; `Expr.sort(succ v, false)` used to carry a wrong has-level-param flag, so instantiating
+  ;; `I.{0}`'s type skipped the substitution and left `Sort (succ v)` with v free.
+  (let [v (n "v")
+        hdr (Expr/sort (lvl/succ (lvl/param v)) false)
+        env (env/add-inductive @base (env/mk-inductive-decl [v] 0 false [["KI3" hdr []]]) fuel)
+        tc (doto (TypeChecker. env) (.setFuel fuel))]
+    (is (.hasLevelParam ^Expr hdr))
+    (is (.hasLevelParam ^Expr (Expr/mkConst (n "KI3") (object-array [(lvl/param v)]) false)))
+    (is (= (str (e/sort' l1)) (str (.inferType tc (Expr/mkConst (n "KI3") (object-array [l0]) false)))))))
+
+(deftest mutual-parameter-domains-use-is-equivalent
+  ;; Lean: A (X : Sort s) : Prop and B (X : Sort (max s b)) : Prop with s = imax a b —
+  ;; "parameters of all inductive datatypes must match" (Admission.lean): the domains are
+  ;; compared by is_def_eq, whose sort case is is_equivalent, not semantic level equality.
+  (is (re-find #"parameters of all inductive datatypes must match"
+               (str (try (env/add-inductive @base (env/mk-inductive-decl
+                                                   [(n "a") (n "b")] 1 false
+                                                   [["KD1" (pi "X" (e/sort' s11) prop) []]
+                                                    ["KD2" (pi "X" (e/sort' (lvl/level-max s11 (P "b"))) prop) []]])
+                                            fuel)
+                         nil
+                         (catch Throwable ex (.getMessage ex)))))))
+
+(deftest level-normal-forms-order-names-from-the-root
+  ;; Lean's name::cmp_core compares components from the root: a.b < z (Java once put z first)
+  (let [z (P "z") ab (lvl/param (name/from-string "a.b"))]
+    (is (= (lvl/level-max ab z) (Level/normalize (lvl/level-max z ab))))
+    (is (neg? (Name/compare (name/from-string "a.b") (name/from-string "z"))))
+    (is (neg? (Name/compare (name/from-string "a") (name/from-string "a.b"))))))
+
+(deftest auxiliary-names-keep-macro-scopes
+  ;; Lean's appendIndexAfter modifies the base name and keeps the macro scopes
+  (is (= (name/from-string "x_1._@.M._hyg.3") (.appendAfter ^Name (name/from-string "x._@.M._hyg.3") (int 1))))
+  (is (= (name/from-string "x_ih._@.M._hyg.3") (.appendAfter ^Name (name/from-string "x._@.M._hyg.3") "_ih")))
+  (testing "nesting through a container with a hygienic name restores its constructor names"
+    (let [box "KBox._@.M._hyg.3"
+          [env _] (generate @base [] 1 [[box (pi "α" type0 type0)
+                                         [[(str box ".mk") (ipi "α" type0 (pi "a" (bv 0) (e/app (c box) (bv 1))))]]]])
+          [_ recs] (generate env [] 0 [["KHT" type0 [["KHT.node" (pi "b" (e/app (c box) (c "KHT")) (c "KHT"))]]]])]
+      (is (= [(name/from-string (str box ".mk"))]
+             (mapv #(.ctor ^ConstantInfo$RecursorRule %) (.rules ^ConstantInfo (by-name recs "KHT.rec_1"))))))))
+
+(deftest rows-may-name-their-universe-parameters-independently
+  ;; positional universe matching applies to every row: a constructor row I.mk.{v} : I.{v}
+  ;; for I.{u} is the same declaration
+  (let [u (n "u")
+        [_ honest] (generate @base [u] 0 [["KP" (e/sort' (lvl/succ (P "u"))) [["KP.mk" (c "KP" [(P "u")])]]]])
+        ctor-as (fn [lps ty] (replace-record honest "KP.mk"
+                                             #(ConstantInfo/mkCtor (.name ^ConstantInfo %) (into-array Object lps) ty
+                                                                   (.inductName ^ConstantInfo %) 0 0 0 false)))]
+    (is (admits? @base honest))
+    (is (admits? @base (ctor-as [(n "v")] (c "KP" [(P "v")]))))
+    (is (re-find #"undeclared universe parameter 'w'"
+                 (str (rejection @base (ctor-as [(n "v")] (c "KP" [(P "w")]))))))
+    (is (re-find #"universe parameters" (str (rejection @base (ctor-as [] (c "KP" [l0]))))))))
+
+(deftest loose-bvar-search-is-linear-in-the-dag
+  ;; t(k+1) = Nat.add t(k) t(k) over t0 = #5: searching for the absent #0 must visit each shared
+  ;; node once per index, not 2^60 paths
+  (let [t (reduce (fn [t _] (e/app* (c "Nat.add") t t)) (bv 5) (range 60))
+        m (doto (.getDeclaredMethod ansatz.kernel.AddInductive "hasLooseBVar" (into-array Class [Expr Integer/TYPE]))
+            (.setAccessible true))
+        f (future (.invoke m nil (object-array [t (int 0)])))]
+    (is (false? (deref f 10000 :timeout)))))
+
+(defn- flip-binder-infos
+  "The same expression with every binder's info toggled between default and implicit."
+  [ex]
+  (let [flip #(if (= :implicit %) :default :implicit)]
+    (cond (e/lam? ex) (e/lam (e/lam-name ex) (flip-binder-infos (e/lam-type ex)) (flip-binder-infos (e/lam-body ex)) (flip (e/lam-info ex)))
+          (e/forall? ex) (e/forall' (e/forall-name ex) (flip-binder-infos (e/forall-type ex)) (flip-binder-infos (e/forall-body ex))
+                                    (flip (e/forall-info ex)))
+          (e/app? ex) (e/app (flip-binder-infos (e/app-fn ex)) (flip-binder-infos (e/app-arg ex)))
+          :else ex)))
+
+(deftest stored-rows-differing-in-binder-infos-check-downstream-identically
+  ;; The store serves admitted rows as stored. An admitted row equals the generated record up to
+  ;; binder names and infos, which no kernel judgment reads: a downstream theorem that needs
+  ;; the recursor's iota rule checks with the same verdict and the same fuel either way.
+  (let [[generated-env honest] (generate @base [] 0 [["KU8" type0 [["KU8.mk" (c "KU8")]]]])
+        ^ConstantInfo rec (by-name honest "KU8.rec")
+        variant (rec-with rec :name (n "KU8.rec") :type (flip-binder-infos (.type rec))
+                          :rules (into-array ConstantInfo$RecursorRule
+                                             (for [^ConstantInfo$RecursorRule r (.rules rec)]
+                                               (env/mk-recursor-rule (.ctor r) (.nfields r) (flip-binder-infos (.rhs r))))))
+        stored (replace-record honest "KU8.rec" (constantly variant))
+        stored-env (reduce env/add-constant @base stored)
+        nat (c "Nat")
+        lhs (e/app* (c "KU8.rec" [l1]) (lam "t" (c "KU8") nat) (e/lit-nat 5) (c "KU8.mk"))
+        thm (env/mk-thm (n "KU8.iota") [] (e/app* (c "Eq" [l1]) nat lhs (e/lit-nat 5))
+                        (e/app* (c "Eq.refl" [l1]) nat (e/lit-nat 5)))]
+    (is (not= (str (.type rec)) (str (.type variant))) "the variant differs in binder infos")
+    (is (admits? @base stored) "the comparison ignores binder infos, as Lean's structural equality")
+    (is (= (TypeChecker/checkConstantFuel generated-env thm fuel)
+           (TypeChecker/checkConstantFuel stored-env thm fuel)))))
+
+(deftest mkconst-snapshots-the-callers-level-array
+  ;; U.{v} := Sort (succ v). U.{0} built from an array that the caller then reuses for [v]
+  ;; before admission: the node must keep [0] (and its flags), or I.{v} : U.{v} would carry
+  ;; has-level-param = false and I.{0}'s type would keep a free v.
+  (let [v (n "v")
+        env (env/check-constant @base (env/mk-def (n "KU2") [v] (e/sort' (lvl/succ (lvl/succ (P "v"))))
+                                                  (e/sort' (lvl/succ (P "v"))) :hints {:regular 1})
+                                fuel)
+        arr (object-array [l0])
+        hdr (Expr/mkConst (n "KU2") arr false)
+        _ (aset arr 0 (P "v"))
+        env (env/add-inductive env (env/mk-inductive-decl [v] 0 false [["KI2" hdr []]]) fuel)
+        tc (doto (TypeChecker. env) (.setFuel fuel))
+        inferred (.inferType tc (Expr/mkConst (n "KI2") (object-array [l0]) false))]
+    (is (= [l0] (vec (.o1 ^Expr hdr))))
+    (is (not (.hasLevelParam ^Expr inferred)))
+    (is (= (n "KU2") (e/const-name inferred)))
+    (is (= [l0] (vec (e/const-levels inferred))))))
+
+(deftest quot-major-is-reduced-at-the-callers-transparency
+  ;; a regular definition hiding Quot.mk: the meta layer's reducible whnf (proj-whnf-fn) must
+  ;; not unfold it, the default reducer does
+  (let [u [l1] alpha (c "Nat") r (lam "a" alpha (lam "b" alpha (c "True")))
+        qt (e/app* (c "Quot" u) alpha r)
+        env (env/check-constant @base (env/mk-def (n "KMkq") [] qt (e/app* (c "Quot.mk" u) alpha r (e/lit-nat 3))
+                                                  :hints {:regular 1})
+                                fuel)
+        beta (lam "q" qt prop) mk (e/fvar 4245)
+        term (e/app* (c "Quot.ind" u) alpha r beta mk (c "KMkq"))
+        no-delta {:proj-whnf-fn (fn [env x] (red/whnf-no-delta env x))}]
+    (is (= term (red/whnf-no-delta env term nil no-delta)))
+    (is (= (e/app mk (e/lit-nat 3)) (red/whnf-no-delta env term)))))
+
+(deftest clojure-defeq-fallback-uses-is-equivalent
+  ;; with a let in the local context the Clojure fallback decides defeq; Sort s and
+  ;; Sort (max s b) are not is_equivalent (s = imax a b)
+  (let [st (update (tc/mk-tc-state @base) :lctx red/lctx-add-let 9001 "x" (c "Nat") (e/lit-nat 0))]
+    (is (nil? (tc/java-tc st)) "the let routes to the fallback")
+    (is (not (tc/is-def-eq st (e/sort' s11) (e/sort' (lvl/level-max s11 (P "b"))))))
+    (is (tc/is-def-eq st (e/sort' s11) (e/sort' s11)))))
+
+(deftest binder-scan-of-infer-implicit-stops-on-interruption
+  ;; a long telescope: infer_implicit's scan is quadratic in short searches; one shared poll
+  ;; must observe the interruption a verifier timeout delivers
+  (let [tele (reduce (fn [body _] (pi "x" (c "Nat") body)) (c "Nat") (range 5000))
+        m (doto (.getDeclaredMethod ansatz.kernel.AddInductive "inferImplicit" (into-array Class [Expr]))
+            (.setAccessible true))
+        result (promise)
+        t (Thread. nil (fn [] (.interrupt (Thread/currentThread))
+                         (deliver result (try (.invoke m nil (object-array [tele])) :completed
+                                              (catch java.lang.reflect.InvocationTargetException ex
+                                                (class (.getCause ex))))))
+                   "infer-implicit" (* 64 1024 1024))]
+    (.start t)
+    (is (= ansatz.kernel.KernelAbort (deref result 60000 :timeout)))))

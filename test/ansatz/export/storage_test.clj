@@ -328,6 +328,140 @@
         (finally
           (delete-dir-recursive dir))))))
 
+(defn- write-detached-members-ndjson!
+  "E : Prop (no constructors) with E.rec, an unrelated axiom, then two rows that claim E but
+   lie outside its block: a constructor E.intro : E and an auxiliary-style recursor E.rec_1."
+  [path]
+  (spit path
+        (str "{\"meta\":{\"exporter\":{\"name\":\"lean4export\",\"version\":\"3.1.0\"},\"format\":{\"version\":\"3.1.0\"},\"lean\":{\"githash\":\"x\",\"version\":\"4.36.0\"}}}\n"
+             "{\"in\":1,\"str\":{\"pre\":0,\"str\":\"E\"}}\n"
+             "{\"in\":2,\"str\":{\"pre\":1,\"str\":\"intro\"}}\n"
+             "{\"in\":3,\"str\":{\"pre\":1,\"str\":\"rec\"}}\n"
+             "{\"in\":4,\"str\":{\"pre\":0,\"str\":\"u\"}}\n"
+             "{\"in\":5,\"str\":{\"pre\":0,\"str\":\"motive\"}}\n"
+             "{\"in\":6,\"str\":{\"pre\":0,\"str\":\"t\"}}\n"
+             "{\"in\":7,\"str\":{\"pre\":0,\"str\":\"ax\"}}\n"
+             "{\"in\":8,\"str\":{\"pre\":1,\"str\":\"rec_1\"}}\n"
+             "{\"il\":1,\"param\":4}\n"
+             "{\"ie\":0,\"sort\":0}\n"
+             "{\"ie\":1,\"const\":{\"name\":1,\"us\":[]}}\n"
+             "{\"ie\":2,\"sort\":1}\n"
+             "{\"ie\":3,\"forallE\":{\"binderInfo\":\"default\",\"name\":6,\"type\":1,\"body\":2}}\n"
+             "{\"ie\":4,\"bvar\":1}\n"
+             "{\"ie\":5,\"bvar\":0}\n"
+             "{\"ie\":6,\"app\":{\"fn\":4,\"arg\":5}}\n"
+             "{\"ie\":7,\"forallE\":{\"binderInfo\":\"default\",\"name\":6,\"type\":1,\"body\":6}}\n"
+             "{\"ie\":8,\"forallE\":{\"binderInfo\":\"default\",\"name\":5,\"type\":3,\"body\":7}}\n"
+             "{\"inductive\":{\"constructorVals\":[],\"inductiveVals\":[{\"all\":[1],\"ctors\":[],\"isRec\":false,\"isReflexive\":false,\"isUnsafe\":false,\"levelParams\":[],\"name\":1,\"numIndices\":0,\"numNested\":0,\"numParams\":0,\"type\":0}],\"recursorVals\":[{\"all\":[1],\"isUnsafe\":false,\"k\":false,\"levelParams\":[4],\"name\":3,\"numIndices\":0,\"numMinors\":0,\"numMotives\":1,\"numParams\":0,\"rules\":[],\"type\":8}]}}\n"
+             "{\"axiom\":{\"name\":7,\"levelParams\":[],\"type\":0,\"isUnsafe\":false}}\n"
+             "{\"inductive\":{\"constructorVals\":[{\"cidx\":0,\"induct\":1,\"isUnsafe\":false,\"levelParams\":[],\"name\":2,\"numFields\":0,\"numParams\":0,\"type\":1}],\"inductiveVals\":[],\"recursorVals\":[]}}\n"
+             "{\"inductive\":{\"constructorVals\":[],\"inductiveVals\":[],\"recursorVals\":[{\"all\":[1],\"isUnsafe\":false,\"k\":false,\"levelParams\":[4],\"name\":8,\"numIndices\":0,\"numMinors\":0,\"numMotives\":1,\"numParams\":0,\"rules\":[{\"ctor\":2,\"nfields\":0,\"rhs\":0}],\"type\":8}]}}\n")))
+
+(deftest reverify-does-not-clear-members-detached-from-their-block
+  (testing "a retried head's success clears only the names its own block check covered"
+    (let [dir (temp-dir) f (str dir "/detached.ndjson")]
+      (try
+        (write-detached-members-ndjson! f)
+        (let [store-map (storage/open-store dir)]
+          (storage/import-ndjson-streaming! store-map f "detached")
+          (let [r0 (storage/verify-corpus! store-map "detached" :workers 1)
+                cp (clojure.edn/read-string (slurp (java.io.File. dir "verify-detached.edn")))]
+            (is (:done? r0))
+            (is (= #{"E.intro" "E.rec_1"} (set (map :name (:error-names cp)))))
+            (let [r (storage/reverify-errors! store-map "detached")
+                  after (clojure.edn/read-string (slurp (java.io.File. dir "verify-detached.edn")))]
+              (is (empty? (:fixed r)))
+              (is (= #{"E.intro" "E.rec_1"} (set (map :name (:still-failing r)))))
+              (is (= 2 (:errors after)))))
+          (storage/close-store store-map))
+        (finally
+          (delete-dir-recursive dir))))))
+
+(deftest verified-blocks-admit-their-rows-and-only-their-own-names
+  (let [dir (temp-dir)]
+    (try
+      (let [store-map (storage/open-store dir)]
+        (storage/import-ndjson-streaming! store-map example-file "verify-test")
+        (let [ctx (storage/prepare-verify store-map "verify-test")
+              nat-rec (name/from-string "Nat.rec")]
+          (try
+            (testing "after a block is admitted its rows are visible"
+              (is (= "Nat" (first (:decl-order ctx))))
+              (is (nil? (env/lookup (:env ctx) nat-rec)))
+              (let [r (storage/verify-one! ctx)]
+                (is (= :ok (:status r)))
+                (is (= #{"Nat" "Nat.zero" "Nat.succ" "Nat.rec"} (set (:checked-names r)))))
+              (is (some? (env/lookup (:env ctx) nat-rec))))
+            (testing "a row whose declaration has another name is an error and is not admitted"
+              (let [next-name (nth (:decl-order ctx) @(:idx ctx))
+                    stored-rec ((:resolve-fn ctx) "Nat.rec")
+                    aliasing (assoc ctx :resolve-fn (fn [n] (if (= n next-name) stored-rec ((:resolve-fn ctx) n))))
+                    r (storage/verify-one! aliasing)]
+                (is (= :error (:status r)))
+                (is (re-find #"holds the declaration Nat.rec" (:error r)))
+                (is (nil? (env/lookup (:env ctx) (name/from-string next-name))))))
+            (finally (.close ^java.io.Writer (:log-writer ctx)))))
+        (storage/close-store store-map))
+      (finally
+        (delete-dir-recursive dir)))))
+
+(deftest a-malformed-row-does-not-abort-the-other-retries
+  ;; one recorded failure whose row cannot be resolved (a malformed key) and one retryable
+  ;; failure: the second is still retried and cleared, the first stays recorded
+  (let [dir (temp-dir)]
+    (try
+      (let [store-map (storage/open-store dir)]
+        (storage/import-ndjson-streaming! store-map example-file "verify-test")
+        (let [_ (storage/verify-corpus! store-map "verify-test" :workers 1)
+              f (java.io.File. dir "verify-verify-test.edn")
+              cp (clojure.edn/read-string (slurp f))
+              fake [{:name "Nat.add" :error "recorded"} {:name "Nat.succ" :error "recorded"}]
+              _ (spit f (pr-str (-> cp (assoc :error-names fake :errors 2 :ok (- (:total cp) 2))
+                                    (assoc-in [:slices 0 :error-names] fake)
+                                    (assoc-in [:slices 0 :errors] 2)
+                                    (update-in [:slices 0 :ok] - 2))))
+              prepare storage/prepare-verify
+              r (with-redefs [storage/prepare-verify
+                              (fn [& args]
+                                (let [ctx (apply prepare args) resolve (:resolve-fn ctx)]
+                                  (assoc ctx :resolve-fn (fn [n] (if (= n "Nat.add")
+                                                                   (throw (ex-info "Store row key differs from its declaration's name" {}))
+                                                                   (resolve n))))))]
+                  (storage/reverify-errors! store-map "verify-test"))]
+          (is (= ["Nat.succ"] (:fixed r)))
+          (is (= ["Nat.add"] (mapv :name (:still-failing r))))
+          (is (re-find #"key differs" (:error (first (:still-failing r))))))
+        (storage/close-store store-map))
+      (finally
+        (delete-dir-recursive dir)))))
+
+(deftest a-failed-block-head-consumes-its-own-rank
+  ;; a head whose `all` omits it collects no members; the verifier must still advance
+  (let [dir (temp-dir)]
+    (try
+      (let [store-map (storage/open-store dir)]
+        (storage/import-ndjson-streaming! store-map example-file "verify-test")
+        (let [ctx (storage/prepare-verify store-map "verify-test")
+              ^ConstantInfo nat ((:resolve-fn ctx) "Nat")
+              headless (ConstantInfo/mkInduct (.name nat) (.levelParams nat) (.type nat) (.numParams nat)
+                                              (.numIndices nat) (object-array []) (.ctors nat) 0 (.isRec nat)
+                                              (.isReflexive nat) (.isUnsafe nat))
+              bad (assoc ctx :resolve-fn (fn [n] (if (= n "Nat") headless ((:resolve-fn ctx) n))))]
+          (try
+            (is (= :error (:status (storage/verify-one! bad))))
+            (is (= 1 @(:idx ctx)))
+            (finally (.close ^java.io.Writer (:log-writer ctx)))))
+        (storage/close-store store-map))
+      (finally
+        (delete-dir-recursive dir)))))
+
+(deftest external-lookup-must-return-the-named-declaration
+  (let [rec (env/mk-axiom (name/from-string "T.rec") [] (Expr/sort ansatz.kernel.Level/ZERO_LEVEL false))
+        e (.withExternalLookup (Env.) (fn [_] rec) 1)]
+    (is (some? (env/lookup e (name/from-string "T.rec"))))
+    (is (thrown-with-msg? RuntimeException #"returned the declaration 'T.rec'"
+                          (env/lookup e (name/from-string "Alias"))))))
+
 (deftest branch-enumeration-read-failures-are-errors
   (let [dir (temp-dir)]
     (try

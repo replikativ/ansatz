@@ -354,7 +354,7 @@ public final class ExprStore implements Closeable {
                         lvls[i] = l;
                         if (!hasParam && Level.hasParam(l)) hasParam = true;
                     }
-                    result = Expr.mkConst(name, Arrays.asList(lvls), hasParam);
+                    result = Expr.mkConstOwned(name, lvls);
                 }
                 break;
             }

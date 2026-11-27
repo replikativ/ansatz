@@ -270,10 +270,19 @@
    (get obj "nfields")
    (resolve-expr st (get obj "rhs"))))
 
+(defn- check-nonempty-block!
+  "An inductive record with no types, constructors or recursors would vanish when flattened,
+   escaping the kernel's at-least-one-type check (Lean: invalid empty (mutual) inductive
+   datatype declaration)."
+  [types ctors recs]
+  (when (and (empty? types) (empty? ctors) (empty? recs))
+    (throw (ex-info "invalid empty (mutual) inductive datatype declaration, it must contain at least one inductive type" {}))))
+
 (defn- parse-inductive [st obj]
   (let [types-raw (get obj "types" (get obj "inductiveVals" []))
         ctors-raw (get obj "ctors" (get obj "constructorVals" []))
         recs-raw (get obj "recs" (get obj "recursorVals" []))
+        _ (check-nonempty-block! types-raw ctors-raw recs-raw)
         decls (atom [])]
     ;; Parse inductive types
     (doseq [t types-raw]
@@ -434,6 +443,7 @@
   (let [types-raw (get obj "types" (get obj "inductiveVals" []))
         ctors-raw (get obj "ctors" (get obj "constructorVals" []))
         recs-raw (get obj "recs" (get obj "recursorVals" []))
+        _ (check-nonempty-block! types-raw ctors-raw recs-raw)
         decls (atom [])]
     ;; Parse inductive types
     (doseq [t types-raw]

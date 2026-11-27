@@ -5,10 +5,9 @@
             [ansatz.kernel.cases-on :as cases]
             [ansatz.kernel.constant-info :as ci]
             [ansatz.kernel.expr :as e]
+            [ansatz.kernel.env :as env]
             [ansatz.kernel.level :as l])
-  (:import [ansatz.kernel Env Name Expr ConstantInfo TypeChecker Reducer
-            RawInductiveGenerator RawInductiveGenerator$Source
-            RawInductiveGenerator$Type RawInductiveGenerator$Constructor]))
+  (:import [ansatz.kernel Env Name Expr ConstantInfo TypeChecker Reducer]))
 
 (defn n [text] (Name/fromString text))
 (def type0 (e/sort' (l/succ l/zero)))
@@ -18,17 +17,7 @@
   (reduce (fn [body {:keys [id name type]}]
             (e/forall' name type (e/abstract1 body id) :default)) body (rseq (vec locals))))
 (defn family [^Env env levels np types]
-  (.env (RawInductiveGenerator/generate
-         env (RawInductiveGenerator$Source.
-              (into-array Name levels) np
-              (into-array RawInductiveGenerator$Type
-                          (for [[name type constructors] types]
-                            (RawInductiveGenerator$Type.
-                             (n name) type
-                             (into-array RawInductiveGenerator$Constructor
-                                         (for [[name type] constructors]
-                                           (RawInductiveGenerator$Constructor. (n name) type)))))) false)
-         (long 1000000))))
+  (env/add-inductive env (env/mk-inductive-decl levels np false types) 1000000))
 (defn enum-env []
   (family (Env.) [] 0
           [["CaseColour" type0 [["CaseColour.red" (c "CaseColour")]

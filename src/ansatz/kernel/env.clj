@@ -11,7 +11,8 @@
      :axiom, :def, :thm, :opaque, :quot, :induct, :ctor, :recursor"
   (:require [ansatz.kernel.name :as name]
             [ansatz.kernel.hints :as hints])
-  (:import [ansatz.kernel ConstantInfo ConstantInfo$RecursorRule Env InductiveBundle Name TypeChecker]))
+  (:import [ansatz.kernel AddInductive ConstantInfo ConstantInfo$RecursorRule Env InductiveBundle
+            InductiveDecl InductiveDecl$Type InductiveDecl$Constructor Name TypeChecker]))
 
 ;; ============================================================
 ;; Tag keyword mapping
@@ -127,8 +128,43 @@
              true
              (catch Throwable _ false)))))
 
+(defn mk-inductive-decl
+  "Lean's `inductive_decl`: universe parameters, the number of shared parameters, the safety
+   flag and the ordered types `[[name type [[ctor-name ctor-type] ...]] ...]` (names may be
+   strings or Names). This is the kernel's whole input for an inductive block."
+  ^InductiveDecl [level-params num-params unsafe? types]
+  (let [nm #(if (instance? Name %) % (Name/fromString (str %)))]
+    (InductiveDecl.
+     (into-array Object level-params)
+     (int num-params)
+     (boolean unsafe?)
+     ^java.util.List
+     (mapv (fn [[t-name t-type ctors]]
+             (InductiveDecl$Type. (nm t-name) t-type
+                                  ^java.util.List
+                                  (mapv (fn [[c-name c-type]] (InductiveDecl$Constructor. (nm c-name) c-type))
+                                        ctors)))
+           types))))
+
+(defn add-inductive
+  "Admit an inductive declaration (Lean's `environment::add_inductive`): the kernel generates
+   and checks every constant of the block — types, constructors, recursors, and the auxiliary
+   recursors of a nested declaration. Returns the new Env."
+  (^Env [^Env env ^InductiveDecl decl]
+   (AddInductive/add env decl 5000000))
+  (^Env [^Env env ^InductiveDecl decl fuel]
+   (AddInductive/add env decl (long fuel))))
+
+(defn inductive-decl-constants
+  "The constants `add-inductive` generated for `decl` in `env`, in Lean's order: each type, its
+   constructors and recursor, then the auxiliary recursors `<first>.rec_<i>`."
+  [^Env env ^InductiveDecl decl]
+  (vec (AddInductive/constants env decl)))
+
 (defn check-inductive-bundle
-  "Type-check and add a mutual inductive bundle through the Java kernel bundle checker."
+  "Admit an exported inductive block (store / NDJSON records): the kernel generates the block
+   from the declaration the records describe and requires every record to equal its generated
+   counterpart. Returns the Env holding the generated records."
   (^Env [^Env env ^InductiveBundle bundle]
    (TypeChecker/checkInductiveBundle env bundle))
   (^Env [^Env env ^InductiveBundle bundle fuel]

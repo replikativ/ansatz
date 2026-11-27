@@ -9,7 +9,7 @@
             [ansatz.kernel.level :as lvl]
             [ansatz.kernel.reduce :as red]
             [clojure.set :as set])
-  (:import [ansatz.kernel Name ConstantInfo Env TypeChecker ExprMap]))
+  (:import [ansatz.kernel Name ConstantInfo Env Level TypeChecker ExprMap]))
 
 ;; ============================================================
 ;; Type checker state
@@ -402,11 +402,12 @@
 
      (and (= (e/tag t') (e/tag s'))
           (case (e/tag t')
-            :sort (lvl/level= (e/sort-level t') (e/sort-level s'))
+            ;; levels by is_equivalent, as the Java kernel and Lean's type checker
+            :sort (Level/isEquivalent ^Level (e/sort-level t') ^Level (e/sort-level s'))
 
             :const (and (= (e/const-name t') (e/const-name s'))
                         (= (count (e/const-levels t')) (count (e/const-levels s')))
-                        (every? true? (map lvl/level= (e/const-levels t') (e/const-levels s'))))
+                        (every? true? (map #(Level/isEquivalent ^Level %1 ^Level %2) (e/const-levels t') (e/const-levels s'))))
 
             :app (and (is-def-eq st (e/app-fn t') (e/app-fn s'))
                       (is-def-eq st (e/app-arg t') (e/app-arg s')))
