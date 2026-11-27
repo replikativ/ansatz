@@ -101,6 +101,16 @@ public final class Reducer {
         policyChanged();
     }
 
+    // Structure eta for recursor majors (to_cnstr_when_structure). Always on in the kernel;
+    // meta-level callers may turn it off, as Lean's Meta.Config.etaStruct does.
+    private boolean structureEta = true;
+
+    /** Meta-level switch for structure eta on recursor majors (the kernel always uses it). */
+    public void setStructureEta(boolean on) {
+        this.structureEta = on;
+        policyChanged();
+    }
+
     /** May the definition `name` be delta-unfolded at the current transparency? Always outside
      *  reducible mode (0); in it, only names in the allow set or accepted by the allow predicate. */
     public boolean canUnfold(Name name) {
@@ -1158,7 +1168,7 @@ public final class Reducer {
 
     /** Lean's to_cnstr_when_structure: a non-constructor of a non-Prop structure becomes `mk e.1 … e.n`. */
     private Expr toCnstrWhenStructure(Name induct, Expr e, boolean cheapRec, boolean cheapProj) {
-        if (induct == null || !isNonRecStructure(env, induct) || isConstructorApp(e)) return e;
+        if (!structureEta || induct == null || !isNonRecStructure(env, induct) || isConstructorApp(e)) return e;
         Expr eType = recWhnf(inferFn.infer(e), cheapRec, cheapProj);
         Expr I = getAppFn(eType);
         if (I.tag != Expr.CONST || !I.o0.equals(induct)) return e;

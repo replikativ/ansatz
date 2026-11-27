@@ -352,3 +352,19 @@
       (is (= (str (lit 5)) (str (reduce-nat (c "Nat.add") lits w))))
       (is (thrown-with-msg? RuntimeException #"does not fit in a 32-bit unsigned integer"
                             (reduce-nat (c "Nat.pow") [(lit 1) (lit 4294967296)] w))))))
+
+(deftest structure-eta-can-be-turned-off-for-meta-callers
+  ;; to_cnstr_when_structure expands a structure-typed major `p` to `mk p.1 p.2`; meta-level
+  ;; callers that read recursor applications (the WF encoder) turn it off, like Lean's
+  ;; Meta.Config.etaStruct
+  (let [prod-nn (e/app* (c "Prod" [l0 l0]) (c "Nat") (c "Nat"))
+        motive (lam "q" prod-nn (c "Nat"))
+        minor (lam "a" (c "Nat") (lam "b" (c "Nat") (e/bvar 1)))
+        term (e/app* (c "Prod.casesOn" [l1 l0 l0]) (c "Nat") (c "Nat") motive (e/fvar 1) minor)
+        reduce-with (fn [eta?]
+                      (let [checker (tc @base)]
+                        (.addLocal checker 1 "p" ^Expr prod-nn)
+                        (.setStructureEta (.getReducer checker) eta?)
+                        (.whnf (.getReducer checker) term)))]
+    (is (same? (e/proj (n "Prod") 0 (e/fvar 1)) (reduce-with true)))
+    (is (= (n "Prod.rec") (e/const-name (e/get-app-fn (reduce-with false)))))))
