@@ -1192,14 +1192,9 @@ public final class TypeChecker {
         return a == b || a.name.equals(b.name);
     }
 
-    /** Lean's is_delta: the head is a constant with a value, applied to its universe arity
-     *  (and, in a restricted-transparency checker, one the reducer may unfold). */
+    /** Lean's is_delta (Reducer.isDelta, shared with unfold_definition). */
     private ConstantInfo deltaInfo(Expr e) {
-        Expr head = Reducer.getAppFn(e);
-        if (head.tag != Expr.CONST) return null;
-        ConstantInfo ci = env.lookup((Name) head.o0);
-        if (ci == null || ci.getValue() == null || ci.levelParams.length != Reducer.constLevels(head).length) return null;
-        return reducer.canUnfold((Name) head.o0) ? ci : null;
+        return reducer.isDelta(e);
     }
 
     /** Lean's compare(hints): < 0 unfold t, > 0 unfold s, 0 both. */
@@ -1272,12 +1267,6 @@ public final class TypeChecker {
         return isDefEq(t, Expr.lam(sType.o0, (Expr) sType.o1, Expr.app(Reducer.lift(s, 1, 0), Expr.bvar(0)), sType.o3));
     }
 
-    /** Lean's is_non_rec_structure: one constructor, no indices, not recursive. */
-    private boolean isNonRecStructure(Name n) {
-        ConstantInfo ci = env.lookup(n);
-        return ci != null && ci.isInduct() && ci.ctors.length == 1 && ci.numIndices == 0 && !ci.isRec;
-    }
-
     /** Lean's try_eta_struct (both directions). */
     private boolean tryEtaStruct(Expr t, Expr s) {
         return tryEtaStructCore(t, s) || tryEtaStructCore(s, t);
@@ -1291,7 +1280,7 @@ public final class TypeChecker {
         if (!ctor.isCtor()) return false;
         Expr[] sArgs = (Expr[]) Reducer.getAppFnArgs(s)[1];
         if (sArgs.length != ctor.numParams + ctor.numFields) return false;
-        if (!isNonRecStructure(ctor.inductName)) return false;
+        if (!Reducer.isNonRecStructure(env, ctor.inductName)) return false;
         if (!isDefEq(inferTypeOnly(t), inferTypeOnly(s))) return false;
         for (int i = ctor.numParams; i < sArgs.length; i++)
             if (!isDefEq(Expr.proj(ctor.inductName, i - ctor.numParams, t), sArgs[i])) return false;
@@ -1314,7 +1303,7 @@ public final class TypeChecker {
     private boolean isDefEqUnitLike(Expr t, Expr s) {
         Expr tType = whnf(inferTypeOnly(t));
         Expr I = Reducer.getAppFn(tType);
-        if (I.tag != Expr.CONST || !isNonRecStructure((Name) I.o0)) return false;
+        if (I.tag != Expr.CONST || !Reducer.isNonRecStructure(env, (Name) I.o0)) return false;
         ConstantInfo ctor = env.lookupOrThrow(env.lookupOrThrow((Name) I.o0).ctors[0]);
         if (ctor.numFields != 0) return false;
         return isDefEqCore(tType, inferTypeOnly(s));

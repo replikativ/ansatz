@@ -48,6 +48,11 @@
   (testing "projection congruence requires the same structure"
     (is (false? (defeq? @st-env (e/proj (n "KS") 0 (c "kax")) (e/proj (n "KT") 0 (c "kax")))))))
 
+(deftest constructor-heads-are-looked-up-with-env-get
+  ;; reduce_proj_core and is_non_rec_structure use env.get: an unknown name is an error (Lean)
+  (is (re-find #"Unknown constant: KMissing"
+               (str (kernel-error #(whnf @st-env (e/proj (n "KS") 0 (c "KMissing"))))))))
+
 (deftest nat-primitives-match-complete-constants-and-limits
   (testing "Nat.add.{0} is not the primitive Nat.add"
     (let [term (e/app* (c "Nat.add" [l0]) (lit 2) (lit 3))]

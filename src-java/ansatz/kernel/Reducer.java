@@ -1131,10 +1131,10 @@ public final class Reducer {
         return mkApps(Expr.mkConstOwned(ind.ctors[0], d.o1), java.util.Arrays.copyOf(args, numParams));
     }
 
-    /** Lean's is_non_rec_structure. */
-    private boolean isNonRecStructure(Name n) {
-        ConstantInfo ci = n == null ? null : env.lookup(n);
-        return ci != null && ci.isInduct() && ci.ctors.length == 1 && ci.numIndices == 0 && !ci.isRec;
+    /** Lean's is_non_rec_structure (inductive.cpp): `env.get`, so an unknown name is an error. */
+    static boolean isNonRecStructure(Env env, Name n) {
+        ConstantInfo ci = env.lookupOrThrow(n);
+        return ci.isInduct() && ci.ctors.length == 1 && ci.numIndices == 0 && !ci.isRec;
     }
 
     private boolean isConstructorApp(Expr e) {
@@ -1146,7 +1146,7 @@ public final class Reducer {
 
     /** Lean's to_cnstr_when_structure: a non-constructor of a non-Prop structure becomes `mk e.1 … e.n`. */
     private Expr toCnstrWhenStructure(Name induct, Expr e, boolean cheapRec, boolean cheapProj) {
-        if (!isNonRecStructure(induct) || isConstructorApp(e)) return e;
+        if (induct == null || !isNonRecStructure(env, induct) || isConstructorApp(e)) return e;
         Expr eType = recWhnf(inferFn.infer(e), cheapRec, cheapProj);
         Expr I = getAppFn(eType);
         if (I.tag != Expr.CONST || !I.o0.equals(induct)) return e;
@@ -1211,8 +1211,8 @@ public final class Reducer {
         Object[] fa = getAppFnArgs(c);
         Expr mk = (Expr) fa[0];
         if (mk.tag != Expr.CONST) return null;
-        ConstantInfo ci = env.lookup((Name) mk.o0);
-        if (ci == null || !ci.isCtor() || !ci.inductName.equals(sname)) return null;
+        ConstantInfo ci = env.lookupOrThrow((Name) mk.o0);   // env().get
+        if (!ci.isCtor() || !ci.inductName.equals(sname)) return null;
         return projField(ci, (Expr[]) fa[1], idx);
     }
 
@@ -1236,9 +1236,10 @@ public final class Reducer {
     // Delta (Lean's is_delta, unfold_definition)
     // ============================================================
 
-    /** Lean's is_delta: the head constant has a value, the right universe arity, and the
-     *  current transparency lets it unfold. */
-    private ConstantInfo isDelta(Expr head) {
+    /** Lean's is_delta: the head constant of `e` has a value and is applied to its universe
+     *  arity (and the current transparency lets it unfold). An unknown head is no candidate. */
+    ConstantInfo isDelta(Expr e) {
+        Expr head = getAppFn(e);
         if (head.tag != Expr.CONST) return null;
         ConstantInfo ci = env.lookup((Name) head.o0);
         if (ci == null || ci.getValue() == null || ci.levelParams.length != constLevels(head).length) return null;
