@@ -478,7 +478,10 @@
                            :type (close-foralls (heq (mapv second discrs)) binders)
                            :value (close-lambdas proof binders)})))))
                 results)))
-            (catch Exception _ nil))]
+            (catch Exception ex
+              (when (and (instance? ansatz.kernel.KernelAbort ex) (re-find #"interrupted" (str (ex-message ex))))
+                (throw ex))
+              nil))]
     ;; Install (idempotent): add the splitter def + each eq_i theorem to the GLOBAL env.
       (swap! state/ansatz-env
              (fn [env]
@@ -515,11 +518,19 @@
                        (reduce (fn [[env names] {:keys [name type value]}]
                                  (let [nm (ansatz.kernel.name/from-string name)]
                                    (if-let [^ansatz.kernel.ConstantInfo old (env/lookup env nm)]
+                                     ;; (its universes compared positionally with ours)
                                      [env (cond-> names (and (.isThm old) (= (count (.levelParams old)) (count lvls))
-                                                             (= (.type old) type))
+                                                             (= (e/instantiate-level-params
+                                                                 (.type old) (zipmap (.levelParams old) (map lvl/param lvls)))
+                                                                type))
                                                   (conj name))]
                                      (try [(env/check-constant env (env/mk-thm nm lvls type value)) (conj names name)]
-                                          (catch Exception _ [env names])))))
+                                          (catch Exception ex
+                                            ;; an interrupted check is cancellation, not a skip
+                                            (when (and (instance? ansatz.kernel.KernelAbort ex)
+                                                       (re-find #"interrupted" (str (ex-message ex))))
+                                              (throw ex))
+                                            [env names])))))
                                [env []] congr-results)]
                  ;; Make the equations available to simp by default (the matcher reduces in each
                  ;; split branch via eqᵢ — Lean's simpMatchTargetCore; we route it through simp's set).

@@ -64,4 +64,10 @@
       (let [t (.type (ci (str m ".congr_eq_1")))
             concl (loop [t t] (if (e/forall? t) (recur (e/forall-body t)) t))
             rhs (last (e/get-app-args concl))]
-        (is (= ["Unit.unit"] (mapv #(str (e/const-name %)) (e/get-app-args rhs))))))))
+        (is (= ["Unit.unit"] (mapv #(str (e/const-name %)) (e/get-app-args rhs))))))
+    (testing "both arms"
+      (doseq [n congr-eqn-names]
+        (let [concl (loop [t (.type (ci n))] (if (e/forall? t) (recur (e/forall-body t)) t))
+              rhs (last (e/get-app-args concl))]
+          (is (e/bvar? (e/get-app-fn rhs)) "an alternative")
+          (is (= ["Unit.unit"] (mapv #(str (e/const-name %)) (e/get-app-args rhs))) n))))))
