@@ -33,8 +33,7 @@
             [ansatz.kernel.tc :as tc]
             [ansatz.meta.app-builder :as app-builder]
             [ansatz.meta.constructions.util :as u]
-            [ansatz.meta.constructions.ctor-elim :as ctor-elim]
-            [clojure.string :as str]))
+            [ansatz.meta.constructions.ctor-elim :as ctor-elim]))
 
 ;; ============================================================
 ;; Handler registry
@@ -122,7 +121,8 @@
         [th targs] (e/get-app-fn-args t)
         tn (e/const-name th)
         has? #(some? (env/lookup (:env ps) %))
-        term (if (and (empty? targs) (not (and (has? (name/from-string "noConfusion_of_Nat")) (has? (name/mk-str tn "ctorIdx"))))
+        term (if (and (empty? targs) (not (and (has? (name/from-string "noConfusion_of_Nat")) (has? (name/mk-str tn "ctorIdx"))
+                                               (has? (name/from-string "False.elim"))))
                       (has? (name/mk-str tn "noConfusion")))
                ;; a reduced environment without the tag: the type's own noConfusion, as before
                (e/app* (e/const' (name/mk-str tn "noConfusion") (into [lvl/zero] (e/const-levels th)))
@@ -146,7 +146,9 @@
   [env type-name-str cls]
   (let [n (name/from-string type-name-str)
         last-s (.str ^ansatz.kernel.Name n)
-        base (str "inst" cls (str/upper-case (subs last-s 0 1)) (subs last-s 1))
+        ;; String.capitalize: only an ASCII a–z initial is uppercased
+        c0 (.charAt ^String last-s 0)
+        base (str "inst" cls (if (<= (int \a) (int c0) (int \z)) (Character/toUpperCase c0) c0) (subs last-s 1))
         cand #(name/mk-str (.prefix ^ansatz.kernel.Name n) (if (zero? %) base (str base "_" %)))]
     (first (remove #(env/lookup env %) (map cand (range))))))
 

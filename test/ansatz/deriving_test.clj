@@ -147,6 +147,7 @@
     (eval '(ansatz.core/inductive DerFour [] (a) (b) (c) (d) :deriving [DecidableEq]))
     (eval '(ansatz.core/inductive DerEmpty [] :deriving [DecidableEq]))
     (eval '(ansatz.core/inductive DerLow.color [] (x) (y) :deriving [DecidableEq]))
+    (eval '(ansatz.core/inductive DerLow.δ [] (x) (y) :deriving [DecidableEq]))
     (eval '(ansatz.core/inductive DerQ [α (Type u)] (a) (b) :deriving [DecidableEq])))
   (let [env (a/env)
         lookup #(env/lookup env (name/from-string %))
@@ -170,7 +171,8 @@
       (is (nil? (lookup "DerEmpty.ofNat")))
       (is (nil? (lookup "DerEmpty.ofNat_ctorIdx"))))
     (testing "the type's last component is capitalized in the instance name"
-      (is (some? (lookup "DerLow.instDecidableEqColor"))))
+      (is (some? (lookup "DerLow.instDecidableEqColor")))
+      (is (some? (lookup "DerLow.instDecidableEqδ")) "String.capitalize: only ASCII initials"))
     (testing "a universe-polymorphic family keeps the type's universe parameter"
       (let [ci (lookup "instDecidableEqDerQ")]
         (is (= 1 (count (.levelParams ci))))

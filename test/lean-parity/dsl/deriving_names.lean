@@ -47,3 +47,9 @@ inductive Empty2 : Type
 deriving DecidableEq
 /-- error: Unknown constant `Empty2.ofNat` -/
 #guard_msgs in #check @Empty2.ofNat
+namespace M
+inductive δ where | x | y
+deriving DecidableEq
+end M
+/-- info: M.instDecidableEqδ : DecidableEq M.δ -/
+#guard_msgs in #check @M.instDecidableEqδ
