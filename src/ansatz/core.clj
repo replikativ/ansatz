@@ -40,6 +40,7 @@
             [ansatz.elab.structural-eqns :as structural-eqns]
             [ansatz.elab.structural-smart-unfolding :as sunfold]
             [ansatz.surface.ingest :as ingest]
+            [ansatz.meta.constructions.injective :as injective]
             [ansatz.surface.elaborate :as elab]
             [ansatz.surface.clj-obligations :as obligations]
             [ansatz.surface.diagnostics :as diagnostics]
@@ -3482,6 +3483,24 @@
   `(install-theorem! '~thm-name ~(large-form-literal params) ~(large-form-literal prop)
                      ~(large-form-literal (vec tactics))))
 
+(clojure.core/defn derive-injectivity!
+  "Lean's mkInjectiveTheorems for a DSL inductive or structure (ansatz.meta.constructions.injective):
+   `C.inj` and `C.injEq`, the latter registered as a simp lemma (Injective.lean addSimpTheorem).
+   One env update or none; a failure is reported (Lean's elaborator would fail the declaration)."
+  [type-name]
+  (try
+    (swap! ansatz-env
+           (fn [env]
+             (let [env' (injective/mk-injective-theorems env type-name)
+                   ctors (some-> (env/lookup env' (name/from-string type-name)) (.ctors))
+                   new (filter #(and (env/lookup env' (name/mk-str % "injEq")) (not (env/lookup env (name/mk-str % "injEq"))))
+                               ctors)]
+               (first ((requiring-resolve 'ansatz.attrs/import-attr-tuples)
+                       env' (mapv (fn [c] ["simp" (str c ".injEq") nil 1000]) new) {})))))
+    (catch Throwable t
+      (throw (ex-info (str "failed to generate injectivity theorems for " type-name ": " (.getMessage t))
+                      {:kind :injectivity-error :type type-name} t)))))
+
 (defmacro inductive
   "Define an inductive type with constructors.
    (a/inductive Color [] (red) (green) (blue))
@@ -3528,17 +3547,24 @@
                        [c []]))
         ctor-specs (mapv parse-ctor ctors)
         deriving-classes (:deriving opts)]
-    `(do (inductive/define-inductive (env) ~(str type-name) '~params '~ctor-specs
-           ~@(when (:in opts) [:in `'~(:in opts)])
-           ~@(when (:indices opts) [:indices `'~(:indices opts)]))
-         ~@(when deriving-classes
-             [`(let [env# @ansatz-env
-                     env'# ((requiring-resolve 'ansatz.deriving/run-deriving!)
-                            env# ~(str type-name) '~ctor-specs '~deriving-classes)]
-                 (reset! ansatz-env env'#))])
-         ;; lean4 auto-derives SizeOf for every inductive — best-effort, no-op when unsupported
-         (wf-derive-sizeof! ~(str type-name))
-         nil)))
+    `(let [before# @ansatz-env]
+       (inductive/define-inductive (env) ~(str type-name) '~params '~ctor-specs
+         ~@(when (:in opts) [:in `'~(:in opts)])
+         ~@(when (:indices opts) [:indices `'~(:indices opts)]))
+       ;; lean4 auto-derives SizeOf for every inductive — best-effort, no-op when unsupported
+       (wf-derive-sizeof! ~(str type-name))
+       ;; Lean fails the declaration when its injectivity theorems fail: nothing stays installed
+       ;; (unless another writer published meanwhile: then only the error is raised)
+       (let [ours# @ansatz-env]
+         (try (derive-injectivity! ~(str type-name))
+              (catch Throwable t# (compare-and-set! ansatz-env ours# before#) (throw t#))))
+       ;; Lean runs deriving handlers after the auxiliary constructions (MutualInductive.lean)
+       ~@(when deriving-classes
+           [`(let [env# @ansatz-env
+                   env'# ((requiring-resolve 'ansatz.deriving/run-deriving!)
+                          env# ~(str type-name) '~ctor-specs '~deriving-classes)]
+               (reset! ansatz-env env'#))])
+       nil)))
 
 ;; ============================================================
 ;; structure — single-constructor inductive with projections
@@ -3752,63 +3778,71 @@
         ;; Build the flat field vector for the constructor: [name1 type1 name2 type2 ...]
         flat-fields (vec (mapcat identity field-specs))
         ;; Single constructor named 'mk'
-        ctor-spec ['mk flat-fields]]
-    `(do
+        ctor-spec ['mk flat-fields]
+        before-sym (gensym "before")]
+    `(let [~before-sym @ansatz-env]
+       (do
        ;; Define the inductive with single constructor. When extending, rewrite inherited-field
        ;; references in the new fields' types to subobject projections at runtime (parent field
        ;; names come from the registry, available once the parent is defined).
-       ~(if extends-form
-          `(let [pfields# (set (get-in @@(requiring-resolve 'ansatz.core/structure-registry)
-                                       [~(str parent-sym) :fields]))
-                 new-specs# (mapv (fn [[fn# ft#]]
-                                    [fn# (rewrite-inherited-field-refs
-                                          ft# pfields# '~parent-sym '~(vec (rest extends-form)) '~to-field)])
-                                  '~base-field-specs)
-                 flat# (vec (mapcat identity (into [['~to-field '~extends-form]] new-specs#)))]
-             (inductive/define-inductive (env) ~(str type-name) '~params [[(symbol "mk") flat#]]
+         ~(if extends-form
+            `(let [pfields# (set (get-in @@(requiring-resolve 'ansatz.core/structure-registry)
+                                         [~(str parent-sym) :fields]))
+                   new-specs# (mapv (fn [[fn# ft#]]
+                                      [fn# (rewrite-inherited-field-refs
+                                            ft# pfields# '~parent-sym '~(vec (rest extends-form)) '~to-field)])
+                                    '~base-field-specs)
+                   flat# (vec (mapcat identity (into [['~to-field '~extends-form]] new-specs#)))]
+               (inductive/define-inductive (env) ~(str type-name) '~params [[(symbol "mk") flat#]]
+                 ~@(when (:in opts) [:in `'~(:in opts)])))
+            `(inductive/define-inductive (env) ~(str type-name) '~params '~[ctor-spec]
                ~@(when (:in opts) [:in `'~(:in opts)])))
-          `(inductive/define-inductive (env) ~(str type-name) '~params '~[ctor-spec]
-             ~@(when (:in opts) [:in `'~(:in opts)])))
 
        ;; Lean Meta/Structure.lean:mkProjections threads named projections through
        ;; the constructor telescope, preserving them in dependent accessor types.
-       (swap! ansatz-env meta-structure/mk-projections ~(str type-name)
-              ~(mapv (fn [[fname _]] (str type-name "." fname)) field-specs)
-              ~(/ (count params) 2))
+         (swap! ansatz-env meta-structure/mk-projections ~(str type-name)
+                ~(mapv (fn [[fname _]] (str type-name "." fname)) field-specs)
+                ~(/ (count params) 2))
 
        ;; Inherited accessors for the embedded parent (Lean subobject `fromSubobject` access).
        ;; Runs after the projection loop so Child.to{Parent} exists.
-       ~@(when extends-form
-           [`(add-inherited-accessors! ~(str type-name) ~(str parent-sym)
-                                       ~(str to-field) ~(/ (count params) 2))])
+         ~@(when extends-form
+             [`(add-inherited-accessors! ~(str type-name) ~(str parent-sym)
+                                         ~(str to-field) ~(/ (count params) 2))])
+
+       ;; Lean: injectivity theorems for structures too (not for classes)
+         ~@(when-not (:class opts)
+             [`(let [ours# @ansatz-env]
+                 (try (derive-injectivity! ~(str type-name))
+                      (catch Throwable t# (compare-and-set! ansatz-env ours# ~before-sym) (throw t#))))])
 
        ;; Lean generates SizeOf for structures too (not for classes).
        ~@(when-not (:class opts) [`(wf-derive-sizeof! ~(str type-name))])
 
        ;; Lean's class extension is environment-local; ordinary structures are excluded.
-       ~@(when (:class opts)
-           (concat
-            [`(swap! ansatz-env env/with-extension :classes
-                     (conj (env/get-extension (env) :classes #{}) ~(str type-name)))]
-            (when extends-form
-              [`(add-parent-instances! ~(str type-name) ~(str parent-sym)
-                                       ~(str type-name "." to-field))])))
+         ~@(when (:class opts)
+             (concat
+              [`(swap! ansatz-env env/with-extension :classes
+                       (conj (env/get-extension (env) :classes #{}) ~(str type-name)))]
+              (when extends-form
+                [`(add-parent-instances! ~(str type-name) ~(str parent-sym)
+                                         ~(str type-name "." to-field))])))
 
        ;; Emit Clojure defrecord for runtime representation
        ;; The record has keyword-accessible fields: (:x point), (:y point)
        ;; Idempotent across namespaces/re-installs: a record class cannot be re-imported into a
        ;; namespace, so a second definition of the same structure (e.g. an env reset then re-install)
        ;; would throw "already refers to". Skip the defrecord if the class is already defined.
-       (when-not (instance? Class (resolve '~runtime-name))
-         (defrecord ~runtime-name ~(mapv (fn [[fname _]] (symbol (str fname))) field-specs)))
+         (when-not (instance? Class (resolve '~runtime-name))
+           (defrecord ~runtime-name ~(mapv (fn [[fname _]] (symbol (str fname))) field-specs)))
 
        ;; Register in structure-registry for ansatz->clj compilation
-       (swap! @(requiring-resolve 'ansatz.core/structure-registry)
-              assoc ~(str type-name)
-              {:fields ~(mapv (fn [[fname _]] (str fname)) field-specs)
-               :ctor-sym '~(symbol (str (ns-name *ns*)) (str "->" runtime-name))})
+         (swap! @(requiring-resolve 'ansatz.core/structure-registry)
+                assoc ~(str type-name)
+                {:fields ~(mapv (fn [[fname _]] (str fname)) field-specs)
+                 :ctor-sym '~(symbol (str (ns-name *ns*)) (str "->" runtime-name))})
 
-       nil)))
+         nil))))
 
 (defmacro class
   "Define a typeclass structure; class parents supply inherited instances."
