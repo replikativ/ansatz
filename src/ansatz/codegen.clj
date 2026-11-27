@@ -147,6 +147,15 @@
         ;; wrappers; beta-apply any remaining custom implementation to supplied operands.
         (ansatz->clj env (beta-apply op (drop 4 args)) names)))))
 
+(clojure.core/defn- native-size-of-instance?
+  "`instSizeOfNat`, or `List._sizeOf_inst α i` over a native instance: the instances whose
+   sizeOf_spec equations ansatz.core/rt-sizeof implements on runtime values."
+  [inst]
+  (let [[h as] (e/get-app-fn-args inst)
+        hn (when (e/const? h) (name/->string (e/const-name h)))]
+    (or (and (= hn "instSizeOfNat") (empty? as))
+        (and (= hn "List._sizeOf_inst") (= 2 (count as)) (recur (nth as 1))))))
+
 (clojure.core/defn- bi-const "App handler for a nullary constant." [v] (fn [_ _ _ _ _] v))
 
 ;; One contract table drives saturated, partially applied and function-value lowering.
@@ -335,8 +344,16 @@
                       (case (count ca)             ; (eta-reduced, e.g. fused into a comp) lowers to `count`
                         1 'clojure.core/count
                         (list 'count (nth ca 1))))
-    ;; SizeOf.sizeOf T inst x → runtime size (mirrors sizeOf_spec; reached via the fuel scaffolding).
-    "SizeOf.sizeOf" (fn [_ _ _ ca _] (list 'ansatz.core/rt-sizeof (nth ca 2)))
+    ;; SizeOf.sizeOf T inst x: the method of the dictionary it is given (Lean evaluates
+    ;; `@SizeOf.sizeOf Nat ⟨fun _ => 37⟩ 3` to 37). The Nat and native-list instances keep the
+    ;; runtime size that mirrors their sizeOf_spec equations.
+    "SizeOf.sizeOf" (fn [env _ args ca names]
+                      (if (native-size-of-instance? (nth args 1))
+                        (list 'ansatz.core/rt-sizeof (nth ca 2))
+                        (ansatz->clj env (beta-apply (runtime-instance-op
+                                                      env (e/proj (name/from-string "SizeOf") 0 (nth args 1)))
+                                                     [(nth args 2)])
+                                     names)))
     ;; refinement erasure: a Subtype value IS its carrier at runtime (arity-tolerant for eta-reduced partials)
     "Subtype.val" (fn [_ _ _ ca _]
                     (case (count ca)
