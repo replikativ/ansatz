@@ -5,7 +5,10 @@
             [ansatz.core :as a]
             [ansatz.deriving :as deriving]
             [ansatz.kernel.env :as env]
-            [ansatz.kernel.name :as name]))
+            [ansatz.kernel.name :as name]
+            [ansatz.kernel.expr :as e]
+            [ansatz.kernel.tc :as tc]
+            [ansatz.tactic.instance :as instance]))
 
 ;; ============================================================
 ;; Environment setup (same pattern as core_test)
@@ -106,3 +109,35 @@
                            (Not (= DNeqTest (DNeqTest.x1) (DNeqTest.x2)))
                            (decide)))
           "decide should close Not (x1 = x2)"))))
+
+;; Lean parity: test/lean-parity/dsl/deriving_names.lean (Lean v4.36.0)
+(deftest deriving-names-and-parameters
+  (binding [*ns* (the-ns 'ansatz.deriving-test) a/*verbose* false]
+    (eval '(ansatz.core/inductive DerN.Color [] (red) (green) (blue) :deriving [DecidableEq]))
+    (eval '(ansatz.core/inductive DerP [α Type] (a) (b) :deriving [DecidableEq])))
+  (let [env (a/env)
+        lookup #(env/lookup env (name/from-string %))
+        c #(e/const' (name/from-string %) [])
+        st (tc/mk-tc-state env)]
+    (testing "the instance lives in the type's namespace"
+      (is (some? (lookup "DerN.instDecidableEqColor")))
+      (is (nil? (lookup "instDecidableEqDerN.Color"))))
+    (testing "an enum gets ofNat (a bif chain over Nat.ble) and ofNat_ctorIdx"
+      (is (tc/is-def-eq st (e/app (c "DerN.Color.ofNat") (e/lit-nat 1)) (c "DerN.Color.green")))
+      (is (tc/is-def-eq st (e/app (c "DerN.Color.ofNat") (e/lit-nat 7)) (c "DerN.Color.blue")))
+      (is (.isThm (lookup "DerN.Color.ofNat_ctorIdx")))
+      (is (env/verifies? env (.type (lookup "DerN.Color.ofNat_ctorIdx")) (.value (lookup "DerN.Color.ofNat_ctorIdx")))))
+    (testing "a parameterized fieldless type derives at its applied parameter, with [DecidableEq α]"
+      (let [t (.type (lookup "instDecidableEqDerP"))]
+        (is (= [:implicit :inst-implicit] [(e/forall-info t) (e/forall-info (e/forall-body t))]))
+        (is (re-find #"instDecidableEqDerP"
+                     (e/->string (instance/synthesize env (instance/index-for env)
+                                                      (e/app (e/const' (name/from-string "DecidableEq") [(ansatz.kernel.level/succ ansatz.kernel.level/zero)])
+                                                             (e/app (c "DerP") (c "Nat")))))))
+        (is (nil? (lookup "DerP.ofNat")) "ofNat is for enumerations only")))
+    (testing "decide evaluates through the derived instances"
+      (binding [*ns* (the-ns 'ansatz.deriving-test) a/*verbose* false]
+        (eval '(ansatz.core/theorem der-color-ne [] (= Bool (Decidable.decide (= DerN.Color DerN.Color.red DerN.Color.blue)) false) (rfl)))
+        (eval '(ansatz.core/theorem der-p-ne [] (= Bool (Decidable.decide (= (DerP Nat) DerP.a DerP.b)) false) (rfl))))
+      (is (some? (env/lookup (a/env) (name/from-string "der-color-ne"))))
+      (is (some? (env/lookup (a/env) (name/from-string "der-p-ne")))))))

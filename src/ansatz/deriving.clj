@@ -29,7 +29,10 @@
             [ansatz.tactic.instance :as instance]
             [ansatz.tactic.proof :as proof]
             [ansatz.tactic.basic :as basic]
-            [ansatz.tactic.extract :as extract]))
+            [ansatz.tactic.extract :as extract]
+            [ansatz.kernel.tc :as tc]
+            [ansatz.meta.app-builder :as app-builder]
+            [ansatz.meta.constructions.util :as u]))
 
 ;; ============================================================
 ;; Handler registry
@@ -103,34 +106,19 @@
 (def ^:private false-name (name/from-string "False"))
 
 (defn- close-off-diagonal-goal
-  "Close a goal of form Decidable (Eq T ctor_i ctor_j) where i≠j
-   with isFalse + intro h + noConfusion with explicit args."
-  [ps type-name-str]
-  (let [;; apply Decidable.isFalse — no level params
-        ;; creates subgoal: Not (Eq T ctor_i ctor_j)
-        ;; which is (Eq T ctor_i ctor_j) → False
-        ps (basic/apply-tac ps (e/const' decidable-isFalse-name []))
-        ;; intro h — introduces the equality hypothesis
+  "Close a goal of form Decidable (Eq T ctor_i ctor_j) where i≠j with isFalse, intro h and
+   AppBuilder.mkNoConfusion (ansatz.meta.app-builder), which handles parameters."
+  [ps _type-name-str]
+  (let [ps (basic/apply-tac ps (e/const' decidable-isFalse-name []))
         ps (basic/intro ps "h")
-        ;; Now goal is False with h : Eq T ctor_i ctor_j in context
-        ;; Extract ctor_i, ctor_j from h's type: Eq.{u} T ctor_i ctor_j
         goal (proof/current-goal ps)
         h-fvar-id (find-fvar-by-name goal "h")
         h-decl (get (:lctx goal) h-fvar-id)
-        ;; h-type is (Eq.{u} T ctor_i ctor_j)
-        [_eq-head eq-args] (e/get-app-fn-args (:type h-decl))
-        ;; eq-args: [T, ctor_i, ctor_j]
-        ctor-i (nth eq-args 1)
-        ctor-j (nth eq-args 2)
-        nc-name (name/from-string (str type-name-str ".noConfusion"))
-        ;; noConfusion.{v} : {P : Sort v} → {v1 v2 : T} → v1 = v2 → noConfusionType P v1 v2
-        ;; P = False : Prop = Sort 0, so v = 0
-        ;; Supply all args explicitly: False, ctor_i, ctor_j, h
-        nc-term (e/app* (e/const' nc-name [lvl/zero])
-                        (e/const' false-name [])
-                        ctor-i ctor-j
-                        (e/fvar h-fvar-id))]
-    (basic/apply-tac ps nc-term)))
+        [_ [t ci cj]] (e/get-app-fn-args (:type h-decl))
+        ctx (atom (tc/attach-lctx (tc/mk-tc-state (:env ps)) (:lctx goal)))
+        _ (swap! (:next-id @ctx) max (:next-id ps 1))
+        term (app-builder/mk-no-confusion ctx (e/const' false-name []) t ci cj (e/fvar h-fvar-id))]
+    (basic/exact (assoc ps :env (:env @ctx)) term)))
 
 (defn- try-close-goal
   "Try to close the current goal — first as diagonal (isTrue+rfl),
@@ -141,13 +129,56 @@
    (fn [ps'] (close-diagonal-goal ps'))
    (fn [ps'] (close-off-diagonal-goal ps' type-name-str))))
 
+(defn- instance-name
+  "Lean's instance naming (Elab/DeclUtil mkInstanceName): in the type's namespace,
+   `inst` + class + the type's last component (`N.Color` → `N.instDecidableEqColor`)."
+  [type-name-str cls]
+  (let [n (name/from-string type-name-str)]
+    (name/mk-str (.prefix ^ansatz.kernel.Name n) (str "inst" cls (.str ^ansatz.kernel.Name n)))))
+
+(defn- mk-enum-of-nat
+  "DecEq.lean mkEnumOfNat / mkEnumOfNatThm for an enumeration type: `T.ofNat : Nat → T`
+   (`bif n.ble 0 then c₀ else bif n.ble 1 then c₁ else … cₖ`) and
+   `T.ofNat_ctorIdx : ∀ x, T.ofNat x.ctorIdx = x` (by cases)."
+  [env type-name-str]
+  (let [tn (name/from-string type-name-str)
+        ^ansatz.kernel.ConstantInfo info (env/lookup! env tn)
+        lps (vec (.levelParams info)) us (mapv lvl/param lps)
+        t (e/const' tn us)
+        ctx (u/context env)
+        level (u/get-level ctx t)
+        nat (e/const' (name/from-string "Nat") [])
+        ctors (mapv #(e/const' % us) (.ctors info))
+        n (u/local-decl ctx "n" nat)
+        body (reduce (fn [acc i]
+                       (e/app* (e/const' (name/from-string "cond") [level]) t
+                               (e/app* (e/const' (name/from-string "Nat.ble") []) n (e/lit-nat i))
+                               (nth ctors i) acc))
+                     (peek ctors) (reverse (range (dec (count ctors)))))
+        of-nat (name/mk-str tn "ofNat")
+        env (env/check-constant env (env/mk-def of-nat lps (e/arrow nat t) (u/mk-lambda-fvars ctx [n] body)))
+        x-ty t
+        thm-type (e/forall' "x" x-ty
+                            (e/app* (e/const' eq-name [level]) t
+                                    (e/app (e/const' of-nat us)
+                                           (e/app (e/const' (name/mk-str tn "ctorIdx") us) (e/bvar 0)))
+                                    (e/bvar 0))
+                            :default)
+        [ps _] (proof/start-proof env thm-type)
+        ps (basic/intros ps ["x"])
+        ps (basic/cases ps (find-fvar-by-name (proof/current-goal ps) "x"))
+        ps (basic/all-goals ps basic/rfl)]
+    (env/check-constant env (env/mk-thm (name/mk-str tn "ofNat_ctorIdx") lps thm-type (extract/verify ps)))))
+
 (defn derive-decidable-eq!
-  "Derive a DecidableEq instance for a simple enum type.
-   Adds instDecidableEq{Type} to the environment.
+  "Derive a DecidableEq instance for a fieldless inductive type (Lean Elab/Deriving/DecEq.lean):
+   `<ns>.instDecidableEq<T> : ∀ {params} [DecidableEq α]…, DecidableEq (T params)`, a type
+   parameter getting a `[DecidableEq α]` binder as in Lean, at the type's universe parameters;
+   for an enumeration also `T.ofNat` and `T.ofNat_ctorIdx`. Registered as an instance.
 
    Args:
      env           - kernel environment (must already contain the inductive)
-     type-name-str - e.g. \"Color\"
+     type-name-str - e.g. \"N.Color\"
      ctor-specs    - e.g. [[\"red\" []] [\"green\" []] [\"blue\" []]]
 
    Returns: updated env with the instance added."
@@ -158,75 +189,53 @@
       (throw (ex-info (str "derive DecidableEq: constructor " ctor-name
                            " has fields — only zero-field enums are supported")
                       {:constructor ctor-name :fields fields}))))
-
   (let [type-nm (name/from-string type-name-str)
-        ;; Look up the inductive to determine its universe level
         ^ansatz.kernel.ConstantInfo ind-ci (env/lookup! env type-nm)
         ind-levels (vec (.levelParams ind-ci))
-        type-const (e/const' type-nm (mapv lvl/param ind-levels))
-
-        ;; Determine the universe level of the type.
-        ;; For simple enums with no level params: Type = Sort 1, so eq-level = succ zero
-        ;; For polymorphic types: need the actual level
-        eq-level (if (empty? ind-levels)
-                   (lvl/succ lvl/zero)  ;; simple enum: Type = Sort(succ 0)
-                   (lvl/succ (lvl/param (first ind-levels))))
-
-        ;; Build goal type: ∀ (a b : T), Decidable (Eq T a b)
-        ;; Eq.{u} : Sort u → Sort u → Prop
-        ;; Decidable : Prop → Type
-        goal-type (e/forall'
-                   "a" type-const
-                   (e/forall'
-                    "b" type-const
-                    (e/app (e/const' decidable-name [])
-                           (e/app* (e/const' eq-name [eq-level])
-                                   type-const
-                                   (e/bvar 1)   ;; a
-                                   (e/bvar 0))) ;; b
-                    :default)
-                   :default)
-
-        ;; Start proof
+        ctx (u/context env)
+        [params _] (u/forall-telescope ctx (.type ind-ci) (.numParams ind-ci))
+        _ (u/implicit! ctx params)
+        ;; Lean mkInstImplicitBinders: `[DecidableEq α]` for each type parameter
+        insts (vec (keep (fn [p]
+                           (when (e/sort? (u/whnf ctx (u/infer-type ctx p)))
+                             (u/local-decl ctx "inst"
+                                           (e/app (e/const' decidable-eq-name [(u/get-level ctx p)]) p)
+                                           :inst-implicit)))
+                         params))
+        type-const (u/app (e/const' type-nm (mapv lvl/param ind-levels)) params)
+        eq-level (u/get-level ctx type-const)
+        a (u/local-decl ctx "a" type-const)
+        b (u/local-decl ctx "b" type-const)
+        goal-type (u/mk-forall-fvars
+                   ctx (into params (concat insts [a b]))
+                   (e/app (e/const' decidable-name [])
+                          (e/app* (e/const' eq-name [eq-level]) type-const a b)))
         [ps _root-id] (proof/start-proof env goal-type)
-
-        ;; intro a, intro b
-        ps (basic/intros ps ["a" "b"])
-
-        ;; cases a → n goals
+        ps (basic/intros ps (into (mapv #(str (:name (u/decl ctx %))) (concat params insts)) ["a" "b"]))
         goal (proof/current-goal ps)
-        a-fvar-id (find-fvar-by-name goal "a")
-        ps (basic/cases ps a-fvar-id)
-
-        ;; for each goal: cases b → n² total goals
+        ps (basic/cases ps (find-fvar-by-name goal "a"))
         ps (basic/all-goals ps (fn [ps']
-                                 (let [g (proof/current-goal ps')
-                                       b-id (find-fvar-by-name g "b")]
-                                   (basic/cases ps' b-id))))
-
-        ;; close all n² goals
-        ps (basic/all-goals ps (fn [ps']
-                                 (try-close-goal ps' type-name-str)))]
-
-    ;; Verify proof is complete
+                                 (basic/cases ps' (find-fvar-by-name (proof/current-goal ps') "b"))))
+        ps (basic/all-goals ps (fn [ps'] (try-close-goal ps' type-name-str)))]
     (when-not (proof/solved? ps)
       (throw (ex-info (str "derive DecidableEq: proof incomplete for " type-name-str
                            "\n" (proof/format-goals ps))
                       {:type type-name-str})))
-
-    ;; Extract and kernel-verify the proof term
     (let [term (extract/verify ps)
-          ;; Register as instDecidableEq{Type} with abbrev hints
-          ;; so decide can evaluate it
-          inst-name (name/from-string (str "instDecidableEq" type-name-str))
+          inst-name (instance-name type-name-str "DecidableEq")
           ;; Elab/Deriving/DecEq.lean:mkDecEqInstance uses the class application,
           ;; so the registry indexes this dictionary under DecidableEq.
-          inst-type (e/app (e/const' (name/from-string "DecidableEq") [eq-level]) type-const)
-          ci (env/mk-def inst-name [] inst-type term :hints :abbrev)]
+          inst-type (u/mk-forall-fvars ctx (into params insts)
+                                       (e/app (e/const' decidable-eq-name [eq-level]) type-const))
+          ci (env/mk-def inst-name ind-levels inst-type term :hints :abbrev)
+          env (-> (env/check-constant (:env ps) ci)
+                  (instance/add-instance inst-name))]
       (println "✓ deriving DecidableEq" type-name-str)
-      ;; Lean's `deriving` ends in `addInstance`: the env's instance table sees it at once
-      (-> (env/check-constant env ci)
-          (instance/add-instance inst-name)))))
+      (if (and (zero? (.numParams ind-ci)) (zero? (.numIndices ind-ci))
+               (env/lookup env (name/mk-str type-nm "ctorIdx"))
+               (env/lookup env (name/from-string "cond")) (env/lookup env (name/from-string "Nat.ble")))
+        (mk-enum-of-nat env type-name-str)
+        env))))
 
 ;; ============================================================
 ;; Register built-in handlers
