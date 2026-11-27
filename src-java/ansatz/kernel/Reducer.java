@@ -969,43 +969,53 @@ public final class Reducer {
     static final long JVM_MAX_NAT_BITS = Integer.MAX_VALUE;
 
     /**
-     * Whether base^k (base ≥ 2, k ≥ 1) fits a BigInteger: 1 it fits, -1 it provably does not.
+     * Whether base^k (base ≥ 2, k ≥ 1) fits `maxBits` bits: 1 it may fit, -1 it provably does not.
      * A power of two is exact ((bits(base) - 1) * k + 1 bits); otherwise the bit length
      * floor(k * log2(base)) + 1 is estimated in double precision with a two-bit margin, and a
-     * result inside the margin counts as fitting — computing it then decides (BigInteger
-     * multiplication refuses an overflow itself).
+     * result inside the margin counts as possibly fitting — computing it then decides.
      */
-    public static int powRepresentability(BigInteger base, long k) {
+    public static int powRepresentability(BigInteger base, long k) { return powRepresentability(base, k, JVM_MAX_NAT_BITS); }
+
+    public static int powRepresentability(BigInteger base, long k, long maxBits) {
         int bl = base.bitLength();
-        if (base.getLowestSetBit() == bl - 1) return (bl - 1) * (double) k + 1 <= JVM_MAX_NAT_BITS ? 1 : -1;
+        if (base.getLowestSetBit() == bl - 1) return (bl - 1) * (double) k + 1 <= maxBits ? 1 : -1;
         int sh = Math.max(0, bl - 53);
         double log2 = sh + Math.log(base.shiftRight(sh).doubleValue()) / Math.log(2);
-        return Math.floor(k * log2) + 1 - 2 <= JVM_MAX_NAT_BITS ? 1 : -1;
+        return Math.floor(k * log2) + 1 - 2 <= maxBits ? 1 : -1;
     }
 
-    /** base^k for a result known to fit, by squaring and multiplying: BigInteger.pow refuses
-     *  once bits(base) * k exceeds the range, which can be far above the true result size. */
+    /** base^k, base ≥ 2 and k ≥ 1, by squaring and multiplying where BigInteger.pow would refuse
+     *  early (it bounds by bits(base) * k, which can be far above the true size). An overflow of
+     *  the JVM's range is BigInteger's own ArithmeticException. */
     private static BigInteger exactPow(BigInteger base, long k) {
-        if (base.getLowestSetBit() == base.bitLength() - 1)
-            return BigInteger.ONE.shiftLeft((int) ((base.bitLength() - 1) * k));
+        if (base.getLowestSetBit() == base.bitLength() - 1) {
+            long bits = (base.bitLength() - 1) * k;
+            if (bits >= Integer.MAX_VALUE) throw new ArithmeticException("BigInteger would overflow supported range");
+            return BigInteger.ONE.shiftLeft((int) bits);
+        }
         if ((long) base.bitLength() * k <= JVM_MAX_NAT_BITS) return base.pow((int) k);
         BigInteger r = BigInteger.ONE, b = base;
-        try {
-            for (long e = k; e > 0; e >>= 1) {
-                if ((e & 1) != 0) r = r.multiply(b);
-                if (e > 1) b = b.multiply(b);
-            }
-        } catch (ArithmeticException overflow) {
-            throw new RuntimeException("the kernel refused to evaluate `Nat.pow` because the result cannot be "
-                + "represented on this JVM (at most " + JVM_MAX_NAT_BITS + " bits)");
+        for (long e = k; e > 0; e >>= 1) {
+            if ((e & 1) != 0) r = r.multiply(b);
+            if (e > 1) b = b.multiply(b);
         }
         return r;
     }
 
-    private static void checkRepresentable(long bits, String op) {
-        if (bits < 0 || bits > JVM_MAX_NAT_BITS)
-            throw new RuntimeException("the kernel refused to evaluate `" + op
-                + "` because the result cannot be represented on this JVM (at most " + JVM_MAX_NAT_BITS + " bits)");
+    private static RuntimeException unrepresentable(String op, long maxBits) {
+        return new RuntimeException("the kernel refused to evaluate `" + op
+            + "` because the result cannot be represented on this JVM (at most " + maxBits + " bits)");
+    }
+
+    /** `r` computed by `op`, refused when it exceeds `maxBits` (the JVM's range, or a smaller
+     *  limit in tests); BigInteger's own overflow is the same refusal. */
+    private interface NatOp { BigInteger apply(); }
+
+    private static BigInteger exact(String op, long maxBits, NatOp f) {
+        BigInteger r;
+        try { r = f.apply(); } catch (ArithmeticException overflow) { throw unrepresentable(op, maxBits); }
+        if (r.bitLength() > maxBits) throw unrepresentable(op, maxBits);
+        return r;
     }
 
     private static Expr mkBool(boolean b) {
@@ -1023,8 +1033,8 @@ public final class Reducer {
             if (!isNatSuccConst(f)) return null;
             BigInteger v = natLitExt(whnf((Expr) e.o1));
             if (v == null) return null;
-            checkRepresentable(v.bitLength() + 1L, "Nat.succ");
-            v = v.add(BigInteger.ONE);
+            final BigInteger pred = v;
+            v = exact("Nat.succ", JVM_MAX_NAT_BITS, () -> pred.add(BigInteger.ONE));
             checkNatSize(v);
             checkFuel();
             return Expr.litNat(v);
@@ -1057,15 +1067,14 @@ public final class Reducer {
      * reduce_pow, reduce_shiftLeft, reduce_bin_nat_pred). Shared with the Clojure reducer.
      */
     public static Expr natBinop(Name op, BigInteger a, BigInteger b, long maxBytes) {
-        if (op == Name.NAT_ADD) {
-            checkRepresentable(Math.max(a.bitLength(), b.bitLength()) + 1L, "Nat.add");
-            return checked(a.add(b), maxBytes);
-        }
+        return natBinop(op, a, b, maxBytes, JVM_MAX_NAT_BITS);
+    }
+
+    /** natBinop under a bit limit `maxBits` too: the JVM's range in the kernel, smaller in tests. */
+    public static Expr natBinop(Name op, BigInteger a, BigInteger b, long maxBytes, long maxBits) {
+        if (op == Name.NAT_ADD) return checked(exact("Nat.add", maxBits, () -> a.add(b)), maxBytes);
         if (op == Name.NAT_SUB) return checked(a.subtract(b).max(BIG_ZERO), maxBytes);
-        if (op == Name.NAT_MUL) {
-            checkRepresentable((long) a.bitLength() + b.bitLength(), "Nat.mul");
-            return checked(a.multiply(b), maxBytes);
-        }
+        if (op == Name.NAT_MUL) return checked(exact("Nat.mul", maxBits, () -> a.multiply(b)), maxBytes);
         if (op == Name.NAT_DIV) return Expr.litNat(b.signum() == 0 ? BIG_ZERO : a.divide(b));
         if (op == Name.NAT_MOD) return Expr.litNat(b.signum() == 0 ? a : a.mod(b));
         if (op == Name.NAT_GCD) return Expr.litNat(a.gcd(b));
@@ -1083,15 +1092,16 @@ public final class Reducer {
                     + "the maximum numeral size; increase the LEAN_NAT_MAX_SIZE environment variable to allow it");
             if (a.compareTo(BigInteger.ONE) <= 0) return Expr.litNat(a.signum() == 0 && k != 0 ? BIG_ZERO : BigInteger.ONE);
             if (k == 0) return Expr.litNat(BigInteger.ONE);
-            // the count narrows only once the result is known to fit
-            if (powRepresentability(a, k) < 0) checkRepresentable(-1, "Nat.pow");
-            return Expr.litNat(exactPow(a, k));
+            // the count narrows only once the result may fit; computing then decides
+            if (powRepresentability(a, k, maxBits) < 0) throw unrepresentable("Nat.pow", maxBits);
+            return Expr.litNat(exact("Nat.pow", maxBits, () -> exactPow(a, k)));
         }
         if (op == Name.NAT_SHIFT_LEFT) {
             if (a.signum() == 0) return Expr.litNat(BIG_ZERO);
             long k = countArg(b, "Nat.shiftLeft");
             checkNatSize(natBytes(a) + k / 8 + 1, maxBytes);
-            checkRepresentable(a.bitLength() + k, "Nat.shiftLeft");
+            // exact: bits(a << k) = bits(a) + k
+            if (a.bitLength() + k > maxBits) throw unrepresentable("Nat.shiftLeft", maxBits);
             return Expr.litNat(a.shiftLeft((int) k));
         }
         if (op == Name.NAT_SHIFT_RIGHT) {

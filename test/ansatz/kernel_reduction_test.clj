@@ -435,3 +435,14 @@
       (is (thrown? UnsupportedOperationException (.set ^java.util.List (.o1 ty) 0 l1))))
     (is (same? (c "KP" [l0]) (.inferType checker (e/fvar 1))))
     (is (.isDefEq checker (e/fvar 1) (e/fvar 2)))))
+
+(deftest nat-results-are-refused-only-when-they-do-not-fit
+  ;; with a 10-bit limit standing in for the JVM's 2^31 - 1
+  (let [add #(Reducer/natBinop Name/NAT_ADD (biginteger %1) (biginteger %2) Reducer/NAT_MAX_BYTES_DEFAULT 10)
+        pow #(Reducer/natBinop Name/NAT_POW (biginteger %1) (biginteger %2) Reducer/NAT_MAX_BYTES_DEFAULT 100)]
+    (is (= (str (lit 513)) (str (add 512 1))) "2^9 + 1 keeps 10 bits")
+    (is (thrown-with-msg? RuntimeException #"cannot be represented" (add 1023 1)) "2^10 needs 11 bits")
+    (testing "pow inside the estimate's margin is decided by the result"
+      (is (= 1 (Reducer/powRepresentability (biginteger 3) 64 100)) "3^64 (102 bits) is in the margin")
+      (is (thrown-with-msg? RuntimeException #"cannot be represented" (pow 3 64)))
+      (is (= 100 (.bitLength ^BigInteger (e/lit-nat-val (pow 3 63)))) "3^63 has exactly 100 bits"))))
