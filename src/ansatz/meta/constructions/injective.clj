@@ -54,11 +54,27 @@
     (if (= i (dec n)) (conj out h)
         (recur (e/proj (name/from-string "And") 1 h) (inc i) (conj out (e/proj (name/from-string "And") 0 h))))))
 
+(defn- elim-opt-param
+  "Injective.lean elimOptParam: `optParam T d` ↦ `T` throughout (a default value is not part of
+   the field's type, and must not make another field look fixed)."
+  [x]
+  (let [[h args] (e/get-app-fn-args x)]
+    (if (and (e/const? h) (= "optParam" (str (e/const-name h))) (= 2 (count args)))
+      (recur (first args))
+      (case (e/tag x)
+        :app (e/app (elim-opt-param (e/app-fn x)) (elim-opt-param (e/app-arg x)))
+        :lam (e/lam (e/lam-name x) (elim-opt-param (e/lam-type x)) (elim-opt-param (e/lam-body x)) (e/lam-info x))
+        :forall (e/forall' (e/forall-name x) (elim-opt-param (e/forall-type x)) (elim-opt-param (e/forall-body x))
+                           (e/forall-info x))
+        :let (e/let' (e/let-name x) (elim-opt-param (e/let-type x)) (elim-opt-param (e/let-value x))
+                     (elim-opt-param (e/let-body x)))
+        x))))
+
 (defn- open-ctor
   "params, fields, fields' (the new ones), the equated pairs and the result type of `ctor`."
   [ctx ctor-ci]
   (let [np (.numParams ctor-ci)
-        [params t] (u/forall-telescope ctx (.type ctor-ci) np)
+        [params t] (u/forall-telescope ctx (elim-opt-param (.type ctor-ci)) np)
         [args1 result] (u/forall-telescope ctx t)
         [args2 new]
         (loop [i 0 t t args2 [] new []]
@@ -156,6 +172,8 @@
             rhs (u/app (e/const' (.name ctor-ci) us) (concat params args2))
             eq-type (u/mk-eq ctx lhs rhs)
             [_ inj-fn] (inj-proof ctx ctor-ci opened eqs)
+            ;; mkNoConfusion may have realized the constructor's noConfusion in ctx
+            env (:env @ctx)
             ;; C.inj: every binder implicit (withImplicitBinderInfos)
             all (vec (concat params args1 new))
             saved (into {} (map (fn [x] [x (:info (u/decl ctx x))])) all)

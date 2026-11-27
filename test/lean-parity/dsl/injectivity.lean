@@ -43,3 +43,9 @@ inductive S where | mk (n : Nat) (f : Fin n)
 inductive OnlyProof where | mk (h : True)
 /-- error: Unknown constant `OnlyProof.mk.inj` -/
 #guard_msgs in #check @OnlyProof.mk.inj
+
+-- a default value is not part of the field's type (elimOptParam): only the index field is shared
+inductive D : Nat → Type where
+  | mk (n : Nat) (i : optParam Nat n) : D (Nat.succ i)
+/-- info: D.mk.injEq : ∀ (n i n_1 : Nat), (D.mk n i = D.mk n_1 i) = (n = n_1) -/
+#guard_msgs in #check @D.mk.injEq
