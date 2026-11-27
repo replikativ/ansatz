@@ -142,9 +142,11 @@
             ;; Pre-phase and inverse origins — and forward rules a later `←` erased — stay in
             ;; the :attrs tuples and are served eagerly (ansatz.simp-index/eager-origins).
             simp-origin-tuples (filterv #(= 5 (count %)) attr-tuples)
-            simp-names (into (attrs/forward-simp-names attr-tuples)
-                             (comp (filter (fn [[k _ _ _]] (= "csimp" k))) (map second))
-                             attr-tuples)
+            ;; A csimp row names the REPLACED function (scripts/dump_attrs.lean emits
+            ;; `fromDeclName`), not a theorem, and on its own registers no simp rule (Lean's simp
+            ;; reads its own extension; CSimpAttr is the compiler's). So it is not keyed: a fresh
+            ;; import drops the key a proof-valued source used to get.
+            simp-names (attrs/forward-simp-names attr-tuples)
             _ (when attr-tuples (storage/write-derived! kstore branch :attrs attr-tuples))
             ;; 3. instances: Lean's TSV registry, else the bundled Init registry
             inst-index (annotated-instances sm branch
