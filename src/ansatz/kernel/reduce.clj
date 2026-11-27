@@ -304,9 +304,11 @@
                     result (e/app f a)]
                 (reduce e/app result (subvec (vec args) 6))))))
 
+        ;; Quot.ind {α} {r} {β} (mk : ∀ a, β (Quot.mk r a)) (q : Quot r): the major is
+        ;; argument 4 of 5 (Lean's quot_reduce_rec, mk_pos = 4).
         (identical? name Name/QUOT_IND)
-        (when (>= (count args) 6)
-          (let [q (nth args 5)
+        (when (>= (count args) 5)
+          (let [q (nth args 4)
                 [q-head q-args] (e/get-app-fn-args q)]
             (when (and (e/const? q-head)
                        (identical? Name/QUOT_MK (e/const-name q-head))
@@ -314,7 +316,7 @@
               (let [p (nth args 3)
                     a (nth q-args 2)
                     result (e/app p a)]
-                (reduce e/app result (subvec (vec args) 6))))))
+                (reduce e/app result (subvec (vec args) 5))))))
 
         :else nil))))
 
