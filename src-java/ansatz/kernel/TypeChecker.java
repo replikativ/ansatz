@@ -38,8 +38,8 @@ public final class TypeChecker {
     // Free variable ids. Lean's caches assume "free variables are globally unique with fixed
     // types" (type_checker.h); Lean keeps the kernel's own locals and the inductive module's
     // apart with separate name generators (g_kernel_fresh vs inductive.cpp's g_ind_fresh).
-    // Here a local is a numeric id, and callers (InductiveChecker, the recursor and nested
-    // generators, the elaborator) number theirs from small counters. The checker's own locals
+    // Here a local is a numeric id, and callers (AddInductive's LocalCtx, the elaborator)
+    // number theirs from small counters. The checker's own locals
     // (binders opened while inferring, reducing or comparing) take ids from a disjoint range
     // starting at KERNEL_FRESH_BASE, so a caller can never hand out an id the checker already
     // used — and cached under — for a different local.

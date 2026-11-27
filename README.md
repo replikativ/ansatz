@@ -896,8 +896,8 @@ Lean 4 Mathlib + CSLib  →  lean4export  →  Ansatz PSS store
 The CIC kernel is implemented in Java for performance:
 - `TypeChecker` — type inference and definitional equality
 - `Reducer` — WHNF reduction (beta, delta, iota, zeta, projection)
-- `InductiveBundleChecker` — Lean-shaped bundled inductive admission, including nested-inductive lowering/restoration
-- `RecursorGenerator` — Lean-shaped recursor type and iota-rule generation for imported and frontend-authored inductive bundles
+- `AddInductive` — Lean's `add_inductive` over an `InductiveDecl`: generates and checks every constant of an inductive block (types, constructors, recursors, nested auxiliary recursors)
+- `InductiveImport` — admits an exported block by generating it and comparing every exported record with the generated one
 - `Env` — immutable declaration environment with staged external lookup for imported-store verification
 
 The Clojure [`ansatz.kernel.cases-on`](doc/cases-on.md) API constructs complete
