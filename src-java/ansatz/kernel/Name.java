@@ -120,17 +120,6 @@ public final class Name {
     // Eq
     public static final Name EQ = fromString("Eq");
 
-    // Int operations (native reduction for performance)
-    public static final Name INT_OF_NAT = fromString("Int.ofNat");
-    public static final Name INT_NEG_SUCC = fromString("Int.negSucc");
-    public static final Name INT_ADD = fromString("Int.add");
-    public static final Name INT_SUB = fromString("Int.sub");
-    public static final Name INT_MUL = fromString("Int.mul");
-    public static final Name INT_NEG = fromString("Int.neg");
-    public static final Name INT_NAT_ABS = fromString("Int.natAbs");
-    public static final Name INT_EDIV = fromString("Int.ediv");
-    public static final Name INT_EMOD = fromString("Int.emod");
-
     public static final Name BOOL_TRUE = fromString("Bool.true");
     public static final Name BOOL_FALSE = fromString("Bool.false");
     public static final Name STRING = fromString("String");

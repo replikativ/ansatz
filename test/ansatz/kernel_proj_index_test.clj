@@ -32,7 +32,7 @@
   (testing "the kernel refuses an index the int arithmetic would wrap"
     (let [p (Expr/proj (name/from-string "Prod") 4294967296 (pair))
           d (env/mk-def (name/from-string "proj-wrap-bad") [] (c "Nat") p)]
-      (is (thrown-with-msg? Exception #"invalid projection index"
+      (is (thrown-with-msg? Exception #"invalid projection"
                             (env/check-constant (a/env) d)))))
   (testing "an ordinary projection still checks"
     (let [d (env/mk-def (name/from-string "proj-ok") [] (c "Nat") (Expr/proj (name/from-string "Prod") 1 (pair)))]
@@ -49,16 +49,22 @@
       (is (= (e/lit-nat 2) (.whnf r (proj 1 (pair)))))
       (is (= (proj 2 (pair)) (.whnf r (proj 2 (pair))))))
     (testing "indices that would wrap when the parameter count is added stay unreduced"
-      (doseq [i [Integer/MAX_VALUE 4294967296 Long/MAX_VALUE]]
+      ;; 0xfffffffe passes Lean's to_proj_idx and, with Prod's two parameters, wraps the C++
+      ;; unsigned sum to 0, so Lean's raw reduce_proj_core returns parameter 0 (`Nat`). Ours
+      ;; compares before adding and leaves the malformed projection stuck — a deliberate
+      ;; divergence (doc/kernel.md); infer_proj rejects such a projection in both kernels.
+      (doseq [i [0xfffffffe Integer/MAX_VALUE 4294967296 Long/MAX_VALUE]]
         (is (= (proj i (pair)) (.whnf r (proj i (pair)))) (str "index " i))))
     (testing "the Clojure reducer too"
       (doseq [i [2 Integer/MAX_VALUE Long/MAX_VALUE]]
         (is (= (proj i (pair)) (red/whnf (a/env) (proj i (pair)))) (str "index " i))))))
 
 (deftest lazy-defeq-does-not-truncate-the-index
-  ;; field 2^32 truncated to 0 would compare the first components (both 1) and say equal
+  ;; field 2^32 truncated to 0 would compare the first components (both 1) and say equal; as in
+  ;; Lean, is_def_eq_proof_irrel infers the projection first and infer_proj refuses the index
   (let [tc (TypeChecker. (a/env))]
-    (is (false? (.isDefEq tc (proj 4294967296 (pair-of 1 2)) (proj 4294967296 (pair-of 1 3)))))
+    (is (thrown-with-msg? Exception #"invalid projection"
+                          (.isDefEq tc (proj 4294967296 (pair-of 1 2)) (proj 4294967296 (pair-of 1 3)))))
     (is (true? (.isDefEq tc (proj 0 (pair-of 1 2)) (proj 0 (pair-of 1 3)))))))
 
 (deftest a-missing-field-is-refused-at-admission

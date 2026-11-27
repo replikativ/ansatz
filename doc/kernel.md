@@ -230,8 +230,8 @@ implementations.
 | `environment` | `Env` | Immutable declaration environment; Ansatz adds staged external lookup for imported stores. |
 | `local_ctx` / `local_decl` | `TypeChecker` local context, `LocalCtx` / `LocalDecl` | `LocalCtx` builds declarations (inductive admission); its locals consume type annotations like Lean. |
 | `type_checker` | `TypeChecker` | Type inference, definitional equality, proof irrelevance, declaration checks. |
-| `whnf_core` | `Reducer.whnfCoreImpl` | Beta, zeta, delta, iota, projection, native literal reductions. |
-| `equiv_manager` | `EquivManager` | Union-find for already-proven definitional equalities. |
+| `whnf_core` / `whnf` | `Reducer.whnfCore` / `Reducer.whnf` | `whnf_core`: beta, zeta, iota, projection; `whnf` adds `reduce_nat` and delta. |
+| `type_checker::state` caches | `ExprMap` / `ExprPairSet` | Per-role expression maps and the is_def_eq success/failure pair sets (§5). |
 | `inductive_decl` | `InductiveDecl` | Universe parameters, parameter count, safety, ordered types with ordered constructors. |
 | `environment::add_inductive` | `AddInductive.add` | Generates every constant of the block; `InductiveImport` compares exported records with them. |
 | `add_inductive_fn` | `AddInductive.Core` | Same phases, same names. |
@@ -364,147 +364,40 @@ only if needed.
 
 ### 4.2 `isDefEq` — definitional equality
 
-`isDefEq(t, s)` is the heart of the kernel. It returns `true` iff `t` and `s`
-are definitionally equal. The algorithm is a sequence of increasingly expensive
-checks that short-circuit as soon as an answer is found.
+`isDefEq(t, s)` is the heart of the kernel. `TypeChecker.isDefEqCore` follows Lean v4.36.0's
+`is_def_eq_core` (`src/kernel/type_checker.cpp`) phase for phase; the first phase that
+decides answers. `isDefEq` caches a success as one ordered pair (lean4#14806 — no
+equivalence classes: conversion is not transitive).
 
-Here are the steps, in order, matching `type_checker.cpp:1117`
-(`is_def_eq_core`) in Lean 4:
+1. **`quick_is_def_eq`** — structural equality (Lean's `expr_eq_fn`) or a cached success;
+   two binder chains compared binder by binder (domains skipped when structurally equal, a
+   local introduced only when a body uses it); sorts by `is_equivalent`; metadata; literals
+   by value.
+2. **Bool.true reflection** — `s` is `Bool.true` and `t` is closed (or eager): `whnf t`.
+3. **`whnf_core(·, cheap_proj)`** on both sides, then the quick check again if either moved.
+4. **Proof irrelevance** — infer `t`; if its type is a proposition, compare the types.
+   Inference errors propagate.
+5. **`lazy_delta_reduction`**, a loop: the Nat offset rule (`0 =?= 0`, `succ a =?= succ b`);
+   native `Nat` reduction when both sides are closed (or eager); one
+   `lazy_delta_reduction_step` — unfold the side with the greater definitional height (both
+   on a tie, first trying the arguments when both are the same regular definition, with the
+   failure cache), then the quick check. Delta candidates (`is_delta`) are constants with a
+   value applied to their universe arity. Every unfolding is charged fuel and polls for
+   interruption, so there is no step cutoff.
+6. **Same constant** (name, pointwise `is_equivalent` universes), **same free variable**, or
+   **same-structure projections** with the same index (`lazy_delta_proj_reduction`: unfold the
+   projected terms lazily, then project both or compare them).
+7. **`whnf_core`** with projected structures reduced by `whnf`; if either side moved, compare
+   the new pair.
+8. **Application** — equal heads, pointwise equal arguments.
+9. **Eta** (both directions), then **eta for structures** (both directions).
+10. **String literal expansion** — only against exactly `String.ofList xs`.
+11. **Unit-like** — a non-recursive structure without fields: compare the types.
 
-#### Step 1: Quick check (`quick_is_def_eq`, `use_hash=true`)
-
-Before doing any work, ask the `EquivManager` (union-find, §5): have we already
-proven these equal? Also handles trivial structural cases:
-- Same pointer → equal
-- Both `SORT` with equal levels → equal
-- Both `CONST` with same name and equal levels → equal
-- Both `BVAR` with same index → equal
-- Both literals with same value → equal
-- Both `LAM`/`FORALL` — check domain and body (ignoring binder names)
-
-Returns `true`, `false`, or `unknown`.
-
-**Lean 4 reference**: `type_checker.cpp:801` (`quick_is_def_eq`),
-`type_checker.h:85` (`use_hash = false` default in the header).
-
-#### Step 2: Bool.true shortcut
-
-If `s` is `Bool.true` and `t` has no free variables: reduce `t` to whnf and
-check if it is also `Bool.true`. Lean 4 uses this for the `decide` tactic.
-
-**Lean 4 reference**: `type_checker.cpp:1131`.
-
-#### Step 3: `whnf_core` (cheap pass)
-
-Reduce both sides with `whnfCore(e, cheapRec=false, cheapProj=true)` — this
-handles β, ζ, projections, but avoids expensive recursor unfolding. Then repeat
-the quick check on the reduced forms.
-
-#### Step 4: Proof irrelevance
-
-If both terms have a type that is in `Prop` (a proposition), they are
-definitionally equal regardless of their structure — proof irrelevance is a
-theorem of CIC. This is checked by inferring the types and asking if they are
-equal propositions.
-
-Note: the Ansatz kernel has an *extra* proof-irrelevance check (Step 13 in
-`TypeChecker.java`) applied after full delta reduction, not present in Lean 4.
-This is sound (proof irrelevance holds in CIC) but is an extension.
-
-**Lean 4 reference**: `type_checker.cpp:1152` (`is_def_eq_proof_irrel`).
-
-#### Step 5: Lazy delta reduction (the key loop)
-
-This is the most important step for performance. It unfolds definitions *one at
-a time*, guided by **reducibility hints**, rather than eagerly reducing both
-sides to normal form.
-
-Each definition carries a hint:
-- `opaque` — never unfold (unless transparency=all)
-- `abbrev` — unfold first (low hint weight)
-- `regular n` — unfold with weight `n` (higher weight = unfold later)
-
-The loop in `lazy_delta_reduction` (`type_checker.cpp:1034`):
-
-```
-while true:
-  1. Nat offset check: strip Nat.succ, compare nat literals
-  2. Native/builtin reduction (Nat arithmetic without free vars)
-  3. lazy_delta_reduction_step:
-     - Neither side is a definition → unknown, exit loop
-     - Only left is a definition → unfold left
-     - Only right is a definition → unfold right
-     - Both are definitions, same hint weight:
-         • Try comparing args WITHOUT unfolding (fail cache check)
-         • If args match → equal (avoid unfolding)
-         • Otherwise → unfold both
-     - Both are definitions, different hint weights → unfold cheaper one
-  4. After each unfold: run quick_is_def_eq (use_hash=false)
-```
-
-The `use_hash=false` in the post-unfold quick check is critical: after
-unfolding, structurally different but previously-proven-equal expressions need
-the union-find lookup to succeed. The hash fast-reject would block it. (See §5
-for details.)
-
-**Lean 4 reference**: `type_checker.cpp:938` (`lazy_delta_reduction_step`),
-`type_checker.cpp:1034` (`lazy_delta_reduction`).
-
-#### Step 6: Same-head constant / free variable
-
-After lazy delta, if both sides have the same head constant (same name, equal
-universe levels) or same free variable id → equal.
-
-Also handles projections with same index via `lazy_delta_proj_reduction`.
-
-#### Step 7: Second `whnf_core` (full pass)
-
-Reduce with `whnfCore(e, cheapRec=false, cheapProj=false)` — now with recursor
-unfolding enabled. If either side changed, recurse into `isDefEqCore`.
-
-#### Step 8: Application equality
-
-If both sides are applications with the same structure, check the function and
-all arguments pairwise.
-
-#### Step 9: Binding equality
-
-If both sides are `LAM`/`FORALL` chains: walk them together, create fresh free
-variables for each binder (when the body uses the variable), and recurse on the
-bodies.
-
-Optimization: if domains are pointer-identical, skip the domain check entirely.
-
-#### Step 10: Eta expansion
-
-If one side is a lambda and the other is not, try eta-expanding: `f ≡ fun x => f x`.
-
-#### Step 11: Eta struct
-
-If one side is a structure constructor and the other is a struct value, try
-eta-expanding to field comparisons.
-
-#### Step 12: String literal expansion
-
-If one side is a string literal, expand it to the constructor form
-(`String.mk (List Char)`) and recurse. Lean 4 represents string literals
-compactly at the kernel level but expands them for equality checks.
-
-**Lean 4 reference**: `type_checker.cpp:1218` (`try_string_lit_expansion`).
-
-#### Step 13: Unit-like types
-
-If both terms have a type with zero fields (a "unit-like" structure, e.g.
-`PUnit`), they are equal regardless of value.
-
-#### After success: record in `EquivManager`
-
-If `isDefEqCore` returns `true`, `isDefEq` records the pair in the
-`EquivManager` union-find. Future calls with the same pair (or transitively
-proven pairs) will hit the quick check at Step 1.
-
-**Lean 4 reference**: `type_checker.cpp:1237` (`is_def_eq` calls
-`m_st->m_eqv_manager.add_equiv(t, s)`).
+Where Lean ends a phase with `return is_def_eq_core(t', s')` (the offset rule, native Nat
+reduction, step 7) Ansatz continues with the new pair in a loop instead of a nested call, so
+a deep `Nat.succ` chain needs no stack. `MAX_ISDEFEQ_DEPTH` (Lean's `scope_rec_depth`) only
+guards the JVM stack.
 
 ### 4.3 Type inference (`inferType`)
 
@@ -534,40 +427,22 @@ redundant `isDefEq` calls when the argument type is already known to be correct.
 
 ---
 
-## 5. The EquivManager and why `use_hash` matters
+## 5. Caches and their invariants
 
-`EquivManager.java` is a **union-find** data structure over expressions. Every
-time `isDefEq` proves `t ≡ s`, it calls `addEquiv(t, s)`, merging them into
-the same equivalence class. Future calls to `isEquiv(t, s)` can then return
-`true` immediately (Step 1 of `isDefEq`) without re-checking.
+Ansatz keeps Lean's `type_checker::state`: one `ExprMap` per role (inference ×2, `whnf_core`,
+`whnf`, unfolding) and flat `ExprPairSet`s for the success and failure caches of
+`is_def_eq`, keyed under Lean's structural equality by the hash stored in each node. (Lean's
+`EquivManager` union-find was deleted upstream in lean4#14806; so was ours.) Ansatz drops
+Lean's `let_nondep` flag on import, so keys cannot distinguish it.
 
-The critical subtlety is the `use_hash` parameter. `EquivManager.isEquiv` can
-do two things:
+The caches assume what Lean's do (`type_checker.h`): free variables are unique with fixed
+types, and the unfolding policy does not change under them. The public API enforces both:
 
-1. **Hash fast-reject** (`use_hash=true`): compute structural hash of both
-   expressions and reject if they differ. This is cheap but wrong for
-   structurally different but provably-equal expressions.
-
-2. **Union-find lookup** (`use_hash=false`): skip the hash check and go
-   directly to the union-find, which correctly handles expressions that were
-   proven equal by earlier reduction steps.
-
-Lean 4's `quick_is_def_eq` defaults to `use_hash=false` (see
-`type_checker.h:85`). The Ansatz Java implementation matches this in the
-lazy delta loop: the post-unfold `quickIsDefEq(tn, sn, false)` calls in
-`lazyDeltaReduction` and `lazyDeltaReductionStep` use `use_hash=false`.
-
-**Why this matters**: During lazy delta reduction, each unfolding step produces
-expressions that are structurally different from the originals but may be equal
-to previously-seen forms. If the hash check fires first, it rejects pairs that
-the union-find would have recognized as equal, forcing the loop to continue
-unfolding unnecessarily.
-
-**The `localCohomology.diagramComp` case**: This Mathlib declaration required
->3.9M steps with `use_hash=true` (diverging) and 5,891 steps with
-`use_hash=false`. The fix was a one-line change matching Lean 4's default.
-
-**Lean 4 reference**: `src/kernel/equiv_manager.h`, `src/kernel/equiv_manager.cpp`.
+- `addLocal` refuses an id already registered with a different type, and ids from
+  `KERNEL_FRESH_BASE` on unless handed out by `nextFvarId`.
+- Changing the transparency, the allow-set or the allow-predicate clears the reducer's caches
+  and the checker's inference and conversion caches. (Mutating an allow-set after passing it
+  is not observed; pass a new set.)
 
 ---
 
@@ -681,6 +556,17 @@ semantic weakenings:
 
 - Ansatz has a fuel counter; Lean's kernel does not. Fuel exhaustion rejects
   conservatively.
+- Numerals: limits follow `LEAN_NAT_MAX_SIZE` (read as Lean's `read_nat_size_env`, with
+  `strtoull` semantics; the JVM property `ansatz.kernel.natMaxBytes` takes precedence) and
+  `lean_nat_size_in_bytes`. A result a `BigInteger` cannot hold (2^31 bits) is refused as a
+  resource error; Lean would compute it only under a configured limit above ~256 MiB.
+- Projections: Lean's raw `reduce_proj_core` adds the parameter count to the field index in
+  32-bit unsigned arithmetic, so on `Prod.mk Nat Nat 1 2` index `0xfffffffe` wraps to
+  parameter 0 (`Nat`). Ansatz compares before adding and leaves such a projection stuck —
+  a deliberate divergence on ill-typed terms (`infer_proj` rejects them in both kernels;
+  recorded in `test/lean-parity/kernel/Reduction.lean`).
+- No native `Int` arithmetic (Lean accelerates `Nat` only): `Int` reduces through its
+  definitions.
 - Ansatz keeps Lean's cache structure (`expr_map` per role, flat `expr_pair_set` for
   is_def_eq success/failure, `expr_eq_fn` equality, the stored binder-insensitive hash) on
   the JVM: no refcounts, so the equality memo is threshold-started instead of `is_shared`.
@@ -757,19 +643,17 @@ MVAR    = 12  // mvar(id)            — metavariable (elaborator only)
 
 | Step | Name | Fires when |
 |------|------|-----------|
-| 1 | Quick / EquivManager | Same pointer, trivial structure, or previously proven equal |
-| 2 | Bool.true shortcut | `s = Bool.true`, `t` has no fvars |
-| 3 | whnfCore (cheap) | Either side reduces under cheap flags |
-| 4 | Proof irrelevance | Both terms are proofs of the same `Prop` |
-| 5 | Lazy delta reduction | Either or both sides are unfoldable definitions |
-| 6 | Same-head check | Same constant name or same fvar id after delta |
-| 7 | whnfCore (full) | Either side reduces with recursor unfolding |
-| 8 | Application | Both sides are applications with equal fn and args |
-| 9 | Binding | Both sides are `LAM`/`FORALL` chains |
-| 10 | Eta expansion | One side is `LAM`, other can be eta-expanded |
-| 11 | Eta struct | One side is a struct constructor |
-| 12 | String literal expansion | One side is a string literal |
-| 13 | Unit-like | Both sides have a zero-field type |
+| 1 | Quick | Structurally equal, cached success, binders, sorts, literals |
+| 2 | Bool.true reflection | `s = Bool.true`, `t` closed |
+| 3 | whnfCore (cheap_proj) | Either side reduces |
+| 4 | Proof irrelevance | `t`'s type is a proposition |
+| 5 | Lazy delta reduction | Nat offset, closed Nat primitives, unfoldable definitions |
+| 6 | Same head | Same constant / fvar, same-structure projections |
+| 7 | whnfCore (full) | Either side reduces |
+| 8 | Application | Equal heads and arguments |
+| 9 | Eta, eta-struct | A lambda, or a structure constructor, on one side |
+| 10 | String literal expansion | A literal against `String.ofList xs` |
+| 11 | Unit-like | A field-less non-recursive structure type |
 
 ### Key Lean 4 source cross-references
 
@@ -780,9 +664,7 @@ MVAR    = 12  // mvar(id)            — metavariable (elaborator only)
 | `lazy_delta_reduction_step` | `src/kernel/type_checker.cpp` | 945–1002 |
 | `lazy_delta_reduction` | `src/kernel/type_checker.cpp` | 1034–1060 |
 | `quick_is_def_eq` | `src/kernel/type_checker.cpp` | 801 |
-| `use_hash` default | `src/kernel/type_checker.h` | 85 |
 | `infer_type_core` | `src/kernel/type_checker.cpp` | 318 |
-| `equiv_manager` | `src/kernel/equiv_manager.h/cpp` | — |
 | `level.cpp` geq algorithm | `src/kernel/level.cpp` | — |
 
 ### Further reading
@@ -836,3 +718,24 @@ Others to compare against:
 | [nanoda_lib](https://github.com/ammkrn/nanoda_lib) | Rust | Author also wrote "Type Checking in Lean 4" guide |
 | [lean4checker](https://github.com/leanprover/lean4checker) | Lean 4 | Official lightweight re-checker |
 | Ansatz | Java/Clojure | This project; verifies all 707,508 declarations of Mathlib v4.33.1 (~80 min on 4 workers) |
+
+---
+
+## Appendix: Java API changes in the kernel conformance work (K2)
+
+The reduction/conversion port removed members that had no counterpart in Lean's kernel.
+There are no deprecated forwarders; callers move as follows.
+
+| Removed | Use instead |
+|---|---|
+| `Reducer.tryReduceNatExpr(Expr)` | `Reducer.reduceNat(Expr)` (Lean's `reduce_nat`; complete constants only) |
+| `Reducer.tryCheapReduceNat/Int`, native `Int` reduction | none — `Int` reduces through its definitions |
+| `Name.INT_OF_NAT`, `INT_NEG_SUCC`, `INT_ADD`, `INT_SUB`, `INT_MUL`, `INT_NEG`, `INT_NAT_ABS`, `INT_EDIV`, `INT_EMOD` | `Name.fromString("Int.…")` |
+| `TypeChecker.diagCaptures`, depth histogram, step counters | the NDJSON trace (`setTraceWriter`) |
+| `getReducerStats` keys `isDefEq-quick-hits`, `step-diag-*`, `depth-*`; `intern-hits` | `isDefEq-calls` and the reducer counters remain |
+| system properties `ansatz.kernel.trace.full/delta/binding/equiv.filter/reducer` | the NDJSON trace |
+
+Store-verification checkpoints are keyed by branch, worker count and declaration count, so a
+pre-K2 checkpoint is still accepted; versioning checkpoints by checker and input belongs to
+the store work. Until then, report K2 coverage from a fresh run.
+

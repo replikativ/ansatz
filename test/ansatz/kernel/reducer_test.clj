@@ -312,43 +312,43 @@
         r (mk-reducer env)]
     (testing "Nat.add 2 3 = 5"
       (let [add (e/const' Name/NAT_ADD [])
-            result (.tryReduceNatExpr r (e/app (e/app add (e/lit-nat 2)) (e/lit-nat 3)))]
+            result (.reduceNat r (e/app (e/app add (e/lit-nat 2)) (e/lit-nat 3)))]
         (is (= (e/lit-nat 5) result))))
 
     (testing "Nat.mul 4 5 = 20"
       (let [mul (e/const' Name/NAT_MUL [])
-            result (.tryReduceNatExpr r (e/app (e/app mul (e/lit-nat 4)) (e/lit-nat 5)))]
+            result (.reduceNat r (e/app (e/app mul (e/lit-nat 4)) (e/lit-nat 5)))]
         (is (= (e/lit-nat 20) result))))
 
     (testing "Nat.sub 5 3 = 2"
       (let [sub (e/const' Name/NAT_SUB [])
-            result (.tryReduceNatExpr r (e/app (e/app sub (e/lit-nat 5)) (e/lit-nat 3)))]
+            result (.reduceNat r (e/app (e/app sub (e/lit-nat 5)) (e/lit-nat 3)))]
         (is (= (e/lit-nat 2) result))))
 
     (testing "Nat.sub 3 5 = 0 (clamped)"
       (let [sub (e/const' Name/NAT_SUB [])
-            result (.tryReduceNatExpr r (e/app (e/app sub (e/lit-nat 3)) (e/lit-nat 5)))]
+            result (.reduceNat r (e/app (e/app sub (e/lit-nat 3)) (e/lit-nat 5)))]
         (is (= (e/lit-nat 0) result))))
 
     (testing "Nat.div 10 3 = 3"
       (let [div (e/const' Name/NAT_DIV [])
-            result (.tryReduceNatExpr r (e/app (e/app div (e/lit-nat 10)) (e/lit-nat 3)))]
+            result (.reduceNat r (e/app (e/app div (e/lit-nat 10)) (e/lit-nat 3)))]
         (is (= (e/lit-nat 3) result))))
 
     (testing "Nat.mod 10 3 = 1"
       (let [modd (e/const' Name/NAT_MOD [])
-            result (.tryReduceNatExpr r (e/app (e/app modd (e/lit-nat 10)) (e/lit-nat 3)))]
+            result (.reduceNat r (e/app (e/app modd (e/lit-nat 10)) (e/lit-nat 3)))]
         (is (= (e/lit-nat 1) result))))
 
     (testing "Nat.beq 5 5 = Bool.true"
       (let [beq (e/const' Name/NAT_BEQ [])
-            result (.tryReduceNatExpr r (e/app (e/app beq (e/lit-nat 5)) (e/lit-nat 5)))]
+            result (.reduceNat r (e/app (e/app beq (e/lit-nat 5)) (e/lit-nat 5)))]
         (is (some? result))
         (is (= Name/BOOL_TRUE (.o0 ^Expr result)))))
 
     (testing "Nat.beq 5 3 = Bool.false"
       (let [beq (e/const' Name/NAT_BEQ [])
-            result (.tryReduceNatExpr r (e/app (e/app beq (e/lit-nat 5)) (e/lit-nat 3)))]
+            result (.reduceNat r (e/app (e/app beq (e/lit-nat 5)) (e/lit-nat 3)))]
         (is (some? result))
         (is (= Name/BOOL_FALSE (.o0 ^Expr result)))))))
 
@@ -357,10 +357,11 @@
     (let [r (mk-reducer (Env.))
           pow (e/const' Name/NAT_POW [])
           reduce-pow (fn [base exp]
-                       (.tryReduceNatExpr r (e/app (e/app pow (e/lit-nat base)) (e/lit-nat exp))))]
+                       (.reduceNat r (e/app (e/app pow (e/lit-nat base)) (e/lit-nat exp))))]
       (is (= (e/lit-nat 1024) (reduce-pow 2 10)))
       (is (= (e/lit-nat 1) (reduce-pow 1 16777216)))
-      (is (= (e/lit-nat 1) (reduce-pow 1 4294967296)) "base 1 is exact for any exponent")
+      (is (thrown-with-msg? RuntimeException #"refused to evaluate `Nat.pow`" (reduce-pow 1 4294967296))
+          "the exponent must fit 32 bits whatever the base (Lean's get_count_arg runs first)")
       ;; An over-limit result is a PROMPT kernel error (Lean's check_nat_size), not a
       ;; structural fallback that burns fuel. The old intValue() truncation hazard
       ;; (`2^(2^32)` computing as `2^0`) is closed by construction: the size estimate
@@ -369,8 +370,8 @@
       (is (thrown-with-msg? RuntimeException #"refused to evaluate `Nat.pow`" (reduce-pow 2 4294967296)))
       (is (thrown-with-msg? RuntimeException #"refused to evaluate `Nat.pow`" (reduce-pow 2 4294967299)))
       (is (thrown-with-msg? RuntimeException #"refused to evaluate `Nat.shiftLeft`"
-                            (.tryReduceNatExpr r (e/app (e/app (e/const' Name/NAT_SHIFT_LEFT [])
-                                                               (e/lit-nat 1)) (e/lit-nat 4294967296))))))))
+                            (.reduceNat r (e/app (e/app (e/const' Name/NAT_SHIFT_LEFT [])
+                                                        (e/lit-nat 1)) (e/lit-nat 4294967296))))))))
 
 ;; ============================================================
 ;; App spine utilities

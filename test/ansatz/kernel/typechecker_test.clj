@@ -181,7 +181,7 @@
     (let [reducer (Reducer. (Env.))
           add (Expr/mkConst Name/NAT_ADD clojure.lang.PersistentVector/EMPTY false)
           expr (Expr/app (Expr/app add (Expr/fvar 1)) (Expr/litNat 1))]
-      (is (nil? (.tryReduceNatExpr reducer expr)))
+      (is (nil? (.reduceNat reducer expr)))
       (is (= 1 (get (.getStats reducer) "whnf-calls"))))))
 
 (deftest quick-defeq-structural-equality-lean-semantics-test
@@ -217,14 +217,13 @@
       (is (not (.equals (LeanExprKey. lhs) (LeanExprKey. rhs))))
       (is (.isDefEq (mk-tc) lhs rhs))))
 
-  (testing "definitional equality of projections is name-blind on the same struct (Lean is_def_eq_proj)"
+  (testing "projections of different structures are structurally distinct (the hash includes the
+   structure name); is_def_eq's projection congruence also requires the same structure, pinned in
+   ansatz.kernel-reduction-test"
     (let [struct (e/fvar 1)
           lhs (e/proj (name/from-string "S1") 0 struct)
           rhs (e/proj (name/from-string "S2") 0 struct)]
-      ;; Lean's expression hash includes the projection structure name, so structural
-      ;; equality (and the quick path) rejects this; the full is_def_eq accepts it.
-      (is (not (.equals (LeanExprKey. lhs) (LeanExprKey. rhs))))
-      (is (.isDefEq (mk-tc) lhs rhs)))))
+      (is (not (.equals (LeanExprKey. lhs) (LeanExprKey. rhs)))))))
 
 (deftest level-constructor-lean-semantics-test
   (testing "mk_max preserves Lean's syntactic level shape"
@@ -251,7 +250,9 @@
           rhs-level (Level/max (Level/succ v) (Level/succ u))
           lhs (Expr/mkConst cname (object-array [lhs-level]) true)
           rhs (Expr/mkConst cname (object-array [rhs-level]) true)
-          tc (mk-tc)]
+          ;; is_def_eq_proof_irrel infers both sides, so C must exist
+          tc (mk-tc (.addConstant (Env.) (env/mk-axiom cname [(name/from-string "w")]
+                                                       (Expr/sort (Level/param (name/from-string "w")) true))))]
       (is (not (.equals (LeanExprKey. lhs) (LeanExprKey. rhs))))
       (is (.isDefEq tc lhs rhs)))))
 

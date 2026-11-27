@@ -160,6 +160,31 @@ public final class Expr {
         return (data & HAS_MVAR_BIT) != 0;
     }
 
+    /**
+     * Lean's has_expr_mvar: an expression metavariable occurs (universe metavariables do not
+     * count). hasMVar() covers both kinds, so only an expression whose bit is set is walked.
+     */
+    public static boolean hasExprMVar(Expr e) {
+        if (!e.hasMVar()) return false;
+        java.util.ArrayDeque<Expr> todo = new java.util.ArrayDeque<>();
+        java.util.Set<Expr> seen = java.util.Collections.newSetFromMap(new IdentityHashMap<>());
+        todo.push(e);
+        while (!todo.isEmpty()) {
+            Expr x = todo.pop();
+            if (!x.hasMVar() || !seen.add(x)) continue;
+            switch (x.tag) {
+                case MVAR: return true;
+                case APP: todo.push((Expr) x.o0); todo.push((Expr) x.o1); break;
+                case LAM: case FORALL: todo.push((Expr) x.o1); todo.push((Expr) x.o2); break;
+                case LET: todo.push((Expr) x.o1); todo.push((Expr) x.o2); todo.push((Expr) x.o3); break;
+                case MDATA: todo.push((Expr) x.o1); break;
+                case PROJ: todo.push((Expr) x.o1); break;
+                default: break;   // SORT, CONST: universe metavariables only
+            }
+        }
+        return false;
+    }
+
     /** Does this expression contain any universe level parameter? */
     public boolean hasLevelParam() {
         return data < 0; // bit 63 = sign bit
@@ -291,6 +316,9 @@ public final class Expr {
 
     /** Bound variable (de Bruijn index). */
     public static Expr bvar(long idx) {
+        // Lean's Expr.mkData: the loose bound variable range (idx + 1) must fit its 20 bits
+        if (idx < 0 || idx >= BVAR_RANGE_MASK)
+            throw new IllegalArgumentException("bound variable index is too big: " + idx);
         int h = Long.hashCode(idx) * 31 + BVAR;
         long d = packData(idx + 1, h, false, false, false);
         return new Expr(BVAR, d, null, null, null, null, idx);

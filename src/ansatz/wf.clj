@@ -342,6 +342,13 @@
 ;; falls back to the (sound) fuel encoding. See memory wf-fix-encoding-mechanism.
 (def ^:private wf-fix-counter (atom 9100000))
 (defn- wf-fix-fresh [] (swap! wf-fix-counter inc))
+
+(defn- open-local!
+  "Declare an opened binder in the checker's local context (Lean's fvars live in a
+   LocalContext): the kernel infers, and K-like or structure-eta reduction inspects, a free
+   variable only through its declaration. Ids come from `wf-fix-fresh`, so they never repeat."
+  [^ansatz.kernel.Reducer reducer id nm ty]
+  (.put ^java.util.HashMap (.getLctx reducer) (long id) (object-array [(int 0) nm ty])))
 (def ^:private wf-fix-NAT (e/const' (name/from-string "Nat") []))
 
 (defn- wf-fix-mk-lt [a b]
@@ -377,6 +384,7 @@
      (loop [t (.whnf reducer ty) bs []]
        (if (and (e/forall? t) (not= t result-type))
          (let [id (wf-fix-fresh)]
+           (open-local! reducer id (e/forall-name t) (e/forall-type t))
            (recur (.whnf reducer (e/instantiate1 (e/forall-body t) (e/fvar id)))
                   (conj bs [id (e/forall-name t) (e/forall-type t)])))
          {:binders bs :body t})))))
@@ -897,6 +905,7 @@
              (mapv #(wf-fix-refine env callspec ret reducer % ih-fvar P scope) as))
       (e/lam? body)
       (let [id (wf-fix-fresh) bt (e/lam-type body)
+            _ (open-local! reducer id (e/lam-name body) bt)
             inner (wf-fix-refine env callspec ret reducer
                                  (e/instantiate1 (e/lam-body body) (e/fvar id)) ih-fvar P (conj scope [id bt]))]
         (e/lam (e/lam-name body) bt (e/abstract-many inner [id]) (e/lam-info body)))
@@ -971,11 +980,15 @@
 ;; Throws if a decrease obligation is unprovable.
 (defn- wf-fix-encode [env callspec raw-body ret param-type]
   (let [tc (doto (ansatz.kernel.TypeChecker. env) (.setFuel (long config/*default-fuel*)))
-        reducer (.getReducer tc)
+        ;; the refinement reads recursor applications on the packed/pattern variables; structure
+        ;; eta would reduce them away (Lean's WF/Fix works on the casesOn view, not on whnf)
+        reducer (doto (.getReducer tc) (.setStructureEta false))
         ret-sort (.inferType tc ret)
         ret-level (if (e/sort? ret-sort) (e/sort-level ret-sort) (lvl/succ lvl/zero))
         Xid (wf-fix-fresh) Fvid (wf-fix-fresh) X (e/fvar Xid)
         Fty ((:ihtype callspec) X) Fv (e/fvar Fvid)
+        _ (open-local! reducer Xid "x" param-type)
+        _ (open-local! reducer Fvid "F" Fty)
         rawX (e/instantiate1 raw-body X)
         body' (wf-fix-refine env callspec ret reducer rawX Fv X [[Xid param-type]])
         Ffn (wf-fix-mk-lambdas [[Xid "x" param-type] [Fvid "F" Fty]] body')]
@@ -1336,10 +1349,11 @@
               (let [env' @ansatz-env
                     [fixh fixargs] (e/get-app-fn-args (:fix fix-info))
                     tc-eq (doto (ansatz.kernel.TypeChecker. env') (.setFuel (long config/*default-fuel*)))
-                    red-eq (.getReducer tc-eq)
+                    red-eq (doto (.getReducer tc-eq) (.setStructureEta false))
                     eq-lvl (let [s (.inferType tc-eq ret-ansatz)]
                              (if (e/sort? s) (e/sort-level s) (lvl/succ lvl/zero)))
                     X2id (wf-fix-fresh) X2 (e/fvar X2id)
+                    _ (open-local! red-eq X2id "x" (:packed-ty fix-info))
                     rawX2 (e/instantiate1 (:eqbody fix-info) X2)
                     ;; the equation LHS uses the user-facing n-ary application: unpack a
                     ;; Prod.mk-rooted pattern back into the argument list (defeq to the packed

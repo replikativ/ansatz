@@ -9,7 +9,7 @@
             [ansatz.kernel.env :as env]
             [ansatz.kernel.level :as lvl]
             [ansatz.config :as config])
-  (:import [ansatz.kernel Name ConstantInfo ConstantInfo$RecursorRule Env]))
+  (:import [ansatz.kernel Name ConstantInfo ConstantInfo$RecursorRule Env Reducer]))
 
 ;; ============================================================
 ;; Local context (for fvars during type checking)
@@ -92,38 +92,19 @@
     (e/const' Name/NAT_ZERO [])
     (e/app (e/const' Name/NAT_SUCC []) (e/lit-nat (dec n)))))
 
-;; Lean's kernel refuses to native-reduce Nat.pow past this exponent
-;; (ReducePowMaxExp = 1<<24, type_checker.cpp:636), falling back to structural
-;; unfolding. `(int vb)` would otherwise truncate/overflow the shift/exponent,
-;; which is unsound (`2^(2^32)` would reduce to `2^0 = 1`). Refusing keeps parity
-;; with the authoritative Java reducer.
-(def ^:private reduce-pow-max-exp (bit-shift-left 1 24))
+(defn- nat-const?
+  "`e` is the constant `n` with no universe arguments: Lean's reduce_nat compares complete
+   constants, so `Nat.add.{0}` is not the primitive."
+  [e ^Name n]
+  (and (e/const? e) (identical? n (e/const-name e)) (empty? (e/const-levels e))))
 
 (defn- reduce-nat-binop
-  "Try to reduce a nat binary operation on two literals."
+  "Reduce a nat binary operation on two literals: the Java kernel's primitive
+   (Reducer/natBinop — Lean's reduce_nat rules and LEAN_NAT_MAX_SIZE limits)."
   [^Name op-name a b]
   (when (and (e/lit-nat? a) (e/lit-nat? b))
-    (let [va (e/lit-nat-val a)
-          vb (e/lit-nat-val b)]
-      (condp identical? op-name
-        Name/NAT_ADD (e/lit-nat (+ va vb))
-        Name/NAT_SUB (e/lit-nat (max 0 (- va vb)))
-        Name/NAT_MUL (e/lit-nat (* va vb))
-        Name/NAT_DIV (if (zero? vb) (e/lit-nat 0) (e/lit-nat (quot va vb)))
-        Name/NAT_MOD (if (zero? vb) (e/lit-nat va) (e/lit-nat (mod va vb)))
-        Name/NAT_POW (when-not (> vb reduce-pow-max-exp)
-                       (e/lit-nat (.pow (biginteger va) (int vb))))
-        Name/NAT_GCD (e/lit-nat (loop [a va b vb] (if (zero? b) a (recur b (mod a b)))))
-        Name/NAT_BEQ (if (= va vb) (e/const' Name/BOOL_TRUE []) (e/const' Name/BOOL_FALSE []))
-        Name/NAT_BLE (if (<= va vb) (e/const' Name/BOOL_TRUE []) (e/const' Name/BOOL_FALSE []))
-        Name/NAT_LAND (e/lit-nat (.and (biginteger va) (biginteger vb)))
-        Name/NAT_LOR  (e/lit-nat (.or (biginteger va) (biginteger vb)))
-        Name/NAT_XOR  (e/lit-nat (.xor (biginteger va) (biginteger vb)))
-        Name/NAT_SHIFT_LEFT  (when-not (> vb reduce-pow-max-exp)
-                               (e/lit-nat (.shiftLeft (biginteger va) (int vb))))
-        Name/NAT_SHIFT_RIGHT (when-not (> vb reduce-pow-max-exp)
-                               (e/lit-nat (.shiftRight (biginteger va) (int vb))))
-        nil))))
+    (Reducer/natBinop op-name (biginteger (e/lit-nat-val a)) (biginteger (e/lit-nat-val b))
+                      Reducer/NAT_MAX_BYTES)))
 
 (defn- whnf-to-nat
   "Fully normalize an expression to a lit-nat, following Nat.succ chains."
@@ -131,19 +112,17 @@
   (let [e' (whnf-fn e)]
     (cond
       (e/lit-nat? e') e'
-      (and (e/app? e')
-           (e/const? (e/app-fn e'))
-           (identical? Name/NAT_SUCC (e/const-name (e/app-fn e'))))
+      (and (e/app? e') (nat-const? (e/app-fn e') Name/NAT_SUCC))
       (when-let [inner (whnf-to-nat whnf-fn (e/app-arg e'))]
         (e/lit-nat (inc (e/lit-nat-val inner))))
-      (and (e/const? e') (identical? Name/NAT_ZERO (e/const-name e')))
+      (nat-const? e' Name/NAT_ZERO)
       (e/lit-nat 0)
       :else nil)))
 
 (defn- try-reduce-nat
   "Try to reduce a nat operation."
   [head args whnf-fn]
-  (when (and (e/const? head) (= 2 (count args)))
+  (when (and (e/const? head) (empty? (e/const-levels head)) (= 2 (count args)))
     (let [op-name (e/const-name head)]
       (when (nat-binop-names op-name)
         (let [a (whnf-to-nat whnf-fn (first args))
@@ -319,7 +298,8 @@
           [head args] (e/get-app-fn-args struct)]
       (when (e/const? head)
         (when-let [^ConstantInfo ci (env/lookup env (e/const-name head))]
-          (when (.isCtor ci)
+          ;; reduce_proj_core: only a constructor of the projection's own structure
+          (when (and (.isCtor ci) (= (.inductName ci) (e/proj-type-name e)))
             ;; compare before adding, so a huge index cannot overflow (Reducer.projField)
             (let [field-start (.numParams ci)
                   i (long (e/proj-idx e))]
@@ -367,7 +347,7 @@
               (do (check-fuel!) (recur env v lctx opts))
               e)
             e)
-    :const (if (identical? Name/NAT_ZERO (e/const-name e))
+    :const (if (nat-const? e Name/NAT_ZERO)
              (e/lit-nat 0)
              e)
     :mdata (do (check-fuel!) (recur env (e/mdata-expr e) lctx opts))
@@ -392,8 +372,7 @@
              (if-let [reduced (or (try-reduce-recursor env head' args nil nil nil opts)
                                   (try-reduce-quot env head' args (or (:proj-whnf-fn opts) (fn [env e] (whnf env e lctx opts)))))]
                (do (check-fuel!) (recur env reduced lctx opts))
-               (if (and (e/const? head')
-                        (identical? Name/NAT_SUCC (e/const-name head'))
+               (if (and (nat-const? head' Name/NAT_SUCC)
                         (= 1 (count args)))
                  (let [arg (first args)]
                    (cond
