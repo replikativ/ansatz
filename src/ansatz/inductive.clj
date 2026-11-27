@@ -119,7 +119,7 @@
    below/brecOn (for recursive types), noConfusionType and noConfusion. Returns env.
    A declaration the kernel rejects (positivity, universes, nesting, ...) throws ex-info
    {:inductive name} carrying the kernel's message, which names the constructor and argument."
-  [env ind-name-str params-spec ctors-spec & {:keys [in indices no-confusion? class?]
+  [env ind-name-str params-spec ctors-spec & {:keys [in indices no-confusion? class? projections]
                                               :or {no-confusion? true}}]
   (let [ind-name (name/from-string ind-name-str)
 
@@ -191,7 +191,12 @@
                 (-> env (brec-on/mk-below ind-name-str) (brec-on/mk-brec-on ind-name-str)) env)
           ;; Lean MutualInductive.lean: IndPredBelow.mkBelow for an inductive predicate
           ;; (not for classes, MutualInductive.lean:1579)
-          env (if class? env (indpred-below/mk-below env ind-name-str))]
+          env (if class? env (indpred-below/mk-below env ind-name-str))
+          ;; a structure's projections are declared next: an auxiliary that took a
+          ;; projection's name is a duplicate declaration (Lean's addDecl reports it)
+          _ (when-let [taken (first (filter #(env/lookup env (name/from-string %)) projections))]
+              (throw (ex-info (str "Constant already declared: " taken)
+                              {:inductive ind-name-str :projection taken})))]
       ;; Update global env atom with the new env
       (reset! @(requiring-resolve 'ansatz.core/ansatz-env) env)
 

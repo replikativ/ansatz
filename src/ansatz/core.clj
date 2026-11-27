@@ -3802,10 +3802,12 @@
                    flat# (vec (mapcat identity (into [['~to-field '~extends-form]] new-specs#)))]
                (inductive/define-inductive (env) ~(str type-name) '~params [[(symbol "mk") flat#]]
                  ~@(when (:in opts) [:in `'~(:in opts)])
-                 ~@(when (:class opts) [:class? true])))
+                 ~@(when (:class opts) [:class? true])
+                 :projections ~(mapv (fn [[fname _]] (str type-name "." fname)) field-specs)))
             `(inductive/define-inductive (env) ~(str type-name) '~params '~[ctor-spec]
                ~@(when (:in opts) [:in `'~(:in opts)])
-               ~@(when (:class opts) [:class? true])))
+               ~@(when (:class opts) [:class? true])
+               :projections ~(mapv (fn [[fname _]] (str type-name "." fname)) field-specs)))
 
        ;; Lean Meta/Structure.lean:mkProjections threads named projections through
        ;; the constructor telescope, preserving them in dependent accessor types.
