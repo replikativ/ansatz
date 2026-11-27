@@ -1575,16 +1575,19 @@
         ;; A constructor or recursor is only ever checked as part of its inductive's BUNDLE:
         ;; retry the bundle head, and let its verdict stand for every member recorded.
         head-of (fn [name]
-                  (let [^ConstantInfo ci ((:resolve-fn ctx) name)
+                  ;; a row that cannot be resolved (e.g. a malformed key) is retried on its own,
+                  ;; where verify-one! records its error; it must not abort the other retries
+                  (let [^ConstantInfo ci (try ((:resolve-fn ctx) name) (catch Exception _ nil))
                         induct (cond
                                  (nil? ci) nil
                                  (.isCtor ci) (.inductName ci)
                                  ;; a recursor names no inductive directly; its first rule's
                                  ;; constructor does (an empty inductive has no rules — its
                                  ;; recursor keeps its own name and is retried as recorded)
-                                 (.isRecursor ci) (some-> (.rules ci) first .ctor
-                                                          ansatz-name/->string
-                                                          ((:resolve-fn ctx)) .inductName))]
+                                 (.isRecursor ci) (try (some-> (.rules ci) first .ctor
+                                                               ansatz-name/->string
+                                                               ((:resolve-fn ctx)) .inductName)
+                                                          (catch Exception _ nil)))]
                     (if induct (ansatz-name/->string induct) name)))
         by-head (group-by (comp head-of :name) (:error-names cp))
         lw ^java.io.Writer (:log-writer ctx)

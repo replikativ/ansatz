@@ -405,6 +405,36 @@
       (finally
         (delete-dir-recursive dir)))))
 
+(deftest a-malformed-row-does-not-abort-the-other-retries
+  ;; one recorded failure whose row cannot be resolved (a malformed key) and one retryable
+  ;; failure: the second is still retried and cleared, the first stays recorded
+  (let [dir (temp-dir)]
+    (try
+      (let [store-map (storage/open-store dir)]
+        (storage/import-ndjson-streaming! store-map example-file "verify-test")
+        (let [_ (storage/verify-corpus! store-map "verify-test" :workers 1)
+              f (java.io.File. dir "verify-verify-test.edn")
+              cp (clojure.edn/read-string (slurp f))
+              fake [{:name "Nat.add" :error "recorded"} {:name "Nat.succ" :error "recorded"}]
+              _ (spit f (pr-str (-> cp (assoc :error-names fake :errors 2 :ok (- (:total cp) 2))
+                                    (assoc-in [:slices 0 :error-names] fake)
+                                    (assoc-in [:slices 0 :errors] 2)
+                                    (update-in [:slices 0 :ok] - 2))))
+              prepare storage/prepare-verify
+              r (with-redefs [storage/prepare-verify
+                              (fn [& args]
+                                (let [ctx (apply prepare args) resolve (:resolve-fn ctx)]
+                                  (assoc ctx :resolve-fn (fn [n] (if (= n "Nat.add")
+                                                                   (throw (ex-info "Store row key differs from its declaration's name" {}))
+                                                                   (resolve n))))))]
+                  (storage/reverify-errors! store-map "verify-test"))]
+          (is (= ["Nat.succ"] (:fixed r)))
+          (is (= ["Nat.add"] (mapv :name (:still-failing r))))
+          (is (re-find #"key differs" (:error (first (:still-failing r))))))
+        (storage/close-store store-map))
+      (finally
+        (delete-dir-recursive dir)))))
+
 (deftest a-failed-block-head-consumes-its-own-rank
   ;; a head whose `all` omits it collects no members; the verifier must still advance
   (let [dir (temp-dir)]
