@@ -21,7 +21,8 @@
             [ansatz.meta.constructions.brec-on :as brec-on]
             [ansatz.meta.constructions.ctor-idx :as ctor-idx]
             [ansatz.meta.constructions.ctor-elim :as ctor-elim]
-            [ansatz.meta.constructions.no-confusion :as no-confusion])
+            [ansatz.meta.constructions.no-confusion :as no-confusion]
+            [ansatz.meta.constructions.indpred-below :as indpred-below])
   (:import [ansatz.kernel ConstantInfo]))
 
 (def ^:private kernel-fuel
@@ -187,7 +188,9 @@
           env (if (and no-confusion? (has? "PUnit") (has? "Eq") (has? "HEq"))
                 (no-confusion/mk-no-confusion env ind-name-str) env)
           env (if (and (has? "PUnit") (has? "Prod"))
-                (-> env (brec-on/mk-below ind-name-str) (brec-on/mk-brec-on ind-name-str)) env)]
+                (-> env (brec-on/mk-below ind-name-str) (brec-on/mk-brec-on ind-name-str)) env)
+          ;; Lean MutualInductive.lean: IndPredBelow.mkBelow for an inductive predicate
+          env (indpred-below/mk-below env ind-name-str)]
       ;; Update global env atom with the new env
       (reset! @(requiring-resolve 'ansatz.core/ansatz-env) env)
 
