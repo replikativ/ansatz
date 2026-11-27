@@ -18,7 +18,13 @@ Construction and admission are separate. Construction returns a complete
 populated. The caller supplies an environment whose declaration data stays stable
 throughout the call and decides whether to admit the result.
 
-The algorithm follows Lean commit
+For a one-constructor, index-free, nonrecursive, Prop-valued, large-eliminating
+type the result is Lean v4.36.0's `mkCasesOnViaProjs?` construction (the minor
+applied to the projections of the major, which computes on an opaque proof),
+which Lean's `mkCasesOn` tries first; every other type takes the native
+construction below, and both share one work budget and local limit.
+
+The native algorithm follows Lean commit
 [`819816b2`](https://github.com/leanprover/lean4/blob/819816b2e0a3bf405af45ae5c7af2491d8f5bee6/src/library/constructions/cases_on.cpp).
 It preserves recursor universe order and binder annotations, places indices and
 the major premise before constructor branches, and handles mutual motives using

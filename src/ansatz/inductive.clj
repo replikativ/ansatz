@@ -178,9 +178,10 @@
           num-nested (.numNested ^ConstantInfo (env/lookup env ind-name))
           ;; Lean/Elab/MutualInductive.lean mkAuxConstructions (55f80e10).
           ;; Consume the checked recursor, including the kernel's nested motives.
-          env (rec-on/mk-rec-on env ind-name-str)
           has? (fn [n] (some? (env/lookup env (name/from-string n))))
+          ;; Lean 4.36: `mkRecOn` reuses `casesOn` where it can, so build that first
           env (if (has? "PUnit") (cases-on/mk-cases-on env ind-name-str) env)
+          env (rec-on/mk-rec-on env ind-name-str)
           env (if (has? "Nat") (ctor-idx/mk-ctor-idx env ind-name-str) env)
           env (if (has? "Nat") (ctor-elim/mk-ctor-elim env ind-name-str) env)
           env (if (and no-confusion? (has? "PUnit") (has? "Eq") (has? "HEq"))

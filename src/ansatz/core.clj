@@ -40,6 +40,7 @@
             [ansatz.elab.structural-eqns :as structural-eqns]
             [ansatz.elab.structural-smart-unfolding :as sunfold]
             [ansatz.surface.ingest :as ingest]
+            [ansatz.meta.constructions.injective :as injective]
             [ansatz.surface.elaborate :as elab]
             [ansatz.surface.clj-obligations :as obligations]
             [ansatz.surface.diagnostics :as diagnostics]
@@ -690,7 +691,7 @@
   [v]
   (cond
     (integer? v) v
-    (or (nil? v) (sequential? v)) (reduce (fn [acc e] (+ acc 1 (rt-sizeof e))) 1 v)
+    (or (nil? v) (sequential? v)) (reduce (fn [acc e] (+' acc 1 (rt-sizeof e))) 1 v)
     :else 1))
 
 ;; Type context for outer-scope variables — used by match handler to
@@ -3018,9 +3019,13 @@
             (try
               (swap! ansatz-env structural-eqns/unfold-equation fn-name (:expr body-result)
                      (:self-fvar-id body-result) rec-pos n)
+              ;; reported, and recorded apart from the constructor-equation inventory (whose
+              ;; errors make simp/grind refuse the definition): not swallowed
               (catch Exception ex
-                (when *verbose*
-                  (println (str "  ⚠ " fn-name ".eq_def not generated: " (ex-message ex)))))))
+                (let [msg (str "Equation generation failed for " fn-name ".eq_def: " (.getMessage ex))]
+                  (binding [*out* *err*] (println "WARNING:" msg))
+                  (swap! ansatz-env env/update-extension :unfold-eqn-errors {} assoc cname
+                         {:kind :equation-generation-error :lemma (str fn-name ".eq_def") :message msg})))))
         ;; Lean Meta/Eqns.lean registerEqnThms/getEqnsFor?: record the names at
         ;; installation with each matcher owning its own equations.
         ;; Preserve equation order within each owner; retain
@@ -3482,6 +3487,24 @@
   `(install-theorem! '~thm-name ~(large-form-literal params) ~(large-form-literal prop)
                      ~(large-form-literal (vec tactics))))
 
+(clojure.core/defn derive-injectivity!
+  "Lean's mkInjectiveTheorems for a DSL inductive or structure (ansatz.meta.constructions.injective):
+   `C.inj` and `C.injEq`, the latter registered as a simp lemma (Injective.lean addSimpTheorem).
+   One env update or none; a failure is reported (Lean's elaborator would fail the declaration)."
+  [type-name]
+  (try
+    (swap! ansatz-env
+           (fn [env]
+             (let [env' (injective/mk-injective-theorems env type-name)
+                   ctors (some-> (env/lookup env' (name/from-string type-name)) (.ctors))
+                   new (filter #(and (env/lookup env' (name/mk-str % "injEq")) (not (env/lookup env (name/mk-str % "injEq"))))
+                               ctors)]
+               (first ((requiring-resolve 'ansatz.attrs/import-attr-tuples)
+                       env' (mapv (fn [c] ["simp" (str c ".injEq") nil 1000]) new) {})))))
+    (catch Throwable t
+      (throw (ex-info (str "failed to generate injectivity theorems for " type-name ": " (.getMessage t))
+                      {:kind :injectivity-error :type type-name} t)))))
+
 (defmacro inductive
   "Define an inductive type with constructors.
    (a/inductive Color [] (red) (green) (blue))
@@ -3528,17 +3551,24 @@
                        [c []]))
         ctor-specs (mapv parse-ctor ctors)
         deriving-classes (:deriving opts)]
-    `(do (inductive/define-inductive (env) ~(str type-name) '~params '~ctor-specs
-           ~@(when (:in opts) [:in `'~(:in opts)])
-           ~@(when (:indices opts) [:indices `'~(:indices opts)]))
-         ~@(when deriving-classes
-             [`(let [env# @ansatz-env
-                     env'# ((requiring-resolve 'ansatz.deriving/run-deriving!)
-                            env# ~(str type-name) '~ctor-specs '~deriving-classes)]
-                 (reset! ansatz-env env'#))])
-         ;; lean4 auto-derives SizeOf for every inductive — best-effort, no-op when unsupported
-         (wf-derive-sizeof! ~(str type-name))
-         nil)))
+    `(let [before# @ansatz-env]
+       (inductive/define-inductive (env) ~(str type-name) '~params '~ctor-specs
+         ~@(when (:in opts) [:in `'~(:in opts)])
+         ~@(when (:indices opts) [:indices `'~(:indices opts)]))
+       ;; lean4 auto-derives SizeOf for every inductive — best-effort, no-op when unsupported
+       (wf-derive-sizeof! ~(str type-name))
+       ;; Lean fails the declaration when its injectivity theorems fail: nothing stays installed
+       ;; (unless another writer published meanwhile: then only the error is raised)
+       (let [ours# @ansatz-env]
+         (try (derive-injectivity! ~(str type-name))
+              (catch Throwable t# (compare-and-set! ansatz-env ours# before#) (throw t#))))
+       ;; Lean runs deriving handlers after the auxiliary constructions (MutualInductive.lean)
+       ~@(when deriving-classes
+           [`(let [env# @ansatz-env
+                   env'# ((requiring-resolve 'ansatz.deriving/run-deriving!)
+                          env# ~(str type-name) '~ctor-specs '~deriving-classes)]
+               (reset! ansatz-env env'#))])
+       nil)))
 
 ;; ============================================================
 ;; structure — single-constructor inductive with projections
@@ -3559,8 +3589,10 @@
    (../lean4 Structure.lean: `fromSubobject` fields have no own projection; access is the parent
    projection composed with the subobject projection). Lean inlines this at elaboration; we have
    no subobject-aware dot-notation, so we materialize each as an `:abbrev` def
-     CHILD.f := λ {params} (s : CHILD params) => PARENT.f params (CHILD.to{PARENT} params s)
-   which unfolds to exactly that composition. Parent field names come from the structure-registry
+     CHILD.f := λ {params} (s : CHILD params) => PARENT.f parentArgs (CHILD.to{PARENT} params s)
+   which unfolds to exactly that composition; `parentArgs` (and the levels) are those of the
+   subobject's type (`Child α extends Parent (List α)`: `Parent.f (List α) (Child.toParent α s)`).
+   Parent field names come from the structure-registry
    (the parent was defined via `a/structure`). Skips any field the child overrides (its own
    projection wins) and the already-generated `to{PARENT}` projection. `n-params` = carrier arity."
   [child-str parent-str to-field n-params]
@@ -3582,16 +3614,23 @@
         ;; Inside (λ {params} (self) => BODY): self = bvar 0, param i = bvar(n-params - i)
         param-bvar (fn [i] (e/bvar (- n-params i)))
         ;; CHILD.to{PARENT} params self  : PARENT p…
+        to-name (name/from-string (str child-str "." to-field))
         to-app (e/app (reduce (fn [a i] (e/app a (param-bvar i)))
-                              (e/const' (name/from-string (str child-str "." to-field)) lvl-levels)
+                              (e/const' to-name lvl-levels)
                               (range n-params))
-                      (e/bvar 0))]
+                      (e/bvar 0))
+        ;; The subobject's type `PARENT args` (`Child α extends Parent (List α)` gives
+        ;; `Parent (List α)`): its arguments and levels, read off the projection's own type under
+        ;; the binders {params} (self), whose bvars are the ones inside the accessor body.
+        [parent-head parent-args] (e/get-app-fn-args
+                                   (loop [t (.type ^ConstantInfo (env/lookup! env0 to-name)) k 0]
+                                     (if (<= k n-params) (recur (e/forall-body t) (inc k)) t)))]
     (doseq [f parent-fields
             :let [child-f (name/from-string (str child-str "." f))]
             :when (not (env/lookup (env) child-f))]
-      (let [parent-f (reduce (fn [a i] (e/app a (param-bvar i)))
-                             (e/const' (name/from-string (str parent-str "." f)) lvl-levels)
-                             (range n-params))
+      (let [parent-f (reduce e/app (e/const' (name/from-string (str parent-str "." f))
+                                             (e/const-levels parent-head))
+                             parent-args)
             body (e/app parent-f to-app)
             val  (e/lam "self" ind-applied body :default)
             val  (loop [i (dec n-params) b val]
@@ -3602,25 +3641,95 @@
                 (env/check-constant (env) cidef))))))
 
 (clojure.core/defn rewrite-inherited-field-refs
-  "Rewrite bare references to a parent's field names inside a child structure field-type form
-   into explicit subobject projections — mirroring Lean's `fromSubobject` resolution (../lean4
-   Structure.lean: parent fields are opened into scope as projections of the subobject while
-   elaborating child fields). A reference to parent field `f` becomes `(@Parent.f carrier… toField)`:
-   the parent projection applied (carrier args explicit) to the embedded subobject. This keeps the
-   child's axiom fields (e.g. `mul_add : mul a (add b c) = …`) explicit when the
-   projection is partially applied through the term elaborator. `field-set` = parent field-name
-   strings; `carrier-args` = the carrier s-exprs from `:extends (Parent carrier…)`; `to-field` = the subobject field symbol.
-   Assumes no local binder shadows a parent field name (parent fields are ops/axioms like add/zero;
-   child binders are a/b/c — no collision)."
+  "Rewrite references to a parent's field names inside a child structure field-type form into
+   explicit subobject projections — Lean's `fromSubobject` resolution (Elab/Structure.lean: the
+   parent fields are local declarations of the child's field context, so they are in scope exactly
+   where no inner binder shadows them). A free reference to parent field `f` becomes
+   `(@Parent.f carrier… toField)`: the parent projection applied (carrier args explicit) to the
+   embedded subobject.
+
+   Binders the walk knows (spellings it recognizes; whether one elaborates is the elaborator's
+   business): `forall`/`lam`/`∀`/`λ`/`exists`/`∃` binder vectors
+   `[x T y U …]` (with optional `:-`/`,`), each type in the scope of the binders before it;
+   `fn`/`fn*` parameters (any parse-params form, a name and a single wrapped arity allowed);
+   `let` as a typed `[x T v]` or Clojure name/value pairs. A name bound there is that binder in its
+   scope. A binder that shadows the subobject field or a carrier symbol, with an inherited field
+   referenced in its scope, is refused: the generated projection would be captured.
+   `field-set` = parent field-name strings; `carrier-args` = the carrier s-exprs from
+   `:extends (Parent carrier…)`; `to-field` = the subobject field symbol."
   [form field-set parent-sym carrier-args to-field]
-  (cond
-    (and (symbol? form) (contains? field-set (str form)))
-    (apply list (symbol (str "@" parent-sym "." form)) (concat carrier-args [to-field]))
-    (seq? form)
-    (apply list (map #(rewrite-inherited-field-refs % field-set parent-sym carrier-args to-field) form))
-    (vector? form)
-    (mapv #(rewrite-inherited-field-refs % field-set parent-sym carrier-args to-field) form)
-    :else form))
+  (let [generated (into #{(str to-field)}
+                        (map str) (filter symbol? (tree-seq coll? seq (vec carrier-args))))
+        sep? #(contains? #{":" ":-" ","} (str %))]
+    (letfn [(bind [scope n]
+              (let [n (str n)]
+                (cond-> (update scope :fields disj n)
+                  (generated n) (update :captured conj n))))
+            (rw [form scope]
+              (cond
+                (and (symbol? form) (contains? (:fields scope) (str form)))
+                (if (seq (:captured scope))
+                  (throw (ex-info (str "structure: the inherited field `" form "` is referenced under a binder "
+                                       "that shadows " (pr-str (vec (:captured scope))))
+                                  {:field (str form) :shadowed (:captured scope)}))
+                  (apply list (symbol (str "@" parent-sym "." form)) (concat carrier-args [to-field])))
+
+                (and (seq? form) (symbol? (first form)) (vector? (second form))
+                     (contains? #{"forall" "∀" "lam" "λ" "exists" "∃"} (str (first form))))
+                ;; each binder's type in the incoming scope, then its name shadows
+                (let [[head binders & body] form
+                      [out scope'] (loop [ts binders out [] scope scope pending nil]
+                                     (if-let [t (first ts)]
+                                       (cond
+                                         (sep? t) (recur (rest ts) (conj out t) scope pending)
+                                         (nil? pending) (recur (rest ts) (conj out t) scope [t])
+                                         :else (recur (rest ts) (conj out (rw t scope))
+                                                      (bind scope (first pending)) nil))
+                                       [out scope]))]
+                  (apply list head out (map #(rw % scope') body)))
+
+                (and (seq? form) (contains? #{"fn" "fn*"} (str (first form))))
+                (let [[head & more] form
+                      [self more] (if (symbol? (first more)) [(first more) (rest more)] [nil more])
+                      [wrapped? params body] (cond
+                                               (vector? (first more)) [false (first more) (rest more)]
+                                               (and (seq? (first more)) (vector? (ffirst more)) (nil? (next more)))
+                                               [true (ffirst more) (rest (first more))]
+                                               :else [nil nil nil])]
+                  (if (nil? params)
+                    (apply list (map #(rw % scope) form))
+                    (let [[params' scope'] (reduce (fn [[out scope] [n t binfo]]
+                                                     [(cond-> (conj out n :- (rw t scope))
+                                                        (= binfo :inst-implicit) (conj :inst)
+                                                        (= binfo :implicit) (conj :implicit))
+                                                      (bind scope n)])
+                                                   ;; the elaborator does not bind a fn's self name
+                                                   [[] scope]
+                                                   (ingest/parse-params params))
+                          body' (map #(rw % scope') body)]
+                      (apply list head (concat (when self [self])
+                                               (if wrapped? [(apply list params' body')] (cons params' body')))))))
+
+                (and (seq? form) (= "let" (str (first form))) (vector? (second form)))
+                (let [[head bindings & body] form
+                      ;; the elaborator's rule: a typed surface let is [x T v] (with `:`/`:-`/`=`/`,`
+                      ;; separators) and one body; anything else is Clojure's let
+                      typed (vec (remove #(contains? #{":" ":-" "=" ","} (str %)) bindings))]
+                  (if (and (= 3 (count typed)) (= 1 (count body)))
+                    (let [[n t v] typed]
+                      (apply list head [n (rw t scope) (rw v scope)] (map #(rw % (bind scope n)) body)))
+                    ;; Clojure let: sequential name/value pairs (an odd trailing token stays as it is)
+                    (let [[out scope'] (reduce (fn [[out scope] [n & v]]
+                                                 (if (seq v)
+                                                   [(conj out n (rw (first v) scope)) (bind scope n)]
+                                                   [(conj out n) scope]))
+                                               [[] scope] (partition-all 2 bindings))]
+                      (apply list head out (map #(rw % scope') body)))))
+
+                (seq? form) (apply list (map #(rw % scope) form))
+                (vector? form) (mapv #(rw % scope) form)
+                :else form))]
+      (rw form {:fields (set field-set) :captured #{}}))))
 
 (clojure.core/defn add-parent-instances!
   "Lean Elab/Structure.lean:addParentInstances (v4.33.1), for one direct parent.
@@ -3673,60 +3782,71 @@
         ;; Build the flat field vector for the constructor: [name1 type1 name2 type2 ...]
         flat-fields (vec (mapcat identity field-specs))
         ;; Single constructor named 'mk'
-        ctor-spec ['mk flat-fields]]
-    `(do
+        ctor-spec ['mk flat-fields]
+        before-sym (gensym "before")]
+    `(let [~before-sym @ansatz-env]
+       (do
        ;; Define the inductive with single constructor. When extending, rewrite inherited-field
        ;; references in the new fields' types to subobject projections at runtime (parent field
        ;; names come from the registry, available once the parent is defined).
-       ~(if extends-form
-          `(let [pfields# (set (get-in @@(requiring-resolve 'ansatz.core/structure-registry)
-                                       [~(str parent-sym) :fields]))
-                 new-specs# (mapv (fn [[fn# ft#]]
-                                    [fn# (rewrite-inherited-field-refs
-                                          ft# pfields# '~parent-sym '~(vec (rest extends-form)) '~to-field)])
-                                  '~base-field-specs)
-                 flat# (vec (mapcat identity (into [['~to-field '~extends-form]] new-specs#)))]
-             (inductive/define-inductive (env) ~(str type-name) '~params [[(symbol "mk") flat#]]
+         ~(if extends-form
+            `(let [pfields# (set (get-in @@(requiring-resolve 'ansatz.core/structure-registry)
+                                         [~(str parent-sym) :fields]))
+                   new-specs# (mapv (fn [[fn# ft#]]
+                                      [fn# (rewrite-inherited-field-refs
+                                            ft# pfields# '~parent-sym '~(vec (rest extends-form)) '~to-field)])
+                                    '~base-field-specs)
+                   flat# (vec (mapcat identity (into [['~to-field '~extends-form]] new-specs#)))]
+               (inductive/define-inductive (env) ~(str type-name) '~params [[(symbol "mk") flat#]]
+                 ~@(when (:in opts) [:in `'~(:in opts)])))
+            `(inductive/define-inductive (env) ~(str type-name) '~params '~[ctor-spec]
                ~@(when (:in opts) [:in `'~(:in opts)])))
-          `(inductive/define-inductive (env) ~(str type-name) '~params '~[ctor-spec]
-             ~@(when (:in opts) [:in `'~(:in opts)])))
 
        ;; Lean Meta/Structure.lean:mkProjections threads named projections through
        ;; the constructor telescope, preserving them in dependent accessor types.
-       (swap! ansatz-env meta-structure/mk-projections ~(str type-name)
-              ~(mapv (fn [[fname _]] (str type-name "." fname)) field-specs)
-              ~(/ (count params) 2))
+         (swap! ansatz-env meta-structure/mk-projections ~(str type-name)
+                ~(mapv (fn [[fname _]] (str type-name "." fname)) field-specs)
+                ~(/ (count params) 2))
 
        ;; Inherited accessors for the embedded parent (Lean subobject `fromSubobject` access).
        ;; Runs after the projection loop so Child.to{Parent} exists.
-       ~@(when extends-form
-           [`(add-inherited-accessors! ~(str type-name) ~(str parent-sym)
-                                       ~(str to-field) ~(/ (count params) 2))])
+         ~@(when extends-form
+             [`(add-inherited-accessors! ~(str type-name) ~(str parent-sym)
+                                         ~(str to-field) ~(/ (count params) 2))])
+
+       ;; Lean: injectivity theorems for structures too (not for classes)
+         ~@(when-not (:class opts)
+             [`(let [ours# @ansatz-env]
+                 (try (derive-injectivity! ~(str type-name))
+                      (catch Throwable t# (compare-and-set! ansatz-env ours# ~before-sym) (throw t#))))])
+
+       ;; Lean generates SizeOf for structures too (not for classes).
+         ~@(when-not (:class opts) [`(wf-derive-sizeof! ~(str type-name))])
 
        ;; Lean's class extension is environment-local; ordinary structures are excluded.
-       ~@(when (:class opts)
-           (concat
-            [`(swap! ansatz-env env/with-extension :classes
-                     (conj (env/get-extension (env) :classes #{}) ~(str type-name)))]
-            (when extends-form
-              [`(add-parent-instances! ~(str type-name) ~(str parent-sym)
-                                       ~(str type-name "." to-field))])))
+         ~@(when (:class opts)
+             (concat
+              [`(swap! ansatz-env env/with-extension :classes
+                       (conj (env/get-extension (env) :classes #{}) ~(str type-name)))]
+              (when extends-form
+                [`(add-parent-instances! ~(str type-name) ~(str parent-sym)
+                                         ~(str type-name "." to-field))])))
 
        ;; Emit Clojure defrecord for runtime representation
        ;; The record has keyword-accessible fields: (:x point), (:y point)
        ;; Idempotent across namespaces/re-installs: a record class cannot be re-imported into a
        ;; namespace, so a second definition of the same structure (e.g. an env reset then re-install)
        ;; would throw "already refers to". Skip the defrecord if the class is already defined.
-       (when-not (instance? Class (resolve '~runtime-name))
-         (defrecord ~runtime-name ~(mapv (fn [[fname _]] (symbol (str fname))) field-specs)))
+         (when-not (instance? Class (resolve '~runtime-name))
+           (defrecord ~runtime-name ~(mapv (fn [[fname _]] (symbol (str fname))) field-specs)))
 
        ;; Register in structure-registry for ansatz->clj compilation
-       (swap! @(requiring-resolve 'ansatz.core/structure-registry)
-              assoc ~(str type-name)
-              {:fields ~(mapv (fn [[fname _]] (str fname)) field-specs)
-               :ctor-sym '~(symbol (str (ns-name *ns*)) (str "->" runtime-name))})
+         (swap! @(requiring-resolve 'ansatz.core/structure-registry)
+                assoc ~(str type-name)
+                {:fields ~(mapv (fn [[fname _]] (str fname)) field-specs)
+                 :ctor-sym '~(symbol (str (ns-name *ns*)) (str "->" runtime-name))})
 
-       nil)))
+         nil))))
 
 (defmacro class
   "Define a typeclass structure; class parents supply inherited instances."

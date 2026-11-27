@@ -217,7 +217,32 @@
                         :no-confusion {} assoc (str ctor ".noConfusion")
                         {:kind :per-ctor :arity (dec (count binders)) :num-fields fields}))))))))) env (.ctors info))))
 
-(defn mk-no-confusion-enum [env n]
+(defn- enum-helper-app
+  "Apply the prelude helper `hn` (`noConfusionTypeEnum` / `noConfusionEnum`) along its own
+   telescope, as Lean's mkAppM does from the explicit arguments. Lean 4.36 takes
+   `{α} (f : α → Nat)` at two universe levels; Lean 4.33.1 took
+   `{α} {β} [DecidableEq β] (f : α → β)` at three. Each binder is filled by its name (the
+   binder names both preludes use: α β inst f P x y h; any other binder is an error), the tag
+   function `f` with `T.ctorIdx` (a `Nat`-valued tag, so `β := Nat`), and each universe parameter
+   from the sort binder that carries it."
+  [ctx hn vals]
+  (let [ci (env/lookup! (:env @ctx) (name/from-string hn))
+        vals (merge {"β" (u/const' "Nat" []) "inst" (u/const' "instDecidableEqNat" [])} vals)
+        val-of (fn [b] (or (get vals (str b))
+                           (throw (ex-info (str hn ": unexpected binder " b) {:helper hn :binder (str b)}))))
+        binders (loop [t (.type ci) acc []]
+                  (if (e/forall? t) (recur (e/forall-body t) (conj acc [(e/forall-name t) (e/forall-type t)])) acc))
+        levels (into {} (keep (fn [[b bt]]
+                                (when (and (e/sort? bt) (lvl/param? (e/sort-level bt)))
+                                  [(lvl/param-name (e/sort-level bt)) (u/get-level ctx (val-of b))])))
+                     binders)]
+    (u/app (u/const' hn (mapv #(or (levels %) (throw (ex-info (str hn ": no binder carries level " %) {:helper hn})))
+                              (.levelParams ci)))
+           (map (comp val-of first) binders))))
+
+(declare mk-no-confusion-core)
+
+(defn- mk-no-confusion-enum-imp [env n]
   (let [info (env/lookup! env (name/from-string (str n))) ctx (u/context env)
         us (mapv lvl/param (.levelParams info))
         ;; Lean uses a fresh `v` here, rather than the recursor elimination level.
@@ -227,19 +252,28 @@
         lps (into [(name/from-string vn)] (.levelParams info))
         t (u/const' n us) p (u/local-decl ctx "P" (e/sort' v))
         x (u/local-decl ctx "x" t) y (u/local-decl ctx "y" t)
-        ctor (u/const' (str n ".ctorIdx") us)
+        tag (u/const' (str n ".ctorIdx") us)
         single? (= 1 (count (.ctors info)))
-        prefix [t (u/const' "Nat" []) (u/const' "instDecidableEqNat" []) ctor]
         val (if single? (u/mk-arrow ctx p p)
-                (u/app (u/const' "noConfusionTypeEnum" [(u/get-level ctx t) (lvl/succ lvl/zero) v]) (concat prefix [p x y])))
+                (enum-helper-app ctx "noConfusionTypeEnum" {"α" t "f" tag "P" p "x" x "y" y}))
         env (u/add-definition env ctx (str n ".noConfusionType") lps [p x y] (e/sort' v) val)
         _ (u/set-env! ctx env)
         _ (u/implicit! ctx [p x y])
         h (u/local-decl ctx "h" (u/mk-eq ctx x y))
         val (if single? (let [q (u/local-decl ctx "p" p)] (u/mk-lambda-fvars ctx [q] q))
-                (u/app (u/const' "noConfusionEnum" [(u/get-level ctx t) (lvl/succ lvl/zero) v]) (concat prefix [p x y h])))]
+                (enum-helper-app ctx "noConfusionEnum" {"α" t "f" tag "P" p "x" x "y" y "h" h}))]
     (u/add-definition env ctx (str n ".noConfusion") lps [p x y h]
                       (u/app (u/const' (str n ".noConfusionType") ls) [p x y]) val)))
+
+(defn mk-no-confusion-enum
+  "Lean 4.36 mkNoConfusionEnum: the enum shortcut needs both the prelude helper and `T.ctorIdx`
+   (a sort-polymorphic enum with several constructors eliminates only into Prop and has no tag);
+   otherwise the core construction, which skips such types."
+  [env n]
+  (if (and (env/lookup env (name/from-string "noConfusionEnum"))
+           (env/lookup env (name/mk-str (name/from-string (str n)) "ctorIdx")))
+    (mk-no-confusion-enum-imp env n)
+    (mk-no-confusion-core env n)))
 
 (defn mk-no-confusion-core [env n]
   (let [info (env/lookup! env (name/from-string (str n)))
@@ -250,6 +284,6 @@
 
 (defn mk-no-confusion [env n]
   (let [info (env/lookup! env (name/from-string (str n)))]
-    (if (and (u/is-enum-type? env info) (env/lookup env (name/from-string "noConfusionEnum")))
+    (if (u/is-enum-type? env info)
       (mk-no-confusion-enum env n)
       (mk-no-confusion-core env n))))
