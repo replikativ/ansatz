@@ -73,6 +73,7 @@
 (defn- false-const? [t] (and (e/const? t) (= (e/const-name t) false-name)))
 (def ^:private eq-refl-name (name/from-string "Eq.refl"))
 (def ^:private eq-trans-name (name/from-string "Eq.trans"))
+(def ^:private eq-symm-name (name/from-string "Eq.symm"))
 (def ^:private true-intro-name (name/from-string "True.intro"))
 (def ^:private congr-arg-name (name/from-string "congrArg"))
 (def ^:private congr-fun-name (name/from-string "congrFun"))
@@ -502,12 +503,191 @@
 
         :else nil))))
 
+(defn- reducible-whnf
+  "`whnfR` for simp's theorem preprocessing (Lean `withSimpGlobalConfig`, reducible
+   transparency). meta/get-reducibility-status falls back to the `abbrev` hint when the env has no
+   reducibility metadata, so an abbreviation unfolds either way."
+  [st x]
+  (try (meta/whnf-at meta/empty-context st x :reducible (constantly false))
+       (catch clojure.lang.ExceptionInfo _ x)))
+
+(defn- inverse-error! [what n]
+  (tactic-error! (str "Invalid `←` modifier: " what) {:name n}))
+
+(defn- beta-rev
+  "Lean Expr.betaRev (Expr.lean:1591): apply `f` to `args`, instantiating its lambdas and looking
+   through metadata between them while arguments remain."
+  [f args]
+  (loop [f f args (seq args)]
+    (cond (and args (e/lam? f)) (recur (e/instantiate1 (e/lam-body f) (first args)) (next args))
+          (and args (e/mdata? f)) (recur (e/mdata-expr f) args)
+          :else (reduce e/app f args))))
+
+(defn- simp-global-whnf-core
+  "Lean `whnfCore` under simpGlobalConfig (SimpTheorems.lean:282-287: iota := false,
+   proj := .no, zetaDelta := false): mdata, `let` zeta and head beta — no recursor, matcher or
+   projection step. Each zeta and beta step calls `tick!`."
+  [tick! x]
+  (cond
+    (e/mdata? x) (recur tick! (e/mdata-expr x))
+    (e/let? x) (do (tick!) (recur tick! (e/instantiate1 (e/let-body x) (e/let-value x))))
+    (e/app? x) (let [[f args] (e/get-app-fn-args x)
+                     f' (simp-global-whnf-core tick! f)]
+                 (cond (e/lam? f') (do (tick!) (recur tick! (beta-rev f' args)))
+                       (identical? f f') x
+                       :else (reduce e/app f' args)))
+    :else x))
+
+(def ^:private bad-rewrite-max-steps
+  "The step limit of checkBadRewrite's reduction. Lean bounds it only by heartbeats: it
+   rejects `d₁₂ x = x` for a chain of reducible `dᵢ₊₁ x := dᵢ (dᵢ x)` (2¹³ unfoldings, checked
+   with Lean v4.36.0) and runs for minutes on d₄₀. 2¹⁶ steps keeps Lean's verdict on the former
+   and stops the latter."
+  65536)
+
+(defn- simp-global-reduce-root
+  "Lean DiscrTree.reduceDT at the root (reduceUntilBadKey, DiscrTree/Main.lean:231-242) under
+   simpGlobalConfig: whnfCore, unfold a reducible head (delta then betaRev, which looks through
+   metadata) unless that exposes a bad key, then strict eta, until none applies. Every zeta,
+   beta, unfolding and contraction counts against one step limit."
+  [env x]
+  (let [steps (volatile! 0)
+        tick! #(when (> (vswap! steps inc) bad-rewrite-max-steps)
+                 (tactic-error! "discrimination tree maxRecDepth exceeded"
+                                {:limit :max-rec-depth :max-rec-depth bad-rewrite-max-steps}))
+        whnf-core #(simp-global-whnf-core tick! %)
+        unfold (fn [x]
+                 (let [[h args] (e/get-app-fn-args x)]
+                   (when (and (e/const? h) (meta/reducible-const? env (e/const-name h)))
+                     (when-let [body (#'red/try-unfold-def env h)]
+                       (beta-rev body args)))))
+        step (fn [x]
+               (loop [x (whnf-core x)]
+                 (let [x' (unfold x)]
+                   (cond (nil? x') x
+                         (dt/bad-key? x') x
+                         :else (do (tick!) (recur (whnf-core x')))))))]
+    (loop [x (step x)]
+      (if-let [x' (dt/eta-expanded-strict x)] (do (tick!) (recur (step x'))) x))))
+
+(defn- check-bad-rewrite!
+  "Lean SimpTheorems.lean:306-309 checkBadRewrite: an equation whose lhs reduces (DiscrTree
+   reduceDT at the root, under simpGlobalConfig) to the variable `x` it equals is no simp
+   theorem — `x = x`, also spelled `(fun y => y) x = x` or `(fun y => f y) = f`, whose rule would
+   loop. A recursor application is not reduced (iota := false). `x` is a binder opened by
+   preprocess-inverse."
+  [env l r n]
+  (let [l (simp-global-reduce-root env l)]
+    (when (and (e/fvar? l) (= l r))
+      (tactic-error! "Invalid simp theorem: Equation is equivalent to `x = x`" {:name n}))))
+
+(defn- check-type-is-prop!
+  "Lean SimpTheorems.lean:392-394 checkTypeIsProp."
+  [st type n]
+  (when-not (try (let [s (#'tc/cached-whnf st (tc/infer-type st type))]
+                   (and (e/sort? s) (= lvl/zero (e/sort-level s))))
+                 (catch clojure.lang.ExceptionInfo _ false))
+    (tactic-error! "Invalid simp theorem: Expected a proposition" {:name n})))
+
+(defn- preprocess-inverse
+  "Lean SimpTheorems.lean:319-390 `preprocess e type (inv := true)`: the converse rules of the
+   proof `e : type`, as closed [proof type] pairs with type `∀ xs, rhs = lhs`. Each step
+   weak-head reduces at reducible transparency (:328) and then
+     opens a ∀-telescope, re-abstracting proof and type (:329-334),
+     Eq  `l = r`      → `Eq.symm e : r = l` (:335-343),
+     Iff `l ↔ r`      → `Eq.symm (propext e) : r = l` (:344-354),
+     And `p ∧ q`      → both conjuncts, via `And.left/right e` (:380-383),
+   and rejects `a ≠ b`, `¬ P` and anything else (a rule to True) (:355-357, :368-369, :385-387).
+   `n` names the origin for the error. Only a global declaration (`global?`, Lean `isGlobal`) is
+   checked for `x = x` (:337, :345); a local proof such as `h : x = x` is accepted."
+  [st proof type n global?]
+  (letfn [(go [st e t]
+              (let [t (reducible-whnf st t)
+                    [head args] (e/get-app-fn-args t)
+                    hname (when (e/const? head) (name/->string (e/const-name head)))]
+                (cond
+                  (e/forall? t)
+                  (let [id (swap! (:next-id st) inc)
+                        x (e/fvar id)
+                        st' (assoc st :lctx (red/lctx-add-local (:lctx st) id (e/forall-name t) (e/forall-type t)))]
+                    (mapv (fn [[p ty]]
+                            [(e/lam (e/forall-name t) (e/forall-type t) (e/abstract1 p id) (e/forall-info t))
+                             (e/forall' (e/forall-name t) (e/forall-type t) (e/abstract1 ty id) (e/forall-info t))])
+                          (go st' (e/app e x) (e/instantiate1 (e/forall-body t) x))))
+
+                  (and (= "Eq" hname) (= 3 (count args)))
+                  (let [[alpha l r] args]
+                    (when global? (check-bad-rewrite! (:env st) l r n))
+                    [[(e/app* (e/const' eq-symm-name (e/const-levels head)) alpha l r e)
+                      (e/app* head alpha r l)]])
+
+                  (and (= "Iff" hname) (= 2 (count args)))
+                  (let [[l r] args
+                        prop (e/sort' lvl/zero)]
+                    (when global? (check-bad-rewrite! (:env st) l r n))
+                    [[(e/app* (e/const' eq-symm-name [(lvl/succ lvl/zero)]) prop l r
+                              (e/app* (e/const' propext-name []) l r e))
+                      (e/app* (e/const' eq-name [(lvl/succ lvl/zero)]) prop r l)]])
+
+                  (and (= "Ne" hname) (= 3 (count args)))
+                  (inverse-error! "Cannot be applied to simp theorems of the form `a ≠ b`" n)
+
+                  (and (= "Not" hname) (= 1 (count args)))
+                  (inverse-error! "Cannot be applied to simp theorems of the form `¬ P`" n)
+
+                  (and (= "And" hname) (= 2 (count args)))
+                  (let [[p q] args]
+                    (into (go st (e/app* (e/const' and-left-name []) p q e) p)
+                          (go st (e/app* (e/const' and-right-name []) p q e) q)))
+
+                  :else
+                  (inverse-error! "Cannot be applied to a rule that rewrites to `True`" n))))]
+    (go st proof type)))
+
+(declare extract-simp-lemma-term)
+
+(defn- inverse-rules
+  "Lean mkSimpTheoremFromConst/mkSimpTheoremFromExpr with `inv` (SimpTheorems.lean:453-502):
+   preprocess-inverse, then one Eq rule per resulting theorem — keyed on the original rhs,
+   matched and proved like any equation (Lean's aux lemma is an Eq even for an Iff). The rules
+   keep the origin's identity (`:name`, `:inv true`, `:post`) and proof `:level-params`; an rfl
+   theorem stays rfl (`defeq := inv && defeqAttr…`, :469) — Ansatz's convention detects rfl from the
+   proof body (is-rfl-proof?), not from Lean's `[defeq]` tag."
+  [st value type priority {:keys [post name level-params rfl global?] :or {post true}}]
+  (vec (mapcat (fn [[proof ty]]
+                 (map #(assoc % :name name :inv true :post (boolean post)
+                              :level-params (or level-params []) :rfl (boolean rfl))
+                      (extract-simp-lemma-term (:env st) ty priority proof)))
+               (preprocess-inverse st value type (some-> name name/->string) global?))))
+
+(defn- preprocess-rules
+  "Tag extracted rules with their origin's phase (Lean `SimpTheorem.post`) and forward direction."
+  [rules {:keys [post] :or {post true}}]
+  (mapv #(assoc % :post (boolean post) :inv false) rules))
+
+(declare extract-simp-lemma*)
+
 (defn- extract-simp-lemma
   "Extract simp lemma(s) from a constant's type.
    Returns a vector of lemma maps (possibly multiple for And splitting).
    Handles Eq, Iff, Not P (→ P = False), Ne a b (→ (a = b) = False),
    And P Q (split), and general propositions (→ P = True).
-   Lean 4: SimpTheorems.lean — preprocess + shouldPreprocess + mkSimpTheoremKeys."
+   Lean 4: SimpTheorems.lean — preprocess + shouldPreprocess + mkSimpTheoremKeys.
+   `opts` {:post :inv} is the origin's phase and direction (mkSimpTheoremFromConst post inv);
+   an inverse origin goes through inverse-rules."
+  ([env ci priority] (extract-simp-lemma env ci priority nil))
+  ([env ^ConstantInfo ci priority opts]
+   (if (:inv opts)
+     (let [lps (vec (.levelParams ci))
+           st (tc/mk-tc-state env)]
+       ;; Lean checkTypeIsProp (SimpTheorems.lean:461)
+       (check-type-is-prop! st (.type ci) (name/->string (.name ci)))
+       (inverse-rules (tc/mk-tc-state env) (e/const' (.name ci) (mapv lvl/param lps)) (.type ci) priority
+                      {:post (:post opts true) :name (.name ci) :level-params lps
+                       :rfl (is-rfl-proof? ci) :global? true}))
+     (preprocess-rules (extract-simp-lemma* env ci priority) opts))))
+
+(defn- extract-simp-lemma*
   [env ^ConstantInfo ci priority]
   (let [ctype (.type ci)
         cname (.name ci)
@@ -532,18 +712,29 @@
    rewrite proof is the term applied to the matched params — NOT a fresh `(const name levels)`. This is
    what lets `simp [<term>]` accept any proof term (Lean's `simp [h]`), e.g. a projected typeclass axiom
    `WSemiring.mul_zero S inst`. The term is level-closed (its universe args are already concrete), so
-   `:level-params []` and level inference is a no-op."
-  [env ty priority proof-term]
-  (let [mk (fn [t np]
-             (mapv #(assoc % :proof-term proof-term :name nil)
-                   (extract-from-conclusion env nil [] np false priority t)))]
-    (loop [t ty np 0]
-      (if (e/forall? t)
-        (let [body (e/forall-body t)]
-          (if (and (e/const? body) (= (e/const-name body) false-name))
-            (mk t np)
-            (recur body (inc np))))
-        (mk t np)))))
+   `:level-params []` and level inference is a no-op. `opts` {:post :inv :st} as extract-simp-lemma
+   (Lean mkSimpTheoremFromExpr → preprocessProof, SimpTheorems.lean:486-502); an inverse term is
+   preprocessed in `:st`'s local context."
+  ([env ty priority proof-term] (extract-simp-lemma-term env ty priority proof-term nil))
+  ([env ty priority proof-term opts]
+   (if (:inv opts)
+     (let [st (or (:st opts) (tc/mk-tc-state env))]
+       ;; Lean preprocessProof (SimpTheorems.lean:486-490): checkTypeIsProp, preprocess isGlobal := false
+       (check-type-is-prop! st ty nil)
+       (mapv #(assoc % :name nil)
+             (inverse-rules st proof-term ty priority {:post (:post opts true)})))
+     (let [mk (fn [t np]
+                (preprocess-rules
+                 (mapv #(assoc % :proof-term proof-term :name nil)
+                       (extract-from-conclusion env nil [] np false priority t))
+                 opts))]
+       (loop [t ty np 0]
+         (if (e/forall? t)
+           (let [body (e/forall-body t)]
+             (if (and (e/const? body) (= (e/const-name body) false-name))
+               (mk t np)
+               (recur body (inc np))))
+           (mk t np)))))))
 
 ;; ============================================================
 ;; Discrimination tree index — Lean 4's DiscrTree
@@ -1032,7 +1223,9 @@
             levels (mapv lvl/mvar level-ids)
             level-subst (zipmap lparams levels)
             instantiate-levels #(if (seq level-subst) (e/instantiate-level-params % level-subst) %)
-            value (cond (:proof-term lemma) (:proof-term lemma)
+            ;; A preprocessed constant proof (an inverse rule's `Eq.symm (c xs)`) carries the
+            ;; constant's universe parameters, instantiated like the rule's patterns.
+            value (cond (:proof-term lemma) (instantiate-levels (:proof-term lemma))
                         (:hyp-fvar-id lemma) (e/fvar (:hyp-fvar-id lemma))
                         (:name lemma) (e/const' (:name lemma) levels))
             type (when value (meta/infer-type @mctx st value))]
@@ -2831,7 +3024,7 @@
                 st' (if contextual? (update st :lctx assoc xid decl) st)
                 q-index (if contextual?
                           (reduce (fn [idx lemma]
-                                    (dt/trie-insert idx (dt/expr->keys st' env (:lhs-pattern lemma)) lemma))
+                                    (dt/trie-insert idx (dt/eager-keys st' env lemma) lemma))
                                   lemma-index (make-hyp-lemmas st' {xid decl}))
                           lemma-index)
                 q-result (simp-expr* st' env q-index orig-q
@@ -3104,15 +3297,23 @@
    and `Bool.true_eq : (true = b) = (b = true)` rewrite each other's output and are confluent
    only because Lean marks them `@[simp low]`, letting `Bool.false_eq_true`/`Bool.true_eq_false`
    (default priority, both collapsing to `False`) fire first. At a flat priority simp
-   oscillates between the two orientations until it hits its step limit."
+   oscillates between the two orientations until it hits its step limit.
+
+   An entry is a name (a forward post origin, Lean's default) or an origin descriptor
+   `{:name n :post bool :inv bool :priority p}` (Lean `Origin.decl n post inv`, built by
+   mkSimpTheoremFromConst); a descriptor without `:priority` takes the inherited one."
   [env lemma-names]
   (let [prios (env/get-extension env :simp-priorities {})]
-    (vec (mapcat (fn [n]
-                   (let [cname (if (instance? ansatz.kernel.Name n) n (name/from-string (str n)))
+    (vec (mapcat (fn [entry]
+                   (let [descriptor (when (map? entry) entry)
+                         n (if descriptor (:name descriptor) entry)
+                         cname (if (instance? ansatz.kernel.Name n) n (name/from-string (str n)))
                          ci (env/lookup env cname)]
                      (when ci
-                       (extract-simp-lemma env ci (get prios (name/->string cname)
-                                                       default-simp-priority)))))
+                       (extract-simp-lemma env ci
+                                           (or (:priority descriptor)
+                                               (get prios (name/->string cname) default-simp-priority))
+                                           (select-keys descriptor [:post :inv])))))
                  lemma-names))))
 
 (def ^:private simp-only-builtins

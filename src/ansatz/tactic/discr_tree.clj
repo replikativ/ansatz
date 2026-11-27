@@ -61,7 +61,7 @@
 ;; Before keying, reduce structural redexes and reducible definitions.
 ;; Root terms stop before a bad key; class projections keep accessor keys.
 
-(defn- bad-key?
+(defn bad-key?
   "Lean 4's isBadKey: return true if fn would produce Key.other or Key.star.
    We don't want to unfold root terms into lambdas/sorts."
   [e]
@@ -90,6 +90,21 @@
                      nat (e/const' (name/from-string "instAddNat") []))]
     (e/app* (e/const' (name/from-string "HAdd.hAdd") [lvl/zero lvl/zero lvl/zero])
             nat nat nat inst x y)))
+
+(defn eta-expanded-strict
+  "Lean Expr.etaExpandedStrict? (Expr.lean:1668-1691): `fun x₁ … xₙ => f x₁ … xₙ` (n ≥ 1) with
+   `f` closed is `f`; anything else is nil. The closedness test is the O(1) loose-bvar range, so
+   a shared DAG is never walked."
+  [x]
+  (when (e/lam? x)
+    (loop [b (e/lam-body x) n 1]
+      (if (e/lam? b)
+        (recur (e/lam-body b) (inc n))
+        (loop [b b n n i 0]
+          (if (pos? n)
+            (when (and (e/app? b) (e/bvar? (e/app-arg b)) (= i (e/bvar-idx (e/app-arg b))))
+              (recur (e/app-fn b) (dec n) (inc i)))
+            (when-not (e/has-loose-bvars? b) b)))))))
 
 (defn reduce-dt
   "Lean Meta/DiscrTree/Main.lean reduceDT: unfold reducible heads, stopping
@@ -208,7 +223,7 @@
    If st is nil, skips argument filtering (all args indexed)."
   ([expr] (expr->keys nil nil expr))
   ([st env expr] (expr->keys st env expr {:key-encoding ke/write-version :pattern? true}))
-  ([st env expr {:keys [key-encoding pattern?] :or {key-encoding ke/write-version pattern? true}}]
+  ([st env expr {:keys [key-encoding pattern? bvar-app-star?] :or {key-encoding ke/write-version pattern? true}}]
    (ke/encoding {:key-encoding key-encoding})
    (loop [todo (list {:expr expr :root? true}) keys (transient [])]
      (if (empty? todo)
@@ -285,6 +300,12 @@
                ;; the `m β` type arg of ALL monadic lemmas) unreachable: OTHER
                ;; matches neither a concrete query key nor the star-skip path.
                  (e/mvar? head)
+                 (recur rest-todo (conj! keys star-key))
+
+               ;; A rule parameter (loose bvar) applied to arguments is Lean's mvar-headed
+               ;; application: one wildcard. Only the per-call eager index asks for this
+               ;; (eager-keys); persisted keys keep their encoding (`:other`).
+                 (and bvar-app-star? (e/bvar? head))
                  (recur rest-todo (conj! keys star-key))
 
                ;; Other head (lambda application, etc.)
@@ -487,6 +508,16 @@
 ;; Public API for simp integration
 ;; ============================================================
 
+(defn eager-keys
+  "Keys for a rule's pattern in a per-call (never persisted) index: expr->keys. An inverse
+   rule keys an applied rule parameter as a wildcard like Lean's mvar-headed application
+   (DiscrTree pushArgs): its pattern is the original rhs, often `f a` for a parameter `f`.
+   Forward rules keep their keys, so a rule whose rhs reaches its own lhs cannot fire before
+   simp has visited the arguments (`h : R f (f a) = W (R f (f a))` waits for `a = b`)."
+  [st env lemma]
+  (expr->keys st env (:lhs-pattern lemma)
+              {:key-encoding ke/write-version :pattern? true :bvar-app-star? (boolean (:inv lemma))}))
+
 (defn make-simp-tree
   "Build a discrimination tree from simp lemmas.
    Each lemma's LHS pattern is encoded as keys and inserted.
@@ -494,7 +525,7 @@
   ([lemmas] (make-simp-tree nil nil lemmas))
   ([st env lemmas]
    (reduce (fn [tree lemma]
-             (let [keys (expr->keys st env (:lhs-pattern lemma))]
+             (let [keys (eager-keys st env lemma)]
                (trie-insert tree keys lemma)))
            (assoc empty-trie :key-encoding ke/write-version)
            lemmas)))
