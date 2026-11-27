@@ -1450,19 +1450,49 @@
   ;; independent of whether the simproc's execution has been ported.
   (simproc/is-builtin-simproc n))
 
+(def ^:dynamic ^:private *simproc-phase*
+  "The phase whose simprocs run: :pre (preDefault's userPreSimprocs) or :post."
+  :post)
+
+(def ^:private builtin-pre-simprocs
+  "Ported builtin simprocs Lean registers as pre (`builtin_simproc ↓`,
+   BuiltinSimprocs/Core.lean:15, :27); every other one is post."
+  #{"reduceIte" "reduceDIte"})
+
+(def ported-simprocs
+  "The builtin simprocs whose execution is ported (each gated by name below)."
+  (into #{"reduceIte" "reduceDIte" "reduceCtorEq"
+          "Nat.reduceSucc" "Nat.reduceAdd" "Nat.reduceMul" "Nat.reduceSub" "Nat.reduceDiv"
+          "Nat.reduceMod" "Nat.reduceBEq" "Nat.reduceBNe" "Nat.reduceLeDiff" "Nat.reduceLT"
+          "Nat.reduceGT" "Nat.reducePow" "Nat.reduceEqDiff"
+          "Int.reduceNeg" "Int.reduceAdd" "Int.reduceMul" "Int.reduceSub" "Int.reduceDiv"
+          "Int.reduceMod"}
+        (for [carrier ["Int" "Char" "String"] op ["LE" "LT" "GT" "GE" "Eq" "Ne" "BEq" "BNe"]]
+          (str carrier ".reduce" op))))
+
+(defn- simproc-phases
+  "The phases simproc `proc-name` is registered in for this call (Lean's SimprocsArray): its
+   own registration (pre for `builtin_simproc ↓`, else post) when the default simprocs are on —
+   `simp only` starts from none (Elab/Tactic/Simp.lean:572) — plus every phase `simp [p]` /
+   `simp [↓ p]` / `simp [↑ p]` added (`simprocs.add declName post`, :367, 448-449)."
+  [config proc-name]
+  (cond-> (get (:simproc-phases config) proc-name #{})
+    (get config :simprocs? true) (conj (if (builtin-pre-simprocs proc-name) :pre :post))))
+
 (defn- main-simproc-enabled? [config proc-name]
-  ;; Elab/Tactic/Simp.lean elabSimpArgs: explicit additions follow the
-  ;; (possibly empty) default simproc set; `-p` erases p (Simproc.lean:112-113, 238).
+  ;; Simproc.lean:230-238 simprocCore: the simproc is registered in the running phase's tree
+  ;; and not erased (`-p`, Simproc.lean:112-113; re-adding clears it, :153-154).
   (and (not (contains? (:simproc-erased config) proc-name))
-       (or (get config :simprocs? true) (contains? (:simproc-names config) proc-name))))
+       (contains? (simproc-phases config proc-name) *simproc-phase*)))
 
 (defn- set-simproc-enabled?
   "Lean SimprocsArray (Simproc.lean:269-303): a simp set given as an argument joins as its own
-   Simprocs with its own erased set — `-p` erases p from every set present at that point
-   (SimprocsArray.erase), a later `p` re-adds it to the main set only. Set members are post
-   registrations here (a `↓` member is rejected at elaboration)."
+   Simprocs — its members in the phases they were registered in, with its own erased set. `-p`
+   erases p from every set present at that point (SimprocsArray.erase), a later `p` re-adds it
+   to the main set only."
   [config proc-name]
-  (boolean (some #(and (contains? (:names %) proc-name) (not (contains? (:erased %) proc-name)))
+  (boolean (some #(and (not (contains? (:erased %) proc-name))
+                       (contains? (get (:phases %) proc-name #{}) *simproc-phase*))
                  (:simproc-sets config))))
 
 (defn- simproc-enabled? [config proc-name]
@@ -1826,30 +1856,34 @@
           (branch (if ite? ["ite_eq_right_of_eq_false" "ite_cond_eq_false"]
                       ["dite_eq_right_of_eq_false" "dite_cond_eq_false"]) eb "of_eq_false"))))))
 
-(defn- ite-simproc-name [expr]
-  (let [head (e/get-app-fn expr)]
-    (when (e/const? head)
-      (condp = (e/const-name head) ite-name "reduceIte" dite-name "reduceDIte" nil))))
+(declare reduce-bin-pred try-hpow-reduce try-reduce-ctor-eq try-nat-eq-diff)
+
+(defn- named-simprocs
+  "The ported builtin simprocs, each run when registered in the current *simproc-phase*."
+  [st env lemma-index expr config]
+  (or (some-> (or (reduce-bin-pred st expr config)
+                  (try-nat-literal-reduce st expr config)
+                  (try-int-literal-reduce st expr config)
+                  (try-hpow-reduce st expr config)
+                  (when (simproc-enabled? config "Nat.reduceEqDiff")
+                    (try-nat-eq-diff st expr))
+                  (when (simproc-enabled? config "reduceCtorEq")
+                    (try-reduce-ctor-eq st expr)))
+              ;; these Lean simprocs return `.done` (their result is a value or True/False)
+              (assoc :done? true))
+      ;; reduceIte/reduceDIte return `.visit`: the selected branch is simplified next
+      (let [head (e/get-app-fn expr)
+            proc (when (e/const? head)
+                   (condp = (e/const-name head) ite-name "reduceIte" dite-name "reduceDIte" nil))]
+        (when (and proc env (simproc-enabled? config proc))
+          (reduce-ite st env lemma-index expr config)))))
 
 (defn- pre-simprocs
-  "Lean preDefault's userPreSimprocs (Rewrite.lean:536-540) for the ported builtin pre
-   simprocs (`builtin_simproc ↓`): reduceIte, reduceDIte — their default registration, so
-   only while the default simprocs are on (`simp only` starts from none, Elab/Tactic/
-   Simp.lean:572)."
+  "Lean preDefault's userPreSimprocs (Rewrite.lean:536-540): the simprocs registered pre —
+   reduceIte/reduceDIte by default, and any `simp [↓ p]` added."
   [st env lemma-index expr config]
-  (let [proc (ite-simproc-name expr)]
-    (when (and proc (get config :simprocs? true) (main-simproc-enabled? config proc))
-      (reduce-ite st env lemma-index expr config))))
-
-(defn- explicit-post-simprocs
-  "An unmodified explicit `simp [reduceIte]` adds the simproc in the POST phase (Lean
-   `simprocs.add declName post` with post = true, Elab/Tactic/Simp.lean:352-367, 448-449): it
-   runs after the post theorem lookup."
-  [st env lemma-index expr config]
-  (let [proc (ite-simproc-name expr)]
-    (when (and proc env (or (and (contains? (:simproc-names config) proc) (main-simproc-enabled? config proc))
-                            (set-simproc-enabled? config proc)))
-      (reduce-ite st env lemma-index expr config))))
+  (binding [*simproc-phase* :pre]
+    (named-simprocs st env lemma-index expr config)))
 
 (def ^:private nat-name (name/from-string "Nat"))
 (def ^:private nat-succ-name (name/from-string "Nat.succ"))
@@ -1880,6 +1914,14 @@
       (and (e/lit-nat? w) (pos? (e/lit-nat-val w))) (e/lit-nat (dec (e/lit-nat-val w)))
       :else nil)))
 
+(defn- nat-ctor-clash-neg
+  "`fun h : a = b => Nat.noConfusion h : ¬(a = b)` for Nat terms whose outer constructors are
+   zero and succ (literals included): the kernel reduces Nat.noConfusionType on them to False."
+  [a b]
+  (let [eqp (e/app* (e/const' eq-name [(lvl/succ lvl/zero)]) (e/const' nat-name []) a b)]
+    (e/lam "h" eqp (e/app* (e/const' nat-noconfusion-name [lvl/zero]) (e/const' false-name []) a b (e/bvar 0))
+           :default)))
+
 (defn- nat-ne-neg
   "Term of type `¬(a = b)` for distinct concrete Nat terms a, b, via recursive
    Nat.noConfusion: distinct outer (zero vs succ) closes directly; same outer (succ
@@ -1896,7 +1938,7 @@
       (cond
         (or (nil? va) (nil? vb) (= va vb)) nil
         (or (zero? va) (zero? vb))                 ;; distinct outer ctor → direct
-        (e/lam "h" eqp (noconf (e/bvar 0)) :default)
+        (nat-ctor-clash-neg a b)
         :else                                       ;; both succ → peel + recurse
         (when-let [inner (nat-ne-neg st (nat-pred-term st a) (nat-pred-term st b))]
           (e/lam "h" eqp (e/app (noconf (e/bvar 0)) inner) :default))))))
@@ -1917,51 +1959,123 @@
     (and (e/const? w) (= (e/const-name w) nat-name))))
 
 (defn- mk-ctor-ne-false-proof
-  "Lean BuiltinSimprocs/Core.lean reduceCtorEq: mkEqFalse' of mkNoConfusion."
-  [st expr alpha]
-  (let [[_ [_ lhs rhs]] (e/get-app-fn-args expr)
-        ctx (atom st)
-        h (construction/local-decl ctx "h" expr)
-        neg (construction/mk-lambda-fvars
-             ctx [h] (app-builder/mk-no-confusion ctx (e/const' false-name []) alpha lhs rhs h))]
-    (mk-result (e/const' false-name [])
-               (e/app* (e/const' eq-false-name []) expr neg))))
+  "Lean BuiltinSimprocs/Core.lean reduceCtorEq: mkEqFalse' of mkNoConfusion for distinct
+   constructors of `ind`. A Nat clash (zero vs succ) is closed by Nat.noConfusion; any other
+   inductive by AppBuilder.mkNoConfusion's `noConfusion_of_Nat` over `ind.ctorIdx`, used only when
+   the environment declares what that proof references (a dependency closure may not). nil
+   otherwise."
+  [st expr alpha ind]
+  (let [env (:env st)
+        has? #(some? (env/lookup env (if (string? %) (name/from-string %) %)))
+        [_ [_ lhs rhs]] (e/get-app-fn-args expr)
+        eq-false (fn [neg] (mk-result (e/const' false-name [])
+                                      (e/app* (e/const' eq-false-name []) expr neg)))]
+    (when (has? eq-false-name)
+      (cond
+        (and (= nat-name ind) (has? nat-noconfusion-name))
+        (eq-false (nat-ctor-clash-neg lhs rhs))
 
-(defn- try-reduce-ctor-eq
-  "Reduce constructor equality to False when constructors differ — Lean 4's reduceCtorEq
-   (BuiltinSimprocs/Core.lean). Builds a real `(t1=t2)=False` proof via noConfusion+eq_false.
-   `false=true → False` is PROPOSITIONAL, not definitional, so a nil/rfl proof would be
-   unsound (it desyncs the simp Result's :expr from its proof RHS in the Eq.trans chain).
-   Literal disequalities (0=1, distinct strings) are left to the decide-based path
-   (try-simp-using-decide), which certifies them via eq_false_of_decide."
+        (every? has? ["False.elim" "noConfusion_of_Nat" (name/mk-str ind "ctorIdx")])
+        (let [ctx (atom st)
+              h (construction/local-decl ctx "h" expr)]
+          (eq-false (construction/mk-lambda-fvars
+                     ctx [h] (app-builder/mk-no-confusion ctx (e/const' false-name []) alpha lhs rhs h))))))))
+
+(defn- try-nat-eq-diff
+  "Lean's `Nat.reduceEqDiff` (BuiltinSimprocs/Nat.lean) for distinct concrete Nat values
+   (literals / succ / zero): `(a = b) = False` via recursive noConfusion. Lean's reduceCtorEq
+   leaves `1 = 2` alone."
   [st expr]
   (let [[head args] (e/get-app-fn-args expr)]
-    (when (and (e/const? head)
-               (= (e/const-name head) eq-name)
-               (= 3 (count args)))
-      (let [alpha (nth args 0)]
-        (or
-          ;; Nat: distinct concrete values (literals / succ / zero), recursive noConfusion.
-         (when (nat-type? st alpha)
-           (nat-lit-ne-false-proof st expr (nth args 1) (nth args 2)))
-          ;; Distinct named constructors share AppBuilder.mkNoConfusion, including
-          ;; parameterized and indexed families. Same constructors do not reduce.
-         (let [lhs (#'tc/cached-whnf st (nth args 1))
-               rhs (#'tc/cached-whnf st (nth args 2))
-               [lh _] (e/get-app-fn-args lhs)
-               [rh _] (e/get-app-fn-args rhs)]
-           (when (and (e/const? lh) (e/const? rh)
-                      (not= (e/const-name lh) (e/const-name rh)))
-             (let [env (:env st)
-                   lci (env/lookup env (e/const-name lh))
-                   rci (env/lookup env (e/const-name rh))]
-               (when (and lci rci
-                          (.isCtor ^ConstantInfo lci)
-                          (.isCtor ^ConstantInfo rci))
-                 (let [lparent (.inductName ^ConstantInfo lci)
-                       rparent (.inductName ^ConstantInfo rci)]
-                   (when (and lparent rparent (= lparent rparent))
-                     (mk-ctor-ne-false-proof st expr alpha))))))))))))
+    (when (and (e/const? head) (= (e/const-name head) eq-name) (= 3 (count args))
+               (nat-type? st (nth args 0)))
+      (nat-lit-ne-false-proof st expr (nth args 1) (nth args 2)))))
+
+(def ^:private standard-numeral-instances
+  "The instances Lean's elaborator writes for numerals: `instOfNatNat n`, `@instOfNat n` (Int) and
+   `Int.instNegInt`."
+  {"Nat" #(e/app (e/const' (name/from-string "instOfNatNat") []) %)
+   "Int" #(e/app (e/const' (name/from-string "instOfNat") []) %)
+   "Neg" (e/const' (name/from-string "Int.instNegInt") [])})
+
+(defn- standard-instance?
+  "`inst` is the standard instance `std` (syntactically, or by kernel definitional equality)."
+  [st inst std]
+  (or (= inst std)
+      (try (tc/is-def-eq st inst std) (catch Exception _ false))))
+
+(defn- of-nat-value
+  "Lean LitValues.getOfNatValue?: `n` when `x` is `@OfNat.ofNat T n inst` with a raw literal `n`
+   and `T` headed by `type-name` — here also with `inst` the standard numeral instance. Lean
+   v4.36.0 ignores the instance and reduceCtorEq then builds a proof its kernel rejects for an
+   instance such as `OfNat Nat 1 := ⟨0⟩` (test/lean-parity/simp/q4_nonstandard_numeral.lean)."
+  [st x type-name]
+  (let [[f args] (e/get-app-fn-args (loop [x x] (if (e/mdata? x) (recur (e/mdata-expr x)) x)))]
+    (when (and (e/const? f) (= "OfNat.ofNat" (name/->string (e/const-name f))) (= 3 (count args)))
+      (let [[t n inst] args
+            th (e/get-app-fn t)
+            n (loop [n n] (if (e/mdata? n) (recur (e/mdata-expr n)) n))]
+        (when (and (e/const? th) (= type-name (name/->string (e/const-name th))) (e/lit-nat? n)
+                   (standard-instance? st inst ((standard-numeral-instances type-name) n)))
+          (e/lit-nat-val n))))))
+
+(defn- lit-to-ctor
+  "Lean LitValues.litToCtor (:250): a Nat literal (raw or OfNat) as Nat.zero / Nat.succ (n-1), an
+   Int literal (OfNat, or Neg.neg of one) as Int.ofNat n / Int.negSucc (-(n+1)); else `x`. A
+   numeral counts only with the standard instances (of-nat-value)."
+  [st x]
+  (let [x' (loop [x x] (if (e/mdata? x) (recur (e/mdata-expr x)) x))
+        nat-v (if (e/lit-nat? x') (e/lit-nat-val x') (of-nat-value st x' "Nat"))
+        int-v (or (of-nat-value st x' "Int")
+                  (let [[f args] (e/get-app-fn-args x')]
+                    (when (and (e/const? f) (= "Neg.neg" (name/->string (e/const-name f))) (= 3 (count args))
+                               (standard-instance? st (nth args 1) (standard-numeral-instances "Neg")))
+                      (some-> (of-nat-value st (nth args 2) "Int") -'))))]
+    (cond
+      nat-v (if (zero? nat-v) (e/const' nat-zero-name []) (e/app (e/const' nat-succ-name []) (e/lit-nat (dec nat-v))))
+      int-v (if (neg? int-v)
+              (e/app (e/const' int-negsucc-name []) (e/lit-nat (- (inc int-v))))
+              (e/app (e/const' int-ofnat-name []) (e/lit-nat int-v)))
+      :else x)))
+
+(defn- constructor-app
+  "Lean CtorRecognizer.constructorApp? (:85): the constructor of `x` (after litToCtor) when it is
+   applied to all its parameters and fields, else nil."
+  [st x]
+  (let [env (:env st)
+        [f args] (e/get-app-fn-args (lit-to-ctor st x))
+        ci (when (e/const? f) (env/lookup env (e/const-name f)))]
+    (when (and ci (env/ctor? ci)
+               (= (+ (.numParams ^ConstantInfo ci) (.numFields ^ConstantInfo ci)) (count args)))
+      ci)))
+
+(defn- constructor-app'
+  "Lean CtorRecognizer.constructorApp'? (:100) under withReducibleAndInstances (Core.lean:88): a
+   Nat offset `s + k` (k > 0, Meta isOffset?) is Nat.succ, a literal its constructor, and only
+   otherwise is `x` weak-head reduced at reducible-and-instances transparency — an ordinary
+   definition such as `def one : Nat := 1` stays folded, a reducible alias unfolds."
+  [st x]
+  (let [env (:env st)]
+    (if-let [[_ k] (meta/nat-offset meta/empty-context x)]
+      (when (pos? k) (env/lookup env nat-succ-name))
+      (or (constructor-app st x)
+          (constructor-app st (try (meta/whnf-at meta/empty-context st x :instances
+                                                 #(contains? (registered-instance-names env) %))
+                                   (catch clojure.lang.ExceptionInfo _ x)))))))
+
+(defn- try-reduce-ctor-eq
+  "Lean 4's reduceCtorEq (BuiltinSimprocs/Core.lean:86-97): `a = b` with distinct constructors
+   (constructor-app') is False, proved by noConfusion and eq_false. `false = true → False` is
+   PROPOSITIONAL, not definitional, so a nil/rfl proof would be unsound. A Nat literal is its outer
+   constructor (0 = 1 clashes, 1 = 2 does not: that is Nat.reduceEqDiff's)."
+  [st expr]
+  (let [[head args] (e/get-app-fn-args expr)]
+    (when (and (e/const? head) (= (e/const-name head) eq-name) (= 3 (count args)))
+      (let [[alpha lhs rhs] args]
+        (when-let [lci (constructor-app' st lhs)]
+          (when-let [rci (constructor-app' st rhs)]
+            (when (not= (.name ^ConstantInfo lci) (.name ^ConstantInfo rci))
+              (mk-ctor-ne-false-proof st expr alpha (.inductName ^ConstantInfo lci)))))))))
 
 ;; ============================================================
 ;; Match/recursor reduction simproc
@@ -2313,13 +2427,8 @@
    5. simpUsingDecide — decide on ground decidable propositions"
   [st expr config & {:keys [env lemma-index]}]
   (or (try-reduce-proj-fn st expr)
-      (explicit-post-simprocs st env lemma-index expr config)
-      (reduce-bin-pred st expr config)
-      (try-nat-literal-reduce st expr config)
-      (try-int-literal-reduce st expr config)
-      (try-hpow-reduce st expr config)
-      (when (simproc-enabled? config "reduceCtorEq")
-        (try-reduce-ctor-eq st expr))
+      (binding [*simproc-phase* :post]
+        (named-simprocs st env lemma-index expr config))
       ;; Bool.rec → Bool.and folding inside (Eq Bool (Bool.rec ...) Bool.true).
       ;; Folds the inner Bool.rec to Bool.and so Bool.and_eq_true can match.
       ;; Only fires in this specific context — standalone Bool.rec is handled
@@ -3313,51 +3422,68 @@
                          (is-proof-term? st expr))
                   (mk-result expr)
 
-                  ;; PRE-PHASE
+                  ;; PRE-PHASE — Lean Simp/Main.lean:677-710 simpLoop. Only the post continuation
+                  ;; (visitPostContinue) revisits; a pre `.visit` and a head reduction return
+                  ;; their composed recursive result (`::final`), so a terminal `.done` reached
+                  ;; inside is never reopened at this level.
                   (let [pre-step (or (rewrite-pre st env lemma-index expr config)
                                      (pre-simprocs st env lemma-index expr config))]
-                    (if pre-step
-                      ;; .visit: recurse on result
+                    (cond
+                      ;; .done (a terminal simproc result, Types.lean:316-337): cached as is
+                      (:done? pre-step) pre-step
+                      ;; .visit: recurse on result, then return (:686)
+                      pre-step
                       (let [inner (simp-expr* st env lemma-index (:expr pre-step) (update config :max-depth dec))]
-                        (mk-eq-trans st pre-step inner))
+                        (assoc (mk-eq-trans st pre-step inner) ::final true))
 
-                      ;; .continue: reduce + descend
+                      :else
+
+                      ;; .continue: reduce + descend (visitPreContinue, :690-698)
                       (let [whnf-r (reduce-step st expr)
                             unfold-r (when-not whnf-r
                                        (when-let [u (try-unfold st env (:to-unfold config) expr)]
                                          (mk-result u)))
-                            reduced (or whnf-r unfold-r)
-                            current (if reduced
-                                      (let [inner (simp-expr* st env lemma-index (:expr reduced) (update config :max-depth dec))]
-                                        (mk-eq-trans st reduced inner))
-                                      (simp-subterms st env lemma-index expr config))]
-
-                        ;; POST-PHASE
-                        ;; Lean 4: after congruence may have introduced reducible redexes
-                        ;; (e.g. Bool.rec ... true after discriminant rewrite).
-                        ;; Try WHNF reduction before post-rewrite.
-                        (let [post-reduced (when (not (identical? (:expr current) expr))
-                                             (reduce-step st (:expr current)))
-                              current (if post-reduced
-                                        (mk-eq-trans st current post-reduced)
-                                        current)
-                              post-r (or (try-rewrite-step st env lemma-index (:expr current) config)
-                                         (try-simproc st (:expr current) config
-                                                      :env env :lemma-index lemma-index))]
-                          (if post-r
-                            (let [composed (mk-eq-trans st current post-r)]
-                              (if (or (:single-pass? config) (= expr (:expr composed)))
-                                composed
-                                (let [again (simp-expr* st env lemma-index (:expr composed)
-                                                        (update config :max-depth dec))]
-                                  (mk-eq-trans st composed again))))
-                            current))))))
+                            reduced (or whnf-r unfold-r)]
+                        (if reduced
+                          ;; reduceStep changed the term: simpLoop on it, and return (:693-695)
+                          (let [inner (simp-expr* st env lemma-index (:expr reduced) (update config :max-depth dec))]
+                            (assoc (mk-eq-trans st reduced inner) ::final true))
+                          (let [current (simp-subterms st env lemma-index expr config)
+                                ;; POST-PHASE
+                                ;; Lean 4: after congruence may have introduced reducible redexes
+                                ;; (e.g. Bool.rec ... true after discriminant rewrite).
+                                ;; Try WHNF reduction before post-rewrite.
+                                post-reduced (when (not (identical? (:expr current) expr))
+                                               (reduce-step st (:expr current)))
+                                current (if post-reduced
+                                          (mk-eq-trans st current post-reduced)
+                                          current)
+                                post-r (or (try-rewrite-step st env lemma-index (:expr current) config)
+                                           (try-simproc st (:expr current) config
+                                                        :env env :lemma-index lemma-index))]
+                            (if post-r
+                              (let [composed (mk-eq-trans st current post-r)]
+                                (cond
+                                  ;; post `.done` (Main.lean:703-707): no further visit
+                                  (:done? post-r) (assoc composed ::final true)
+                                  (or (:single-pass? config) (= expr (:expr composed)))
+                                  (assoc composed ::final true)
+                                  :else
+                                  (let [again (simp-expr* st env lemma-index (:expr composed)
+                                                          (update config :max-depth dec))]
+                                    (assoc (mk-eq-trans st composed again) ::final true))))
+                              ;; post `.continue none`: visitPostContinue below revisits a term the
+                              ;; congruence step changed
+                              current)))))))
                 result (if (and (not (:single-pass? config))
+                                (not (:done? result))
+                                (not (::final result))
                                 (not= expr (:expr result)))
                          (mk-eq-trans st result
                                       (simp-expr* st env lemma-index (:expr result)
                                                   (update config :max-depth dec)))
-                         result)]
+                         result)
+                result (dissoc result :done? ::final)]
             ;; Trace: log when Bool→True corruption occurs
             (when (and *simp-trace*
                        (e/const? expr)
@@ -3854,16 +3980,19 @@
              (and (map? arg) (contains? arg :simp-set))
              (let [set-name (str (:simp-set arg))
                    {:keys [entries simprocs]} (attrs/simp-set-entries env set-name)]
-               ;; the set's simprocs join as their own Simprocs, with their own erased set
-               ;; (SimprocsArray.push, Elab/Tactic/Simp.lean:462-466) — the main set's erasures
-               ;; stay; its theorem names are prepared like explicit ones (ensure-nat-packing).
-               ;; Its `↓` simprocs are kept by phase (`:pre`) for the check after elaboration.
+               ;; the set's simprocs join as their own Simprocs, each in the phase its registration
+               ;; names (`attribute [s ↓] p`), with their own erased set (SimprocsArray.push,
+               ;; Elab/Tactic/Simp.lean:462-466) — the main set's erasures stay; its theorem
+               ;; names are prepared like explicit ones (ensure-nat-packing)
                (-> acc
                    (update :simp-sets conj set-name)
                    (update :decl-names into (map :name) entries)
-                   (update :simproc-sets conj {:set set-name :names (set (map :name simprocs))
-                                               :pre (set (map :name (remove :post simprocs)))
-                                               :erased #{}})))
+                   (update :simproc-sets conj
+                           {:set set-name
+                            :phases (reduce (fn [m {pn :name pp :post}]
+                                              (update m pn (fnil conj #{}) (if pp :post :pre)))
+                                            {} simprocs)
+                            :erased #{}})))
 
              :else
              (let [descriptor (when (map? arg) arg)
@@ -3883,8 +4012,9 @@
                                     {:name n})))
                ;; dsimp only elaborates its arguments for their diagnostics here: a `↓`
                ;; simproc is a valid registration (Elab/Tactic/Simp.lean:367)
-               (when (and (not post) simproc? (not dsimp?))
-                 (simp-arg-error! (str "`↓` on the simproc `" n "` is not supported") {:name n}))
+               (when (and simproc? (not post) (not dsimp?) (not (contains? ported-simprocs n)))
+                 (simp-arg-error! (str "`↓` on the simproc `" n "` is not supported: its execution is not ported")
+                                  {:name n}))
                (let [;; Lean uneraseSimpEntry + addSimpEntry for one theorem entry. Erasure leaves the
                      ;; inherited tree entries in place (SimpTheorems.lean:612-622), so un-erasing an
                      ;; inherited origin reveals its masked entries in their own phases, as the
@@ -3928,18 +4058,20 @@
                                                 (or (not post) inv) {:name n :post post :inv inv}
                                                 :else arg))
                                (update :decl-names conj n))
-                     simproc? (update :simproc-erased disj n)))))))
+                     simproc? (-> (update :simproc-erased disj n)
+                                  (update-in [:simproc-phases n] (fnil conj #{}) (if post :post :pre)))))))))
          {:decls [] :decl-names [] :terms [] :simproc-erased #{} :simproc-sets [] :erased-unfold #{} :unfold #{}
-          :erase-results [] :simp-sets [] :revealed [] :seeded #{}
+          :erase-results [] :simp-sets [] :simproc-phases {} :revealed [] :seeded #{}
           :state {:inherited? inherited? :erased (set erased) :added #{} :removed #{}}}
          args)]
-    ;; the phase of a set's simproc is not carried yet: a `↓` simproc still live once every
-    ;; argument is elaborated (a later `-p` erases it) is refused rather than run post; dsimp
-    ;; only elaborates its arguments for their diagnostics
+    ;; a set's `↓` simproc whose execution is not ported is refused when it is still live once
+    ;; every argument is elaborated (a later `-p` erases it); dsimp only elaborates its arguments
+    ;; for their diagnostics
     (when-not dsimp?
-      (doseq [{:keys [set pre erased]} (:simproc-sets result)
-              p pre :when (not (contains? erased p))]
-        (simp-arg-error! (str "`↓` simproc `" p "` in the simp set `" set "` is not supported")
+      (doseq [{:keys [set phases erased]} (:simproc-sets result)
+              [p ps] phases
+              :when (and (contains? ps :pre) (not (contains? erased p)) (not (contains? ported-simprocs p)))]
+        (simp-arg-error! (str "`↓` simproc `" p "` in the simp set `" set "` is not supported: its execution is not ported")
                          {:name p :set set})))
     (-> result
         (assoc :erased (:erased (:state result)) :to-unfold (:unfold result)
@@ -4034,7 +4166,7 @@
   "The simp context for `goal`: [ps st env lemma-index config]. `:exclude-hyp` drops that local
    from the contextual / term lemmas (Lean erases the simplified hypothesis itself in `simp at h`)."
   [ps goal lemma-names opts]
-  (let [{:keys [decls decl-names terms erased erased-unfold simproc-erased simproc-sets simp-sets] arg-unfold :to-unfold}
+  (let [{:keys [decls decl-names terms erased erased-unfold simproc-erased simproc-sets simp-sets simproc-phases] arg-unfold :to-unfold}
         (elab-simp-args (:env ps) lemma-names (default-simp-arg-context (:env ps) opts))
         env (ensure-nat-packing
              (if (:only? opts)
@@ -4108,9 +4240,9 @@
                 :decide? (get opts :decide? false)
                 :ground? (get opts :ground? false)
                 :simprocs? (get opts :simprocs? (not (:only? opts)))
-                :simproc-names (set decl-names)
                 :simproc-erased simproc-erased
                 :simproc-sets simproc-sets
+                :simproc-phases simproc-phases
                 :max-steps (atom 0)
                 :cache (atom {})
                 :to-unfold to-unfold
@@ -4441,7 +4573,7 @@
         _ (when-not goal (tactic-error! "No goals" {}))
         ;; Lean elabSimpArgs (Elab/Tactic/Simp.lean:415-470); the goal step below re-elaborates
         ;; the same arguments through simp-setup.
-        {:keys [decls decl-names terms erased erased-unfold simproc-erased simproc-sets simp-sets] arg-unfold :to-unfold}
+        {:keys [decls decl-names terms erased erased-unfold simproc-erased simproc-sets simp-sets simproc-phases] arg-unfold :to-unfold}
         (elab-simp-args (:env ps) lemma-names (default-simp-arg-context (:env ps) opts))
         env (ensure-nat-packing
              (if (:only? opts)
@@ -4512,7 +4644,7 @@
                      config {:max-depth 20 :single-pass? false :decide? (get opts :decide? false)
                              :ground? (get opts :ground? false)
                              :simprocs? (get opts :simprocs? (not (:only? opts)))
-                             :simproc-names (set decl-names) :simproc-erased simproc-erased :simproc-sets simproc-sets
+                             :simproc-erased simproc-erased :simproc-phases simproc-phases :simproc-sets simproc-sets
                              :max-steps (atom 0) :cache (atom {})
                              :to-unfold to-unfold :discharge-depth 0
                              :ext-trie ext-trie :inst-index inst-index
