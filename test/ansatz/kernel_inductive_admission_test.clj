@@ -95,6 +95,8 @@
         intro (env/mk-ctor (n "KE.intro") [] (c "KE") (n "KE") 0 0 0)]
     (testing "control: the empty proposition is admitted"
       (is (admits? @base honest)))
+    (testing "its motive stays explicit (strict infer_implicit; Lean: E.rec (motive : E → Sort u))"
+      (is (= :default (e/forall-info (.type ^ConstantInfo (by-name honest "KE.rec"))))))
     (testing "a constructor record outside the inductive's constructor list is rejected"
       ;; KE.rec eliminates into every universe with no minor premise; with KE.intro admitted
       ;; too, the environment proves False.
@@ -197,6 +199,16 @@
                  (env/mk-ctor (n "KT7.mk") [] (ipi "α" type0 (pi "a" redex (e/app (c "KT7") (bv 1)))) T 0 1 1)]]
     (is (re-find #"invalid occurrence of datatype 'KT7'" (str (rejection @base records))))))
 
+(deftest f7-parameters-of-the-first-header-must-be-manifest
+  ;; Lean's get_params does not reduce: `I6 : HA` with HA := Type → Type and one parameter is
+  ;; "invalid inductive datatype declaration, incorrect number of parameters" (Admission.lean).
+  (let [env (env/check-constant @base (env/mk-def (n "KHA") [] (e/sort' (lvl/succ l1)) (pi "x" type0 type0)
+                                                  :hints {:regular 1})
+                                fuel)]
+    (is (re-find #"incorrect number of parameters"
+                 (str (try (env/add-inductive env (env/mk-inductive-decl [] 1 false [["KI6" (c "KHA") []]]) fuel) nil
+                           (catch Throwable ex (.getMessage ex))))))))
+
 ;; ============================================================
 ;; Finding 10 — closedness and the reserved `_nested` prefix
 ;; ============================================================
@@ -267,6 +279,8 @@
   (let [[_ honest] (generate @base [] 0 [["KTree" type0
                                           [["KTree.node" (pi "c" (e/app (c "List" [l0]) (c "KTree")) (c "KTree"))]]]])]
     (is (some? (by-name honest "KTree.rec_1")))
+    (is (= [(n "List.nil") (n "List.cons")] (mapv #(.ctor ^ConstantInfo$RecursorRule %) (.rules ^ConstantInfo (by-name honest "KTree.rec_1")))))
+    (is (= 1 (.numNested ^ConstantInfo (by-name honest "KTree"))))
     (is (admits? @base honest))
     (testing "the auxiliary recursor under a temporary name is rejected"
       (is (some? (rejection @base (replace-record honest "KTree.rec_1" #(rec-with % :name (n "List.nested_1.rec")))))))
