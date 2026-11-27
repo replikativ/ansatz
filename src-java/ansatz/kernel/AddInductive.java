@@ -832,30 +832,38 @@ public final class AddInductive {
         return false;
     }
 
-    /** Lean's has_loose_bvar(e, i): bvar i occurs free in e. Memoized on (subterm, index). */
+    /** Lean's has_loose_bvar(e, i): bvar i occurs free in e. Memoized on (subterm, index) once a
+     *  search grows past a small number of nodes, so small searches allocate nothing. */
     static boolean hasLooseBVar(Expr e, int i) {
-        return hasLooseBVarGo(e, i, new IdentityHashMap<>(), new Poll());
+        return new LooseBVarSearch().go(e, i);
     }
 
-    private static boolean hasLooseBVarGo(Expr e, int i, IdentityHashMap<Expr, HashSet<Integer>> absent, Poll poll) {
-        if (e.bvarRange() <= i) return false;
-        HashSet<Integer> known = absent.get(e);
-        if (known != null && known.contains(i)) return false;
-        poll.tick();
-        boolean r;
-        switch (e.tag) {
-            case Expr.BVAR: r = e.longVal == i; break;
-            case Expr.APP: r = hasLooseBVarGo((Expr) e.o0, i, absent, poll) || hasLooseBVarGo((Expr) e.o1, i, absent, poll); break;
-            case Expr.LAM: case Expr.FORALL:
-                r = hasLooseBVarGo((Expr) e.o1, i, absent, poll) || hasLooseBVarGo((Expr) e.o2, i + 1, absent, poll); break;
-            case Expr.LET:
-                r = hasLooseBVarGo((Expr) e.o1, i, absent, poll) || hasLooseBVarGo((Expr) e.o2, i, absent, poll)
-                    || hasLooseBVarGo((Expr) e.o3, i + 1, absent, poll); break;
-            case Expr.MDATA: case Expr.PROJ: r = hasLooseBVarGo((Expr) e.o1, i, absent, poll); break;
-            default: r = false;
+    private static final class LooseBVarSearch {
+        private int visits;
+        private IdentityHashMap<Expr, HashSet<Integer>> absent;
+        private final Poll poll = new Poll();
+
+        boolean go(Expr e, int i) {
+            if (e.bvarRange() <= i) return false;
+            if (absent != null) {
+                HashSet<Integer> known = absent.get(e);
+                if (known != null && known.contains(i)) return false;
+            } else if (++visits > 64) {
+                absent = new IdentityHashMap<>();
+            }
+            poll.tick();
+            boolean r;
+            switch (e.tag) {
+                case Expr.BVAR: return e.longVal == i;
+                case Expr.APP: r = go((Expr) e.o0, i) || go((Expr) e.o1, i); break;
+                case Expr.LAM: case Expr.FORALL: r = go((Expr) e.o1, i) || go((Expr) e.o2, i + 1); break;
+                case Expr.LET: r = go((Expr) e.o1, i) || go((Expr) e.o2, i) || go((Expr) e.o3, i + 1); break;
+                case Expr.MDATA: case Expr.PROJ: r = go((Expr) e.o1, i); break;
+                default: return false;
+            }
+            if (!r && absent != null) absent.computeIfAbsent(e, k -> new HashSet<>()).add(i);
+            return r;
         }
-        if (!r) absent.computeIfAbsent(e, k -> new HashSet<>()).add(i);
-        return r;
     }
 
     /**
