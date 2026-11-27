@@ -1587,7 +1587,7 @@
                                  (.isRecursor ci) (try (some-> (.rules ci) first .ctor
                                                                ansatz-name/->string
                                                                ((:resolve-fn ctx)) .inductName)
-                                                          (catch Exception _ nil)))]
+                                                       (catch Exception _ nil)))]
                     (if induct (ansatz-name/->string induct) name)))
         by-head (group-by (comp head-of :name) (:error-names cp))
         lw ^java.io.Writer (:log-writer ctx)
