@@ -1066,9 +1066,16 @@ public final class Reducer {
     // Iota and quotient reduction (Lean's reduce_recursor, inductive.h, quot.h)
     // ============================================================
 
-    /** Lean's reduce_recursor: quotient reduction when the quotient is initialized, then iota. */
+    /**
+     * Lean's reduce_recursor: quotient reduction when the quotient is initialized, then iota.
+     * Lean's is_quot_initialized is a flag; Env.isQuotEnabled checks the quotient package (on a
+     * staged store view, on every call), so it is asked only for a `Quot.lift` / `Quot.ind` head —
+     * the only applications quot_reduce_rec reduces.
+     */
     private Expr reduceRecursor(Expr e, boolean cheapRec, boolean cheapProj) {
-        if (env.isQuotEnabled()) {
+        Expr fn = getAppFn(e);
+        if (fn.tag == Expr.CONST && (Name.QUOT_LIFT.equals(fn.o0) || Name.QUOT_IND.equals(fn.o0))
+                && env.isQuotEnabled()) {
             Expr r = quotReduceRec(e);
             if (r != null) return r;
         }
