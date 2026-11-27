@@ -13,7 +13,7 @@
             [ansatz.kernel.level :as lvl]
             [ansatz.kernel.name :as name]
             [ansatz.kernel.reduce :as red])
-  (:import [ansatz.kernel ConstantInfo ConstantInfo$RecursorRule Env InductiveBundle Reducer]))
+  (:import [ansatz.kernel ConstantInfo ConstantInfo$RecursorRule Env Reducer]))
 
 ;; ============================================================
 ;; Helpers
@@ -51,48 +51,14 @@
 
 (defn- admits? [env records] (nil? (rejection env records)))
 
-(defn- arity [ex] (loop [ex ex k 0] (if (e/forall? ex) (recur (e/forall-body ex) (inc k)) k)))
-
-(defn- occurs? [ex names]
-  (cond (e/const? ex) (contains? names (e/const-name ex))
-        (e/app? ex) (or (occurs? (e/app-fn ex) names) (occurs? (e/app-arg ex) names))
-        (or (e/forall? ex) (e/lam? ex)) (or (occurs? (.o1 ex) names) (occurs? (.o2 ex) names))
-        :else false))
-
-(defn- domains [ex] (loop [ex ex out []] (if (e/forall? ex) (recur (e/forall-body ex) (conj out (e/forall-type ex))) out)))
-
 (defn- generate
   "The records the kernel generates for a declaration (Lean's `inductive_decl`):
    `types` is [[name type [[ctor-name ctor-type] ...]] ...]. Returns [env records], the records
-   in Lean's order: inductives, constructors, recursors (auxiliary ones last).
-   (Pre-K4 kernel: metadata derived here, recursors from InductiveChecker by reflection.)"
-  [^Env env lps np types & {:keys [unsafe? num-nested] :or {num-nested 0}}]
-  (let [names (set (map (comp n first) types))
-        all (mapv (comp n first) types)
-        doms (for [[_ _ cs] types [_ ct] cs d (domains ct)] d)
-        rec? (boolean (some #(occurs? % names) doms))
-        refl? (boolean (some #(and (e/forall? %) (occurs? % names)) doms))
-        inds (vec (for [[nm ty cs] types]
-                    (env/mk-induct (n nm) lps ty :num-params np :num-indices (- (arity ty) np) :all all
-                                   :ctors (mapv (comp n first) cs) :num-nested num-nested
-                                   :rec? rec? :reflexive? refl?)))
-        ctors (vec (for [[nm _ cs] types [i [cn ct]] (map-indexed vector cs)]
-                     (env/mk-ctor (n cn) lps ct (n nm) i np (- (arity ct) np))))
-        recs (if (pos? num-nested)
-               (let [env' (env/check-inductive-bundle env (env/mk-inductive-bundle lps np false inds ctors []) fuel)]
-                 (vec (keep #(env/lookup env' (n %))
-                            (concat (map #(str (first %) ".rec") types)
-                                    (map #(str (ffirst types) ".rec_" %) (range 1 10))))))
-               (let [bundle0 (env/mk-inductive-bundle lps np false inds ctors [])
-                     klass (Class/forName "ansatz.kernel.InductiveChecker")
-                     k (doto (.getDeclaredConstructor klass (into-array Class [Env InductiveBundle Long/TYPE]))
-                         (.setAccessible true))
-                     ic (.newInstance k (object-array [env bundle0 (long fuel)]))
-                     m (doto (.getDeclaredMethod klass "generateAndCheckRecursors" (into-array Class []))
-                         (.setAccessible true))]
-                 (vec (.invoke m ic (object-array [])))))
-        records (vec (concat inds ctors recs))]
-    [(env/check-inductive-bundle env (env/mk-inductive-bundle lps np false inds ctors recs) fuel) records]))
+   in Lean's order: each type, its constructors and recursor, then the auxiliary recursors."
+  [^Env env lps np types & {:keys [unsafe?]}]
+  (let [decl (env/mk-inductive-decl lps np (boolean unsafe?) types)
+        env' (env/add-inductive env decl fuel)]
+    [env' (env/inductive-decl-constants env' decl)]))
 
 (defn- by-name [records s] (first (filter #(= (n s) (.name ^ConstantInfo %)) records)))
 
@@ -286,22 +252,20 @@
 
 (deftest nested-occurrences-are-identified-up-to-binder-names
   ;; Lean: numNested = 1, T.rec has two motives (NestedAndRecursor.lean).
-  (let [[env _] (generate @base [] 1 [["KC" (pi "f" (pi "x" (c "Nat") (c "Nat")) (pi "α" type0 type0))
+  (let [[env _] (generate @base [] 2 [["KC" (pi "f" (pi "x" (c "Nat") (c "Nat")) (pi "α" type0 type0))
                                        [["KC.mk" (ipi "f" (pi "x" (c "Nat") (c "Nat"))
                                                       (ipi "α" type0 (pi "a" (bv 0) (e/app* (c "KC") (bv 2) (bv 1)))))]]]])
         idx (lam "x" (c "Nat") (bv 0))
         idy (lam "y" (c "Nat") (bv 0))
         [env' _] (generate env [] 0 [["KTn" type0
                                       [["KTn.node" (pi "a" (e/app* (c "KC") idx (c "KTn"))
-                                                       (pi "b" (e/app* (c "KC") idy (c "KTn")) (c "KTn")))]]]]
-                           :num-nested 1)]
+                                                       (pi "b" (e/app* (c "KC") idy (c "KTn")) (c "KTn")))]]]])]
     (is (= 1 (.numNested ^ConstantInfo (env/lookup env' (n "KTn")))))
     (is (= 2 (.numMotives ^ConstantInfo (env/lookup env' (n "KTn.rec")))))))
 
 (deftest nested-auxiliary-recursor-must-carry-its-canonical-name
   (let [[_ honest] (generate @base [] 0 [["KTree" type0
-                                          [["KTree.node" (pi "c" (e/app (c "List" [l0]) (c "KTree")) (c "KTree"))]]]]
-                             :num-nested 1)]
+                                          [["KTree.node" (pi "c" (e/app (c "List" [l0]) (c "KTree")) (c "KTree"))]]]])]
     (is (some? (by-name honest "KTree.rec_1")))
     (is (admits? @base honest))
     (testing "the auxiliary recursor under a temporary name is rejected"
