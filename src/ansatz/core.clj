@@ -3673,7 +3673,8 @@
                                                         (= binfo :inst-implicit) (conj :inst)
                                                         (= binfo :implicit) (conj :implicit))
                                                       (bind scope n)])
-                                                   [[] (cond-> scope self (bind self))]
+                                                   ;; the elaborator does not bind a fn's self name
+                                                   [[] scope]
                                                    (ingest/parse-params params))
                           body' (map #(rw % scope') body)]
                       (apply list head (concat (when self [self])
@@ -3681,14 +3682,18 @@
 
                 (and (seq? form) (= "let" (str (first form))) (vector? (second form)))
                 (let [[head bindings & body] form
-                      toks (vec (remove sep? bindings))]
-                  (if (= 3 (count toks))
-                    ;; typed surface let [x T v]
-                    (let [[n t v] toks]
+                      ;; the elaborator's rule: a typed surface let is [x T v] (with `:`/`:-`/`=`/`,`
+                      ;; separators) and one body; anything else is Clojure's let
+                      typed (vec (remove #(contains? #{":" ":-" "=" ","} (str %)) bindings))]
+                  (if (and (= 3 (count typed)) (= 1 (count body)))
+                    (let [[n t v] typed]
                       (apply list head [n (rw t scope) (rw v scope)] (map #(rw % (bind scope n)) body)))
-                    ;; Clojure let: sequential name/value pairs
-                    (let [[out scope'] (reduce (fn [[out scope] [n v]] [(conj out n (rw v scope)) (bind scope n)])
-                                               [[] scope] (partition 2 toks))]
+                    ;; Clojure let: sequential name/value pairs (an odd trailing token stays as it is)
+                    (let [[out scope'] (reduce (fn [[out scope] [n & v]]
+                                                 (if (seq v)
+                                                   [(conj out n (rw (first v) scope)) (bind scope n)]
+                                                   [(conj out n) scope]))
+                                               [[] scope] (partition-all 2 bindings))]
                       (apply list head out (map #(rw % scope') body)))))
 
                 (seq? form) (apply list (map #(rw % scope) form))
