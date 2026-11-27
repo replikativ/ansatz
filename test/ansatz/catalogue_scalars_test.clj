@@ -1,6 +1,6 @@
 (ns ansatz.catalogue-scalars-test
   "Catalogue artifact conversion without the optional Datahike runtime."
-  (:require [clojure.test :refer [deftest is]]
+  (:require [clojure.test :refer [deftest is testing]]
             [clojure.edn :as edn]
             [ansatz.catalogue.scalars :as scalars]
             [ansatz.simp-index :as si]
@@ -25,3 +25,14 @@
                     {:key-encoding 2 :entries [["f" "KEY" "extra"]]}]]
     (is (thrown? clojure.lang.ExceptionInfo (scalars/scalar-entities {:simp-keys artifact})))
     (is (thrown? clojure.lang.ExceptionInfo (si/build-simp-trie artifact)))))
+
+(deftest simp-priority-follows-the-replayed-forward-rule
+  (let [prio-of (fn [attrs] (:decl/simp-prio (first (filter #(= "n" (:decl/name %))
+                                                            (scalars/scalar-entities {:attrs attrs})))))]
+    (is (= 2000 (prio-of [["simp" "n" nil 2000]])))
+    (testing "a later inverse erases the forward rule"
+      (is (nil? (prio-of [["simp" "n" nil 2000] ["simp" "n" nil 1000 {:post true :inv true}]]))))
+    (testing "a re-registration without priority resets it to Lean's default"
+      (is (= 1000 (prio-of [["simp" "n" nil 2000] ["simp" "n" nil nil]]))))
+    (testing "a pre-phase registration does not change the forward rule's priority"
+      (is (= 1000 (prio-of [["simp" "n" nil 1000] ["simp" "n" nil 2000 {:post false :inv false}]]))))))

@@ -375,3 +375,28 @@
       (testing "[F, -F, F.eq_1]: the explicit entry comes last and wins at 1000: F ↦ a"
         (is (proves? '(a/theorem reprio-a [h :- (ArgT.P ArgT.a)] (ArgT.P ArgT.F)
                                  (simp [ArgT.F -ArgT.F ArgT.F.eq_1]) (exact h))))))))
+
+(deftest an-un-erased-origin-keeps-an-earlier-explicit-priority
+  ;; Lean eraseCore leaves the tree entry (SimpTheorems.lean:612-622): in [↓ h, -h, h] the
+  ;; explicit ↓ h (1000) stays, so it beats the inherited pre k (500); the inherited pre h (100)
+  ;; masked by the inherited ← h does not come back over it
+  (with-axioms #(let [env (-> (argT-env %)
+                              (ax* "ArgD.F" (ansatz.kernel.expr/arrow nat nat))
+                              (ax* "ArgD.G" (ansatz.kernel.expr/arrow nat nat))
+                              (ax* "ArgD.K" (ansatz.kernel.expr/arrow nat nat))
+                              (ax* "ArgD.x" nat))
+                      ap (fn [f] (ansatz.kernel.expr/app (k f) (k "ArgD.x")))
+                      env (-> env
+                              (ax* "ArgD.h" (eqn* (ap "ArgD.F") (ap "ArgD.G")))
+                              (ax* "ArgD.k" (eqn* (ap "ArgD.F") (ap "ArgD.K"))))]
+                  (first (ansatz.attrs/import-attr-tuples
+                          env [["simp" "ArgD.h" nil 100 {:post false :inv false}]
+                               ["simp" "ArgD.h" nil 100 {:post true :inv true}]
+                               ["simp" "ArgD.k" nil 500 {:post false :inv false}]]
+                          {:present? (constantly true)})))
+    (fn []
+      (is (proves? '(a/theorem unerase-prio [hp :- (ArgT.P (ArgD.G ArgD.x))] (ArgT.P (ArgD.F ArgD.x))
+                               (simp [↓ ArgD.h -ArgD.h ArgD.h]) (exact hp))))
+      (testing "the inherited pre k wins when only the inherited pre h is revealed"
+        (is (proves? '(a/theorem unerase-inherited [hp :- (ArgT.P (ArgD.K ArgD.x))] (ArgT.P (ArgD.F ArgD.x))
+                                 (simp [ArgD.h]) (exact hp))))))))

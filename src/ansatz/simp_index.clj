@@ -53,9 +53,30 @@
 
 (defn eager-lemma-names
   "Use inherited names eagerly without a trie, and only explicit local/role additions
-   beside a persistent base trie. Never scan/rebuild a store corpus for an overlay."
+   beside a persistent base trie. Never scan/rebuild a store corpus for an overlay.
+   Only names with a live forward post origin (:simp-lemmas); see eager-origins for the rest."
   [env trie]
-  (env/get-extension env (if trie eager-overlay-key :simp-lemmas) #{}))
+  (let [forward (env/get-extension env :simp-lemmas #{})]
+    (if trie
+      (into #{} (filter forward) (env/get-extension env eager-overlay-key #{}))
+      forward)))
+
+(defn eager-origins
+  "The inherited non-default @[simp] origins (`@[simp ↓]`, `@[simp ←]`; ansatz.attrs
+   :simp-origins) as origin descriptors {:name :post :inv :priority} for
+   ansatz.tactic.simp/make-simp-lemmas. They are never keyed into the persistent index, so they
+   are always served eagerly — Lean keeps them in SimpTheorems.pre / as inverse SimpTheorems
+   (SimpTheorems.lean:453-473, 643-652)."
+  [env]
+  (for [[n origins] (env/get-extension env :simp-origins {})
+        {:keys [post inv prio]} origins]
+    {:name n :post post :inv inv :priority prio}))
+
+(defn inherited-erased
+  "Lean SimpTheorems.erased for the inherited set: forward origins a later `@[simp ←]` erased
+   (ansatz.attrs :simp-erased), as rule origin keys [name inv]."
+  [env]
+  (env/get-extension env :simp-erased #{}))
 
 (defn with-index-source
   "`env` with its simp-index source set (nil clears it)."

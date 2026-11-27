@@ -132,13 +132,18 @@
             present? (storage/contains-name-checker sm branch)
             decl-order (storage/load-decl-order sm branch)
             ;; 2. attrs: filter the corpus to this store's names once, persist the tuples
+            all-attr-tuples (when attrs (attrs/read-attr-file attrs))
             attr-tuples (when attrs
-                          (let [all (attrs/read-attr-file attrs)
-                                kept (filterv (fn [[_ n _ _]] (present? n)) all)]
-                            (log! lw "  attrs:" (count kept) "of" (count all) "kept")
+                          (let [kept (filterv (fn [[_ n _ _]] (present? n)) all-attr-tuples)]
+                            (log! lw "  attrs:" (count kept) "of" (count all-attr-tuples) "kept")
                             kept))
-            simp-names (into #{} (comp (filter (fn [[k _ _ _]] (contains? #{"simp" "csimp"} k)))
-                                       (map second))
+            ;; Lean SimpTheorem.post/Origin.decl … inv: only the replayed forward post @[simp]
+            ;; rules are keyed into :simp-keys/:simp-trie (format and :key-encoding unchanged).
+            ;; Pre-phase and inverse origins — and forward rules a later `←` erased — stay in
+            ;; the :attrs tuples and are served eagerly (ansatz.simp-index/eager-origins).
+            simp-origin-tuples (filterv #(= 5 (count %)) attr-tuples)
+            simp-names (into (attrs/forward-simp-names attr-tuples)
+                             (comp (filter (fn [[k _ _ _]] (= "csimp" k))) (map second))
                              attr-tuples)
             _ (when attr-tuples (storage/write-derived! kstore branch :attrs attr-tuples))
             ;; 3. instances: Lean's TSV registry, else the bundled Init registry
@@ -226,6 +231,12 @@
                                   :matchers (count matcher-map)
                                   :recall-keys (count recall-entries)
                                   :simp-keys (count simp-entries)
+                                  ;; Lean's post/inv fields: whether the dump carried them, and
+                                  ;; how many pre-phase / inverse simp tuples were kept.
+                                  :simp-origins {:source (if (:simp-origin-fields? (meta all-attr-tuples))
+                                                           :dump-fields :absent)
+                                                 :pre (count (filter #(false? (:post (nth % 4))) simp-origin-tuples))
+                                                 :inv (count (filter #(true? (:inv (nth % 4))) simp-origin-tuples))}
                                   :facts (:facts facts-stats)
                                   :modules (count module-facts)
                                   :catalogue (boolean catalogue)}

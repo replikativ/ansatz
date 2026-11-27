@@ -3703,9 +3703,11 @@
    simp-theorems/erase, a simproc's its own erased set (Simproc.lean:112-113, 153-154).
    Returns {:decls :decl-names :terms :erased :erased-unfold :to-unfold :simproc-erased
    :erase-results}: a definition argument contributes its equation theorems to `:decls` and
-   itself to `:to-unfold`."
-  [env args {:keys [erased inherited? unfold? unfold-thms]
-             :or {erased #{} unfold? (constantly false) unfold-thms (constantly nil)}}]
+   itself to `:to-unfold`; un-erasing an inherited origin reveals its `masked` entries, seeded
+   before the explicit ones as the inherited entries they are."
+  [env args {:keys [erased inherited? unfold? unfold-thms masked]
+             :or {erased #{} unfold? (constantly false) unfold-thms (constantly nil)
+                  masked (constantly nil)}}]
   (let [result
         (reduce
          (fn [acc arg]
@@ -3755,37 +3757,63 @@
                                     {:name n})))
                (when (and (not post) simproc?)
                  (simp-arg-error! (str "`↓` on the simproc `" n "` is not supported") {:name n}))
-               (if (and ci (not theorem?))
-                 ;; Elab/Tactic/Simp.lean:283-285 elabDeclToUnfoldOrTheorem: a definition's entries
-                 ;; (mkSimpEntryOfDeclToUnfold, SimpTheorems.lean:559-591) — its equation theorems,
-                 ;; each un-erased and registered in argument order like any theorem (so converse
-                 ;; erasure applies to them), and the declaration itself to unfold. `↓` is ignored.
-                 (reduce (fn [acc {:keys [kind name priority]}]
-                           (if (= kind :thm)
-                             (let [eq-name (simp-theorems/name-str name)
-                                   o (simp-theorems/origin eq-name true false)]
-                               (-> acc
-                                   (update :decls conj {:name eq-name :priority priority})
-                                   (update :state #(simp-theorems/add-theorem
-                                                    (simp-theorems/unerase % (simp-theorems/origin-key o)) o))))
-                             (-> acc (update :unfold conj n) (update :erased-unfold disj n))))
-                         (update acc :decl-names conj n)
-                         (simp-theorems/mk-simp-entry-of-decl-to-unfold env n))
-                 (let [o (simp-theorems/origin n post inv)]
-                   (cond-> (-> acc
-                               (update :decls conj (cond descriptor (assoc descriptor :name n :post post :inv inv)
-                                                         (or (not post) inv) {:name n :post post :inv inv}
-                                                         :else arg))
-                               (update :decl-names conj n)
-                               (update :state #(simp-theorems/add-theorem (simp-theorems/unerase % (simp-theorems/origin-key o)) o)))
+               (let [;; Lean uneraseSimpEntry + addSimpEntry for one theorem entry. Erasure leaves the
+                     ;; inherited tree entries in place (SimpTheorems.lean:612-622), so un-erasing an
+                     ;; inherited origin reveals its masked entries in their own phases, as the
+                     ;; inherited entries they are: seeded once, before every explicit argument, so
+                     ;; an explicit registration in the same phase replaces them whatever the
+                     ;; argument order (DiscrTree.insertKeyValue).
+                     add-entry
+                     (fn [acc entry-name post inv entry]
+                       (let [o (simp-theorems/origin entry-name post inv)
+                             k [entry-name inv]
+                             seed? (and (contains? (:erased (:state acc)) k)
+                                        (not (contains? (:seeded acc) k)))]
+                         (cond-> acc
+                           seed? (-> (update :seeded conj k)
+                                     (update :revealed into
+                                             (for [{p :post i :inv prio :prio} (masked entry-name)
+                                                   :when (= i inv)]
+                                               {:name entry-name :post p :inv i :priority prio})))
+                           true (-> (update :decls conj entry)
+                                    (update :state #(simp-theorems/add-theorem
+                                                     (simp-theorems/unerase % (simp-theorems/origin-key o)) o))))))]
+                 (if (and ci (not theorem?))
+                   ;; Elab/Tactic/Simp.lean:283-285 elabDeclToUnfoldOrTheorem: a definition's entries
+                   ;; (mkSimpEntryOfDeclToUnfold, SimpTheorems.lean:559-591) — its equation theorems,
+                   ;; each un-erased and registered in argument order like any theorem (so converse
+                   ;; erasure applies to them), and the declaration itself to unfold. `↓` is ignored.
+                   (reduce (fn [acc {:keys [kind name priority]}]
+                             (if (= kind :thm)
+                               (let [eq-name (simp-theorems/name-str name)]
+                                 (add-entry acc eq-name true false {:name eq-name :priority priority}))
+                               (-> acc (update :unfold conj n) (update :erased-unfold disj n))))
+                           (update acc :decl-names conj n)
+                           (simp-theorems/mk-simp-entry-of-decl-to-unfold env n))
+                   (cond-> (-> (add-entry acc n post inv
+                                          (cond descriptor (assoc descriptor :name n :post post :inv inv)
+                                                (or (not post) inv) {:name n :post post :inv inv}
+                                                :else arg))
+                               (update :decl-names conj n))
                      simproc? (update :simproc-erased disj n)))))))
          {:decls [] :decl-names [] :terms [] :simproc-erased #{} :erased-unfold #{} :unfold #{}
-          :erase-results []
+          :erase-results [] :revealed [] :seeded #{}
           :state {:inherited? inherited? :erased (set erased) :added #{} :removed #{}}}
          args)]
     (-> result
-        (assoc :erased (:erased (:state result)) :to-unfold (:unfold result))
-        (dissoc :state :unfold))))
+        (assoc :erased (:erased (:state result)) :to-unfold (:unfold result)
+               :decls (into (:revealed result) (:decls result)))
+        (dissoc :state :unfold :revealed :seeded))))
+
+(defn- default-core-lemmas
+  "The hand-curated core, minus any name the inherited attributes register only in another
+   phase or direction (or erased): an imported `@[simp ←] n` or `@[simp ↓] n` must not come
+   back as a forward post rule through this fallback list."
+  [env]
+  (let [forward (env/get-extension env :simp-lemmas #{})
+        other (into (set (keys (env/get-extension env :simp-origins {})))
+                    (keys (env/get-extension env :simp-masked {})))]
+    (remove #(and (not (contains? forward %)) (contains? other %)) default-simp-lemmas)))
 
 (defn- term-arg-lemmas
   "Rules from proof-term simp arguments (Lean mkSimpTheoremFromExpr). A hypothesis that `*`
@@ -3809,11 +3837,18 @@
       {:erased (or (:erased opts) #{})
        :inherited? (fn [[n inv]] (and (false? inv) (contains? builtins n)))})
     (let [forward (env/get-extension env :simp-lemmas #{})
+          origins (env/get-extension env :simp-origins {})
+          masked (env/get-extension env :simp-masked {})
+          erased-registered (env/get-extension env :simp-erased-registered #{})
           unfold (env/get-extension env :simp-unfold #{})
           unfold-thms (env/get-extension env :simp-unfold-thms {})
-          core (set default-simp-lemmas)]
-      {:erased (or (:erased opts) #{})
-       :inherited? (fn [[n inv]] (and (false? inv) (or (contains? forward n) (contains? core n))))
+          core (set (default-core-lemmas env))]
+      {:erased (into (or (:erased opts) #{}) (env/get-extension env :simp-erased #{}))
+       :inherited? (fn [[n inv :as k]]
+                     (or (contains? erased-registered k)
+                         (boolean (some #(= inv (:inv %)) (get origins n)))
+                         (and (false? inv) (or (contains? forward n) (contains? core n)))))
+       :masked #(get masked %)
        :unfold? #(or (contains? unfold %) (contains? unfold-thms %))
        :unfold-thms #(get unfold-thms %)})))
 
@@ -3854,8 +3889,9 @@
         all-names (->> (if (:only? opts)
                          (concat (when (get opts :simp-only-builtins? true)
                                    simp-only-builtins) name-args)
-                         (concat default-simp-lemmas
+                         (concat (default-core-lemmas env)
                                  (si/eager-lemma-names env ext-trie)
+                                 (si/eager-origins env)
                                  name-args))
                        replace-registrations)
         lemmas (make-simp-lemmas env all-names)
@@ -4234,8 +4270,9 @@
         ext-trie (when-not (:only? opts) (si/ensure-simp-trie! env))
         all-names (->> (if (:only? opts)
                          (concat simp-only-builtins decls)
-                         (concat default-simp-lemmas
+                         (concat (default-core-lemmas env)
                                  (si/eager-lemma-names env ext-trie)
+                                 (si/eager-origins env)
                                  decls))
                        replace-registrations)]
     ;; Phase 1: hypothesis simplification (Lean SimpAll.loop).

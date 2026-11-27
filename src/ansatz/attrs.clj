@@ -14,6 +14,14 @@
    plus :simp-priorities — {name → priority} for the @[simp] lemmas whose priority is NOT
    Lean's default (`@[simp low]` / `@[simp high]`). Priority is not decoration: `Bool.false_eq`
    and `Bool.true_eq` are confluent only because they are low.
+   A simp row's origin (Lean `Origin.decl n post inv`) decides where it goes: the default
+   (post, forward) is a :simp-lemmas name; `@[simp ↓]` / `@[simp ←]` rows are recorded in
+   :simp-origins {name → #{{:post :inv :prio}}}; origins a later registration of the converse
+   erased are in :simp-erased #{[name inv]} (Lean's `erased`) with their entries in
+   :simp-masked. See add-simp-entry. Replay identifies an entry by name, phase and direction:
+   Lean identifies tree entries by proof, so two inverse registrations of one theorem in
+   different modules (distinct auxiliary proofs) can both survive in Lean, while here the later
+   priority replaces the earlier — a limit of the dump's per-row shape.
    The tactic / optimizer / codegen layers can then consult the inherited set instead of hand-curating."
   (:require [ansatz.bundle :as bundle]
             [ansatz.bundle-metadata :as metadata]
@@ -45,28 +53,56 @@
   ;; as a simp theorem (Attr.lean addDeclToUnfold), with its own phase/priority.
   #{"csimp" "impl" "unfold-thms" "reducibility"})
 
+(defn row->tuple
+  "A validated attribute row → its persisted tuple `[kind name target prio]`, plus a fifth
+   element `{:post bool :inv bool}` for a simp row whose origin is not the default
+   (Lean `Origin.decl n post inv`, SimpTheorems.lean:69-91). Default rows keep the 4-tuple, so a
+   corpus without pre/inverse rows persists exactly as before, and an older reader — whose
+   tuple check requires 4 elements — fails on a 5-tuple instead of installing it as a forward
+   post rule."
+  [{:keys [kind name target prio theorems status] :as row}]
+  (let [tuple [kind name (case kind "unfold-thms" theorems "reducibility" status target) prio]]
+    (if-let [origin (metadata/simp-origin row)]
+      (conj tuple origin)
+      tuple)))
+
 (defn parse-attr-lines
-  "Strict JSON lines → persisted `[kind name target prio]` tuples. Legacy simp
-   rows may omit priority (nil). Unsupported native semantics, malformed/unknown
-   fields and duplicate keys fail before any tuple is installed or name probed."
+  "Strict JSON lines → persisted attribute tuples (row->tuple). Legacy simp rows may omit
+   priority (nil) and phase/direction (default origin). Unsupported native semantics,
+   malformed/unknown fields and duplicate keys fail before any tuple is installed or name
+   probed. The result's metadata records `:simp-origin-fields?` — whether any simp row
+   carried Lean's post/inv fields (a legacy dump has none)."
   [lines]
-  (mapv (fn [line]
-          (let [{:keys [kind name target prio theorems status] :as row}
-                (metadata/parse-attribute-row line {:legacy-priority? true})]
-            (when (metadata/unsupported-attribute? row)
-              (throw (ex-info "Unsupported native attribute semantics" {:kind kind :name name})))
-            [kind name (case kind "unfold-thms" theorems "reducibility" status target) prio])) lines))
+  (let [origin-fields? (volatile! false)
+        tuples (mapv (fn [line]
+                       (let [{:keys [kind name] :as row}
+                             (metadata/parse-attribute-row line {:legacy-priority? true})]
+                         (when (metadata/unsupported-attribute? row)
+                           (throw (ex-info "Unsupported native attribute semantics" {:kind kind :name name})))
+                         (when (and (= "simp" kind) (contains? row :post)) (vreset! origin-fields? true))
+                         (row->tuple row))) lines)]
+    (with-meta tuples {:simp-origin-fields? @origin-fields?})))
 
 (defn- attribute-lines [text]
   (if (empty? text) []
       (let [lines (str/split text #"\r?\n" -1)]
         (if (= "" (peek lines)) (pop lines) lines))))
 
+(defn- valid-simp-origin?
+  "A persisted 5th tuple element: exactly {:post bool :inv bool}, never the default origin
+   (which is written as the plain 4-tuple)."
+  [origin]
+  (and (map? origin) (= #{:post :inv} (set (keys origin)))
+       (boolean? (:post origin)) (boolean? (:inv origin))
+       (not (and (:post origin) (not (:inv origin))))))
+
 (defn- checked-tuples [tuples]
   (mapv (fn [tuple]
-          (let [[kind declaration target priority] (when (sequential? tuple) tuple)
+          (let [[kind declaration target priority origin] (when (sequential? tuple) tuple)
                 valid-name? #(and (string? %) (not (str/blank? %)))]
-            (when-not (and (sequential? tuple) (= 4 (count tuple))
+            (when-not (and (sequential? tuple)
+                           (or (= 4 (count tuple))
+                               (and (= 5 (count tuple)) (= "simp" kind) (valid-simp-origin? origin)))
                            (contains? kind->ext kind) (valid-name? declaration)
                            (cond
                              (= "reducibility" kind) (contains? metadata/reducibility-statuses target)
@@ -79,35 +115,117 @@
               (throw (ex-info "Invalid persisted attribute tuple" {:kind kind :name declaration})))
             tuple)) tuples))
 
+(defn simp-registered?
+  "Lean `lemmaNames.contains (.decl n _ inv)` for the inherited @[simp] state: a visible entry
+   of that name and direction, or an erased origin registered again (:simp-erased-registered)."
+  [e n inv]
+  (or (and (not inv) (contains? (env/get-extension e :simp-lemmas #{}) n))
+      (boolean (some #(= inv (:inv %)) (get (env/get-extension e :simp-origins {}) n)))
+      (contains? (env/get-extension e :simp-erased-registered #{}) [n inv])))
+
+(defn- erase-simp-origin
+  "Lean eraseCore (SimpTheorems.lean:612-622) on the inherited state: the origin key
+   `[n inv]` is erased and unregistered; its entries move to :simp-masked {name → #{entry}},
+   kept so that an explicit `simp [n]` (uneraseSimpEntry) can restore them in their phases."
+  [e n inv]
+  (let [prio (get (env/get-extension e :simp-priorities {}) n default-simp-priority)
+        fwd? (and (not inv) (contains? (env/get-extension e :simp-lemmas #{}) n))
+        moving (cond-> (into #{} (filter #(= inv (:inv %))) (get (env/get-extension e :simp-origins {}) n))
+                 fwd? (conj {:post true :inv false :prio prio}))]
+    (cond-> (-> e
+                (env/update-extension :simp-erased #{} conj [n inv])
+                (env/update-extension :simp-erased-registered #{} disj [n inv])
+                (env/update-extension :simp-origins {}
+                                      (fn [m] (let [os (into #{} (remove #(= inv (:inv %))) (get m n))]
+                                                (if (seq os) (assoc m n os) (dissoc m n))))))
+      fwd? (-> (env/update-extension :simp-lemmas #{} disj n)
+               (env/update-extension :simp-priorities {} dissoc n))
+      (seq moving) (env/update-extension :simp-masked {} update n (fnil into #{}) moving))))
+
+(defn- with-entry
+  "Lean DiscrTree.insertKeyValue replaces the value equal to the new one (same proof at the same
+   keys): a re-registration in the same phase and direction replaces the earlier priority."
+  [entries entry]
+  (conj (into #{} (remove #(and (= (:post %) (:post entry)) (= (:inv %) (:inv entry)))) entries)
+        entry))
+
+(defn- add-simp-entry
+  "Lean SimpTheorems.addSimpTheorem (SimpTheorems.lean:643-652) replayed for one inherited
+   @[simp] tuple, in corpus (module) order:
+   - first erase the registered converse, in EITHER direction (eraseFwdIfBwd, :634-638);
+   - then register the origin; an erased origin stays erased — addSimpTheorem never un-erases
+     (only `simp [n]` does, :702-705) — so its entry goes to :simp-masked;
+   - a visible default origin (post, forward) is a :simp-lemmas name with its priority in
+     :simp-priorities, as before; any other visible origin is an entry in
+     :simp-origins {name → #{{:post :inv :prio}}} with its own priority.
+   :simp-erased holds Lean's `erased` (which also hides an origin a persistent index still
+   serves); :simp-erased-registered the erased origins registered again."
+  [e n prio origin]
+  (let [post (boolean (:post origin true)) inv (boolean (:inv origin false))
+        prio (or prio default-simp-priority)
+        entry {:post post :inv inv :prio prio}
+        e (if (simp-registered? e n (not inv)) (erase-simp-origin e n (not inv)) e)]
+    (cond
+      (contains? (env/get-extension e :simp-erased #{}) [n inv])
+      (-> e
+          (env/update-extension :simp-erased-registered #{} conj [n inv])
+          (env/update-extension :simp-masked {} update n with-entry entry))
+      (and post (not inv))
+      (cond-> (env/update-extension e :simp-lemmas #{} conj n)
+        ;; Lean's simp PRIORITY, when the corpus records it. Only the
+        ;; non-default ones are worth carrying, and they are load-bearing:
+        ;; `Bool.false_eq`/`Bool.true_eq` are `@[simp low]` and rewrite each
+        ;; other's output, so at equal priority simp oscillates between
+        ;; `(false = true)` and `(true = false)` instead of letting
+        ;; `Bool.false_eq_true` (default priority) collapse it to `False`.
+        (not= prio default-simp-priority) (env/update-extension :simp-priorities {} assoc n prio)
+        (= prio default-simp-priority) (env/update-extension :simp-priorities {} dissoc n))
+      :else
+      (env/update-extension e :simp-origins {} update n with-entry entry))))
+
 (defn import-attr-tuples
-  "Return [env' stats]: `env` with `[kind name target prio]` tuples loaded into the matching
-   extensions — keeping only names `present?` says are constants. csimp/impl become
-   {name → target} maps (the f→g replacement / impl); the rest are name sets. `stats` maps each
-   extension key to the count loaded, plus :skipped."
+  "Return [env' stats]: `env` with attribute tuples loaded into the matching extensions —
+   keeping only names `present?` says are constants. csimp/impl become {name → target} maps
+   (the f→g replacement / impl); simp tuples replay Lean's addSimpTheorem (add-simp-entry);
+   the rest are name sets. `stats` maps each extension key to the count loaded (non-default
+   simp origins count as :simp-origins), plus :skipped."
   [env tuples {:keys [present?]}]
   (let [tuples (checked-tuples tuples)
         present? (or present?
                      (fn [n] (some? (env/lookup env (name/from-string n)))))]
-    (reduce (fn [[e stats] [k n target prio]]
+    (reduce (fn [[e stats] [k n target prio origin]]
               (if-let [ext-key (kind->ext k)]
                 (if (present? n)
-                  [(cond-> (if (map-kinds k)
-                             (env/update-extension e ext-key {} assoc n target)
-                             (env/update-extension e ext-key #{} conj n))
-                     ;; Lean's simp PRIORITY, when the corpus records it. Only the
-                     ;; non-default ones are worth carrying, and they are load-bearing:
-                     ;; `Bool.false_eq`/`Bool.true_eq` are `@[simp low]` and rewrite each
-                     ;; other's output, so at equal priority simp oscillates between
-                     ;; `(false = true)` and `(true = false)` instead of letting
-                     ;; `Bool.false_eq_true` (default priority) collapse it to `False`.
-                     (and (= "simp" k) prio (not= prio default-simp-priority))
-                     (env/update-extension :simp-priorities {} assoc n prio)
-                     (= "simp" k) (simp-sources/mark-local-registration n))
-                   (update stats ext-key (fnil inc 0))]
+                  [(cond
+                     (= "simp" k) (-> (add-simp-entry e n prio origin)
+                                      (simp-sources/mark-local-registration n))
+                     (map-kinds k) (env/update-extension e ext-key {} assoc n target)
+                     :else (env/update-extension e ext-key #{} conj n))
+                   (update stats (if origin :simp-origins ext-key) (fnil inc 0))]
                   [e (update stats :skipped (fnil inc 0))])
                 [e stats]))
             [env {}]
             tuples)))
+
+(defn forward-simp-names
+  "The names whose replayed @[simp] state (import-attr-tuples) has a visible forward post
+   origin: exactly the rules a persistent simp index keys. Pre-phase and inverse origins are
+   served eagerly instead (ansatz.simp-index/eager-origins); erased (masked) ones only when an
+   explicit `simp [n]` restores them."
+  [tuples]
+  (let [[e _] (import-attr-tuples (env/empty-env) (filterv #(= "simp" (first %)) tuples)
+                                  {:present? (constantly true)})]
+    (env/get-extension e :simp-lemmas #{})))
+
+(defn live-forward-priorities
+  "{name → priority} of the replayed visible forward post @[simp] rules — the rules a persistent
+   index keys — for catalogue scalars that must agree with what simp serves."
+  [tuples]
+  (let [[e _] (import-attr-tuples (env/empty-env) (filterv #(= "simp" (first %)) tuples)
+                                  {:present? (constantly true)})
+        prios (env/get-extension e :simp-priorities {})]
+    (into {} (map (fn [n] [n (get prios n default-simp-priority)]))
+          (env/get-extension e :simp-lemmas #{}))))
 
 (defn import-attrs
   "Return [env' stats] where env' is `env` with the attributes from `ndjson` (a file path, or a seq
@@ -158,9 +276,7 @@
     (fn [manifest]
       (bundle/assert-consumable!)
       (if (= "ansatz-bundle/2" (:bundle/schema manifest))
-        (mapv (fn [{:keys [kind name target prio theorems status]}]
-                [kind name (case kind "unfold-thms" theorems "reducibility" status target) prio])
-              (bundle/verified-companion-rows :attrs))
+        (mapv row->tuple (bundle/verified-companion-rows :attrs))
         (let [payload (bundle/verified-bytes bundled-attrs-resource)
               text (with-open [in (java.util.zip.GZIPInputStream. (java.io.ByteArrayInputStream. payload))]
                      (slurp in :encoding "UTF-8"))]

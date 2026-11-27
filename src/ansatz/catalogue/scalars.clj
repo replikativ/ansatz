@@ -23,9 +23,13 @@
       (ent! n #(update % :decl/simp-key (fnil conj #{}) (ke/stored-path (ke/encoding simp-keys) k))))
     (doseq [[n {:keys [module doc]}] modules :when (.containsKey by-name n)]
       (ent! n #(cond-> (assoc % :decl/module module) doc (assoc :decl/doc doc))))
-    (doseq [[kind n _ prio] attrs]
-      (ent! n #(cond-> (update % :decl/attr (fnil conj #{}) kind)
-                 (and (= kind "simp") prio) (assoc :decl/simp-prio prio))))
+    ;; :decl/simp-prio is the priority of the live forward post rule :decl/simp-key indexes —
+    ;; after Lean's replay (a later inverse erases it, a re-registration replaces its
+    ;; priority); every simp row keeps the "simp" marker.
+    (let [live (when (seq attrs) ((requiring-resolve 'ansatz.attrs/live-forward-priorities) attrs))]
+      (doseq [[kind n] attrs]
+        (ent! n #(cond-> (update % :decl/attr (fnil conj #{}) kind)
+                   (and (= kind "simp") (contains? live n)) (assoc :decl/simp-prio (get live n))))))
     (doseq [[_ insts] instances {:keys [name priority]} insts]
       (ent! (str name) #(cond-> (update % :decl/attr (fnil conj #{}) "instance")
                           priority (assoc :decl/instance-prio priority))))

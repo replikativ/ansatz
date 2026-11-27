@@ -326,8 +326,9 @@
           :consumable? (empty? unsupported) :unsupported-attrs unsupported})))))
 
 (defn assert-consumable!
-  "Reject schema-2 selected inverse simp or pre-phase simp rows
-   before activation. The complete selected corpus is gated, including rows for
+  "Reject schema-2 selected rows whose native semantics the consumer cannot represent
+   (metadata/unsupported-attribute?; none today — pre-phase and inverse simp rows are
+   consumed with their origin) before activation. The complete selected corpus is gated, including rows for
    lazy supplemental preludes. Schema 1 retains its existing consumer policy.
    Returns the verified manifest; options match verify!."
   ([] (assert-consumable! {}))
