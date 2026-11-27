@@ -108,24 +108,26 @@
         [minors' _] (u/forall-telescope ctx (u/infer-type ctx val) nmin)
         minor-vals
         (mapv (fn [m m']
-                (let [[ys _] (u/forall-telescope ctx (u/infer-type ctx m))
-                      [ys' _] (u/forall-telescope ctx (u/infer-type ctx m') (count ys))
+                ;; each minor's binders are its own: scoped, so a field of one constructor (a
+                ;; `SizeOf Nat` dictionary) is never a local instance while building the next
+                (scoped ctx (fn [] (let [[ys _] (u/forall-telescope ctx (u/infer-type ctx m))
+                                         [ys' _] (u/forall-telescope ctx (u/infer-type ctx m') (count ys))
                       ;; Lean's inferType instantiates the motives with instantiateBetaRevRange:
                       ;; an induction hypothesis has type `Nat`, not `(fun … => Nat) …`
-                      _ (doseq [y ys']
-                          (swap! ctx update-in [:lctx (e/fvar-id y) :type]
-                                 #(let [[f as] (e/get-app-fn-args %)] (if (e/lam? f) (u/beta f as) %))))
-                      ihs (into {} (keep-indexed (fn [i y] (when-let [x (ih-target ctx motives y)]
-                                                             [(e/get-app-fn x) i])) ys))
-                      body (reduce (fn [acc [y y']]
-                                     (cond
-                                       (ih-target ctx motives y) acc
-                                       (ignore-field-type? ctx (u/infer-type ctx y)) acc
-                                       :else (mk-add acc (if-let [i (get ihs y)]
-                                                           (rec-field-form-ih ctx (nth ys' i))
-                                                           (mk-size-of ctx y')))))
-                                   (e/lit-nat 1) (map vector ys ys'))]
-                  (u/mk-lambda-fvars ctx ys' body)))
+                                         _ (doseq [y ys']
+                                             (swap! ctx update-in [:lctx (e/fvar-id y) :type]
+                                                    #(let [[f as] (e/get-app-fn-args %)] (if (e/lam? f) (u/beta f as) %))))
+                                         ihs (into {} (keep-indexed (fn [i y] (when-let [x (ih-target ctx motives y)]
+                                                                                [(e/get-app-fn x) i])) ys))
+                                         body (reduce (fn [acc [y y']]
+                                                        (cond
+                                                          (ih-target ctx motives y) acc
+                                                          (ignore-field-type? ctx (u/infer-type ctx y)) acc
+                                                          :else (mk-add acc (if-let [i (get ihs y)]
+                                                                              (rec-field-form-ih ctx (nth ys' i))
+                                                                              (mk-size-of ctx y')))))
+                                                      (e/lit-nat 1) (map vector ys ys'))]
+                                     (u/mk-lambda-fvars ctx ys' body)))))
               minors minors')
         _ (u/implicit! ctx (concat params indices))
         binders (vec (concat params insts indices [major]))]
@@ -188,7 +190,7 @@
 (defn eligible? [env n]
   (and (shape-eligible? env n) (some? (env/lookup env (name/from-string "SizeOf")))))
 
-(defn- defaulted?
+(defn defaulted?
   "Whether `SizeOf (c xs)`, at fresh parameters with local dictionaries, resolves to the
    zero-valued `instSizeOfDefault` (no instance of its own in this environment)."
   [env c]

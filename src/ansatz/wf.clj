@@ -32,6 +32,16 @@
             [ansatz.tactic.instance :as instance])
   (:import [ansatz.kernel ConstantInfo]))
 
+(clojure.core/defn sized-type-form?
+  "Whether a surface parameter type is sized for a WF measure: a List, or a type (or an applied
+   family) with a derived `_sizeOf_inst` — never by the zero default."
+  [env t]
+  (and (not= t 'Nat)
+       (or (and (seq? t) (= 'List (first t)))
+           (let [h (if (seq? t) (first t) t)]
+             (and (symbol? h)
+                  (some? (env/lookup env (name/mk-str (name/from-string (str h)) "_sizeOf_inst"))))))))
+
 ;; ── core callbacks resolved at runtime (core requires this ns → no static require back) ──────────
 (defn- run-tactic [ps tac] ((requiring-resolve 'ansatz.core/run-tactic) ps tac))
 (defn- prove-theorem [& args] (apply (requiring-resolve 'ansatz.core/prove-theorem) args))
@@ -314,14 +324,7 @@
           ;; kernel proofs accept or reject the guess. Single data param → (sizeOf p);
           ;; multi-param with every param Nat-or-sized → the parameter-order lexicographic
           ;; tuple (lean4 GuessLex's column order — covers merge-style two-list recursion)
-          (let [sized? (fn [t] (and (not= t 'Nat)
-                                    (or (and (seq? t) (= 'List (first t)))
-                                        ;; a type (or an applied type family) with a derived instance
-                                        (let [h (if (seq? t) (first t) t)]
-                                          (and (symbol? h)
-                                               (env/lookup @ansatz-env
-                                                           (name/mk-str (name/from-string (str h))
-                                                                        "_sizeOf_inst")))))))]
+          (let [sized? #(sized-type-form? @ansatz-env %)]
             (cond
               (and (= 1 (count pairs)) (sized? (second (first pairs))))
               (list 'sizeOf (ffirst pairs))
@@ -576,6 +579,13 @@
   "SizeOf instance synthesis — canonical implementation lives with the elaborator (P2)."
   elab/sizeof-inst)
 
+(clojure.core/defn- register-size-of-specs
+  "Lean registers every `C.sizeOf_spec` as a simp lemma (simpAttr.add thmName default .global)."
+  [[env types]]
+  (let [ctors (mapcat #(.ctors ^ConstantInfo (env/lookup env (name/from-string %))) types)]
+    (first ((requiring-resolve 'ansatz.attrs/import-attr-tuples)
+            env (mapv (fn [c] ["simp" (str c ".sizeOf_spec") nil 1000]) ctors) {}))))
+
 (clojure.core/defn- wf-ensure-sizeof-instances
   "Lean registers `instSizeOfNat`, `Prod._sizeOf_inst` and `List._sizeOf_inst` at the default
    priority and `instSizeOfDefault` (Init/SizeOf.lean) at `low` (10), so synthesis of a field's
@@ -636,9 +646,18 @@
                                                                       (e/app (e/bvar 0) (e/const' (name/from-string "Unit.unit") [])))
                                                               :default))
                                                :inst-implicit)
-                                        :implicit))))]
-    (if (registered? env "instSizeOfForallUnit") env
-        (instance/add-instance env (name/from-string "instSizeOfForallUnit")))))
+                                        :implicit))))
+        env (if (registered? env "instSizeOfForallUnit") env
+                (instance/add-instance env (name/from-string "instSizeOfForallUnit")))]
+    ;; Lean's Init generates these types' instances (Init/SizeOf.lean and the inductive
+    ;; compiler); a smaller tier may omit them, and synthesis would then pick the zero default
+    ;; however a later declaration happened to be ordered
+    (reduce (fn [env t]
+              (if (and (size-of/shape-eligible? env t) (size-of/defaulted? env t))
+                (register-size-of-specs (size-of/mk-size-of-instances env t))
+                env))
+            env ["PUnit" "Bool" "Option" "Sum" "PSum" "Except" "Prod" "PProd" "Subtype" "Sigma" "PSigma"
+                 "Fin" "Ordering" "PLift" "ULift" "Int"])))
 
 (clojure.core/defn wf-derive-sizeof!
   "Lean's mkSizeOfInstances for a DSL inductive or structure (ansatz.meta.constructions.size-of):
@@ -655,11 +674,8 @@
       (wf-fix-ensure-sizeof-prelude!)
       (swap! ansatz-env
              (fn [env]
-               (let [[env types] (size-of/mk-size-of-instances (wf-ensure-sizeof-instances env) ind-name-str)
-                     ctors (mapcat #(.ctors ^ConstantInfo (env/lookup env (name/from-string %))) types)]
-                 ;; Lean: simpAttr.add thmName default .global
-                 (first ((requiring-resolve 'ansatz.attrs/import-attr-tuples)
-                         env (mapv (fn [c] ["simp" (str c ".sizeOf_spec") nil 1000]) ctors) {})))))
+               (register-size-of-specs
+                (size-of/mk-size-of-instances (wf-ensure-sizeof-instances env) ind-name-str))))
       (when (verbose?)
         (println (str "  ✓ " ind-name-str " SizeOf derived"))))
     (catch Throwable t
@@ -1007,13 +1023,7 @@
         ;; `:termination-by m` with `m : Value` means `(sizeOf m)`; rewrite the
         ;; measure form (scalar or inside a lex vector) before the gate/encoder.
         sized-param? (fn [msym]
-                       (some (fn [[p t _]]
-                               (and (= p msym) (not= t 'Nat)
-                                    (or (and (seq? t) (= 'List (first t)))
-                                        (and (symbol? t)
-                                             (env/lookup env (name/mk-str (name/from-string (str t))
-                                                                          "_sizeOf_inst"))))))
-                             pairs))
+                       (some (fn [[p t _]] (and (= p msym) (sized-type-form? env t))) pairs))
         lift-measure (fn [mf] (if (and (symbol? mf) (sized-param? mf)) (list 'sizeOf mf) mf))
         measure-form (if (vector? measure-form)
                        (mapv lift-measure measure-form)

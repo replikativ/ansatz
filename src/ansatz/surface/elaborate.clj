@@ -1002,7 +1002,7 @@
       (when (and (e/const? h) (env/get-extension env :instances nil))
         (let [st (tc/mk-tc-state env)
               s (try (red/whnf env (tc/infer-type st ty) {}) (catch Exception _ nil))
-              r (when (e/sort? s)
+              r (when (and s (e/sort? s))
                   (try ((requiring-resolve 'ansatz.tactic.instance/synthesize*)
                         st env ((requiring-resolve 'ansatz.tactic.instance/index-for) env)
                         (e/app (e/const' (name/from-string "SizeOf") [(e/sort-level s)]) ty) 0)
@@ -2036,11 +2036,16 @@
                         (if (and s (e/sort? s)) (e/sort-level s) (lvl/succ (type-sort-level est ty))))
                     goal (e/app (e/const' (name/from-string "SizeOf") [u]) ty)
                     env (elab-env est)
-                    inst (or (when (env/get-extension env :instances nil)
-                               (try ((requiring-resolve 'ansatz.tactic.instance/synthesize*)
-                                     (:tc est) env ((requiring-resolve 'ansatz.tactic.instance/index-for) env) goal 0)
-                                    (catch clojure.lang.ExceptionInfo _ nil)))
-                             (sizeof-inst env ty))]
+                    synthesized (when (env/get-extension env :instances nil)
+                                  (try ((requiring-resolve 'ansatz.tactic.instance/synthesize*)
+                                        (:tc est) env ((requiring-resolve 'ansatz.tactic.instance/index-for) env) goal 0)
+                                       (catch clojure.lang.ExceptionInfo _ nil)))
+                    ;; the zero default yields to a named instance an older environment left
+                    ;; unregistered (sizeof-inst finds `T._sizeOf_inst` by name)
+                    inst (if (and synthesized
+                                  (not= "instSizeOfDefault" (str (e/const-name (e/get-app-fn synthesized)))))
+                           synthesized
+                           (or (sizeof-inst env ty) synthesized))]
                 (when-not inst
                   (elab-error! (str "sizeOf: no SizeOf instance for type " (e/->string ty)) {:form sexpr}))
                 (e/app* (e/const' (name/from-string "SizeOf.sizeOf") [u]) ty inst x*))

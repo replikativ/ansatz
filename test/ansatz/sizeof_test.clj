@@ -176,3 +176,37 @@
                 (list 'List.map (list (symbol "@SizeOf.sizeOf.{1}") 'Nat '(SizeOf.mk Nat (fn [_ :- Nat] 37))) 'xs))))
   (is (= [37 5] [((resolve 'ansatz.sizeof-test/sz-choose) true 3) ((resolve 'ansatz.sizeof-test/sz-choose) false 3)]))
   (is (= [37 37] (vec ((resolve 'ansatz.sizeof-test/sz-map) [1 2])))))
+
+(deftest verification-regressions
+  (testing "Option's instance does not depend on declaration order"
+    (let [saved @a/ansatz-env]
+      (try
+        (reset! a/ansatz-env @test-env/bundled-init-env)
+        (binding [*ns* (the-ns 'ansatz.sizeof-test) a/*verbose* false]
+          (eval '(ansatz.core/inductive SzBox [α Type] (mk [a α]))))
+        (is (some? (ci "Option._sizeOf_inst")) "prepared with the prelude, before any Option field")
+        (let [t (e/app* (c "SzBox.mk") (e/app* (e/const' (name/from-string "Option") [lvl/zero]) (c "Nat"))
+                        (e/app* (e/const' (name/from-string "Option.some") [lvl/zero]) (c "Nat") (e/lit-nat 3)))
+              inst (instance/synthesize (a/env) (instance/index-for (a/env))
+                                        (e/app (e/const' (name/from-string "SizeOf") [l1])
+                                               (e/app (c "SzBox") (e/app* (e/const' (name/from-string "Option") [lvl/zero]) (c "Nat")))))]
+          (is (tc/is-def-eq (tc/mk-tc-state (a/env)) (size-of (e/app (c "SzBox") (e/app (e/const' (name/from-string "Option") [lvl/zero]) (c "Nat"))) inst t)
+                            (e/lit-nat 5))))
+        (finally (reset! a/ansatz-env saved)))))
+  (testing "a dictionary field of one constructor is not a local instance for the next"
+    (binding [*ns* (the-ns 'ansatz.sizeof-test) a/*verbose* false]
+      (eval '(ansatz.core/inductive SzDict [] (dict [d (SizeOf Nat)]) (num [n Nat]))))
+    (let [rhs (nth (e/get-app-args (conclusion (.type (ci "SzDict.num.sizeOf_spec")))) 2)]
+      (is (= [(c "instSizeOfNat")] (mapv #(second (e/get-app-args %)) (rest (summands rhs)))))))
+  (testing "an explicit `:termination-by xs` over an applied family lifts to sizeOf"
+    (binding [*ns* (the-ns 'ansatz.sizeof-test) a/*verbose* false]
+      (eval '(ansatz.core/inductive SzL2 [α Type] (nil) (cons [h α] [t (SzL2 α)])))
+      (eval '(ansatz.core/defn ^Nat sz-l2-pairs [^{:- (SzL2 Nat)} xs]
+               :termination-by xs
+               (match-as xs (SzL2 Nat) Nat
+                         (nil 0)
+                         (cons [h t] (match-as t (SzL2 Nat) Nat
+                                               (nil 0)
+                                               (cons [h2 t2] (+ 1 (sz-l2-pairs t2))))))))
+      (eval '(ansatz.core/defn mk-l2 [n :- Nat] (SzL2 Nat) (SzL2.cons n (SzL2.cons 2 (SzL2.cons 3 (SzL2.cons 4 SzL2.nil)))))))
+    (is (= 2 ((resolve 'ansatz.sizeof-test/sz-l2-pairs) ((resolve 'ansatz.sizeof-test/mk-l2) 1))))))
