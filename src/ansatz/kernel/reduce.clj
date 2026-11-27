@@ -130,9 +130,9 @@
   (when (and (e/const? head) (empty? (e/const-levels head)) (= 2 (count args)))
     (let [op-name (e/const-name head)]
       (when (nat-binop-names op-name)
-        (let [a (whnf-to-nat whnf-fn (first args))
-              b (whnf-to-nat whnf-fn (second args))]
-          (when (and a b)
+        ;; reduce_bin_nat_op: the right operand is normalized only once the left is a literal
+        (when-let [a (whnf-to-nat whnf-fn (first args))]
+          (when-let [b (whnf-to-nat whnf-fn (second args))]
             (reduce-nat-binop op-name a b)))))))
 
 ;; ============================================================
@@ -298,8 +298,9 @@
 (defn- try-reduce-proj
   "Try to reduce a projection."
   [^Env env e whnf-fn]
-  ;; an index no field can have is refused before the target is normalized
-  (when (and (e/proj? e) (<= 0 (e/proj-idx e) Integer/MAX_VALUE))
+  ;; to_proj_idx: an index past 32 unsigned bits is no projection (the field count is checked
+  ;; after the constructor lookup)
+  (when (and (e/proj? e) (<= 0 (e/proj-idx e) 0xffffffff))
     (let [struct (whnf-fn env (e/proj-struct e))
           [head args] (e/get-app-fn-args struct)]
       (when (e/const? head)

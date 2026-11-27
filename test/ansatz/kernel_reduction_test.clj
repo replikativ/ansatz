@@ -446,3 +446,27 @@
       (is (= 1 (Reducer/powRepresentability (biginteger 3) 64 100)) "3^64 (102 bits) is in the margin")
       (is (thrown-with-msg? RuntimeException #"cannot be represented" (pow 3 64)))
       (is (= 100 (.bitLength ^BigInteger (e/lit-nat-val (pow 3 63)))) "3^63 has exactly 100 bits"))))
+
+(deftest the-clojure-reducer-forces-the-right-operand-only-after-a-literal-left
+  ;; reduce_bin_nat_op returns as soon as the left operand is not a literal; the right one here
+  ;; would be an error (a projection of an unknown constant)
+  (let [no-delta {:can-unfold? (constantly false)}
+        bad (e/proj (n "KS") 0 (c "KMissing"))
+        term (e/app* (c "Nat.add") (e/fvar 1) bad)]
+    (is (same? term (red/whnf @st-env term nil no-delta)))
+    (is (re-find #"Unknown constant: KMissing"
+                 (str (kernel-error #(red/whnf @st-env (e/app* (c "Nat.add") (lit 1) bad) nil no-delta)))))))
+
+(deftest the-clojure-projection-guard-is-unsigned-32-bit
+  (is (re-find #"Unknown constant: KMissing"
+               (str (kernel-error #(red/whnf @st-env (e/proj (n "KS") 2147483648 (c "KMissing"))))))
+      "2^31 is a valid index: the constructor is looked up")
+  (let [term (e/proj (n "KS") 4294967296 (c "KMissing"))]
+    (is (same? term (red/whnf @st-env term)) "2^32 is no projection index")))
+
+(deftest the-clojure-reducer-checks-recursor-universe-arity
+  (let [motive (lam "n" (c "Nat") (c "Nat"))
+        rec (fn [ls] (e/app* (c "Nat.rec" ls) motive (lit 7) (lam "n" (c "Nat") (lam "ih" (c "Nat") (e/bvar 0))) (lit 0)))]
+    (is (= (str (lit 7)) (str (red/whnf @base (rec [l1])))))
+    (is (same? (rec []) (red/whnf @base (rec [])))
+        "Nat.rec applied to no universes is not reduced")))
