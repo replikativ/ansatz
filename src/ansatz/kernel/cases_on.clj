@@ -229,7 +229,66 @@
                            (rewrite body :abstract (:id local) remaining) (:info local)))
             body (rseq (vec locals)))))
 
+(defn- prop-former-type? [^Expr type remaining]
+  ;; syntactic telescope, as in the declared type of an inductive
+  (loop [t type]
+    (tick! remaining)
+    (if (e/forall? t) (recur (e/forall-body t))
+        (and (e/sort? t) (level/level-zero? (e/sort-level t))))))
+
+(defn- via-projs-declaration
+  "Lean 4.36 Meta/Constructions/CasesOn.lean mkCasesOnViaProjs?, which mkCasesOn tries before
+   the native construction: for a one-constructor, index-free, nonrecursive, Prop-valued, large
+   eliminating type, `fun params motive (t : I params) minor => minor t.1 … t.n`. nil otherwise."
+  [^Env env ^Name name remaining]
+  (let [^ConstantInfo ind (.lookup env name)
+        ^ConstantInfo recursor (.lookup env (Name/mkStr name "rec"))]
+    (when (and ind recursor (.isInduct ind) (.isRecursor recursor)
+               (= 1 (count (.ctors ind))) (zero? (.numIndices ind)) (not (.isRec ind))
+               (> (count (.levelParams recursor)) (count (.levelParams ind)))
+               (prop-former-type? (.type ind) remaining))
+      (let [^ConstantInfo ctor (get-constant env (first (.ctors ind)))
+            np (.numParams ind)
+            next-id (volatile! 0)
+            local! (fn [n t info] (let [id @next-id] (tick! remaining) (vswap! next-id inc)
+                                       {:id id :expr (e/fvar id) :name n :type t :info info}))
+            [xs major-type] (loop [type (.type recursor) out []]
+                              (if (and (< (count out) (+ np 2)) (e/forall? type))
+                                (let [l (local! (e/forall-name type) (e/forall-type type) (e/forall-info type))]
+                                  (recur (rewrite (e/forall-body type) :instantiate (:expr l) remaining) (conj out l)))
+                                [out type]))
+            _ (when-not (and (= (count xs) (+ np 2)) (e/forall? major-type))
+                (fail :cases-on/invalid-recursor {:name (.name recursor) :field :telescope}))
+            major (local! (e/forall-name major-type) (e/forall-type major-type) (e/forall-info major-type))
+            motive (nth xs np) minor (nth xs (inc np))
+            ys (into (subvec xs 0 np) [motive major minor])
+            value-body (reduce e/app (:expr minor)
+                               (map #(e/proj name % (:expr major)) (range (.numFields ctor))))
+            type (closed! (close-over :pi ys (e/app (:expr motive) (:expr major)) remaining) remaining)
+            value (closed! (close-over :lambda ys value-body remaining) remaining)
+            out-name (Name/mkStr name "casesOn")]
+        (ConstantInfo/mkDefWithHints out-name (.levelParams recursor) type value
+                                     ConstantInfo/REDUCIBILITY_ABBREV
+                                     (byte (if (uses-unsafe? env [type value] remaining) 1 0))
+                                     (object-array [out-name]))))))
+
+(declare native-declaration)
+
 (defn make-declaration
+  "Construct n.casesOn from the actual inductive/recursor entries in ENV: from the projections
+   of the major when Lean 4.36's mkCasesOnViaProjs? applies, otherwise as cases_on.cpp does."
+  ([env name] (make-declaration env name {}))
+  ([^Env env ^Name name limits]
+   (or (when (and (map? limits) (every? #{:max-locals :max-work} (keys limits))
+                  (instance? Env env) (instance? Name name)
+                  (let [{:keys [max-locals max-work] :or {max-locals 100000 max-work 10000000}} limits]
+                    (and (integer? max-locals) (<= 1 max-locals Integer/MAX_VALUE)
+                         (integer? max-work) (<= 1 max-work Long/MAX_VALUE))))
+         (let [remaining (volatile! (:max-work limits 10000000))]
+           (via-projs-declaration env (bounded-name! name remaining) remaining)))
+       (native-declaration env name limits))))
+
+(defn- native-declaration
   "Construct n.casesOn from the actual inductive/recursor entries in ENV.
    The result is a complete abbreviation definition, not an admission receipt.
    Consumed Name/Level/Expr paths and generated binder indices are capped at256;
@@ -238,7 +297,6 @@
    ENV/CI/Expr data must remain stable during this call. Finite work/local
    limits are host bounds, not Lean heartbeat/depth accounting or a sandbox
    against reflective mutation of JVM data."
-  ([env name] (make-declaration env name {}))
   ([^Env env ^Name name {:keys [max-locals max-work]
                          :or {max-locals 100000 max-work 10000000} :as limits}]
    (when-not (and (map? limits) (every? #{:max-locals :max-work} (keys limits))

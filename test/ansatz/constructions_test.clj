@@ -17,7 +17,8 @@
             [ansatz.meta.constructions.cases-on :as cases]
             [ansatz.meta.constructions.rec-on :as rec]
             [ansatz.meta.constructions.brec-on :as brec]
-            [ansatz.meta.constructions.no-confusion :as nc])
+            [ansatz.meta.constructions.no-confusion :as nc]
+            [ansatz.kernel.cases-on :as kernel-cases])
   (:import [java.util.zip GZIPInputStream]))
 
 (def oracle
@@ -172,3 +173,52 @@
         (is (= [0 0 0 5 5]
                (mapv (deref (ns-resolve *ns* 'spin-fuel-program)) (range 5)))))
       (finally (reset! a/ansatz-env saved)))))
+
+;; Lean 4.36 mkCasesOnViaProjs? / mkRecOnViaCasesOn? (test/lean-parity/dsl/cases_on_projs.lean)
+(deftest prop-structure-cases-on-computes-on-opaque-proofs
+  (let [saved @a/ansatz-env]
+    (try
+      (binding [a/*verbose* false *ns* (the-ns 'ansatz.constructions-test)]
+        (let [out (ind/define-inductive @test-env/bundled-init-env "PBoth" '[p Prop q Prop]
+                    [['mk '[left p right q]]] :in 'Prop)
+              cases (lookup out "PBoth.casesOn")
+              body (loop [v (.value cases)] (if (e/lam? v) (recur (e/lam-body v)) v))
+              [h args] (e/get-app-fn-args body)]
+          (testing "casesOn applies the minor to the projections of the major"
+            (is (e/bvar? h))
+            (is (= [(e/proj (name/from-string "PBoth") 0 (e/bvar 1)) (e/proj (name/from-string "PBoth") 1 (e/bvar 1))]
+                   (vec args))))
+          (testing "recOn is casesOn"
+            (is (= (e/const' (name/from-string "PBoth.casesOn") (mapv lvl/param (.levelParams cases)))
+                   (.value (lookup out "PBoth.recOn")))))
+          (testing "both compute on an opaque proof; the recursor permutation does not"
+            (reset! a/ansatz-env out)
+            (doseq [elim ["casesOn" "recOn"]]
+              (eval (list 'ansatz.core/theorem (symbol (str "pboth-" elim "-computes")) '[p :- Prop, q :- Prop, h :- (PBoth p q)]
+                          (list '= 'Nat (list (symbol (str "@PBoth." elim ".{1}")) 'p 'q '(fn [_ :- (PBoth p q)] Nat) 'h
+                                              '(fn [a :- p, b :- q] 7)) 7)
+                          '(rfl)))
+              (is (some? (lookup (a/env) (str "pboth-" elim "-computes")))))
+            (is (thrown? Exception
+                         (eval (list 'ansatz.core/theorem 'pboth-rec-computes '[p :- Prop, q :- Prop, h :- (PBoth p q)]
+                                     (list '= 'Nat (list (symbol "@PBoth.rec.{1}") 'p 'q '(fn [_ :- (PBoth p q)] Nat)
+                                                         '(fn [a :- p, b :- q] 7) 'h) 7)
+                                     '(rfl))))))
+          (testing "an Exists-like proposition (Prop elimination only) keeps the recursor"
+            (let [out (ind/define-inductive @test-env/bundled-init-env "PEx" '[α Type p (=> α Prop)]
+                        [['intro '[w α h (p w)]]] :in 'Prop)
+                  body (loop [v (.value (lookup out "PEx.casesOn"))] (if (e/lam? v) (recur (e/lam-body v)) v))]
+              (is (= "PEx.rec" (str (e/const-name (e/get-app-fn body)))))))))
+      (finally (reset! a/ansatz-env saved)))))
+
+(deftest pure-cases-on-builder-uses-projections-where-lean-does
+  (let [env @test-env/bundled-init-env
+        and-cases (kernel-cases/make-declaration env (name/from-string "And"))
+        body (loop [v (.value and-cases)] (if (e/lam? v) (recur (e/lam-body v)) v))]
+    (is (e/proj? (e/app-arg body)) "And.casesOn: the minor applied to projections")
+    (is (tc/is-def-eq (tc/mk-tc-state env) (.type and-cases) (.type (lookup env "And.casesOn"))))
+    (is (some? (env/check-constant env (env/mk-def (name/from-string "And.casesOnViaProjs")
+                                                   (vec (.levelParams and-cases)) (.type and-cases) (.value and-cases)))))
+    (let [ex (kernel-cases/make-declaration env (name/from-string "Exists"))
+          body (loop [v (.value ex)] (if (e/lam? v) (recur (e/lam-body v)) v))]
+      (is (= "Exists.rec" (str (e/const-name (e/get-app-fn body))))))))

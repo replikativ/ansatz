@@ -10,6 +10,11 @@ Files under `kernel/` pin the kernel's inductive admission (`environment::add_in
 submit declarations through the elaborator or, to reach the kernel directly, through `addDecl`,
 and pair with `test/ansatz/kernel_inductive_admission_test.clj`.
 
+Files under `dsl/` do the same for the declarations Ansatz's inductive/structure DSL generates
+(`noConfusion`, `sizeOf`, `casesOn`, injectivity, equation lemmas, deriving): each names the
+Ansatz test it pairs with and asserts the generated names, signatures and reductions Lean v4.36.0
+produces for the same core-only declaration.
+
 `ParitySimpSets.lean` declares the custom simp sets the `q5_*` files use (`register_simp_attr`
 must live in an imported module); `run.sh` compiles it first.
 
