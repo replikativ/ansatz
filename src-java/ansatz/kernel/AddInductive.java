@@ -21,7 +21,9 @@ import java.util.function.Predicate;
  * ({@code check_no_metavar_no_fvar}, {@code check_no_nested_aux}), {@code check_uniform_ind_occs},
  * nested elimination ({@link ElimNested}), {@code add_inductive_fn} on the auxiliary block
  * ({@link Core}), restoration of the nested occurrences, and the final-environment checks.
- * One fuel budget covers every type checker the admission creates.
+ * One fuel budget covers every type checker the admission creates: the fuel bounds reduction
+ * (whnf, definitional equality, inference). The syntactic walks are not charged; they are
+ * memoized on shared subterms and stop on thread interruption (see {@link Poll}).
  */
 public final class AddInductive {
     private AddInductive() {}
@@ -830,16 +832,44 @@ public final class AddInductive {
         return false;
     }
 
-    /** Lean's has_loose_bvar(e, i): bvar i occurs free in e. */
+    /** Lean's has_loose_bvar(e, i): bvar i occurs free in e. Memoized on (subterm, index). */
     static boolean hasLooseBVar(Expr e, int i) {
+        return hasLooseBVarGo(e, i, new IdentityHashMap<>(), new Poll());
+    }
+
+    private static boolean hasLooseBVarGo(Expr e, int i, IdentityHashMap<Expr, HashSet<Integer>> absent, Poll poll) {
         if (e.bvarRange() <= i) return false;
+        HashSet<Integer> known = absent.get(e);
+        if (known != null && known.contains(i)) return false;
+        poll.tick();
+        boolean r;
         switch (e.tag) {
-            case Expr.BVAR: return e.longVal == i;
-            case Expr.APP: return hasLooseBVar((Expr) e.o0, i) || hasLooseBVar((Expr) e.o1, i);
-            case Expr.LAM: case Expr.FORALL: return hasLooseBVar((Expr) e.o1, i) || hasLooseBVar((Expr) e.o2, i + 1);
-            case Expr.LET: return hasLooseBVar((Expr) e.o1, i) || hasLooseBVar((Expr) e.o2, i) || hasLooseBVar((Expr) e.o3, i + 1);
-            case Expr.MDATA: case Expr.PROJ: return hasLooseBVar((Expr) e.o1, i);
-            default: return false;
+            case Expr.BVAR: r = e.longVal == i; break;
+            case Expr.APP: r = hasLooseBVarGo((Expr) e.o0, i, absent, poll) || hasLooseBVarGo((Expr) e.o1, i, absent, poll); break;
+            case Expr.LAM: case Expr.FORALL:
+                r = hasLooseBVarGo((Expr) e.o1, i, absent, poll) || hasLooseBVarGo((Expr) e.o2, i + 1, absent, poll); break;
+            case Expr.LET:
+                r = hasLooseBVarGo((Expr) e.o1, i, absent, poll) || hasLooseBVarGo((Expr) e.o2, i, absent, poll)
+                    || hasLooseBVarGo((Expr) e.o3, i + 1, absent, poll); break;
+            case Expr.MDATA: case Expr.PROJ: r = hasLooseBVarGo((Expr) e.o1, i, absent, poll); break;
+            default: r = false;
+        }
+        if (!r) absent.computeIfAbsent(e, k -> new HashSet<>()).add(i);
+        return r;
+    }
+
+    /**
+     * The syntactic walks of an admission (preflight, nested discovery and restoration,
+     * occurrence and binder searches) are not charged to the reduction fuel; they are memoized
+     * on shared subterms and poll the thread's interruption, as the reducer does, so a timeout
+     * stops them.
+     */
+    static final class Poll {
+        private int n;
+
+        void tick() {
+            if ((++n & 0xFFF) == 0 && Thread.interrupted())
+                throw new KernelAbort("Inductive admission interrupted (timeout)");
         }
     }
 
@@ -847,10 +877,12 @@ public final class AddInductive {
     static boolean find(Expr e, Predicate<Expr> p) {
         IdentityHashMap<Expr, Boolean> seen = new IdentityHashMap<>();
         ArrayList<Expr> todo = new ArrayList<>();
+        Poll poll = new Poll();
         todo.add(e);
         while (!todo.isEmpty()) {
             Expr x = todo.remove(todo.size() - 1);
             if (seen.put(x, Boolean.TRUE) != null) continue;
+            poll.tick();
             if (p.test(x)) return true;
             pushChildren(x, todo);
         }
@@ -871,55 +903,57 @@ public final class AddInductive {
 
     /** Lean's for_each with binder offsets: the visitor returns false to skip a subterm's children. */
     static void forEachWithOffset(Expr e, OffsetVisitor f) {
-        forEachGo(e, 0, f, new IdentityHashMap<>());
+        forEachGo(e, 0, f, new IdentityHashMap<>(), new Poll());
     }
 
-    private static void forEachGo(Expr e, int offset, OffsetVisitor f, IdentityHashMap<Expr, HashSet<Integer>> seen) {
+    private static void forEachGo(Expr e, int offset, OffsetVisitor f, IdentityHashMap<Expr, HashSet<Integer>> seen, Poll poll) {
         if (!seen.computeIfAbsent(e, k -> new HashSet<>()).add(offset)) return;
+        poll.tick();
         if (!f.visit(e, offset)) return;
         switch (e.tag) {
-            case Expr.APP: forEachGo((Expr) e.o0, offset, f, seen); forEachGo((Expr) e.o1, offset, f, seen); break;
-            case Expr.LAM: case Expr.FORALL: forEachGo((Expr) e.o1, offset, f, seen); forEachGo((Expr) e.o2, offset + 1, f, seen); break;
-            case Expr.LET: forEachGo((Expr) e.o1, offset, f, seen); forEachGo((Expr) e.o2, offset, f, seen); forEachGo((Expr) e.o3, offset + 1, f, seen); break;
-            case Expr.MDATA: case Expr.PROJ: forEachGo((Expr) e.o1, offset, f, seen); break;
+            case Expr.APP: forEachGo((Expr) e.o0, offset, f, seen, poll); forEachGo((Expr) e.o1, offset, f, seen, poll); break;
+            case Expr.LAM: case Expr.FORALL: forEachGo((Expr) e.o1, offset, f, seen, poll); forEachGo((Expr) e.o2, offset + 1, f, seen, poll); break;
+            case Expr.LET: forEachGo((Expr) e.o1, offset, f, seen, poll); forEachGo((Expr) e.o2, offset, f, seen, poll); forEachGo((Expr) e.o3, offset + 1, f, seen, poll); break;
+            case Expr.MDATA: case Expr.PROJ: forEachGo((Expr) e.o1, offset, f, seen, poll); break;
             default: break;
         }
     }
 
     /** Lean's replace: f's answer replaces a subterm (not descended into); null descends. Memoized by identity. */
     static Expr replace(Expr e, Function<Expr, Expr> f) {
-        return replaceGo(e, f, new IdentityHashMap<>());
+        return replaceGo(e, f, new IdentityHashMap<>(), new Poll());
     }
 
-    private static Expr replaceGo(Expr e, Function<Expr, Expr> f, IdentityHashMap<Expr, Expr> cache) {
+    private static Expr replaceGo(Expr e, Function<Expr, Expr> f, IdentityHashMap<Expr, Expr> cache, Poll poll) {
         Expr cached = cache.get(e);
         if (cached != null) return cached;
+        poll.tick();
         Expr r = f.apply(e);
         if (r == null) {
             switch (e.tag) {
                 case Expr.APP: {
-                    Expr fn = replaceGo((Expr) e.o0, f, cache), arg = replaceGo((Expr) e.o1, f, cache);
+                    Expr fn = replaceGo((Expr) e.o0, f, cache, poll), arg = replaceGo((Expr) e.o1, f, cache, poll);
                     r = fn == e.o0 && arg == e.o1 ? e : Expr.app(fn, arg);
                     break;
                 }
                 case Expr.LAM: case Expr.FORALL: {
-                    Expr ty = replaceGo((Expr) e.o1, f, cache), body = replaceGo((Expr) e.o2, f, cache);
+                    Expr ty = replaceGo((Expr) e.o1, f, cache, poll), body = replaceGo((Expr) e.o2, f, cache, poll);
                     r = ty == e.o1 && body == e.o2 ? e
                         : e.tag == Expr.LAM ? Expr.lam(e.o0, ty, body, e.o3) : Expr.forall(e.o0, ty, body, e.o3);
                     break;
                 }
                 case Expr.LET: {
-                    Expr ty = replaceGo((Expr) e.o1, f, cache), val = replaceGo((Expr) e.o2, f, cache), body = replaceGo((Expr) e.o3, f, cache);
+                    Expr ty = replaceGo((Expr) e.o1, f, cache, poll), val = replaceGo((Expr) e.o2, f, cache, poll), body = replaceGo((Expr) e.o3, f, cache, poll);
                     r = ty == e.o1 && val == e.o2 && body == e.o3 ? e : Expr.mkLet(e.o0, ty, val, body);
                     break;
                 }
                 case Expr.MDATA: {
-                    Expr inner = replaceGo((Expr) e.o1, f, cache);
+                    Expr inner = replaceGo((Expr) e.o1, f, cache, poll);
                     r = inner == e.o1 ? e : Expr.mdata(e.o0, inner);
                     break;
                 }
                 case Expr.PROJ: {
-                    Expr inner = replaceGo((Expr) e.o1, f, cache);
+                    Expr inner = replaceGo((Expr) e.o1, f, cache, poll);
                     r = inner == e.o1 ? e : Expr.proj(e.o0, e.longVal, inner);
                     break;
                 }

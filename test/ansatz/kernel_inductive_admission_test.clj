@@ -376,3 +376,12 @@
     (is (re-find #"undeclared universe parameter 'w'"
                  (str (rejection @base (ctor-as [(n "v")] (c "KP" [(P "w")]))))))
     (is (re-find #"universe parameters" (str (rejection @base (ctor-as [] (c "KP" [l0]))))))))
+
+(deftest loose-bvar-search-is-linear-in-the-dag
+  ;; t(k+1) = Nat.add t(k) t(k) over t0 = #5: searching for the absent #0 must visit each shared
+  ;; node once per index, not 2^60 paths
+  (let [t (reduce (fn [t _] (e/app* (c "Nat.add") t t)) (bv 5) (range 60))
+        m (doto (.getDeclaredMethod ansatz.kernel.AddInductive "hasLooseBVar" (into-array Class [Expr Integer/TYPE]))
+            (.setAccessible true))
+        f (future (.invoke m nil (object-array [t (int 0)])))]
+    (is (false? (deref f 10000 :timeout)))))
