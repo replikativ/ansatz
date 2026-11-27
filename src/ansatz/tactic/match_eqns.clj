@@ -639,7 +639,9 @@
         splitter-name (if (and (mi/non-overlapping? info)
                                (zero? (mi/get-num-discr-eqs info)))
                         match-name (:splitter-name eqns))
-        env @state/ansatz-env
+        ;; the session env has the matcher's equations and splitter; keep what this proof
+        ;; realized (noConfusion auxiliaries, basic/unify-eq) in the meantime
+        env (basic/carry-realized @state/ansatz-env ps)
         ps (assoc ps :env env)
         d (matcher-alt-data env splitter-name)
         np (:num-params d) nd (:num-discrs d)
