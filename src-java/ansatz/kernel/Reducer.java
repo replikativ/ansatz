@@ -1494,6 +1494,7 @@ public final class Reducer {
     @SuppressWarnings("unchecked")
     static Object[] constLevels(Expr e) {
         Object levels = e.o1;
+        if (levels instanceof LevelList) return ((LevelList) levels).arr;   // read-only use
         if (levels instanceof Object[]) return (Object[]) levels;
         if (levels instanceof clojure.lang.IPersistentVector) {
             clojure.lang.IPersistentVector v = (clojure.lang.IPersistentVector) levels;

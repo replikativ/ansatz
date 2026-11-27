@@ -416,3 +416,22 @@
                         (Reducer/natBinop Name/NAT_POW (biginteger 2) (biginteger 2147483647) -1))
       "a proven overflow is refused before any allocation"))
 
+;; ------------------------------------------------------------------ K2 follow-up review
+
+(deftest universe-lists-are-immutable-through-the-public-fields
+  ;; p, q : P.{0} are proofs (P.{u} : Sort u), so p ≡ q by proof irrelevance; a caller
+  ;; must not be able to turn the cached type into P.{1}
+  (let [u (n "u")
+        env (env/check-constant @base (env/mk-axiom (n "KP") [u] (e/sort' (lvl/param u))) fuel)
+        lv (object-array [l0])
+        p-ty (Expr/mkConst (n "KP") lv)
+        checker (tc env)]
+    (aset lv 0 l1)
+    (is (same? (c "KP" [l0]) p-ty) "the caller's array is copied")
+    (.addLocal checker 1 "p" ^Expr p-ty)
+    (.addLocal checker 2 "q" ^Expr p-ty)
+    (is (.isDefEq checker (e/fvar 1) (e/fvar 2)))
+    (let [^Expr ty (aget ^objects (.lookupFvar checker 1) 2)]
+      (is (thrown? UnsupportedOperationException (.set ^java.util.List (.o1 ty) 0 l1))))
+    (is (same? (c "KP" [l0]) (.inferType checker (e/fvar 1))))
+    (is (.isDefEq checker (e/fvar 1) (e/fvar 2)))))
