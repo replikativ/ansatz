@@ -226,3 +226,15 @@
           (fn [state]
             (is (= ["P"] (mapv #(str (.name ^ConstantInfo %)) (:decls state)))))))
       (finally (.delete file)))))
+
+(deftest an-empty-inductive-record-is-rejected-not-flattened-away
+  (let [text (str "{\"meta\":{\"format\":{\"version\":\"3.1.0\"}}}\n"
+                  "{\"inductive\":{\"constructorVals\":[],\"inductiveVals\":[],\"recursorVals\":[]}}\n")
+        file (java.io.File/createTempFile "empty-block" ".ndjson")]
+    (try
+      (spit file text)
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"empty \(mutual\) inductive"
+                            (parser/parse-ndjson-string text)))
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"empty \(mutual\) inductive"
+                            (parser/parse-ndjson-file-streaming-raw (.getPath file) nil (fn [st _] st))))
+      (finally (.delete file)))))
