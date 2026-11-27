@@ -287,38 +287,23 @@
 ;; ============================================================
 
 (defn- try-reduce-quot
-  "Try quotient reduction."
-  [^Env env head args]
+  "Quotient reduction, Lean's quot_reduce_rec: Quot.lift's major is argument 5 of 6 and its
+   function argument 3; Quot.ind's major is argument 4 of 5 and its function argument 3. The
+   major is reduced with `whnf-fn` and must be `Quot.mk` applied to exactly three arguments;
+   arguments after the major are reapplied."
+  [^Env env head args whnf-fn]
   (when (and (e/const? head) (env/quot-enabled? env))
-    (let [^Name name (e/const-name head)]
-      (cond
-        (identical? name Name/QUOT_LIFT)
-        (when (>= (count args) 6)
-          (let [q (nth args 5)
-                [q-head q-args] (e/get-app-fn-args q)]
-            (when (and (e/const? q-head)
-                       (identical? Name/QUOT_MK (e/const-name q-head))
-                       (>= (count q-args) 3))
-              (let [f (nth args 3)
-                    a (nth q-args 2)
-                    result (e/app f a)]
-                (reduce e/app result (subvec (vec args) 6))))))
-
-        ;; Quot.ind {α} {r} {β} (mk : ∀ a, β (Quot.mk r a)) (q : Quot r): the major is
-        ;; argument 4 of 5 (Lean's quot_reduce_rec, mk_pos = 4).
-        (identical? name Name/QUOT_IND)
-        (when (>= (count args) 5)
-          (let [q (nth args 4)
-                [q-head q-args] (e/get-app-fn-args q)]
-            (when (and (e/const? q-head)
-                       (identical? Name/QUOT_MK (e/const-name q-head))
-                       (>= (count q-args) 3))
-              (let [p (nth args 3)
-                    a (nth q-args 2)
-                    result (e/app p a)]
-                (reduce e/app result (subvec (vec args) 5))))))
-
-        :else nil))))
+    (let [^Name name (e/const-name head)
+          mk-pos (cond (identical? name Name/QUOT_LIFT) 5
+                       (identical? name Name/QUOT_IND) 4)]
+      (when (and mk-pos (> (count args) mk-pos))
+        (let [mk (whnf-fn env (nth args mk-pos))
+              [mk-head mk-args] (e/get-app-fn-args mk)]
+          (when (and (e/const? mk-head)
+                     (identical? Name/QUOT_MK (e/const-name mk-head))
+                     (= 3 (count mk-args)))
+            (reduce e/app (e/app (nth args 3) (nth mk-args 2))
+                    (subvec (vec args) (inc mk-pos)))))))))
 
 ;; ============================================================
 ;; Projection reduction
@@ -404,7 +389,7 @@
                    (recur env result lctx opts)))
              :else
              (if-let [reduced (or (try-reduce-recursor env head' args nil nil nil opts)
-                                  (try-reduce-quot env head' args))]
+                                  (try-reduce-quot env head' args (fn [env e] (whnf env e lctx opts))))]
                (do (check-fuel!) (recur env reduced lctx opts))
                (if (and (e/const? head')
                         (identical? Name/NAT_SUCC (e/const-name head'))

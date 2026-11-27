@@ -303,7 +303,18 @@
         a (e/lit-nat 3)
         q (e/app* (c "Quot.mk" u) alpha r a)
         term (e/app* (c "Quot.ind" u) alpha r beta mk q)]
-    (is (= (e/app mk a) (red/whnf-no-delta env term)))))
+    (is (= (e/app mk a) (red/whnf-no-delta env term)))
+    (testing "the major is reduced first (here a let), as Lean whnf's it"
+      (is (= (e/app mk a)
+             (red/whnf-no-delta env (e/app* (c "Quot.ind" u) alpha r beta mk
+                                            (e/let' (n "q") (e/app* (c "Quot" u) alpha r) q (bv 0)))))))
+    (testing "Quot.mk must carry exactly three arguments"
+      (let [over (e/app* (c "Quot.ind" u) alpha r beta mk (e/app q a))]
+        (is (= over (red/whnf-no-delta env over)))))
+    (testing "Quot.lift: major 5 of 6, extra arguments reapplied"
+      (let [f (e/fvar 4243) extra (e/fvar 4244)]
+        (is (= (e/app (e/app f a) extra)
+               (red/whnf-no-delta env (e/app* (c "Quot.lift" [l1 l1]) alpha r (c "Nat") f mk q extra))))))))
 
 ;; ============================================================
 ;; Review follow-ups: universe-parameter flags and level conversion
