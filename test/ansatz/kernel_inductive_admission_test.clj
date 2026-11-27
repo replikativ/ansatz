@@ -12,7 +12,8 @@
             [ansatz.kernel.expr :as e]
             [ansatz.kernel.level :as lvl]
             [ansatz.kernel.name :as name]
-            [ansatz.kernel.reduce :as red])
+            [ansatz.kernel.reduce :as red]
+            [ansatz.kernel.tc :as tc])
   (:import [ansatz.kernel ConstantInfo ConstantInfo$RecursorRule Env Expr Level Name Reducer TypeChecker]))
 
 ;; ============================================================
@@ -435,3 +436,25 @@
     (is (not (.hasLevelParam ^Expr inferred)))
     (is (= (n "KU2") (e/const-name inferred)))
     (is (= [l0] (vec (e/const-levels inferred))))))
+
+(deftest quot-major-is-reduced-at-the-callers-transparency
+  ;; a regular definition hiding Quot.mk: the meta layer's reducible whnf (proj-whnf-fn) must
+  ;; not unfold it, the default reducer does
+  (let [u [l1] alpha (c "Nat") r (lam "a" alpha (lam "b" alpha (c "True")))
+        qt (e/app* (c "Quot" u) alpha r)
+        env (env/check-constant @base (env/mk-def (n "KMkq") [] qt (e/app* (c "Quot.mk" u) alpha r (e/lit-nat 3))
+                                                  :hints {:regular 1})
+                                fuel)
+        beta (lam "q" qt prop) mk (e/fvar 4245)
+        term (e/app* (c "Quot.ind" u) alpha r beta mk (c "KMkq"))
+        no-delta {:proj-whnf-fn (fn [env x] (red/whnf-no-delta env x))}]
+    (is (= term (red/whnf-no-delta env term nil no-delta)))
+    (is (= (e/app mk (e/lit-nat 3)) (red/whnf-no-delta env term)))))
+
+(deftest clojure-defeq-fallback-uses-is-equivalent
+  ;; with a let in the local context the Clojure fallback decides defeq; Sort s and
+  ;; Sort (max s b) are not is_equivalent (s = imax a b)
+  (let [st (update (tc/mk-tc-state @base) :lctx red/lctx-add-let 9001 "x" (c "Nat") (e/lit-nat 0))]
+    (is (nil? (tc/java-tc st)) "the let routes to the fallback")
+    (is (not (tc/is-def-eq st (e/sort' s11) (e/sort' (lvl/level-max s11 (P "b"))))))
+    (is (tc/is-def-eq st (e/sort' s11) (e/sort' s11)))))

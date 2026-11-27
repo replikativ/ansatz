@@ -289,8 +289,9 @@
 (defn- try-reduce-quot
   "Quotient reduction, Lean's quot_reduce_rec: Quot.lift's major is argument 5 of 6 and its
    function argument 3; Quot.ind's major is argument 4 of 5 and its function argument 3. The
-   major is reduced with `whnf-fn` and must be `Quot.mk` applied to exactly three arguments;
-   arguments after the major are reapplied."
+   major is reduced with `whnf-fn` — the caller's major reducer: `(:proj-whnf-fn opts)`, the meta
+   layer's whnf at the current transparency, else full whnf — and must be `Quot.mk` applied to
+   exactly three arguments; arguments after the major are reapplied."
   [^Env env head args whnf-fn]
   (when (and (e/const? head) (env/quot-enabled? env))
     (let [^Name name (e/const-name head)
@@ -389,7 +390,7 @@
                    (recur env result lctx opts)))
              :else
              (if-let [reduced (or (try-reduce-recursor env head' args nil nil nil opts)
-                                  (try-reduce-quot env head' args (fn [env e] (whnf env e lctx opts))))]
+                                  (try-reduce-quot env head' args (or (:proj-whnf-fn opts) (fn [env e] (whnf env e lctx opts)))))]
                (do (check-fuel!) (recur env reduced lctx opts))
                (if (and (e/const? head')
                         (identical? Name/NAT_SUCC (e/const-name head'))
