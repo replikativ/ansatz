@@ -77,3 +77,28 @@ axiom ax : S
 /-- info: true -/
 #guard_msgs in
 #eval kdefeq (mkConst `alias10001) (mkConst ``Nat.zero)
+
+/-! ## A delta candidate needs its universe arity (`is_delta`) -/
+
+-- `kg` (added unchecked) unfolds to `kf.{0}`, a wrong-arity application: no delta candidate, so
+-- the comparison falls through to `is_def_eq_unit_like`, whose inference rejects it.
+#guard_msgs in
+#eval show CoreM Unit from do
+  addDecl (.defnDecl { name := `kf, levelParams := [], type := mkConst ``Nat, value := mkConst ``Nat.zero,
+                       hints := .regular 5, safety := .safe })
+  let kg : Declaration := .defnDecl {
+        name := `kg, levelParams := [], type := mkConst ``Nat,
+        value := mkConst `kf [Level.zero], hints := .regular 1, safety := .safe }
+  match (← getEnv).addDeclCore 0 0 kg none (doCheck := false) with
+  | .ok env => setEnv env
+  | .error _ => throwError "addDeclCore failed"
+
+/-- info: kernel error -/
+#guard_msgs in
+#eval kdefeq (mkConst `kg) (mkConst ``Nat.zero)
+
+/-! ## Bound variable indices are bounded (`Expr.mkData`) -/
+
+/-- info: 1048575 -/
+#guard_msgs in
+#eval (Expr.bvar 1048574).looseBVarRange

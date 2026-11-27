@@ -65,7 +65,11 @@
             (e/app (c "Int.negSucc") (lit 20)))))))
 
 (deftest kernel-errors-propagate-out-of-proof-irrelevance
-  (is (= :kernel-error (outcome #(defeq? @base (c "KUnknown" [l0]) (c "KUnknown" [(lvl/level-max l0 l0)]))))))
+  ;; equivalent, structurally different universes: no quick answer, so is_def_eq_proof_irrel
+  ;; infers the unknown constant and the error escapes
+  (let [u (lvl/param (n "u")) v (lvl/param (n "v"))]
+    (is (= :kernel-error (outcome #(defeq? @base (c "KUnknown" [(lvl/level-max (lvl/succ u) (lvl/succ v))])
+                                     (c "KUnknown" [(lvl/level-max (lvl/succ v) (lvl/succ u))])))))))
 
 (deftest lazy-delta-has-no-step-cutoff
   (let [env (reduce (fn [env i]
@@ -115,8 +119,8 @@
   (is (false? (defeq? @string-env (e/lit-str "a") (c "s0")))))
 
 (deftest delta-candidates-have-the-right-universe-arity
-  ;; is_delta: a definition applied to the wrong number of universes is no candidate, so lazy
-  ;; delta unfolds the other side instead of giving up
+  ;; is_delta: kg unfolds to kf.{0}, a wrong-arity application and so no delta candidate; the
+  ;; comparison falls through to is_def_eq_unit_like, whose inference rejects it (Lean: error)
   (let [env (env/check-constant @base (env/mk-def (n "kf") [] (c "Nat") (c "Nat.zero") :hints {:regular 5}) fuel)
         env (env/add-constant env (env/mk-def (n "kg") [] (c "Nat") (c "kf" [l0]) :hints {:regular 1}))]
-    (is (defeq? env (c "kf" [l0]) (c "kg")))))
+    (is (= :kernel-error (outcome #(defeq? env (c "kg") (c "Nat.zero")))))))
