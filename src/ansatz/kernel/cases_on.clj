@@ -6,7 +6,6 @@
    Returns a declaration only; no admission or changes to Env declarations.
    Existing lookup memo caches may be populated."
   (:require [ansatz.kernel.expr :as e]
-            [ansatz.kernel.reduce :as red]
             [ansatz.kernel.level :as level])
   (:import [ansatz.kernel ConstantInfo Env Expr Name Level]
            [java.util IdentityHashMap HashMap]))
@@ -243,6 +242,11 @@
                (= 1 (count (.ctors ind))) (zero? (.numIndices ind)) (not (.isRec ind))
                (> (count (.levelParams recursor)) (count (.levelParams ind))))
       (closed! (.type recursor) remaining)
+      ;; the metadata copied into the result is validated as the native construction does
+      (doseq [n (concat (seq (.levelParams recursor)) (seq (.levelParams ind)))]
+        (tick! remaining)
+        (when-not (instance? Name n) (fail :cases-on/invalid-recursor {:field :level-parameters}))
+        (bounded-name! n remaining))
       (let [next-id (volatile! 0)
             local! (fn [n t info]
                      (let [id @next-id]
@@ -260,8 +264,22 @@
                                              (assoc lctx (:id l) {:tag :local :id (:id l) :name (:name l)
                                                                   :type (:type l)})))
                       (e/sort? t) (level/level-zero? (e/sort-level t))
-                      :else (let [r (red/whnf env t lctx)]
-                              (if (or (e/forall? r) (e/sort? r)) (recur r lctx) false))))]
+                      ;; one delta step of a definition at the head, beta-applied, charged to the
+                      ;; same budget (a reducible alias for Prop, or a chain of them)
+                      :else (let [[h args] (loop [x t args ()]
+                                             (if (e/app? x) (recur (e/app-fn x) (cons (e/app-arg x) args)) [x args]))
+                                  ^ConstantInfo d (when (e/const? h) (.lookup env (e/const-name h)))]
+                              (if (and d (.isDef d) (.value d)
+                                       (= (count (.levelParams d)) (count (e/const-levels h))))
+                                (let [v (e/instantiate-level-params
+                                         (.value d) (zipmap (.levelParams d) (e/const-levels h)))]
+                                  (recur (loop [f v args args]
+                                           (tick! remaining)
+                                           (cond (empty? args) f
+                                                 (e/lam? f) (recur (e/instantiate1 (e/lam-body f) (first args)) (rest args))
+                                                 :else (reduce e/app f args)))
+                                         lctx))
+                                false))))]
         (when prop?
           (vreset! next-id 0)
           (let [^ConstantInfo ctor (get-constant env (first (.ctors ind)))

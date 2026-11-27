@@ -227,15 +227,15 @@
       (finally (reset! a/ansatz-env saved)))))
 
 (defn- alias-prop-structure
-  "`AliasBoth (p q : Prop) : PropAlias` (`PropAlias := Prop`, reducible) with `mk (hp : p) (hq : q)`,
-   admitted at the kernel level with Name binders, as an import would carry it."
-  [base]
+  "`AliasBoth (p q : Prop) : header` with `mk (hp : p) (hq : q)`, admitted at the kernel level with
+   Name binders, as an import would carry it; `header` a reducible alias chain ending in Prop.
+   With `:unchecked` the declarations are added without checking, `:rec-type`/`:rec-levels`
+   overriding the recursor's."
+  [env header & {:keys [unchecked rec-type rec-levels]}]
   (let [N name/from-string
-        env (env/check-constant base (env/mk-def (N "PropAlias") [] (e/sort' (lvl/succ lvl/zero)) (e/sort' lvl/zero)
-                                                 :hints :abbrev))
         prop (e/sort' lvl/zero)
         nm (N "AliasBoth") T (fn [p q] (e/app* (e/const' nm []) p q))
-        ind (env/mk-induct nm [] (e/forall' (N "p") prop (e/forall' (N "q") prop (e/const' (N "PropAlias") []) :default) :default)
+        ind (env/mk-induct nm [] (e/forall' (N "p") prop (e/forall' (N "q") prop (e/const' (N header) []) :default) :default)
                            :num-params 2 :ctors [(N "AliasBoth.mk")])
         mk-app (fn [p q hp hq] (e/app* (e/const' (N "AliasBoth.mk") []) p q hp hq))
         cty (e/forall' (N "p") prop
@@ -245,19 +245,31 @@
                                   :implicit) :implicit)
         ctor (env/mk-ctor (N "AliasBoth.mk") [] cty nm 0 2 2)
         un (N "u")
-        rty (e/forall' (N "p") prop
-                       (e/forall' (N "q") prop
-                                  (e/forall' (N "motive") (e/forall' (N "t") (T (e/bvar 1) (e/bvar 0)) (e/sort' (lvl/param un)) :default)
-                                             (e/forall' (N "mk") (e/forall' (N "hp") (e/bvar 2)
-                                                                            (e/forall' (N "hq") (e/bvar 2)
-                                                                                       (e/app (e/bvar 2) (mk-app (e/bvar 4) (e/bvar 3) (e/bvar 1) (e/bvar 0)))
-                                                                                       :default) :default)
-                                                        (e/forall' (N "t") (T (e/bvar 3) (e/bvar 2)) (e/app (e/bvar 2) (e/bvar 0)) :default)
-                                                        :default) :implicit) :implicit) :implicit)
+        rty (or rec-type
+                (e/forall' (N "p") prop
+                           (e/forall' (N "q") prop
+                                      (e/forall' (N "motive") (e/forall' (N "t") (T (e/bvar 1) (e/bvar 0)) (e/sort' (lvl/param un)) :default)
+                                                 (e/forall' (N "mk") (e/forall' (N "hp") (e/bvar 2)
+                                                                                (e/forall' (N "hq") (e/bvar 2)
+                                                                                           (e/app (e/bvar 2) (mk-app (e/bvar 4) (e/bvar 3) (e/bvar 1) (e/bvar 0)))
+                                                                                           :default) :default)
+                                                            (e/forall' (N "t") (T (e/bvar 3) (e/bvar 2)) (e/app (e/bvar 2) (e/bvar 0)) :default)
+                                                            :default) :implicit) :implicit) :implicit))
         rn (N "AliasBoth.rec")
-        rec #(env/mk-recursor rn [un] rty :all [nm] :num-params 2 :num-motives 1 :num-minors 1 :rules %)
-        rules (vec (TypeChecker/generateExpectedRecursorRules env (env/mk-inductive-bundle [] 2 false [ind] [ctor] [(rec [])]) 0 1000000))]
-    (env/check-inductive-bundle env (env/mk-inductive-bundle [] 2 false [ind] [ctor] [(rec rules)]))))
+        rec #(env/mk-recursor rn (or rec-levels [un]) rty :all [nm] :num-params 2 :num-motives 1 :num-minors 1 :rules %)]
+    (if unchecked
+      (reduce env/add-constant env [ind ctor (rec [])])
+      (let [rules (vec (TypeChecker/generateExpectedRecursorRules env (env/mk-inductive-bundle [] 2 false [ind] [ctor] [(rec [])]) 0 1000000))]
+        (env/check-inductive-bundle env (env/mk-inductive-bundle [] 2 false [ind] [ctor] [(rec rules)]))))))
+
+(defn- with-alias-chain
+  "`env` with reducible `PropAlias0 := Prop`, `PropAliasᵢ := PropAliasᵢ₋₁` up to `n`."
+  [env n]
+  (reduce (fn [env i]
+            (env/check-constant env (env/mk-def (name/from-string (str "PropAlias" i)) [] (e/sort' (lvl/succ lvl/zero))
+                                                (if (zero? i) (e/sort' lvl/zero) (e/const' (name/from-string (str "PropAlias" (dec i))) []))
+                                                :hints :abbrev)))
+          env (range (inc n))))
 
 (deftest pure-cases-on-builder-uses-projections-where-lean-does
   (let [env @test-env/bundled-init-env
@@ -274,9 +286,33 @@
       (is (= :cases-on/local-limit
              (try (kernel-cases/make-declaration env (name/from-string "And") {:max-locals 1}) nil
                   (catch clojure.lang.ExceptionInfo ex (:type (ex-data ex)))))))
-    (testing "a header that ends in a reducible alias for Prop is Prop-valued"
-      (let [out (alias-prop-structure env)
+    (testing "a header that ends in a reducible alias for Prop is Prop-valued, in both builders"
+      (let [out (alias-prop-structure (with-alias-chain env 0) "PropAlias0")
             d (kernel-cases/make-declaration out (name/from-string "AliasBoth"))
-            body (loop [v (.value d)] (if (e/lam? v) (recur (e/lam-body v)) v))]
+            body (loop [v (.value d)] (if (e/lam? v) (recur (e/lam-body v)) v))
+            meta-out (cases/mk-cases-on out "AliasBoth" "AliasBoth.casesOnMeta")
+            meta-body (loop [v (.value (lookup meta-out "AliasBoth.casesOnMeta"))] (if (e/lam? v) (recur (e/lam-body v)) v))
+            rec-out (rec/mk-rec-on out "AliasBoth" "AliasBoth.recOnFallback")
+            rec-body (loop [v (.value (lookup rec-out "AliasBoth.recOnFallback"))] (if (e/lam? v) (recur (e/lam-body v)) v))]
         (is (e/proj? (e/app-arg body)))
-        (is (some? (env/check-constant out d)))))))
+        (is (some? (env/check-constant out d)))
+        (is (e/proj? (e/app-arg meta-body)) "the meta builder too")
+        (is (= "AliasBoth.rec" (str (e/const-name (e/get-app-fn rec-body)))) "recOn without casesOn: the recursor")))
+    (testing "reducing the header is charged to the work budget"
+      (let [out (alias-prop-structure (with-alias-chain env 400) "PropAlias400")]
+        (is (some? (kernel-cases/make-declaration out (name/from-string "AliasBoth"))))
+        (is (= :cases-on/work-limit
+               (try (kernel-cases/make-declaration out (name/from-string "AliasBoth") {:max-work 300}) nil
+                    (catch clojure.lang.ExceptionInfo ex (:type (ex-data ex))))))))
+    (testing "the projection path validates the recursor it copies from"
+      (let [base (with-alias-chain env 0)
+            bad-levels (alias-prop-structure base "PropAlias0" :unchecked true
+                                             :rec-levels [(name/from-string "u") "not-a-name"])
+            open-result (alias-prop-structure base "PropAlias0" :unchecked true
+                                              :rec-type (e/forall' (name/from-string "p") (e/sort' lvl/zero) (e/bvar 7) :default))]
+        (is (= :cases-on/invalid-recursor
+               (try (kernel-cases/make-declaration bad-levels (name/from-string "AliasBoth")) nil
+                    (catch clojure.lang.ExceptionInfo ex (:type (ex-data ex))))))
+        (is (= :cases-on/open-expression
+               (try (kernel-cases/make-declaration open-result (name/from-string "AliasBoth")) nil
+                    (catch clojure.lang.ExceptionInfo ex (:type (ex-data ex))))))))))
