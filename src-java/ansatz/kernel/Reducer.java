@@ -962,11 +962,45 @@ public final class Reducer {
     }
 
     /**
-     * A BigInteger holds fewer than 2^31 bits. Lean's numerals are bounded only by
+     * A BigInteger holds at most 2^31 - 1 bits. Lean's numerals are bounded only by
      * LEAN_NAT_MAX_SIZE; when a configured limit admits a result the JVM cannot hold, the kernel
      * refuses it (a resource error, like Lean's own size limit) rather than narrowing a count.
      */
-    static final long JVM_MAX_NAT_BITS = Integer.MAX_VALUE - 64L;
+    static final long JVM_MAX_NAT_BITS = Integer.MAX_VALUE;
+
+    /**
+     * Whether base^k (base ≥ 2, k ≥ 1) fits a BigInteger: 1 it fits, -1 it provably does not.
+     * A power of two is exact ((bits(base) - 1) * k + 1 bits); otherwise the bit length
+     * floor(k * log2(base)) + 1 is estimated in double precision with a two-bit margin, and a
+     * result inside the margin counts as fitting — computing it then decides (BigInteger
+     * multiplication refuses an overflow itself).
+     */
+    public static int powRepresentability(BigInteger base, long k) {
+        int bl = base.bitLength();
+        if (base.getLowestSetBit() == bl - 1) return (bl - 1) * (double) k + 1 <= JVM_MAX_NAT_BITS ? 1 : -1;
+        int sh = Math.max(0, bl - 53);
+        double log2 = sh + Math.log(base.shiftRight(sh).doubleValue()) / Math.log(2);
+        return Math.floor(k * log2) + 1 - 2 <= JVM_MAX_NAT_BITS ? 1 : -1;
+    }
+
+    /** base^k for a result known to fit, by squaring and multiplying: BigInteger.pow refuses
+     *  once bits(base) * k exceeds the range, which can be far above the true result size. */
+    private static BigInteger exactPow(BigInteger base, long k) {
+        if (base.getLowestSetBit() == base.bitLength() - 1)
+            return BigInteger.ONE.shiftLeft((int) ((base.bitLength() - 1) * k));
+        if ((long) base.bitLength() * k <= JVM_MAX_NAT_BITS) return base.pow((int) k);
+        BigInteger r = BigInteger.ONE, b = base;
+        try {
+            for (long e = k; e > 0; e >>= 1) {
+                if ((e & 1) != 0) r = r.multiply(b);
+                if (e > 1) b = b.multiply(b);
+            }
+        } catch (ArithmeticException overflow) {
+            throw new RuntimeException("the kernel refused to evaluate `Nat.pow` because the result cannot be "
+                + "represented on this JVM (at most " + JVM_MAX_NAT_BITS + " bits)");
+        }
+        return r;
+    }
 
     private static void checkRepresentable(long bits, String op) {
         if (bits < 0 || bits > JVM_MAX_NAT_BITS)
@@ -1048,9 +1082,10 @@ public final class Reducer {
                 throw new RuntimeException("the kernel refused to evaluate `Nat.pow` because the result would exceed "
                     + "the maximum numeral size; increase the LEAN_NAT_MAX_SIZE environment variable to allow it");
             if (a.compareTo(BigInteger.ONE) <= 0) return Expr.litNat(a.signum() == 0 && k != 0 ? BIG_ZERO : BigInteger.ONE);
-            // base^k < 2^(bitLength(base) * k): the count narrows only once the result fits
-            checkRepresentable(a.bitLength() * k, "Nat.pow");
-            return Expr.litNat(a.pow((int) k));
+            if (k == 0) return Expr.litNat(BigInteger.ONE);
+            // the count narrows only once the result is known to fit
+            if (powRepresentability(a, k) < 0) checkRepresentable(-1, "Nat.pow");
+            return Expr.litNat(exactPow(a, k));
         }
         if (op == Name.NAT_SHIFT_LEFT) {
             if (a.signum() == 0) return Expr.litNat(BIG_ZERO);

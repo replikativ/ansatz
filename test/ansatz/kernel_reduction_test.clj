@@ -405,3 +405,14 @@
       (.addLocal checker 3 "x" ^Expr (c "Nat"))
       (aset ^objects (.lookupFvar checker 3) 2 (c "Bool"))
       (is (= (str (c "Nat")) (str (.inferType checker (e/fvar 3))))))))
+
+(deftest nat-pow-representability-is-decided-exactly
+  ;; decided without computing the power
+  (is (= 1 (Reducer/powRepresentability (biginteger 2) 1073741824)) "2^(2^30): 2^30 + 1 bits fit")
+  (is (= -1 (Reducer/powRepresentability (biginteger 2) 2147483647)) "2^(2^31 - 1) needs 2^31 bits")
+  (is (= 1 (Reducer/powRepresentability (biginteger 3) 1354911328)) "3^k with 2^31 - 1 bits fits")
+  (is (= -1 (Reducer/powRepresentability (biginteger 3) 1354911331)))
+  (is (thrown-with-msg? RuntimeException #"cannot be represented"
+                        (Reducer/natBinop Name/NAT_POW (biginteger 2) (biginteger 2147483647) -1))
+      "a proven overflow is refused before any allocation"))
+
