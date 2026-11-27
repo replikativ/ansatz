@@ -75,7 +75,7 @@
   (case (int (.tag e))
     0  [0 (.longVal e)]                                ;; BVAR
     1  [1 (.o0 e)]                                     ;; SORT
-    2  [2 (.o0 e) (.o1 e)]                             ;; CONST
+    2  [2 (.o0 e) (vec (.o1 e))]                       ;; CONST
     3  [3 (.o0 e) (.o1 e)]                             ;; APP
     4  [4 (.o0 e) (.o1 e) (.o2 e) (.o3 e)]             ;; LAM
     5  [5 (.o0 e) (.o1 e) (.o2 e) (.o3 e)]             ;; FORALL

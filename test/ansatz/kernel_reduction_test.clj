@@ -8,7 +8,8 @@
             [ansatz.kernel.expr :as e]
             [ansatz.kernel.level :as lvl]
             [ansatz.kernel.name :as name]
-            [ansatz.kernel.reduce :as red])
+            [ansatz.kernel.reduce :as red]
+            [ansatz.kernel.tc :as ktc])
   (:import [ansatz.kernel ConstantInfo Env Expr KernelAbort LeanExprKey Name Reducer TypeChecker]))
 
 (def ^:private fuel 20000000)
@@ -368,3 +369,104 @@
                         (.whnf (.getReducer checker) term)))]
     (is (same? (e/proj (n "Prod") 0 (e/fvar 1)) (reduce-with true)))
     (is (= (n "Prod.rec") (e/const-name (e/get-app-fn (reduce-with false)))))))
+
+;; ------------------------------------------------------------------ K2 verification round
+
+(deftest the-clojure-reducer-follows-the-kernel-through-its-public-whnf
+  (testing "Nat.succ.{0} is not the successor (every path matches complete constants)"
+    (let [term (e/app (c "Nat.succ" [l0]) (lit 2))]
+      (is (same? term (red/whnf @base term)))))
+  (testing "a definition applied to the wrong universe arity is not unfolded"
+    (let [term (e/app* (c "Nat.add" [l0]) (lit 2) (lit 3))]
+      (is (same? term (red/whnf @base term)))))
+  (testing "a projection of an unknown constant is an error (env.get)"
+    (is (re-find #"Unknown constant: KMissing"
+                 (str (kernel-error #(red/whnf @st-env (e/proj (n "KS") 0 (c "KMissing"))))))))
+  (testing "the let-local fallback of tc/is-def-eq does not accept Nat.succ.{0} 2 = 3"
+    (let [st (ktc/attach-lctx (ktc/mk-tc-state @base)
+                              (red/lctx-add-let (red/empty-lctx) 7 "v" (c "Nat") (lit 0)))]
+      (is (nil? (ktc/java-tc st)) "a let-local sends the comparison to the Clojure fallback")
+      (is (not (true? (try (ktc/is-def-eq st (e/app (c "Nat.succ" [l0]) (lit 2)) (lit 3))
+                           (catch Exception _ :error)))))
+      (is (true? (ktc/is-def-eq st (e/app (c "Nat.succ") (lit 2)) (lit 3)))))))
+
+(deftest cache-inputs-cannot-change-under-the-caches
+  (let [env (env/check-constant @base (env/mk-def (n "kal2") [] (c "Nat") (c "Nat.zero") :hints {:regular 1}) fuel)
+        checker (tc env)
+        allow (java.util.HashSet. [(n "kal2")])]
+    (.setTransparency checker 0)
+    (.setDeltaAllowSet checker allow)
+    (is (.isDefEq checker (c "kal2") (c "Nat.zero")))
+    (testing "the allow-set is copied: changing the caller's set changes nothing"
+      (.remove allow (n "kal2"))
+      (is (.canUnfold (.getReducer checker) (n "kal2")))
+      (is (.isDefEq checker (c "kal2") (c "Nat.zero"))))
+    (testing "the local context is not exposed: lookupFvar hands out a copy"
+      (.addLocal checker 3 "x" ^Expr (c "Nat"))
+      (aset ^objects (.lookupFvar checker 3) 2 (c "Bool"))
+      (is (= (str (c "Nat")) (str (.inferType checker (e/fvar 3))))))))
+
+(deftest nat-pow-representability-is-decided-exactly
+  ;; decided without computing the power
+  (is (= 1 (Reducer/powRepresentability (biginteger 2) 1073741824)) "2^(2^30): 2^30 + 1 bits fit")
+  (is (= -1 (Reducer/powRepresentability (biginteger 2) 2147483647)) "2^(2^31 - 1) needs 2^31 bits")
+  (is (= 1 (Reducer/powRepresentability (biginteger 3) 1354911328)) "3^k with 2^31 - 1 bits fits")
+  (is (= -1 (Reducer/powRepresentability (biginteger 3) 1354911331)))
+  (is (thrown-with-msg? RuntimeException #"cannot be represented"
+                        (Reducer/natBinop Name/NAT_POW (biginteger 2) (biginteger 2147483647) -1))
+      "a proven overflow is refused before any allocation"))
+
+;; ------------------------------------------------------------------ K2 follow-up review
+
+(deftest universe-lists-are-immutable-through-the-public-fields
+  ;; p, q : P.{0} are proofs (P.{u} : Sort u), so p ≡ q by proof irrelevance; a caller
+  ;; must not be able to turn the cached type into P.{1}
+  (let [u (n "u")
+        env (env/check-constant @base (env/mk-axiom (n "KP") [u] (e/sort' (lvl/param u))) fuel)
+        lv (object-array [l0])
+        p-ty (Expr/mkConst (n "KP") lv)
+        checker (tc env)]
+    (aset lv 0 l1)
+    (is (same? (c "KP" [l0]) p-ty) "the caller's array is copied")
+    (.addLocal checker 1 "p" ^Expr p-ty)
+    (.addLocal checker 2 "q" ^Expr p-ty)
+    (is (.isDefEq checker (e/fvar 1) (e/fvar 2)))
+    (let [^Expr ty (aget ^objects (.lookupFvar checker 1) 2)]
+      (is (thrown? UnsupportedOperationException (.set ^java.util.List (.o1 ty) 0 l1))))
+    (is (same? (c "KP" [l0]) (.inferType checker (e/fvar 1))))
+    (is (.isDefEq checker (e/fvar 1) (e/fvar 2)))))
+
+(deftest nat-results-are-refused-only-when-they-do-not-fit
+  ;; with a 10-bit limit standing in for the JVM's 2^31 - 1
+  (let [add #(Reducer/natBinop Name/NAT_ADD (biginteger %1) (biginteger %2) Reducer/NAT_MAX_BYTES_DEFAULT 10)
+        pow #(Reducer/natBinop Name/NAT_POW (biginteger %1) (biginteger %2) Reducer/NAT_MAX_BYTES_DEFAULT 100)]
+    (is (= (str (lit 513)) (str (add 512 1))) "2^9 + 1 keeps 10 bits")
+    (is (thrown-with-msg? RuntimeException #"cannot be represented" (add 1023 1)) "2^10 needs 11 bits")
+    (testing "pow inside the estimate's margin is decided by the result"
+      (is (= 1 (Reducer/powRepresentability (biginteger 3) 64 100)) "3^64 (102 bits) is in the margin")
+      (is (thrown-with-msg? RuntimeException #"cannot be represented" (pow 3 64)))
+      (is (= 100 (.bitLength ^BigInteger (e/lit-nat-val (pow 3 63)))) "3^63 has exactly 100 bits"))))
+
+(deftest the-clojure-reducer-forces-the-right-operand-only-after-a-literal-left
+  ;; reduce_bin_nat_op returns as soon as the left operand is not a literal; the right one here
+  ;; would be an error (a projection of an unknown constant)
+  (let [no-delta {:can-unfold? (constantly false)}
+        bad (e/proj (n "KS") 0 (c "KMissing"))
+        term (e/app* (c "Nat.add") (e/fvar 1) bad)]
+    (is (same? term (red/whnf @st-env term nil no-delta)))
+    (is (re-find #"Unknown constant: KMissing"
+                 (str (kernel-error #(red/whnf @st-env (e/app* (c "Nat.add") (lit 1) bad) nil no-delta)))))))
+
+(deftest the-clojure-projection-guard-is-unsigned-32-bit
+  (is (re-find #"Unknown constant: KMissing"
+               (str (kernel-error #(red/whnf @st-env (e/proj (n "KS") 2147483648 (c "KMissing"))))))
+      "2^31 is a valid index: the constructor is looked up")
+  (let [term (e/proj (n "KS") 4294967296 (c "KMissing"))]
+    (is (same? term (red/whnf @st-env term)) "2^32 is no projection index")))
+
+(deftest the-clojure-reducer-checks-recursor-universe-arity
+  (let [motive (lam "n" (c "Nat") (c "Nat"))
+        rec (fn [ls] (e/app* (c "Nat.rec" ls) motive (lit 7) (lam "n" (c "Nat") (lam "ih" (c "Nat") (e/bvar 0))) (lit 0)))]
+    (is (= (str (lit 7)) (str (red/whnf @base (rec [l1])))))
+    (is (same? (rec []) (red/whnf @base (rec [])))
+        "Nat.rec applied to no universes is not reduced")))

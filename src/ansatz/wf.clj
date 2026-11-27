@@ -343,12 +343,17 @@
 (def ^:private wf-fix-counter (atom 9100000))
 (defn- wf-fix-fresh [] (swap! wf-fix-counter inc))
 
+(def ^:private ^:dynamic *wf-checker*
+  "The TypeChecker whose reducer the encoder is using; its local context holds the opened binders."
+  nil)
+
 (defn- open-local!
   "Declare an opened binder in the checker's local context (Lean's fvars live in a
    LocalContext): the kernel infers, and K-like or structure-eta reduction inspects, a free
-   variable only through its declaration. Ids come from `wf-fix-fresh`, so they never repeat."
-  [^ansatz.kernel.Reducer reducer id nm ty]
-  (.put ^java.util.HashMap (.getLctx reducer) (long id) (object-array [(int 0) nm ty])))
+   variable only through its declaration. Ids come from `wf-fix-fresh`, so they never repeat;
+   `addLocal` keeps the checker's fixed-type invariant."
+  [_reducer id nm ty]
+  (.addLocal ^ansatz.kernel.TypeChecker *wf-checker* (long id) (str nm) ^ansatz.kernel.Expr ty))
 (def ^:private wf-fix-NAT (e/const' (name/from-string "Nat") []))
 
 (defn- wf-fix-mk-lt [a b]
@@ -987,10 +992,11 @@
         ret-level (if (e/sort? ret-sort) (e/sort-level ret-sort) (lvl/succ lvl/zero))
         Xid (wf-fix-fresh) Fvid (wf-fix-fresh) X (e/fvar Xid)
         Fty ((:ihtype callspec) X) Fv (e/fvar Fvid)
-        _ (open-local! reducer Xid "x" param-type)
-        _ (open-local! reducer Fvid "F" Fty)
         rawX (e/instantiate1 raw-body X)
-        body' (wf-fix-refine env callspec ret reducer rawX Fv X [[Xid param-type]])
+        body' (binding [*wf-checker* tc]
+                (open-local! reducer Xid "x" param-type)
+                (open-local! reducer Fvid "F" Fty)
+                (wf-fix-refine env callspec ret reducer rawX Fv X [[Xid param-type]]))
         Ffn (wf-fix-mk-lambdas [[Xid "x" param-type] [Fvid "F" Fty]] body')]
     ((:fix callspec) ret-level Ffn)))
 
@@ -1353,7 +1359,7 @@
                     eq-lvl (let [s (.inferType tc-eq ret-ansatz)]
                              (if (e/sort? s) (e/sort-level s) (lvl/succ lvl/zero)))
                     X2id (wf-fix-fresh) X2 (e/fvar X2id)
-                    _ (open-local! red-eq X2id "x" (:packed-ty fix-info))
+                    _ (binding [*wf-checker* tc-eq] (open-local! red-eq X2id "x" (:packed-ty fix-info)))
                     rawX2 (e/instantiate1 (:eqbody fix-info) X2)
                     ;; the equation LHS uses the user-facing n-ary application: unpack a
                     ;; Prod.mk-rooted pattern back into the argument list (defeq to the packed
@@ -1368,7 +1374,8 @@
                                             (= 4 (count pas)))
                                      (recur (nth pas 3) (conj acc (nth pas 2)) (dec left))
                                      (throw (ex-info "wf-fix eq: unsplit packed pattern" {})))))))
-                    leaves (wf-fix-eq-leaves env' tc-eq red-eq rawX2 X2 [[X2id (:packed-ty fix-info)]] ret-ansatz)]
+                    leaves (binding [*wf-checker* tc-eq]
+                             (wf-fix-eq-leaves env' tc-eq red-eq rawX2 X2 [[X2id (:packed-ty fix-info)]] ret-ansatz))]
                 (doseq [[i {:keys [fields pattern rhs]}] (map-indexed vector leaves)]
                   (let [ids (mapv first fields)
                         eq-core (e/app* (e/const' (name/from-string "Eq") [eq-lvl])

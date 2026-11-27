@@ -98,6 +98,11 @@
   [e ^Name n]
   (and (e/const? e) (identical? n (e/const-name e)) (empty? (e/const-levels e))))
 
+(defn- nat-succ-lit
+  "The literal after `n` (a lit-nat), size-checked as the kernel's `Nat.succ` reduction."
+  [n]
+  (Reducer/natBinop Name/NAT_ADD (biginteger (e/lit-nat-val n)) BigInteger/ONE Reducer/NAT_MAX_BYTES))
+
 (defn- reduce-nat-binop
   "Reduce a nat binary operation on two literals: the Java kernel's primitive
    (Reducer/natBinop — Lean's reduce_nat rules and LEAN_NAT_MAX_SIZE limits)."
@@ -114,7 +119,7 @@
       (e/lit-nat? e') e'
       (and (e/app? e') (nat-const? (e/app-fn e') Name/NAT_SUCC))
       (when-let [inner (whnf-to-nat whnf-fn (e/app-arg e'))]
-        (e/lit-nat (inc (e/lit-nat-val inner))))
+        (nat-succ-lit inner))
       (nat-const? e' Name/NAT_ZERO)
       (e/lit-nat 0)
       :else nil)))
@@ -125,9 +130,9 @@
   (when (and (e/const? head) (empty? (e/const-levels head)) (= 2 (count args)))
     (let [op-name (e/const-name head)]
       (when (nat-binop-names op-name)
-        (let [a (whnf-to-nat whnf-fn (first args))
-              b (whnf-to-nat whnf-fn (second args))]
-          (when (and a b)
+        ;; reduce_bin_nat_op: the right operand is normalized only once the left is a literal
+        (when-let [a (whnf-to-nat whnf-fn (first args))]
+          (when-let [b (whnf-to-nat whnf-fn (second args))]
             (reduce-nat-binop op-name a b)))))))
 
 ;; ============================================================
@@ -246,7 +251,8 @@
                                 (if (= ctor-name (.ctor r))
                                   r
                                   (recur (inc i)))))))]
-                  (when rule
+                  ;; inductive_reduce_rec: the recursor's universe arity must match
+                  (when (and rule (= (alength (.levelParams ci)) (count (e/const-levels head))))
                     (let [subst (make-level-subst (vec (.levelParams ci)) (e/const-levels head))
                           rhs (e/instantiate-level-params (.rhs rule) subst)
                           params (subvec (vec args) 0 num-params)
@@ -292,13 +298,15 @@
 (defn- try-reduce-proj
   "Try to reduce a projection."
   [^Env env e whnf-fn]
-  ;; an index no field can have is refused before the target is normalized
-  (when (and (e/proj? e) (<= 0 (e/proj-idx e) Integer/MAX_VALUE))
+  ;; to_proj_idx: an index past 32 unsigned bits is no projection (the field count is checked
+  ;; after the constructor lookup)
+  (when (and (e/proj? e) (<= 0 (e/proj-idx e) 0xffffffff))
     (let [struct (whnf-fn env (e/proj-struct e))
           [head args] (e/get-app-fn-args struct)]
       (when (e/const? head)
-        (when-let [^ConstantInfo ci (env/lookup env (e/const-name head))]
-          ;; reduce_proj_core: only a constructor of the projection's own structure
+        ;; reduce_proj_core: env.get on the head (an unknown constant is an error), and only a
+        ;; constructor of the projection's own structure
+        (let [^ConstantInfo ci (env/lookup! env (e/const-name head))]
           (when (and (.isCtor ci) (= (.inductName ci) (e/proj-type-name e)))
             ;; compare before adding, so a huge index cannot overflow (Reducer.projField)
             (let [field-start (.numParams ci)
@@ -311,11 +319,13 @@
 ;; ============================================================
 
 (defn- try-unfold-def
-  "Try to unfold a definition. Returns the unfolded body or nil."
+  "Try to unfold a definition. Returns the unfolded body or nil. Like the kernel's is_delta,
+   a constant applied to the wrong number of universes is not unfolded."
   [^Env env head]
   (when (e/const? head)
     (when-let [^ConstantInfo ci (env/lookup env (e/const-name head))]
-      (when-let [value (.getValue ci)]
+      (when-let [value (when (= (alength (.levelParams ci)) (count (e/const-levels head)))
+                         (.getValue ci))]
         (let [subst (make-level-subst (vec (.levelParams ci)) (e/const-levels head))]
           (e/instantiate-level-params value subst))))))
 
@@ -376,10 +386,10 @@
                         (= 1 (count args)))
                  (let [arg (first args)]
                    (cond
-                     (e/lit-nat? arg) (e/lit-nat (inc (e/lit-nat-val arg)))
+                     (e/lit-nat? arg) (nat-succ-lit arg)
                      :else (let [arg' (whnf-core env arg lctx opts)]
                              (if (e/lit-nat? arg')
-                               (e/lit-nat (inc (e/lit-nat-val arg')))
+                               (nat-succ-lit arg')
                                (if (= head head')
                                  e
                                  (reduce e/app head' args))))))
@@ -541,12 +551,11 @@
                                                           whnf-fn infer-fn is-def-eq-fn opts)]
                      (if iota-result
                        (do (check-fuel!) (recur (whnf-core env iota-result lctx opts)))
-                       (if (and (e/const? head)
-                                (identical? Name/NAT_SUCC (e/const-name head))
+                       (if (and (nat-const? head Name/NAT_SUCC)
                                 (= 1 (count args)))
                          (let [arg-whnf (whnf env (first args) lctx opts)]
                            (if (e/lit-nat? arg-whnf)
-                             (e/lit-nat (inc (e/lit-nat-val arg-whnf)))
+                             (nat-succ-lit arg-whnf)
                              e))
                          e)))))))))
        (finally

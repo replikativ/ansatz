@@ -107,6 +107,7 @@ public final class Expr {
     /** True iff any level in the CONST level list contains a universe parameter. */
     private static boolean levelsHaveParam(Object levels) {
         if (levels == null) return false;
+        if (levels instanceof LevelList) levels = ((LevelList) levels).arr;
         if (levels instanceof Object[]) {
             for (Object l : (Object[]) levels) if (l != null && Level.hasParam((Level) l)) return true;
             return false;
@@ -126,6 +127,7 @@ public final class Expr {
     /** True iff any level in the CONST level list contains a metavariable. */
     private static boolean levelsHaveMVar(Object levels) {
         if (levels == null) return false;
+        if (levels instanceof LevelList) levels = ((LevelList) levels).arr;
         if (levels instanceof Object[]) {
             for (Object l : (Object[]) levels) if (l != null && Level.hasMVar((Level) l)) return true;
             return false;
@@ -217,6 +219,7 @@ public final class Expr {
      */
     static int levelsHashCode(Object levels) {
         if (levels == null) return 0;
+        if (levels instanceof LevelList) levels = ((LevelList) levels).arr;
         if (levels instanceof Object[]) {
             Object[] arr = (Object[]) levels;
             int h = 1;
@@ -234,6 +237,8 @@ public final class Expr {
     static boolean levelsEquals(Object a, Object b) {
         if (a == b) return true;
         if (a == null || b == null) return false;
+        if (a instanceof LevelList) a = ((LevelList) a).arr;
+        if (b instanceof LevelList) b = ((LevelList) b).arr;
         if (a instanceof Object[] && b instanceof Object[]) {
             Object[] aa = (Object[]) a, ab = (Object[]) b;
             if (aa.length != ab.length) return false;
@@ -345,6 +350,7 @@ public final class Expr {
             }
             case CONST: {
                 Object levels = e.o1;
+                if (levels instanceof LevelList) levels = ((LevelList) levels).arr;
                 boolean changed = false;
                 if (levels instanceof Object[]) {
                     Object[] arr = (Object[]) levels;
@@ -436,6 +442,7 @@ public final class Expr {
      *  list is one shared array); persistent vectors are kept. The hash and the flags are computed
      *  from what the node stores, so a caller reusing its array cannot make them disagree. */
     private static Object snapshotLevels(Object levels) {
+        if (levels instanceof LevelList) return levels;   // already immutable
         if (levels instanceof Object[]) {
             Object[] a = (Object[]) levels;
             return a.length == 0 ? NO_LEVELS : a.clone();
@@ -450,6 +457,9 @@ public final class Expr {
     /** mkConst for a level container the caller owns and never mutates (a fresh array, or the
      *  levels of an existing node): no copy. Kernel-internal. */
     static Expr mkConstOwned(Object name, Object levels) {
+        // the node exposes its levels through the public field o1: an array is wrapped
+        // read-only (LevelList), so no caller can change a node the caches hold
+        if (levels instanceof Object[]) levels = LevelList.owned((Object[]) levels);
         // Use structural hash for levels so CONSTs with equal level contents (but
         // different Object[] instances — common after normalization) hash to the same
         // bucket and are recognized as equal by the intern table.

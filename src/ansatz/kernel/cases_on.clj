@@ -65,7 +65,9 @@
   (when-not (or (instance? (class (object-array 0)) values)
                 (identical? clojure.lang.PersistentVector (class values))
                 (identical? (class (java.util.Collections/emptyList)) (class values))
-                (identical? (class (java.util.Arrays/asList (object-array 0))) (class values)))
+                (identical? (class (java.util.Arrays/asList (object-array 0))) (class values))
+                ;; the kernel's read-only carrier of a CONST node's universe arguments
+                (identical? ansatz.kernel.LevelList (class values)))
     (fail :cases-on/malformed-levels {}))
   (when (> (count values) @remaining) (fail :cases-on/work-limit {}))
   (doseq [value values] (tick! remaining) (bounded-level! value remaining)))

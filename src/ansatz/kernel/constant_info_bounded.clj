@@ -14,9 +14,11 @@
 (defn- standard-vector? [x] (identical? PersistentVector (class x)))
 (defn- object-array? [x] (instance? (class (object-array 0)) x))
 (def ^:private expression-store-level-list-classes
-  ;; Exact carriers created by ExprStore.resolve, not arbitrary List callbacks.
+  ;; Exact carriers created by ExprStore.resolve, and the kernel's read-only LevelList that
+  ;; every array-backed CONST node stores — not arbitrary List callbacks.
   #{(class (java.util.Collections/emptyList))
-    (class (java.util.Arrays/asList (object-array 0)))})
+    (class (java.util.Arrays/asList (object-array 0)))
+    ansatz.kernel.LevelList})
 (defn- expression-store-level-list? [value]
   (contains? expression-store-level-list-classes (class value)))
 

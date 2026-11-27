@@ -437,9 +437,10 @@
     ;; Expr.mkConst copied the caller's array: reusing it does not reach the node
     (aset levels 0 (Level/succ Level/ZERO_LEVEL))
     (is (identical? segment (snapshot/validate-segment-values segment)))
-    ;; the node's own level array is still a guarded mutable container
-    (aset ^objects (.o1 ^Expr type) 0 (Level/succ Level/ZERO_LEVEL))
-    (is (thrown-with-msg? Exception #"universe array changed" (snapshot/validate-segment-values segment)))))
+    ;; the node's own universe arguments are a read-only list: they cannot change at all
+    (is (thrown? UnsupportedOperationException
+                 (.set ^java.util.List (.o1 ^Expr type) 0 (Level/succ Level/ZERO_LEVEL))))
+    (is (identical? segment (snapshot/validate-segment-values segment)))))
 
 (deftest carrier-import-retains-full-hints-mutual-all-and-every-safety-code
   (doseq [safety [0 1 2] height [0 4294967295]]

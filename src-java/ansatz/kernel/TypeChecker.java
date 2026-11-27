@@ -311,8 +311,11 @@ public final class TypeChecker {
         return nargs == 2 && fn.tag == Expr.CONST && fn.o0 == Name.EAGER_REDUCE;
     }
 
-    /** Look up fvar in local context. Returns [tag, name, type, value?] or null. */
-    public Object[] lookupFvar(long id) { return lctx.get(id); }
+    /** Look up fvar in local context. Returns a copy of [tag, name, type, value?] or null. */
+    public Object[] lookupFvar(long id) {
+        Object[] d = lctx.get(id);
+        return d == null ? null : d.clone();
+    }
 
     /** Get the reducer for REPL debugging. */
     public Reducer getReducer() { return reducer; }
