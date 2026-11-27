@@ -138,6 +138,13 @@
                                   fuel))
             @st-env (range 10002))))
 
+(def ^:private cyclic-env
+  ;; unchecked cyclic aliases: lazy delta unfolds them forever
+  (delay
+    (-> @st-env
+        (env/add-constant (env/mk-def (n "kcyc") [] (c "Nat") (c "kcyc") :hints {:regular 1}))
+        (env/add-constant (env/mk-def (n "kcycS") [] (c "KS") (c "kcycS") :hints {:regular 1})))))
+
 (defn- proj0 [x] (e/proj (n "KS") 0 x))
 
 (deftest lazy-delta-has-no-step-cutoff
@@ -145,6 +152,36 @@
     (is (defeq? @alias-env (c "kalias10001") (c "Nat.zero"))))
   (testing "lazy_delta_proj_reduction: a 10,001-alias chain under a projection"
     (is (defeq? @proj-alias-env (proj0 (c "kpa10001")) (proj0 (c "kpa0"))))))
+
+(deftest lazy-delta-unfoldings-are-charged
+  (testing "every lazy unfolding costs fuel"
+    (is (re-find #"fuel exhausted"
+                 (str (kernel-error #(.isDefEq (tc @alias-env 1000) (c "kalias10001") (c "Nat.zero"))))))
+    (is (re-find #"fuel exhausted"
+                 (str (kernel-error #(.isDefEq (tc @proj-alias-env 1000) (proj0 (c "kpa10001")) (proj0 (c "kpa0"))))))))
+  (testing "a cyclic alias exhausts the fuel in both loops"
+    (is (re-find #"fuel exhausted" (str (kernel-error #(defeq? @cyclic-env (c "kcyc") (c "Nat.zero"))))))
+    (is (re-find #"fuel exhausted"
+                 (str (kernel-error #(defeq? @cyclic-env (proj0 (c "kcycS")) (proj0 (c "kax")))))))))
+
+(defn- interrupted-outcome
+  "Run `f` on a thread, interrupt it after 300 ms; what it ended with."
+  [f]
+  (let [res (promise)
+        t (Thread. ^Runnable (fn [] (deliver res (try (f) :returned (catch Throwable ex ex)))))]
+    (.start t)
+    (Thread/sleep 300)
+    (.interrupt t)
+    (.join t 20000)
+    (deref res 1000 :still-running)))
+
+(deftest lazy-delta-polls-for-interruption
+  ;; unlimited fuel (0): only the interruption ends the cyclic unfolding
+  (doseq [[label a b] [["lazy_delta_reduction" (c "kcyc") (c "Nat.zero")]
+                       ["lazy_delta_proj_reduction" (proj0 (c "kcycS")) (proj0 (c "kax"))]]]
+    (let [r (interrupted-outcome #(.isDefEq (tc @cyclic-env 0) a b))]
+      (is (instance? KernelAbort r) label)
+      (is (re-find #"interrupted" (str (when (instance? Throwable r) (.getMessage ^Throwable r)))) label))))
 
 ;; ------------------------------------------------------------------ the nested-pair regression
 

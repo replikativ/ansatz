@@ -1164,8 +1164,13 @@ public final class TypeChecker {
         return q != 0 ? q : CONTINUE;
     }
 
-    /** whnf_core(unfold_definition(e), cheap_proj): e's head is a delta candidate. */
+    /**
+     * whnf_core(unfold_definition(e), cheap_proj): e's head is a delta candidate. Each lazy
+     * unfolding is charged and polls for interruption (an alias chain's unfoldings reach no
+     * other charged step), so both lazy loops stay bounded, with unlimited fuel too.
+     */
     private Expr unfoldWhnfCore(Expr e) {
+        reducer.checkFuelPublic();
         return reducer.whnfCore(reducer.unfoldDefinition(e), false, true);
     }
 
@@ -1173,7 +1178,9 @@ public final class TypeChecker {
     private Expr tryUnfoldProjApp(Expr e) {
         if (Reducer.getAppFn(e).tag != Expr.PROJ) return null;
         Expr n = reducer.whnfCore(e);
-        return LeanExprKey.exprEquals(n, e) ? null : n;
+        if (LeanExprKey.exprEquals(n, e)) return null;
+        reducer.checkFuelPublic();
+        return n;
     }
 
     /**
