@@ -119,7 +119,7 @@
    below/brecOn (for recursive types), noConfusionType and noConfusion. Returns env.
    A declaration the kernel rejects (positivity, universes, nesting, ...) throws ex-info
    {:inductive name} carrying the kernel's message, which names the constructor and argument."
-  [env ind-name-str params-spec ctors-spec & {:keys [in indices no-confusion?]
+  [env ind-name-str params-spec ctors-spec & {:keys [in indices no-confusion? class?]
                                               :or {no-confusion? true}}]
   (let [ind-name (name/from-string ind-name-str)
 
@@ -190,7 +190,8 @@
           env (if (and (has? "PUnit") (has? "Prod"))
                 (-> env (brec-on/mk-below ind-name-str) (brec-on/mk-brec-on ind-name-str)) env)
           ;; Lean MutualInductive.lean: IndPredBelow.mkBelow for an inductive predicate
-          env (indpred-below/mk-below env ind-name-str)]
+          ;; (not for classes, MutualInductive.lean:1579)
+          env (if class? env (indpred-below/mk-below env ind-name-str))]
       ;; Update global env atom with the new env
       (reset! @(requiring-resolve 'ansatz.core/ansatz-env) env)
 

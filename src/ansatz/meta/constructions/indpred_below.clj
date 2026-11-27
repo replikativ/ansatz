@@ -41,8 +41,8 @@
   [env n]
   (let [ind (env/lookup! env (name/from-string (str n)))
         ctx0 (u/context env)]
-    (if (or (.isUnsafe ind) (not (.isRec ind)) (not (u/prop-former? ctx0 (.type ind)))
-            (env/lookup env (name/from-string (str n ".below"))))
+    ;; (a name collision with `I.below` is reported by the kernel, as in Lean)
+    (if (or (.isUnsafe ind) (not (.isRec ind)) (not (u/prop-former? ctx0 (.type ind))))
       env
       (let [lps (vec (.levelParams ind))
             rec (env/lookup! env (name/from-string (str n ".rec")))

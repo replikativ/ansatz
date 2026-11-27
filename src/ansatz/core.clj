@@ -2335,7 +2335,10 @@
                                            (every? #(or (not (e/has-fvar-flag %))
                                                         (some #{%} (map e/fvar (range 1 (inc n)))))
                                                    ind-params)
-                                           (env/lookup env (name/mk-str ind-name "below"))
+                                           ;; the data `below` (a definition); an inductive
+                                           ;; predicate's below is itself inductive and needs
+                                           ;; Lean's below-matcher transformation (not ported)
+                                           (some-> (env/lookup env (name/mk-str ind-name "below")) .isDef)
                                            (env/lookup env (name/mk-str ind-name "brecOn")))))
                                   candidate-positions))
                   index-positions
@@ -3798,9 +3801,11 @@
                                     '~base-field-specs)
                    flat# (vec (mapcat identity (into [['~to-field '~extends-form]] new-specs#)))]
                (inductive/define-inductive (env) ~(str type-name) '~params [[(symbol "mk") flat#]]
-                 ~@(when (:in opts) [:in `'~(:in opts)])))
+                 ~@(when (:in opts) [:in `'~(:in opts)])
+                 ~@(when (:class opts) [:class? true])))
             `(inductive/define-inductive (env) ~(str type-name) '~params '~[ctor-spec]
-               ~@(when (:in opts) [:in `'~(:in opts)])))
+               ~@(when (:in opts) [:in `'~(:in opts)])
+               ~@(when (:class opts) [:class? true])))
 
        ;; Lean Meta/Structure.lean:mkProjections threads named projections through
        ;; the constructor telescope, preserving them in dependent accessor types.

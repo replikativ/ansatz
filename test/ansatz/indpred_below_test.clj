@@ -41,3 +41,16 @@
     (is (env/verifies? (a/env) (.type b) (.value b)))
     (is (= [:implicit :implicit :default :default] (infos (.type b))))
     (is (nil? (ci "IpStep.binductionOn")))))
+
+(deftest review-cases
+  (testing "a constructor named below collides with the generated I.below (Lean reports it)"
+    (let [before (a/env)]
+      (is (thrown? Exception
+                   (ind/define-inductive (a/env) "IpColl" []
+                     [['base []] ['below '[h IpColl]]] :in 'Prop)))
+      (is (identical? before (a/env)) "the failed declaration leaves the session environment intact")))
+  (testing "a predicate's inductive below does not make a proof argument a structural candidate"
+    (ind/define-inductive (a/env) "IpP" [] [['base []] ['step '[h IpP]]] :in 'Prop)
+    (binding [a/*verbose* false *ns* (the-ns 'ansatz.indpred-below-test)]
+      (eval '(ansatz.core/defn ip-f [h :- IpP] Nat (let [ip-f 0] ip-f))))
+    (is (some? (ci "ip-f")))))
