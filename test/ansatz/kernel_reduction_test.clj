@@ -337,3 +337,18 @@
     (is (false? (.isDefEq checker (c "kal") (c "Nat.zero"))) "the earlier success is not reused")
     (.setDeltaAllowSet checker (java.util.HashSet. [(n "kal")]))
     (is (.isDefEq checker (c "kal") (c "Nat.zero")))))
+
+;; ------------------------------------------------------------------ the Clojure reducer
+
+(deftest the-clojure-reducer-shares-the-kernel-rules
+  (testing "a constructor of another structure is not projected"
+    (let [term (e/proj (n "KS") 0 (e/app (c "KT.mk") (lit 1)))]
+      (is (same? term (red/whnf @st-env term)))))
+  (testing "Nat primitives are complete constants, computed by the kernel's primitive"
+    (let [reduce-nat #'red/try-reduce-nat
+          lits [(lit 2) (lit 3)]
+          w identity]
+      (is (nil? (reduce-nat (c "Nat.add" [l0]) lits w)))
+      (is (= (str (lit 5)) (str (reduce-nat (c "Nat.add") lits w))))
+      (is (thrown-with-msg? RuntimeException #"does not fit in a 32-bit unsigned integer"
+                            (reduce-nat (c "Nat.pow") [(lit 1) (lit 4294967296)] w))))))

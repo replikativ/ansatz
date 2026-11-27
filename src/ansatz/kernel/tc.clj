@@ -349,7 +349,8 @@
   "Like `java-tc`, but the TypeChecker unfolds only the definitions `pred` (a
    java.util.function.Predicate on Names) accepts: the kernel's defeq at a restricted
    transparency (Reducer transparency 0 with an allow predicate; beta, iota, projections and
-   Nat/Int literal arithmetic are not delta and stay). Cached on the tc-state under
+   Nat literal arithmetic are not delta and stay; Int has no native arithmetic — it reduces
+   through its definitions, which are delta). Cached on the tc-state under
    [`cache-key` lctx]; nil when the lctx has let-bindings."
   ^TypeChecker [st cache-key ^java.util.function.Predicate pred]
   (let [cache (:java-tc-cache st)
