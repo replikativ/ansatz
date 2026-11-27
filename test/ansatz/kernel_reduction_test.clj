@@ -213,6 +213,28 @@
     (is (defeq? env q (c "ka")))
     (is (false? (defeq? env (e/app (c "Nat.succ") q) (c "ka"))))))
 
+;; ------------------------------------------------------------------ K and metavariables
+
+(deftest k-reduction-ignores-universe-metavariables
+  ;; to_cnstr_when_K declines when an index has an *expression* metavariable (has_expr_mvar)
+  (let [u (lvl/mvar 7)
+        sort-u (e/sort' u)
+        alpha (e/sort' (lvl/succ u))
+        alpha-level (lvl/succ (lvl/succ u))]
+    (testing "a universe metavariable in the index: K applies, the recursor reduces to its minor"
+      (let [checker (tc @base)
+            _ (.addLocal checker 1 "h" ^Expr (e/app* (c "Eq" [alpha-level]) alpha sort-u sort-u))
+            motive (lam "x" alpha (lam "h" (e/app* (c "Eq" [alpha-level]) alpha sort-u (e/bvar 0)) (c "Nat")))
+            q (e/app* (c "Eq.rec" (eq-rec-levels @base l1 alpha-level)) alpha sort-u motive (lit 5) sort-u (e/fvar 1))]
+        (is (= (str (lit 5)) (str (.whnf (.getReducer checker) q))))))
+    (testing "an expression metavariable in the index: K declines and the recursor is stuck"
+      (let [checker (tc @base)
+            m (e/mvar 3)
+            _ (.addLocal checker 1 "h" ^Expr (e/app* (c "Eq" [l1]) (c "Nat") m m))
+            motive (lam "x" (c "Nat") (lam "h" (e/app* (c "Eq" [l1]) (c "Nat") m (e/bvar 0)) (c "Nat")))
+            q (e/app* (c "Eq.rec" (eq-rec-levels @base l1 l1)) (c "Nat") m motive (lit 5) m (e/fvar 1))]
+        (is (same? q (.whnf (.getReducer checker) q)))))))
+
 ;; ------------------------------------------------------------------ inference
 
 (deftest inference-returns-the-declared-type

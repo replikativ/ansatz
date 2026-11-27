@@ -1112,9 +1112,10 @@ public final class Reducer {
         Expr I = getAppFn(appType);
         if (I.tag != Expr.CONST || !I.o0.equals(getMajorInductName(rec))) return e;
         Expr[] typeArgs = (Expr[]) getAppFnArgs(appType)[1];
+        // has_expr_mvar: universe metavariables do not block K
         if (appType.hasMVar())
             for (int i = rec.numParams; i < typeArgs.length; i++)
-                if (typeArgs[i].hasMVar()) return e;
+                if (Expr.hasExprMVar(typeArgs[i])) return e;
         Expr newCnstr = mkNullaryCnstr(appType, rec.numParams);
         if (newCnstr == null) return e;
         return isDefEqFn.isDefEq(appType, inferFn.infer(newCnstr)) ? newCnstr : e;
