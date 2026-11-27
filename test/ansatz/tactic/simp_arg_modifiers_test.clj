@@ -418,3 +418,113 @@
   (is (proves? '(a/theorem forall-prop-domain [n :- Nat, Q :- (=> (= Nat (Nat.succ n) 0) Prop)]
                            (forall [h :- (= Nat (Nat.succ n) 0)] (Q h))
                            (simp)))))
+
+(defn- warnings [args opts] (simp/simp-arg-warnings (a/env) args opts))
+(def ^:private no-attr "`Nat.pred_le` does not have the `[simp]` attribute")
+
+(deftest erasing-a-name-without-the-simp-attribute-warns
+  ;; Lean SimpTheorems.erase (SimpTheorems.lean:675-690) against the set as each argument
+  ;; leaves it
+  (is (= [no-attr] (warnings [{:erase "Nat.pred_le"}] {})))
+  (is (= [] (warnings [{:erase "Nat.zero_add"}] {})))
+  (testing "a second erase of the same lemma warns"
+    (is (= ["`Nat.zero_add` does not have the `[simp]` attribute"]
+           (warnings [{:erase "Nat.zero_add"} {:erase "Nat.zero_add"}] {}))))
+  (testing "adding ←thm replaced the forward thm, so -thm erases the inverse silently"
+    (is (= [] (warnings [{:name "Nat.add_comm" :inv true} {:erase "Nat.add_comm"}] {}))))
+  (testing "simp only starts from eq_self and iff_self"
+    (is (= [] (warnings [{:erase "eq_self"} {:erase "iff_self"}] {:only? true})))
+    (is (= ["`Nat.zero_add` does not have the `[simp]` attribute"]
+           (warnings [{:erase "Nat.zero_add"}] {:only? true}))))
+  (testing "declarations unfolded through either unfold registry"
+    (with-axioms #(-> % (ansatz.kernel.env/update-extension :simp-unfold #{} conj "Nat.pred_le"))
+      (fn [] (is (= [] (warnings [{:erase "Nat.pred_le"}] {})))))
+    (with-axioms #(-> % (ansatz.kernel.env/update-extension :simp-unfold-thms {} assoc "Nat.pred_le" []))
+      (fn [] (is (= [] (warnings [{:erase "Nat.pred_le"}] {}))))))
+  (testing "a simproc erasure is no theorem erasure"
+    (is (= [] (warnings [{:erase "Nat.reduceAdd"}] {}))))
+  (testing "the returned erasure state is unchanged when warning"
+    (is (empty? (:erased (simp/elab-simp-args (a/env) [{:erase "Nat.pred_le"}] {}))))))
+
+(defn- stderr-of [form]
+  (let [err (java.io.StringWriter.)]
+    (binding [*err* err] (proves? form))
+    (str err)))
+
+(defn- count-of [s sub] (count (re-seq (re-pattern (java.util.regex.Pattern/quote sub)) s)))
+
+(deftest the-erase-warning-is-reported-once-per-tactic
+  (is (= 1 (count-of (stderr-of '(a/theorem w-locs [h1 :- (= Nat (+ 0 1) 1), h2 :- (= Nat (+ 0 2) 2)] True
+                                            (simp [-Nat.pred_le] at h1 h2) (trivial)))
+                     no-attr)))
+  (is (= 1 (count-of (stderr-of '(a/theorem w-simp-all [h :- (= Bool false true)] False (simp_all [-Nat.pred_le])))
+                     no-attr)))
+  (is (= 1 (count-of (stderr-of '(a/theorem w-simp-all-only [h :- (= Bool false true)] False
+                                            (simp_all only [-Nat.pred_le Bool.false_eq_true])))
+                     no-attr)))
+  (is (= 1 (count-of (stderr-of '(a/theorem w-dsimp [P :- Prop, h :- False] P (dsimp [-Nat.pred_le] at h)))
+                     no-attr)))
+  (is (= 0 (count-of (stderr-of '(a/theorem w-simproc [n :- Nat] (= Nat (+ n 0) n) (simp [-Nat.reduceAdd])))
+                     "does not have the"))))
+
+(deftest erase-warnings-follow-the-unfold-registries
+  ;; Lean eraseCore drops the name from toUnfold but keeps toUnfoldThms (SimpTheorems.lean:612-622)
+  (with-axioms #(-> % (ansatz.kernel.env/update-extension :simp-unfold #{} conj "Nat.pred_le")
+                    (ansatz.kernel.env/update-extension :simp-unfold-thms {} assoc "Nat.zero_add" []))
+    (fn []
+      (testing "a second erase of a plain unfold declaration warns"
+        (is (= [no-attr] (warnings [{:erase "Nat.pred_le"} {:erase "Nat.pred_le"}] {}))))
+      (testing "an equation-backed declaration stays registered (toUnfoldThms): silent"
+        (is (= [] (warnings [{:erase "Nat.zero_add"} {:erase "Nat.zero_add"}] {})))))))
+
+(deftest an-explicit-definition-registers-its-equations-for-erasure
+  ;; simp only [List.length -List.length.eq_1]: erased silently, and the equation is not used
+  (let [env (a/env)
+        eq1 (str (first (ansatz.eqns/get-eqns-for? env (ansatz.kernel.name/from-string "List.length"))))]
+    (is (= [] (warnings ['List.length {:erase eq1}] {:only? true})))
+    (is (contains? (:erased (simp/elab-simp-args env ['List.length {:erase eq1}]
+                                                 (#'simp/default-simp-arg-context env {:only? true})))
+                   [eq1 false]))))
+
+(deftest erase-warning-surface-fixtures
+  (testing "[← t, -t] over a registered forward t erases the inverse silently"
+    (with-axioms #(-> (argT-env %) (ansatz.kernel.env/update-extension :simp-lemmas #{} conj "ArgT.t"))
+      (fn []
+        (is (= 0 (count-of (stderr-of '(a/theorem w-inv [h :- (ArgT.P ArgT.a)] (ArgT.P ArgT.a)
+                                                  (simp [← ArgT.t -ArgT.t]) (exact h)))
+                           "does not have the"))))))
+  (testing "simp_all only / dsimp only start from eq_self and iff_self: Nat.zero_add warns"
+    (is (= 1 (count-of (stderr-of '(a/theorem w-sao [h :- (= Bool false true)] False
+                                              (simp_all only [-Nat.zero_add Bool.false_eq_true])))
+                       "`Nat.zero_add` does not have the")))
+    (is (= 0 (count-of (stderr-of '(a/theorem w-sa [h :- (= Bool false true)] False
+                                              (simp_all [-Nat.zero_add])))
+                       "`Nat.zero_add` does not have the")))
+    (is (= 1 (count-of (stderr-of '(a/theorem w-dso [P :- Prop, h :- False] P (dsimp only [-Nat.zero_add] at h)))
+                       "`Nat.zero_add` does not have the"))))
+  (testing "dsimp's diagnostic pass does not reject what dsimp accepts"
+    (is (proves? '(a/theorem dsimp-down-simproc [P :- Prop, h :- False] P (dsimp [↓ Nat.reduceGcd] at h))))))
+
+(deftest dsimp-warnings-follow-dsimp-registrations
+  ;; Lean elabSimpArgs with SimpKind.dsimp (Elab/Tactic/Simp.lean:283-285, 367)
+  (testing "a `↓` simproc is a valid dsimp argument; the erase warning is still reported"
+    (is (= 1 (count-of (stderr-of '(a/theorem w-dsimp-down [P :- Prop, h :- False] P
+                                              (dsimp [↓ Nat.reduceGcd -Nat.pred_le] at h)))
+                       no-attr))))
+  (let [eq1 (first (ansatz.eqns/get-eqns-for? (a/env) (ansatz.kernel.name/from-string "List.length")))
+        _ (is (some? eq1) "List.length has a registered equation")
+        erase-eq1 (symbol (str "-" eq1))
+        warning (str "`" eq1 "` does not have the")]
+    (testing "dsimp registers a definition to unfold only, so erasing its equation warns"
+      (is (= 1 (count-of (stderr-of (list 'a/theorem 'w-dsimp-def '[P :- Prop, h :- False] 'P
+                                          (list 'dsimp 'only ['List.length erase-eq1] 'at 'h)))
+                         warning))))
+    (testing "simp registers the equations, so the same erasure is silent"
+      (is (= 0 (count-of (stderr-of (list 'a/theorem 'w-simp-def '[P :- Prop, h :- False] 'P
+                                          (list 'simp 'only ['List.length erase-eq1] 'at 'h)))
+                         warning))))))
+
+(deftest an-explicit-constructor-is-registered-to-unfold
+  ;; mkSimpEntryOfDeclToUnfold registers a non-definition as `.toUnfold` (SimpTheorems.lean:559-591)
+  (is (= 0 (count-of (stderr-of '(a/theorem w-ctor [n :- Nat] (= Nat n n) (simp only [Nat.zero -Nat.zero])))
+                     "does not have the"))))

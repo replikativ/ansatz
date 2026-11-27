@@ -96,7 +96,7 @@
   (let [fwd [n false] bwd [n true]
         cascade (fn [st] (reduce #(erase-core %1 [(str %2) false]) st (unfold-thms n)))]
     (cond
-      (or (registered? state fwd) (unfold? n) (seq (unfold-thms n)))
+      (or (registered? state fwd) (unfold? n) (some? (unfold-thms n)))
       {:state (cascade (erase-core state fwd)) :erased-unfold n}
       (registered? state bwd)
       {:state (cascade (erase-core state bwd)) :erased-unfold n}
