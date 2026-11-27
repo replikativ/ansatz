@@ -458,3 +458,18 @@
     (is (nil? (tc/java-tc st)) "the let routes to the fallback")
     (is (not (tc/is-def-eq st (e/sort' s11) (e/sort' (lvl/level-max s11 (P "b"))))))
     (is (tc/is-def-eq st (e/sort' s11) (e/sort' s11)))))
+
+(deftest binder-scan-of-infer-implicit-stops-on-interruption
+  ;; a long telescope: infer_implicit's scan is quadratic in short searches; one shared poll
+  ;; must observe the interruption a verifier timeout delivers
+  (let [tele (reduce (fn [body _] (pi "x" (c "Nat") body)) (c "Nat") (range 5000))
+        m (doto (.getDeclaredMethod ansatz.kernel.AddInductive "inferImplicit" (into-array Class [Expr]))
+            (.setAccessible true))
+        result (promise)
+        t (Thread. nil (fn [] (.interrupt (Thread/currentThread))
+                         (deliver result (try (.invoke m nil (object-array [tele])) :completed
+                                              (catch java.lang.reflect.InvocationTargetException ex
+                                                (class (.getCause ex))))))
+                   "infer-implicit" (* 64 1024 1024))]
+    (.start t)
+    (is (= ansatz.kernel.KernelAbort (deref result 60000 :timeout)))))

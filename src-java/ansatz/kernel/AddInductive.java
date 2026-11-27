@@ -807,19 +807,25 @@ public final class AddInductive {
 
     /** Lean's infer_implicit(t, strict = true): a binder occurring in a later explicit domain becomes implicit. */
     static Expr inferImplicit(Expr t) {
+        return inferImplicit(t, new Poll());
+    }
+
+    private static Expr inferImplicit(Expr t, Poll poll) {
         if (t.tag != Expr.FORALL) return t;
-        Expr body = inferImplicit((Expr) t.o2);
+        Expr body = inferImplicit((Expr) t.o2, poll);
         Object bi = t.o3;
-        if (isExplicit(bi) && hasLooseBVarsInDomain(body, 0)) bi = BINDER_IMPLICIT;
+        if (isExplicit(bi) && hasLooseBVarsInDomain(body, 0, poll)) bi = BINDER_IMPLICIT;
         return Expr.forall(t.o0, (Expr) t.o1, body, bi);
     }
 
-    /** Lean's has_loose_bvars_in_domain(b, vidx, strict = true), with its transitivity through implicit binders. */
-    private static boolean hasLooseBVarsInDomain(Expr b, int vidx) {
+    /** Lean's has_loose_bvars_in_domain(b, vidx, strict = true), with its transitivity through
+     *  implicit binders. One interruption poll covers the whole scan. */
+    private static boolean hasLooseBVarsInDomain(Expr b, int vidx, Poll poll) {
         while (b.tag == Expr.FORALL) {
-            if (hasLooseBVar((Expr) b.o1, vidx)) {
+            poll.tick();
+            if (new LooseBVarSearch(poll).go((Expr) b.o1, vidx)) {
                 if (isExplicit(b.o3)) return true;
-                if (hasLooseBVarsInDomain((Expr) b.o2, 0)) return true;
+                if (hasLooseBVarsInDomain((Expr) b.o2, 0, poll)) return true;
             }
             b = (Expr) b.o2;
             vidx++;
@@ -830,13 +836,17 @@ public final class AddInductive {
     /** Lean's has_loose_bvar(e, i): bvar i occurs free in e. Memoized on (subterm, index) once a
      *  search grows past a small number of nodes, so small searches allocate nothing. */
     static boolean hasLooseBVar(Expr e, int i) {
-        return new LooseBVarSearch().go(e, i);
+        return new LooseBVarSearch(new Poll()).go(e, i);
     }
 
     private static final class LooseBVarSearch {
         private int visits;
         private IdentityHashMap<Expr, HashSet<Integer>> absent;
-        private final Poll poll = new Poll();
+        private final Poll poll;
+
+        LooseBVarSearch(Poll poll) {
+            this.poll = poll;
+        }
 
         boolean go(Expr e, int i) {
             if (e.bvarRange() <= i) return false;
