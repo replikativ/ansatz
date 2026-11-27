@@ -500,7 +500,10 @@
           ctor-ci (env/mk-ctor ctor-name [] ctor-type badp-name 0 1 2)
           bundle (env/mk-inductive-bundle [] 1 false [ind-ci] [ctor-ci] [])]
       (is (thrown? Exception
-                   (TypeChecker/checkInductiveBundle (Env.) bundle 1000000))))))
+                   (TypeChecker/checkInductiveBundle (Env.) bundle 1000000)))
+      (is (thrown-with-msg? Exception #"invalid occurrence of datatype 'BadP'"
+                            (env/add-inductive (Env.) (env/mk-inductive-decl [] 1 false [[badp-name ind-type [[ctor-name ctor-type]]]])
+                                               1000000))))))
 
 (deftest nested-inductive-positivity-test
   (testing "the being-defined inductive must occur strictly-positively INSIDE a
@@ -511,14 +514,11 @@
           c #(e/const' (n %) [])
           list0 (fn [x] (e/app (e/const' (n "List") [lvl/zero]) x))
           check (fn [nm ctor-ty]
-                  (let [ind (env/mk-induct (n nm) [] type0 :num-params 0 :num-indices 0
-                                           :all [(n nm)] :ctors [(n (str nm ".mk"))])
-                        ct (env/mk-ctor (n (str nm ".mk")) [] ctor-ty (n nm) 0 0 1)]
-                    (TypeChecker/checkInductiveBundle
-                     E (env/mk-inductive-bundle [] 0 false [ind] [ct] []) 5000000)))]
+                  (env/add-inductive E (env/mk-inductive-decl [] 0 false [[nm type0 [[(str nm ".mk") ctor-ty]]]])
+                                     5000000))]
       ;; NEGATIVE occurrence nested inside List — must be rejected
       (is (thrown-with-msg?
-           Exception #"non-positive occurrence"
+           Exception #"non positive occurrence"
            (let [b (c "BadN")]
              (check "BadN" (e/forall' "xs" (list0 (e/forall' "_" b b :default)) b :default)))))
       ;; POSITIVE recursive occurrence nested inside List — must be accepted
@@ -558,7 +558,7 @@
                 with-eq ["Quot" "Quot.mk" "Quot.lift" "Quot.ind"])))))
 
 (deftest reject-corrupt-imported-recursor-rule-test
-  (testing "InductiveChecker rejects imported recursor rules that differ from Lean-generated iota rules"
+  (testing "imported recursor rules that differ from the generated iota rules are rejected"
     (let [f "test-data/Nat.add_succ.ndjson"]
       (when (fixtures/available? [f])
         (let [members (vec (take 4 (:decls (parse-ndjson-file f))))
@@ -598,7 +598,7 @@
           (is (= (name/from-string "Nat") (.name first-ind)))
           (is (thrown-with-msg?
                Exception
-               #"generated recursor rule mismatch"
+               #"recursor 'Nat.rec' differs from the generated declaration in rules\[1\].rhs"
                (TypeChecker/checkInductiveBundle (Env.) bundle 1000000))))))))
 
 ;; ============================================================
