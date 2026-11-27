@@ -40,6 +40,7 @@
             [ansatz.elab.structural-eqns :as structural-eqns]
             [ansatz.elab.structural-smart-unfolding :as sunfold]
             [ansatz.surface.ingest :as ingest]
+            [ansatz.meta.constructions.injective :as injective]
             [ansatz.surface.elaborate :as elab]
             [ansatz.surface.clj-obligations :as obligations]
             [ansatz.surface.diagnostics :as diagnostics]
@@ -3482,6 +3483,23 @@
   `(install-theorem! '~thm-name ~(large-form-literal params) ~(large-form-literal prop)
                      ~(large-form-literal (vec tactics))))
 
+(clojure.core/defn derive-injectivity!
+  "Lean's mkInjectiveTheorems for a DSL inductive or structure (ansatz.meta.constructions.injective):
+   `C.inj` and `C.injEq`, the latter registered as a simp lemma (Injective.lean addSimpTheorem).
+   One env update or none; a failure is reported (Lean's elaborator would fail the declaration)."
+  [type-name]
+  (try
+    (swap! ansatz-env
+           (fn [env]
+             (let [env' (injective/mk-injective-theorems env type-name)
+                   ctors (some-> (env/lookup env' (name/from-string type-name)) (.ctors))
+                   new (filter #(and (env/lookup env' (name/mk-str % "injEq")) (not (env/lookup env (name/mk-str % "injEq"))))
+                               ctors)]
+               (first ((requiring-resolve 'ansatz.attrs/import-attr-tuples)
+                       env' (mapv (fn [c] ["simp" (str c ".injEq") nil 1000]) new) {})))))
+    (catch Throwable t
+      (println (str "  injectivity theorems not generated for " type-name ": " (.getMessage t))))))
+
 (defmacro inductive
   "Define an inductive type with constructors.
    (a/inductive Color [] (red) (green) (blue))
@@ -3538,6 +3556,7 @@
                  (reset! ansatz-env env'#))])
          ;; lean4 auto-derives SizeOf for every inductive — best-effort, no-op when unsupported
          (wf-derive-sizeof! ~(str type-name))
+         (derive-injectivity! ~(str type-name))
          nil)))
 
 ;; ============================================================
@@ -3702,6 +3721,9 @@
        ~@(when extends-form
            [`(add-inherited-accessors! ~(str type-name) ~(str parent-sym)
                                        ~(str to-field) ~(/ (count params) 2))])
+
+       ;; Lean: injectivity theorems for structures too (not for classes)
+       ~@(when-not (:class opts) [`(derive-injectivity! ~(str type-name))])
 
        ;; Lean's class extension is environment-local; ordinary structures are excluded.
        ~@(when (:class opts)
