@@ -148,13 +148,18 @@ public final class Reducer {
      * Lift (shift) free de Bruijn indices in e by d, starting from cutoff c.
      */
     public static Expr lift(Expr e, int d, int c) {
+        if (d == 0 || e.bvarRange() <= c) return e;
         return liftGo(e, d, c, new ArrayList<>());
     }
 
     private static IdentityHashMap<Expr, Expr> getDepthCache(ArrayList<IdentityHashMap<Expr, Expr>> caches, int depth) {
         while (caches.size() <= depth) caches.add(null);
         IdentityHashMap<Expr, Expr> m = caches.get(depth);
-        if (m == null) { m = new IdentityHashMap<>(); caches.set(depth, m); }
+        if (m == null) {
+            // Each binder depth has its own table; most start with only a few live terms.
+            m = new IdentityHashMap<>(4);
+            caches.set(depth, m);
+        }
         return m;
     }
 
@@ -226,168 +231,97 @@ public final class Reducer {
         return result;
     }
 
-    /**
-     * Replace (bvar 0) with val in e, shifting remaining bvars down.
-     */
+    /** Replace bvar(0) with val and shift remaining loose indices down by one. */
     public static Expr instantiate1(Expr e, Expr val) {
-        return instantiate1Go(e, val, 0, new ArrayList<>());
+        if (e.bvarRange() == 0) return e;
+        return instantiateRev(e, 1, new Expr[]{val}, 0);
     }
 
-    /**
-     * Batch instantiate: replace bvar(0)..bvar(n-1) with subst[0..n-1] in a single pass.
-     * Matching Lean 4's instantiate(body, n, subst) — avoids O(n) traversals.
-     * subst array is in APPLICATION order: subst[0] replaces bvar(n-1), subst[n-1] replaces bvar(0).
-     * (This matches Lean 4's instantiate_rev semantics used in whnf beta reduction.)
-     */
+    /** Substitute in application order, as in Lean's instantiate_rev: the last
+     *  argument in the slice replaces bvar(0). */
     public static Expr instantiateRev(Expr e, int n, Expr[] subst, int substOffset) {
         if (n == 0 || e.bvarRange() == 0) return e;
-        if (n == 1) return instantiate1(e, subst[substOffset]);
-        return instantiateRevGo(e, n, subst, substOffset, 0, new ArrayList<>());
+        return new Instantiate(subst, substOffset, n).apply(e, 0);
     }
 
-    private static Expr instantiateRevGo(Expr e, int n, Expr[] subst, int substOffset, int depth,
-                                          ArrayList<IdentityHashMap<Expr, Expr>> caches) {
-        if (e.bvarRange() <= depth) return e;
-        IdentityHashMap<Expr, Expr> dc = getDepthCache(caches, depth);
-        Expr cached = dc.get(e);
-        if (cached != null) return cached;
-        Expr result;
-        switch (e.tag) {
-            case Expr.BVAR: {
-                long idx = e.longVal;
-                if (idx >= depth && idx < depth + n) {
-                    int k = (int)(idx - depth);
-                    result = lift(subst[substOffset + n - 1 - k], depth, 0);
-                } else if (idx >= depth + n) {
-                    result = Expr.bvar(idx - n);
-                } else {
-                    return e;
-                }
-                break;
-            }
-            case Expr.SORT: case Expr.CONST: case Expr.LIT_NAT: case Expr.LIT_STR: case Expr.FVAR:
-                return e;
-            case Expr.APP: {
-                ArrayList<Expr> args = new ArrayList<>();
-                Expr cur = e;
-                while (cur.tag == Expr.APP && cur.bvarRange() > depth) {
-                    args.add((Expr) cur.o1);
-                    cur = (Expr) cur.o0;
-                }
-                Expr newHead = instantiateRevGo(cur, n, subst, substOffset, depth, caches);
-                result = newHead;
-                boolean changed = (newHead != cur);
-                for (int i = args.size() - 1; i >= 0; i--) {
-                    Expr origArg = args.get(i);
-                    Expr newArg = instantiateRevGo(origArg, n, subst, substOffset, depth, caches);
-                    changed = changed || (newArg != origArg);
-                    result = Expr.app(result, newArg);
-                }
-                if (!changed) result = e;
-                break;
-            }
-            case Expr.LAM: {
-                Expr newType = instantiateRevGo((Expr) e.o1, n, subst, substOffset, depth, caches);
-                Expr newBody = instantiateRevGo((Expr) e.o2, n, subst, substOffset, depth + 1, caches);
-                result = (newType == e.o1 && newBody == e.o2) ? e : Expr.lam(e.o0, newType, newBody, e.o3);
-                break;
-            }
-            case Expr.FORALL: {
-                Expr newType = instantiateRevGo((Expr) e.o1, n, subst, substOffset, depth, caches);
-                Expr newBody = instantiateRevGo((Expr) e.o2, n, subst, substOffset, depth + 1, caches);
-                result = (newType == e.o1 && newBody == e.o2) ? e : Expr.forall(e.o0, newType, newBody, e.o3);
-                break;
-            }
-            case Expr.LET: {
-                Expr newType = instantiateRevGo((Expr) e.o1, n, subst, substOffset, depth, caches);
-                Expr newVal = instantiateRevGo((Expr) e.o2, n, subst, substOffset, depth, caches);
-                Expr newBody = instantiateRevGo((Expr) e.o3, n, subst, substOffset, depth + 1, caches);
-                result = (newType == e.o1 && newVal == e.o2 && newBody == e.o3) ? e : Expr.mkLet(e.o0, newType, newVal, newBody);
-                break;
-            }
-            case Expr.MDATA: {
-                Expr newE = instantiateRevGo((Expr) e.o1, n, subst, substOffset, depth, caches);
-                result = (newE == e.o1) ? e : Expr.mdata(e.o0, newE);
-                break;
-            }
-            case Expr.PROJ: {
-                Expr newE = instantiateRevGo((Expr) e.o1, n, subst, substOffset, depth, caches);
-                result = (newE == e.o1) ? e : Expr.proj(e.o0, e.longVal, newE);
-                break;
-            }
-            default: return e;
-        }
-        dc.put(e, result);
-        return result;
-    }
+    private static final class Instantiate {
+        final Expr[] subst;
+        final int start;
+        final int count;
+        final ArrayList<IdentityHashMap<Expr, Expr>> caches = new ArrayList<>();
+        final ArrayList<Expr> spine = new ArrayList<>();
 
-    private static Expr instantiate1Go(Expr e, Expr val, int depth, ArrayList<IdentityHashMap<Expr, Expr>> caches) {
-        if (e.bvarRange() <= depth) return e;
-        IdentityHashMap<Expr, Expr> dc = getDepthCache(caches, depth);
-        Expr cached = dc.get(e);
-        if (cached != null) return cached;
-        Expr result;
-        switch (e.tag) {
-            case Expr.BVAR: {
-                long idx = e.longVal;
-                if (idx == depth) { result = lift(val, depth, 0); break; }
-                if (idx > depth) { result = Expr.bvar(idx - 1); break; }
-                return e;
-            }
-            case Expr.SORT: case Expr.CONST: case Expr.LIT_NAT: case Expr.LIT_STR: case Expr.FVAR:
-                return e;
-            case Expr.APP: {
-                ArrayList<Expr> args = new ArrayList<>();
-                Expr cur = e;
-                while (cur.tag == Expr.APP && cur.bvarRange() > depth) {
-                    args.add((Expr) cur.o1);
-                    cur = (Expr) cur.o0;
-                }
-                Expr newHead = instantiate1Go(cur, val, depth, caches);
-                result = newHead;
-                boolean changed = (newHead != cur);
-                for (int i = args.size() - 1; i >= 0; i--) {
-                    Expr origArg = args.get(i);
-                    Expr newArg = instantiate1Go(origArg, val, depth, caches);
-                    changed = changed || (newArg != origArg);
-                    result = Expr.app(result, newArg);
-                }
-                if (!changed) result = e;
-                break;
-            }
-            case Expr.LAM: {
-                Expr newType = instantiate1Go((Expr) e.o1, val, depth, caches);
-                Expr newBody = instantiate1Go((Expr) e.o2, val, depth + 1, caches);
-                result = (newType == e.o1 && newBody == e.o2) ? e : Expr.lam(e.o0, newType, newBody, e.o3);
-                break;
-            }
-            case Expr.FORALL: {
-                Expr newType = instantiate1Go((Expr) e.o1, val, depth, caches);
-                Expr newBody = instantiate1Go((Expr) e.o2, val, depth + 1, caches);
-                result = (newType == e.o1 && newBody == e.o2) ? e : Expr.forall(e.o0, newType, newBody, e.o3);
-                break;
-            }
-            case Expr.LET: {
-                Expr newType = instantiate1Go((Expr) e.o1, val, depth, caches);
-                Expr newVal = instantiate1Go((Expr) e.o2, val, depth, caches);
-                Expr newBody = instantiate1Go((Expr) e.o3, val, depth + 1, caches);
-                result = (newType == e.o1 && newVal == e.o2 && newBody == e.o3) ? e : Expr.mkLet(e.o0, newType, newVal, newBody);
-                break;
-            }
-            case Expr.MDATA: {
-                Expr newE = instantiate1Go((Expr) e.o1, val, depth, caches);
-                result = (newE == e.o1) ? e : Expr.mdata(e.o0, newE);
-                break;
-            }
-            case Expr.PROJ: {
-                Expr newE = instantiate1Go((Expr) e.o1, val, depth, caches);
-                result = (newE == e.o1) ? e : Expr.proj(e.o0, e.longVal, newE);
-                break;
-            }
-            default: return e;
+        Instantiate(Expr[] subst, int start, int count) {
+            this.subst = subst;
+            this.start = start;
+            this.count = count;
         }
-        dc.put(e, result);
-        return result;
+
+        Expr apply(Expr e, int depth) {
+            if (e.bvarRange() <= depth) return e;
+            IdentityHashMap<Expr, Expr> cache = getDepthCache(caches, depth);
+            Expr result = cache.get(e);
+            if (result != null) return result;
+            switch (e.tag) {
+                case Expr.BVAR: {
+                    if (e.longVal < depth) return e;
+                    long index = e.longVal - depth;
+                    result = index < count
+                        ? lift(subst[start + count - 1 - (int) index], depth, 0)
+                        : Expr.bvar(e.longVal - count);
+                    break;
+                }
+                case Expr.APP: {
+                    // Nested argument visits use the stack above this frame.
+                    // Prefixes are memoized like any subterm: a prefix shared elsewhere in the
+                    // term is rebuilt once.
+                    int base = spine.size();
+                    Expr fn = e, head = null;
+                    while (fn.tag == Expr.APP && fn.bvarRange() > depth) {
+                        if (fn != e && (head = cache.get(fn)) != null) break;
+                        spine.add(fn);
+                        fn = (Expr) fn.o0;
+                    }
+                    result = head != null ? head : apply(fn, depth);
+                    while (spine.size() > base) {
+                        Expr app = spine.remove(spine.size() - 1);
+                        Expr arg = apply((Expr) app.o1, depth);
+                        result = result == app.o0 && arg == app.o1 ? app : Expr.app(result, arg);
+                        if (app != e) cache.put(app, result);
+                    }
+                    break;
+                }
+                case Expr.LAM: case Expr.FORALL: {
+                    Expr type = apply((Expr) e.o1, depth);
+                    Expr body = apply((Expr) e.o2, depth + 1);
+                    if (type == e.o1 && body == e.o2) result = e;
+                    else if (e.tag == Expr.LAM) result = Expr.lam(e.o0, type, body, e.o3);
+                    else result = Expr.forall(e.o0, type, body, e.o3);
+                    break;
+                }
+                case Expr.LET: {
+                    Expr type = apply((Expr) e.o1, depth);
+                    Expr value = apply((Expr) e.o2, depth);
+                    Expr body = apply((Expr) e.o3, depth + 1);
+                    result = type == e.o1 && value == e.o2 && body == e.o3
+                        ? e : Expr.mkLet(e.o0, type, value, body);
+                    break;
+                }
+                case Expr.MDATA: {
+                    Expr inner = apply((Expr) e.o1, depth);
+                    result = inner == e.o1 ? e : Expr.mdata(e.o0, inner);
+                    break;
+                }
+                case Expr.PROJ: {
+                    Expr inner = apply((Expr) e.o1, depth);
+                    result = inner == e.o1 ? e : Expr.proj(e.o0, e.longVal, inner);
+                    break;
+                }
+                default: return e;
+            }
+            cache.put(e, result);
+            return result;
+        }
     }
 
     /**

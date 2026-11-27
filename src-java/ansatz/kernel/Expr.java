@@ -508,8 +508,8 @@ public final class Expr {
      * become much more effective.
      */
     public static Expr shareCommon(Expr e) {
-        java.util.HashMap<Expr, Expr> cache = new java.util.HashMap<>(4096);
-        java.util.IdentityHashMap<Expr, Expr> visited = new java.util.IdentityHashMap<>(4096);
+        java.util.HashMap<Expr, Expr> cache = new java.util.HashMap<>();
+        java.util.IdentityHashMap<Expr, Expr> visited = new java.util.IdentityHashMap<>();
         return shareCommonGo(e, cache, visited);
     }
 
