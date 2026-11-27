@@ -13,7 +13,7 @@
             [ansatz.kernel.level :as lvl]
             [ansatz.kernel.name :as name]
             [ansatz.kernel.reduce :as red])
-  (:import [ansatz.kernel ConstantInfo ConstantInfo$RecursorRule Env Reducer]))
+  (:import [ansatz.kernel ConstantInfo ConstantInfo$RecursorRule Env Expr Reducer TypeChecker]))
 
 ;; ============================================================
 ;; Helpers
@@ -304,3 +304,18 @@
         q (e/app* (c "Quot.mk" u) alpha r a)
         term (e/app* (c "Quot.ind" u) alpha r beta mk q)]
     (is (= (e/app mk a) (red/whnf-no-delta env term)))))
+
+;; ============================================================
+;; Review follow-ups: universe-parameter flags and level conversion
+;; ============================================================
+
+(deftest sort-and-const-factories-derive-the-level-parameter-flag
+  ;; `Expr.sort(succ v, false)` used to carry a wrong has-level-param flag, so instantiating
+  ;; `I.{0}`'s type skipped the substitution and left `Sort (succ v)` with v free.
+  (let [v (n "v")
+        hdr (Expr/sort (lvl/succ (lvl/param v)) false)
+        env (env/add-inductive @base (env/mk-inductive-decl [v] 0 false [["KI3" hdr []]]) fuel)
+        tc (doto (TypeChecker. env) (.setFuel fuel))]
+    (is (.hasLevelParam ^Expr hdr))
+    (is (.hasLevelParam ^Expr (Expr/mkConst (n "KI3") (object-array [(lvl/param v)]) false)))
+    (is (= (str (e/sort' l1)) (str (.inferType tc (Expr/mkConst (n "KI3") (object-array [l0]) false)))))))

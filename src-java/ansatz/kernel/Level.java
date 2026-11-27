@@ -30,12 +30,17 @@ public final class Level {
     public final int hash;
     public final Object o0;  // child 0: Level for SUCC/MAX/IMAX, Name for PARAM
     public final Object o1;  // child 1: Level for MAX/IMAX, null otherwise
+    /** Does a universe parameter occur? Computed at construction, so it can never disagree. */
+    private final boolean hasParam;
 
     private Level(byte tag, int hash, Object o0, Object o1) {
         this.tag = tag;
         this.hash = hash;
         this.o0 = o0;
         this.o1 = o1;
+        this.hasParam = tag == PARAM
+            || ((tag == SUCC || tag == MAX || tag == IMAX) && ((Level) o0).hasParam)
+            || ((tag == MAX || tag == IMAX) && ((Level) o1).hasParam);
     }
 
     // --- Singleton zero ---
@@ -149,14 +154,7 @@ public final class Level {
     // --- Predicates ---
 
     public static boolean hasParam(Level l) {
-        switch (l.tag) {
-            case ZERO: return false;
-            case SUCC: return hasParam(l.succPred());
-            case MAX: return hasParam(l.maxLhs()) || hasParam(l.maxRhs());
-            case IMAX: return hasParam(l.imaxLhs()) || hasParam(l.imaxRhs());
-            case PARAM: return true;
-            default: return false;
-        }
+        return l.hasParam;
     }
 
     public static boolean isNeverZero(Level l) {
