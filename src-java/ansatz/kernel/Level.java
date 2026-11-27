@@ -575,6 +575,130 @@ public final class Level {
         }
     }
 
+    // --- Lean's kernel level algebra (level.cpp): normalize, is_equivalent, is_geq ---
+    // Inductive admission uses these exactly as Lean does: field universes with is_geq,
+    // mutual result sorts with is_equivalent, predicates with normalizes_to_zero.
+
+    /** Lean's normalizes_to_zero: syntactically zero for every assignment, without normalizing. */
+    public static boolean normalizesToZero(Level l) {
+        switch (l.tag) {
+            case ZERO: return true;
+            case MAX: return normalizesToZero(l.maxLhs()) && normalizesToZero(l.maxRhs());
+            case IMAX: return normalizesToZero(l.imaxRhs());
+            default: return false;
+        }
+    }
+
+    /** Lean's is_equivalent: equal, or equal after normalization. */
+    public static boolean isEquivalent(Level a, Level b) {
+        return a.equals(b) || normalize(a).equals(normalize(b));
+    }
+
+    /** Lean's is_geq: a ≥ b for every assignment, decided on the normal forms. */
+    public static boolean isGeq(Level a, Level b) {
+        return isGeqCore(normalize(a), normalize(b));
+    }
+
+    private static boolean isGeqCore(Level l1, Level l2) {
+        if (l1.equals(l2) || l2.tag == ZERO) return true;
+        if (l2.tag == MAX) return isGeq(l1, l2.maxLhs()) && isGeq(l1, l2.maxRhs());
+        if (l1.tag == MAX && (isGeq(l1.maxLhs(), l2) || isGeq(l1.maxRhs(), l2))) return true;
+        if (l2.tag == IMAX) return isGeq(l1, l2.imaxLhs()) && isGeq(l1, l2.imaxRhs());
+        if (l1.tag == IMAX) return isGeq(l1.imaxRhs(), l2);
+        long[] k1 = new long[1], k2 = new long[1];
+        Level b1 = getOffset(l1, k1), b2 = getOffset(l2, k2);
+        if (b1.equals(b2) || b2.tag == ZERO) return k1[0] >= k2[0];
+        if (k1[0] == k2[0] && k1[0] > 0) return isGeq(b1, b2);
+        return false;
+    }
+
+    /** Lean's normalize: offsets pushed inward, max arguments flattened, sorted, deduplicated. */
+    public static Level normalize(Level l) {
+        long[] k = new long[1];
+        Level r = getOffset(l, k);
+        switch (r.tag) {
+            case IMAX:
+                return succN(imax(normalize(r.imaxLhs()), normalize(r.imaxRhs())), k[0]);
+            case MAX: {
+                java.util.ArrayList<Level> todo = new java.util.ArrayList<>();
+                java.util.ArrayList<Level> args = new java.util.ArrayList<>();
+                collectMaxComponents(r, todo);
+                for (Level a : todo) collectMaxComponents(normalize(a), args);
+                args.sort(Level::normCompare);
+                java.util.ArrayList<Level> rargs = new java.util.ArrayList<>();
+                int i = 0;
+                if (isExplicit(args.get(i))) {
+                    while (i + 1 < args.size() && isExplicit(args.get(i + 1))) i++;
+                    long explicitK = getOffsetVal(args.get(i));
+                    int j = i + 1;
+                    while (j < args.size() && getOffsetVal(args.get(j)) < explicitK) j++;
+                    if (j < args.size()) i++;      // the explicit universe is subsumed by succ^k'(l), k' ≥ k
+                }
+                rargs.add(args.get(i));
+                long[] prevK = new long[1];
+                Level prev = getOffset(args.get(i), prevK);
+                for (i++; i < args.size(); i++) {
+                    long[] currK = new long[1];
+                    Level curr = getOffset(args.get(i), currK);
+                    if (prev.equals(curr)) {
+                        if (prevK[0] < currK[0]) {
+                            prevK[0] = currK[0];
+                            rargs.set(rargs.size() - 1, args.get(i));
+                        }
+                    } else {
+                        prev = curr;
+                        prevK[0] = currK[0];
+                        rargs.add(args.get(i));
+                    }
+                }
+                Level out = succN(rargs.get(rargs.size() - 1), k[0]);
+                for (int a = rargs.size() - 2; a >= 0; a--) out = max(succN(rargs.get(a), k[0]), out);
+                return out;
+            }
+            default:
+                return l;
+        }
+    }
+
+    private static Level succN(Level l, long k) {
+        for (long i = 0; i < k; i++) l = succ(l);
+        return l;
+    }
+
+    /** Lean's is_norm_lt as a comparator: by base (kind, then identity), then by offset. */
+    private static int normCompare(Level a, Level b) {
+        if (a == b) return 0;
+        long[] ka = new long[1], kb = new long[1];
+        Level la = getOffset(a, ka), lb = getOffset(b, kb);
+        if (!la.equals(lb)) {
+            if (la.tag != lb.tag) return Integer.compare(la.tag, lb.tag);
+            switch (la.tag) {
+                case PARAM: return compareNames(la.o0, lb.o0);
+                case MVAR: return Long.compare(la.mvarId(), lb.mvarId());
+                case MAX: case IMAX: {
+                    Level x = (Level) la.o0, y = (Level) lb.o0;
+                    return !x.equals(y) ? normCompare(x, y) : normCompare((Level) la.o1, (Level) lb.o1);
+                }
+                default: return 0;
+            }
+        }
+        return Long.compare(ka[0], kb[0]);
+    }
+
+    /** A total order on universe parameter names: component-wise from the root. */
+    private static int compareNames(Object a, Object b) {
+        if (!(a instanceof Name) || !(b instanceof Name)) return String.valueOf(a).compareTo(String.valueOf(b));
+        Name x = (Name) a, y = (Name) b;
+        if (x.equals(y)) return 0;
+        if (x.tag == Name.ANONYMOUS) return -1;
+        if (y.tag == Name.ANONYMOUS) return 1;
+        int c = compareNames(x.prefix == null ? Name.ANONYMOUS_NAME : x.prefix,
+                             y.prefix == null ? Name.ANONYMOUS_NAME : y.prefix);
+        if (c != 0) return c;
+        if (x.tag != y.tag) return x.tag == Name.NUM ? -1 : 1;
+        return x.tag == Name.NUM ? Long.compare(x.num, y.num) : x.str.compareTo(y.str);
+    }
+
     // --- Equality and hashing ---
 
     @Override
