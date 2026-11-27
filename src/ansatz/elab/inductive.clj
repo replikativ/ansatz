@@ -15,6 +15,8 @@
        (cond
          (and (= 'Type (first x)) (= 2 (count x)))
          (symbol (str "Type.{" (second x) "}"))
+         (and (= 'Sort (first x)) (= 2 (count x)) (symbol? (second x)))
+         (symbol (str "Sort.{" (second x) "}"))
          (= '-> (first x)) (cons '=> (rest x))
          (and (= 'le (first x)) (= 3 (count x))) (cons '<= (rest x))
          (= '(nil) x) nil

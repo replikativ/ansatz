@@ -52,3 +52,28 @@ inductive Two (p : Prop) where | a (h : p) | b (h : p)
 inductive Expl : Type 1 where | mk (n : Nat)
 /-- info: Expl : Type 1 -/
 #guard_msgs in #check Expl
+
+-- a nested occurrence with a field in `Sort v`: the result is bumped to `Type v` (with a warning)
+set_option linter.all false in
+inductive N5 (α : Sort v) where | mk (x : α) (cs : List (N5 α))
+/-- info: N5.{v} (α : Sort v) : Type v -/
+#guard_msgs(info) in #check N5
+
+-- both operands of an `imax` constrain the result
+inductive IM (α : Type u) where | mk (f : α → PUnit.{v})
+/-- info: IM.{u, v} (α : Type u) : Sort (max (u + 1) v) -/
+#guard_msgs in #check IM
+
+-- a container of a fixed universe: the result unifies with it
+structure W2 (α : Type) where x : α
+inductive TreeW where | node (c : W2 TreeW)
+/-- info: TreeW : Type -/
+#guard_msgs in #check TreeW
+
+-- the header's universes in order of occurrence, the constructors' by name
+inductive Ord2 (β : Type v) (α : Type u) where | mk (a : α) (b : β)
+/-- info: Ord2.{v, u} (β : Type v) (α : Type u) : Type (max u v) -/
+#guard_msgs in #check Ord2
+inductive CtorOnly : Prop where | mk (A : Type v) (B : Type u)
+/-- info: CtorOnly.{u, v} : Prop -/
+#guard_msgs in #check CtorOnly

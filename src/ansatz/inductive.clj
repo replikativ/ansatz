@@ -95,20 +95,35 @@
                                   body :default))))))
 
 (defn- type-level-param [form]
-  (when (and (sequential? form) (= 'Type (first form)) (= 2 (count form)))
+  (when (and (sequential? form) (= 'Type (first form)) (= 2 (count form)) (symbol? (second form)))
     (name/from-string (str (second form)))))
 
+(defonce ^:private provisional-counter (atom 0))
+
+(defn- default-result-level
+  "The header's own universe: Type, or above the `(Type u)` universes of its parameters."
+  [level-param-names]
+  (if (empty? level-param-names)
+    (lvl/succ lvl/zero)
+    (reduce lvl/level-max (map #(lvl/succ (lvl/param %)) level-param-names))))
+
+(defn- level-of-form
+  "A universe level written in a DSL sort: a name or a natural number."
+  [x]
+  (cond (and (integer? x) (>= x 0)) (lvl/from-nat x)
+        (and (symbol? x) (nil? (namespace x))) (lvl/param (name/from-string (str x)))
+        :else (throw (ex-info (str "unsupported universe level " (pr-str x)) {:level x}))))
+
 (defn- explicit-result-level
-  "The level of an explicit result sort `:in`: Prop, Type, (Type u), (Sort u) (u a name or a
-   natural number)."
+  "The level of an explicit result sort `:in`: Prop, Type, (Type u), (Sort u) with u a name or a
+   natural number."
   [form]
-  (let [lv (fn [x] (if (integer? x) (lvl/from-nat x) (lvl/param (name/from-string (str x)))))]
-    (cond
-      (= 'Prop form) lvl/zero
-      (= 'Type form) (lvl/succ lvl/zero)
-      (and (seq? form) (= 'Type (first form))) (lvl/succ (lv (second form)))
-      (and (seq? form) (= 'Sort (first form))) (lv (second form))
-      :else (throw (ex-info (str "unsupported result sort " (pr-str form)) {:in form})))))
+  (cond
+    (= 'Prop form) lvl/zero
+    (= 'Type form) (lvl/succ lvl/zero)
+    (and (seq? form) (= 2 (count form)) (= 'Type (first form))) (lvl/succ (level-of-form (second form)))
+    (and (seq? form) (= 2 (count form)) (= 'Sort (first form))) (level-of-form (second form))
+    :else (throw (ex-info (str "unsupported result sort " (pr-str form)) {:in form}))))
 
 (defn- level-params-of
   "The universe parameters occurring in `x`, in order of first occurrence."
@@ -149,21 +164,29 @@
               x))]
     (walk x)))
 
-(defn- level-pred
-  "`l - 1` for a level that is a successor in every branch (`max (u+1) 1` → `max u 0`), else nil."
+(defn- level-atoms
+  "Lean accLevel's traversal of a normalized level: its `base + k` atoms, through max and imax
+   (both operands of an imax count, as Lean visits them)."
   [l]
-  (cond
-    (lvl/succ? l) (lvl/succ-pred l)
-    (lvl/max? l) (let [a (level-pred (lvl/max-lhs l)) b (level-pred (lvl/max-rhs l))]
-                   (when (and a b) (lvl/simplify (lvl/level-max a b))))
-    :else nil))
+  (letfn [(go [l k]
+              (cond
+                (lvl/succ? l) (go (lvl/succ-pred l) (inc k))
+                (lvl/max? l) (concat (go (lvl/max-lhs l) k) (go (lvl/max-rhs l) k))
+                (lvl/imax? l) (concat (go (lvl/imax-lhs l) k) (go (lvl/imax-rhs l) k))
+                :else [[l k]]))]
+    (go (lvl/simplify l) 0)))
+
+(defn- add-offset [l k] (reduce (fn [l _] (lvl/succ l)) l (range k)))
 
 (defn- infer-result-level
-  "Lean Elab/MutualInductive.lean inferResultingUniverse for one type: `Prop` when the type is a
+  "Lean Elab/MutualInductive.lean inferResultingUniverse for one type. `Prop` when the type is a
    Prop candidate (isPropCandidate: one constructor, at least one field, every field a proof not
-   mentioning the type), otherwise the least level above 1 and every field's sort level (the
-   result level itself, met by a recursive field, imposes nothing)."
-  [env ind-name ind-levels header-type ctor-types n-params provisional]
+   mentioning the type). Otherwise every field level's atom `b + k` is a constraint on the result
+   (accLevel; the result level itself, met by a recursive field, imposes nothing): with the
+   result `Type ?r` forced by a nested occurrence (`nested?`), `?r ≥ b + k - 1` (and `?r ≥ b` when
+   `k = 0`, Lean's universe bump) and the result is `?r + 1`; otherwise the result is the least
+   level above 1 and every atom. Returns {:level :r-1}."
+  [env ind-name ind-levels header-type ctor-types n-params provisional nested?]
   (let [;; the family as a provisional constant, only to read off the fields' sorts
         env (env/add-constant env (env/mk-axiom ind-name (vec ind-levels) header-type))
         ctx (u/context env)
@@ -173,13 +196,17 @@
         prop-candidate? (and (= 1 (count ctor-types)) (seq (first fields))
                              (every? (fn [f] (and (lvl/level-zero? (lvl/simplify (field-level f)))
                                                   (not (occurs? (u/infer-type ctx f)))))
-                                     (first fields)))]
-    (if prop-candidate?
-      lvl/zero
-      (lvl/simplify
-       (reduce (fn [acc f]
-                 (lvl/level-max acc (lvl/instantiate (field-level f) {provisional lvl/zero})))
-               (lvl/succ lvl/zero) (apply concat fields))))))
+                                     (first fields)))
+        atoms (->> (apply concat fields)
+                   (mapcat #(level-atoms (field-level %)))
+                   (remove (fn [[b _]] (and (lvl/param? b) (= provisional (lvl/param-name b))))))]
+    (cond
+      prop-candidate? {:level lvl/zero}
+      nested? (let [r (lvl/simplify (reduce (fn [acc [b k]] (lvl/level-max acc (add-offset b (max 0 (dec k)))))
+                                            lvl/zero atoms))]
+                {:level (lvl/succ r) :r-1 r})
+      :else {:level (lvl/simplify (reduce (fn [acc [b k]] (lvl/level-max acc (add-offset b k)))
+                                          (lvl/succ lvl/zero) atoms))})))
 
 (defn define-inductive
   "Define an inductive type, adding kernel declarations to env.
@@ -193,7 +220,10 @@
                     fields: flat vector [field-name field-type ...]
                     return-indices: vector of index expressions for this ctor's return type
      opts:
-       :in              - result universe: 'Prop or 'Type (default: auto from params)
+       :in              - explicit result sort: Prop, Type, (Type u), (Sort u) with u a name or a
+                          natural number. Default: inferred from the constructor fields (Lean
+                          inferResultingUniverse; a type with one constructor whose fields are
+                          all proofs is a Prop, empty and fieldless types are Type)
        :indices         - flat vector [idx-name idx-type ...] for indexed families
        :no-confusion?   - emit T.noConfusionType and T.noConfusion. Default true.
                           Set false to omit these auxiliaries explicitly.
@@ -220,47 +250,50 @@
         ind-levels level-param-names
         ind-level-levels (mapv lvl/param level-param-names)
 
+        _ (when (env/lookup env ind-name)
+            (throw (ex-info (str "inductive " ind-name-str ": already declared") {:inductive ind-name-str})))
         ;; The result sort: explicit (`:in`), or inferred after the constructors are elaborated
-        ;; (Lean Elab/MutualInductive.lean inferResultingUniverse), meanwhile a provisional
-        ;; level parameter standing for Lean's result-level metavariable.
+        ;; (Lean Elab/MutualInductive.lean inferResultingUniverse), meanwhile `Type ?r` with a
+        ;; provisional level parameter standing for Lean's result-level metavariable (so nested
+        ;; occurrences such as `List T` unify).
         explicit-level (when in (explicit-result-level in))
-        provisional (name/from-string "_ansatz.result")
-        ;; `Type ?r` while elaborating, so that nested occurrences (`List T`) unify, as Lean's
-        ;; result-level metavariable does
-        header-level (or explicit-level (lvl/succ (lvl/param provisional)))
-
-        self-const (e/const' ind-name ind-level-levels)
-
-        ;; Lean Elab/MutualInductive.lean elabHeaders/withInductiveLocalDecls,
-        ;; then Elab/Inductive.lean elabCtors: no provisional constant in elaboration.
-        {:keys [params indices ctors]}
-        (elab/elab-inductive env ind-name-str param-pairs
-                             (vec (partition 2 (or indices []))) ctors-spec
-                             header-level self-const)
-        ctor-types (mapv (fn [ctor]
-                           (build-constructor-type params (:fields ctor) ind-name ind-level-levels
-                                                   (:compiled-return-indices ctor)))
-                         ctors)
-        result-level (or explicit-level
-                         (infer-result-level env ind-name ind-levels
-                                             (build-inductive-type params indices header-level)
-                                             ctor-types n-params provisional))
-        ;; the provisional level, instantiated in nested occurrences (`List.{?r} T`): result - 1
-        ctor-types (if explicit-level ctor-types
-                       (let [r-1 (level-pred result-level)]
-                         (mapv (fn [t]
-                                 (if (some #{provisional} (level-params-of t))
-                                   (if r-1
-                                     (e/instantiate-level-params t {provisional r-1})
-                                     (throw (ex-info (str "inductive " ind-name-str ": cannot infer the result universe; give it with :in")
-                                                     {:inductive ind-name-str})))
-                                   t))
-                               ctor-types)))
-        ;; universe parameters of constructor fields generalize too (after the header's)
-        ind-levels (vec (remove #{provisional}
-                                (distinct (concat ind-levels
-                                                  (level-params-of (build-inductive-type params indices result-level))
-                                                  (mapcat level-params-of ctor-types)))))
+        provisional (name/from-string (str "_ansatz.result." (swap! provisional-counter inc)))
+        elaborate (fn [header-level]
+                    (let [{:keys [params indices ctors] :as r}
+                          (elab/elab-inductive env ind-name-str param-pairs
+                                               (vec (partition 2 (or indices []))) ctors-spec
+                                               header-level (e/const' ind-name ind-level-levels))]
+                      (assoc r :ctor-types
+                             (mapv (fn [ctor]
+                                     (build-constructor-type params (:fields ctor) ind-name ind-level-levels
+                                                             (:compiled-return-indices ctor)))
+                                   ctors))))
+        ;; A nested occurrence in a container of a fixed universe (`Wrap : Type → Type`) cannot
+        ;; unify with the rigid provisional level, where Lean assigns its metavariable: then the
+        ;; header's default universe (Type, or above the parameters' universes) is the result.
+        [{:keys [params indices ctors ctor-types]} result-level]
+        (if explicit-level
+          [(elaborate explicit-level) explicit-level]
+          (let [attempt (try (elaborate (lvl/succ (lvl/param provisional)))
+                             (catch clojure.lang.ExceptionInfo ex ex))]
+            (if (instance? Exception attempt)
+              (let [l0 (default-result-level level-param-names)]
+                [(try (elaborate l0) (catch Exception _ (throw attempt))) l0])
+              (let [nested? (some #(some #{provisional} (level-params-of %)) (:ctor-types attempt))
+                    {:keys [level r-1]} (infer-result-level env ind-name ind-levels
+                                                            (build-inductive-type (:params attempt) (:indices attempt)
+                                                                                  (lvl/succ (lvl/param provisional)))
+                                                            (:ctor-types attempt) n-params provisional nested?)]
+                [(cond-> attempt
+                   nested? (update :ctor-types (fn [ts] (mapv #(e/instantiate-level-params % {provisional r-1}) ts))))
+                 level]))))
+        ;; Lean sortDeclLevelParams: the header's universes in order of occurrence, then the
+        ;; remaining ones (from constructor fields) ordered by name
+        header-levels (vec (remove #{provisional} (level-params-of (build-inductive-type params indices lvl/zero))))
+        ind-levels (into header-levels
+                         (sort-by str (remove (set (cons provisional header-levels))
+                                              (distinct (concat (level-params-of (build-inductive-type params indices result-level))
+                                                                (mapcat level-params-of ctor-types))))))
         ind-level-levels (mapv lvl/param ind-levels)
         ctor-types (mapv #(with-family-levels % ind-name ind-level-levels) ctor-types)
         ;; Lean's inductive_decl: the header and the constructor types. The kernel derives

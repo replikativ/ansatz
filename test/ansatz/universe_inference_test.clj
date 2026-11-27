@@ -60,3 +60,30 @@
   (testing "an explicit result sort is kept"
     (is (level= (type-of (lvl/succ lvl/zero)) (result-level (define "UExpl" [] [['mk '[n Nat]]] :in '(Type 1)))))
     (is (level= (type-of lvl/zero) (result-level (define "UExplType" '[p Prop] [['mk '[h p]]] :in 'Type))))))
+
+(deftest review-cases
+  (testing "a nested occurrence in a container of a fixed universe elaborates (Type)"
+    (let [saved @a/ansatz-env]
+      (try
+        (binding [a/*verbose* false]
+          (let [env (ind/define-inductive @test-env/bundled-init-env "UWrap" '[α Type] [['mk '[x α]]])
+                out (ind/define-inductive env "UTreeW" [] [['node '[c (UWrap UTreeW)]]])]
+            (is (level= (type-of lvl/zero) (result-level (env/lookup out (name/from-string "UTreeW")))))))
+        (finally (reset! a/ansatz-env saved)))))
+  (testing "a nested occurrence with a field in Sort v: Lean's universe bump to Type v"
+    (is (level= (type-of v) (result-level (define "UNestS" '[α (Sort v)] [['mk '[x α cs (List (UNestS α))]]])))))
+  (testing "both operands of an imax constrain the result (Sort (max (u+1) v))"
+    (is (level= (lvl/level-max (lvl/succ u) v)
+                (result-level (define "UImax" '[α (Type u)] [['mk ['f (list '=> 'α (symbol "PUnit.{v}"))]]])))))
+  (testing "header universes in order of occurrence, constructor-only ones by name"
+    (is (= ["v" "u"] (mapv str (.levelParams (define "UOrd" '[β (Type v) α (Type u)] [['mk '[a α b β]]])))))
+    (is (= ["u" "v"] (mapv str (.levelParams (define "UCtorOnly" [] [['mk '[A (Type v) B (Type u)]]] :in 'Prop))))))
+  (testing "a numeral universe in a parameter is no universe parameter"
+    (is (= [] (mapv str (.levelParams (define "UOne" '[α (Type 1)] [['mk []]]))))))
+  (testing ":in accepts names and numerals only; a duplicate declaration is an ex-info"
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"unsupported universe level"
+                          (define "UBad" [] [['mk []]] :in '(Type (max u v)))))
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"unsupported result sort"
+                          (define "UBad2" [] [['mk []]] :in '(Type u extra))))
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"already declared"
+                          (define "Nat" [] [['mk []]])))))

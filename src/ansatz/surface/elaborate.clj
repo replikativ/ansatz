@@ -465,8 +465,12 @@
         "Type" {:expr (e/sort' (lvl/succ lvl/zero)) :explicit? false}
         ;; Parse levels and resolve
         (let [[base-name explicit-levels] (parse-levels sym-str)]
-          (if (and (= base-name "Type") explicit-levels)
+          (cond
+            (and (= base-name "Type") explicit-levels)
             {:expr (e/sort' (lvl/succ (first explicit-levels))) :explicit? false}
+            (and (= base-name "Sort") explicit-levels)
+            {:expr (e/sort' (first explicit-levels)) :explicit? false}
+            :else
             {:expr (resolve-const est base-name explicit-levels)
              :explicit? explicit?}))))))
 
