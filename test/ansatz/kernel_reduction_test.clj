@@ -188,6 +188,13 @@
       (is (instance? KernelAbort r) label)
       (is (re-find #"interrupted" (str (when (instance? Throwable r) (.getMessage ^Throwable r)))) label))))
 
+(deftest succ-chains-compare-without-stack
+  ;; is_def_eq_offset strips one succ per pass; the passes run in a loop, not as nested calls
+  (let [k 200000
+        chain (reduce (fn [x _] (e/app (c "Nat.succ") x)) (lit 0) (range k))]
+    (is (defeq? @base chain (lit k)))
+    (is (false? (defeq? @base chain (lit (inc k)))))))
+
 ;; ------------------------------------------------------------------ the nested-pair regression
 
 (def ^:private nested-env

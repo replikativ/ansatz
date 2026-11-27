@@ -973,24 +973,46 @@ public final class TypeChecker {
         return Reducer.instantiateRev(e, n, subst.toArray(new Expr[n]), 0);
     }
 
-    /** Lean's is_def_eq_core, phase for phase. */
+    /**
+     * Lean's is_def_eq_core. Where Lean ends a phase with `return is_def_eq_core(t', s')` (the
+     * Nat offset rule, native Nat reduction, the second whnf_core) the comparison continues
+     * here with the new pair instead of recursing, so a deep `Nat.succ` chain needs no stack.
+     */
     private boolean isDefEqCore(Expr t, Expr s) {
-        checkSystem();
-        // fuel is ours (Lean has none): a comparison of a term with itself costs nothing
-        if (t != s) reducer.checkFuelPublic();
-        if (++isDefEqDepth > MAX_ISDEFEQ_DEPTH)
-            throw new KernelAbort("isDefEq recursion depth exceeded (" + MAX_ISDEFEQ_DEPTH + ")");
+        isDefEqDepth++;
         try {
+            if (isDefEqDepth > MAX_ISDEFEQ_DEPTH)
+                throw new KernelAbort("isDefEq recursion depth exceeded (" + MAX_ISDEFEQ_DEPTH + ")");
+            Expr[] tail = new Expr[2];
+            while (true) {
+                checkSystem();
+                // fuel is ours (Lean has none): a comparison of a term with itself costs nothing
+                if (t != s) reducer.checkFuelPublic();
+                int r = isDefEqCoreStep(t, s, tail);
+                if (r != TAIL) return r > 0;
+                t = tail[0];
+                s = tail[1];
+            }
+        } finally {
+            isDefEqDepth--;
+        }
+    }
+
+    private static final int TAIL = 3;   // the comparison continues with another pair
+
+    /** One pass of is_def_eq_core: 1 / -1, or TAIL with the pair to compare next in `tail`. */
+    private int isDefEqCoreStep(Expr t, Expr s, Expr[] tail) {
+        {
             isDefEqCalls++;
             String by = null;
             boolean r = false;
             try {
                 int q = quickIsDefEq(t, s);
-                if (q != 0) { by = "quick"; r = q > 0; return r; }
+                if (q != 0) { by = "quick"; r = q > 0; return q; }
 
                 // reflection: a closed term against Bool.true is fully reduced
                 if ((!t.hasFVar() || eagerReduce) && isConst(s, Name.BOOL_TRUE) && isConst(whnf(t), Name.BOOL_TRUE)) {
-                    by = "decide"; r = true; return r;
+                    by = "decide"; r = true; return 1;
                 }
 
                 // whnf_core without delta, and without whnf on projected structures
@@ -998,49 +1020,48 @@ public final class TypeChecker {
                 Expr sn = reducer.whnfCore(s, false, true);
                 if (tn != t || sn != s) {
                     q = quickIsDefEq(tn, sn);
-                    if (q != 0) { by = "quick_whnfcore"; r = q > 0; return r; }
+                    if (q != 0) { by = "quick_whnfcore"; r = q > 0; return q; }
                 }
 
                 q = isDefEqProofIrrel(tn, sn);
-                if (q != 0) { by = "proof_irrel"; r = q > 0; return r; }
+                if (q != 0) { by = "proof_irrel"; r = q > 0; return q; }
 
                 Expr[] pair = {tn, sn};   // lazy_delta_reduction updates the pair even on unknown
                 q = lazyDeltaReduction(pair);
-                if (q != 0) { by = "lazy_delta"; r = q > 0; return r; }
+                if (q == TAIL) { tail[0] = pair[0]; tail[1] = pair[1]; return TAIL; }
+                if (q != 0) { by = "lazy_delta"; r = q > 0; return q; }
                 tn = pair[0];
                 sn = pair[1];
 
                 if (tn.tag == Expr.CONST && sn.tag == Expr.CONST && tn.o0.equals(sn.o0)
                         && levelsDefEq(Reducer.constLevels(tn), Reducer.constLevels(sn))) {
-                    by = "const_eq"; r = true; return r;
+                    by = "const_eq"; r = true; return 1;
                 }
                 if (tn.tag == Expr.FVAR && sn.tag == Expr.FVAR && tn.longVal == sn.longVal) {
-                    by = "fvar_eq"; r = true; return r;
+                    by = "fvar_eq"; r = true; return 1;
                 }
                 if (tn.tag == Expr.PROJ && sn.tag == Expr.PROJ && tn.o0.equals(sn.o0) && tn.longVal == sn.longVal) {
                     Expr[] structs = {(Expr) tn.o1, (Expr) sn.o1};
-                    if (lazyDeltaProjReduction(structs, (Name) tn.o0, tn.longVal)) { by = "proj_delta"; r = true; return r; }
+                    if (lazyDeltaProjReduction(structs, (Name) tn.o0, tn.longVal)) { by = "proj_delta"; r = true; return 1; }
                 }
 
                 // whnf_core again, now reducing projected structures with whnf
                 Expr tnn = reducer.whnfCore(tn);
                 Expr snn = reducer.whnfCore(sn);
-                if (tnn != tn || snn != sn) { by = "whnfcore2"; r = isDefEqCore(tnn, snn); return r; }
+                if (tnn != tn || snn != sn) { tail[0] = tnn; tail[1] = snn; return TAIL; }
 
-                if (isDefEqApp(tn, sn)) { by = "app"; r = true; return r; }
-                if (tryEtaExpansion(tn, sn)) { by = "eta"; r = true; return r; }
-                if (tryEtaStruct(tn, sn)) { by = "eta_struct"; r = true; return r; }
+                if (isDefEqApp(tn, sn)) { by = "app"; r = true; return 1; }
+                if (tryEtaExpansion(tn, sn)) { by = "eta"; r = true; return 1; }
+                if (tryEtaStruct(tn, sn)) { by = "eta_struct"; r = true; return 1; }
                 q = tryStringLitExpansion(tn, sn);
-                if (q != 0) { by = "string_lit"; r = q > 0; return r; }
-                if (isDefEqUnitLike(tn, sn)) { by = "unit_like"; r = true; return r; }
+                if (q != 0) { by = "string_lit"; r = q > 0; return q; }
+                if (isDefEqUnitLike(tn, sn)) { by = "unit_like"; r = true; return 1; }
                 by = "fail";
-                return false;
+                return -1;
             } finally {
                 if (by != null && traceWriter != null) emitTrace(exprFingerprint(t), exprFingerprint(s), r, by);
                 if (tracing && by != null) trace("isDefEq d=" + isDefEqDepth + " " + exprSummary(t, 3) + " =?= " + exprSummary(s, 3) + " => " + r + " (" + by + ")");
             }
-        } finally {
-            isDefEqDepth--;
         }
     }
 
@@ -1078,28 +1099,29 @@ public final class TypeChecker {
         return null;
     }
 
-    /** Lean's is_def_eq_offset. */
-    private int isDefEqOffset(Expr t, Expr s) {
-        if (isNatZero(t) && isNatZero(s)) return 1;
-        Expr pt = natSucc(t), ps = natSucc(s);
-        if (pt != null && ps != null) return isDefEqCore(pt, ps) ? 1 : -1;
+    /** Lean's is_def_eq_offset; `succ a =?= succ b` continues (TAIL) with `a =?= b` in the pair. */
+    private int isDefEqOffset(Expr[] pair) {
+        if (isNatZero(pair[0]) && isNatZero(pair[1])) return 1;
+        Expr pt = natSucc(pair[0]), ps = natSucc(pair[1]);
+        if (pt != null && ps != null) { pair[0] = pt; pair[1] = ps; return TAIL; }
         return 0;
     }
 
     /**
      * Lean's lazy_delta_reduction: until a step decides, the Nat offset rule, native Nat
      * reduction on closed terms, then one lazy unfolding step. The pair is the caller's own
-     * and is updated in place, also when the answer is unknown.
+     * and is updated in place, also when the answer is unknown. TAIL: the answer is that of
+     * the pair now held (Lean's `return is_def_eq_core(...)`).
      */
     private int lazyDeltaReduction(Expr[] pair) {
         while (true) {
-            int r = isDefEqOffset(pair[0], pair[1]);
+            int r = isDefEqOffset(pair);
             if (r != 0) return r;
             if ((!pair[0].hasFVar() && !pair[1].hasFVar()) || eagerReduce) {
                 Expr tv = reducer.reduceNat(pair[0]);
-                if (tv != null) return isDefEqCore(tv, pair[1]) ? 1 : -1;
+                if (tv != null) { pair[0] = tv; return TAIL; }
                 Expr sv = reducer.reduceNat(pair[1]);
-                if (sv != null) return isDefEqCore(pair[0], sv) ? 1 : -1;
+                if (sv != null) { pair[1] = sv; return TAIL; }
             }
             int step = lazyDeltaReductionStep(pair);
             if (step != CONTINUE) return step;
