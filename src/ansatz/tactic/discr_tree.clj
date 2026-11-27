@@ -223,7 +223,7 @@
    If st is nil, skips argument filtering (all args indexed)."
   ([expr] (expr->keys nil nil expr))
   ([st env expr] (expr->keys st env expr {:key-encoding ke/write-version :pattern? true}))
-  ([st env expr {:keys [key-encoding pattern? bvar-app-star?] :or {key-encoding ke/write-version pattern? true}}]
+  ([st env expr {:keys [key-encoding pattern? bvar-app-star? eta?] :or {key-encoding ke/write-version pattern? true}}]
    (ke/encoding {:key-encoding key-encoding})
    (loop [todo (list {:expr expr :root? true}) keys (transient [])]
      (if (empty? todo)
@@ -235,7 +235,12 @@
                            [(:expr item) (:root? item)]
                            [item false])
                ;; Lean 4's reduceDT: reduce before keying (skip sentinels like ::star)
-               e (if (and env (not (keyword? e))) (reduce-dt env e root?) e)]
+               e (if (and env (not (keyword? e))) (reduce-dt env e root?) e)
+               ;; a query keyed modulo eta (`:eta?`, reduceDT's etaExpandedStrict?)
+               e (if (and eta? (not (keyword? e)))
+                   (loop [e e]
+                     (if-let [f (eta-expanded-strict e)] (recur (if env (reduce-dt env f root?) f)) e))
+                   e)]
            (cond
            ;; Star sentinel (from argument filtering)
              (= e ::star)
@@ -372,6 +377,17 @@
 ;; ============================================================
 ;; Trie insertion
 ;; ============================================================
+
+(defn query-keys-modulo-eta
+  "A query's key sequences for a whole-path match (trie-match): the raw keys and, when a node
+   keyed `.other` (a lambda), the keys modulo eta (`:eta?`, Lean reduceDT's etaExpandedStrict?).
+   Stored paths are keyed without contraction, so the raw keys still find a rule written with a
+   lambda and the contracted ones a rule on `f` for `fun x => f x`."
+  [st env expr version]
+  (let [raw (expr->keys st env expr {:key-encoding version :pattern? false})]
+    (if (some #(= other-key %) raw)
+      (distinct [raw (expr->keys st env expr {:key-encoding version :pattern? false :eta? true})])
+      [raw])))
 
 (defn trie-insert
   "Insert a path, retaining the root's encoding. Newly built trees carry the
@@ -513,10 +529,13 @@
    rule keys an applied rule parameter as a wildcard like Lean's mvar-headed application
    (DiscrTree pushArgs): its pattern is the original rhs, often `f a` for a parameter `f`.
    Forward rules keep their keys, so a rule whose rhs reaches its own lhs cannot fire before
-   simp has visited the arguments (`h : R f (f a) = W (R f (f a))` waits for `a = b`)."
+   simp has visited the arguments (`h : R f (f a) = W (R f (f a))` waits for `a = b`). The
+   pattern is keyed modulo eta, as Lean's reduceDT keys it: `R (fun x => F x)` and `R F` share a
+   leaf, so rules found for either spelling keep their insertion order (persisted keys stay raw)."
   [st env lemma]
   (expr->keys st env (:lhs-pattern lemma)
-              {:key-encoding ke/write-version :pattern? true :bvar-app-star? (boolean (:inv lemma))}))
+              {:key-encoding ke/write-version :pattern? true :eta? true
+               :bvar-app-star? (boolean (:inv lemma))}))
 
 (defn make-simp-tree
   "Build a discrimination tree from simp lemmas.
@@ -566,15 +585,31 @@
         (e/forall? expr) [arrow-key [(e/forall-type expr)]]
         (or (e/bvar? expr) (e/mvar? expr)) [star-key []]
         (e/proj? expr) [(proj-key (e/proj-type-name expr) (e/proj-idx expr) 1) [(e/proj-struct expr)]]
-        :else [other-key []]))))
+        :else [other-key [] expr]))))
+
+(defn- match-key-alternatives
+  "The query node's [key args] for getMatchLoop modulo eta: Lean's reduceDT contracts an
+   eta-expanded lambda (etaExpandedStrict?, DiscrTree/Main.lean:204-210) before keying it, so
+   `fun x => f x` is keyed as `f`. The lambda's own `.other` key stays an alternative, since
+   patterns are keyed without contraction (eager and persisted paths alike) and a rule written
+   with a lambda must still be found. Only the nodes the walk inspects are contracted. The raw
+   spelling comes first and each key once (a contraction that is again a lambda adds nothing)."
+  [st env expr root?]
+  (loop [expr expr alts [] seen #{}]
+    (let [[key args reduced] (get-match-key-args st env expr root?)
+          [alts seen] (if (contains? seen key) [alts seen] [(conj alts [key args]) (conj seen key)])]
+      (if-let [f (when (and (= key other-key) reduced) (eta-expanded-strict reduced))]
+        (recur f alts seen)
+        alts))))
 
 (defn lookup-simp-tree
-  "DiscrTree/Main.lean getMatchLoop (v4.33.1): inspect query nodes on demand;
-   stored wildcards skip whole expressions, preserving shared query DAGs."
+  "DiscrTree/Main.lean getMatchLoop (v4.33.1): inspect query nodes on demand, modulo eta
+   (match-key-alternatives); stored wildcards skip whole expressions, preserving shared query
+   DAGs. A legacy encoding-1 tree matches the raw and the eta-contracted key sequences."
   ([tree expr] (lookup-simp-tree nil nil tree expr))
   ([st env tree expr]
    (if (= 1 (ke/encoding tree))
-     (trie-match tree (expr->keys st env expr {:key-encoding 1 :pattern? false}))
+     (into [] (mapcat #(trie-match tree %)) (query-keys-modulo-eta st env expr 1))
      (loop [jobs [[tree [[expr true]]]] result []]
        (if-let [[trie todo] (peek jobs)]
          (let [jobs (pop jobs)]
@@ -585,9 +620,12 @@
                    todo (pop todo)
                    star (get children star-key)
                    jobs (if (or (empty? children) (= (count children) (if star 1 0))) jobs
-                            (let [[key args] (get-match-key-args st env expr root?)]
-                              (if-let [exact (when (not= key star-key) (get children key))]
-                                (conj jobs [exact (into todo (map #(vector % false) (reverse args)))]) jobs)))
+                            (reduce (fn [jobs [key args]]
+                                      (if-let [exact (when (not= key star-key) (get children key))]
+                                        (conj jobs [exact (into todo (map #(vector % false) (reverse args)))])
+                                        jobs))
+                                    ;; pushed last-first, so the raw spelling's matches come first
+                                    jobs (rseq (match-key-alternatives st env expr root?))))
                    jobs (if star (conj jobs [star todo]) jobs)]
                (recur jobs result))))
          result)))))

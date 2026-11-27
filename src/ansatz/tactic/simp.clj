@@ -80,6 +80,7 @@
 (def ^:private congr-name (name/from-string "congr"))
 (def ^:private funext-name (name/from-string "funext"))
 (def ^:private implies-congr-name (name/from-string "implies_congr"))
+(def ^:private forall-prop-domain-congr-name (name/from-string "forall_prop_domain_congr"))
 (def ^:private of-eq-true-name (name/from-string "of_eq_true"))
 (def ^:private eq-true-name (name/from-string "eq_true"))
 (def ^:private eq-false-name (name/from-string "eq_false"))
@@ -96,6 +97,7 @@
 (def ^:private decidable-name (name/from-string "Decidable"))
 (def ^:private decidable-istrue-name (name/from-string "Decidable.isTrue"))
 (def ^:private decidable-isfalse-name (name/from-string "Decidable.isFalse"))
+(def ^:private decidable-intro-name (name/from-string "Decidable.intro"))
 (def ^:private bool-name (name/from-string "Bool"))
 
 ;; ============================================================
@@ -1233,10 +1235,11 @@
    and permutation checks. All indexed rules use this theorem-application path."
   [st env lemma-index expr config lemma]
   (let [structural (match-lemma st (:lhs-pattern lemma) expr (:num-params lemma))]
-    ;; Preserve the existing structural matcher's domain for preprocessed rules.
-    ;; Reducible equation matching supplies the Nat-offset case; both matches
-    ;; then use the same typed telescope, synthesis and proof construction.
-    (when (or structural (and (= :eq (:kind lemma)) (not (:perm lemma))))
+    ;; A candidate the structural matcher rejects is unified at reducible transparency, as
+    ;; Lean's isDefEq does (the Nat-offset case, eta, beta); a permutation rule keeps the
+    ;; structural match only. Both matches then use the same typed telescope, synthesis and
+    ;; proof construction.
+    (when (or structural (not (:perm lemma)))
       (let [mctx (atom (meta/inc-depth meta/empty-context))
             lparams (:level-params lemma)
             level-base (inc (reduce max 9000000 (meta/unassigned-level-mvars @mctx expr)))
@@ -1309,7 +1312,9 @@
   "Lean Simp/Rewrite.lean:207-288 rewrite?/rewriteUsingIndex?: sort the candidates by priority
    once (:220), skip erased ones (:224), and apply each theorem through the same matching,
    synthesis and proof-construction path. `phase` (:pre/:post) only labels trace entries,
-   like Lean's `tag`."
+   like Lean's `tag`. The candidates come from the query's keys modulo eta (the tree
+   normalizes each node it inspects, dt/lookup-simp-tree); each is matched against `expr`
+   itself, so progress is judged against the original term."
   [st env lemma-index expr config candidates phase]
   (some (fn [rule]
           (when-not (erased? config rule)
@@ -1335,14 +1340,12 @@
 
 (defn- rewrite-pre
   "Lean Rewrite.lean:389-393 rewritePre: rewrite? over SimpTheorems.pre (`:pre-index`, the
-   `@[simp ↓]` / `simp [↓ h]` rules); the caller treats a result as `.visit`.
-   DIVERGENCE (until the pre phase follows Lean): the post set is still tried top-down here
-   too, as Ansatz always did; Lean's pre phase never sees `thms.post`."
+   `@[simp ↓]` / `simp [↓ h]` rules) only; the caller treats a result as `.visit`. The default
+   (post) set is never tried top-down (preDefault, Rewrite.lean:536-540)."
   [st env lemma-index expr config]
-  (or (when-let [pre (:pre-index config)]
-        (when-not (empty-index? pre)
-          (rewrite? st env lemma-index expr config (dt/lookup-simp-tree st env pre expr) :pre)))
-      (try-rewrite-step st env lemma-index expr config :pre)))
+  (when-let [pre (:pre-index config)]
+    (when-not (empty-index? pre)
+      (rewrite? st env lemma-index expr config (dt/lookup-simp-tree st env pre expr) :pre))))
 
 ;; ============================================================
 ;; Built-in simprocs — arithmetic reduction
@@ -1708,59 +1711,114 @@
 (def ^:private ite-name (name/from-string "ite"))
 (def ^:private dite-name (name/from-string "dite"))
 
-(defn- try-reduce-ite
-  "Reduce if-then-else when condition is True or False.
-   Lean 4: reduceIte/reduceDIte from BuiltinSimprocs/Core.lean.
-   ite {α} (p : Prop) [inst : Decidable p] (a b : α) → α
-   When p reduces to True: return a. When False: return b."
-  [st expr]
-  (let [[head args] (e/get-app-fn-args expr)]
-    (when (e/const? head)
-      (let [hname (e/const-name head)]
+(defn- head-beta
+  "Lean Expr.headBeta."
+  [expr]
+  (loop [expr expr]
+    (let [[f args] (e/get-app-fn-args expr)]
+      (if (and (e/lam? f) (seq args))
+        (recur (reduce e/app (e/instantiate1 (e/lam-body f) (first args)) (rest args)))
+        expr))))
+
+(defn- reduce-ite
+  "Lean 4.36 BuiltinSimprocs/Core.lean:15-43 reduceIte/reduceDIte (`builtin_simproc ↓`): simp
+   the condition `c`; when it becomes True/False, take the branch with the proof
+   `ite_eq_left_of_eq_true α c inst a b h` / `ite_eq_right_of_eq_false …` (resp.
+   `dite_eq_left_of_eq_true` with `t (of_eq_true h)`, `dite_eq_right_of_eq_false` with
+   `e (of_eq_false h)`, head-beta reduced). Extra arguments of a function-valued conditional are
+   reattached with congrFun, as a simproc matched with extra arguments (Step.addExtraArgs,
+   Types.lean:928-933). The caller revisits the result (`.visit`)."
+  [st env lemma-index expr config]
+  (let [[head all-args] (e/get-app-fn-args expr)]
+    (when (and (e/const? head) (#{ite-name dite-name} (e/const-name head)) (>= (count all-args) 5))
+      (let [[alpha c inst tb eb] all-args
+            extra (drop 5 all-args)
+            r (simp-expr* st env lemma-index c (update config :max-depth dec))
+            c' (:expr r)
+            ;; Result.getProof: `mkEqRefl r.expr` when the step was definitional
+            h (or (:proof? r) (e/app* (e/const' eq-refl-name [(lvl/succ lvl/zero)]) (e/sort' lvl/zero) c'))
+            levels (e/const-levels head)
+            ite? (= ite-name (e/const-name head))
+            ;; Lean 4.36 uses `ite_eq_left_of_eq_true` &c.; 4.33.1 (Core.lean:18-21) used
+            ;; `ite_cond_eq_true` &c., stated identically (4.36 Init/SimpLemmas.lean:253-262
+            ;; defines them by the new ones). The bundled Init tier has only the latter — use
+            ;; the 4.36 name when the environment has it.
+            present (fn [n] (let [n (name/from-string n)] (when (env/lookup env n) n)))
+            lemma-const (fn [lean-name alias-name] (or (present lean-name) (present alias-name)))
+            with-extra (fn [base]
+                         (reduce (fn [res a]
+                                   (let [res' (mk-congr-fun st res a)]
+                                     (assoc res' :expr (head-beta (:expr res')))))
+                                 base extra))
+            ;; An environment without a proof constant the step needs (a dependency closure may
+            ;; omit the helper theorems, or congrFun for extra arguments): select the branch only
+            ;; when the Decidable instance evaluates to a decided value, which makes the step
+            ;; definitional (no proof); otherwise no rewrite. The value is the constructor
+            ;; isTrue/isFalse (Lean ≤ 4.35), or v4.36's structure `Decidable.intro b r` with
+            ;; `b` true/false and `r : b.Reflects c` (Prelude.lean:1146-1171, dite :1319-1320).
+            decided (fn []
+                      (let [[ih iargs] (e/get-app-fn-args (instances-whnf st inst))
+                            ci (when (e/const? ih) (env/lookup env (e/const-name ih)))]
+                        ;; only an actual constructor of Decidable decides definitionally (an
+                        ;; opaque constant of that name is stuck)
+                        (when (and ci (env/ctor? ci) (= decidable-name (.inductName ^ConstantInfo ci)))
+                          (condp = (e/const-name ih)
+                            decidable-istrue-name [true (last iargs)]
+                            decidable-isfalse-name [false (last iargs)]
+                            decidable-intro-name
+                            (when (= 3 (count iargs))
+                              (let [b (instances-whnf st (nth iargs 1))]
+                                (when (e/const? b)
+                                  (condp = (e/const-name b)
+                                    bool-true-name [true (nth iargs 2)]
+                                    bool-false-name [false (nth iargs 2)]
+                                    nil))))
+                            nil))))
+            definitional (fn []
+                           (when-let [[v pf] (decided)]
+                             (let [taken (if v tb eb)]
+                               (with-extra (mk-result (if ite? taken (head-beta (e/app taken pf))))))))
+            branch (fn [[lean-name alias-name] taken of-name]
+                     (let [lemma (lemma-const lean-name alias-name)
+                           of-const (present of-name)]
+                       (if (and lemma (or ite? of-const) (or (empty? extra) (present "congrFun")))
+                         (with-extra
+                           (mk-result (if ite?
+                                        taken
+                                        (head-beta (e/app taken (e/app* (e/const' of-const []) c h))))
+                                      (e/app* (e/const' lemma levels) alpha c inst tb eb h)))
+                         (definitional))))]
         (cond
-          ;; ite : 5 args (α, p, inst, a, b)
-          (and (= hname ite-name) (= 5 (count args)))
-          (let [cond-expr (nth args 1)
-                cond-whnf (#'tc/cached-whnf st cond-expr)]
-            (cond
-              (and (e/const? cond-whnf) (= (e/const-name cond-whnf) true-name))
-              (mk-result (nth args 3))  ;; return 'a' (then-branch)
-              (and (e/const? cond-whnf) (= (e/const-name cond-whnf) false-name))
-              (mk-result (nth args 4))  ;; return 'b' (else-branch)
-              :else
-              ;; Faithful Lean reduceIte: the proposition need not reduce to the literal
-              ;; `True`/`False` constant (e.g. `Eq Bool true true` is propositionally, not
-              ;; definitionally, True). Lean whnfs the *Decidable instance* instead and
-              ;; matches `Decidable.isTrue`/`Decidable.isFalse`.
-              (let [[ih _] (e/get-app-fn-args (instances-whnf st (nth args 2)))]
-                (when (e/const? ih)
-                  (condp = (e/const-name ih)
-                    decidable-istrue-name (mk-result (nth args 3))
-                    decidable-isfalse-name (mk-result (nth args 4))
-                    nil)))))
+          (true-const? c')
+          (branch (if ite? ["ite_eq_left_of_eq_true" "ite_cond_eq_true"]
+                      ["dite_eq_left_of_eq_true" "dite_cond_eq_true"]) tb "of_eq_true")
+          (false-const? c')
+          (branch (if ite? ["ite_eq_right_of_eq_false" "ite_cond_eq_false"]
+                      ["dite_eq_right_of_eq_false" "dite_cond_eq_false"]) eb "of_eq_false"))))))
 
-          ;; dite : 5 args (α, p, inst, a : p → α, b : ¬p → α)
-          (and (= hname dite-name) (= 5 (count args)))
-          (let [cond-expr (nth args 1)
-                cond-whnf (#'tc/cached-whnf st cond-expr)]
-            (cond
-              (and (e/const? cond-whnf) (= (e/const-name cond-whnf) true-name))
-              ;; Apply 'a' to True.intro
-              (mk-result (e/app (nth args 3) (e/const' true-intro-name [])))
-              (and (e/const? cond-whnf) (= (e/const-name cond-whnf) false-name))
-              ;; For False case: b takes ¬False which is True → False → something
-              ;; This is complex; for now rely on WHNF
-              nil
-              :else
-              ;; Whnf the Decidable instance (as for ite); isTrue h → a h, isFalse h → b h.
-              (let [[ih iargs] (e/get-app-fn-args (instances-whnf st (nth args 2)))]
-                (when (e/const? ih)
-                  (condp = (e/const-name ih)
-                    decidable-istrue-name  (mk-result (e/app (nth args 3) (last iargs)))
-                    decidable-isfalse-name (mk-result (e/app (nth args 4) (last iargs)))
-                    nil)))))
+(defn- ite-simproc-name [expr]
+  (let [head (e/get-app-fn expr)]
+    (when (e/const? head)
+      (condp = (e/const-name head) ite-name "reduceIte" dite-name "reduceDIte" nil))))
 
-          :else nil)))))
+(defn- pre-simprocs
+  "Lean preDefault's userPreSimprocs (Rewrite.lean:536-540) for the ported builtin pre
+   simprocs (`builtin_simproc ↓`): reduceIte, reduceDIte — their default registration, so
+   only while the default simprocs are on (`simp only` starts from none, Elab/Tactic/
+   Simp.lean:572)."
+  [st env lemma-index expr config]
+  (let [proc (ite-simproc-name expr)]
+    (when (and proc (get config :simprocs? true) (simproc-enabled? config proc))
+      (reduce-ite st env lemma-index expr config))))
+
+(defn- explicit-post-simprocs
+  "An unmodified explicit `simp [reduceIte]` adds the simproc in the POST phase (Lean
+   `simprocs.add declName post` with post = true, Elab/Tactic/Simp.lean:352-367, 448-449): it
+   runs after the post theorem lookup."
+  [st env lemma-index expr config]
+  (let [proc (ite-simproc-name expr)]
+    (when (and proc env (contains? (:simproc-names config) proc) (simproc-enabled? config proc))
+      (reduce-ite st env lemma-index expr config))))
 
 (def ^:private nat-name (name/from-string "Nat"))
 (def ^:private nat-succ-name (name/from-string "Nat.succ"))
@@ -2224,14 +2282,11 @@
    5. simpUsingDecide — decide on ground decidable propositions"
   [st expr config & {:keys [env lemma-index]}]
   (or (try-reduce-proj-fn st expr)
+      (explicit-post-simprocs st env lemma-index expr config)
       (reduce-bin-pred st expr config)
       (try-nat-literal-reduce st expr config)
       (try-int-literal-reduce st expr config)
       (try-hpow-reduce st expr config)
-      (when (simproc-enabled? config
-                              (if (let [head (e/get-app-fn expr)] (and (e/const? head) (= dite-name (e/const-name head))))
-                                "reduceDIte" "reduceIte"))
-        (try-reduce-ite st expr))
       (when (simproc-enabled? config "reduceCtorEq")
         (try-reduce-ctor-eq st expr))
       ;; Bool.rec → Bool.and folding inside (Eq Bool (Bool.rec ...) Bool.true).
@@ -2545,31 +2600,17 @@
                           args (e/get-app-args expr)]
                       (reduce e/app body args))))))))))))
 
-(defn- try-eta-reduce
-  "Eta reduction: (fun x => f x) → f when x is not free in f.
-   In de Bruijn terms: (lam _ T (app f (bvar 0))) → f when bvar 0 not in f.
-   Conservative: only fires when f has no loose bvars (common case: f is a const/fvar)."
-  [expr]
-  (when (e/lam? expr)
-    (let [body (e/lam-body expr)]
-      (when (e/app? body)
-        (let [arg (e/app-arg body)
-              f (e/app-fn body)]
-          (when (and (e/bvar? arg)
-                     (= 0 (e/bvar-idx arg))
-                     (not (e/has-loose-bvars? f)))
-            f))))))
-
 (defn- reduce-step
   "Try reduction without delta unfolding.
    Following Lean 4's reduceStep which operates at 'reducible' transparency:
-   beta, iota (recursor on constructor), projection, let expansion, fvar-let,
-   eta reduction.
-   Does NOT unfold named definitions — that's handled by try-unfold and lemmas.
+   beta, iota (recursor on constructor), projection, let expansion, fvar-let.
+   `fun x => f x` is left as it is (the discrimination tree keys it modulo eta). Does NOT unfold named definitions — that's handled by try-unfold and lemmas.
    This prevents aggressive instance chain unfolding (e.g., HAdd → instHAdd → Nat.add → brecOn)."
   [st expr]
+  ;; No eta here: Lean's reduceStep leaves function eta to the discrimination tree
+  ;; (Main.lean:222 "TODO: eta reduction"); contracting `fun x => F x` early made rules
+  ;; indexed under the lambda unreachable.
   (or (when-let [expanded (try-reduce-fvar st expr)] (mk-result expanded))
-      (when-let [eta-reduced (try-eta-reduce expr)] (mk-result eta-reduced))
       (let [reduced (red/whnf-no-delta (:env st) expr (:lctx st))]
         (when-not (= reduced expr) (mk-result reduced)))))
 
@@ -3130,25 +3171,50 @@
                 (mk-result (e/forall' (e/forall-name expr) domain (e/abstract1 body' xid)
                                       (e/forall-info expr))))
               (mk-result (dsimp-expr env (:lctx st) expr (:max-depth config))))
-            (let [domain (if (:unfold-theorem config)
-                           (unfold-dsimp st env lemma-index orig-p config)
-                           (dsimp-expr env (:lctx st) orig-p (:max-depth config)))
-                  xid (swap! (:next-id st) inc)
-                  xf (e/fvar xid)
-                  st' (update st :lctx assoc xid {:tag :local :id xid
-                                                  :name (str (e/forall-name expr)) :type domain})
-                  body (e/instantiate1 orig-q xf)
-                  rb (simp-expr* st' env lemma-index body (assoc config :cache (atom {})))
-                  new-body (e/abstract1 (:expr rb) xid)
-                  result (e/forall' (e/forall-name expr) domain new-body (e/forall-info expr))]
-              (if-let [h (:proof? rb)]
-                (let [u (get-sort-level st domain)
-                      p (e/lam (e/forall-name expr) domain orig-q (e/forall-info expr))
-                      q (e/lam (e/forall-name expr) domain new-body (e/forall-info expr))
-                      h (e/lam (e/forall-name expr) domain (e/abstract1 h xid) (e/forall-info expr))]
-                  (mk-result result
-                             (e/app* (e/const' (name/from-string "forall_congr") [u]) domain p q h)))
-                (if (= result expr) (mk-result expr) (mk-result result)))))))
+            (or
+             ;; Lean simpForall: a Prop domain that simp rewrites goes through
+             ;; forall_prop_domain_congr (Main.lean:369-402)
+             (when (and (not (:unfold-theorem config)) (is-prop-type? st orig-p)
+                        (env/lookup env forall-prop-domain-congr-name))
+               (let [rd (simp-expr* st env lemma-index orig-p (update config :max-depth dec))]
+                 (when-let [h1 (:proof? rd)]
+                   (let [p1 orig-p
+                         p2 (:expr rd)
+                         nm (e/forall-name expr)
+                         info (e/forall-info expr)
+                         prop (e/sort' lvl/zero)
+                         xid (swap! (:next-id st) inc)
+                         st' (update st :lctx assoc xid {:tag :local :id xid :name (str nm) :type p2})
+                         a-substr (e/app* (e/const' (name/from-string "Eq.substr") [(lvl/succ lvl/zero)])
+                                          prop (e/lam "x" prop (e/bvar 0) :default) p2 p1 h1 (e/fvar xid))
+                         body (e/instantiate1 orig-q a-substr)
+                         rb (simp-expr* st' env lemma-index body (assoc config :cache (atom {})))
+                         hb (or (:proof? rb)
+                                (e/app* (e/const' eq-refl-name [(lvl/succ lvl/zero)]) prop (:expr rb)))
+                         q2-body (e/abstract1 (:expr rb) xid)]
+                     (mk-result (e/forall' nm p2 q2-body info)
+                                (e/app* (e/const' forall-prop-domain-congr-name [])
+                                        p1 p2 (e/lam nm p1 orig-q info) (e/lam nm p2 q2-body info)
+                                        h1 (e/lam nm p2 (e/abstract1 hb xid) info)))))))
+             (let [domain (if (:unfold-theorem config)
+                            (unfold-dsimp st env lemma-index orig-p config)
+                            (dsimp-expr env (:lctx st) orig-p (:max-depth config)))
+                   xid (swap! (:next-id st) inc)
+                   xf (e/fvar xid)
+                   st' (update st :lctx assoc xid {:tag :local :id xid
+                                                   :name (str (e/forall-name expr)) :type domain})
+                   body (e/instantiate1 orig-q xf)
+                   rb (simp-expr* st' env lemma-index body (assoc config :cache (atom {})))
+                   new-body (e/abstract1 (:expr rb) xid)
+                   result (e/forall' (e/forall-name expr) domain new-body (e/forall-info expr))]
+               (if-let [h (:proof? rb)]
+                 (let [u (get-sort-level st domain)
+                       p (e/lam (e/forall-name expr) domain orig-q (e/forall-info expr))
+                       q (e/lam (e/forall-name expr) domain new-body (e/forall-info expr))
+                       h (e/lam (e/forall-name expr) domain (e/abstract1 h xid) (e/forall-info expr))]
+                   (mk-result result
+                              (e/app* (e/const' (name/from-string "forall_congr") [u]) domain p q h)))
+                 (if (= result expr) (mk-result expr) (mk-result result))))))))
 
         ;; Let — zeta reduce
       :let (if (:unfold-theorem config)
@@ -3217,7 +3283,8 @@
                   (mk-result expr)
 
                   ;; PRE-PHASE
-                  (let [pre-step (rewrite-pre st env lemma-index expr config)]
+                  (let [pre-step (or (rewrite-pre st env lemma-index expr config)
+                                     (pre-simprocs st env lemma-index expr config))]
                     (if pre-step
                       ;; .visit: recurse on result
                       (let [inner (simp-expr* st env lemma-index (:expr pre-step) (update config :max-depth dec))]

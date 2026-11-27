@@ -400,3 +400,21 @@
       (testing "the inherited pre k wins when only the inherited pre h is revealed"
         (is (proves? '(a/theorem unerase-inherited [hp :- (ArgT.P (ArgD.K ArgD.x))] (ArgT.P (ArgD.F ArgD.x))
                                  (simp [ArgD.h]) (exact hp))))))))
+
+(deftest the-pre-modifier-through-the-tactic
+  ;; pre: K (F x) = 0 fires before F x ↦ G x; as a post rule its match is gone (Lean behaviour)
+  (let [thm (fn [args] (list 'a/theorem (gensym "pre-surface")
+                             '[F :- (=> Nat Nat), G :- (=> Nat Nat), K :- (=> Nat Nat), x :- Nat,
+                               h :- (forall [y :- Nat] (= Nat (K (F y)) 0)),
+                               t :- (forall [y :- Nat] (= Nat (F y) (G y)))]
+                             '(= Nat (K (F x)) 0)
+                             (list 'simp 'only args)))]
+    (is (proves? (thm '[↓ h t])))
+    (is (fails-with? #"Proof incomplete|made no progress" (thm '[h t])))))
+
+(deftest a-prop-domain-that-simplifies-goes-through-forall-prop-domain-congr
+  ;; Lean simpForall (Main.lean:369-402): the dependent ∀ h : succ n = 0, Q h has its domain
+  ;; rewritten to False, then ∀ h : False, _ is True
+  (is (proves? '(a/theorem forall-prop-domain [n :- Nat, Q :- (=> (= Nat (Nat.succ n) 0) Prop)]
+                           (forall [h :- (= Nat (Nat.succ n) 0)] (Q h))
+                           (simp)))))

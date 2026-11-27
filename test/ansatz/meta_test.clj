@@ -675,3 +675,17 @@
     (testing "literal lambda applications remain intact even when an argument changes"
       (let [redex (e/app identity (e/mvar 1))]
         (is (= (e/app identity x) (meta/zonk-expr (ctx x) redex)))))))
+
+(deftest eta-on-a-long-application-spine-does-not-overflow
+  ;; `fun x => g ?n x =?= f 0 … 0`: the eta step types `f 0 … 0` iteratively over its spine
+  (let [env (require-init-medium)
+        nat (e/const' (name/from-string "Nat") [])
+        n 20000
+        f-ty (reduce (fn [t _] (e/arrow nat t)) (e/arrow nat nat) (range n))
+        st (tc/attach-lctx (tc/mk-tc-state env)
+                           {9101 {:tag :local :id 9101 :name "f" :type f-ty}
+                            9102 {:tag :local :id 9102 :name "g" :type (e/arrow nat (e/arrow nat nat))}})
+        mctx (meta/add-expr-mvar-decl meta/empty-context 1 nat (:lctx st))
+        lam (e/lam "x" nat (e/app* (e/fvar 9102) (e/mvar 1) (e/bvar 0)) :default)
+        app (reduce (fn [x _] (e/app x (e/lit-nat 0))) (e/fvar 9101) (range n))]
+    (is (nil? (meta/is-def-eq mctx st lam app)))))
