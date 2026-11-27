@@ -99,7 +99,7 @@ final class ElimNested {
             e = AddInductive.replace(e, t -> {
                 if (t.tag == Expr.CONST) {
                     Name rec = auxRecNames.get((Name) t.o0);
-                    if (rec != null) return Expr.mkConst(rec, t.o1, t.hasLevelParam());
+                    if (rec != null) return Expr.mkConstOwned(rec, t.o1);
                 }
                 Expr fn = AddInductive.appFn(t);
                 if (fn.tag != Expr.CONST) return null;
@@ -121,7 +121,7 @@ final class ElimNested {
                         throw new RuntimeException("failed to restore nested inductive types, nested occurrence is not an inductive type application");
                     Name newFn = ((Name) fn.o0).replacePrefix(r.getValue(), (Name) I.o0);
                     Expr[] iArgs = AddInductive.appArgs(newNested);
-                    Expr out = AddInductive.mkApp(Expr.mkConst(newFn, I.o1, I.hasLevelParam()), iArgs, 0, iArgs.length);
+                    Expr out = AddInductive.mkApp(Expr.mkConstOwned(newFn, I.o1), iArgs, 0, iArgs.length);
                     return AddInductive.mkApp(out, args, params.size(), args.length);
                 }
                 return null;
@@ -221,7 +221,7 @@ final class ElimNested {
     }
 
     private Expr auxApp(Name aux, List<Expr> as, Expr[] args, int from) {
-        Expr r = Expr.mkConst(aux, lvls, lvls.length > 0);
+        Expr r = Expr.mkConstOwned(aux, lvls);
         for (Expr a : as) r = Expr.app(r, a);
         return AddInductive.mkApp(r, args, from, args.length);
     }
@@ -244,7 +244,7 @@ final class ElimNested {
             ConstantInfo jInfo = env.lookupOrThrow(jName);
             if (!jInfo.isInduct()) throw new RuntimeException("invalid nested inductive datatype, '" + jName + "' is not an inductive type");
             Name auxJName = mkUniqueName(AddInductive.concat(NESTED, jName));
-            Expr jAs = AddInductive.mkApp(Expr.mkConst(jName, iLvls, fn.hasLevelParam()), args, 0, iNparams);
+            Expr jAs = AddInductive.mkApp(Expr.mkConstOwned(jName, iLvls), args, 0, iNparams);
             Expr auxJType = instantiatePiParams(instantiateLParams(jInfo.type, jInfo.levelParams, iLvls), iNparams, args);
             nestedAux.add(Map.entry(new LeanExprKey(replaceParams(jAs, as)), auxJName));
             if (jName.equals(iName)) result = auxApp(auxJName, as, args, iNparams);

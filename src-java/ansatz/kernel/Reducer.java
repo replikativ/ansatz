@@ -643,7 +643,7 @@ public final class Reducer {
                         anyChanged = anyChanged || (newLvls[i] != lvls[i]);
                         anyParam = anyParam || Level.hasParam(newLvls[i]);
                     }
-                    result = anyChanged ? Expr.mkConst(e.o0, newLvls, anyParam) : e;
+                    result = anyChanged ? Expr.mkConstOwned(e.o0, newLvls) : e;
                 } else {
                     Object[] lvlArr = constLevels(e);
                     Object[] newLvls = new Object[lvlArr.length];
@@ -663,7 +663,7 @@ public final class Reducer {
                         } else {
                             newLevelsObj = java.util.Arrays.asList(newLvls);
                         }
-                        result = Expr.mkConst(e.o0, newLevelsObj, anyParam);
+                        result = Expr.mkConstOwned(e.o0, newLevelsObj);
                     }
                 }
                 break;
@@ -1371,7 +1371,7 @@ public final class Reducer {
         ConstantInfo ctorCi = env.lookup(ctorName);
         if (ctorCi == null || !ctorCi.isCtor() || ctorCi.numFields != 0) return null;
 
-        Expr result = Expr.mkConst(ctorName, constLevelsObj(typeHead), typeHead.hasLevelParam());
+        Expr result = Expr.mkConstOwned(ctorName, constLevelsObj(typeHead));
         for (int i = 0; i < numParams; i++) {
             result = Expr.app(result, typeArgs[i]);
         }
@@ -1419,7 +1419,7 @@ public final class Reducer {
         int nfields = ctorCi.numFields;
 
         // Build: Ctor(params, proj(I, 0, e), ..., proj(I, nfields-1, e))
-        Expr result = Expr.mkConst(ctorName, constLevelsObj(typeHead), typeHead.hasLevelParam());
+        Expr result = Expr.mkConstOwned(ctorName, constLevelsObj(typeHead));
         // Apply params from the type
         for (int i = 0; i < Math.min(nparams, typeArgs.length); i++) {
             result = Expr.app(result, typeArgs[i]);
@@ -1438,17 +1438,17 @@ public final class Reducer {
     private static Expr stringLitToConstructor(Expr e) {
         String str = (String) e.o0;
         Level zeroLevel = Level.ZERO_LEVEL;
-        Expr charType = Expr.mkConst(Name.CHAR, new Level[0], false);
-        Expr listNilChar = Expr.app(Expr.mkConst(Name.LIST_NIL, new Level[]{zeroLevel}, false), charType);
-        Expr listConsChar = Expr.app(Expr.mkConst(Name.LIST_CONS, new Level[]{zeroLevel}, false), charType);
-        Expr charOfNat = Expr.mkConst(Name.CHAR_OF_NAT, new Level[0], false);
+        Expr charType = Expr.mkConstOwned(Name.CHAR, new Level[0]);
+        Expr listNilChar = Expr.app(Expr.mkConstOwned(Name.LIST_NIL, new Level[]{zeroLevel}), charType);
+        Expr listConsChar = Expr.app(Expr.mkConstOwned(Name.LIST_CONS, new Level[]{zeroLevel}), charType);
+        Expr charOfNat = Expr.mkConstOwned(Name.CHAR_OF_NAT, new Level[0]);
         int[] codepoints = str.codePoints().toArray();
         Expr r = listNilChar;
         for (int i = codepoints.length - 1; i >= 0; i--) {
             Expr ch = Expr.app(charOfNat, Expr.litNat(BigInteger.valueOf(codepoints[i])));
             r = Expr.app(Expr.app(listConsChar, ch), r);
         }
-        return Expr.app(Expr.mkConst(Name.STRING_OF_LIST, new Level[0], false), r);
+        return Expr.app(Expr.mkConstOwned(Name.STRING_OF_LIST, new Level[0]), r);
     }
 
     // ============================================================

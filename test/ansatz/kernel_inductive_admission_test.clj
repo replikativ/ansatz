@@ -416,3 +416,22 @@
     (is (admits? @base stored) "the comparison ignores binder infos, as Lean's structural equality")
     (is (= (TypeChecker/checkConstantFuel generated-env thm fuel)
            (TypeChecker/checkConstantFuel stored-env thm fuel)))))
+
+(deftest mkconst-snapshots-the-callers-level-array
+  ;; U.{v} := Sort (succ v). U.{0} built from an array that the caller then reuses for [v]
+  ;; before admission: the node must keep [0] (and its flags), or I.{v} : U.{v} would carry
+  ;; has-level-param = false and I.{0}'s type would keep a free v.
+  (let [v (n "v")
+        env (env/check-constant @base (env/mk-def (n "KU2") [v] (e/sort' (lvl/succ (lvl/succ (P "v"))))
+                                                  (e/sort' (lvl/succ (P "v"))) :hints {:regular 1})
+                                fuel)
+        arr (object-array [l0])
+        hdr (Expr/mkConst (n "KU2") arr false)
+        _ (aset arr 0 (P "v"))
+        env (env/add-inductive env (env/mk-inductive-decl [v] 0 false [["KI2" hdr []]]) fuel)
+        tc (doto (TypeChecker. env) (.setFuel fuel))
+        inferred (.inferType tc (Expr/mkConst (n "KI2") (object-array [l0]) false))]
+    (is (= [l0] (vec (.o1 ^Expr hdr))))
+    (is (not (.hasLevelParam ^Expr inferred)))
+    (is (= (n "KU2") (e/const-name inferred)))
+    (is (= [l0] (vec (e/const-levels inferred))))))

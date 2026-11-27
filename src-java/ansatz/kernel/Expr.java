@@ -330,7 +330,7 @@ public final class Expr {
                         }
                     }
                     if (changed) {
-                        result = mkConst(e.o0, norm, e.hasLevelParam());
+                        result = mkConstOwned(e.o0, norm);
                     } else {
                         result = e;
                     }
@@ -342,7 +342,7 @@ public final class Expr {
                         norm[i] = simplified;
                         if (simplified != v.nth(i)) changed = true;
                     }
-                    result = changed ? mkConst(e.o0, norm, e.hasLevelParam()) : e;
+                    result = changed ? mkConstOwned(e.o0, norm) : e;
                 } else {
                     result = e;
                 }
@@ -399,6 +399,29 @@ public final class Expr {
     }
 
     public static Expr mkConst(Object name, Object levels) {
+        return mkConstOwned(name, snapshotLevels(levels));
+    }
+
+    private static final Object[] NO_LEVELS = new Object[0];
+
+    /** An immutable view of a level list: a caller's mutable array or list is copied (the empty
+     *  list is one shared array); persistent vectors are kept. The hash and the flags are computed
+     *  from what the node stores, so a caller reusing its array cannot make them disagree. */
+    private static Object snapshotLevels(Object levels) {
+        if (levels instanceof Object[]) {
+            Object[] a = (Object[]) levels;
+            return a.length == 0 ? NO_LEVELS : a.clone();
+        }
+        if (levels instanceof java.util.List && !(levels instanceof clojure.lang.IPersistentCollection)) {
+            java.util.List<?> l = (java.util.List<?>) levels;
+            return l.isEmpty() ? NO_LEVELS : l.toArray();
+        }
+        return levels;
+    }
+
+    /** mkConst for a level container the caller owns and never mutates (a fresh array, or the
+     *  levels of an existing node): no copy. Kernel-internal. */
+    static Expr mkConstOwned(Object name, Object levels) {
         // Use structural hash for levels so CONSTs with equal level contents (but
         // different Object[] instances — common after normalization) hash to the same
         // bucket and are recognized as equal by the intern table.

@@ -360,7 +360,7 @@ public final class AddInductive {
                 } else if (!Level.isEquivalent(level, resultLevel)) {
                     throw new RuntimeException("mutually inductive types must live in the same universe");
                 }
-                indConsts[idx] = Expr.mkConst(indType.name, levels, levels.length > 0);
+                indConsts[idx] = Expr.mkConstOwned(indType.name, levels);
                 first = false;
             }
         }
@@ -616,7 +616,7 @@ public final class AddInductive {
                     Expr t = ctorFields(c, bu, u);
                     ArrayList<Expr> itIndices = new ArrayList<>();
                     int itIdx = getIIndices(t, itIndices);
-                    Expr introApp = mkApp(mkApp(Expr.mkConst(c.name, levels, levels.length > 0), params), bu);
+                    Expr introApp = mkApp(mkApp(Expr.mkConstOwned(c.name, levels), params), bu);
                     Expr cApp = Expr.app(mkApp(recInfos[itIdx].motive, itIndices), introApp);
                     for (Expr ui : u) {
                         ArrayList<Expr> xs = new ArrayList<>(), ihIndices = new ArrayList<>();
@@ -672,7 +672,7 @@ public final class AddInductive {
                 for (Expr ui : u) {
                     ArrayList<Expr> xs = new ArrayList<>(), itIndices = new ArrayList<>();
                     int itIdx = recArgTarget(ui, xs, itIndices);
-                    Expr recApp = Expr.mkConst(recName(indTypes.get(itIdx).name), recLvls, hasParam(recLvls));
+                    Expr recApp = Expr.mkConstOwned(recName(indTypes.get(itIdx).name), recLvls);
                     recApp = Expr.app(mkApp(mkApp(mkApp(mkApp(recApp, params), cs), minors), itIndices), mkApp(ui, xs));
                     v.add(lctx.mkLambda(xs, recApp));
                 }
@@ -710,13 +710,13 @@ public final class AddInductive {
             for (int dIdx = 0; dIdx < indTypes.size(); dIdx++) {
                 Name rn = recName(indTypes.get(dIdx).name);
                 tc(recLps).check(env.lookupOrThrow(rn).type);
-                Expr recPre = mkApp(mkApp(mkApp(Expr.mkConst(rn, recLevels(), hasParam(recLevels())), params), cs), minors);
+                Expr recPre = mkApp(mkApp(mkApp(Expr.mkConstOwned(rn, recLevels()), params), cs), minors);
                 for (InductiveDecl.Constructor c : indTypes.get(dIdx).constructors) {
                     ArrayList<Expr> bu = new ArrayList<>();
                     Expr t = ctorFields(c, bu, null);
                     ArrayList<Expr> itIndices = new ArrayList<>();
                     getIIndices(t, itIndices);
-                    Expr introApp = mkApp(mkApp(Expr.mkConst(c.name, levels, levels.length > 0), params), bu);
+                    Expr introApp = mkApp(mkApp(Expr.mkConstOwned(c.name, levels), params), bu);
                     Expr lhs = Expr.app(mkApp(recPre, itIndices), introApp);
                     TypeChecker tcheck = tc(recLps);
                     Expr expected = tcheck.inferType(lhs);
@@ -745,11 +745,6 @@ public final class AddInductive {
         Object[] out = new Object[d.numLevelParams()];
         for (int i = 0; i < out.length; i++) out[i] = Level.param(d.levelParam(i));
         return out;
-    }
-
-    private static boolean hasParam(Object[] lvls) {
-        for (Object l : lvls) if (Level.hasParam((Level) l)) return true;
-        return false;
     }
 
     static Expr appFn(Expr e) {

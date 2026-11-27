@@ -1769,14 +1769,14 @@ public final class TypeChecker {
         String str = (String) e.o0;
         // Build List Char from right to left
         Level zeroLevel = Level.ZERO_LEVEL;
-        Expr charType = Expr.mkConst(Name.CHAR, new Level[0], false);
+        Expr charType = Expr.mkConstOwned(Name.CHAR, new Level[0]);
         Expr listNilChar = Expr.app(
-            Expr.mkConst(Name.LIST_NIL, new Level[]{zeroLevel}, false),
+            Expr.mkConstOwned(Name.LIST_NIL, new Level[]{zeroLevel}),
             charType);
         Expr listConsChar = Expr.app(
-            Expr.mkConst(Name.LIST_CONS, new Level[]{zeroLevel}, false),
+            Expr.mkConstOwned(Name.LIST_CONS, new Level[]{zeroLevel}),
             charType);
-        Expr charOfNat = Expr.mkConst(Name.CHAR_OF_NAT, new Level[0], false);
+        Expr charOfNat = Expr.mkConstOwned(Name.CHAR_OF_NAT, new Level[0]);
 
         // UTF-8 decode to codepoints
         int[] codepoints = str.codePoints().toArray();
@@ -1787,7 +1787,7 @@ public final class TypeChecker {
             r = Expr.app(Expr.app(listConsChar, ch), r);
         }
         // Lean 4's g_string_mk is actually String.ofList (despite the variable name)
-        return Expr.app(Expr.mkConst(Name.STRING_OF_LIST, new Level[0], false), r);
+        return Expr.app(Expr.mkConstOwned(Name.STRING_OF_LIST, new Level[0]), r);
     }
 
     /**
