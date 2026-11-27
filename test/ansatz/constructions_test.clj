@@ -19,8 +19,7 @@
             [ansatz.meta.constructions.brec-on :as brec]
             [ansatz.meta.constructions.no-confusion :as nc]
             [ansatz.kernel.cases-on :as kernel-cases])
-  (:import [java.util.zip GZIPInputStream]
-           [ansatz.kernel TypeChecker]))
+  (:import [java.util.zip GZIPInputStream]))
 
 (def oracle
   (delay
@@ -259,8 +258,8 @@
         rec #(env/mk-recursor rn (or rec-levels [un]) rty :all [nm] :num-params 2 :num-motives 1 :num-minors 1 :rules %)]
     (if unchecked
       (reduce env/add-constant env [ind ctor (rec [])])
-      (let [rules (vec (TypeChecker/generateExpectedRecursorRules env (env/mk-inductive-bundle [] 2 false [ind] [ctor] [(rec [])]) 0 1000000))]
-        (env/check-inductive-bundle env (env/mk-inductive-bundle [] 2 false [ind] [ctor] [(rec rules)]))))))
+      ;; the kernel's add_inductive generates the recursor
+      (env/add-inductive env (env/mk-inductive-decl [] 2 false [[nm (.type ind) [[(.name ctor) cty]]]])))))
 
 (defn- with-alias-chain
   "`env` with reducible `PropAlias0 := Prop`, `PropAliasᵢ := PropAliasᵢ₋₁` up to `n`."
