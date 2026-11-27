@@ -851,9 +851,7 @@
          known-name? (fn [a]
                        (or (env/lookup (:env ps) (name/from-string (str a)))
                            (simp/builtin-simproc? a)
-                           (env/lookup (simp/ensure-nat-packing
-                                        (or (simp/ensure-ble-eq (:env ps)) (:env ps)) [a])
-                                       (name/from-string (str a)))))
+                           (env/lookup (simp/ensure-derivable (:env ps) a) (name/from-string (str a)))))
         ;; Elab/Tactic/Simp.lean:353-374: wrap a resolved entry with its phase and direction.
          with-origin (fn [x post inv]
                        (cond
@@ -912,7 +910,10 @@
                             ;; Elab/Tactic/Simp.lean:368-370 (Lean 4.36)
                      (throw (ex-info "Elaboration error: simp: Invalid `←` modifier: Cannot be used on a simp extension"
                                      {:kind :elab-error :name (str a)}))
-                     (mapv symbol (attrs/simp-set (:env ps) a)))
+                            ;; Lean pushes the set's own SimpTheorems (Elab/Tactic/Simp.lean:462-466):
+                            ;; its members keep their origins and their own erasures; a `↓` on the
+                            ;; set itself is ignored (:367-371)
+                     [{:simp-set (str a)}])
                           ;; A symbol naming a local hypothesis (newest wins, as Lean's name lookup) is that
                           ;; hypothesis — `simp [h]` rewrites with `h`. Otherwise it is a lemma/def NAME
                           ;; (resolved by simp). This is the ONE canonical way to name things in the tactic DSL.

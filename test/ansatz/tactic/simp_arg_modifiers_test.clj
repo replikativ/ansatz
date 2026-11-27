@@ -528,3 +528,240 @@
   ;; mkSimpEntryOfDeclToUnfold registers a non-definition as `.toUnfold` (SimpTheorems.lean:559-591)
   (is (= 0 (count-of (stderr-of '(a/theorem w-ctor [n :- Nat] (= Nat n n) (simp only [Nat.zero -Nat.zero])))
                      "does not have the"))))
+
+(defn- setT-env [env]
+  (let [nn (ansatz.kernel.expr/arrow nat (ansatz.kernel.expr/arrow nat nat))
+        b0 (ansatz.kernel.expr/bvar 0) b1 (ansatz.kernel.expr/bvar 1)
+        app2 (fn [f x y] (ansatz.kernel.expr/app* (k f) x y))]
+    (-> env (ax* "SetT.f" nn) (ax* "SetT.g" nn)
+        (ax* "SetT.f_def" (ansatz.kernel.expr/forall' "x" nat (ansatz.kernel.expr/forall' "y" nat
+                                                                                          (eqn* (app2 "SetT.f" b1 b0) (app2 "SetT.g" b1 b0)) :default) :default))
+        (ax* "SetT.f_ax" (ansatz.kernel.expr/forall' "x" nat (eqn* (app2 "SetT.f" b0 b0) b0) :default)))))
+
+(deftest simp-set-members-keep-their-origin
+  ;; Lean `register_simp_attr s` + `attribute [s ←] thm`: `simp [s]` joins the set's own
+  ;; SimpTheorems (Elab/Tactic/Simp.lean:462-466)
+  (with-axioms #(ansatz.attrs/add-to-simp-set (setT-env %) "set_inv" [{:name "SetT.f_def" :inv true} "SetT.f_ax"])
+    (fn []
+      (is (= ["SetT.f_def" "SetT.f_ax"] (ansatz.attrs/simp-set (a/env) "set_inv")))
+      (is (= [{:name "SetT.f_def" :post true :inv true} {:name "SetT.f_ax" :post true :inv false}]
+             (map #(dissoc % :prio) (:entries (ansatz.attrs/simp-set-entries (a/env) "set_inv")))))
+      (is (proves? '(a/theorem set-inv-ex1 [x :- Nat] (= Nat (SetT.g x x) x) (simp [set_inv]))))
+      (is (proves? '(a/theorem set-inv-only [x :- Nat] (= Nat (SetT.g x x) x) (simp only [set_inv]))))
+      (testing "an explicit -thm erases from the primary set only; the set's rule stays, with a warning"
+        (let [err (java.io.StringWriter.)]
+          (binding [*err* err]
+            (is (proves? '(a/theorem set-inv-erase [x :- Nat] (= Nat (SetT.g x x) x)
+                                     (simp only [set_inv -SetT.f_def])))))
+          (is (re-find #"`SetT.f_def` does not have the `\[simp\]` attribute" (str err)))))
+      (testing "← on a set is rejected, ↓ on a set ignored"
+        (is (fails-with? #"Cannot be used on a simp extension"
+                         '(a/theorem set-inv-arrow [x :- Nat] (= Nat (SetT.g x x) x) (simp [← set_inv]))))
+        (is (proves? '(a/theorem set-inv-down [x :- Nat] (= Nat (SetT.g x x) x) (simp [↓ set_inv]))))))))
+
+(deftest simp-set-registrations-replay-like-addSimpTheorem
+  ;; tests/elab/issue5828.lean: the converse registration erases, in either order, and stays
+  (with-axioms setT-env
+    (fn []
+      (let [entries #(update (ansatz.attrs/simp-set-entries (ansatz.attrs/add-to-simp-set (a/env) "s" %) "s")
+                             :entries (fn [es] (mapv (fn [x] (dissoc x :prio)) es)))]
+        (testing "←t then t: only the forward rule"
+          (is (= [{:name "SetT.f_def" :post true :inv false}]
+                 (:entries (entries [{:name "SetT.f_def" :inv true} "SetT.f_def"])))))
+        (testing "t then ←t: only the inverse"
+          (is (= [{:name "SetT.f_def" :post true :inv true}]
+                 (:entries (entries ["SetT.f_def" {:name "SetT.f_def" :inv true}])))))
+        (testing "t, ←t, t: neither"
+          (is (= [] (:entries (entries ["SetT.f_def" {:name "SetT.f_def" :inv true} "SetT.f_def"]))))
+          (let [env (-> (a/env) (ansatz.attrs/add-to-simp-set "s" ["SetT.f_def" {:name "SetT.f_def" :inv true}])
+                        (ansatz.attrs/add-to-simp-set "s" ["SetT.f_def"]))]
+            (is (= [] (:entries (ansatz.attrs/simp-set-entries env "s")))))))
+      (testing "the forward set cannot cycle once the inverse is registered after it"
+        (with-axioms #(ansatz.attrs/add-to-simp-set % "s2" ["SetT.f_def" {:name "SetT.f_def" :inv true} "SetT.f_ax"])
+          (fn [] (is (proves? '(a/theorem set2 [x :- Nat] (= Nat (SetT.g x x) x) (simp only [s2]))))))))))
+
+(deftest a-pre-member-definition-has-pre-equations
+  ;; Lean Attr.lean:16-31 passes the attribute's `post` to every equation theorem
+  (let [env (ansatz.attrs/add-to-simp-set (a/env) "pre_defs" [{:name "List.length" :post false}])
+        st (ansatz.kernel.tc/mk-tc-state env)
+        {:keys [pre post]} (#'simp/simp-set-theorems st env "pre_defs")
+        nil-length (ansatz.kernel.expr/app* (ansatz.kernel.expr/const' (ansatz.kernel.name/from-string "List.length") [ansatz.kernel.level/zero])
+                                            nat (ansatz.kernel.expr/app (ansatz.kernel.expr/const' (ansatz.kernel.name/from-string "List.nil") [ansatz.kernel.level/zero]) nat))]
+    (is (empty? (:children post)))
+    (is (some? pre))
+    (is (seq (#'simp/lookup-lemmas st env pre nil-length)))
+    (is (every? false? (map :post (#'simp/lookup-lemmas st env pre nil-length))))))
+
+(deftest a-definition-cannot-be-registered-inverted
+  (is (thrown-with-msg? clojure.lang.ExceptionInfo #"declaration name to be unfolded"
+                        (ansatz.attrs/add-to-simp-set (a/env) "bad" [{:name "Nat.pred" :inv true}]))))
+
+(deftest set-members-expand-definitions-in-registration-order
+  ;; Lean Attr.lean:24-29: `attribute [s] d` registers d's equations as theorems, so a later
+  ;; `attribute [s ←] d.eq_1` erases the forward equation (and vice versa), sticky across calls
+  (let [env (a/env)
+        eq1 (str (first (ansatz.eqns/get-eqns-for? env (ansatz.kernel.name/from-string "List.length"))))
+        live (fn [env] (set (map (juxt :name :inv) (:entries (ansatz.attrs/simp-set-entries env "s")))))]
+    (testing "d then ←d.eq_1: only the inverse of eq_1 stays"
+      (let [l (live (ansatz.attrs/add-to-simp-set env "s" ["List.length" {:name eq1 :inv true}]))]
+        (is (contains? l [eq1 true]))
+        (is (not (contains? l [eq1 false])))))
+    (testing "←d.eq_1 then d: the forward equation replaces the inverse"
+      (let [l (live (ansatz.attrs/add-to-simp-set env "s" [{:name eq1 :inv true} "List.length"]))]
+        (is (contains? l [eq1 false]))
+        (is (not (contains? l [eq1 true])))))
+    (testing "d, ←d.eq_1, d across calls: eq_1 is erased in both directions"
+      (let [e (-> env (ansatz.attrs/add-to-simp-set "s" ["List.length" {:name eq1 :inv true}])
+                  (ansatz.attrs/add-to-simp-set "s" ["List.length"]))
+            l (live e)]
+        (is (not (contains? l [eq1 false])))
+        (is (not (contains? l [eq1 true])))))
+    (testing "the equations take the custom attribute's priority, not the explicit-argument one"
+      (is (every? #(= 1000 (:prio %))
+                  (:entries (ansatz.attrs/simp-set-entries (ansatz.attrs/add-to-simp-set env "s" ["List.length"]) "s")))))))
+
+(deftest set-members-keep-simprocs-slots-and-priorities
+  (let [env (a/env)]
+    (testing "a simproc member joins the call's simprocs"
+      (let [e (ansatz.attrs/add-to-simp-set env "procs" ["Nat.reduceAdd"])]
+        (is (= [{:name "Nat.reduceAdd" :post true}] (:simprocs (ansatz.attrs/simp-set-entries e "procs"))))
+        (is (= [{:set "procs" :names #{"Nat.reduceAdd"} :pre #{} :erased #{}}]
+               (:simproc-sets (simp/elab-simp-args e [{:simp-set "procs"}] {}))))))
+    (testing "a repeated registration keeps its first slot"
+      (is (= ["Nat.add_zero" "Nat.zero_add"]
+             (ansatz.attrs/simp-set (-> env (ansatz.attrs/add-to-simp-set "s" ["Nat.add_zero" "Nat.zero_add"])
+                                        (ansatz.attrs/add-to-simp-set "s" ["Nat.add_zero"]))
+                                    "s"))))
+    (testing "a custom registration has the custom attribute's default priority"
+      (let [e (-> env (ansatz.kernel.env/update-extension :simp-priorities {} assoc "Nat.add_zero" 10)
+                  (ansatz.attrs/add-to-simp-set "s" ["Nat.add_zero"]))]
+        (is (= [1000] (map :prio (:entries (ansatz.attrs/simp-set-entries e "s")))))))
+    (testing "an irreversible inverse registration is rejected when registered"
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Invalid `←` modifier"
+                            (ansatz.attrs/add-to-simp-set env "s" [{:name "Nat.zero_le" :inv true}]))))))
+
+(defn- simp-type
+  "The goal type after simp with `args`/`opts` on `goal` in the current env."
+  [goal args opts]
+  (let [[ps _] (ansatz.tactic.proof/start-proof (a/env) goal)]
+    (:type (ansatz.tactic.proof/current-goal (simp/simp ps args opts)))))
+
+(defn- setI-env
+  "Opaque P : Nat → Prop, d : Decidable True, a b w : Nat and h_ite : ite True d a b = w."
+  [env]
+  (let [ite (ansatz.kernel.expr/app* (ansatz.kernel.expr/const' (ansatz.kernel.name/from-string "ite")
+                                                                [(ansatz.kernel.level/succ ansatz.kernel.level/zero)])
+                                     nat (k "True") (k "SetI.d") (k "SetI.a") (k "SetI.b"))]
+    (-> env
+        (ax* "SetI.P" (ansatz.kernel.expr/arrow nat (ansatz.kernel.expr/sort' ansatz.kernel.level/zero)))
+        (ax* "SetI.d" (ansatz.kernel.expr/app (k "Decidable") (k "True")))
+        (ax* "SetI.a" nat) (ax* "SetI.b" nat) (ax* "SetI.w" nat)
+        (ax* "SetI.h_ite" (eqn* ite (k "SetI.w")))
+        (ansatz.attrs/add-to-simp-set "set_ite" ["reduceIte"]))))
+
+(deftest a-simp-set-carries-its-own-simprocs
+  ;; Lean SimprocsArray (Simproc.lean:269-303): `-p` erases p from the sets present at that point;
+  ;; a set given later joins with its own registration and erasures
+  (with-axioms setI-env
+    (fn []
+      (let [ite (ansatz.kernel.expr/app* (ansatz.kernel.expr/const' (ansatz.kernel.name/from-string "ite")
+                                                                    [(ansatz.kernel.level/succ ansatz.kernel.level/zero)])
+                                         nat (k "True") (k "SetI.d") (k "SetI.a") (k "SetI.b"))
+            goal (ansatz.kernel.expr/app (k "SetI.P") ite)
+            ;; the default simprocs without the default lemma set (whose inherited if_true would
+            ;; compete with h on the conditional)
+            only-with-simprocs {:only? true :simprocs? true}]
+        (testing "[-reduceIte, s, h]: the default pre registration stays erased; the post theorem h wins"
+          (is (= (ansatz.kernel.expr/app (k "SetI.P") (k "SetI.w"))
+                 (simp-type goal [{:erase "reduceIte"} {:simp-set "set_ite"} 'SetI.h_ite] only-with-simprocs))))
+        (testing "without the erasure the default pre registration selects the branch first"
+          (is (= (ansatz.kernel.expr/app (k "SetI.P") (k "SetI.a"))
+                 (simp-type goal [{:simp-set "set_ite"} 'SetI.h_ite] only-with-simprocs))))
+        (testing "[s, -reduceIte]: the erasure reaches the set too"
+          (let [r (simp/elab-simp-args (a/env) [{:simp-set "set_ite"} {:erase "reduceIte"}] {})]
+            (is (= [{:set "set_ite" :names #{"reduceIte"} :pre #{} :erased #{"reduceIte"}}] (:simproc-sets r)))))
+        (testing "a set's simproc runs: 2 + 3 simplifies to 5 under simp only [procs]"
+          (let [e (ansatz.attrs/add-to-simp-set (a/env) "procs" ["Nat.reduceAdd"])
+                two-three (ansatz.kernel.expr/app (k "SetI.P")
+                                                  (ansatz.kernel.expr/app* (ansatz.kernel.expr/const' (ansatz.kernel.name/from-string "HAdd.hAdd")
+                                                                                                      (repeat 3 ansatz.kernel.level/zero))
+                                                                           nat nat nat
+                                                                           (ansatz.kernel.expr/app* (ansatz.kernel.expr/const' (ansatz.kernel.name/from-string "instHAdd") [ansatz.kernel.level/zero])
+                                                                                                    nat (k "instAddNat"))
+                                                                           (ansatz.kernel.expr/lit-nat 2) (ansatz.kernel.expr/lit-nat 3)))]
+            (reset! a/ansatz-env e)
+            (is (= (ansatz.kernel.expr/app (k "SetI.P") (ansatz.kernel.expr/lit-nat 5))
+                   (simp-type two-three [{:simp-set "procs"}] {:only? true})))
+            (is (= two-three (simp-type two-three [] {:only? true})))))
+        (testing "a `↓` simproc member is refused until set simprocs carry their phase"
+          (let [e (ansatz.attrs/add-to-simp-set (a/env) "pre_procs" [{:name "Nat.reduceAdd" :post false}])]
+            (is (thrown-with-msg? clojure.lang.ExceptionInfo #"is not supported"
+                                  (simp/elab-simp-args e [{:simp-set "pre_procs"}] {})))))))))
+
+(deftest a-later-erasure-disables-a-sets-pre-simproc
+  ;; Lean adds the set, then processes `-p` (SimprocsArray.erase): only a `↓` simproc still live
+  ;; after every argument is refused
+  (with-axioms #(ansatz.attrs/add-to-simp-set (setT-env %) "pre_set" [{:name "Nat.reduceAdd" :post false} "SetT.f_ax"])
+    (fn []
+      (is (proves? '(a/theorem pre-set-erased [x :- Nat] (= Nat (SetT.f x x) x) (simp only [pre_set -Nat.reduceAdd]))))
+      (is (fails-with? #"`↓` simproc `Nat.reduceAdd` in the simp set `pre_set` is not supported"
+                       '(a/theorem pre-set-live [x :- Nat] (= Nat (SetT.f x x) x) (simp only [-Nat.reduceAdd pre_set])))))))
+
+(deftest dsimp-keeps-its-erase-warning-with-a-pre-simproc-set
+  ;; dsimp elaborates its arguments only for their diagnostics: a set's `↓` simproc is no error
+  (with-axioms #(ansatz.attrs/add-to-simp-set % "dpre_set" [{:name "Nat.reduceAdd" :post false}])
+    (fn []
+      (is (= 1 (count-of (stderr-of '(a/theorem w-dsimp-set [P :- Prop, h :- False] P
+                                                (dsimp [dpre_set -Nat.pred_le] at h)))
+                         no-attr))))))
+
+(deftest an-inverse-member-resolves-a-derived-declaration
+  ;; a legacy Init without Nat.ble_eq: registering `← Nat.ble_eq` derives it, as an explicit
+  ;; `simp only [← Nat.ble_eq]` does (simp/ensure-derivable)
+  (let [ble-eq (ansatz.kernel.name/from-string "Nat.ble_eq")
+        legacy (reduce (fn [env ^ansatz.kernel.ConstantInfo ci]
+                         (if (= ble-eq (.name ci)) env (ansatz.kernel.env/add-constant env ci)))
+                       (ansatz.kernel.env/empty-env) (.allConstants ^ansatz.kernel.Env (a/env)))
+        legacy (-> legacy (ax* "ArgL.a" nat) (ax* "ArgL.b" nat))
+        _ (is (nil? (ansatz.kernel.env/lookup legacy ble-eq)))
+        env (ansatz.attrs/add-to-simp-set legacy "s" [{:name "Nat.ble_eq" :inv true}])
+        le (ansatz.kernel.expr/app* (ansatz.kernel.expr/const' (ansatz.kernel.name/from-string "LE.le") [ansatz.kernel.level/zero])
+                                    nat (k "instLENat") (k "ArgL.a") (k "ArgL.b"))
+        [ps _] (ansatz.tactic.proof/start-proof env le)]
+    (is (some? (ansatz.kernel.env/lookup env ble-eq)))
+    (is (= (ansatz.kernel.expr/app* (ansatz.kernel.expr/const' (ansatz.kernel.name/from-string "Eq") [(ansatz.kernel.level/succ ansatz.kernel.level/zero)])
+                                    (k "Bool")
+                                    (ansatz.kernel.expr/app* (k "Nat.ble") (k "ArgL.a") (k "ArgL.b"))
+                                    (k "Bool.true"))
+           (:type (ansatz.tactic.proof/current-goal (simp/simp ps [{:simp-set "s"}] {:only? true})))))))
+
+(deftest an-inverse-member-must-resolve-when-registered
+  ;; Lean resolves the declaration before applying `attribute [s ←] d`
+  (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Unknown constant: SetT.not_yet"
+                        (ansatz.attrs/add-to-simp-set (a/env) "s" [{:name "SetT.not_yet" :inv true}]))))
+
+(deftest the-names-accessor-follows-the-expanded-replay
+  ;; [d, ←d.eq_1, d]: both directions of d.eq_1 are erased, so simp-set does not list d.eq_1
+  (let [env (a/env)
+        eq1 (str (first (ansatz.eqns/get-eqns-for? env (ansatz.kernel.name/from-string "List.length"))))
+        e (ansatz.attrs/add-to-simp-set env "s" ["List.length" {:name eq1 :inv true} "List.length"])]
+    (is (= ["List.length"] (ansatz.attrs/simp-set e "s")))))
+
+(deftest a-staged-environment-replays-its-simp-sets
+  ;; a staged Env shows a declaration once the verifier admits it, on the same object: the set's
+  ;; replayed state must follow (no cache across that change)
+  (let [d (ansatz.kernel.name/from-string "ArgV.d")
+        ci (ansatz.kernel.env/mk-def d [] nat (ansatz.kernel.expr/lit-nat 0) :hints :abbrev)
+        visible? (atom false)
+        staged (-> (a/env)
+                   (.withExternalLookupFiltered (fn [n] (when (= n d) ci)) 1
+                                                (fn [n] (or (not= n d) @visible?))))
+        staged (ansatz.attrs/add-to-simp-set staged "staged_set" ["ArgV.d"])
+        before (ansatz.attrs/simp-set-entries staged "staged_set")]
+    (is (.isStaged ^ansatz.kernel.Env staged))
+    (is (nil? (ansatz.kernel.env/lookup staged d)))
+    (reset! visible? true)
+    (is (some? (ansatz.kernel.env/lookup staged d)))
+    (let [after (ansatz.attrs/simp-set-entries staged "staged_set")]
+      (is (not= before after))
+      (is (some #{"ArgV.d"} (map str (:to-unfold after)))))))

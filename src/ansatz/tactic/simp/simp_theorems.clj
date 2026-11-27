@@ -102,6 +102,48 @@
       {:state (cascade (erase-core state bwd)) :erased-unfold n}
       :else {:state state :warning true})))
 
+;; ── A custom simp set's registrations (Lean register_simp_attr) ───────────────────────────
+
+(defn set-member->entry
+  "A stored simp-set member (a name string, or an origin map) as {:name :post :inv}."
+  [member]
+  (if (map? member)
+    {:name (str (:name member)) :post (boolean (:post member true)) :inv (boolean (:inv member false))}
+    {:name (str member) :post true :inv false}))
+
+(defn replay-set
+  "Lean's SimpExtension state for a custom simp set: its members, in registration order, each
+   expanded the way the attribute registers it (`expand` entry → {:theorems [{:name :post :inv
+   :prio}] :to-unfold [name] :simprocs [{:name :post}]}; Attr.lean:16-56) and every generated
+   theorem replayed through addSimpTheorem (add-theorem: the registered converse is erased in
+   either direction; nothing is un-erased). A repeated registration keeps its first slot and
+   takes the new priority (DiscrTree.insertKeyValue replaces the equal entry in place).
+   Returns {:entries [visible theorems] :erased :to-unfold :simprocs}."
+  ([members] (replay-set members (fn [e] {:theorems [(assoc e :prio 1000)]})))
+  ([members expand]
+   (let [same (fn [a b] (= (dissoc a :prio) (dissoc b :prio)))
+         {:keys [state entries to-unfold simprocs]}
+         (reduce (fn [acc member]
+                   (let [{:keys [theorems] new-unfold :to-unfold new-procs :simprocs}
+                         (expand (set-member->entry member))]
+                     (-> (reduce (fn [acc th]
+                                   (-> acc
+                                       (update :state add-theorem (origin (:name th) (:post th) (:inv th)))
+                                       (update :entries (fn [es]
+                                                          (if (some #(same % th) es)
+                                                            (mapv #(if (same % th) th %) es)
+                                                            (conj es th))))))
+                                 acc theorems)
+                         (update :to-unfold into new-unfold)
+                         (update :simprocs into new-procs))))
+                 {:state {:erased #{} :added #{} :removed #{}} :entries [] :to-unfold [] :simprocs []}
+                 members)
+         erased (:erased state)]
+     {:entries (into [] (remove #(contains? erased [(:name %) (:inv %)])) entries)
+      :erased erased
+      :to-unfold (vec (distinct to-unfold))
+      :simprocs (vec (distinct simprocs))})))
+
 ;; ── Declarations to unfold ────────────────────────────────────────────────────────────────
 
 (defn unfold-even-with-eqns [environment n]
@@ -124,3 +166,17 @@
         (cond-> entries
           (or (not (seq equations)) (unfold-even-with-eqns environment n))
           (conj {:kind :to-unfold :name n}))))))
+
+(defn attr-entries-of-decl
+  "Lean Meta/Tactic/Simp/Attr.lean:16-34 addDeclToUnfold — what `attribute [s ↓] d` registers
+   for a definition `d`: only the unfolding for a projection or reducible definition
+   (`ignore-equations?`, Simp.ignoreEquations); otherwise each equation theorem with the
+   attribute's phase and priority, plus the unfolding when unfoldEvenWithEqns; or the unfolding
+   alone without equations."
+  [environment n post prio ignore-equations?]
+  (let [nm (if (instance? ansatz.kernel.Name n) n (name/from-string (str n)))
+        equations (when-not (ignore-equations? nm) (eqns/get-eqns-for? environment nm))]
+    (if (seq equations)
+      {:theorems (mapv (fn [eq] {:name (name-str eq) :post (boolean post) :inv false :prio prio}) equations)
+       :to-unfold (when (unfold-even-with-eqns environment nm) [(name-str nm)])}
+      {:to-unfold [(name-str nm)]})))
