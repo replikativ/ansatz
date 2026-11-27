@@ -93,46 +93,73 @@
                   expr))))]
     (visit expr)))
 
-(defn elab-ctors [environment family header ctors-spec self-const]
-  (let [{:keys [params type]} header
-        {:keys [lctx ids]} (open-params type params)
-        family-id (inc (count ids))
-        lctx (assoc lctx family-id {:name family :type type :tag :local})
-        n-indices (count (:indices header))]
-    (mapv
-     (fn [i [cname fields-spec return-indices]]
-       (when-not (= n-indices (count return-indices))
-         (throw (ex-info "Constructor result must supply every family index"
-                         {:constructor cname :expected n-indices :indices return-indices})))
-       (let [field-pairs (vec (partition 2 fields-spec))
+(defn elab-ctors
+  "Elaborate the constructors of family `k` of a (mutual) block: `families` is a vector of
+   {:name :type :self-const} sharing `params`; every family is a local while elaborating
+   (Lean withInductiveLocalDecls) and becomes its constant afterwards."
+  ([environment family header ctors-spec self-const]
+   (elab-ctors environment [{:name family :type (:type header) :self-const self-const :header header}] 0 ctors-spec))
+  ([environment families k ctors-spec]
+   (let [{:keys [header] family :name self-const :self-const} (nth families k)
+         {:keys [params type]} header
+         {:keys [lctx ids]} (open-params type params)
+         family-ids (mapv #(+ (inc (count ids)) %) (range (count families)))
+         lctx (reduce (fn [lctx [fid f]] (assoc lctx fid {:name (:name f) :type (:type f) :tag :local}))
+                      lctx (map vector family-ids families))
+         family-id (nth family-ids k)
+         n-indices (count (:indices header))]
+     (mapv
+      (fn [i [cname fields-spec return-indices]]
+        (when-not (= n-indices (count return-indices))
+          (throw (ex-info "Constructor result must supply every family index"
+                          {:constructor cname :expected n-indices :indices return-indices})))
+        (let [field-pairs (vec (partition 2 fields-spec))
               ;; Default results refer to the original locals even when a field
               ;; shadows a header name (Lean uses mkAppN indFVar params).
-             result (apply list (e/fvar family-id)
-                           (concat (map e/fvar ids) (map surface-form return-indices)))
+              result (apply list (e/fvar family-id)
+                            (concat (map e/fvar ids) (map surface-form return-indices)))
               ;; Lean elabCtors checks the result and synthesizes holes while
               ;; constructor locals are live, before mkForallFVars abstracts.
-             check-params #(check-param-occs %1 %2 (e/fvar family-id) (mapv e/fvar ids))
-             type (term/elaborate-binders-in-context
-                   environment lctx
-                   (mapv (fn [[s t]] [s (surface-form t)]) field-pairs) result
-                   {:check-result check-params :check-binder-type check-params})
-             type (e/instantiate1 (e/abstract1 type family-id) self-const)
-             type (e/abstract-many type ids)
-             [fields result] (telescope type (map first field-pairs))
-             [head args] (e/get-app-fn-args result)
-             n-fields (count fields)]
-         (when-not (and (= head self-const)
-                        (= (count args) (+ (count params) n-indices))
-                        (= (take (count params) args)
-                           (map #(e/bvar (+ n-fields (- (count params) % 1)))
-                                (range (count params)))))
-           (throw (ex-info "Invalid constructor result or parameter occurrence" {:constructor cname})))
-         {:name (if (nil? cname) "nil" (str cname)) :sym cname :idx i
-          :full-name (str family "." (if (nil? cname) "nil" cname))
-          :fields (mapv #(-> % (assoc :type (:compiled-type %)) (dissoc :compiled-type)) fields)
-          :compiled-return-indices (vec (drop (count params) args))}))
-     (range) ctors-spec)))
+              check-params (fn [est x]
+                             (reduce (fn [x fid] (check-param-occs est x (e/fvar fid) (mapv e/fvar ids)))
+                                     x family-ids))
+              type (term/elaborate-binders-in-context
+                    environment lctx
+                    (mapv (fn [[s t]] [s (surface-form t)]) field-pairs) result
+                    {:check-result check-params :check-binder-type check-params})
+              type (reduce (fn [type [fid f]] (e/instantiate1 (e/abstract1 type fid) (:self-const f)))
+                           type (map vector family-ids families))
+              type (e/abstract-many type ids)
+              [fields result] (telescope type (map first field-pairs))
+              [head args] (e/get-app-fn-args result)
+              n-fields (count fields)]
+          (when-not (and (= head self-const)
+                         (= (count args) (+ (count params) n-indices))
+                         (= (take (count params) args)
+                            (map #(e/bvar (+ n-fields (- (count params) % 1)))
+                                 (range (count params)))))
+            (throw (ex-info "Invalid constructor result or parameter occurrence" {:constructor cname})))
+          {:name (if (nil? cname) "nil" (str cname)) :sym cname :idx i
+           :full-name (str family "." (if (nil? cname) "nil" cname))
+           :fields (mapv #(-> % (assoc :type (:compiled-type %)) (dissoc :compiled-type)) fields)
+           :compiled-return-indices (vec (drop (count params) args))}))
+      (range) ctors-spec))))
 
 (defn elab-inductive [environment family param-pairs index-pairs ctors-spec result-level self-const]
   (let [header (elab-headers environment param-pairs index-pairs result-level)]
     (assoc header :ctors (elab-ctors environment family header ctors-spec self-const))))
+
+(defn elab-mutual
+  "Lean elabInductiveViews for a mutual block sharing `param-pairs`: `specs` is a vector of
+   {:name :index-pairs :ctors-spec :result-level :self-const}; returns per family
+   {:params :indices :type :ctors}."
+  [environment param-pairs specs]
+  (let [headers (mapv (fn [{:keys [index-pairs result-level]}]
+                        (elab-headers environment param-pairs index-pairs result-level))
+                      specs)
+        families (mapv (fn [spec header] {:name (:name spec) :type (:type header)
+                                          :self-const (:self-const spec) :header header})
+                       specs headers)]
+    (mapv (fn [k spec header]
+            (assoc header :ctors (elab-ctors environment families k (:ctors-spec spec))))
+          (range) specs headers)))

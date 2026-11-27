@@ -394,3 +394,71 @@
                (count ctors) "constructors, recursor"
                (if (pos? num-nested) (str "(nested, num-nested=" num-nested ")") ", auxiliaries"))
       env)))
+
+(defn define-mutual-inductive
+  "Define a mutual block of inductive types sharing their parameters as ONE kernel declaration
+   (Lean's `mutual … end`: a single inductive_decl, one recursor per type with a motive for every
+   type of the block), then each type's auxiliary constructions.
+
+   `specs` is a vector of [name ctors-spec & {:keys [indices in]}] (as define-inductive's).
+   The result universe of each type is its `:in` or, by default, Type (above the parameters'
+   `(Type u)` universes). Returns env."
+  [env params-spec specs]
+  (let [param-pairs (vec (partition 2 params-spec))
+        n-params (count param-pairs)
+        param-level-names (vec (distinct (keep (fn [[_ t]] (type-level-param t)) param-pairs)))
+        default-level (if (empty? param-level-names)
+                        (lvl/succ lvl/zero)
+                        (reduce lvl/level-max (map #(lvl/succ (lvl/param %)) param-level-names)))
+        ;; a universe named only in a result sort `(Type u)` is a universe of the block too
+        in-level-names (keep (fn [[_ _ & {:keys [in]}]]
+                               (when (and (seq? in) (= 2 (count in)) (= 'Type (first in)) (symbol? (second in)))
+                                 (name/from-string (str (second in)))))
+                             specs)
+        level-param-names (vec (distinct (concat param-level-names in-level-names)))
+        levels (mapv lvl/param level-param-names)
+        specs (mapv (fn [[n ctors & {:keys [indices in]}]]
+                      {:name n :ind-name (name/from-string n) :ctors-spec ctors
+                       :index-pairs (vec (partition 2 (or indices [])))
+                       :result-level (cond
+                                       (nil? in) default-level
+                                       (= in 'Prop) lvl/zero
+                                       (= in 'Type) (lvl/succ lvl/zero)
+                                       (and (seq? in) (= 2 (count in)) (= 'Type (first in)) (symbol? (second in)))
+                                       (lvl/succ (lvl/param (name/from-string (str (second in)))))
+                                       :else (throw (ex-info (str "unsupported result sort " (pr-str in)) {:in in})))
+                       :self-const (e/const' (name/from-string n) levels)})
+                    specs)
+        elaborated (elab/elab-mutual env param-pairs specs)
+        decl (env/mk-inductive-decl
+              level-param-names n-params false
+              (mapv (fn [spec {:keys [params indices ctors]}]
+                      [(:ind-name spec) (build-inductive-type params indices (:result-level spec))
+                       (mapv (fn [ctor]
+                               [(name/from-string (:full-name ctor))
+                                (build-constructor-type params (:fields ctor) (:ind-name spec) levels
+                                                        (:compiled-return-indices ctor))])
+                             ctors)])
+                    specs elaborated))
+        env (try (env/add-inductive env decl kernel-fuel)
+                 (catch RuntimeException ex
+                   (throw (ex-info (str "mutual block " (mapv :name specs) " rejected by the kernel: " (.getMessage ex))
+                                   {:inductive (mapv :name specs)} ex))))
+        has? (fn [n] (some? (env/lookup env (name/from-string n))))
+        names (mapv :name specs)
+        ;; MutualInductive.lean mkAuxConstructions: below for every type before any brecOn
+        env (reduce (fn [env n]
+                      (cond-> env
+                        (has? "PUnit") (cases-on/mk-cases-on n)
+                        true (rec-on/mk-rec-on n)
+                        (has? "Nat") (ctor-idx/mk-ctor-idx n)
+                        (has? "Nat") (ctor-elim/mk-ctor-elim n)
+                        (and (has? "PUnit") (has? "Eq") (has? "HEq")) (no-confusion/mk-no-confusion n)
+                        (and (has? "PUnit") (has? "Prod")) (brec-on/mk-below n)))
+                    env names)
+        env (if (and (has? "PUnit") (has? "Prod"))
+              (reduce brec-on/mk-brec-on env names)
+              env)]
+    (reset! @(requiring-resolve 'ansatz.core/ansatz-env) env)
+    (println "✓ mutual inductive" names "defined")
+    env))
