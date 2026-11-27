@@ -102,3 +102,70 @@ axiom ax : S
 /-- info: 1048575 -/
 #guard_msgs in
 #eval (Expr.bvar 1048574).looseBVarRange
+
+/-! ## `reduce_proj_core` looks the constructor head up with `env.get` -/
+
+/-- info: kernel error -/
+#guard_msgs in
+#eval kwhnf (.proj ``S 0 (mkConst `Missing))
+
+/-! ## A nested comparison keeps the outer lazy-delta pair -/
+
+axiom ka : Nat
+noncomputable def kb : Nat := ka
+axiom kh : ka = kb
+
+-- `q` K-reduces to `ka` (comparing `ka = kb` with `ka = ka` on the way); `Nat.succ q` is not `ka`
+noncomputable def q : Nat := @Eq.rec Nat ka (fun _ _ => Nat) ka kb kh
+
+/-- info: true -/
+#guard_msgs in
+#eval kdefeq (mkConst ``q) (mkConst ``ka)
+
+/-- info: false -/
+#guard_msgs in
+#eval kdefeq (mkApp (mkConst ``Nat.succ) (mkApp6 (mkConst ``Eq.rec [1, 1]) (mkConst ``Nat) (mkConst ``ka)
+  (.lam `x (mkConst ``Nat) (.lam `h (mkApp3 (mkConst ``Eq [1]) (mkConst ``Nat) (mkConst ``ka) (.bvar 0))
+    (mkConst ``Nat) .default) .default) (mkConst ``ka) (mkConst ``kb) (mkConst ``kh))) (mkConst ``ka)
+
+/-! ## String literals expand by code point -/
+
+def charList (cps : List Nat) : Expr :=
+  cps.foldr (fun cp acc => mkApp3 (mkConst ``List.cons [0]) (mkConst ``Char)
+    (mkApp (mkConst ``Char.ofNat) (mkRawNatLit cp)) acc) (mkApp (mkConst ``List.nil [0]) (mkConst ``Char))
+
+/-- info: true -/
+#guard_msgs in
+#eval kdefeq (mkStrLit "𝔸") (mkApp (mkConst ``String.ofList) (charList [120120]))
+
+/-- info: false -/
+#guard_msgs in
+#eval kdefeq (mkStrLit "𝔸") (mkApp (mkConst ``String.ofList) (charList [55349, 56632]))
+
+/-! ## An inference error reached through `try_eta_struct_core` after unfolding -/
+
+#guard_msgs in
+#eval show CoreM Unit from do
+  addDecl (.defnDecl { name := `kfS, levelParams := [], type := mkConst ``S,
+                       value := mkApp (mkConst ``S.mk) (mkRawNatLit 0), hints := .regular 5, safety := .safe })
+  let kgS : Declaration := .defnDecl {
+        name := `kgS, levelParams := [], type := mkConst ``S,
+        value := mkConst `kfS [Level.zero], hints := .regular 1, safety := .safe }
+  match (← getEnv).addDeclCore 0 0 kgS none (doCheck := false) with
+  | .ok env => setEnv env
+  | .error _ => throwError "addDeclCore failed"
+
+/-- info: kernel error -/
+#guard_msgs in
+#eval kdefeq (mkConst `kgS) (mkApp (mkConst ``S.mk) (mkRawNatLit 1))
+
+/-! ## Deliberate divergence: a projection index that wraps Lean's unsigned sum
+
+`0xfffffffe` passes `to_proj_idx`; with `Prod`'s two parameters `nparams + idx` wraps to 0, so
+Lean's raw `reduce_proj_core` returns parameter 0. Ansatz leaves the projection stuck (see
+doc/kernel.md); `infer_proj` rejects it in both kernels. -/
+
+/-- info: Nat -/
+#guard_msgs in
+#eval kwhnf (.proj ``Prod 0xfffffffe (mkApp4 (mkConst ``Prod.mk [0, 0]) (mkConst ``Nat) (mkConst ``Nat)
+  (mkRawNatLit 1) (mkRawNatLit 2)))

@@ -49,7 +49,11 @@
       (is (= (e/lit-nat 2) (.whnf r (proj 1 (pair)))))
       (is (= (proj 2 (pair)) (.whnf r (proj 2 (pair))))))
     (testing "indices that would wrap when the parameter count is added stay unreduced"
-      (doseq [i [Integer/MAX_VALUE 4294967296 Long/MAX_VALUE]]
+      ;; 0xfffffffe passes Lean's to_proj_idx and, with Prod's two parameters, wraps the C++
+      ;; unsigned sum to 0, so Lean's raw reduce_proj_core returns parameter 0 (`Nat`). Ours
+      ;; compares before adding and leaves the malformed projection stuck — a deliberate
+      ;; divergence (doc/kernel.md); infer_proj rejects such a projection in both kernels.
+      (doseq [i [0xfffffffe Integer/MAX_VALUE 4294967296 Long/MAX_VALUE]]
         (is (= (proj i (pair)) (.whnf r (proj i (pair)))) (str "index " i))))
     (testing "the Clojure reducer too"
       (doseq [i [2 Integer/MAX_VALUE Long/MAX_VALUE]]
