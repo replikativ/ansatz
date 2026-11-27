@@ -82,6 +82,21 @@
                                 fixed))]
         (if (= fixed fixed') fixed (recur fixed'))))))
 
+(def ^:private ^:dynamic *let-values*
+  "fvar-id → value of the let-bound locals opened by replace-rec-apps (Lean keeps let
+   declarations and zeta-reduces the recursive argument in toBelowAux)."
+  {})
+
+(defn- zeta
+  "Lean zetaReduce on the recursive argument: substitute every let-bound local (also at
+   application heads) and beta-reduce the head."
+  [x]
+  (let [x (loop [x x n (count *let-values*)]
+            (let [x' (reduce (fn [x [id v]] (e/instantiate1 (e/abstract1 x id) v)) x *let-values*)]
+              (if (or (= x' x) (neg? n)) x' (recur x' (dec n)))))
+        [f args] (e/get-app-fn-args x)]
+    (if (e/lam? f) (u/beta f args) x)))
+
 (defn- to-below [ctx motive below target-args]
   (let [raw-type (u/infer-type ctx below)
         [raw-head raw-args] (e/get-app-fn-args raw-type)
@@ -90,12 +105,22 @@
         head-name (when (e/const? head) (str (e/const-name head)))]
     (cond
       (and (= raw-head motive) (= (count target-args) (count raw-args))
-           (every? true? (map #(tc/is-def-eq @ctx %1 %2) raw-args target-args)))
+           (every? true? (map #(tc/is-def-eq @ctx %1 (zeta %2)) raw-args target-args)))
       below
 
       (and (#{"PProd" "And"} head-name) (= 2 (count args)))
       (or (to-below ctx motive (e/proj (name/from-string head-name) 0 below) target-args)
           (to-below ctx motive (e/proj (name/from-string head-name) 1 below) target-args))
+
+      ;; BRecOn.lean toBelowAux: a reflexive field's dictionary `(a : A) → PProd …` is
+      ;; instantiated with the trailing arguments of the recursive argument (`k 0`)
+      ;; (a candidate whose domain does not fit the arguments is a miss, not an error)
+      (e/forall? type)
+      (let [n (loop [t type n 0] (if (e/forall? t) (recur (e/forall-body t) (inc n)) n))
+            arg-args (vec (e/get-app-args (zeta (peek target-args))))]
+        (when (>= (count arg-args) n)
+          (try (to-below ctx motive (u/app below (subvec arg-args (- (count arg-args) n))) target-args)
+               (catch Exception _ nil))))
 
       :else nil)))
 
@@ -161,7 +186,8 @@
                 :let (let [type (loop-expr below (e/let-type expr))
                            value (loop-expr below (e/let-value expr))
                            x (u/local-decl ctx (e/let-name expr) type)
-                           body (loop-expr below (e/instantiate1 (e/let-body expr) x))]
+                           body (binding [*let-values* (assoc *let-values* (e/fvar-id x) value)]
+                                  (loop-expr below (e/instantiate1 (e/let-body expr) x)))]
                        (e/let' (e/let-name expr) type value
                                (e/abstract1 body (e/fvar-id x))))
                 :mdata (e/mdata (e/mdata-data expr) (loop-expr below (e/mdata-expr expr)))
@@ -210,15 +236,37 @@
         motive-body (u/mk-forall-fvars ctx varying result-type)
         motive-level (u/get-level ctx motive-body)
         motive (u/mk-lambda-fvars ctx (conj indices arg) motive-body)
+        ;; A nested or mutual type's brecOn takes one motive per type of its group (and per
+        ;; nested occurrence): the recursion's own, and for the others, as Lean does for types
+        ;; no function recurses on, `fun … => PUnit` with the functional `fun … => PUnit.unit`.
+        rec-ci (env/lookup! environment (name/mk-str ind-name "rec"))
+        n-motives (.numMotives rec-ci)
+        own (.indexOf ^java.util.List (vec (.all ind-info)) ind-name)
+        brec-head (u/app (e/const' (name/mk-str ind-name "brecOn") (into [motive-level] levels)) params)
+        motive-types (let [[ms _] (u/forall-telescope ctx (u/infer-type ctx brec-head) n-motives)]
+                       (mapv #(u/infer-type ctx %) ms))
+        ;; Lean PProdN.pack on no components: True at universe zero, else PUnit
+        prop? (ansatz.kernel.level/level-zero? motive-level)
+        unit (if prop? (u/const' "True" []) (u/const' "PUnit" [motive-level]))
+        motives (mapv (fn [i t] (if (= i own) motive
+                                    (let [[ys _] (u/forall-telescope ctx t)] (u/mk-lambda-fvars ctx ys unit))))
+                      (range n-motives) motive-types)
         below-type (u/app (e/const' (name/mk-str ind-name "below")
                                     (into [motive-level] levels))
-                          (concat params [motive] indices [arg]))
+                          (concat params motives indices [arg]))
         below (u/local-decl ctx "below" below-type)
         transformed (replace-rec-apps ctx environment self-id rec-pos index-positions arity fixed-args
                                       motive below body)
         functional (u/mk-lambda-fvars ctx (into (conj indices arg below) varying) transformed)
-        value (u/app (e/const' (name/mk-str ind-name "brecOn")
-                               (into [motive-level] levels))
-                     (concat params [motive] indices [arg functional]))
+        ;; the functionals' types, once the motives and the major are supplied
+        f-types (let [[fs _] (u/forall-telescope ctx (u/infer-type ctx (u/app brec-head (concat motives indices [arg]))) n-motives)]
+                  (mapv #(u/infer-type ctx %) fs))
+        functionals (mapv (fn [i t]
+                            (if (= i own) functional
+                                (let [[ys _] (u/forall-telescope ctx t)]
+                                  (u/mk-lambda-fvars ctx ys (if prop? (u/const' "True.intro" [])
+                                                                (u/const' "PUnit.unit" [motive-level]))))))
+                          (range n-motives) f-types)
+        value (u/app brec-head (concat motives indices [arg] functionals))
         value (u/app value varying)]
     (u/mk-lambda-fvars ctx xs value)))

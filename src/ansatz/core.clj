@@ -2335,7 +2335,10 @@
                                            (every? #(or (not (e/has-fvar-flag %))
                                                         (some #{%} (map e/fvar (range 1 (inc n)))))
                                                    ind-params)
-                                           (env/lookup env (name/mk-str ind-name "below"))
+                                           ;; the data `below` (a definition); an inductive
+                                           ;; predicate's below is itself inductive and needs
+                                           ;; Lean's below-matcher transformation (not ported)
+                                           (some-> (env/lookup env (name/mk-str ind-name "below")) .isDef)
                                            (env/lookup env (name/mk-str ind-name "brecOn")))))
                                   candidate-positions))
                   index-positions
@@ -3523,6 +3526,10 @@
         [opts body] (if (= :indices (first body))
                       [(assoc opts :indices (second body)) (drop 2 body)]
                       [opts body])
+        ;; Lean's `set_option inductive.autoPromoteIndices false`
+        [opts body] (if (= :promote-indices? (first body))
+                      [(assoc opts :promote-indices? (second body)) (drop 2 body)]
+                      [opts body])
         ;; Split :deriving option from end of body
         body-vec (vec body)
         [opts body-vec] (let [n (count body-vec)]
@@ -3554,7 +3561,8 @@
     `(let [before# @ansatz-env]
        (inductive/define-inductive (env) ~(str type-name) '~params '~ctor-specs
          ~@(when (:in opts) [:in `'~(:in opts)])
-         ~@(when (:indices opts) [:indices `'~(:indices opts)]))
+         ~@(when (:indices opts) [:indices `'~(:indices opts)])
+         ~@(when (contains? opts :promote-indices?) [:promote-indices? (:promote-indices? opts)]))
        ;; lean4 auto-derives SizeOf for every inductive — best-effort, no-op when unsupported
        (wf-derive-sizeof! ~(str type-name))
        ;; Lean fails the declaration when its injectivity theorems fail: nothing stays installed
@@ -3798,9 +3806,13 @@
                                     '~base-field-specs)
                    flat# (vec (mapcat identity (into [['~to-field '~extends-form]] new-specs#)))]
                (inductive/define-inductive (env) ~(str type-name) '~params [[(symbol "mk") flat#]]
-                 ~@(when (:in opts) [:in `'~(:in opts)])))
+                 ~@(when (:in opts) [:in `'~(:in opts)])
+                 ~@(when (:class opts) [:class? true])
+                 :projections ~(mapv (fn [[fname _]] (str type-name "." fname)) field-specs)))
             `(inductive/define-inductive (env) ~(str type-name) '~params '~[ctor-spec]
-               ~@(when (:in opts) [:in `'~(:in opts)])))
+               ~@(when (:in opts) [:in `'~(:in opts)])
+               ~@(when (:class opts) [:class? true])
+               :projections ~(mapv (fn [[fname _]] (str type-name "." fname)) field-specs)))
 
        ;; Lean Meta/Structure.lean:mkProjections threads named projections through
        ;; the constructor telescope, preserving them in dependent accessor types.

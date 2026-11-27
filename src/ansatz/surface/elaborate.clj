@@ -465,8 +465,12 @@
         "Type" {:expr (e/sort' (lvl/succ lvl/zero)) :explicit? false}
         ;; Parse levels and resolve
         (let [[base-name explicit-levels] (parse-levels sym-str)]
-          (if (and (= base-name "Type") explicit-levels)
+          (cond
+            (and (= base-name "Type") explicit-levels)
             {:expr (e/sort' (lvl/succ (first explicit-levels))) :explicit? false}
+            (and (= base-name "Sort") explicit-levels)
+            {:expr (e/sort' (first explicit-levels)) :explicit? false}
+            :else
             {:expr (resolve-const est base-name explicit-levels)
              :explicit? explicit?}))))))
 
@@ -474,27 +478,30 @@
   "Given a function expr and its type, insert metavariables for leading
    implicit/instance-implicit arguments. Returns [expr' type'] where
    type' is the remaining (non-implicit) type."
-  [est fn-expr fn-type]
-  (loop [expr fn-expr
-         ty (whnf-with-mvars est fn-type)]
-    (if (and (e/forall? ty)
-             (let [info (e/forall-info ty)]
-               (or (= info :implicit)
-                   (= info :strict-implicit)
-                   (= info :inst-implicit))))
-      (let [binfo (e/forall-info ty)
-            inst? (= binfo :inst-implicit)
-            arg-mvar (fresh-mvar! est (e/forall-type ty)
-                                  (cond-> {:kind (if inst? :synthetic :natural)}
-                                    (e/forall-name ty) (assoc :user-name (e/forall-name ty))
-                                    inst? (assoc :inst-implicit? true)))
+  ([est fn-expr fn-type] (insert-implicits est fn-expr fn-type false))
+  ([est fn-expr fn-type trailing?]
+  ;; Lean App.lean processStrictImplicitArg: a strict-implicit binder is filled only when an
+  ;; explicit argument follows; with none left (`trailing?`) it stays a binder
+   (loop [expr fn-expr
+          ty (whnf-with-mvars est fn-type)]
+     (if (and (e/forall? ty)
+              (let [info (e/forall-info ty)]
+                (or (= info :implicit)
+                    (and (= info :strict-implicit) (not trailing?))
+                    (= info :inst-implicit))))
+       (let [binfo (e/forall-info ty)
+             inst? (= binfo :inst-implicit)
+             arg-mvar (fresh-mvar! est (e/forall-type ty)
+                                   (cond-> {:kind (if inst? :synthetic :natural)}
+                                     (e/forall-name ty) (assoc :user-name (e/forall-name ty))
+                                     inst? (assoc :inst-implicit? true)))
               ;; Mark instance-implicit mvars so they can be solved by instance
               ;; synthesis (not just unification) before the final unsolved-check.
-            _ (when inst? (mark-inst-implicit! est arg-mvar))
-            expr' (e/app expr arg-mvar)
-            ty' (whnf-with-mvars est (e/instantiate1 (e/forall-body ty) arg-mvar))]
-        (recur expr' ty'))
-      [expr ty])))
+             _ (when inst? (mark-inst-implicit! est arg-mvar))
+             expr' (e/app expr arg-mvar)
+             ty' (whnf-with-mvars est (e/instantiate1 (e/forall-body ty) arg-mvar))]
+         (recur expr' ty'))
+       [expr ty]))))
 
 (defn- type-head-name
   "Whnf the (zonked) type and return its head constant's name as a string (e.g. \"Nat\",
@@ -796,7 +803,7 @@
         ;; Insert leading implicits (unless @-explicit or positional)
         [head-expr head-type] (if explicit?
                                 [head-expr head-type]
-                                (insert-implicits est head-expr head-type))]
+                                (insert-implicits est head-expr head-type (empty? arg-sexprs)))]
     ;; Apply explicit arguments one at a time
     (loop [expr head-expr
            ty head-type
@@ -805,7 +812,7 @@
         ;; After all args applied, insert trailing implicits
         (if explicit?
           expr
-          (first (insert-implicits est expr ty)))
+          (first (insert-implicits est expr ty true)))
         (let [;; Insert implicit arguments before each explicit arg (unless @-explicit)
               [expr ty] (if explicit?
                           [expr ty]
@@ -1677,7 +1684,7 @@
         (let [{:keys [expr explicit?]} (resolve-symbol est sexpr)]
           (if explicit?
             expr
-            (first (insert-implicits est expr (infer-with-mvars est expr))))))
+            (first (insert-implicits est expr (infer-with-mvars est expr) true)))))
 
       (seq? sexpr)
       (let [head (first sexpr)

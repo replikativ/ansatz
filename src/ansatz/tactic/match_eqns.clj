@@ -34,19 +34,22 @@
       (let [bt (e/forall-type ty)
             fid (fresh-id)
             fv (e/fvar fid)]
-        (recur (e/instantiate1 (e/forall-body ty) fv) (inc i) (conj fvars [fid fv bt]))))))
+        (recur (e/instantiate1 (e/forall-body ty) fv) (inc i)
+               (conj fvars [fid fv bt (e/forall-name ty) (e/forall-info ty)]))))))
 
 (defn- count-foralls [ty]
   (loop [ty ty, n 0] (if (e/forall? ty) (recur (e/forall-body ty) (inc n)) n)))
 
+;; A binder keeps the name and kind it was opened with (Lean's equation theorems quantify over
+;; the matcher's own binders: `{α}`, `motive`, the pattern variables, `h_1` …).
 (defn- close-foralls [body binders]
-  (reduce (fn [b [fid _ bt]]
-            (e/forall' "x" bt (e/abstract1 b fid) :default))
+  (reduce (fn [b [fid _ bt n info]]
+            (e/forall' (or n "x") bt (e/abstract1 b fid) (or info :default)))
           body (reverse binders)))
 
 (defn- close-lambdas [body binders]
-  (reduce (fn [b [fid _ bt]]
-            (e/lam "x" bt (e/abstract1 b fid) :default))
+  (reduce (fn [b [fid _ bt n info]]
+            (e/lam (or n "x") bt (e/abstract1 b fid) (or info :default)))
           body (reverse binders)))
 
 (defn- open-lambdas [term n]
@@ -59,7 +62,7 @@
         (let [fid (fresh-id)
               fv (e/fvar fid)]
           (recur (e/instantiate1 (e/lam-body term) fv) (inc i)
-                 (conj binders [fid fv (e/lam-type term)])))))))
+                 (conj binders [fid fv (e/lam-type term) (e/lam-name term) (e/lam-info term)])))))))
 
 (defn- named-discr-refl [type]
   ;; AltTelescopes.forallAltTelescope supplies reflexivity for each `h : discr`
@@ -323,6 +326,16 @@
      :num-params num-params :num-discrs num-discrs
      :alts alt-data}))
 
+(defn- expr-fvar-ids [x]
+  (let [ids (volatile! #{})]
+    (subst/map-expr-fvars (fn [id] (vswap! ids conj id) (e/fvar id)) x)
+    @ids))
+
+(defn- type-level
+  "The level `l` with `ty : Sort l`."
+  [st ty]
+  (e/sort-level (red/whnf (:env st) (tc/infer-type st ty) (:lctx st))))
+
 (defn get-equations-for
   "Generate matcher equations and a splitter on demand. Non-overlapping matchers
    receive a transparent splitter alias."
@@ -366,9 +379,9 @@
                    discr-subst (into {} (map (fn [[id] pattern] [id pattern]) discrs patterns))
                    equation-alts (if (zero? num-discr-eqs)
                                    altfvs
-                                   (mapv (fn [[_ _ type]]
+                                   (mapv (fn [[_ _ type n info]]
                                            (let [id (fresh-id)]
-                                             [id (e/fvar id) (subst/apply discr-subst type)]))
+                                             [id (e/fvar id) (subst/apply discr-subst type) n info]))
                                          altfvs))
                  ;; rhsArgs: a unit thunk is applied to Unit.unit; otherwise the field fvars.
                    unit-unit (e/const' (name/from-string "Unit.unit") [])
@@ -401,12 +414,74 @@
                             (prove-conditional-equation eq-ty binders guards)
                             (close-lambdas proof-open binders))
                    eq-name (str eq-base (inc i))]
-               {:name eq-name :type eq-ty :value eq-val}))
+               {:name eq-name :type eq-ty :value eq-val
+                ;; (a unit thunk quantifies no field and its alternative takes Unit.unit,
+                ;; Lean AltTelescopes.lean)
+                :congr (when (zero? num-discr-eqs)
+                         {:patterns patterns :ys ys-binders :rhs-args rhs-args :guards guards :i i})}))
            altfvs)
         ;; Lean rebuilds a separate matcher when alternatives overlap. Otherwise
         ;; the splitter is a transparent alias of the original matcher.
           splitter-name (str match-name ".splitter")
-          results (vec results)]
+          results (vec results)
+          ;; MatchEqs.lean genMatchCongrEqns: `congr_eq_i : ∀ params motive discrs alts fields,
+          ;; discrs = patterns → guards → HEq (matcher … discrs …) (h_i fields)`. Built for
+          ;; independent, homogeneous discriminants (each discr's type closed over the params).
+          congr-results
+          ;; (best effort: a congruence equation that cannot be built leaves the ordinary
+          ;; equations untouched; Lean realizes the two separately)
+          (try
+            (when (every? (fn [[_ _ ty]] (not-any? (set (map first discrs)) (expr-fvar-ids ty))) discrs)
+              (vec
+               (keep
+                (fn [{:keys [name congr]}]
+                  (when congr
+                    (let [{:keys [patterns ys rhs-args guards i]} congr
+                          st (tc/attach-lctx (tc/mk-tc-state env0)
+                                             (reduce (fn [l [id _ ty n]] (red/lctx-add-local l id (str (or n "x")) ty)) {}
+                                                     (concat params [motive] discrs altfvs ys)))
+                          same? (fn [a b] (tc/is-def-eq st (tc/infer-type st a) (tc/infer-type st b)))]
+                      (when (every? true? (map (fn [[_ fv] p] (same? fv p)) discrs patterns))
+                        (let [eqs (mapv (fn [[_ fv ty] p]
+                                          (let [id (fresh-id) l (type-level st ty)]
+                                            [id (e/fvar id) (e/app* (e/const' (name/from-string "Eq") [l]) ty fv p) "heq" :default]))
+                                        discrs patterns)
+                              guard-hyps (mapv (fn [g] (let [id (fresh-id)] [id (e/fvar id) g "h" :default])) guards)
+                              app (fn [ds] (apply e/app* mconst (concat (mapv second params) [motive-fv] ds (mapv second altfvs))))
+                              rhs (apply e/app* (second (nth altfvs i)) rhs-args)
+                              heq (fn [ds] (let [t (apply e/app* motive-fv ds)]
+                                             (e/app* (e/const' (name/from-string "HEq") [elim-lvl]) t (app ds)
+                                                     (apply e/app* motive-fv patterns) rhs)))
+                              eq-thm (apply e/app* (e/const' (name/from-string name) us)
+                                            (concat (mapv second params) [motive-fv] (mapv second ys) (mapv second altfvs)
+                                                    (mapv second guard-hyps)))
+                              base (e/app* (e/const' (name/from-string "heq_of_eq") [elim-lvl])
+                                           (apply e/app* motive-fv patterns) (app patterns) rhs eq-thm)
+                            ;; eliminate the discriminants from the last to the first
+                              proof (reduce
+                                     (fn [inner k]
+                                       (let [[xid xfv xty] (nth discrs k)
+                                             p (nth patterns k)
+                                             ds-k (fn [y] (vec (concat (subvec patterns 0 k) [y] (mapv second (subvec discrs (inc k))))))
+                                             l (type-level st xty)
+                                             yid (fresh-id) hid (fresh-id)
+                                           ;; the body abstracts y, then sits under the h binder: lift by one
+                                             motive-k (e/lam "y" xty (e/lam "h" (e/app* (e/const' (name/from-string "Eq") [l]) xty p (e/bvar 0))
+                                                                            (e/lift (e/abstract1 (heq (ds-k (e/fvar yid))) yid) 1 0) :default)
+                                                             :default)
+                                             [_ hfv] (nth eqs k)]
+                                         (e/app* (e/const' (name/from-string "Eq.rec") [lvl/zero l]) xty p motive-k inner xfv
+                                                 (e/app* (e/const' (name/from-string "Eq.symm") [l]) xty xfv p hfv))))
+                                     base (reverse (range (count discrs))))
+                              binders (vec (concat params [motive] discrs altfvs ys eqs guard-hyps))]
+                          {:name (str match-name ".congr_eq_" (inc i))
+                           :type (close-foralls (heq (mapv second discrs)) binders)
+                           :value (close-lambdas proof binders)})))))
+                results)))
+            (catch Exception ex
+              (when (and (instance? ansatz.kernel.KernelAbort ex) (re-find #"interrupted" (str (ex-message ex))))
+                (throw ex))
+              nil))]
     ;; Install (idempotent): add the splitter def + each eq_i theorem to the GLOBAL env.
       (swap! state/ansatz-env
              (fn [env]
@@ -435,7 +510,28 @@
                                        env
                                        (env/check-constant env (env/mk-thm (ansatz.kernel.name/from-string name)
                                                                            lvls type value))))
-                                   env results)]
+                                   env results)
+                       ;; congruence equations: checked after the equations they use. An
+                       ;; existing declaration counts only if it is that theorem; one that fails
+                       ;; to check is skipped (the ordinary equations do not depend on it)
+                       [env congr-names]
+                       (reduce (fn [[env names] {:keys [name type value]}]
+                                 (let [nm (ansatz.kernel.name/from-string name)]
+                                   (if-let [^ansatz.kernel.ConstantInfo old (env/lookup env nm)]
+                                     ;; (its universes compared positionally with ours)
+                                     [env (cond-> names (and (.isThm old) (= (count (.levelParams old)) (count lvls))
+                                                             (= (e/instantiate-level-params
+                                                                 (.type old) (zipmap (.levelParams old) (map lvl/param lvls)))
+                                                                type))
+                                                  (conj name))]
+                                     (try [(env/check-constant env (env/mk-thm nm lvls type value)) (conj names name)]
+                                          (catch Exception ex
+                                            ;; an interrupted check is cancellation, not a skip
+                                            (when (and (instance? ansatz.kernel.KernelAbort ex)
+                                                       (re-find #"interrupted" (str (ex-message ex))))
+                                              (throw ex))
+                                            [env names])))))
+                               [env []] congr-results)]
                  ;; Make the equations available to simp by default (the matcher reduces in each
                  ;; split branch via eqᵢ — Lean's simpMatchTargetCore; we route it through simp's set).
                    (let [env (reduce (fn [env {:keys [name]}]
@@ -449,6 +545,7 @@
                                            {:eqn-names (mapv :name results)
                                             :splitter-name splitter-name
                                             :splitter-info splitter-info
+                                            :congr-eqn-names congr-names
                                             :info info :levels lvls}))))))
       (get (env/get-extension @state/ansatz-env :match-eqns {}) match-name))))
 

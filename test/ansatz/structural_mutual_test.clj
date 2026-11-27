@@ -1,0 +1,115 @@
+(ns ansatz.structural-mutual-test
+  "Structural recursion through multi-motive brecOn (mutual and nested types) and
+   function-valued induction hypotheses (Lean Elab/PreDefinition/Structural/BRecOn.lean).
+   Lean parity: test/lean-parity/dsl/structural_mutual.lean."
+  (:require [clojure.test :refer [deftest testing is use-fixtures]]
+            [ansatz.test-env :as test-env]
+            [ansatz.fixtures :as fixtures]
+            [ansatz.core :as a]
+            [ansatz.inductive :as ind]
+            [ansatz.kernel.env :as env]
+            [ansatz.kernel.expr :as e]
+            [ansatz.kernel.name :as name]))
+
+(defn- with-env [f]
+  (reset! a/ansatz-env @test-env/bundled-init-env)
+  (binding [a/*verbose* false *ns* (the-ns 'ansatz.structural-mutual-test)]
+    (ind/define-mutual-inductive (a/env) []
+      [["SmTree" [['leaf []] ['node '[l SmTree f SmForest]]]]
+       ["SmForest" [['nil []] ['cons '[t SmTree f SmForest]]]]])
+    (eval '(ansatz.core/inductive SmW [] (leaf) (branch [k (=> Nat SmW)])))
+    (f)))
+
+(use-fixtures :once fixtures/isolated-session with-env)
+
+(defn- ci [n] (env/lookup (a/env) (name/from-string n)))
+(defn- arity [n] (loop [t (.type (ci n)) k 0] (if (e/forall? t) (recur (e/forall-body t) (inc k)) k)))
+
+(deftest a-mutual-block-is-one-declaration
+  (testing "each type's recursor and brecOn take a motive (and a functional) per type"
+    (is (= 2 (.numMotives (ci "SmTree.rec"))))
+    (is (= ["SmTree" "SmForest"] (mapv str (.all (ci "SmForest")))))
+    (doseq [n ["SmTree.below" "SmForest.below" "SmTree.brecOn" "SmForest.brecOn" "SmTree.casesOn"
+               "SmForest.noConfusion"]]
+      (is (some? (ci n)) n))
+    ;; motive_1 motive_2 major F_1 F_2
+    (is (= 5 (arity "SmTree.brecOn")))))
+
+(deftest structural-recursion-on-one-type-of-a-group
+  (binding [a/*verbose* false *ns* (the-ns 'ansatz.structural-mutual-test)]
+    (eval '(ansatz.core/defn sm-depth [t :- SmTree] Nat
+             (match t (leaf) 0 (node l f) (+ (sm-depth l) 1))))
+    (eval '(ansatz.core/theorem sm-depth-2 [] (= Nat (sm-depth (SmTree.node (SmTree.node SmTree.leaf SmForest.nil) SmForest.nil)) 2) (rfl))))
+  (testing "Forest gets `fun _ => PUnit` and `fun _ _ => PUnit.unit`, as Lean"
+    (is (re-find #"SmTree\.brecOn" (e/->string (.value (ci "sm-depth")))))
+    (is (re-find #"PUnit\.unit" (e/->string (.value (ci "sm-depth"))))))
+  (is (some? (ci "sm-depth-2"))))
+
+(deftest nested-type-with-direct-recursion
+  (binding [a/*verbose* false *ns* (the-ns 'ansatz.structural-mutual-test)]
+    (eval '(ansatz.core/inductive SmRose [] (leaf) (node [cs (List SmRose)] [r SmRose])))
+    (eval '(ansatz.core/defn sm-rdepth [r :- SmRose] Nat
+             (match r (leaf) 0 (node cs s) (+ (sm-rdepth s) 1))))
+    (eval '(ansatz.core/theorem sm-rdepth-2 []
+                                (= Nat (sm-rdepth (SmRose.node (List.nil SmRose) (SmRose.node (List.nil SmRose) SmRose.leaf))) 2) (rfl))))
+  (is (re-find #"SmRose\.brecOn" (e/->string (.value (ci "sm-rdepth")))))
+  (is (some? (ci "sm-rdepth-2"))))
+
+(deftest function-valued-induction-hypothesis
+  (binding [a/*verbose* false *ns* (the-ns 'ansatz.structural-mutual-test)]
+    (eval '(ansatz.core/defn sm-wleft [w :- SmW] Nat
+             (match w (leaf) 0 (branch k) (+ (sm-wleft (k 0)) 1))))
+    (eval '(ansatz.core/theorem sm-wleft-2 []
+                                (= Nat (sm-wleft (SmW.branch (fn [_ :- Nat] (SmW.branch (fn [_ :- Nat] SmW.leaf))))) 2) (rfl))))
+  (testing "the call `sm-wleft (k 0)` is answered from the dictionary `(a : Nat) → PProd …`"
+    (is (re-find #"SmW\.brecOn" (e/->string (.value (ci "sm-wleft"))))))
+  (is (some? (ci "sm-wleft-2"))))
+
+(deftest doubly-nested-occurrences-come-from-the-kernel
+  (testing "List (List Deep): one auxiliary below/brecOn per nested occurrence (Deep.below_1, _2)"
+    (binding [a/*verbose* false *ns* (the-ns 'ansatz.structural-mutual-test)]
+      (eval '(ansatz.core/inductive SmDeep [] (node [cs (List (List SmDeep))]))))
+    (is (= 2 (.numNested (ci "SmDeep"))))
+    (doseq [n ["SmDeep.below_1" "SmDeep.below_2" "SmDeep.brecOn_2"]]
+      (is (some? (ci n)) n))))
+
+(deftest review-cases
+  (testing "recursion on the second family of the block"
+    (binding [a/*verbose* false *ns* (the-ns 'ansatz.structural-mutual-test)]
+      (eval '(ansatz.core/defn sm-flen [f :- SmForest] Nat
+               (match f (SmForest.nil) 0 (SmForest.cons t g) (+ (sm-flen g) 1))))
+      (eval '(ansatz.core/theorem sm-flen-2 []
+                                  (= Nat (sm-flen (SmForest.cons SmTree.leaf (SmForest.cons SmTree.leaf SmForest.nil))) 2) (rfl))))
+    (is (re-find #"SmForest\.brecOn" (e/->string (.value (ci "sm-flen")))))
+    (is (some? (ci "sm-flen-2"))))
+  (testing "a wrong dictionary candidate is a miss: two reflexive fields, recursion on the second"
+    (binding [a/*verbose* false *ns* (the-ns 'ansatz.structural-mutual-test)]
+      (eval '(ansatz.core/inductive SmW2 [] (leaf) (branch [p (=> Bool SmW2)] [q (=> Nat SmW2)])))
+      (eval '(ansatz.core/defn sm-w2 [w :- SmW2] Nat
+               (match w (leaf) 0 (branch p q) (+ (sm-w2 (q 0)) 1))))
+      (eval '(ansatz.core/theorem sm-w2-1 []
+                                  (= Nat (sm-w2 (SmW2.branch (fn [_ :- Bool] SmW2.leaf) (fn [_ :- Nat] SmW2.leaf))) 1) (rfl))))
+    (is (some? (ci "sm-w2-1"))))
+  (testing "a let-bound recursive argument is zeta-reduced to find its hypothesis"
+    (binding [a/*verbose* false *ns* (the-ns 'ansatz.structural-mutual-test)]
+      (eval '(ansatz.core/defn sm-wfn [w :- SmW] Nat
+               (match w (leaf) 0 (branch k) (let [h :- (=> Nat SmW) k] (+ (sm-wfn (h 0)) 1)))))
+      (eval '(ansatz.core/theorem sm-wfn-1 []
+                                  (= Nat (sm-wfn (SmW.branch (fn [_ :- Nat] SmW.leaf))) 1) (rfl)))
+      (eval '(ansatz.core/defn sm-wlet [w :- SmW] Nat
+               (match w (leaf) 0 (branch k) (let [child :- SmW (k 0)] (+ (sm-wlet child) 1)))))
+      (eval '(ansatz.core/theorem sm-wlet-1 []
+                                  (= Nat (sm-wlet (SmW.branch (fn [_ :- Nat] SmW.leaf))) 1) (rfl))))
+    (is (re-find #"SmW\.brecOn" (e/->string (.value (ci "sm-wlet")))))
+    (is (some? (ci "sm-wlet-1")))
+    (is (re-find #"SmW\.brecOn" (e/->string (.value (ci "sm-wfn")))) "a let-bound function at the head")
+    (is (some? (ci "sm-wfn-1"))))
+  (testing "a universe named only in :in is a universe of the block"
+    (let [out (ind/define-mutual-inductive (a/env) []
+                [["SmUA" [['mk ['b 'SmUB]] ['z []]] :in '(Type u)]
+                 ["SmUB" [['mk ['a 'SmUA]]] :in '(Type u)]])]
+      (is (= ["u"] (mapv str (.levelParams (env/lookup out (name/from-string "SmUA"))))))))
+  (testing "an unsupported mutual result sort is rejected"
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"unsupported result sort"
+                          (ind/define-mutual-inductive (a/env) []
+                            [["SmBad" [['mk []]] :in '(Sort u v)]])))))
