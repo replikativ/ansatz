@@ -16,6 +16,7 @@
   (binding [a/*verbose* false config/*lean-matchers* true *ns* (the-ns 'ansatz.matcher-eqns-test)]
     (eval '(ansatz.core/inductive MeT [] (a [n Nat]) (b)))
     (eval '(ansatz.core/defn me-f [t :- MeT] Nat (match t (a n) n _ 0)))
+    (eval '(ansatz.core/defn me-b [b :- Bool] Nat (match b (Bool.true) 1 (Bool.false) 0)))
     (f)))
 
 (use-fixtures :once fixtures/isolated-session with-env)
@@ -53,3 +54,14 @@
         (is (= "HEq" (str (e/const-name (e/get-app-fn concl)))))))
     (testing "congr_eq_2 carries the precedence hypothesis"
       (is (= 7 (count (binders (.type (ci "me-f.match_1.congr_eq_2")))))))))
+
+(deftest nullary-arms-get-congruence-equations
+  (let [m "me-b.match_1"
+        {:keys [congr-eqn-names]} (match-eqns/get-equations-for m)]
+    (is (= [(str m ".congr_eq_1") (str m ".congr_eq_2")] congr-eqn-names))
+    (doseq [n congr-eqn-names] (is (checks? n) n))
+    (testing "no field binder; the alternative is applied to Unit.unit"
+      (let [t (.type (ci (str m ".congr_eq_1")))
+            concl (loop [t t] (if (e/forall? t) (recur (e/forall-body t)) t))
+            rhs (last (e/get-app-args concl))]
+        (is (= ["Unit.unit"] (mapv #(str (e/const-name %)) (e/get-app-args rhs))))))))
