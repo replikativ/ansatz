@@ -32,3 +32,17 @@ example (h : Two) : Two.casesOn (motive := fun _ => Nat) h (fun _ _ => 3) = 3 :=
 /-- info: @Exists.casesOn : ∀ {α : Sort u_1} {p : α → Prop} {motive : Exists p → Prop} (t : Exists p),
   (∀ (w : α) (h : p w), motive ⋯) → motive t -/
 #guard_msgs in #check @Exists.casesOn
+
+-- and its body is the recursor's, not projections (And's applies the minor to its projections)
+/--
+info: @[reducible] def Exists.casesOn.{u} : ∀ {α : Sort u} {p : α → Prop} {motive : Exists p → Prop} (t : Exists p),
+  (∀ (w : α) (h : p w), motive ⋯) → motive t :=
+fun {α} {p} {motive} t intro => Exists.rec (fun w h => intro w h) t
+-/
+#guard_msgs in #print Exists.casesOn
+
+-- a dependent second proof field: the projections still compute
+structure DepBoth (p : Prop) (q : p → Prop) : Prop where
+  hp : p
+  hq : q hp
+example {p : Prop} {q : p → Prop} (h : DepBoth p q) : DepBoth.casesOn (motive := fun _ => Nat) h (fun _ _ => 7) = 7 := rfl

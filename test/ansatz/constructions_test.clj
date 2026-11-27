@@ -19,7 +19,8 @@
             [ansatz.meta.constructions.brec-on :as brec]
             [ansatz.meta.constructions.no-confusion :as nc]
             [ansatz.kernel.cases-on :as kernel-cases])
-  (:import [java.util.zip GZIPInputStream]))
+  (:import [java.util.zip GZIPInputStream]
+           [ansatz.kernel TypeChecker]))
 
 (def oracle
   (delay
@@ -199,17 +200,64 @@
                                               '(fn [a :- p, b :- q] 7)) 7)
                           '(rfl)))
               (is (some? (lookup (a/env) (str "pboth-" elim "-computes")))))
-            (is (thrown? Exception
-                         (eval (list 'ansatz.core/theorem 'pboth-rec-computes '[p :- Prop, q :- Prop, h :- (PBoth p q)]
-                                     (list '= 'Nat (list (symbol "@PBoth.rec.{1}") 'p 'q '(fn [_ :- (PBoth p q)] Nat)
-                                                         '(fn [a :- p, b :- q] 7) 'h) 7)
-                                     '(rfl))))))
+            ;; the recursor permutation elaborates and type-checks, but is not 7 on a variable
+            (let [rec-app (ansatz.surface.elaborate/elaborate
+                           (a/env) (list 'fn '[p :- Prop, q :- Prop, h :- (PBoth p q)]
+                                         (list (symbol "@PBoth.rec.{1}") 'p 'q '(fn [_ :- (PBoth p q)] Nat)
+                                               '(fn [a :- p, b :- q] 7) 'h)))
+                  st (tc/mk-tc-state (a/env))
+                  ty (tc/infer-type st rec-app)]
+              (is (some? ty))
+              (is (not (tc/is-def-eq st rec-app
+                                     (ansatz.surface.elaborate/elaborate
+                                      (a/env) '(fn [p :- Prop, q :- Prop, h :- (PBoth p q)] 7)))))))
+          (testing "a dependent second proof field"
+            (let [out (ind/define-inductive (a/env) "PDep" '[p Prop q (=> p Prop)] [['mk '[hp p hq (q hp)]]] :in 'Prop)]
+              (reset! a/ansatz-env out)
+              (eval (list 'ansatz.core/theorem 'pdep-cases-computes '[p :- Prop, q :- (=> p Prop), h :- (PDep p q)]
+                          (list '= 'Nat (list (symbol "@PDep.casesOn.{1}") 'p 'q '(fn [_ :- (PDep p q)] Nat) 'h
+                                              '(fn [a :- p, b :- (q a)] 7)) 7)
+                          '(rfl)))
+              (is (some? (lookup (a/env) "pdep-cases-computes")))))
           (testing "an Exists-like proposition (Prop elimination only) keeps the recursor"
             (let [out (ind/define-inductive @test-env/bundled-init-env "PEx" '[α Type p (=> α Prop)]
                         [['intro '[w α h (p w)]]] :in 'Prop)
                   body (loop [v (.value (lookup out "PEx.casesOn"))] (if (e/lam? v) (recur (e/lam-body v)) v))]
               (is (= "PEx.rec" (str (e/const-name (e/get-app-fn body)))))))))
       (finally (reset! a/ansatz-env saved)))))
+
+(defn- alias-prop-structure
+  "`AliasBoth (p q : Prop) : PropAlias` (`PropAlias := Prop`, reducible) with `mk (hp : p) (hq : q)`,
+   admitted at the kernel level with Name binders, as an import would carry it."
+  [base]
+  (let [N name/from-string
+        env (env/check-constant base (env/mk-def (N "PropAlias") [] (e/sort' (lvl/succ lvl/zero)) (e/sort' lvl/zero)
+                                                 :hints :abbrev))
+        prop (e/sort' lvl/zero)
+        nm (N "AliasBoth") T (fn [p q] (e/app* (e/const' nm []) p q))
+        ind (env/mk-induct nm [] (e/forall' (N "p") prop (e/forall' (N "q") prop (e/const' (N "PropAlias") []) :default) :default)
+                           :num-params 2 :ctors [(N "AliasBoth.mk")])
+        mk-app (fn [p q hp hq] (e/app* (e/const' (N "AliasBoth.mk") []) p q hp hq))
+        cty (e/forall' (N "p") prop
+                       (e/forall' (N "q") prop
+                                  (e/forall' (N "hp") (e/bvar 1)
+                                             (e/forall' (N "hq") (e/bvar 1) (T (e/bvar 3) (e/bvar 2)) :default) :default)
+                                  :implicit) :implicit)
+        ctor (env/mk-ctor (N "AliasBoth.mk") [] cty nm 0 2 2)
+        un (N "u")
+        rty (e/forall' (N "p") prop
+                       (e/forall' (N "q") prop
+                                  (e/forall' (N "motive") (e/forall' (N "t") (T (e/bvar 1) (e/bvar 0)) (e/sort' (lvl/param un)) :default)
+                                             (e/forall' (N "mk") (e/forall' (N "hp") (e/bvar 2)
+                                                                            (e/forall' (N "hq") (e/bvar 2)
+                                                                                       (e/app (e/bvar 2) (mk-app (e/bvar 4) (e/bvar 3) (e/bvar 1) (e/bvar 0)))
+                                                                                       :default) :default)
+                                                        (e/forall' (N "t") (T (e/bvar 3) (e/bvar 2)) (e/app (e/bvar 2) (e/bvar 0)) :default)
+                                                        :default) :implicit) :implicit) :implicit)
+        rn (N "AliasBoth.rec")
+        rec #(env/mk-recursor rn [un] rty :all [nm] :num-params 2 :num-motives 1 :num-minors 1 :rules %)
+        rules (vec (TypeChecker/generateExpectedRecursorRules env (env/mk-inductive-bundle [] 2 false [ind] [ctor] [(rec [])]) 0 1000000))]
+    (env/check-inductive-bundle env (env/mk-inductive-bundle [] 2 false [ind] [ctor] [(rec rules)]))))
 
 (deftest pure-cases-on-builder-uses-projections-where-lean-does
   (let [env @test-env/bundled-init-env
@@ -221,4 +269,14 @@
                                                    (vec (.levelParams and-cases)) (.type and-cases) (.value and-cases)))))
     (let [ex (kernel-cases/make-declaration env (name/from-string "Exists"))
           body (loop [v (.value ex)] (if (e/lam? v) (recur (e/lam-body v)) v))]
-      (is (= "Exists.rec" (str (e/const-name (e/get-app-fn body))))))))
+      (is (= "Exists.rec" (str (e/const-name (e/get-app-fn body))))))
+    (testing "the projection path honours the shared local limit"
+      (is (= :cases-on/local-limit
+             (try (kernel-cases/make-declaration env (name/from-string "And") {:max-locals 1}) nil
+                  (catch clojure.lang.ExceptionInfo ex (:type (ex-data ex)))))))
+    (testing "a header that ends in a reducible alias for Prop is Prop-valued"
+      (let [out (alias-prop-structure env)
+            d (kernel-cases/make-declaration out (name/from-string "AliasBoth"))
+            body (loop [v (.value d)] (if (e/lam? v) (recur (e/lam-body v)) v))]
+        (is (e/proj? (e/app-arg body)))
+        (is (some? (env/check-constant out d)))))))
