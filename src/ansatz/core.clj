@@ -3018,9 +3018,9 @@
             (try
               (swap! ansatz-env structural-eqns/unfold-equation fn-name (:expr body-result)
                      (:self-fvar-id body-result) rec-pos n)
+              ;; reported and recorded with the definition's equation errors, not swallowed
               (catch Exception ex
-                (when *verbose*
-                  (println (str "  ⚠ " fn-name ".eq_def not generated: " (ex-message ex)))))))
+                (report-equation-error! equation-errors (str fn-name ".eq_def") ex))))
         ;; Lean Meta/Eqns.lean registerEqnThms/getEqnsFor?: record the names at
         ;; installation with each matcher owning its own equations.
         ;; Preserve equation order within each owner; retain
