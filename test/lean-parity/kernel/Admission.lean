@@ -75,3 +75,11 @@ def PQ : Expr := mkForall `x .default (mkBVar 1) (mkBVar 1)
 #guard_msgs in
 #eval addDecl (.inductDecl [`a, `b] 2 [{ name := `M1, type := hdr s, ctors := [] },
                                        { name := `M2, type := hdr (mkLevelMax s (.param `b)), ctors := [] }] false)
+
+-- The same pair as the *parameter domains* of two mutual predicates: the shared-parameter check
+-- is `is_def_eq`, whose sort case is `is_equivalent`, so the domains do not match.
+/-- error: (kernel) parameters of all inductive datatypes must match -/
+#guard_msgs in
+#eval addDecl (.inductDecl [`a, `b] 1
+  [{ name := `D1, type := mkForall `X .default (mkSort s) (mkSort Level.zero), ctors := [] },
+   { name := `D2, type := mkForall `X .default (mkSort (mkLevelMax s (.param `b))) (mkSort Level.zero), ctors := [] }] false)

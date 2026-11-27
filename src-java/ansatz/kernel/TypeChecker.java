@@ -1189,7 +1189,7 @@ public final class TypeChecker {
                 case Expr.LAM: case Expr.FORALL:
                     return isDefEqBinding(t, s) ? 1 : -1;
                 case Expr.SORT:
-                    return Level.eq((Level) t.o0, (Level) s.o0) ? 1 : -1;
+                    return Level.isEquivalent((Level) t.o0, (Level) s.o0) ? 1 : -1;   // Lean: is_equivalent
                 case Expr.MDATA:
                     return isDefEq((Expr) t.o1, (Expr) s.o1) ? 1 : -1;
                 case Expr.LIT_NAT:
@@ -1388,7 +1388,7 @@ public final class TypeChecker {
                         if (tl.length == sl.length) {
                             boolean allEq = true;
                             for (int i = 0; i < tl.length; i++) {
-                                if (!Level.eq((Level) tl[i], (Level) sl[i])) { allEq = false; break; }
+                                if (!Level.isEquivalent((Level) tl[i], (Level) sl[i])) { allEq = false; break; }
                             }
                             if (allEq) {
                                 if (doEmit) emitTrace(lFp, rFp, true, "const_eq");
@@ -1434,7 +1434,7 @@ public final class TypeChecker {
 
         // Step 7: Sort comparison
         if (tn.tag == Expr.SORT && sn.tag == Expr.SORT) {
-            boolean r = Level.eq((Level) tn.o0, (Level) sn.o0);
+            boolean r = Level.isEquivalent((Level) tn.o0, (Level) sn.o0);
             if (doEmit) emitTrace(lFp, rFp, r, "sort_eq");
             if (doStepDiag) stepDiagApp++;  // count in "app" bucket for sorts
             return r;
@@ -1859,7 +1859,7 @@ public final class TypeChecker {
     private static boolean levelsEq(Object[] a, Object[] b) {
         if (a.length != b.length) return false;
         for (int i = 0; i < a.length; i++) {
-            if (!Level.eq((Level) a[i], (Level) b[i])) return false;
+            if (!Level.isEquivalent((Level) a[i], (Level) b[i])) return false;   // Lean: is_def_eq(levels)
         }
         return true;
     }

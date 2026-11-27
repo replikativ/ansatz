@@ -319,3 +319,16 @@
     (is (.hasLevelParam ^Expr hdr))
     (is (.hasLevelParam ^Expr (Expr/mkConst (n "KI3") (object-array [(lvl/param v)]) false)))
     (is (= (str (e/sort' l1)) (str (.inferType tc (Expr/mkConst (n "KI3") (object-array [l0]) false)))))))
+
+(deftest mutual-parameter-domains-use-is-equivalent
+  ;; Lean: A (X : Sort s) : Prop and B (X : Sort (max s b)) : Prop with s = imax a b —
+  ;; "parameters of all inductive datatypes must match" (Admission.lean): the domains are
+  ;; compared by is_def_eq, whose sort case is is_equivalent, not semantic level equality.
+  (is (re-find #"parameters of all inductive datatypes must match"
+               (str (try (env/add-inductive @base (env/mk-inductive-decl
+                                                   [(n "a") (n "b")] 1 false
+                                                   [["KD1" (pi "X" (e/sort' s11) prop) []]
+                                                    ["KD2" (pi "X" (e/sort' (lvl/level-max s11 (P "b"))) prop) []]])
+                                            fuel)
+                         nil
+                         (catch Throwable ex (.getMessage ex)))))))
