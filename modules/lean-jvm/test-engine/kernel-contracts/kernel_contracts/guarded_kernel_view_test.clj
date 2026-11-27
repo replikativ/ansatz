@@ -59,9 +59,11 @@
       (finally (view/close! model)))))
 
 (deftest memo-and-historical-ledger-refuse-ci-and-universe-array-mutations
-  (doseq [change! [(fn [^ConstantInfo constant _] (set! (.isUnsafe constant) true))
-                   ;; the node's own level array (Expr.mkConst copies the caller's)
-                   (fn [^ConstantInfo constant _] (aset ^objects (.o1 ^Expr (.type constant)) 0 (Level/succ Level/ZERO_LEVEL)))]]
+  ;; a node's universe arguments are a read-only list (Expr.mkConst copies the caller's array)
+  (let [constant (ConstantInfo/mkAxiom a (object-array []) (Expr/mkConst b (object-array [Level/ZERO_LEVEL]) false) false)]
+    (is (thrown? UnsupportedOperationException
+                 (.set ^java.util.List (.o1 ^Expr (.type constant)) 0 (Level/succ Level/ZERO_LEVEL)))))
+  (doseq [change! [(fn [^ConstantInfo constant _] (set! (.isUnsafe constant) true))]]
     (let [levels (object-array [Level/ZERO_LEVEL])
           constant (ConstantInfo/mkAxiom a (object-array []) (Expr/mkConst b levels false) false)
           model (open-model {a constant b (ci b)})]
