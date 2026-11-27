@@ -115,7 +115,9 @@
                           Set false to omit these auxiliaries explicitly.
 
    Adds: inductive, constructors, recursor, casesOn, recOn, optionally
-   below/brecOn (for recursive types), noConfusionType and noConfusion. Returns env."
+   below/brecOn (for recursive types), noConfusionType and noConfusion. Returns env.
+   A declaration the kernel rejects (positivity, universes, nesting, ...) throws ex-info
+   {:inductive name} carrying the kernel's message, which names the constructor and argument."
   [env ind-name-str params-spec ctors-spec & {:keys [in indices no-confusion?]
                                               :or {no-confusion? true}}]
   (let [ind-name (name/from-string ind-name-str)

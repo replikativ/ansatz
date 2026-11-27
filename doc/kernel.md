@@ -573,13 +573,35 @@ unfolding unnecessarily.
 
 ## 6. Checking declarations
 
-There are two public kernel admission entry points:
+Kernel admission entry points:
 
-- `TypeChecker.checkConstant(env, ci, fuel)` admits non-inductive constants:
-  axioms, definitions, theorems, opaque declarations, and quotient primitives.
-- `TypeChecker.checkInductiveBundle(env, bundle, fuel)` admits inductive
-  groups. Individual inductive, constructor, and recursor constants are rejected
-  by `checkConstant`; they must pass through the bundle checker.
+- `TypeChecker.checkConstant(env, ci, fuel)` (`env/check-constant`) admits
+  non-inductive constants: axioms, definitions, theorems, opaque declarations,
+  and quotient primitives. Inductive, constructor and recursor constants are
+  rejected here.
+- `AddInductive.add(env, decl, fuel)` (`env/add-inductive`) admits an
+  inductive declaration: an `InductiveDecl` (`env/mk-inductive-decl`) of
+  universe parameters, parameter count, safety, and ordered types with ordered
+  constructors. The kernel generates every constant of the block;
+  `AddInductive.constants` (`env/inductive-decl-constants`) lists them.
+- `TypeChecker.checkInductiveBundle(env, bundle, fuel)`
+  (`env/check-inductive-bundle`) admits an exported block (store, NDJSON) by
+  generating it with `AddInductive.add` and comparing. The records must be
+  complete: every inductive type, every constructor its inductive lists, and
+  every recursor the declaration generates (`I.rec` for each type, and
+  `<first>.rec_<i>` for each auxiliary type of a nested declaration). A
+  missing, extra, duplicate or unlisted record is an error, as is any field of
+  a record that differs from the generated one. A source caller with only
+  types and constructors uses `add-inductive`, not the bundle checker.
+
+Removed with the K4 port (2026-11): `InductiveChecker`,
+`InductiveBundleChecker`, `RecursorGenerator`, `NestedInductiveEliminator`,
+`NestedElimResult`, `RawInductiveGenerator`, `RawNestedInductiveGenerator`,
+and `TypeChecker.generateExpectedRecursorRules`, `debugExpectedRecursorType`,
+`debugNormalizedExpectedRecursorType`, `debugExpectedRecursorRules`. The
+frontend's `define-inductive` now reports a kernel rejection as ex-info
+`{:inductive name}` with the kernel's message (it no longer carries `:ctor` /
+`:field`; Lean's messages name the constructor and argument).
 
 `checkConstant`:
 
@@ -689,8 +711,8 @@ The kernel's job is narrow by design. It does **not**:
 - **Handle metavariables**: `MVAR` expressions are an elaborator concept. The
   kernel only sees closed, fully-instantiated terms.
 
-The boundary is `TypeChecker/checkConstant` plus
-`TypeChecker/checkInductiveBundle`. Everything above it is untrusted tooling
+The boundary is `TypeChecker/checkConstant` plus `AddInductive/add` (and
+`TypeChecker/checkInductiveBundle`, which reaches it for exported blocks). Everything above it is untrusted tooling
 that helps construct terms; everything below is the trusted checker.
 
 ---
