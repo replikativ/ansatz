@@ -20,8 +20,7 @@
             [ansatz.meta.constructions.no-confusion :as nc]
             [ansatz.meta.constructions.util :as u]
             [ansatz.meta.constructions.ctor-idx :as ctor-idx])
-  (:import [java.util.zip GZIPInputStream]
-           [ansatz.kernel TypeChecker]))
+  (:import [java.util.zip GZIPInputStream]))
 
 (def oracle
   (delay
@@ -223,33 +222,17 @@
                              (u/mk-eq-refl ctx beq)))))
 
 (defn- sort-poly-enum
-  "`inductive n : Sort u` with nullary constructors, admitted at the kernel level as Lean 4.36
-   does (the DSL's parameterless form defaults to Type): with two or more constructors it
-   eliminates only into Prop, with one into any Sort. Then the DSL's construction sequence."
+  "`inductive n : Sort u` with nullary constructors, admitted through the kernel's add_inductive
+   as Lean 4.36 does (the DSL's parameterless form defaults to Type): with two or more
+   constructors it eliminates only into Prop, with one into any Sort. Then the DSL's
+   construction sequence."
   [base n ctors]
   (let [un (name/from-string "u") U (lvl/param un)
-        nm (name/from-string n) T (e/const' nm [U])
-        cn #(name/from-string (str n "." %))
-        ind (env/mk-induct nm [un] (e/sort' U) :ctors (mapv cn ctors))
-        cis (vec (map-indexed (fn [i c] (env/mk-ctor (cn c) [un] T nm i 0 0)) ctors))
-        large? (= 1 (count ctors))
-        vn (name/from-string "u_1")
-        rlps (if large? [vn un] [un])
-        k (count ctors)
-        ;; ∀ {motive : T → Sort}, motive c₀ → … → ∀ t, motive t
-        body (e/forall' (name/from-string "t") T (e/app (e/bvar (inc k)) (e/bvar 0)) :default)
-        body (reduce (fn [b i] (e/forall' (name/from-string (nth ctors i))
-                                          (e/app (e/bvar i) (e/const' (cn (nth ctors i)) [U])) b :default))
-                     body (reverse (range k)))
-        rty (e/forall' (name/from-string "motive")
-                       (e/arrow T (e/sort' (if large? (lvl/param vn) lvl/zero))) body :implicit)
-        rn (name/from-string (str n ".rec"))
-        rec #(env/mk-recursor rn rlps rty :all [nm] :num-motives 1 :num-minors k :rules %)
-        rules (vec (TypeChecker/generateExpectedRecursorRules
-                    base (env/mk-inductive-bundle [un] 0 false [ind] cis [(rec [])]) 0 1000000))
-        env (env/check-inductive-bundle base (env/mk-inductive-bundle [un] 0 false [ind] cis [(rec rules)]))
-        env (rec/mk-rec-on env n)
+        T (e/const' (name/from-string n) [U])
+        env (env/add-inductive base (env/mk-inductive-decl [un] 0 false
+                                                           [[n (e/sort' U) (mapv (fn [c] [(str n "." c) T]) ctors)]]))
         env (cases/mk-cases-on env n)
+        env (rec/mk-rec-on env n)
         env (ctor-idx/mk-ctor-idx env n)]
     (nc/mk-no-confusion env n)))
 
