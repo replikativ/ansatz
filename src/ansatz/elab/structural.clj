@@ -97,6 +97,14 @@
       (or (to-below ctx motive (e/proj (name/from-string head-name) 0 below) target-args)
           (to-below ctx motive (e/proj (name/from-string head-name) 1 below) target-args))
 
+      ;; BRecOn.lean toBelowAux: a reflexive field's dictionary `(a : A) → PProd …` is
+      ;; instantiated with the trailing arguments of the recursive argument (`k 0`)
+      (e/forall? type)
+      (let [n (loop [t type n 0] (if (e/forall? t) (recur (e/forall-body t) (inc n)) n))
+            arg-args (vec (e/get-app-args (peek target-args)))]
+        (when (>= (count arg-args) n)
+          (to-below ctx motive (u/app below (subvec arg-args (- (count arg-args) n))) target-args)))
+
       :else nil)))
 
 (defn replace-rec-apps
@@ -210,15 +218,34 @@
         motive-body (u/mk-forall-fvars ctx varying result-type)
         motive-level (u/get-level ctx motive-body)
         motive (u/mk-lambda-fvars ctx (conj indices arg) motive-body)
+        ;; A nested or mutual type's brecOn takes one motive per type of its group (and per
+        ;; nested occurrence): the recursion's own, and for the others, as Lean does for types
+        ;; no function recurses on, `fun … => PUnit` with the functional `fun … => PUnit.unit`.
+        rec-ci (env/lookup! environment (name/mk-str ind-name "rec"))
+        n-motives (.numMotives rec-ci)
+        own (.indexOf ^java.util.List (vec (.all ind-info)) ind-name)
+        brec-head (u/app (e/const' (name/mk-str ind-name "brecOn") (into [motive-level] levels)) params)
+        motive-types (let [[ms _] (u/forall-telescope ctx (u/infer-type ctx brec-head) n-motives)]
+                       (mapv #(u/infer-type ctx %) ms))
+        unit (u/const' "PUnit" [motive-level])
+        motives (mapv (fn [i t] (if (= i own) motive
+                                    (let [[ys _] (u/forall-telescope ctx t)] (u/mk-lambda-fvars ctx ys unit))))
+                      (range n-motives) motive-types)
         below-type (u/app (e/const' (name/mk-str ind-name "below")
                                     (into [motive-level] levels))
-                          (concat params [motive] indices [arg]))
+                          (concat params motives indices [arg]))
         below (u/local-decl ctx "below" below-type)
         transformed (replace-rec-apps ctx environment self-id rec-pos index-positions arity fixed-args
                                       motive below body)
         functional (u/mk-lambda-fvars ctx (into (conj indices arg below) varying) transformed)
-        value (u/app (e/const' (name/mk-str ind-name "brecOn")
-                               (into [motive-level] levels))
-                     (concat params [motive] indices [arg functional]))
+        ;; the functionals' types, once the motives and the major are supplied
+        f-types (let [[fs _] (u/forall-telescope ctx (u/infer-type ctx (u/app brec-head (concat motives indices [arg]))) n-motives)]
+                  (mapv #(u/infer-type ctx %) fs))
+        functionals (mapv (fn [i t]
+                            (if (= i own) functional
+                                (let [[ys _] (u/forall-telescope ctx t)]
+                                  (u/mk-lambda-fvars ctx ys (u/const' "PUnit.unit" [motive-level])))))
+                          (range n-motives) f-types)
+        value (u/app brec-head (concat motives indices [arg] functionals))
         value (u/app value varying)]
     (u/mk-lambda-fvars ctx xs value)))

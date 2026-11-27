@@ -195,3 +195,59 @@
                (count ctors) "constructors, recursor"
                (if (pos? num-nested) (str "(nested, num-nested=" num-nested ")") ", auxiliaries"))
       env)))
+
+(defn define-mutual-inductive
+  "Define a mutual block of inductive types sharing their parameters as ONE kernel declaration
+   (Lean's `mutual … end`: a single inductive_decl, one recursor per type with a motive for every
+   type of the block), then each type's auxiliary constructions.
+
+   `specs` is a vector of [name ctors-spec & {:keys [indices in]}] (as define-inductive's).
+   The result universe of each type is its `:in` or, by default, Type (above the parameters'
+   `(Type u)` universes). Returns env."
+  [env params-spec specs]
+  (let [param-pairs (vec (partition 2 params-spec))
+        n-params (count param-pairs)
+        level-param-names (vec (distinct (keep (fn [[_ t]] (type-level-param t)) param-pairs)))
+        levels (mapv lvl/param level-param-names)
+        default-level (if (empty? level-param-names)
+                        (lvl/succ lvl/zero)
+                        (reduce lvl/level-max (map #(lvl/succ (lvl/param %)) level-param-names)))
+        specs (mapv (fn [[n ctors & {:keys [indices in]}]]
+                      {:name n :ind-name (name/from-string n) :ctors-spec ctors
+                       :index-pairs (vec (partition 2 (or indices [])))
+                       :result-level (cond (= in 'Prop) lvl/zero in (lvl/succ lvl/zero) :else default-level)
+                       :self-const (e/const' (name/from-string n) levels)})
+                    specs)
+        elaborated (elab/elab-mutual env param-pairs specs)
+        decl (env/mk-inductive-decl
+              level-param-names n-params false
+              (mapv (fn [spec {:keys [params indices ctors]}]
+                      [(:ind-name spec) (build-inductive-type params indices (:result-level spec))
+                       (mapv (fn [ctor]
+                               [(name/from-string (:full-name ctor))
+                                (build-constructor-type params (:fields ctor) (:ind-name spec) levels
+                                                        (:compiled-return-indices ctor))])
+                             ctors)])
+                    specs elaborated))
+        env (try (env/add-inductive env decl kernel-fuel)
+                 (catch RuntimeException ex
+                   (throw (ex-info (str "mutual block " (mapv :name specs) " rejected by the kernel: " (.getMessage ex))
+                                   {:inductive (mapv :name specs)} ex))))
+        has? (fn [n] (some? (env/lookup env (name/from-string n))))
+        names (mapv :name specs)
+        ;; MutualInductive.lean mkAuxConstructions: below for every type before any brecOn
+        env (reduce (fn [env n]
+                      (cond-> env
+                        (has? "PUnit") (cases-on/mk-cases-on n)
+                        true (rec-on/mk-rec-on n)
+                        (has? "Nat") (ctor-idx/mk-ctor-idx n)
+                        (has? "Nat") (ctor-elim/mk-ctor-elim n)
+                        (and (has? "PUnit") (has? "Eq") (has? "HEq")) (no-confusion/mk-no-confusion n)
+                        (and (has? "PUnit") (has? "Prod")) (brec-on/mk-below n)))
+                    env names)
+        env (if (and (has? "PUnit") (has? "Prod"))
+              (reduce brec-on/mk-brec-on env names)
+              env)]
+    (reset! @(requiring-resolve 'ansatz.core/ansatz-env) env)
+    (println "✓ mutual inductive" names "defined")
+    env))
