@@ -133,6 +133,9 @@ public final class Env {
             Object result = externalLookup.invoke(name);
             if (result instanceof ConstantInfo) {
                 ConstantInfo ext = (ConstantInfo) result;
+                // the declaration found under a name is that name's declaration, never an alias
+                if (!name.equals(ext.name))
+                    throw new RuntimeException("external lookup of '" + name + "' returned the declaration '" + ext.name + "'");
                 if (sharedCache != null) {
                     sharedCache.put(ext.name, new SoftReference<>(ext));
                 }

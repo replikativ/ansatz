@@ -444,10 +444,15 @@
           lookup-ci (fn [^Name name]
                       (let [result (pss/lookup env-pss [name nil])]
                         (when result
-                          (let [entry (nth result 1)]
-                            (if dag?
-                              (resolve-ci-shell entry resolve-expr-fn value-policy keep-value?)
-                              entry)))))]
+                          (let [entry (nth result 1)
+                                ^ConstantInfo ci (if dag?
+                                                   (resolve-ci-shell entry resolve-expr-fn value-policy keep-value?)
+                                                   entry)]
+                            ;; a row is the declaration of its key, never an alias for another name
+                            (when (and ci (not= name (.name ci)))
+                              (throw (ex-info "Store row key differs from its declaration's name"
+                                              {:key (str name) :name (str (.name ci))})))
+                            ci))))]
       {:branch-meta branch-meta
        :lookup-ci lookup-ci
        ;; This full-evidence path shares immutable PSS roots, not the ordinary
@@ -1128,7 +1133,12 @@
                        (let [rank (long rank)]
                          (and (< rank @idx)
                               (.get admitted-ranks (int rank))))))
-          env (load-env store-map branch-name :visible? visible? :loader loader)
+          ;; The records the kernel generated for each admitted inductive block. Later lookups
+          ;; see these, not the stored rows they were compared with (add_inductive installs
+          ;; what it generates; equal under Lean's structural equality is not identical).
+          generated (java.util.concurrent.ConcurrentHashMap.)
+          staged-loader (assoc loader :lookup-ci (fn [^Name name] (or (.get generated name) (lookup-ci name))))
+          env (load-env store-map branch-name :visible? visible? :loader staged-loader)
           ;; Verification type-checks against the staged env above, but fetching
           ;; the declaration being checked must be unrestricted. Both paths share
           ;; the branch loader so expression/name/level materialization caches
@@ -1148,6 +1158,7 @@
        :idx idx
        :admitted-ranks admitted-ranks
        :decl-ranks decl-ranks
+       :generated generated
        :start-time (System/currentTimeMillis)})))
 
 (defn- mark-admitted-range!
@@ -1241,12 +1252,26 @@
       (throw (ex-info "All declarations verified" {:idx i :total total})))
     (let [name-str (nth decl-order i)
           t0 (System/nanoTime)
-          ^ConstantInfo ci (resolve-fn name-str)]
-      (if (nil? ci)
+          resolved (try (resolve-fn name-str) (catch Throwable t t))
+          ;; the row checked under a rank must be the declaration of that name
+          bad-row (cond (instance? Throwable resolved) (str (.getClass ^Throwable resolved) ": " (.getMessage ^Throwable resolved))
+                        (and resolved (not= name-str (str (.name ^ConstantInfo resolved))))
+                        (str "Store row " name-str " holds the declaration " (.name ^ConstantInfo resolved)))
+          ^ConstantInfo ci (when-not bad-row resolved)]
+      (cond
+        bad-row
+        (do (swap! errors inc)
+            (swap! error-names conj {:name name-str :error bad-row})
+            (swap! idx inc)
+            {:status :error :name name-str :idx i :error bad-row})
+
+        (nil? ci)
         (do (swap! errors inc)
             (swap! error-names conj {:name name-str :error "MISSING"})
             (swap! idx inc)
             {:status :missing :name name-str :idx i})
+
+        :else
         (let [bundle? (.isInduct ci)
               ;; collected OUTSIDE the try: a failed bundle head must still advance past its
               ;; members, or each constructor/recursor is then met alone and reported too
@@ -1255,33 +1280,37 @@
                 (try (collect-inductive-bundle decl-order resolve-fn i ci)
                      (catch Throwable _ nil)))]
           (try
-            (let [fuel-used
-                  (long
-                   (run-with-large-stack
-                    (fn []
-                      (cond
-                        bundle?
-                        (do
-                          (TypeChecker/checkInductiveBundle
-                           env (build-inductive-bundle members) (long fuel))
-                          0)
+            (let [[fuel-used ^Env checked]
+                  (run-with-large-stack
+                   (fn []
+                     (cond
+                       bundle?
+                       [0 (TypeChecker/checkInductiveBundle
+                           env (build-inductive-bundle members) (long fuel))]
 
-                        (or (.isCtor ci) (.isRecursor ci))
-                        (throw (ex-info "Inductive bundle member encountered outside bundle head"
-                                        {:idx i :name name-str}))
+                       (or (.isCtor ci) (.isRecursor ci))
+                       (throw (ex-info "Inductive bundle member encountered outside bundle head"
+                                       {:idx i :name name-str}))
 
-                        :else
-                        (TypeChecker/checkConstantFuel env ci (long fuel))))
-                    verify-stack-size
-                    timeout-ms))
-                  elapsed-ms (/ (- (System/nanoTime) t0) 1e6)]
-              (mark-admitted-range! ctx i (if bundle? next-idx (inc i)))
-              (swap! ok + (if bundle? (count members) 1))
+                       :else
+                       [(TypeChecker/checkConstantFuel env ci (long fuel)) nil]))
+                   verify-stack-size
+                   timeout-ms)
+                  elapsed-ms (/ (- (System/nanoTime) t0) 1e6)
+                  checked-names (if bundle? (mapv #(str (.name ^ConstantInfo %)) members) [name-str])]
+              (if bundle?
+                ;; admit exactly the checked names, and serve the records the kernel generated
+                (doseq [^ConstantInfo m members]
+                  (.put ^java.util.Map (:generated ctx) (.name m) (.lookupLocal checked (.name m)))
+                  (let [rank (long (.get ^java.util.Map (:decl-ranks ctx) (.name m)))]
+                    (mark-admitted-range! ctx rank (inc rank))))
+                (mark-admitted-range! ctx i (inc i)))
+              (swap! ok + (count checked-names))
               (if bundle?
                 (reset! idx next-idx)
                 (swap! idx inc))
-              (cond-> {:status :ok :name name-str :idx i
-                       :fuel-used fuel-used :elapsed-ms elapsed-ms}
+              (cond-> {:status :ok :name name-str :idx i :checked-names checked-names
+                       :fuel-used (long fuel-used) :elapsed-ms elapsed-ms}
                 bundle? (assoc :bundle-size (count members)
                                :next-idx next-idx)))
             (catch Throwable ex
@@ -1298,7 +1327,7 @@
               ;; the staged env hides it and every dependent fails as "Unknown constant" — one
               ;; timeout became 345 shadow failures. Dependents then get a real check modulo
               ;; the one recorded root, which `reverify-errors!` retries.
-                (let [after (if (and bundle? next-idx) next-idx (inc i))]
+                (let [after (if (and bundle? next-idx) (max next-idx (inc i)) (inc i))]   ; a failed head consumes its own rank
                   (when admit-failures?
                     (mark-admitted-range! ctx i after))
                   (reset! idx after))
@@ -1600,7 +1629,14 @@
                                      (let [r (try (verify-by-name! ctx head :fuel fuel :timeout-ms timeout-ms)
                                                   (catch Exception e
                                                     {:status :error :error (str (.getClass e) ": " (ex-message e))}))
-                                           verdicts (mapv (fn [{:keys [name]}] [name (:status r) (:error r)]) entries)
+                                           checked (set (:checked-names r))
+                                           ;; a head's success clears only the names its check covered: a
+                                           ;; constructor or recursor row detached from its block stays failed
+                                           verdicts (mapv (fn [{:keys [name]}]
+                                                            (if (or (not= :ok (:status r)) (contains? checked name))
+                                                              [name (:status r) (:error r)]
+                                                              [name :error (str "not part of the block checked at its head " head)]))
+                                                          entries)
                                            cp' (swap! state apply-verdicts verdicts)]
                                        (log! lw (str "  [" (swap! done inc) "/" n "] " (name (:status r)) " " head
                                                      " (" (count entries) " recorded, "
