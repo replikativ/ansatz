@@ -291,6 +291,9 @@ public final class Expr {
 
     /** Bound variable (de Bruijn index). */
     public static Expr bvar(long idx) {
+        // Lean's Expr.mkData: the loose bound variable range (idx + 1) must fit its 20 bits
+        if (idx < 0 || idx >= BVAR_RANGE_MASK)
+            throw new IllegalArgumentException("bound variable index is too big: " + idx);
         int h = Long.hashCode(idx) * 31 + BVAR;
         long d = packData(idx + 1, h, false, false, false);
         return new Expr(BVAR, d, null, null, null, null, idx);

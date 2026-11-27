@@ -32,7 +32,7 @@
   (testing "the kernel refuses an index the int arithmetic would wrap"
     (let [p (Expr/proj (name/from-string "Prod") 4294967296 (pair))
           d (env/mk-def (name/from-string "proj-wrap-bad") [] (c "Nat") p)]
-      (is (thrown-with-msg? Exception #"invalid projection index"
+      (is (thrown-with-msg? Exception #"invalid projection"
                             (env/check-constant (a/env) d)))))
   (testing "an ordinary projection still checks"
     (let [d (env/mk-def (name/from-string "proj-ok") [] (c "Nat") (Expr/proj (name/from-string "Prod") 1 (pair)))]

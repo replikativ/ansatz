@@ -590,7 +590,7 @@ public final class TypeChecker {
      * "not a Prop". The pre-fix syntactic test (tag==SORT && level==ZERO) answered false on a
      * STUCK sort, which let data be projected out of / eliminated from a proposition whose
      * sort only reduces under one of two definitionally-equal spellings (arena
-     * proj-of-subst-prop, rec-of-subst-prop). Level.isZero normalizes (max/imax), matching
+     * proj-of-subst-prop, rec-of-subst-prop). The zero test is Lean's normalizes_to_zero, matching
      * Lean's is_zero rather than a syntactic ZERO tag.
      */
     private boolean isProp(Expr e) {
@@ -598,7 +598,7 @@ public final class TypeChecker {
         if (t.tag != Expr.SORT) {
             throw new RuntimeException("Type error: type expected, got " + t + " (is_prop on a stuck sort — lean4#14807)");
         }
-        return Level.isZero((Level) t.o0);
+        return Level.normalizesToZero((Level) t.o0);
     }
 
     // ============================================================
@@ -698,7 +698,7 @@ public final class TypeChecker {
             int tag = (int) decl[0]; // 0=local, 1=let
             if (tag == 1) {
                 // Let binding
-                if (!removeDeadLet || r.bvarRange() > 0) {
+                if (!removeDeadLet || AddInductive.hasLooseBVar(r, 0)) {   // local_ctx::mk_binding: #0 occurs
                     Expr type = Reducer.abstractFvars((Expr) decl[2], i, fvarIds);
                     Expr value = Reducer.abstractFvars((Expr) decl[3], i, fvarIds);
                     r = Expr.mkLet(decl[1], type, value, r);
@@ -760,6 +760,8 @@ public final class TypeChecker {
     }
 
     private Expr inferTypeCore(Expr e, boolean inferOnly) {
+        if (e.bvarRange() > 0)
+            throw new RuntimeException("type checker does not support loose bound variables, replace them with free variables before invoking it");
         checkSystem();
         ExprMap<Expr> cache = inferOnly ? inferOnlyCache : inferCache;
         Expr cached = cache.get(e);
@@ -954,65 +956,9 @@ public final class TypeChecker {
                 result = inferTypeCore((Expr) e.o1, inferOnly);
                 break;
 
-            case Expr.PROJ: {
-                // The field index is a Nat. Expr.proj refuses a negative one; the range check keeps
-                // the int conversions below exact (a wrapped index would type one field and reduce
-                // to another).
-                if (e.longVal < 0 || e.longVal > Integer.MAX_VALUE)
-                    throw new RuntimeException("Type error: invalid projection index " + e.longVal);
-                Expr structType = whnf(inferTypeCore((Expr) e.o1, inferOnly));
-                Object[] fa = Reducer.getAppFnArgs(structType);
-                Expr head = (Expr) fa[0];
-                Expr[] typeArgs = (Expr[]) fa[1];
-                if (head.tag != Expr.CONST) {
-                    throw new RuntimeException("Type error: Projection target not an inductive");
-                }
-                // Lean infer_proj (type_checker.cpp:278-280): the projection's structure name must be
-                // the head of the projected term's type (leanprover/lean4#14631 / #14632).
-                if (!head.o0.equals(e.o0)) {
-                    throw new RuntimeException("Type error: invalid projection: " + e.o0 + " is not the structure of the projected term (" + head.o0 + ")");
-                }
-                ConstantInfo indCi = env.lookupOrThrow((Name) head.o0);
-                if (!indCi.isInduct()) {
-                    throw new RuntimeException("Type error: Projection target not an inductive");
-                }
-                if (indCi.ctors.length != 1) {
-                    throw new RuntimeException("Type error: Projection on non-structure inductive");
-                }
-                Name ctorName = indCi.ctors[0];
-                ConstantInfo ctorCi = env.lookupOrThrow(ctorName);
-                HashMap<Object, Level> subst = new HashMap<>(ctorCi.levelParams.length * 2);
-                Object[] headLevels = Reducer.constLevels(head);
-                for (int i = 0; i < ctorCi.levelParams.length; i++) {
-                    subst.put(ctorCi.levelParams[i], (Level) headLevels[i]);
-                }
-                Expr ctorType = Reducer.instantiateLevelParams(ctorCi.type, subst);
-                int numParams = ctorCi.numParams;
-                for (int i = 0; i < numParams && i < typeArgs.length && ctorType.tag == Expr.FORALL; i++) {
-                    ctorType = Reducer.instantiate1((Expr) ctorType.o2, typeArgs[i]);
-                }
-                // Lean 4 type_checker.cpp:283-297: no data projection from Prop
-                boolean isPropType = isProp(structType);
-                int fieldIdx = (int) e.longVal;
-                for (int i = 0; i < fieldIdx && ctorType.tag == Expr.FORALL; i++) {
-                    // If structure is Prop and this intermediate field is NOT Prop
-                    // and the body depends on it, reject (large elimination from Prop)
-                    if (isPropType && ((Expr) ctorType.o2).bvarRange() > 0) {
-                        if (!isProp((Expr) ctorType.o1))
-                            throw new RuntimeException("Type error: data projection from Prop for " + e.o0 + " field " + i);
-                    }
-                    ctorType = Reducer.instantiate1((Expr) ctorType.o2, Expr.proj(e.o0, i, (Expr) e.o1));
-                }
-                if (ctorType.tag == Expr.FORALL) {
-                    result = (Expr) ctorType.o1;
-                    // Final field: also check Prop constraint
-                    if (isPropType && !isProp(result))
-                        throw new RuntimeException("Type error: data projection from Prop for " + e.o0 + " field " + fieldIdx);
-                } else {
-                    throw new RuntimeException("Type error: Not enough fields in constructor for proj idx " + fieldIdx);
-                }
+            case Expr.PROJ:
+                result = inferProj(e, inferOnly);
                 break;
-            }
 
             case Expr.FVAR: {
                 Object[] decl = lctx.get(e.longVal);
@@ -1028,38 +974,59 @@ public final class TypeChecker {
                 throw new RuntimeException("Type error: Unknown expression tag " + e.tag);
         }
 
-        result = normalizeInferResult(result);
         cache.put(e, result);
         return result;
+    }
+
+    /** Lean's infer_proj. */
+    private Expr inferProj(Expr e, boolean inferOnly) {
+        Expr type = whnf(inferTypeCore((Expr) e.o1, inferOnly));
+        if (e.longVal < 0 || e.longVal > 0xFFFFFFFFL) throw invalidProj(e);   // to_proj_idx
+        Object[] fa = Reducer.getAppFnArgs(type);
+        Expr I = (Expr) fa[0];
+        Expr[] args = (Expr[]) fa[1];
+        if (I.tag != Expr.CONST || !I.o0.equals(e.o0)) throw invalidProj(e);
+        ConstantInfo ind = env.lookupOrThrow((Name) I.o0);
+        if (!ind.isInduct() || ind.ctors.length != 1 || args.length != ind.numParams + ind.numIndices) throw invalidProj(e);
+        ConstantInfo ctor = env.lookupOrThrow(ind.ctors[0]);
+        Object[] levels = Reducer.constLevels(I);
+        // instantiate_type_lparams: parameters paired with the given universes positionally
+        HashMap<Object, Level> subst = new HashMap<>(ctor.levelParams.length * 2);
+        for (int i = 0; i < Math.min(levels.length, ctor.levelParams.length); i++)
+            subst.put(ctor.levelParams[i], (Level) levels[i]);
+        Expr r = Reducer.instantiateLevelParams(ctor.type, subst);
+        for (int i = 0; i < ind.numParams; i++) {
+            r = whnf(r);
+            if (r.tag != Expr.FORALL) throw invalidProj(e);
+            r = Reducer.instantiate1((Expr) r.o2, args[i]);
+        }
+        boolean isPropType = isProp(type);
+        long idx = e.longVal;
+        for (long i = 0; i < idx; i++) {
+            r = whnf(r);
+            if (r.tag != Expr.FORALL) throw invalidProj(e);
+            if (((Expr) r.o2).bvarRange() > 0) {
+                if (isPropType && !isProp((Expr) r.o1)) throw invalidProj(e);
+                r = Reducer.instantiate1((Expr) r.o2, Expr.proj(e.o0, i, (Expr) e.o1));
+            } else {
+                r = (Expr) r.o2;
+            }
+        }
+        r = whnf(r);
+        if (r.tag != Expr.FORALL) throw invalidProj(e);
+        r = (Expr) r.o1;
+        if (isPropType && !isProp(r)) throw invalidProj(e);
+        return r;
+    }
+
+    private static RuntimeException invalidProj(Expr e) {
+        return new RuntimeException("Type error: invalid projection " + e.o0 + "." + e.longVal);
     }
 
     private Expr ensureSort(Expr e) {
         Expr w = whnf(e);
         if (w.tag == Expr.SORT) return w;
         throw new RuntimeException("Type error: Expected a sort (Type/Prop)");
-    }
-
-    private Expr normalizeInferResult(Expr e) {
-        return consumeTypeAnnotations(e);
-    }
-
-    static Expr consumeTypeAnnotations(Expr e) {
-        Expr cur = e;
-        while (cur.tag == Expr.APP) {
-            Object[] fa = Reducer.getAppFnArgs(cur);
-            Expr fn = (Expr) fa[0];
-            Expr[] args = (Expr[]) fa[1];
-            if (args.length == 1 && fn.tag == Expr.CONST) {
-                Object nm = fn.o0;
-                if (nm == Name.OUT_PARAM || nm == Name.SEMI_OUT_PARAM ||
-                        Name.OUT_PARAM.equals(nm) || Name.SEMI_OUT_PARAM.equals(nm)) {
-                    cur = args[0];
-                    continue;
-                }
-            }
-            break;
-        }
-        return cur;
     }
 
     Expr whnfExpr(Expr e) {
