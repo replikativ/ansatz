@@ -87,3 +87,11 @@
                           (define "UBad2" [] [['mk []]] :in '(Type u extra))))
     (is (thrown-with-msg? clojure.lang.ExceptionInfo #"already declared"
                           (define "Nat" [] [['mk []]])))))
+
+(deftest verification-cases
+  (testing "(Sort zero) stays Prop"
+    (let [ci (define "USortZero" '[p (Sort zero)] [['mk '[h p]]] :in 'Prop)]
+      (is (= [] (mapv str (.levelParams ci))))
+      (is (= (e/sort' lvl/zero) (e/forall-type (.type ci))))))
+  (testing "a universe of an explicit result sort is a header universe, before constructor-only ones"
+    (is (= ["z" "a"] (mapv str (.levelParams (define "UExplOrd" [] [['mk ['f (list '=> '(Type a) 'True)]]] :in '(Type z))))))))

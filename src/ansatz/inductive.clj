@@ -257,7 +257,8 @@
         ;; provisional level parameter standing for Lean's result-level metavariable (so nested
         ;; occurrences such as `List T` unify).
         explicit-level (when in (explicit-result-level in))
-        provisional (name/from-string (str "_ansatz.result." (swap! provisional-counter inc)))
+        ;; a numeric name component: no DSL symbol spells it
+        provisional (name/mk-num (name/from-string "_ansatz_result") (swap! provisional-counter inc))
         elaborate (fn [header-level]
                     (let [{:keys [params indices ctors] :as r}
                           (elab/elab-inductive env ind-name-str param-pairs
@@ -289,7 +290,8 @@
                  level]))))
         ;; Lean sortDeclLevelParams: the header's universes in order of occurrence, then the
         ;; remaining ones (from constructor fields) ordered by name
-        header-levels (vec (remove #{provisional} (level-params-of (build-inductive-type params indices lvl/zero))))
+        ;; (an explicit result sort is part of the header, as Lean captures it there)
+        header-levels (vec (remove #{provisional} (level-params-of (build-inductive-type params indices (or explicit-level lvl/zero)))))
         ind-levels (into header-levels
                          (sort-by str (remove (set (cons provisional header-levels))
                                               (distinct (concat (level-params-of (build-inductive-type params indices result-level))
