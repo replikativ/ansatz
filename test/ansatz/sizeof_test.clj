@@ -9,7 +9,8 @@
             [ansatz.kernel.expr :as e]
             [ansatz.kernel.level :as lvl]
             [ansatz.kernel.name :as name]
-            [ansatz.kernel.tc :as tc]))
+            [ansatz.kernel.tc :as tc]
+            [ansatz.tactic.instance :as instance]))
 
 (defn- with-init-env [f]
   (let [saved @a/ansatz-env]
@@ -20,6 +21,10 @@
                    (ansatz.core/inductive SzWrap [] (w [v (SzOpt Nat)]))
                    (ansatz.core/inductive SzTree [] (leaf) (node [l SzTree] [r SzTree] [k Nat]))
                    (ansatz.core/inductive SzFlag [] (mk [b Bool] [f (=> Nat Nat)] [g (=> Unit Nat)]))
+                   (ansatz.core/inductive SzOptWrap [] (w [v (Option Nat)]))
+                   (ansatz.core/inductive SzLazy [] (nil) (cons [t (=> Unit SzLazy)]))
+                   (ansatz.core/inductive SzEsc [] (mk [f (=> (SizeOf Nat) Nat)] [n Nat]))
+                   (ansatz.core/inductive SzL [α Type] (nil) (cons [h α] [t (SzL α)]))
                    (ansatz.core/structure SzPos [] (n Nat) (h (< 0 n)))])
            (f))
          (finally (reset! a/ansatz-env saved)))))
@@ -115,3 +120,59 @@
   (is (= 37 ((resolve 'ansatz.sizeof-test/sz-thirty-seven) 3)) "Lean: @SizeOf.sizeOf Nat ⟨fun _ => 37⟩ 3 = 37")
   (is (= 5 ((resolve 'ansatz.sizeof-test/sz-wrap) ((resolve 'ansatz.sizeof-test/mk-wrap) 3))))
   (is (= 4 ((resolve 'ansatz.sizeof-test/sz-nat) 4))))
+
+(deftest lean-values-on-bundled-init
+  (let [st (tc/mk-tc-state (a/env))]
+    (testing "`Wrap.w (some 3)` has size 5: Option's instance is generated where the env omits it"
+      (is (some? (ci "Option._sizeOf_inst")))
+      (is (tc/is-def-eq st (size-of (c "SzOptWrap") (c "SzOptWrap._sizeOf_inst")
+                                    (e/app (c "SzOptWrap.w")
+                                           (e/app* (e/const' (name/from-string "Option.some") [lvl/zero]) (c "Nat") (e/lit-nat 3))))
+                        (e/lit-nat 5))))
+    (testing "`Flag.mk true id (fun _ => 4)` has size 6: Bool's instance and the thunk instance"
+      (is (tc/is-def-eq st (size-of (c "SzFlag") (c "SzFlag._sizeOf_inst")
+                                    (e/app* (c "SzFlag.mk") (c "Bool.true") (e/lam "x" (c "Nat") (e/bvar 0) :default)
+                                            (e/lam "u" (c "Unit") (e/lit-nat 4) :default)))
+                        (e/lit-nat 6))))
+    (testing "a recursive `Unit → T` field: the spec's `sizeOf t` agrees with the IH at ()"
+      (let [spec (ci "SzLazy.cons.sizeOf_spec")]
+        (is (some? spec))
+        (is (env/verifies? (a/env) (.type spec) (.value spec)))))
+    (testing "a field's own telescope binder never serves as a local instance"
+      (let [rhs (nth (e/get-app-args (conclusion (.type (ci "SzEsc.mk.sizeOf_spec")))) 2)]
+        (is (= [(c "instSizeOfNat")] (mapv #(second (e/get-app-args %)) (rest (summands rhs)))))))))
+
+(deftest default-instance-has-lean-low-priority
+  (let [out (ind/define-inductive (a/env) "SzBare" [] [['mk []]])
+        seven (env/mk-def (name/from-string "szSeven") [] (e/app (e/const' (name/from-string "SizeOf") [l1]) (c "SzBare"))
+                          (e/app* (e/const' (name/from-string "SizeOf.mk") [l1]) (c "SzBare")
+                                  (e/lam "x" (c "SzBare") (e/lit-nat 7) :default)))
+        env (instance/add-instance (env/check-constant out seven) (name/from-string "szSeven") :priority 50)
+        r (instance/synthesize env (instance/index-for env) (e/app (e/const' (name/from-string "SizeOf") [l1]) (c "SzBare")))]
+    (is (= "instSizeOfDefault" (str (e/const-name (e/get-app-fn r)))) "low = 100 beats priority 50")))
+
+(deftest surface-size-of-synthesizes
+  (binding [*ns* (the-ns 'ansatz.sizeof-test) a/*verbose* false]
+    (eval '(ansatz.core/defn sz-l [x :- (SzL Nat)] Nat (sizeOf x)))
+    (eval '(ansatz.core/defn mk-l [n :- Nat] (SzL Nat) (SzL.cons n (SzL.cons 2 SzL.nil))))
+    (eval '(ansatz.core/defn sz-local [d :- (SizeOf Nat) :inst, n :- Nat] Nat (sizeOf n)))
+    (eval '(ansatz.core/theorem sz-local-37 [] (= Nat (sz-local (SizeOf.mk Nat (fn [_ :- Nat] 37)) 3) 37) (rfl)))
+    (eval '(ansatz.core/defn ^Nat sz-l-pairs [^{:- (SzL Nat)} xs]
+             (match-as xs (SzL Nat) Nat
+                       (nil 0)
+                       (cons [h t] (match-as t (SzL Nat) Nat
+                                             (nil 0)
+                                             (cons [h2 t2] (+ 1 (sz-l-pairs t2)))))))))
+  (is (= 10 ((resolve 'ansatz.sizeof-test/sz-l) ((resolve 'ansatz.sizeof-test/mk-l) 5))) "applied family: 1 + 5 + (1 + 2 + 1)")
+  (is (some? (ci "sz-local-37")) "a local dictionary comes first")
+  (is (some? (ci "sz-l-pairs")) "an inferred sizeOf measure over a parameterized family"))
+
+(deftest runtime-computed-and-partial-dictionaries
+  (binding [*ns* (the-ns 'ansatz.sizeof-test) a/*verbose* false]
+    (eval (list 'ansatz.core/defn 'sz-choose '[b :- Bool, n :- Nat] 'Nat
+                (list (symbol "@SizeOf.sizeOf.{1}") 'Nat
+                      '(if b (SizeOf.mk Nat (fn [_ :- Nat] 37)) (SizeOf.mk Nat (fn [_ :- Nat] 5))) 'n)))
+    (eval (list 'ansatz.core/defn 'sz-map '[xs :- (List Nat)] '(List Nat)
+                (list 'List.map (list (symbol "@SizeOf.sizeOf.{1}") 'Nat '(SizeOf.mk Nat (fn [_ :- Nat] 37))) 'xs))))
+  (is (= [37 5] [((resolve 'ansatz.sizeof-test/sz-choose) true 3) ((resolve 'ansatz.sizeof-test/sz-choose) false 3)]))
+  (is (= [37 37] (vec ((resolve 'ansatz.sizeof-test/sz-map) [1 2])))))

@@ -316,10 +316,12 @@
           ;; tuple (lean4 GuessLex's column order — covers merge-style two-list recursion)
           (let [sized? (fn [t] (and (not= t 'Nat)
                                     (or (and (seq? t) (= 'List (first t)))
-                                        (and (symbol? t)
-                                             (env/lookup @ansatz-env
-                                                         (name/mk-str (name/from-string (str t))
-                                                                      "_sizeOf_inst"))))))]
+                                        ;; a type (or an applied type family) with a derived instance
+                                        (let [h (if (seq? t) (first t) t)]
+                                          (and (symbol? h)
+                                               (env/lookup @ansatz-env
+                                                           (name/mk-str (name/from-string (str h))
+                                                                        "_sizeOf_inst")))))))]
             (cond
               (and (= 1 (count pairs)) (sized? (second (first pairs))))
               (list 'sizeOf (ffirst pairs))
@@ -607,24 +609,54 @@
                                  (e/forall' "α" a (e/app (e/const' (name/from-string "SizeOf") [U]) (e/bvar 0)) :default)
                                  (e/lam "α" a (e/app* (e/const' (name/from-string "SizeOf.mk") [U]) (e/bvar 0)
                                                       (e/app (e/const' (name/from-string "default.sizeOf") [U]) (e/bvar 0)))
-                                        :default))))]
-    (if (registered? env "instSizeOfDefault") env
-        (instance/add-instance env (name/from-string "instSizeOfDefault") :priority 10))))
+                                        :default))))
+        env (if (registered? env "instSizeOfDefault") env
+                ;; Init/Notation.lean: `low` = 100
+                (instance/add-instance env (name/from-string "instSizeOfDefault") :priority 100))
+        u1 (name/from-string "u_1") U1 (lvl/param u1)
+        unit (e/const' (name/from-string "Unit") [])
+        ;; instance [SizeOf α] : SizeOf (Unit → α) where sizeOf f := sizeOf (f ())
+        thunk-level (lvl/imax (lvl/succ lvl/zero) U1)
+        env (if (has? "instSizeOfForallUnit") env
+                (env/check-constant
+                 env (env/mk-def (name/from-string "instSizeOfForallUnit") [u1]
+                                 (e/forall' "α" (e/sort' U1)
+                                            (e/forall' "inst" (e/app (e/const' (name/from-string "SizeOf") [U1]) (e/bvar 0))
+                                                       (e/app (e/const' (name/from-string "SizeOf") [thunk-level])
+                                                              (e/arrow unit (e/bvar 2)))
+                                                       :inst-implicit)
+                                            :implicit)
+                                 (e/lam "α" (e/sort' U1)
+                                        (e/lam "inst" (e/app (e/const' (name/from-string "SizeOf") [U1]) (e/bvar 0))
+                                               (e/app* (e/const' (name/from-string "SizeOf.mk") [thunk-level])
+                                                       (e/arrow unit (e/bvar 2))
+                                                       (e/lam "f" (e/arrow unit (e/bvar 2))
+                                                              (e/app* (e/const' (name/from-string "SizeOf.sizeOf") [U1])
+                                                                      (e/bvar 2) (e/bvar 1)
+                                                                      (e/app (e/bvar 0) (e/const' (name/from-string "Unit.unit") [])))
+                                                              :default))
+                                               :inst-implicit)
+                                        :implicit))))]
+    (if (registered? env "instSizeOfForallUnit") env
+        (instance/add-instance env (name/from-string "instSizeOfForallUnit")))))
 
 (clojure.core/defn wf-derive-sizeof!
   "Lean's mkSizeOfInstances for a DSL inductive or structure (ansatz.meta.constructions.size-of):
    `<T>._sizeOf_1`, the instance `<T>._sizeOf_inst` and the `@[simp]` equations
    `<ctor>.sizeOf_spec` that the sizeOf measure machinery (wf-sizeof-normalize) rewrites with.
    Installed in one env update, or not at all: an unsupported shape (nested, mutual) is a no-op,
-   a failure is reported in verbose mode and leaves the env unchanged."
+   a failure is reported in verbose mode and leaves the env unchanged. Not carried over from
+   Lean: the `grind =` attribute on the specs and the instance's `instance_reducible` status.
+   Declarations an older Ansatz generated under these names are left as they are (an existing
+   `_sizeOf_inst` makes the type ineligible); Malli-generated types do not call this hook."
   [ind-name-str]
   (try
-    (when (size-of/eligible? @ansatz-env ind-name-str)
+    (when (size-of/shape-eligible? @ansatz-env ind-name-str)
       (wf-fix-ensure-sizeof-prelude!)
       (swap! ansatz-env
              (fn [env]
-               (let [env (size-of/mk-size-of-instances (wf-ensure-sizeof-instances env) ind-name-str)
-                     ctors (.ctors ^ConstantInfo (env/lookup env (name/from-string ind-name-str)))]
+               (let [[env types] (size-of/mk-size-of-instances (wf-ensure-sizeof-instances env) ind-name-str)
+                     ctors (mapcat #(.ctors ^ConstantInfo (env/lookup env (name/from-string %))) types)]
                  ;; Lean: simpAttr.add thmName default .global
                  (first ((requiring-resolve 'ansatz.attrs/import-attr-tuples)
                          env (mapv (fn [c] ["simp" (str c ".sizeOf_spec") nil 1000]) ctors) {})))))

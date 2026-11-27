@@ -7,8 +7,13 @@
    dictionary for every parameter `p` that is a type (mkLocalInstances); a recursive field
    contributes its induction hypothesis in `_sizeOf_1`; a higher-order field is ignored unless
    its domains are `Unit` (ignoreField). Lean's synthesis always succeeds through the low-priority
-   `instSizeOfDefault`; an environment without it, or without a field type's instance, fails here
-   before anything is installed. The result is a new env or an exception, never a partial one."
+   `instSizeOfDefault`; an environment without it fails here before anything is installed. The
+   result is a new env or an exception, never a partial one.
+
+   A field type's inductive whose instance a smaller environment omits (the bundled Init tier
+   has no `Option._sizeOf_inst` or `Bool._sizeOf_inst`) would otherwise resolve to the zero-valued
+   default, where Lean's Init has the generated instance: such an inductive gets the same
+   construction first (Lean generates those Init instances with this algorithm too)."
   (:require [ansatz.meta.constructions.util :as u]
             [ansatz.kernel.expr :as e]
             [ansatz.kernel.env :as env]
@@ -39,15 +44,23 @@
   (u/app (u/const' "HAdd.hAdd" [lvl/zero lvl/zero lvl/zero])
          [nat nat nat (u/app (u/const' "instHAdd" [lvl/zero]) [nat (u/const' "instAddNat" [])]) a b]))
 
+(defn- scoped
+  "Run `f` and drop the local declarations it opened (Lean's telescopes are scoped), so a
+   temporary binder can never be found as a local instance afterwards."
+  [ctx f]
+  (let [saved (:lctx @ctx)]
+    (try (f) (finally (swap! ctx assoc :lctx saved)))))
+
 (defn- with-local-instances
   "mkLocalInstances: an instance-implicit `inst : ∀ ys, SizeOf (p ys)` for each parameter `p`
    whose (reduced) telescope ends in a type."
   [ctx params]
   (vec (keep (fn [p]
-               (let [[ys _] (u/forall-telescope ctx (u/infer-type ctx p))
-                     t (u/app p ys)]
-                 (when (e/sort? (u/whnf ctx (u/infer-type ctx t)))
-                   (u/local-decl ctx "inst" (u/mk-forall-fvars ctx ys (size-of-class ctx t)) :inst-implicit))))
+               (when-let [it (scoped ctx #(let [[ys _] (u/forall-telescope ctx (u/infer-type ctx p))
+                                                t (u/app p ys)]
+                                            (when (e/sort? (u/whnf ctx (u/infer-type ctx t)))
+                                              (u/mk-forall-fvars ctx ys (size-of-class ctx t)))))]
+                 (u/local-decl ctx "inst" it :inst-implicit)))
              params)))
 
 (defn- ignore-field-type?
@@ -65,9 +78,9 @@
 (defn- ih-target
   "isInductiveHypothesis?: the major `x` when `fvar : … → motive … x` for a motive in `motives`."
   [ctx motives fvar]
-  (let [[_ body] (u/forall-telescope ctx (u/infer-type ctx fvar))]
-    (when (and (e/app? body) (some #{(e/get-app-fn body)} motives))
-      (e/app-arg body))))
+  (scoped ctx #(let [[_ body] (u/forall-telescope ctx (u/infer-type ctx fvar))]
+                 (when (and (e/app? body) (some #{(e/get-app-fn body)} motives))
+                   (e/app-arg body)))))
 
 (defn- rec-field-form-ih [ctx ih]
   (if (e/forall? (u/whnf ctx (u/infer-type ctx ih)))
@@ -158,29 +171,82 @@
         value (u/mk-lambda-fvars ctx binders (u/mk-eq-refl ctx rhs))]
     (env/check-constant env (env/mk-thm (name/mk-str ctor "sizeOf_spec") (vec (.levelParams ci)) type value))))
 
-(defn eligible?
-  "mkSizeOfInstances' guard (SizeOf present, not an inductive predicate, large eliminating, safe),
-   restricted to the shapes ported here: one type, no nested occurrences, no instance yet."
+(defn shape-eligible?
+  "mkSizeOfInstances' guard (not an inductive predicate, large eliminating, safe), restricted to
+   the shapes ported here: one type, no nested occurrences, no instance yet. The SizeOf prelude
+   itself is the caller's to provide (see eligible?)."
   [env n]
   (let [info (env/lookup env (name/from-string (str n)))
         rec (env/lookup env (name/from-string (str n ".rec")))]
     (boolean
-     (and info rec (.isInduct info) (env/lookup env (name/from-string "SizeOf"))
+     (and info rec (.isInduct info)
           (not (.isUnsafe info)) (= 1 (count (.all info))) (zero? (.numNested info))
           (not (u/prop-former? (u/context env) (.type info)))
           (> (count (.levelParams rec)) (count (.levelParams info)))
           (not (env/lookup env (name/from-string (str n "._sizeOf_inst"))))))))
 
+(defn eligible? [env n]
+  (and (shape-eligible? env n) (some? (env/lookup env (name/from-string "SizeOf")))))
+
+(defn- defaulted?
+  "Whether `SizeOf (c xs)`, at fresh parameters with local dictionaries, resolves to the
+   zero-valued `instSizeOfDefault` (no instance of its own in this environment)."
+  [env c]
+  (let [ctx (u/context env)
+        info (env/lookup! env (name/from-string (str c)))
+        [xs _] (u/forall-telescope ctx (.type info))
+        _ (with-local-instances ctx (subvec xs 0 (.numParams info)))
+        t (u/app (u/const' c (mapv lvl/param (.levelParams info))) xs)
+        r (inst/synthesize* @ctx env (inst/index-for env) (size-of-class ctx t) 0)]
+    (or (nil? r) (= "instSizeOfDefault" (str (e/const-name (e/get-app-fn r)))))))
+
+(declare mk-size-of-instances*)
+
+(defn- realize-field-instances
+  "The construction for each inductive among the constructor field types (and their reduced
+   forms: `Unit` is `PUnit`) that is eligible here and would otherwise resolve to the default.
+   `st` = {:env :visited #{names} :order [installed names]}."
+  [st n]
+  (let [env (:env st)
+        ctx (u/context env)
+        ;; the heads of a field type and of its arguments (`Option Bool`: Option, Bool), through
+        ;; non-dependent arrows (`Unit → Opt Nat`)
+        heads (fn heads [t]
+                (if (e/forall? t)
+                  (concat (heads (e/forall-type t))
+                          (when-not (e/has-loose-bvars? (e/forall-body t)) (heads (e/forall-body t))))
+                  (let [[h as] (e/get-app-fn-args t)]
+                    (concat (when (e/const? h) [(str (e/const-name h))]) (mapcat heads as)))))
+        classes (env/get-extension env :classes #{})
+        cs (reduce (fn [acc ctor]
+                     (let [[xs _] (u/forall-telescope ctx (.type (env/lookup! env ctor)))]
+                       (into acc (mapcat #(let [t (u/infer-type ctx %)] (concat (heads t) (heads (u/whnf ctx t)))))
+                             xs)))
+                   #{} (.ctors (env/lookup! env (name/from-string n))))]
+    (reduce (fn [st c]
+              (if (and (not ((:visited st) c)) (not (contains? classes c))
+                       (shape-eligible? (:env st) c) (defaulted? (:env st) c))
+                (mk-size-of-instances* st c)
+                st))
+            st (sort cs))))
+
+(defn- mk-size-of-instances* [st n]
+  (let [st (realize-field-instances (update st :visited conj n) n)
+        env (:env st)
+        fn-name (str n "._sizeOf_1")
+        env (mk-size-of-fn env (str n ".rec") fn-name)
+        env (mk-size-of-instance env n fn-name)
+        env (inst/add-instance env (name/from-string (str n "._sizeOf_inst")))
+        info (env/lookup! env (name/from-string n))]
+    (-> st
+        (assoc :env (reduce (fn [env c] (mk-size-of-spec env info c)) env (.ctors info)))
+        (update :order conj n))))
+
 (defn mk-size-of-instances
-  "`env` with `T._sizeOf_1`, `T._sizeOf_inst` (registered as an instance at Lean's default
-   priority) and every `C.sizeOf_spec`, or an exception; `env` unchanged when not eligible?."
+  "[env' types]: `env` with `T._sizeOf_1`, `T._sizeOf_inst` (registered as an instance at Lean's
+   default priority) and every `C.sizeOf_spec`, for `n` and for the field-type inductives realized
+   first (`types`, in installation order, `n` last); or an exception. `[env []]` when not eligible?."
   [env n]
   (if-not (eligible? env n)
-    env
-    (let [n (str n)
-          fn-name (str n "._sizeOf_1")
-          env (mk-size-of-fn env (str n ".rec") fn-name)
-          env (mk-size-of-instance env n fn-name)
-          env (inst/add-instance env (name/from-string (str n "._sizeOf_inst")))
-          info (env/lookup! env (name/from-string n))]
-      (reduce (fn [env c] (mk-size-of-spec env info c)) env (.ctors info)))))
+    [env []]
+    ((juxt :env :order) (mk-size-of-instances* {:env env :visited #{} :order []} (str n)))))

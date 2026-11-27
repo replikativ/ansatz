@@ -347,13 +347,21 @@
     ;; SizeOf.sizeOf T inst x: the method of the dictionary it is given (Lean evaluates
     ;; `@SizeOf.sizeOf Nat ⟨fun _ => 37⟩ 3` to 37). The Nat and native-list instances keep the
     ;; runtime size that mirrors their sizeOf_spec equations.
+    ;; A dictionary that static specialization cannot resolve (an `if` between instances) is
+    ;; projected at runtime; without the value argument the method is the function value.
     "SizeOf.sizeOf" (fn [env _ args ca names]
-                      (if (native-size-of-instance? (nth args 1))
-                        (list 'ansatz.core/rt-sizeof (nth ca 2))
-                        (ansatz->clj env (beta-apply (runtime-instance-op
-                                                      env (e/proj (name/from-string "SizeOf") 0 (nth args 1)))
-                                                     [(nth args 2)])
-                                     names)))
+                      (let [native? (and (> (count args) 1) (native-size-of-instance? (nth args 1)))
+                            method (when (> (count args) 1) (e/proj (name/from-string "SizeOf") 0 (nth args 1)))]
+                        (cond
+                          (< (count args) 2)
+                          (throw (ex-info "SizeOf.sizeOf lowering requires its instance argument" {:arguments (count args)}))
+                          (= 2 (count args)) (if native? 'ansatz.core/rt-sizeof (ansatz->clj env method names))
+                          native? (list 'ansatz.core/rt-sizeof (nth ca 2))
+                          :else
+                          (let [op (try (runtime-instance-op env method)
+                                        (catch clojure.lang.ExceptionInfo _ nil))]
+                            (ansatz->clj env (if op (beta-apply op [(nth args 2)]) (e/app method (nth args 2)))
+                                         names)))))
     ;; refinement erasure: a Subtype value IS its carrier at runtime (arity-tolerant for eta-reduced partials)
     "Subtype.val" (fn [_ _ _ ca _]
                     (case (count ca)

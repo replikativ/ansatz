@@ -690,7 +690,7 @@
   [v]
   (cond
     (integer? v) v
-    (or (nil? v) (sequential? v)) (reduce (fn [acc e] (+ acc 1 (rt-sizeof e))) 1 v)
+    (or (nil? v) (sequential? v)) (reduce (fn [acc e] (+' acc 1 (rt-sizeof e))) 1 v)
     :else 1))
 
 ;; Type context for outer-scope variables — used by match handler to
