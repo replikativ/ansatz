@@ -99,7 +99,7 @@
       (is (nil? (ci n)) n)))
   (binding [*ns* (the-ns 'ansatz.injectivity-test) a/*verbose* false]
     (eval '(ansatz.core/structure InjCls [α Type] :class true (val α)))
-    (eval '(ansatz.core/inductive InjPred [n Nat] :in Prop (mk [h (= Nat n n)]))))
+    (eval '(ansatz.core/inductive InjPred [] :in Prop (mk [n Nat]))))
   (is (nil? (ci "InjCls.mk.inj")) "a class has none (MutualInductive.lean: unless isClass)")
   (is (nil? (ci "InjPred.mk.inj")) "an inductive predicate has none"))
 
@@ -116,8 +116,15 @@
       (finally (reset! a/ansatz-env before)))))
 
 (deftest deriving-handlers-see-the-theorems
-  (let [seen (atom nil)]
-    (deriving/register-handler! 'InjProbe (fn [env type-name _] (reset! seen (some? (env/lookup env (name/from-string (str type-name ".mk.inj"))))) env))
-    (binding [*ns* (the-ns 'ansatz.injectivity-test) a/*verbose* false]
-      (eval '(ansatz.core/inductive InjDer [] (mk [x Nat]) :deriving [InjProbe])))
-    (is (true? @seen) "Lean installs injectivity before running deriving handlers")))
+  (let [seen (atom nil)
+        registry @#'ansatz.deriving/handler-registry
+        saved @registry]
+    (try
+      (deriving/register-handler! 'InjProbe (fn [env type-name _]
+                                              (reset! seen [(some? (env/lookup env (name/from-string (str type-name ".mk.inj"))))
+                                                            (some? (env/lookup env (name/from-string (str type-name "._sizeOf_inst"))))])
+                                              env))
+      (binding [*ns* (the-ns 'ansatz.injectivity-test) a/*verbose* false]
+        (eval '(ansatz.core/inductive InjDer [] (mk [x Nat]) :deriving [InjProbe])))
+      (is (= [true true] @seen) "Lean installs SizeOf and injectivity before running deriving handlers")
+      (finally (reset! registry saved)))))

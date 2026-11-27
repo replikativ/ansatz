@@ -68,6 +68,8 @@
                            (e/forall-info x))
         :let (e/let' (e/let-name x) (elim-opt-param (e/let-type x)) (elim-opt-param (e/let-value x))
                      (elim-opt-param (e/let-body x)))
+        :mdata (e/mdata (e/mdata-data x) (elim-opt-param (e/mdata-expr x)))
+        :proj (e/proj (e/proj-type-name x) (e/proj-idx x) (elim-opt-param (e/proj-struct x)))
         x))))
 
 (defn- open-ctor
@@ -171,12 +173,12 @@
             lhs (u/app (e/const' (.name ctor-ci) us) (concat params args1))
             rhs (u/app (e/const' (.name ctor-ci) us) (concat params args2))
             eq-type (u/mk-eq ctx lhs rhs)
+            all (vec (concat params args1 new))
+            saved (into {} (map (fn [x] [x (:info (u/decl ctx x))])) all)
             [_ inj-fn] (inj-proof ctx ctor-ci opened eqs)
             ;; mkNoConfusion may have realized the constructor's noConfusion in ctx
             env (:env @ctx)
             ;; C.inj: every binder implicit (withImplicitBinderInfos)
-            all (vec (concat params args1 new))
-            saved (into {} (map (fn [x] [x (:info (u/decl ctx x))])) all)
             _ (u/implicit! ctx all)
             inj-type (u/mk-forall-fvars ctx all (u/mk-arrow ctx eq-type conj-type))
             inj-val (u/mk-lambda-fvars ctx all inj-fn)

@@ -3554,8 +3554,10 @@
        ;; lean4 auto-derives SizeOf for every inductive — best-effort, no-op when unsupported
        (wf-derive-sizeof! ~(str type-name))
        ;; Lean fails the declaration when its injectivity theorems fail: nothing stays installed
-       (try (derive-injectivity! ~(str type-name))
-            (catch Throwable t# (reset! ansatz-env before#) (throw t#)))
+       ;; (unless another writer published meanwhile: then only the error is raised)
+       (let [ours# @ansatz-env]
+         (try (derive-injectivity! ~(str type-name))
+              (catch Throwable t# (compare-and-set! ansatz-env ours# before#) (throw t#))))
        ;; Lean runs deriving handlers after the auxiliary constructions (MutualInductive.lean)
        ~@(when deriving-classes
            [`(let [env# @ansatz-env
@@ -3731,8 +3733,9 @@
 
        ;; Lean: injectivity theorems for structures too (not for classes)
          ~@(when-not (:class opts)
-             [`(try (derive-injectivity! ~(str type-name))
-                    (catch Throwable t# (reset! ansatz-env ~before-sym) (throw t#)))])
+             [`(let [ours# @ansatz-env]
+                 (try (derive-injectivity! ~(str type-name))
+                      (catch Throwable t# (compare-and-set! ansatz-env ours# ~before-sym) (throw t#))))])
 
        ;; Lean's class extension is environment-local; ordinary structures are excluded.
          ~@(when (:class opts)
