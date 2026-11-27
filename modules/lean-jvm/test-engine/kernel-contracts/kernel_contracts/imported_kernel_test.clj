@@ -434,7 +434,11 @@
     (set! (.isUnsafe ci) true)
     (is (thrown-with-msg? Exception #"checking shape changed" (.lookup ^Env guarded n)))
     (set! (.isUnsafe ci) false)
+    ;; Expr.mkConst copied the caller's array: reusing it does not reach the node
     (aset levels 0 (Level/succ Level/ZERO_LEVEL))
+    (is (identical? segment (snapshot/validate-segment-values segment)))
+    ;; the node's own level array is still a guarded mutable container
+    (aset ^objects (.o1 ^Expr type) 0 (Level/succ Level/ZERO_LEVEL))
     (is (thrown-with-msg? Exception #"universe array changed" (snapshot/validate-segment-values segment)))))
 
 (deftest carrier-import-retains-full-hints-mutual-all-and-every-safety-code

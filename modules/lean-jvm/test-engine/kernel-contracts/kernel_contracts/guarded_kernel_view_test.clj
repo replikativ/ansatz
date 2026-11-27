@@ -60,7 +60,8 @@
 
 (deftest memo-and-historical-ledger-refuse-ci-and-universe-array-mutations
   (doseq [change! [(fn [^ConstantInfo constant _] (set! (.isUnsafe constant) true))
-                   (fn [_ levels] (aset ^objects levels 0 (Level/succ Level/ZERO_LEVEL)))]]
+                   ;; the node's own level array (Expr.mkConst copies the caller's)
+                   (fn [^ConstantInfo constant _] (aset ^objects (.o1 ^Expr (.type constant)) 0 (Level/succ Level/ZERO_LEVEL)))]]
     (let [levels (object-array [Level/ZERO_LEVEL])
           constant (ConstantInfo/mkAxiom a (object-array []) (Expr/mkConst b levels false) false)
           model (open-model {a constant b (ci b)})]
