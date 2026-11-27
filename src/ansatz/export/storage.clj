@@ -1133,12 +1133,12 @@
                        (let [rank (long rank)]
                          (and (< rank @idx)
                               (.get admitted-ranks (int rank))))))
-          ;; The records the kernel generated for each admitted inductive block. Later lookups
-          ;; see these, not the stored rows they were compared with (add_inductive installs
-          ;; what it generates; equal under Lean's structural equality is not identical).
-          generated (java.util.concurrent.ConcurrentHashMap.)
-          staged-loader (assoc loader :lookup-ci (fn [^Name name] (or (.get generated name) (lookup-ci name))))
-          env (load-env store-map branch-name :visible? visible? :loader staged-loader)
+          ;; Admitted inductive rows are served as stored. That is sound because a block is admitted
+          ;; only if every row equals the record add_inductive generates under Lean's structural
+          ;; equality, so a row differs from it at most in binder names and binder infos, and no
+          ;; kernel judgment (inference, defeq, whnf, iota/K/structure eta, projections) reads
+          ;; either. The invariant holds for every worker, epoch and resumed run alike.
+          env (load-env store-map branch-name :visible? visible? :loader loader)
           ;; Verification type-checks against the staged env above, but fetching
           ;; the declaration being checked must be unrestricted. Both paths share
           ;; the branch loader so expression/name/level materialization caches
@@ -1158,7 +1158,6 @@
        :idx idx
        :admitted-ranks admitted-ranks
        :decl-ranks decl-ranks
-       :generated generated
        :start-time (System/currentTimeMillis)})))
 
 (defn- mark-admitted-range!
@@ -1280,28 +1279,27 @@
                 (try (collect-inductive-bundle decl-order resolve-fn i ci)
                      (catch Throwable _ nil)))]
           (try
-            (let [[fuel-used ^Env checked]
+            (let [fuel-used
                   (run-with-large-stack
                    (fn []
                      (cond
                        bundle?
-                       [0 (TypeChecker/checkInductiveBundle
-                           env (build-inductive-bundle members) (long fuel))]
+                       (do (TypeChecker/checkInductiveBundle env (build-inductive-bundle members) (long fuel))
+                           0)
 
                        (or (.isCtor ci) (.isRecursor ci))
                        (throw (ex-info "Inductive bundle member encountered outside bundle head"
                                        {:idx i :name name-str}))
 
                        :else
-                       [(TypeChecker/checkConstantFuel env ci (long fuel)) nil]))
+                       (TypeChecker/checkConstantFuel env ci (long fuel))))
                    verify-stack-size
                    timeout-ms)
                   elapsed-ms (/ (- (System/nanoTime) t0) 1e6)
                   checked-names (if bundle? (mapv #(str (.name ^ConstantInfo %)) members) [name-str])]
               (if bundle?
-                ;; admit exactly the checked names, and serve the records the kernel generated
+                ;; admit exactly the checked names (the rows are served as stored: see prepare-verify)
                 (doseq [^ConstantInfo m members]
-                  (.put ^java.util.Map (:generated ctx) (.name m) (.lookupLocal checked (.name m)))
                   (let [rank (long (.get ^java.util.Map (:decl-ranks ctx) (.name m)))]
                     (mark-admitted-range! ctx rank (inc rank))))
                 (mark-admitted-range! ctx i (inc i)))

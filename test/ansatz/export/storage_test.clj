@@ -377,7 +377,7 @@
         (finally
           (delete-dir-recursive dir))))))
 
-(deftest verified-blocks-serve-the-generated-records-and-only-their-own-names
+(deftest verified-blocks-admit-their-rows-and-only-their-own-names
   (let [dir (temp-dir)]
     (try
       (let [store-map (storage/open-store dir)]
@@ -385,11 +385,13 @@
         (let [ctx (storage/prepare-verify store-map "verify-test")
               nat-rec (name/from-string "Nat.rec")]
           (try
-            (testing "after a block is admitted, lookups return the records the kernel generated"
+            (testing "after a block is admitted its rows are visible"
               (is (= "Nat" (first (:decl-order ctx))))
-              (is (= :ok (:status (storage/verify-one! ctx))))
-              (is (some? (.get ^java.util.Map (:generated ctx) nat-rec)))
-              (is (identical? (.get ^java.util.Map (:generated ctx) nat-rec) (env/lookup (:env ctx) nat-rec))))
+              (is (nil? (env/lookup (:env ctx) nat-rec)))
+              (let [r (storage/verify-one! ctx)]
+                (is (= :ok (:status r)))
+                (is (= #{"Nat" "Nat.zero" "Nat.succ" "Nat.rec"} (set (:checked-names r)))))
+              (is (some? (env/lookup (:env ctx) nat-rec))))
             (testing "a row whose declaration has another name is an error and is not admitted"
               (let [next-name (nth (:decl-order ctx) @(:idx ctx))
                     stored-rec ((:resolve-fn ctx) "Nat.rec")

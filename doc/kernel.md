@@ -597,8 +597,23 @@ Kernel admission entry points:
 Removed with the K4 port (2026-11): `InductiveChecker`,
 `InductiveBundleChecker`, `RecursorGenerator`, `NestedInductiveEliminator`,
 `NestedElimResult`, `RawInductiveGenerator`, `RawNestedInductiveGenerator`,
-and `TypeChecker.generateExpectedRecursorRules`, `debugExpectedRecursorType`,
-`debugNormalizedExpectedRecursorType`, `debugExpectedRecursorRules`. The
+`TypeChecker.generateExpectedRecursorRules`, `debugExpectedRecursorType`,
+`debugNormalizedExpectedRecursorType`, `debugExpectedRecursorRules`, and the
+`InductiveBundle` inspection methods `isEmpty`, `hasNestedInductives`,
+`allNames`, `inductiveMap`, `ctorMap` and `recursorMap` (an `InductiveBundle` is
+now only the exported records). `Expr.sort`/`Expr.mkConst` derive the
+has-level-parameter flag from the levels and copy a caller's level array.
+
+The store verifier serves admitted inductive rows as stored. That is sound
+because a block is admitted only if every row equals the record
+`AddInductive.add` generates under Lean's structural equality, so a row differs
+from it at most in binder names and binder infos, and no kernel judgment reads
+either: `TypeChecker` and `Reducer` (inference, `isDefEq`, whnf, iota, K,
+structure eta, projections) only copy binder names and infos into the terms they
+build; the caches key on `LeanExprKey` (binder-insensitive); `Expr.equals`
+(binder-sensitive) is used only for sharing, never for a verdict. A retried
+failure is cleared only when its head's check covered that exact name, and a
+row must be the declaration of its key. The
 frontend's `define-inductive` now reports a kernel rejection as ex-info
 `{:inductive name}` with the kernel's message (it no longer carries `:ctor` /
 `:field`; Lean's messages name the constructor and argument).

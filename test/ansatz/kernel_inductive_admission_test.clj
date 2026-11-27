@@ -385,3 +385,34 @@
             (.setAccessible true))
         f (future (.invoke m nil (object-array [t (int 0)])))]
     (is (false? (deref f 10000 :timeout)))))
+
+(defn- flip-binder-infos
+  "The same expression with every binder's info toggled between default and implicit."
+  [ex]
+  (let [flip #(if (= :implicit %) :default :implicit)]
+    (cond (e/lam? ex) (e/lam (e/lam-name ex) (flip-binder-infos (e/lam-type ex)) (flip-binder-infos (e/lam-body ex)) (flip (e/lam-info ex)))
+          (e/forall? ex) (e/forall' (e/forall-name ex) (flip-binder-infos (e/forall-type ex)) (flip-binder-infos (e/forall-body ex))
+                                    (flip (e/forall-info ex)))
+          (e/app? ex) (e/app (flip-binder-infos (e/app-fn ex)) (flip-binder-infos (e/app-arg ex)))
+          :else ex)))
+
+(deftest stored-rows-differing-in-binder-infos-check-downstream-identically
+  ;; The store serves admitted rows as stored. An admitted row equals the generated record up to
+  ;; binder names and infos, which no kernel judgment reads: a downstream theorem that needs
+  ;; the recursor's iota rule checks with the same verdict and the same fuel either way.
+  (let [[generated-env honest] (generate @base [] 0 [["KU8" type0 [["KU8.mk" (c "KU8")]]]])
+        ^ConstantInfo rec (by-name honest "KU8.rec")
+        variant (rec-with rec :name (n "KU8.rec") :type (flip-binder-infos (.type rec))
+                          :rules (into-array ConstantInfo$RecursorRule
+                                             (for [^ConstantInfo$RecursorRule r (.rules rec)]
+                                               (env/mk-recursor-rule (.ctor r) (.nfields r) (flip-binder-infos (.rhs r))))))
+        stored (replace-record honest "KU8.rec" (constantly variant))
+        stored-env (reduce env/add-constant @base stored)
+        nat (c "Nat")
+        lhs (e/app* (c "KU8.rec" [l1]) (lam "t" (c "KU8") nat) (e/lit-nat 5) (c "KU8.mk"))
+        thm (env/mk-thm (n "KU8.iota") [] (e/app* (c "Eq" [l1]) nat lhs (e/lit-nat 5))
+                        (e/app* (c "Eq.refl" [l1]) nat (e/lit-nat 5)))]
+    (is (not= (str (.type rec)) (str (.type variant))) "the variant differs in binder infos")
+    (is (admits? @base stored) "the comparison ignores binder infos, as Lean's structural equality")
+    (is (= (TypeChecker/checkConstantFuel generated-env thm fuel)
+           (TypeChecker/checkConstantFuel stored-env thm fuel)))))
