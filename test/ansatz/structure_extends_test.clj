@@ -10,7 +10,9 @@
             [ansatz.core :as a]
             [ansatz.kernel.env :as env]
             [ansatz.kernel.name :as nm]
-            [ansatz.kernel.expr :as e]))
+            [ansatz.kernel.expr :as e]
+            [ansatz.kernel.tc :as tc]
+            [ansatz.surface.elaborate :as elab]))
 
 (def ^:private init-env test-env/checked-bundled-init-env)
 
@@ -142,3 +144,35 @@
         (require-ord S))
       (is (has? "inherited-ord"))
       (finally (reset! a/ansatz-env saved)))))
+
+;; Lean parity: test/lean-parity/dsl/structure_inheritance.lean (Lean v4.36.0)
+(deftest extends-applied-parent
+  (testing "`Child α extends Parent (List α)`: the inherited accessor projects a `Parent (List α)`"
+    (a/structure InhParent [β Type] (x β))
+    (a/structure InhChild [α Type] :extends (InhParent (List α))
+                 (law (forall [x Nat] (= Nat x x)))
+                 (nonempty (Not (= (List α) x (List.nil α)))))
+    (let [st (tc/mk-tc-state (a/env))
+          ty #(.type (env/lookup (a/env) (nm/from-string %)))
+          expect #(elab/elaborate (a/env) %)]
+      (is (tc/is-def-eq st (ty "InhChild.x") (expect '(forall [α :- Type, self :- (InhChild α)] (List α)))))
+      (testing "a binder named like a parent field shadows it"
+        (is (tc/is-def-eq st (ty "InhChild.law")
+                          (expect '(forall [α :- Type, self :- (InhChild α), x :- Nat] (= Nat x x))))))
+      (testing "an unshadowed parent field is the subobject's field"
+        (is (tc/is-def-eq st (ty "InhChild.nonempty")
+                          (expect '(forall [α :- Type, self :- (InhChild α)]
+                                           (Not (= (List α) (InhParent.x (InhChild.toInhParent self)) (List.nil α))))))))
+      (a/prove-theorem 'inh-child-x-is-subobject-x '[c :- (InhChild Nat)]
+                       '(= (List Nat) (InhChild.x c) (InhParent.x (InhChild.toInhParent c))) '[(rfl)])
+      (is (has? "inh-child-x-is-subobject-x")))))
+
+(deftest inherited-field-rewrite-respects-binders
+  (let [rw #(a/rewrite-inherited-field-refs % #{"x" "y"} 'P '[A] 'toP)
+        px (list (symbol "@P.x") 'A 'toP) py (list (symbol "@P.y") 'A 'toP)]
+    (is (= (list 'forall '[x Nat] (list '= 'Nat 'x py)) (rw '(forall [x Nat] (= Nat x y)))))
+    (is (= (list 'forall ['y 'Nat 'h (list '= 'Nat px 'y)] 'h) (rw '(forall [y :- Nat, h :- (= Nat x y)] h)))
+        "a binder type is in the scope of the earlier binders only")
+    (is (= (list '= 'Nat px (list 'forall '[x Nat] 'x)) (rw '(= Nat x (forall [x Nat] x)))))
+    (is (= (list 'fn '[x :- Nat] (list '+ 'x py)) (rw '(fn [x :- Nat] (+ x y)))))
+    (is (= (list 'let ['x 'Nat py] 'x) (rw '(let [x Nat y] x))))))
