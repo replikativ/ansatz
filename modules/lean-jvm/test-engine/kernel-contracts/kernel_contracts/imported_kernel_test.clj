@@ -130,6 +130,19 @@
     (is (thrown-with-msg? Exception #"checked projection"
           (imported/associate-checked (context root (values loaded) 1) changed root helper-names certificate)))))
 
+(deftest certificate-and-snapshot-are-reusable-after-an-inductive-import
+  ;; Inductive admission installs generated records; the certificate must name the checked
+  ;; objects, so both the snapshot and a later projection reuse accept it.
+  (let [loaded (loaded) world (:world loaded)
+        certificate (imported/verify-constants world (values loaded) policy)
+        ^Env checked (:env certificate)
+        inductives (filter #(.isInduct ^ConstantInfo %) (vals (:projected certificate)))]
+    (is (seq inductives))
+    (is (every? (fn [[n ci]] (identical? ci (.lookup checked n))) (:projected certificate)))
+    (is (some? (snapshot/validate-projection (snapshot/snapshot-projection certificate))))
+    (let [again (imported/verify-constants world (values loaded) (assoc policy :projection-certificate certificate))]
+      (is (= (set (keys (:projected certificate))) (set (keys (:projected again))))))))
+
 (deftest quotient-bootstrap-requires-the-equality-family-and-complete-primitive-set
   (let [loaded (loaded) world (:world loaded) refs (by-name loaded)
         eq (get refs "Eq")

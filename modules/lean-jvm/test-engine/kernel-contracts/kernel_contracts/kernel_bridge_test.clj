@@ -36,12 +36,13 @@
 
 (defn checked-nat-environment []
   ;; Actual inductive admission/generation, without a downloaded proof corpus.
-  (let [nat (name/from-string "Nat") zero (name/from-string "Nat.zero") succ (name/from-string "Nat.succ")
-        nat-type (e/const' nat [])
-        ind (env/mk-induct nat [] (e/sort' (level/succ level/zero)) :ctors [zero succ] :rec? true)
-        z (env/mk-ctor zero [] nat-type nat 0 0 0)
-        s (env/mk-ctor succ [] (e/forall' (name/anonymous) nat-type nat-type :default) nat 1 0 1)]
-    (env/check-inductive-bundle (env/empty-env) (env/mk-inductive-bundle [] 0 false [ind] [z s] []) 1000000)))
+  (let [nat-type (e/const' (name/from-string "Nat") [])]
+    (env/add-inductive (env/empty-env)
+                       (env/mk-inductive-decl [] 0 false
+                                              [["Nat" (e/sort' (level/succ level/zero))
+                                                [["Nat.zero" nat-type]
+                                                 ["Nat.succ" (e/forall' (name/anonymous) nat-type nat-type :default)]]]])
+                       1000000)))
 
 (deftest actual-guest-layout-projects-and-checks-a-nat-definition
   (let [before-env (checked-nat-environment)
