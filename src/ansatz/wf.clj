@@ -27,8 +27,20 @@
             [ansatz.surface.elaborate :as elab]
             [ansatz.surface.ingest :as ingest
              :refer [parse-params binder-type metadata-params? arity-registry structure-registry codegen-registry]]
-            [ansatz.state :as state :refer [ansatz-env ansatz-instance-index]])
+            [ansatz.state :as state :refer [ansatz-env ansatz-instance-index]]
+            [ansatz.meta.constructions.size-of :as size-of]
+            [ansatz.tactic.instance :as instance])
   (:import [ansatz.kernel ConstantInfo]))
+
+(clojure.core/defn sized-type-form?
+  "Whether a surface parameter type is sized for a WF measure: a List, or a type (or an applied
+   family) with a derived `_sizeOf_inst` — never by the zero default."
+  [env t]
+  (and (not= t 'Nat)
+       (or (and (seq? t) (= 'List (first t)))
+           (let [h (if (seq? t) (first t) t)]
+             (and (symbol? h)
+                  (some? (env/lookup env (name/mk-str (name/from-string (str h)) "_sizeOf_inst"))))))))
 
 ;; ── core callbacks resolved at runtime (core requires this ns → no static require back) ──────────
 (defn- run-tactic [ps tac] ((requiring-resolve 'ansatz.core/run-tactic) ps tac))
@@ -312,12 +324,7 @@
           ;; kernel proofs accept or reject the guess. Single data param → (sizeOf p);
           ;; multi-param with every param Nat-or-sized → the parameter-order lexicographic
           ;; tuple (lean4 GuessLex's column order — covers merge-style two-list recursion)
-          (let [sized? (fn [t] (and (not= t 'Nat)
-                                    (or (and (seq? t) (= 'List (first t)))
-                                        (and (symbol? t)
-                                             (env/lookup @ansatz-env
-                                                         (name/mk-str (name/from-string (str t))
-                                                                      "_sizeOf_inst"))))))]
+          (let [sized? #(sized-type-form? @ansatz-env %)]
             (cond
               (and (= 1 (count pairs)) (sized? (second (first pairs))))
               (list 'sizeOf (ffirst pairs))
@@ -572,109 +579,105 @@
   "SizeOf instance synthesis — canonical implementation lives with the elaborator (P2)."
   elab/sizeof-inst)
 
+(clojure.core/defn- register-size-of-specs
+  "Lean registers every `C.sizeOf_spec` as a simp lemma (simpAttr.add thmName default .global)."
+  [[env types]]
+  (let [ctors (mapcat #(.ctors ^ConstantInfo (env/lookup env (name/from-string %))) types)]
+    (first ((requiring-resolve 'ansatz.attrs/import-attr-tuples)
+            env (mapv (fn [c] ["simp" (str c ".sizeOf_spec") nil 1000]) ctors) {}))))
+
+(clojure.core/defn- wf-ensure-sizeof-instances
+  "Lean registers `instSizeOfNat`, `Prod._sizeOf_inst` and `List._sizeOf_inst` at the default
+   priority and `instSizeOfDefault` (Init/SizeOf.lean) at `low` (10), so synthesis of a field's
+   `SizeOf` instance always succeeds. A bundled Init tier may load the prelude after its
+   registry was intersected with the env, and omits the default instance: register what is
+   present, and add Lean's own `default.sizeOf` / `instSizeOfDefault` when absent."
+  [env]
+  (let [has? #(env/lookup env (name/from-string %))
+        registered? (fn [env n] (some #(= (name/from-string n) (:name %))
+                                      (get (env/get-extension env :instances {}) (name/from-string "SizeOf"))))
+        env (reduce (fn [env n] (if (and (has? n) (not (registered? env n)))
+                                  (instance/add-instance env (name/from-string n)) env))
+                    env ["instSizeOfNat" "Prod._sizeOf_inst" "List._sizeOf_inst"])
+        un (name/from-string "u") U (lvl/param un)
+        nat (e/const' (name/from-string "Nat") [])
+        a (e/sort' U)
+        env (if (has? "default.sizeOf") env
+                ;; protected def default.sizeOf (α : Sort u) : α → Nat | _ => 0
+                (env/check-constant
+                 env (env/mk-def (name/from-string "default.sizeOf") [un]
+                                 (e/forall' "α" a (e/arrow (e/bvar 0) nat) :default)
+                                 (e/lam "α" a (e/lam "x" (e/bvar 0)
+                                                     (e/app* (e/const' (name/from-string "OfNat.ofNat") [lvl/zero]) nat
+                                                             (e/lit-nat 0)
+                                                             (e/app (e/const' (name/from-string "instOfNatNat") []) (e/lit-nat 0)))
+                                                     :default) :default))))
+        env (if (has? "instSizeOfDefault") env
+                ;; instance (priority := low) instSizeOfDefault (α : Sort u) : SizeOf α
+                (env/check-constant
+                 env (env/mk-def (name/from-string "instSizeOfDefault") [un]
+                                 (e/forall' "α" a (e/app (e/const' (name/from-string "SizeOf") [U]) (e/bvar 0)) :default)
+                                 (e/lam "α" a (e/app* (e/const' (name/from-string "SizeOf.mk") [U]) (e/bvar 0)
+                                                      (e/app (e/const' (name/from-string "default.sizeOf") [U]) (e/bvar 0)))
+                                        :default))))
+        env (if (registered? env "instSizeOfDefault") env
+                ;; Init/Notation.lean: `low` = 100
+                (instance/add-instance env (name/from-string "instSizeOfDefault") :priority 100))
+        u1 (name/from-string "u_1") U1 (lvl/param u1)
+        unit (e/const' (name/from-string "Unit") [])
+        ;; instance [SizeOf α] : SizeOf (Unit → α) where sizeOf f := sizeOf (f ())
+        thunk-level (lvl/imax (lvl/succ lvl/zero) U1)
+        env (if (has? "instSizeOfForallUnit") env
+                (env/check-constant
+                 env (env/mk-def (name/from-string "instSizeOfForallUnit") [u1]
+                                 (e/forall' "α" (e/sort' U1)
+                                            (e/forall' "inst" (e/app (e/const' (name/from-string "SizeOf") [U1]) (e/bvar 0))
+                                                       (e/app (e/const' (name/from-string "SizeOf") [thunk-level])
+                                                              (e/arrow unit (e/bvar 2)))
+                                                       :inst-implicit)
+                                            :implicit)
+                                 (e/lam "α" (e/sort' U1)
+                                        (e/lam "inst" (e/app (e/const' (name/from-string "SizeOf") [U1]) (e/bvar 0))
+                                               (e/app* (e/const' (name/from-string "SizeOf.mk") [thunk-level])
+                                                       (e/arrow unit (e/bvar 2))
+                                                       (e/lam "f" (e/arrow unit (e/bvar 2))
+                                                              (e/app* (e/const' (name/from-string "SizeOf.sizeOf") [U1])
+                                                                      (e/bvar 2) (e/bvar 1)
+                                                                      (e/app (e/bvar 0) (e/const' (name/from-string "Unit.unit") [])))
+                                                              :default))
+                                               :inst-implicit)
+                                        :implicit))))
+        env (if (registered? env "instSizeOfForallUnit") env
+                (instance/add-instance env (name/from-string "instSizeOfForallUnit")))]
+    ;; Lean's Init generates these types' instances (Init/SizeOf.lean and the inductive
+    ;; compiler); a smaller tier may omit them, and synthesis would then pick the zero default
+    ;; however a later declaration happened to be ordered
+    (reduce (fn [env t]
+              (if (and (size-of/shape-eligible? env t) (size-of/defaulted? env t))
+                (register-size-of-specs (size-of/mk-size-of-instances env t))
+                env))
+            env ["PUnit" "Bool" "Option" "Sum" "PSum" "Except" "Prod" "PProd" "Subtype" "Sigma" "PSigma"
+                 "Fin" "Ordering" "PLift" "ULift" "Int"])))
+
 (clojure.core/defn wf-derive-sizeof!
-  "Derive the SizeOf machinery for a non-parameterized, non-indexed, Type-valued inductive
-   (lean4 auto-derives this for every inductive): `<T>._sizeOf_1` (recursor-based size),
-   `<T>._sizeOf_inst : SizeOf T`, and per-constructor `<ctor>.sizeOf_spec` rfl equations —
-   the names the sizeOf measure machinery (wf-sizeof-inst / wf-sizeof-normalize) looks up.
-   Field contributions: a recursive field uses the recursor's IH; a Nat field is its own
-   size; other sized fields contribute SizeOf.sizeOf; unsized fields contribute nothing.
-   Best-effort: silently a no-op for unsupported shapes."
+  "Lean's mkSizeOfInstances for a DSL inductive or structure (ansatz.meta.constructions.size-of):
+   `<T>._sizeOf_1`, the instance `<T>._sizeOf_inst` and the `@[simp]` equations
+   `<ctor>.sizeOf_spec` that the sizeOf measure machinery (wf-sizeof-normalize) rewrites with.
+   Installed in one env update, or not at all: an unsupported shape (nested, mutual) is a no-op,
+   a failure is reported in verbose mode and leaves the env unchanged. Not carried over from
+   Lean: the `grind =` attribute on the specs and the instance's `instance_reducible` status.
+   Declarations an older Ansatz generated under these names are left as they are (an existing
+   `_sizeOf_inst` makes the type ineligible); Malli-generated types do not call this hook."
   [ind-name-str]
   (try
-    (let [ind-name (name/from-string ind-name-str)
-          env0 @ansatz-env
-          ind-ci (env/lookup env0 ind-name)]
-      (when (and ind-ci (.isInduct ind-ci)
-                 (zero? (.numParams ind-ci))
-                 (let [t (.type ind-ci)]
-                   (and (e/sort? t) (= (e/sort-level t) (lvl/succ lvl/zero))))
-                 (not (env/lookup env0 (name/mk-str ind-name "_sizeOf_inst"))))
-        (wf-fix-ensure-sizeof-prelude!)
-        (let [env @ansatz-env
-              L1 (lvl/succ lvl/zero)
-              T (e/const' ind-name [])
-              nat-c wf-fix-NAT
-              ctor-names (vec (.ctors (env/lookup env ind-name)))
-              rec? (fn [ty] (let [[h2 _] (e/get-app-fn-args ty)]
-                              (and (e/const? h2) (= (e/const-name h2) ind-name))))
-              ;; Lean/Meta/SizeOf.lean mkSizeOfMinors uses AppBuilder.mkAdd (Lean 4.33.1).
-              nadd (fn [a b]
-                     (e/app* (e/const' (name/from-string "HAdd.hAdd") [lvl/zero lvl/zero lvl/zero])
-                             nat-c nat-c nat-c
-                             (e/app* (e/const' (name/from-string "instHAdd") [lvl/zero])
-                                     nat-c (e/const' (name/from-string "instAddNat") [])) a b))
-              ;; minor for one ctor: λ fields… ihs… => 1 + Σ contributions
-              minor-of
-              (fn [cn]
-                (let [{bs :binders} (wf-fix-tele-open-plain (.type (env/lookup env cn)))
-                      ftys (mapv second bs)
-                      fids (mapv first bs)
-                      rec-idx (vec (keep-indexed (fn [i ty] (when (rec? ty) i)) ftys))
-                      ih-ids (mapv (fn [_] (wf-fix-fresh)) rec-idx)
-                      contrib (fn [i]
-                                (cond
-                                  (rec? (nth ftys i))
-                                  (e/fvar (nth ih-ids (.indexOf rec-idx i)))
-                                  (let [[h2 a2] (e/get-app-fn-args (nth ftys i))]
-                                    (and (e/const? h2) (empty? a2)
-                                         (= "Nat" (name/->string (e/const-name h2)))))
-                                  (e/fvar (nth fids i))
-                                  :else
-                                  (when-let [inst (wf-sizeof-inst env (nth ftys i))]
-                                    (e/app* (e/const' (name/from-string "SizeOf.sizeOf") [L1])
-                                            (nth ftys i) inst (e/fvar (nth fids i))))))
-                      body (reduce nadd (e/lit-nat 1)
-                                   (keep contrib (range (count ftys))))
-                      tele (into (mapv (fn [[id ty]] [id "f" ty]) bs)
-                                 (mapv (fn [iid] [iid "ih" nat-c]) ih-ids))]
-                  (wf-fix-mk-lambdas tele body)))
-              motive (e/lam "_t" T nat-c :default)
-              sz1-val (apply e/app* (e/const' (name/mk-str ind-name "rec") [L1])
-                             (into [motive] (mapv minor-of ctor-names)))
-              sz1-name (name/mk-str ind-name "_sizeOf_1")
-              sz1-ty (e/forall' "t" T nat-c :default)
-              _ (swap! ansatz-env env/check-constant (env/mk-def sz1-name [] sz1-ty sz1-val))
-              inst-name (name/mk-str ind-name "_sizeOf_inst")
-              inst-ty (e/app (e/const' (name/from-string "SizeOf") [L1]) T)
-              inst-val (e/app* (e/const' (name/from-string "SizeOf.mk") [L1]) T
-                               (e/const' sz1-name []))
-              _ (swap! ansatz-env env/check-constant (env/mk-def inst-name [] inst-ty inst-val))
-              inst-c (e/const' inst-name [])
-              szof (fn [x] (e/app* (e/const' (name/from-string "SizeOf.sizeOf") [L1]) T inst-c x))]
-          ;; per-constructor rfl spec equations: sizeOf (ctor f…) = 1 + Σ contributions,
-          ;; with recursive contributions spelled sizeOf (so the normalizer recurses)
-          (doseq [cn ctor-names]
-            (let [{bs :binders} (wf-fix-tele-open-plain (.type (env/lookup @ansatz-env cn)))
-                  ftys (mapv second bs)
-                  fids (mapv first bs)
-                  contrib (fn [i]
-                            (cond
-                              (rec? (nth ftys i)) (szof (e/fvar (nth fids i)))
-                              (let [[h2 a2] (e/get-app-fn-args (nth ftys i))]
-                                (and (e/const? h2) (empty? a2)
-                                     (= "Nat" (name/->string (e/const-name h2)))))
-                              (e/fvar (nth fids i))
-                              :else
-                              (when-let [inst (wf-sizeof-inst @ansatz-env (nth ftys i))]
-                                (e/app* (e/const' (name/from-string "SizeOf.sizeOf") [L1])
-                                        (nth ftys i) inst (e/fvar (nth fids i))))))
-                  rhs (reduce nadd (e/lit-nat 1) (keep contrib (range (count ftys))))
-                  lhs (szof (apply e/app* (e/const' cn []) (mapv e/fvar fids)))
-                  eq-core (e/app* (e/const' (name/from-string "Eq") [L1]) nat-c lhs rhs)
-                  pf-core (e/app* (e/const' (name/from-string "Eq.refl") [L1]) nat-c lhs)
-                  ids fids
-                  wrap (fn [mk core]
-                         (loop [k (dec (count bs)) acc (e/abstract-many core ids)]
-                           (if (< k 0) acc
-                               (recur (dec k) (mk (e/abstract-many (second (nth bs k)) (subvec ids 0 k)) acc)))))
-                  eq-ty (wrap (fn [ty b] (e/forall' "f" ty b :default)) eq-core)
-                  pf (wrap (fn [ty b] (e/lam "f" ty b :default)) pf-core)]
-              (swap! ansatz-env env/check-constant
-                     (env/mk-thm (name/mk-str cn "sizeOf_spec") [] eq-ty pf))))
-          (when (verbose?)
-            (println (str "  ✓ " ind-name-str " SizeOf derived (instance + "
-                          (count ctor-names) " spec equations)"))))))
+    (when (size-of/shape-eligible? @ansatz-env ind-name-str)
+      (wf-fix-ensure-sizeof-prelude!)
+      (swap! ansatz-env
+             (fn [env]
+               (register-size-of-specs
+                (size-of/mk-size-of-instances (wf-ensure-sizeof-instances env) ind-name-str))))
+      (when (verbose?)
+        (println (str "  ✓ " ind-name-str " SizeOf derived"))))
     (catch Throwable t
       (when (verbose?)
         (println (str "  sizeOf derivation skipped for " ind-name-str ": " (.getMessage t)))))))
@@ -1020,13 +1023,7 @@
         ;; `:termination-by m` with `m : Value` means `(sizeOf m)`; rewrite the
         ;; measure form (scalar or inside a lex vector) before the gate/encoder.
         sized-param? (fn [msym]
-                       (some (fn [[p t _]]
-                               (and (= p msym) (not= t 'Nat)
-                                    (or (and (seq? t) (= 'List (first t)))
-                                        (and (symbol? t)
-                                             (env/lookup env (name/mk-str (name/from-string (str t))
-                                                                          "_sizeOf_inst"))))))
-                             pairs))
+                       (some (fn [[p t _]] (and (= p msym) (sized-type-form? env t))) pairs))
         lift-measure (fn [mf] (if (and (symbol? mf) (sized-param? mf)) (list 'sizeOf mf) mf))
         measure-form (if (vector? measure-form)
                        (mapv lift-measure measure-form)

@@ -690,7 +690,7 @@
   [v]
   (cond
     (integer? v) v
-    (or (nil? v) (sequential? v)) (reduce (fn [acc e] (+ acc 1 (rt-sizeof e))) 1 v)
+    (or (nil? v) (sequential? v)) (reduce (fn [acc e] (+' acc 1 (rt-sizeof e))) 1 v)
     :else 1))
 
 ;; Type context for outer-scope variables — used by match handler to
@@ -3702,6 +3702,9 @@
        ~@(when extends-form
            [`(add-inherited-accessors! ~(str type-name) ~(str parent-sym)
                                        ~(str to-field) ~(/ (count params) 2))])
+
+       ;; Lean generates SizeOf for structures too (not for classes).
+       ~@(when-not (:class opts) [`(wf-derive-sizeof! ~(str type-name))])
 
        ;; Lean's class extension is environment-local; ordinary structures are excluded.
        ~@(when (:class opts)

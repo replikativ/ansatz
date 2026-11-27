@@ -996,7 +996,18 @@
       (and (e/const? h) (empty? as)
            (env/lookup env (name/mk-str (e/const-name h) "_sizeOf_inst")))
       (e/const' (name/mk-str (e/const-name h) "_sizeOf_inst") [])
-      :else nil)))
+      ;; any other instance the registry resolves (`SzOpt Nat` → `SzOpt._sizeOf_inst Nat
+      ;; instSizeOfNat`); the zero-valued `instSizeOfDefault` does not make a type sized
+      :else
+      (when (and (e/const? h) (env/get-extension env :instances nil))
+        (let [st (tc/mk-tc-state env)
+              s (try (red/whnf env (tc/infer-type st ty) {}) (catch Exception _ nil))
+              r (when (and s (e/sort? s))
+                  (try ((requiring-resolve 'ansatz.tactic.instance/synthesize*)
+                        st env ((requiring-resolve 'ansatz.tactic.instance/index-for) env)
+                        (e/app (e/const' (name/from-string "SizeOf") [(e/sort-level s)]) ty) 0)
+                       (catch clojure.lang.ExceptionInfo _ nil)))]
+          (when (and r (not= "instSizeOfDefault" (str (e/const-name (e/get-app-fn r))))) r))))))
 
 (defn- recur-form? [x]
   (and (seq? x) (symbol? (first x)) (= "recur" (name (first x)))))
@@ -2015,13 +2026,29 @@
         ;; (sizeOf x) → SizeOf.sizeOf T inst x — the WF measure for data-typed params.
         ;; The argument's type is INFERRED (fvar scope carries it); the instance is
         ;; synthesized structurally (Nat, List of sized, derived custom instances).
+              ;; Lean: `sizeOf x` is `@SizeOf.sizeOf α inst x` with the instance synthesized in
+              ;; the local context (a local dictionary first), at the type's universe.
               "sizeOf"
               (let [x* (elab-term est (nth sexpr 1))
                     ty (zonk est (infer-with-mvars est x*))
-                    inst (sizeof-inst (elab-env est) ty)]
+                    ;; `SizeOf.{u} (α : Sort u)`: the full sort level of the argument's type
+                    u (let [s (try (zonk est (infer-with-mvars est ty)) (catch Exception _ nil))]
+                        (if (and s (e/sort? s)) (e/sort-level s) (lvl/succ (type-sort-level est ty))))
+                    goal (e/app (e/const' (name/from-string "SizeOf") [u]) ty)
+                    env (elab-env est)
+                    synthesized (when (env/get-extension env :instances nil)
+                                  (try ((requiring-resolve 'ansatz.tactic.instance/synthesize*)
+                                        (:tc est) env ((requiring-resolve 'ansatz.tactic.instance/index-for) env) goal 0)
+                                       (catch clojure.lang.ExceptionInfo _ nil)))
+                    ;; the zero default yields to a named instance an older environment left
+                    ;; unregistered (sizeof-inst finds `T._sizeOf_inst` by name)
+                    inst (if (and synthesized
+                                  (not= "instSizeOfDefault" (str (e/const-name (e/get-app-fn synthesized)))))
+                           synthesized
+                           (or (sizeof-inst env ty) synthesized))]
                 (when-not inst
                   (elab-error! (str "sizeOf: no SizeOf instance for type " (e/->string ty)) {:form sexpr}))
-                (e/app* (e/const' (name/from-string "SizeOf.sizeOf") [(lvl/succ lvl/zero)]) ty inst x*))
+                (e/app* (e/const' (name/from-string "SizeOf.sizeOf") [u]) ty inst x*))
 
         ;; Clojure loop/recur — the common counting-loop shape compiles to Nat.rec (see elab-loop).
               "loop" (if (> (count sexpr) 3)
