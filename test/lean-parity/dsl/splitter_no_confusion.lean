@@ -1,5 +1,5 @@
 /-
-Pairs with: ansatz.tactic.match-eqns-test (splitter simplification of constructor equations)
+Pairs with: ansatz.tactic.splitter-no-confusion-test (splitter simplification of constructor equations)
 Observed with Lean v4.36.0 (core only), the facts AppBuilder.mkNoConfusion relies on and the
 splitter's equation simplification must follow:
 - `ctorIdx` of an indexed family takes the indices too (`@D.ctorIdx Nat` alone is rejected);

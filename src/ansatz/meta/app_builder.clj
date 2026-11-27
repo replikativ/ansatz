@@ -14,7 +14,9 @@
                    (e/app (u/const' "Nat.succ" []) (e/lit-nat (dec (e/lit-nat-val expr))))) expr)
         [f args] (e/get-app-fn-args expr)
         ci (when (e/const? f) (env/lookup (:env @ctx) (e/const-name f)))]
-    (when (and ci (.isCtor ci)) {:info ci :args args :expr expr :us (e/const-levels f)})))
+    ;; CtorRecognizer.lean constructorApp?: every parameter and field supplied
+    (when (and ci (.isCtor ci) (= (count args) (+ (.numParams ci) (.numFields ci))))
+      {:info ci :args args :expr expr :us (e/const-levels f)})))
 
 (defn- ensure-no-confusion! [ctx ctor]
   ;; Lean realizes constructor noConfusion on demand (NoConfusion.lean).
@@ -38,6 +40,9 @@
   ;; the per-constructor noConfusion declaration for an injective constructor.
   (let [{ca :info aa :args us :us} (constructor-app? ctx a)
         {cb :info ba :args} (constructor-app? ctx b)
+        _ (when-not (and ca cb)
+            (throw (ex-info "mkNoConfusion: equality of constructor applications expected"
+                            {:kind :tactic-error :a a :b b})))
         [ih ia] (e/get-app-fn-args (u/whnf ctx type))
         ind (.inductName ca) v (u/get-level ctx target)]
     (if (not= (.name ca) (.name cb))

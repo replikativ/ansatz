@@ -2017,6 +2017,20 @@
   (let [s (try (whnf-in-goal ps lctx (tc/infer-type st expr)) (catch Exception _ nil))]
     (if (and s (e/sort? s)) (e/sort-level s) lvl/zero)))
 
+(defn- publish-realized
+  "`ps` over `env'`, where AppBuilder.mkNoConfusion may have realized `C.noConfusion` (and its
+   type's `noConfusionType` / `noConfusion`). A realization is permanent in Lean's environment;
+   here it also goes to the session environment, which a later matcher split starts from."
+  [ps env' ctor ind]
+  (let [names [(name/mk-str ind "noConfusionType") (name/mk-str ind "noConfusion") (name/mk-str ctor "noConfusion")]
+        new (filter #(and (env/lookup env' %) (not (env/lookup (:env ps) %))) names)]
+    (when (seq new)
+      (let [session @(requiring-resolve 'ansatz.state/ansatz-env)]
+        (swap! session (fn [g] (if (nil? g) g
+                                   (reduce (fn [g n] (if (env/lookup g n) g (env/add-constant g (env/lookup env' n))))
+                                           g new))))))
+    (assoc ps :env env')))
+
 (defn unify-eq
   "Process one equality hypothesis in a cases branch (Lean 4 UnifyEq.lean + injectionCore).
    Returns {:ps ps' :status :solved/:continue :num-new-eqs n}.
@@ -2074,16 +2088,38 @@
                      (let [^ConstantInfo lc (env/lookup (:env ps) (e/const-name lhs-head))
                            ^ConstantInfo rc (env/lookup (:env ps) (e/const-name rhs-head))]
                        (and lc rc (.isCtor lc) (.isCtor rc)
-                            (= (.inductName lc) (.inductName rc)))))
+                            (= (.inductName lc) (.inductName rc))
+                            ;; fully applied (CtorRecognizer constructorApp?): a partially
+                            ;; applied constructor is a function, not a constructor value
+                            (= (count lhs-args) (+ (.numParams lc) (.numFields lc)))
+                            (= (count rhs-args) (+ (.numParams rc) (.numFields rc))))))
               ;; Lean Meta/Tactic/Injection.lean injectionCore through the shared
               ;; AppBuilder.mkNoConfusion (ansatz.meta.app-builder): `noConfusion_of_Nat` over
               ;; `ctorIdx` at every parameter and index for different constructors; the
               ;; per-constructor `noConfusion` with its index equalities and `heq_of_eq` when the
               ;; major is heterogeneous for the same constructor.
               (let [ctx (atom st)
-                    val (meta-cases/mk-no-confusion ctx (:type goal) alpha lhs rhs (e/fvar eq-fvar-id))
-                    ps (assoc ps :env (:env @ctx))]
-                (if (not= (e/const-name lhs-head) (e/const-name rhs-head))
+                    same? (= (e/const-name lhs-head) (e/const-name rhs-head))
+                    ^ConstantInfo ind (env/lookup! (:env ps) (.inductName ^ConstantInfo (env/lookup! (:env ps) (e/const-name lhs-head))))
+                    has? #(some? (env/lookup (:env ps) (name/from-string %)))
+                    ind-str (name/->string (.name ind))
+                    ;; the sides as recognized above (the builder's reduction cannot expose every
+                    ;; constructor the goal's whnf can, e.g. through structure eta)
+                    val (if (and (not same?)
+                                 (not (and (has? "noConfusion_of_Nat") (has? (str ind-str ".ctorIdx"))))
+                                 (zero? (.numParams ind)) (zero? (.numIndices ind))
+                                 (has? (str ind-str ".noConfusion")))
+                          ;; a dependency closure without the tag: the type's own noConfusion,
+                          ;; `{P} {x y} (h : x = y) : noConfusionType P x y`, is `P` here
+                          (e/app* (e/const' (name/mk-str (.name ind) "noConfusion")
+                                            (into [(sort-level-of ps st lctx (:type goal))] (e/const-levels lhs-head)))
+                                  (:type goal) lhs-whnf rhs-whnf (e/fvar eq-fvar-id))
+                          (try (meta-cases/mk-no-confusion ctx (:type goal) alpha lhs-whnf rhs-whnf (e/fvar eq-fvar-id))
+                               (catch clojure.lang.ExceptionInfo ex (throw (ex-info (str "unify-eq: " (.getMessage ex))
+                                                                                    (assoc (ex-data ex) :kind :tactic-error) ex)))
+                               (catch RuntimeException ex (tactic-error! (str "unify-eq: " (.getMessage ex)) {}))))
+                    ps (publish-realized ps (:env @ctx) (e/const-name lhs-head) (.name ind))]
+                (if (not same?)
                   {:ps (-> (proof/assign-mvar ps (:id goal) {:kind :exact :term val})
                            (proof/record-tactic :injection-solved [eq-fvar-id] (:id goal)))
                    :status :solved :num-new-eqs 0}
@@ -2101,7 +2137,9 @@
                                                  (drop (.numParams lc) xs)))
                         [ps' cg] (proof/fresh-mvar-replacing ps new-target lctx (:id goal))]
                     {:ps (-> (proof/assign-mvar ps' (:id goal) {:kind :apply :head val :arg-mvars [cg]})
-                             (proof/record-tactic :injection-decompose [eq-fvar-id] (:id goal)))
+                             (proof/record-tactic :injection-decompose [eq-fvar-id] (:id goal))
+                             ;; injectionCore: newMVar.mvarId!.tryClear fvarId
+                             (try-clear eq-fvar-id))
                      :status :continue :num-new-eqs (- (.numFields lc) num-props)})))
               (tactic-error! "unify-eq: cannot solve equality" {:lhs lhs-whnf :rhs rhs-whnf})))))
 
