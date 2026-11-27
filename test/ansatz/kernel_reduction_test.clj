@@ -389,3 +389,19 @@
       (is (not (true? (try (ktc/is-def-eq st (e/app (c "Nat.succ" [l0]) (lit 2)) (lit 3))
                            (catch Exception _ :error)))))
       (is (true? (ktc/is-def-eq st (e/app (c "Nat.succ") (lit 2)) (lit 3)))))))
+
+(deftest cache-inputs-cannot-change-under-the-caches
+  (let [env (env/check-constant @base (env/mk-def (n "kal2") [] (c "Nat") (c "Nat.zero") :hints {:regular 1}) fuel)
+        checker (tc env)
+        allow (java.util.HashSet. [(n "kal2")])]
+    (.setTransparency checker 0)
+    (.setDeltaAllowSet checker allow)
+    (is (.isDefEq checker (c "kal2") (c "Nat.zero")))
+    (testing "the allow-set is copied: changing the caller's set changes nothing"
+      (.remove allow (n "kal2"))
+      (is (.canUnfold (.getReducer checker) (n "kal2")))
+      (is (.isDefEq checker (c "kal2") (c "Nat.zero"))))
+    (testing "the local context is not exposed: lookupFvar hands out a copy"
+      (.addLocal checker 3 "x" ^Expr (c "Nat"))
+      (aset ^objects (.lookupFvar checker 3) 2 (c "Bool"))
+      (is (= (str (c "Nat")) (str (.inferType checker (e/fvar 3))))))))

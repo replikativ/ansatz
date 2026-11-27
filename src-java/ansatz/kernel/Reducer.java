@@ -85,9 +85,10 @@ public final class Reducer {
     private java.util.HashSet<Name> deltaAllowSet = null;
 
     /** Set the allow-list for reducible mode. Only these names will be delta-reduced
-     *  when transparency=0. Pass null to clear. */
+     *  when transparency=0. Pass null to clear. The set is copied: the caches depend on it, so
+     *  a later change to the caller's set must not change it (set it again instead). */
     public void setDeltaAllowSet(java.util.HashSet<Name> names) {
-        this.deltaAllowSet = names;
+        this.deltaAllowSet = names == null ? null : new java.util.HashSet<>(names);
         policyChanged();
     }
 
@@ -95,7 +96,9 @@ public final class Reducer {
     // transparency given by a rule (Lean's reducibility status) rather than a finite list.
     private java.util.function.Predicate<Name> deltaAllowPredicate = null;
 
-    /** Set the allow-predicate for reducible mode (transparency=0). Pass null to clear. */
+    /** Set the allow-predicate for reducible mode (transparency=0). Pass null to clear. The
+     *  caches depend on its answers: it must answer the same for a name until it is set again
+     *  (a predicate whose answers change must be set again, which clears the caches). */
     public void setDeltaAllowPredicate(java.util.function.Predicate<Name> pred) {
         this.deltaAllowPredicate = pred;
         policyChanged();
@@ -155,7 +158,8 @@ public final class Reducer {
     public long getFuelUsed() { return initialFuel > 0 ? initialFuel - fuel : -fuel; }
     /** Continue prev's budget: same limit, what it has left (an exhausted budget stays exhausted). */
     void continueFuel(Reducer prev) { this.fuel = prev.fuel; this.initialFuel = prev.initialFuel; }
-    public void setLctx(HashMap<Long, Object[]> lctx) { this.lctx = lctx; }
+    // the owning checker's local context (shared, not copied); only the checker registers locals
+    void setLctx(HashMap<Long, Object[]> lctx) { this.lctx = lctx; }
     public void setCallbacks(InferFn inferFn, IsDefEqFn isDefEqFn, IsPropFn isPropFn) {
         this.inferFn = inferFn;
         this.isDefEqFn = isDefEqFn;
@@ -172,7 +176,7 @@ public final class Reducer {
         });
     }
 
-    public HashMap<Long, Object[]> getLctx() { return lctx; }
+
 
     // ============================================================
     // de Bruijn operations
