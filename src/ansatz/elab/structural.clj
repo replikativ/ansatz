@@ -82,6 +82,14 @@
                                 fixed))]
         (if (= fixed fixed') fixed (recur fixed'))))))
 
+(def ^:private ^:dynamic *let-values*
+  "fvar-id → value of the let-bound locals opened by replace-rec-apps (Lean keeps let
+   declarations and zeta-reduces the recursive argument in toBelowAux)."
+  {})
+
+(defn- zeta [x]
+  (if-let [v (and (e/fvar? x) (get *let-values* (e/fvar-id x)))] (recur v) x))
+
 (defn- to-below [ctx motive below target-args]
   (let [raw-type (u/infer-type ctx below)
         [raw-head raw-args] (e/get-app-fn-args raw-type)
@@ -90,7 +98,7 @@
         head-name (when (e/const? head) (str (e/const-name head)))]
     (cond
       (and (= raw-head motive) (= (count target-args) (count raw-args))
-           (every? true? (map #(tc/is-def-eq @ctx %1 %2) raw-args target-args)))
+           (every? true? (map #(tc/is-def-eq @ctx %1 (zeta %2)) raw-args target-args)))
       below
 
       (and (#{"PProd" "And"} head-name) (= 2 (count args)))
@@ -99,11 +107,13 @@
 
       ;; BRecOn.lean toBelowAux: a reflexive field's dictionary `(a : A) → PProd …` is
       ;; instantiated with the trailing arguments of the recursive argument (`k 0`)
+      ;; (a candidate whose domain does not fit the arguments is a miss, not an error)
       (e/forall? type)
       (let [n (loop [t type n 0] (if (e/forall? t) (recur (e/forall-body t) (inc n)) n))
-            arg-args (vec (e/get-app-args (peek target-args)))]
+            arg-args (vec (e/get-app-args (zeta (peek target-args))))]
         (when (>= (count arg-args) n)
-          (to-below ctx motive (u/app below (subvec arg-args (- (count arg-args) n))) target-args)))
+          (try (to-below ctx motive (u/app below (subvec arg-args (- (count arg-args) n))) target-args)
+               (catch Exception _ nil))))
 
       :else nil)))
 
@@ -169,7 +179,8 @@
                 :let (let [type (loop-expr below (e/let-type expr))
                            value (loop-expr below (e/let-value expr))
                            x (u/local-decl ctx (e/let-name expr) type)
-                           body (loop-expr below (e/instantiate1 (e/let-body expr) x))]
+                           body (binding [*let-values* (assoc *let-values* (e/fvar-id x) value)]
+                                  (loop-expr below (e/instantiate1 (e/let-body expr) x)))]
                        (e/let' (e/let-name expr) type value
                                (e/abstract1 body (e/fvar-id x))))
                 :mdata (e/mdata (e/mdata-data expr) (loop-expr below (e/mdata-expr expr)))
@@ -227,7 +238,9 @@
         brec-head (u/app (e/const' (name/mk-str ind-name "brecOn") (into [motive-level] levels)) params)
         motive-types (let [[ms _] (u/forall-telescope ctx (u/infer-type ctx brec-head) n-motives)]
                        (mapv #(u/infer-type ctx %) ms))
-        unit (u/const' "PUnit" [motive-level])
+        ;; Lean PProdN.pack on no components: True at universe zero, else PUnit
+        prop? (ansatz.kernel.level/level-zero? motive-level)
+        unit (if prop? (u/const' "True" []) (u/const' "PUnit" [motive-level]))
         motives (mapv (fn [i t] (if (= i own) motive
                                     (let [[ys _] (u/forall-telescope ctx t)] (u/mk-lambda-fvars ctx ys unit))))
                       (range n-motives) motive-types)
@@ -244,7 +257,8 @@
         functionals (mapv (fn [i t]
                             (if (= i own) functional
                                 (let [[ys _] (u/forall-telescope ctx t)]
-                                  (u/mk-lambda-fvars ctx ys (u/const' "PUnit.unit" [motive-level])))))
+                                  (u/mk-lambda-fvars ctx ys (if prop? (u/const' "True.intro" [])
+                                                                (u/const' "PUnit.unit" [motive-level]))))))
                           (range n-motives) f-types)
         value (u/app brec-head (concat motives indices [arg] functionals))
         value (u/app value varying)]

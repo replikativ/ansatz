@@ -215,7 +215,13 @@
         specs (mapv (fn [[n ctors & {:keys [indices in]}]]
                       {:name n :ind-name (name/from-string n) :ctors-spec ctors
                        :index-pairs (vec (partition 2 (or indices [])))
-                       :result-level (cond (= in 'Prop) lvl/zero in (lvl/succ lvl/zero) :else default-level)
+                       :result-level (cond
+                                       (nil? in) default-level
+                                       (= in 'Prop) lvl/zero
+                                       (= in 'Type) (lvl/succ lvl/zero)
+                                       (and (seq? in) (= 2 (count in)) (= 'Type (first in)) (symbol? (second in)))
+                                       (lvl/succ (lvl/param (name/from-string (str (second in)))))
+                                       :else (throw (ex-info (str "unsupported result sort " (pr-str in)) {:in in})))
                        :self-const (e/const' (name/from-string n) levels)})
                     specs)
         elaborated (elab/elab-mutual env param-pairs specs)

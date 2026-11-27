@@ -72,3 +72,32 @@
     (is (= 2 (.numNested (ci "SmDeep"))))
     (doseq [n ["SmDeep.below_1" "SmDeep.below_2" "SmDeep.brecOn_2"]]
       (is (some? (ci n)) n))))
+
+(deftest review-cases
+  (testing "recursion on the second family of the block"
+    (binding [a/*verbose* false *ns* (the-ns 'ansatz.structural-mutual-test)]
+      (eval '(ansatz.core/defn sm-flen [f :- SmForest] Nat
+               (match f (SmForest.nil) 0 (SmForest.cons t g) (+ (sm-flen g) 1))))
+      (eval '(ansatz.core/theorem sm-flen-2 []
+                                  (= Nat (sm-flen (SmForest.cons SmTree.leaf (SmForest.cons SmTree.leaf SmForest.nil))) 2) (rfl))))
+    (is (some? (ci "sm-flen-2"))))
+  (testing "a wrong dictionary candidate is a miss: two reflexive fields, recursion on the second"
+    (binding [a/*verbose* false *ns* (the-ns 'ansatz.structural-mutual-test)]
+      (eval '(ansatz.core/inductive SmW2 [] (leaf) (branch [p (=> Bool SmW2)] [q (=> Nat SmW2)])))
+      (eval '(ansatz.core/defn sm-w2 [w :- SmW2] Nat
+               (match w (leaf) 0 (branch p q) (+ (sm-w2 (q 0)) 1))))
+      (eval '(ansatz.core/theorem sm-w2-1 []
+                                  (= Nat (sm-w2 (SmW2.branch (fn [_ :- Bool] SmW2.leaf) (fn [_ :- Nat] SmW2.leaf))) 1) (rfl))))
+    (is (some? (ci "sm-w2-1"))))
+  (testing "a let-bound recursive argument is zeta-reduced to find its hypothesis"
+    (binding [a/*verbose* false *ns* (the-ns 'ansatz.structural-mutual-test)]
+      (eval '(ansatz.core/defn sm-wlet [w :- SmW] Nat
+               (match w (leaf) 0 (branch k) (let [child :- SmW (k 0)] (+ (sm-wlet child) 1)))))
+      (eval '(ansatz.core/theorem sm-wlet-1 []
+                                  (= Nat (sm-wlet (SmW.branch (fn [_ :- Nat] SmW.leaf))) 1) (rfl))))
+    (is (re-find #"SmW\.brecOn" (e/->string (.value (ci "sm-wlet")))))
+    (is (some? (ci "sm-wlet-1"))))
+  (testing "an unsupported mutual result sort is rejected"
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"unsupported result sort"
+                          (ind/define-mutual-inductive (a/env) []
+                            [["SmBad" [['mk []]] :in '(Sort u v)]])))))
