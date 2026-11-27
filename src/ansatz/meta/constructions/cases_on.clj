@@ -7,11 +7,48 @@
             [ansatz.kernel.name :as name]
             [ansatz.kernel.level :as lvl]))
 
+(declare mk-cases-on-from-rec)
+
 (defn- mk-fun-unit [ctx type unit]
   (let [[xs _] (u/forall-telescope ctx type)] (u/mk-lambda-fvars ctx xs unit)))
 
+(defn cases-on-via-projs?
+  "Lean 4.36 isCasesOnViaProjs: one constructor, no indices, nonrecursive, Prop-valued and large
+   eliminating — every field is then a proof, so the projections of the major exist."
+  [env n]
+  (let [ind (env/lookup env (name/from-string (str n)))
+        rec (env/lookup env (name/from-string (str n ".rec")))]
+    (boolean
+     (and ind rec (.isInduct ind) (= 1 (count (.ctors ind))) (zero? (.numIndices ind)) (not (.isRec ind))
+          (u/prop-former? (u/context env) (.type ind))
+          (> (count (.levelParams rec)) (count (.levelParams ind)))))))
+
+(defn- mk-cases-on-via-projs
+  "Lean 4.36 mkCasesOnViaProjs?: `fun params motive (t : I params) minor => minor t.1 … t.n`.
+   `I.casesOn … t minor` built from `I.rec` reduces only when `t` is a constructor application,
+   which a proof may never be; the projections compute on any `t`, and proof irrelevance
+   identifies them with the fields of `I.mk x₁ … xₙ`."
+  [env n target]
+  (let [ind (env/lookup! env (name/from-string (str n)))
+        rec (env/lookup! env (name/from-string (str n ".rec")))
+        ctor (env/lookup! env (first (.ctors ind)))
+        ctx (u/context env)
+        np (.numParams ind)
+        [xs major-type] (u/forall-telescope ctx (.type rec) (+ np 2))
+        params (subvec xs 0 np) motive (nth xs np) minor (nth xs (inc np))
+        major (u/local-decl ctx (e/forall-name major-type) (e/forall-type major-type) (e/forall-info major-type))
+        fields (map #(e/proj (.name ind) % major) (range (.numFields ctor)))
+        ys (vec (concat params [motive major minor]))]
+    (u/add-definition env ctx target (vec (.levelParams rec)) ys (e/app motive major) (u/app minor fields))))
+
 (defn mk-cases-on
   ([env n] (mk-cases-on env n (str n ".casesOn")))
+  ([env n target]
+   (if (cases-on-via-projs? env n)
+     (mk-cases-on-via-projs env n target)
+     (mk-cases-on-from-rec env n target))))
+
+(defn- mk-cases-on-from-rec
   ([env n target]
    (let [ind (env/lookup! env (name/from-string (str n)))
          rec (env/lookup! env (name/from-string (str n ".rec")))
