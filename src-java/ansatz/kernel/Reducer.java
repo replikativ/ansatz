@@ -64,10 +64,19 @@ public final class Reducer {
      *  Names in deltaAllowSet are always unfolded regardless of mode. */
     public void setTransparency(int mode) {
         this.transparencyMode = mode;
-        // Clear caches since reduction behavior changes
+        policyChanged();
+    }
+
+    // The type checker's caches (inference, definitional equality) depend on the unfolding
+    // policy as much as the reducer's own: every policy change clears both.
+    private Runnable policyListener;
+    void setPolicyListener(Runnable listener) { this.policyListener = listener; }
+
+    private void policyChanged() {
         this.whnfCoreCache.clear();
         this.whnfCache.clear();
         this.unfoldCache.clear();
+        if (policyListener != null) policyListener.run();
     }
 
     public int getTransparency() { return transparencyMode; }
@@ -79,6 +88,7 @@ public final class Reducer {
      *  when transparency=0. Pass null to clear. */
     public void setDeltaAllowSet(java.util.HashSet<Name> names) {
         this.deltaAllowSet = names;
+        policyChanged();
     }
 
     // When transparencyMode=0 (reducible), ALSO unfold the names this predicate accepts: a
@@ -88,6 +98,7 @@ public final class Reducer {
     /** Set the allow-predicate for reducible mode (transparency=0). Pass null to clear. */
     public void setDeltaAllowPredicate(java.util.function.Predicate<Name> pred) {
         this.deltaAllowPredicate = pred;
+        policyChanged();
     }
 
     /** May the definition `name` be delta-unfolded at the current transparency? Always outside

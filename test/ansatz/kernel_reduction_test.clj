@@ -314,3 +314,26 @@
         env (env/add-constant env (env/mk-def (n "kgS") [] (c "KS") (c "kfS" [l0]) :hints {:regular 1}))]
     (is (re-find #"Universe level mismatch for kfS"
                  (str (kernel-error #(defeq? env (c "kgS") (e/app (c "KS.mk") (lit 1)))))))))
+
+;; ------------------------------------------------------------------ cache invariants
+
+(deftest locals-keep-a-fixed-type
+  (let [checker (tc @base)]
+    (.addLocal checker 5 "x" ^Expr (c "Nat"))
+    (.addLocal checker 5 "x" ^Expr (c "Nat"))
+    (is (thrown-with-msg? IllegalArgumentException #"already registered with a different type"
+                          (.addLocal checker 5 "x" ^Expr (c "Bool"))))
+    (is (thrown-with-msg? IllegalArgumentException #"invalid local id"
+                          (.addLocal checker TypeChecker/KERNEL_FRESH_BASE "y" ^Expr (c "Nat"))))
+    (let [id (.nextFvarId checker)]
+      (.addLocal checker id "z" ^Expr (c "Nat"))
+      (is (= (str (c "Nat")) (str (.inferType checker (e/fvar id))))))))
+
+(deftest unfolding-policy-changes-clear-the-conversion-caches
+  (let [env (env/check-constant @base (env/mk-def (n "kal") [] (c "Nat") (c "Nat.zero") :hints {:regular 1}) fuel)
+        checker (tc env)]
+    (is (.isDefEq checker (c "kal") (c "Nat.zero")))
+    (.setTransparency checker 0)
+    (is (false? (.isDefEq checker (c "kal") (c "Nat.zero"))) "the earlier success is not reused")
+    (.setDeltaAllowSet checker (java.util.HashSet. [(n "kal")]))
+    (is (.isDefEq checker (c "kal") (c "Nat.zero")))))

@@ -353,6 +353,14 @@ public final class TypeChecker {
         this.lctx = new HashMap<>();
         this.reducer.setLctx(this.lctx);
         this.reducer.setCallbacks(this::inferTypeOnly, this::isDefEq, this::isProp);
+        // Lean's caches assume a fixed unfolding policy (a fresh type_checker per policy): a
+        // change of transparency or allow-set invalidates inference and conversion results too
+        this.reducer.setPolicyListener(() -> {
+            inferCache.clear();
+            inferOnlyCache.clear();
+            success.clear();
+            failure.clear();
+        });
     }
 
     private static HashSet<Object> mkAllowedLevelParamSet(Object[] levelParams) {
@@ -467,7 +475,23 @@ public final class TypeChecker {
     /** Public entry for callers that check open terms under known free variables
      *  (the nested-inductive parameter context, lean4#14577). */
     public void addLocal(long id, Object name, Expr type) {
+        registerPublicLocal(id, type);
         lctxAddLocal(id, name, type);
+    }
+
+    // type_checker.h: "free variables are globally unique with fixed types" — the caches are
+    // keyed by expressions in which a local is only its id. A caller may register an id again
+    // with the same type; a different type (or a let) under a used id is refused.
+    private final HashMap<Long, Expr> publicLocalTypes = new HashMap<>();
+
+    private void registerPublicLocal(long id, Expr type) {
+        if (id < 0 || id == Long.MAX_VALUE || (id >= KERNEL_FRESH_BASE && !handedOut.contains(id)))
+            throw new IllegalArgumentException("invalid local id " + id + " (ids from " + KERNEL_FRESH_BASE
+                + " on are the checker's own; take one from nextFvarId)");
+        Expr prev = publicLocalTypes.putIfAbsent(id, type);
+        if (prev != null && prev != type && !LeanExprKey.exprEquals(prev, type))
+            throw new IllegalArgumentException("local " + id + " is already registered with a different type: "
+                + "free variables must keep a fixed type for the checker's caches (use a fresh id or a fresh checker)");
     }
 
     private void lctxAddLocal(long id, Object name, Expr type) {
@@ -477,18 +501,26 @@ public final class TypeChecker {
 
     /** Public API: register a local declaration in the type checker's local context. */
     public void addLocal(long id, String name, Expr type) {
+        registerPublicLocal(id, type);
         lctxAddLocal(id, name, type);
         reducer.setLctx(lctx);
     }
 
-    /** Generate a fresh fvar id. */
-    public long nextFvarId() { return freshId(); }
+    /** Generate a fresh fvar id for the caller to register. */
+    public long nextFvarId() {
+        long id = freshId();
+        handedOut.add(id);
+        return id;
+    }
+
+    private final java.util.HashSet<Long> handedOut = new java.util.HashSet<>();
 
     /** Get the environment. */
     public Env getEnv() { return env; }
 
     /** Add a local declaration (convenience for validation code). */
     public void addLocalDecl(long id, Object name, Expr type) {
+        registerPublicLocal(id, type);
         lctxAddLocal(id, name, type);
         reducer.setLctx(lctx);
     }
