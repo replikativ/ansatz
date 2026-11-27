@@ -46,6 +46,16 @@
 ;; Phase 1: Core declarations
 ;; ============================================================
 
+(defn binder-info
+  "The binder kind a DSL binder symbol carries as metadata: ^:implicit `{x}`, ^:inst `[x]`,
+   ^:strict `⦃x⦄`; otherwise explicit."
+  [sym]
+  (let [m (meta sym)]
+    (cond (:inst m) :inst-implicit
+          (:implicit m) :implicit
+          (:strict m) :strict-implicit
+          :else :default)))
+
 (defn- build-inductive-type
   "Build: ∀ (p1:T1) ... (pn:Tn) (i1:I1) ... (ik:Ik) → Sort result_level
    indices is a vec of {:name :compiled-type} (empty for non-indexed types)."
@@ -56,13 +66,13 @@
                (if (< i 0) body
                    (recur (dec i) (e/forall' (:name (nth indices i))
                                              (:compiled-type (nth indices i))
-                                             body :default))))]
+                                             body (binder-info (:sym (nth indices i)))))))]
     ;; Lean Elab/MutualInductive.lean elabHeadersAux preserves the header binders.
     ;; Explicit family parameters become implicit only in constructor types.
     (loop [i (dec (count params)) body body]
       (if (< i 0) body
           (recur (dec i) (e/forall' (:name (nth params i)) (:compiled-type (nth params i))
-                                    body :default))))))
+                                    body (binder-info (:sym (nth params i)))))))))
 
 (defn- build-constructor-type
   "Build: ∀ (p1:T1) ... (pn:Tn) (f1:F1) ... (fm:Fm) → I p1...pn idx1...idxk
@@ -84,15 +94,17 @@
     ;; Wrap fields (inner binders), right-to-left
     (loop [i (dec n-fields) body return-type]
       (if (< i 0)
-        ;; Wrap params (outer binders) — implicit like Lean 4
+        ;; Wrap params (outer binders): Elab/Inductive.lean withExplicitToImplicit — an explicit
+        ;; parameter is implicit in the constructor, an instance or strict-implicit one stays
         (loop [i (dec n-params) body body]
           (if (< i 0) body
               (recur (dec i) (e/forall' (:name (nth params i))
                                         (:compiled-type (nth params i))
-                                        body :implicit))))
+                                        body (let [b (binder-info (:sym (nth params i)))]
+                                               (if (= b :default) :implicit b))))))
         (recur (dec i) (e/forall' (:name (nth fields i))
                                   (:type (nth fields i))
-                                  body :default))))))
+                                  body (binder-info (:sym (nth fields i)))))))))
 
 (defn- type-level-param [form]
   (when (and (sequential? form) (= 'Type (first form)) (= 2 (count form)) (symbol? (second form)))
@@ -208,6 +220,39 @@
       :else {:level (lvl/simplify (reduce (fn [acc [b k]] (lvl/level-max acc (add-offset b k)))
                                           (lvl/succ lvl/zero) atoms))})))
 
+(defn- fixed-index-prefix
+  "Lean Elab/MutualInductive.lean computeFixedIndexBitMask / fixedIndicesToParams for one type:
+   how many leading indices are fixed — in every constructor the binder at that position is the
+   index of its result, and every occurrence of the family in a field passes that same index."
+  [env ind-name ind-levels ind-type ctor-types n-params n-indices]
+  (if (zero? n-indices)
+    0
+    (let [env (env/add-constant env (env/mk-axiom ind-name (vec ind-levels) ind-type))
+          ctx (u/context env)
+          arity (+ n-params n-indices)
+          mask (reduce
+                (fn [mask t]
+                  (let [[xs result] (u/forall-telescope ctx t)
+                        rargs (vec (e/get-app-args result))
+                        mask (reduce (fn [mask i]
+                                       (if (and (< i (count xs)) (= (nth xs i) (nth rargs i))) mask (assoc mask i false)))
+                                     mask (range n-params arity))
+                        occurrences (fn occ [x]
+                                      (let [[h as] (e/get-app-fn-args x)]
+                                        (concat (when (and (e/const? h) (= (e/const-name h) ind-name)) [(vec as)])
+                                                (case (e/tag x)
+                                                  :app (mapcat occ as)
+                                                  :forall (concat (occ (e/forall-type x)) (occ (e/forall-body x)))
+                                                  :lam (concat (occ (e/lam-type x)) (occ (e/lam-body x)))
+                                                  nil))))]
+                    (reduce (fn [mask as]
+                              (reduce (fn [mask i]
+                                        (if (and (< i (count as)) (= (nth as i) (nth rargs i))) mask (assoc mask i false)))
+                                      mask (range n-params arity)))
+                            mask (mapcat #(occurrences (u/infer-type ctx %)) (subvec xs n-params)))))
+                (vec (repeat arity true)) ctor-types)]
+      (count (take-while #(nth mask %) (range n-params arity))))))
+
 (defn define-inductive
   "Define an inductive type, adding kernel declarations to env.
 
@@ -232,8 +277,8 @@
    below/brecOn (for recursive types), noConfusionType and noConfusion. Returns env.
    A declaration the kernel rejects (positivity, universes, nesting, ...) throws ex-info
    {:inductive name} carrying the kernel's message, which names the constructor and argument."
-  [env ind-name-str params-spec ctors-spec & {:keys [in indices no-confusion?]
-                                              :or {no-confusion? true}}]
+  [env ind-name-str params-spec ctors-spec & {:keys [in indices no-confusion? promote-indices?]
+                                              :or {no-confusion? true promote-indices? true}}]
   (let [ind-name (name/from-string ind-name-str)
 
         ;; Parse parameters, extracting universe level params
@@ -264,15 +309,23 @@
                           (elab/elab-inductive env ind-name-str param-pairs
                                                (vec (partition 2 (or indices []))) ctors-spec
                                                header-level (e/const' ind-name ind-level-levels))]
-                      (assoc r :ctor-types
-                             (mapv (fn [ctor]
-                                     (build-constructor-type params (:fields ctor) ind-name ind-level-levels
-                                                             (:compiled-return-indices ctor)))
-                                   ctors))))
+                      (let [ctor-types (mapv (fn [ctor]
+                                               (build-constructor-type params (:fields ctor) ind-name ind-level-levels
+                                                                       (:compiled-return-indices ctor)))
+                                             ctors)]
+                        (assoc r :ctor-types ctor-types
+                               ;; Lean fixedIndicesToParams, before universe inference
+                               ;; (MutualInductive.lean): a fixed prefix of the indices becomes
+                               ;; parameters, so its binders are no fields
+                               :promoted (if promote-indices?
+                                           (fixed-index-prefix env ind-name ind-levels
+                                                               (build-inductive-type params indices header-level)
+                                                               ctor-types n-params (count indices))
+                                           0)))))
         ;; A nested occurrence in a container of a fixed universe (`Wrap : Type → Type`) cannot
         ;; unify with the rigid provisional level, where Lean assigns its metavariable: then the
         ;; header's default universe (Type, or above the parameters' universes) is the result.
-        [{:keys [params indices ctors ctor-types]} result-level]
+        [{:keys [params indices ctors ctor-types promoted]} result-level]
         (if explicit-level
           [(elaborate explicit-level) explicit-level]
           (let [attempt (try (elaborate (lvl/succ (lvl/param provisional)))
@@ -284,7 +337,8 @@
                     {:keys [level r-1]} (infer-result-level env ind-name ind-levels
                                                             (build-inductive-type (:params attempt) (:indices attempt)
                                                                                   (lvl/succ (lvl/param provisional)))
-                                                            (:ctor-types attempt) n-params provisional nested?)]
+                                                            (:ctor-types attempt) (+ n-params (:promoted attempt))
+                                                            provisional nested?)]
                 [(cond-> attempt
                    nested? (update :ctor-types (fn [ts] (mapv #(e/instantiate-level-params % {provisional r-1}) ts))))
                  level]))))
@@ -300,6 +354,7 @@
         ctor-types (mapv #(with-family-levels % ind-name ind-level-levels) ctor-types)
         ;; Lean's inductive_decl: the header and the constructor types. The kernel derives
         ;; everything else — metadata, positivity, nesting, the recursor and its rules.
+        n-params (+ n-params promoted)
         decl (env/mk-inductive-decl
               ind-levels n-params false
               [[ind-name (build-inductive-type params indices result-level)

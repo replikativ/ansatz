@@ -612,17 +612,19 @@
                           (cg-param-enum (CGParamEnum.right Nat))]))
 
 (defn- indexed-differential! []
+  ;; these families exercise indexed recursion: their fixed indices stay indices (Lean's
+  ;; `set_option inductive.autoPromoteIndices false`)
   (run! eval
-        '[(ansatz.core/inductive IndexedPair [] :indices [n Nat]
+        '[(ansatz.core/inductive IndexedPair [] :indices [n Nat] :promote-indices? false
                                  (mk [k Nat] [payload Nat] :where [k]))
           (ansatz.core/inductive CGIxList [] :indices [n Nat]
                                  (nil :where [0])
                                  (cons [k Nat] [h Nat] [t (CGIxList k)] :where [(Nat.succ k)]))
-          (ansatz.core/inductive CGIxTagged [] :indices [n Nat]
+          (ansatz.core/inductive CGIxTagged [] :indices [n Nat] :promote-indices? false
                                  (leaf [k Nat] [payload Nat] :where [k])
                                  (node [k Nat] [l (CGIxTagged k)] [r (CGIxTagged k)] :where [k])
                                  (end [k Nat] :where [k]))
-          (ansatz.core/inductive CGIxPair [α Type] :indices [n Nat, m Nat]
+          (ansatz.core/inductive CGIxPair [α Type] :indices [n Nat, m Nat] :promote-indices? false
                                  (mk [k Nat] [j Nat] [payload α] :where [k j]))
           (ansatz.core/inductive CGIxEnum [] :indices [n Nat]
                                  (a :where [0]) (b :where [1]) (c :where [2]))])

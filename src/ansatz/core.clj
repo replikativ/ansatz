@@ -3523,6 +3523,10 @@
         [opts body] (if (= :indices (first body))
                       [(assoc opts :indices (second body)) (drop 2 body)]
                       [opts body])
+        ;; Lean's `set_option inductive.autoPromoteIndices false`
+        [opts body] (if (= :promote-indices? (first body))
+                      [(assoc opts :promote-indices? (second body)) (drop 2 body)]
+                      [opts body])
         ;; Split :deriving option from end of body
         body-vec (vec body)
         [opts body-vec] (let [n (count body-vec)]
@@ -3554,7 +3558,8 @@
     `(let [before# @ansatz-env]
        (inductive/define-inductive (env) ~(str type-name) '~params '~ctor-specs
          ~@(when (:in opts) [:in `'~(:in opts)])
-         ~@(when (:indices opts) [:indices `'~(:indices opts)]))
+         ~@(when (:indices opts) [:indices `'~(:indices opts)])
+         ~@(when (contains? opts :promote-indices?) [:promote-indices? (:promote-indices? opts)]))
        ;; lean4 auto-derives SizeOf for every inductive — best-effort, no-op when unsupported
        (wf-derive-sizeof! ~(str type-name))
        ;; Lean fails the declaration when its injectivity theorems fail: nothing stays installed
