@@ -2017,19 +2017,26 @@
   (let [s (try (whnf-in-goal ps lctx (tc/infer-type st expr)) (catch Exception _ nil))]
     (if (and s (e/sort? s)) (e/sort-level s) lvl/zero)))
 
-(defn- publish-realized
-  "`ps` over `env'`, where AppBuilder.mkNoConfusion may have realized `C.noConfusion` (and its
-   type's `noConfusionType` / `noConfusion`). A realization is permanent in Lean's environment;
-   here it also goes to the session environment, which a later matcher split starts from."
-  [ps env' ctor ind]
-  (let [names [(name/mk-str ind "noConfusionType") (name/mk-str ind "noConfusion") (name/mk-str ctor "noConfusion")]
+(defn- record-realized
+  "`ps` over `env'`, where AppBuilder.mkNoConfusion may have realized noConfusion auxiliaries of
+   the type `ind` (its `noConfusionType`/`noConfusion` and every constructor's `noConfusion`).
+   Their names go to `:realized-decls`, so a matcher split, which restarts from the session
+   environment, can carry them over (match-eqns/split-matcher); the proof's environment reaches
+   the session only where a proof is committed."
+  [ps env' ^ConstantInfo ind]
+  (let [names (into [(name/mk-str (.name ind) "noConfusionType") (name/mk-str (.name ind) "noConfusion")]
+                    (map #(name/mk-str % "noConfusion")) (.ctors ind))
         new (filter #(and (env/lookup env' %) (not (env/lookup (:env ps) %))) names)]
-    (when (seq new)
-      (let [session @(requiring-resolve 'ansatz.state/ansatz-env)]
-        (swap! session (fn [g] (if (nil? g) g
-                                   (reduce (fn [g n] (if (env/lookup g n) g (env/add-constant g (env/lookup env' n))))
-                                           g new))))))
-    (assoc ps :env env')))
+    (-> ps (assoc :env env') (update :realized-decls (fnil into []) new))))
+
+(defn carry-realized
+  "`env` with the declarations (and their :no-confusion metadata) that `ps` realized and `env`
+   lacks."
+  [env ps]
+  (let [names (remove #(env/lookup env %) (:realized-decls ps))
+        meta (select-keys (env/get-extension (:env ps) :no-confusion {}) (map name/->string names))]
+    (cond-> (reduce (fn [env n] (env/add-constant env (env/lookup! (:env ps) n))) env names)
+      (seq meta) (env/update-extension :no-confusion {} merge meta))))
 
 (defn unify-eq
   "Process one equality hypothesis in a cases branch (Lean 4 UnifyEq.lean + injectionCore).
@@ -2056,8 +2063,10 @@
                 eq-T (e/app* (e/const' (name/from-string "Eq") [lvl]) a-ty a b)
                 ps (assert-hyp ps "heqEq" eq-T eq-proof)
                 g2 (proof/current-goal ps)
-                new-eq (last (sort (keys (:lctx g2))))]
-            (unify-eq ps new-eq))
+                new-eq (last (sort (keys (:lctx g2))))
+                r (unify-eq ps new-eq)]
+            ;; injectionCore clears the original hypothesis too (tryClear)
+            (if (= :continue (:status r)) (update r :ps try-clear eq-fvar-id) r))
           (tactic-error! "unify-eq: heterogeneous HEq (types not defeq)" {:type eq-type})))
 
       (and (= hname "Eq") (= 3 (count args)))
@@ -2114,11 +2123,14 @@
                           (e/app* (e/const' (name/mk-str (.name ind) "noConfusion")
                                             (into [(sort-level-of ps st lctx (:type goal))] (e/const-levels lhs-head)))
                                   (:type goal) lhs-whnf rhs-whnf (e/fvar eq-fvar-id))
-                          (try (meta-cases/mk-no-confusion ctx (:type goal) alpha lhs-whnf rhs-whnf (e/fvar eq-fvar-id))
+                          (try (when-not (or same? (every? has? ["False.elim" "noConfusion_of_Nat" (str ind-str ".ctorIdx")]))
+                                 ;; Lean's mkNoConfusion needs the tag; keep the equation
+                                 (tactic-error! (str "unify-eq: no ctorIdx/noConfusion_of_Nat for " ind-str) {}))
+                               (meta-cases/mk-no-confusion ctx (:type goal) alpha lhs-whnf rhs-whnf (e/fvar eq-fvar-id))
                                (catch clojure.lang.ExceptionInfo ex (throw (ex-info (str "unify-eq: " (.getMessage ex))
                                                                                     (assoc (ex-data ex) :kind :tactic-error) ex)))
                                (catch RuntimeException ex (tactic-error! (str "unify-eq: " (.getMessage ex)) {}))))
-                    ps (publish-realized ps (:env @ctx) (e/const-name lhs-head) (.name ind))]
+                    ps (record-realized ps (:env @ctx) ind)]
                 (if (not same?)
                   {:ps (-> (proof/assign-mvar ps (:id goal) {:kind :exact :term val})
                            (proof/record-tactic :injection-solved [eq-fvar-id] (:id goal)))

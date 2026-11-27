@@ -134,17 +134,44 @@
           "Nat.noConfusion closes it, as before")
       (finally (reset! a/ansatz-env saved)))))
 
-(deftest a-realized-no-confusion-survives-a-later-split
-  (testing "SplQ.q.noConfusion realized by the first split is still there for the final check"
+(deftest realized-no-confusion-helpers-survive-later-splits
+  (testing "SplQ's helpers realized by the first splits are carried into later splits, not into the session"
     (binding [a/*verbose* false config/*lean-matchers* true]
       (is (nil? (env/lookup (a/env) (name/from-string "SplQ.q.noConfusion"))))
       (a/define-verified 'spl-q '[d :- SplQ] 'Nat '(match d (SplQ.q n) n (SplQ.r n) 0))
       (a/define-verified 'spl-b '[b :- Bool] 'Nat '(match b true 1 false 0))
       (let [ty (elab/elaborate (a/env) '(forall [x :- Nat, f :- (=> Nat Nat), b :- Bool]
-                                                (= (+ (spl-q (SplQ.q (f x))) (spl-b b))
-                                                   (+ (f x) (spl-b b)))))
+                                                (= (+ (+ (spl-q (SplQ.q (f x))) (spl-q (SplQ.r (f x)))) (spl-b b))
+                                                   (+ (+ (f x) 0) (spl-b b)))))
             [ps _] (proof/start-proof (a/env) ty)
-            ps (-> ps (basic/intros ["x" "f" "b"]) (a/run-tactic '(unfold spl-q)) (a/run-tactic '(split)))
-            ps (-> ps (a/run-tactic '(unfold spl-b)) (a/run-tactic '(split)))]
-        (is (some? (env/lookup (a/env) (name/from-string "SplQ.q.noConfusion"))))
+            ps (-> ps (basic/intros ["x" "f" "b"]) (a/run-tactic '(unfold spl-q))
+                   (a/run-tactic '(split)) (a/run-tactic '(split)))
+            ps (basic/all-goals ps #(-> % (a/run-tactic '(unfold spl-b)) (a/run-tactic '(split))))]
+        (is (some #{(name/from-string "SplQ.r.noConfusion")} (:realized-decls ps)))
+        (is (nil? (env/lookup (a/env) (name/from-string "SplQ.q.noConfusion"))) "the session env is unchanged")
         (is (some? (extract/verify (basic/all-goals ps #(a/run-tactic % '(rfl))))))))))
+
+(def ^:private no-tag-proof-env
+  ;; the bundled Init without noConfusion_of_Nat (trust replay)
+  (delay
+    (parser/with-parser-state
+      (parser/parse-ndjson-string @test-env/bundled-init-text)
+      (fn [parsed]
+        (test-env/with-instance-registry
+          (:env (replay/replay (remove #(= "noConfusion_of_Nat" (str (.name ^ansatz.kernel.ConstantInfo %))) (:decls parsed))
+                               :verify? false :stop-on-error? true)))))))
+
+(deftest an-indexed-clash-without-the-tag-proof-keeps-the-equation
+  (let [saved @a/ansatz-env]
+    (try
+      (binding [a/*verbose* false]
+        (reset! a/ansatz-env @no-tag-proof-env)
+        (ind/define-inductive (a/env) "SplI2" [] [['a '[n Nat] ['(Nat.succ n)]] ['b '[n Nat] ['(Nat.succ n)]]]
+          :indices '[k Nat])
+        (let [ty (elab/elaborate (a/env) '(forall [h :- (= (SplI2 1) (SplI2.a 0) (SplI2.b 0))] False))
+              [ps _] (proof/start-proof (a/env) ty)
+              ps (basic/intro ps "h")
+              hid (some (fn [[id d]] (when (= "h" (str (:name d))) id)) (:lctx (proof/current-goal ps)))]
+          (is (= :tactic-error (try (basic/unify-eq ps hid) nil
+                                    (catch clojure.lang.ExceptionInfo ex (:kind (ex-data ex))))))))
+      (finally (reset! a/ansatz-env saved)))))
