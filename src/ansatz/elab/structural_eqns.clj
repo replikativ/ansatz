@@ -63,12 +63,19 @@
                        ;; variables whose types depend on the major or its indices are generalized
                        ;; with them (Lean's cases reverts them), in declaration order
                        split-ids (set (map e/fvar-id (conj indices x)))
+                       scope (loop [todo (vec (fvar-ids goal)) seen #{}]
+                               ;; the goal's free variables and, transitively, those in their types
+                               (if-let [fid (peek todo)]
+                                 (if (seen fid) (recur (pop todo) seen)
+                                     (recur (into (pop todo) (some-> (get (:lctx @ctx) fid) :type fvar-ids))
+                                            (conj seen fid)))
+                                 seen))
                        deps (reduce (fn [deps fid]
                                       (let [t (:type (get (:lctx @ctx) fid))
                                             ids (into split-ids (map e/fvar-id) deps)]
                                         (if (and t (not (split-ids fid)) (some ids (fvar-ids t)))
                                           (conj deps (e/fvar fid)) deps)))
-                                    [] (sort (fvar-ids goal)))
+                                    [] (sort scope))
                        motive (u/mk-lambda-fvars ctx (conj indices x) (u/mk-forall-fvars ctx deps goal))
                        other-candidates (vec (remove (set (concat indices [x] deps)) candidates))
                        minors
@@ -201,7 +208,9 @@
               (let [[f args] (e/get-app-fn-args x)]
                 (cond
                   (e/proj? f)
-                  (go (e/proj-struct f) (fn [app hole] (k app (u/app (e/proj (e/proj-type-name f) (e/proj-idx f) hole) args))))
+                  (go (e/proj-struct f) (fn [app c hole]
+                                          ;; rebuild the projection and its trailing arguments
+                                          (k app (u/app (e/proj (e/proj-type-name f) (e/proj-idx f) c) args) hole)))
                   (and (e/const? f) (re-find #"\.brecOn(_\d+)?$" (name/->string (e/const-name f))))
                   (let [arity (loop [t (u/infer-type ctx f) n 0] (if (e/forall? t) (recur (e/forall-body t) (inc n)) n))]
                     (when (<= arity (count args))
@@ -209,7 +218,7 @@
                             hole (u/local-decl ctx "x" (u/infer-type ctx app))]
                         (k app (u/app hole (drop arity args)) hole))))
                   :else nil)))]
-    (go lhs (fn [app c & [hole]] [app c hole]))))
+    (go lhs (fn [app c hole] [app c hole]))))
 
 (defn- brec-on-rewrite
   "Structural/Eqns.lean goUnfold: delta the head of `lhs`, find its `.brecOn` application and
@@ -254,14 +263,17 @@
         major (nth xs rec-pos)
         ;; the major's index variables split with it
         candidates (into [major] (filter #(e/fvar? %) (e/get-app-args (u/infer-type ctx major))))
-        proof (or (when (tc/is-def-eq @ctx lhs rhs) (u/mk-eq-refl ctx lhs))
-                  (when-let [[rw lhs'] (try (brec-on-rewrite ctx lhs) (catch Exception _ nil))]
+        admit (fn [proof]
+                (env/check-constant environment
+                                    (env/mk-thm eq-name [] (u/mk-forall-fvars ctx xs eq-type)
+                                                (u/mk-lambda-fvars ctx xs proof))))
+        attempt (fn [f] (try (some-> (f) admit) (catch Exception _ nil)))]
+    ;; each candidate proof is admitted inside its own attempt, so a failing rewrite falls
+    ;; back to direct splitting
+    (or (attempt #(when (tc/is-def-eq @ctx lhs rhs) (u/mk-eq-refl ctx lhs)))
+        (attempt #(when-let [[rw lhs'] (brec-on-rewrite ctx lhs)]
                     (when-let [rest (prove-by-splitting ctx lhs' rhs candidates 3)]
-                      (u/app (u/const' "Eq.trans" [level]) [result-type lhs lhs' rhs rw rest])))
-                  (prove-by-splitting ctx lhs rhs candidates 3)
-                  (throw (ex-info "Structural unfold equation: no proof found by unfolding `.brecOn` and splitting"
-                                  {:equation (str eq-name)})))]
-    (env/check-constant environment
-                        (env/mk-thm eq-name []
-                                    (u/mk-forall-fvars ctx xs eq-type)
-                                    (u/mk-lambda-fvars ctx xs proof)))))
+                      (u/app (u/const' "Eq.trans" [level]) [result-type lhs lhs' rhs rw rest]))))
+        (attempt #(prove-by-splitting ctx lhs rhs candidates 3))
+        (throw (ex-info "Structural unfold equation: no proof found by unfolding `.brecOn` and splitting"
+                        {:equation (str eq-name)})))))

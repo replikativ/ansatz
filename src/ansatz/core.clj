@@ -3018,9 +3018,13 @@
             (try
               (swap! ansatz-env structural-eqns/unfold-equation fn-name (:expr body-result)
                      (:self-fvar-id body-result) rec-pos n)
-              ;; reported and recorded with the definition's equation errors, not swallowed
+              ;; reported, and recorded apart from the constructor-equation inventory (whose
+              ;; errors make simp/grind refuse the definition): not swallowed
               (catch Exception ex
-                (report-equation-error! equation-errors (str fn-name ".eq_def") ex))))
+                (let [msg (str "Equation generation failed for " fn-name ".eq_def: " (.getMessage ex))]
+                  (binding [*out* *err*] (println "WARNING:" msg))
+                  (swap! ansatz-env env/update-extension :unfold-eqn-errors {} assoc cname
+                         {:kind :equation-generation-error :lemma (str fn-name ".eq_def") :message msg})))))
         ;; Lean Meta/Eqns.lean registerEqnThms/getEqnsFor?: record the names at
         ;; installation with each matcher owning its own equations.
         ;; Preserve equation order within each owner; retain

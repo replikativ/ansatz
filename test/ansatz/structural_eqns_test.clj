@@ -49,13 +49,34 @@
   (testing "the proof rewrites with the `.brecOn.eq` theorem, as Lean's goUnfold does"
     (is (re-find #"SeqV\.brecOn\.eq" (e/->string (.value (ci "seqv-depth.eq_def")))))))
 
+(deftest constructor-equations-are-numbered-as-in-lean
+  (let [concl #(loop [t (.type (ci %))] (if (e/forall? t) (recur (e/forall-body t)) t))
+        [_ l1 r1] (e/get-app-args (concl "seqv-depth.eq_1"))
+        [_ l2 _] (e/get-app-args (concl "seqv-depth.eq_2"))]
+    (is (= "SeqV.nil" (str (e/const-name (e/get-app-fn (last (e/get-app-args l1)))))) "eq_1 is the nil case")
+    (is (= (e/lit-nat 0) r1))
+    (is (= "SeqV.cons" (str (e/const-name (e/get-app-fn (last (e/get-app-args l2)))))) "eq_2 is the cons case")))
+
+(deftest unfold-uses-eq-def-on-an-open-vector
+  (binding [*ns* (the-ns 'ansatz.structural-eqns-test) a/*verbose* false]
+    (eval '(ansatz.core/theorem seqv-depth-unfolds [α :- Type, n :- Nat, v :- (SeqV α n)]
+                                (= Nat (seqv-depth α n v) (seqv-depth α n v))
+                                (unfold seqv-depth) (rfl))))
+  (is (some? (ci "seqv-depth-unfolds"))))
+
 (deftest an-unprovable-unfold-equation-is-reported
-  (testing "a failure is recorded with the definition's equation errors and printed"
+  (testing "a failure is printed and recorded apart from the constructor-equation inventory"
     (let [err (java.io.StringWriter.)]
       (with-redefs [structural-eqns/unfold-equation (fn [& _] (throw (ex-info "injected eq_def failure" {})))]
         (binding [*err* err *ns* (the-ns 'ansatz.structural-eqns-test) a/*verbose* false]
           (eval '(ansatz.core/defn seqv-len [α :- Type, n :- Nat, v :- (SeqV α n)] Nat
                    (match v (SeqV.nil) 0 (SeqV.cons m x xs) (+ (seqv-len α m xs) 1))))))
       (is (re-find #"seqv-len\.eq_def" (str err)))
-      (is (some #(= "seqv-len.eq_def" (:lemma %))
-                (get (env/get-extension (a/env) :eqns-errors {}) (name/from-string "seqv-len")))))))
+      (is (= "seqv-len.eq_def"
+             (:lemma (get (env/get-extension (a/env) :unfold-eqn-errors {}) (name/from-string "seqv-len")))))
+      (testing "the constructor equations stay usable"
+        (is (= 2 (count (eqns/get-eqns-for? (a/env) "seqv-len"))))
+        (binding [*ns* (the-ns 'ansatz.structural-eqns-test) a/*verbose* false]
+          (eval '(ansatz.core/theorem seqv-len-nil [α :- Type] (= Nat (seqv-len α 0 (SeqV.nil α)) 0)
+                                      (simp [seqv-len]))))
+        (is (some? (ci "seqv-len-nil")))))))
