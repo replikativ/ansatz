@@ -52,26 +52,6 @@ public final class TypeChecker {
 
     // isDefEq diagnostic counters
     long isDefEqCalls;
-    long isDefEqQuickHits;    // pointer equality or hash mismatch
-    long isDefEqEquivHits;    // success-cache hits (was EquivManager hits)
-    long isDefEqProofIrrelHits;
-    long[] isDefEqDepthHist = new long[500]; // histogram: calls at each depth
-    // Per-step resolution counters for depth >= STEP_DIAG_DEPTH
-    static final int STEP_DIAG_DEPTH = 45;
-    long stepDiagTotal;      // total calls at depth >= STEP_DIAG_DEPTH
-    long stepDiagQuick;      // resolved by quick (pointer eq or equiv manager)
-    long stepDiagProofIrrel; // resolved by proof irrelevance
-    long stepDiagLazyDelta;  // resolved by lazy delta
-    long stepDiagWhnfCore2;  // resolved by second whnfCore pass
-    long stepDiagApp;        // resolved by app congruence
-    long stepDiagBinding;    // resolved by binding
-    long stepDiagEta;        // resolved by eta
-    long stepDiagUnit;       // resolved by unit-like
-    long stepDiagFail;       // returned false
-    // Diagnostic: capture expression shape at depth DIAG_CAPTURE_MIN_DEPTH
-    public java.util.ArrayList<String[]> diagCaptures = new java.util.ArrayList<>();
-    private static final int DIAG_CAPTURE_LIMIT = 30;
-    private static final int DIAG_CAPTURE_MIN_DEPTH = 50;
     private int traceCount;
     public int traceLimit = 200;
     public int traceMinDepth = 0;  // only trace at this depth or higher
@@ -86,19 +66,6 @@ public final class TypeChecker {
     private Writer traceWriter;
     private long traceSeq;
     private boolean phaseTracing;
-
-    private static final boolean TRACE_FULL =
-        Boolean.getBoolean("ansatz.kernel.trace.full");
-    private static final boolean TRACE_DELTA =
-        Boolean.getBoolean("ansatz.kernel.trace.delta");
-    private static final String TRACE_DELTA_FILTER =
-        System.getProperty("ansatz.kernel.trace.delta.filter", "");
-    private static final String TRACE_EQV_FILTER =
-        System.getProperty("ansatz.kernel.trace.equiv.filter", "");
-    private static final boolean TRACE_BINDING =
-        Boolean.getBoolean("ansatz.kernel.trace.binding");
-    private final Expr[] traceLhsStack = new Expr[1024];
-    private final Expr[] traceRhsStack = new Expr[1024];
 
     private static final long DEFAULT_FUEL = 5_000_000L;
     private static final int MAX_ISDEFEQ_DEPTH = 50000;
@@ -145,34 +112,6 @@ public final class TypeChecker {
         }
     }
 
-    private void emitPhasePairStats(String phase, Expr a, Expr b) {
-        if (!phaseTracing || traceWriter == null) return;
-        try {
-            Object[] aFA = Reducer.getAppFnArgs(a);
-            Object[] bFA = Reducer.getAppFnArgs(b);
-            Expr aHead = (Expr) aFA[0];
-            Expr bHead = (Expr) bFA[0];
-            Expr[] aArgs = (Expr[]) aFA[1];
-            Expr[] bArgs = (Expr[]) bFA[1];
-            traceWriter.write("{\"phase\":\"" + jsonEsc(phase) +
-                "\",\"eqp\":" + (a.isEqp(b) ? "true" : "false") +
-                ",\"deepEq\":" + (exprDeepEquals(a, b) ? "true" : "false") +
-                ",\"aHash\":" + a.structuralHash() +
-                ",\"bHash\":" + b.structuralHash() +
-                ",\"aStore\":" + a.storeId +
-                ",\"bStore\":" + b.storeId +
-                ",\"aHead\":\"" + jsonEsc(exprFingerprint(aHead, 4)) +
-                "\",\"bHead\":\"" + jsonEsc(exprFingerprint(bHead, 4)) +
-                "\",\"headEqp\":" + (aHead.isEqp(bHead) ? "true" : "false") +
-                ",\"headDeepEq\":" + (exprDeepEquals(aHead, bHead) ? "true" : "false") +
-                ",\"aArgs\":" + aArgs.length +
-                ",\"bArgs\":" + bArgs.length +
-                "}\n");
-        } catch (IOException e) {
-            // ignore trace write failures
-        }
-    }
-
     /** Emit a structured trace event. */
     private void emitTrace(String lhs, String rhs, boolean result, String resolvedBy) {
         if (traceWriter == null) return;
@@ -184,83 +123,10 @@ public final class TypeChecker {
             sb.append("\",\"r\":\"").append(jsonEsc(rhs));
             sb.append("\",\"res\":").append(result);
             sb.append(",\"by\":\"").append(resolvedBy).append("\"");
-            if (TRACE_FULL && isDefEqDepth >= 0 && isDefEqDepth < traceLhsStack.length) {
-                Expr curL = traceLhsStack[isDefEqDepth];
-                Expr curR = traceRhsStack[isDefEqDepth];
-                if (curL != null && curR != null) {
-                    sb.append(",\"lFull\":\"").append(jsonEscLimit(exprFingerprint(curL, 8), 4000)).append("\"");
-                    sb.append(",\"rFull\":\"").append(jsonEscLimit(exprFingerprint(curR, 8), 4000)).append("\"");
-                }
-                int parentDepth = isDefEqDepth - 1;
-                if (parentDepth >= 0) {
-                    Expr parentL = traceLhsStack[parentDepth];
-                    Expr parentR = traceRhsStack[parentDepth];
-                    if (parentL != null && parentR != null) {
-                        sb.append(",\"parentL\":\"").append(jsonEscLimit(exprFingerprint(parentL, 8), 4000)).append("\"");
-                        sb.append(",\"parentR\":\"").append(jsonEscLimit(exprFingerprint(parentR, 8), 4000)).append("\"");
-                    }
-                }
-            }
             sb.append("}\n");
             traceWriter.write(sb.toString());
         } catch (IOException e) {
             // silently ignore write failures
-        }
-    }
-
-    private void emitDeltaTrace(String stage, Expr lhs, Expr rhs) {
-        if (!TRACE_DELTA || traceWriter == null) return;
-        String l = exprFingerprint(lhs, 6);
-        String r = exprFingerprint(rhs, 6);
-        if (!TRACE_DELTA_FILTER.isEmpty()
-            && !l.contains(TRACE_DELTA_FILTER)
-            && !r.contains(TRACE_DELTA_FILTER)) {
-            return;
-        }
-        try {
-            traceWriter.write("{\"delta\":\"" + jsonEsc(stage) +
-                "\",\"d\":" + isDefEqDepth +
-                ",\"l\":\"" + jsonEscLimit(l, 4000) +
-                "\",\"r\":\"" + jsonEscLimit(r, 4000) + "\"}\n");
-        } catch (IOException e) {
-            throw new RuntimeException(e);
-        }
-    }
-
-    private void emitEquivTrace(String phase, Expr lhs, Expr rhs) {
-        if (traceWriter == null || TRACE_EQV_FILTER.isEmpty()) return;
-        String l = exprFingerprint(lhs, 12);
-        String r = exprFingerprint(rhs, 12);
-        if (!l.contains(TRACE_EQV_FILTER) && !r.contains(TRACE_EQV_FILTER)) return;
-        try {
-            traceWriter.write("{\"phase\":\"" + jsonEsc(phase) +
-                "\",\"d\":" + isDefEqDepth +
-                ",\"l\":\"" + jsonEscLimit(l, 4000) +
-                "\",\"r\":\"" + jsonEscLimit(r, 4000) +
-                "\",\"success_cached\":" + succeededBefore(lhs, rhs) + "}\n");
-        } catch (IOException e) {
-            throw new RuntimeException(e);
-        }
-    }
-
-    private void emitBindingDomainTrace(Expr t, Expr s, Expr domT, Expr domS) {
-        if (!TRACE_BINDING || traceWriter == null) return;
-        try {
-            traceWriter.write("{\"binding_domain\":\"check\"" +
-                ",\"ptr_eq\":" + domT.isEqp(domS) +
-                ",\"object_eq\":" + (domT == domS) +
-                ",\"same_local_expr_id\":" + (domT.storeId >= 0 && domT.storeId == domS.storeId) +
-                ",\"deepEq\":" + exprDeepEquals(domT, domS) +
-                ",\"depth\":" + isDefEqDepth +
-                ",\"t\":\"" + jsonEscLimit(exprFingerprint(t, 6), 4000) +
-                "\",\"s\":\"" + jsonEscLimit(exprFingerprint(s, 6), 4000) +
-                "\",\"domT\":\"" + jsonEscLimit(exprFingerprint(domT, 6), 4000) +
-                "\",\"domS\":\"" + jsonEscLimit(exprFingerprint(domS, 6), 4000) +
-                "\",\"domTStore\":" + domT.storeId +
-                ",\"domSStore\":" + domS.storeId +
-                "}\n");
-        } catch (IOException e) {
-            throw new RuntimeException(e);
         }
     }
 
@@ -486,7 +352,7 @@ public final class TypeChecker {
         this.nextId = KERNEL_FRESH_BASE;
         this.lctx = new HashMap<>();
         this.reducer.setLctx(this.lctx);
-        this.reducer.setCallbacks(this::inferTypeOnly, this::isDefEq);
+        this.reducer.setCallbacks(this::inferTypeOnly, this::isDefEq, this::isProp);
     }
 
     private static HashSet<Object> mkAllowedLevelParamSet(Object[] levelParams) {
@@ -544,25 +410,6 @@ public final class TypeChecker {
     public HashMap<String, Long> getReducerStats() {
         HashMap<String, Long> stats = this.reducer.getStats();
         stats.put("isDefEq-calls", isDefEqCalls);
-        stats.put("isDefEq-quick-hits", isDefEqQuickHits);
-        // Per-step resolution counters at depth >= STEP_DIAG_DEPTH
-        if (stepDiagTotal > 0) {
-            stats.put("step-diag-total", stepDiagTotal);
-            stats.put("step-diag-quick", stepDiagQuick);
-            stats.put("step-diag-proof-irrel", stepDiagProofIrrel);
-            stats.put("step-diag-lazy-delta", stepDiagLazyDelta);
-            stats.put("step-diag-whnfcore2", stepDiagWhnfCore2);
-            stats.put("step-diag-app", stepDiagApp);
-            stats.put("step-diag-binding", stepDiagBinding);
-            stats.put("step-diag-eta", stepDiagEta);
-            stats.put("step-diag-unit", stepDiagUnit);
-            stats.put("step-diag-fail", stepDiagFail);
-        }
-        // Depth histogram: emit depth buckets with non-zero counts
-        for (int d = 0; d < isDefEqDepthHist.length; d++) {
-            if (isDefEqDepthHist[d] > 0)
-                stats.put("depth-" + d, isDefEqDepthHist[d]);
-        }
         return stats;
     }
 
@@ -1037,22 +884,6 @@ public final class TypeChecker {
         return ensureSort(e);
     }
 
-    /**
-     * Ensure e is a Pi/forall type. Returns [name, domType, body, binderInfo].
-     */
-    private Expr[] ensurePi(Expr e) {
-        Expr w = whnf(e);
-        if (w.tag == Expr.FORALL) {
-            return new Expr[]{
-                (Expr) null,  // placeholder for name (not an Expr)
-                (Expr) w.o1,  // domain type
-                (Expr) w.o2,  // body
-                (Expr) null   // placeholder for binder info
-            };
-        }
-        throw new RuntimeException("Type error: Expected a function type (Pi/forall)");
-    }
-
     /** Matching Lean's ensure_pi_core: return the Pi expression after whnf if needed. */
     private Expr ensurePiExpr(Expr e) {
         if (e.tag == Expr.FORALL) return e;
@@ -1066,26 +897,19 @@ public final class TypeChecker {
     // ============================================================
 
     /**
-     * Check definitional equality of two expressions.
-     * Public entry point — records successful equivalences.
+     * Lean's is_def_eq: is_def_eq_core, caching a success as an ordered pair (lean4#14806),
+     * never as an equivalence class — conversion is not transitive.
      */
     public boolean isDefEq(Expr t, Expr s) {
-        // A successful result is cached as a PAIR (lean4#14806 cache_success), never as an
-        // equivalence class: is_def_eq is not transitive, so closing successes under
-        // transitivity made later answers depend on which pairs were asked first.
         boolean result = isDefEqCore(t, s);
-        if (result) {
-            emitEquivTrace("cache_success.before", t, s);
-            cacheSuccess(t, s);
-            emitEquivTrace("cache_success.after", t, s);
-        }
+        if (result) cacheSuccess(t, s);
         return result;
     }
 
     // Lean's check_system(do_check_interrupted) at the head of is_def_eq_core and
-    // infer_type_core (type_checker.cpp:322, :1118): a check whose time goes into is_def_eq
-    // cache probes and structural comparisons never reaches the reducer's fuel counter, so
-    // the interruption a timeout delivers must be observed here too.
+    // infer_type_core: a check whose time goes into cache probes and structural comparisons
+    // never reaches the reducer's fuel counter, so the interruption a timeout delivers must be
+    // observed here too.
     private long systemCheckCount;
     private void checkSystem() {
         if ((++systemCheckCount & 0xFFF) == 0 && Thread.interrupted()) {
@@ -1093,725 +917,284 @@ public final class TypeChecker {
         }
     }
 
+    /** Lean's quick_is_def_eq: 1 equal, -1 different, 0 not an easy case. */
+    private int quickIsDefEq(Expr t, Expr s) {
+        if (t == s || succeededBefore(t, s) || LeanExprKey.exprEquals(t, s)) return 1;
+        boolean tLit = t.tag == Expr.LIT_NAT || t.tag == Expr.LIT_STR;
+        boolean sLit = s.tag == Expr.LIT_NAT || s.tag == Expr.LIT_STR;
+        if (tLit && sLit) return t.tag == s.tag && t.o0.equals(s.o0) ? 1 : -1;
+        if (t.tag != s.tag) return 0;
+        switch (t.tag) {
+            case Expr.LAM: case Expr.FORALL: return isDefEqBinding(t, s) ? 1 : -1;
+            case Expr.SORT: return Level.isEquivalent((Level) t.o0, (Level) s.o0) ? 1 : -1;
+            case Expr.MDATA: return isDefEq((Expr) t.o1, (Expr) s.o1) ? 1 : -1;
+            default: return 0;
+        }
+    }
+
+    /**
+     * Lean's is_def_eq_binding: a chain of same-kind binders; domains compared unless
+     * structurally equal, a local introduced (with the right domain) only when a body uses it.
+     */
+    private boolean isDefEqBinding(Expr t, Expr s) {
+        byte k = t.tag;
+        java.util.ArrayList<Expr> subst = new java.util.ArrayList<>();
+        java.util.ArrayList<Long> added = new java.util.ArrayList<>();
+        try {
+            do {
+                Expr varSType = null;
+                if (!LeanExprKey.exprEquals((Expr) t.o1, (Expr) s.o1)) {
+                    varSType = instantiateRevList((Expr) s.o1, subst);
+                    if (!isDefEq(instantiateRevList((Expr) t.o1, subst), varSType)) return false;
+                }
+                if (((Expr) t.o2).bvarRange() > 0 || ((Expr) s.o2).bvarRange() > 0) {
+                    if (varSType == null) varSType = instantiateRevList((Expr) s.o1, subst);
+                    long id = freshId();
+                    lctxAddLocal(id, s.o0, varSType);
+                    added.add(id);
+                    subst.add(Expr.fvar(id));
+                } else {
+                    subst.add(DONT_CARE);
+                }
+                t = (Expr) t.o2;
+                s = (Expr) s.o2;
+            } while (t.tag == k && s.tag == k);
+            return isDefEq(instantiateRevList(t, subst), instantiateRevList(s, subst));
+        } finally {
+            for (Long id : added) lctxRemove(id);
+        }
+    }
+
+    private static final Expr DONT_CARE = Expr.mkConstOwned(Name.fromString("dontcare"), new Object[0]);
+
+    private static Expr instantiateRevList(Expr e, java.util.ArrayList<Expr> subst) {
+        int n = subst.size();
+        if (n == 0 || e.bvarRange() == 0) return e;
+        return Reducer.instantiateRev(e, n, subst.toArray(new Expr[n]), 0);
+    }
+
+    /** Lean's is_def_eq_core, phase for phase. */
     private boolean isDefEqCore(Expr t, Expr s) {
         checkSystem();
-        boolean doEmit = traceWriter != null;
-        isDefEqCalls++;
-        if (isDefEqDepth < isDefEqDepthHist.length) isDefEqDepthHist[isDefEqDepth]++;
-        // Capture a sample of expression shapes for diagnostics (only non-pointer-equal pairs)
-        if (diagCaptures.size() < DIAG_CAPTURE_LIMIT && isDefEqDepth >= DIAG_CAPTURE_MIN_DEPTH && !t.isEqp(s)) {
-            String ts = exprFingerprint(t, 6);
-            String ss = exprFingerprint(s, 6);
-            diagCaptures.add(new String[]{ts, ss, "d=" + isDefEqDepth});
-        }
-        if (t.isEqp(s)) {
-            isDefEqQuickHits++;
-            if (doEmit) {
-                isDefEqDepth++;
-                try {
-                    if (TRACE_FULL && isDefEqDepth < traceLhsStack.length) {
-                        traceLhsStack[isDefEqDepth] = t;
-                        traceRhsStack[isDefEqDepth] = s;
-                    }
-                    emitTrace(exprFingerprint(t), exprFingerprint(s), true, "quick");
-                } finally {
-                    if (TRACE_FULL && isDefEqDepth < traceLhsStack.length) {
-                        traceLhsStack[isDefEqDepth] = null;
-                        traceRhsStack[isDefEqDepth] = null;
-                    }
-                    isDefEqDepth--;
-                }
-            }
-            return true;
-        }
         reducer.checkFuelPublic();
-        isDefEqDepth++;
+        if (++isDefEqDepth > MAX_ISDEFEQ_DEPTH)
+            throw new KernelAbort("isDefEq recursion depth exceeded (" + MAX_ISDEFEQ_DEPTH + ")");
         try {
-            return isDefEqCoreImpl(t, s);
+            isDefEqCalls++;
+            String by = null;
+            boolean r = false;
+            try {
+                int q = quickIsDefEq(t, s);
+                if (q != 0) { by = "quick"; r = q > 0; return r; }
+
+                // reflection: a closed term against Bool.true is fully reduced
+                if ((!t.hasFVar() || eagerReduce) && isConst(s, Name.BOOL_TRUE) && isConst(whnf(t), Name.BOOL_TRUE)) {
+                    by = "decide"; r = true; return r;
+                }
+
+                // whnf_core without delta, and without whnf on projected structures
+                Expr tn = reducer.whnfCore(t, false, true);
+                Expr sn = reducer.whnfCore(s, false, true);
+                if (tn != t || sn != s) {
+                    q = quickIsDefEq(tn, sn);
+                    if (q != 0) { by = "quick_whnfcore"; r = q > 0; return r; }
+                }
+
+                q = isDefEqProofIrrel(tn, sn);
+                if (q != 0) { by = "proof_irrel"; r = q > 0; return r; }
+
+                Expr[] pair = {tn, sn};   // lazy_delta_reduction updates the pair even on unknown
+                q = lazyDeltaReduction(pair);
+                if (q != 0) { by = "lazy_delta"; r = q > 0; return r; }
+                tn = pair[0];
+                sn = pair[1];
+
+                if (tn.tag == Expr.CONST && sn.tag == Expr.CONST && tn.o0.equals(sn.o0)
+                        && levelsDefEq(Reducer.constLevels(tn), Reducer.constLevels(sn))) {
+                    by = "const_eq"; r = true; return r;
+                }
+                if (tn.tag == Expr.FVAR && sn.tag == Expr.FVAR && tn.longVal == sn.longVal) {
+                    by = "fvar_eq"; r = true; return r;
+                }
+                if (tn.tag == Expr.PROJ && sn.tag == Expr.PROJ && tn.o0.equals(sn.o0) && tn.longVal == sn.longVal) {
+                    Expr[] structs = {(Expr) tn.o1, (Expr) sn.o1};
+                    if (lazyDeltaProjReduction(structs, (Name) tn.o0, tn.longVal)) { by = "proj_delta"; r = true; return r; }
+                }
+
+                // whnf_core again, now reducing projected structures with whnf
+                Expr tnn = reducer.whnfCore(tn);
+                Expr snn = reducer.whnfCore(sn);
+                if (tnn != tn || snn != sn) { by = "whnfcore2"; r = isDefEqCore(tnn, snn); return r; }
+
+                if (isDefEqApp(tn, sn)) { by = "app"; r = true; return r; }
+                if (tryEtaExpansion(tn, sn)) { by = "eta"; r = true; return r; }
+                if (tryEtaStruct(tn, sn)) { by = "eta_struct"; r = true; return r; }
+                q = tryStringLitExpansion(tn, sn);
+                if (q != 0) { by = "string_lit"; r = q > 0; return r; }
+                if (isDefEqUnitLike(tn, sn)) { by = "unit_like"; r = true; return r; }
+                by = "fail";
+                return false;
+            } finally {
+                if (by != null && traceWriter != null) emitTrace(exprFingerprint(t), exprFingerprint(s), r, by);
+                if (tracing && by != null) trace("isDefEq d=" + isDefEqDepth + " " + exprSummary(t, 3) + " =?= " + exprSummary(s, 3) + " => " + r + " (" + by + ")");
+            }
         } finally {
             isDefEqDepth--;
         }
     }
 
-    /**
-     * Quick definitional equality check matching Lean 4's quick_is_def_eq.
-     * Handles "easy cases" without WHNF reduction.
-     * Returns: 1=equal, -1=not equal, 0=unknown.
-     */
-    private int quickIsDefEq(Expr t, Expr s) {
-        return quickIsDefEq(t, s, true);
+    private static boolean isConst(Expr e, Name n) {
+        return e.tag == Expr.CONST && n.equals(e.o0);
     }
 
-    private int quickIsDefEq(Expr t, Expr s, boolean useHash) {
-        // Lean (post-#14806): `if (t == s || succeeded_before(t, s)) return l_true;` —
-        // pointer or structural equality, or a previously SUCCESSFUL pair. No union-find,
-        // no merging, no transitive closure. `useHash` is retained for call-site
-        // compatibility; structural equality checks the hash first regardless.
-        if (t == s || succeededBefore(t, s) || structurallyEqual(t, s)) {
-            isDefEqEquivHits++;
-            return 1;
-        }
-        if (t.tag == s.tag) {
-            switch (t.tag) {
-                case Expr.LAM: case Expr.FORALL:
-                    return isDefEqBinding(t, s) ? 1 : -1;
-                case Expr.SORT:
-                    return Level.isEquivalent((Level) t.o0, (Level) s.o0) ? 1 : -1;   // Lean: is_equivalent
-                case Expr.MDATA:
-                    return isDefEq((Expr) t.o1, (Expr) s.o1) ? 1 : -1;
-                case Expr.LIT_NAT:
-                    return ((BigInteger) t.o0).equals((BigInteger) s.o0) ? 1 : -1;
-                case Expr.LIT_STR:
-                    return t.o0.equals(s.o0) ? 1 : -1;
-                default:
-                    break;
-            }
-        }
-        return 0;
+    /** Lean's is_def_eq(levels, levels): pointwise is_equivalent. */
+    private static boolean levelsDefEq(Object[] a, Object[] b) {
+        if (a.length != b.length) return false;
+        for (int i = 0; i < a.length; i++)
+            if (!Level.isEquivalent((Level) a[i], (Level) b[i])) return false;
+        return true;
     }
 
-    /**
-     * Binding (Lambda/Pi) definitional equality.
-     * Matching Lean 4's is_def_eq_binding (type_checker.cpp:726-753).
-     * Loops through chains of same-kind binders, skipping domain isDefEq
-     * when domains are structurally identical, and only creates FVars when
-     * the body actually uses the bound variable.
-     */
-    private boolean isDefEqBinding(Expr t, Expr s) {
-        byte k = t.tag;
-        java.util.ArrayList<Long> addedFvars = new java.util.ArrayList<>();
-        java.util.ArrayList<Expr> substList = new java.util.ArrayList<>();
-        try {
-            do {
-                Expr domT = (Expr) t.o1;
-                Expr domS = (Expr) s.o1;
-                Expr varSType = null;
-                // Lean uses pointer equality (is_eqp) here.
-                // isEqp tests actual Java object identity, never local store IDs.
-                emitBindingDomainTrace(t, s, domT, domS);
-                if (!domT.isEqp(domS)) {
-                    varSType = instantiateRevList(domS, substList);
-                    Expr varTType = instantiateRevList(domT, substList);
-                    if (!isDefEq(varTType, varSType))
-                        return false;
-                }
-                Expr bodyT = (Expr) t.o2;
-                Expr bodyS = (Expr) s.o2;
-                if (bodyT.bvarRange() > 0 || bodyS.bvarRange() > 0) {
-                    // Free variable is used inside t or s — create FVar
-                    if (varSType == null)
-                        varSType = instantiateRevList(domS, substList);
-                    long fvId = freshId();
-                    Expr fv = Expr.fvar(fvId);
-                    lctxAddLocal(fvId, null, varSType);
-                    addedFvars.add(fvId);
-                    substList.add(fv);
-                } else {
-                    // Body doesn't use the variable — use don't-care placeholder
-                    substList.add(Expr.sort(Level.ZERO_LEVEL, false)); // placeholder, won't be substituted
-                }
-                t = bodyT;
-                s = bodyS;
-            } while (t.tag == k && s.tag == k);
-            return isDefEq(instantiateRevList(t, substList),
-                           instantiateRevList(s, substList));
-        } finally {
-            for (Long fvId : addedFvars) {
-                lctxRemove(fvId);
-            }
-        }
+    /** Lean's is_def_eq_proof_irrel. Inference errors propagate, as in Lean. */
+    private int isDefEqProofIrrel(Expr t, Expr s) {
+        Expr tType = inferTypeOnly(t);
+        if (!isProp(tType)) return 0;
+        return isDefEq(tType, inferTypeOnly(s)) ? 1 : -1;
     }
 
-    /** Helper: instantiateRev with ArrayList. */
-    private static Expr instantiateRevList(Expr e, java.util.ArrayList<Expr> subst) {
-        int n = subst.size();
-        if (n == 0 || e.bvarRange() == 0) return e;
-        Expr[] arr = subst.toArray(new Expr[n]);
-        return Reducer.instantiateRev(e, n, arr, 0);
+    /** Lean's is_nat_zero: the constant Nat.zero or the literal 0. */
+    private static boolean isNatZero(Expr e) {
+        return Reducer.isNatZeroConst(e) || (e.tag == Expr.LIT_NAT && ((BigInteger) e.o0).signum() == 0);
     }
 
-    private boolean isDefEqCoreImpl(Expr t, Expr s) {
-        boolean doTrace = tracing && isDefEqDepth >= traceMinDepth;
-        boolean doEmit = traceWriter != null;
-        boolean doStepDiag = isDefEqDepth >= STEP_DIAG_DEPTH;
-        if (TRACE_FULL && isDefEqDepth < traceLhsStack.length) {
-            traceLhsStack[isDefEqDepth] = t;
-            traceRhsStack[isDefEqDepth] = s;
-        }
-        String lFp = null, rFp = null;
-        if (doEmit) {
-            lFp = exprFingerprint(t);
-            rFp = exprFingerprint(s);
-        }
-        if (isDefEqDepth > MAX_ISDEFEQ_DEPTH) {
-            throw new RuntimeException("isDefEq recursion depth exceeded (" + MAX_ISDEFEQ_DEPTH + ")");
-        }
-        if (doTrace) {
-            trace("isDefEq d=" + isDefEqDepth + " " + exprSummary(t, 3) + " =?= " + exprSummary(s, 3));
-        }
-        if (doStepDiag) stepDiagTotal++;
-
-        // Step 1: Quick check (Lean 4 line 1061)
-        {
-            int q = quickIsDefEq(t, s);
-            if (q != 0) {
-                boolean r = q == 1;
-                if (doEmit) emitTrace(lFp, rFp, r, "quick");
-                if (doStepDiag) stepDiagQuick++;
-                return r;
-            }
-        }
-
-        // Step 1b: Bool.true optimization for `decide` tactic (Lean 4 lines 1064-1072)
-        if ((!t.hasFVar() || eagerReduce) && s.tag == Expr.CONST && s.o0 == Name.BOOL_TRUE) {
-            Expr tw = reducer.whnf(t);
-            if (tw.tag == Expr.CONST && tw.o0 == Name.BOOL_TRUE) {
-                if (doEmit) emitTrace(lFp, rFp, true, "decide");
-                return true;
-            }
-        }
-
-        // Step 2: whnf_core with Lean 4 flags (cheapRec=false, cheapProj=true).
-        Expr tn = reducer.whnfCore(t, false, true);
-        Expr sn = reducer.whnfCore(s, false, true);
-        boolean whnfChanged = !tn.isEqp(t) || !sn.isEqp(s);
-
-        // Quick check after whnf_core (Lean 4 lines 1116-1124)
-        // Note: Lean uses use_hash=false (default) for the second quick check
-        if (whnfChanged) {
-            emitEquivTrace("quick_whnfcore.before", tn, sn);
-            int q = quickIsDefEq(tn, sn, false);
-            emitEquivTrace("quick_whnfcore.after." + q, tn, sn);
-            if (q != 0) {
-                boolean r = q == 1;
-                if (doTrace) trace("=> quickEq after whnfCore");
-                if (doEmit) emitTrace(lFp, rFp, r, "quick_whnfcore");
-                return r;
-            }
-        }
-        if (!whnfChanged
-            && (tn.tag == Expr.PROJ || sn.tag == Expr.PROJ)
-            && succeededBefore(tn, sn)
-            && !hasZeroFieldStructureType(tn)
-            && !hasZeroFieldStructureType(sn)) {
-            // Lean can observe a pointer change from whnf_core around projection
-            // terms and then reuse an existing equivalence-manager proof in the
-            // second quick check. Our stronger re-interning/pointer preservation
-            // can hide that change, so keep the same phase for projection pairs
-            // whose equality has already been established by the public
-            // isDefEq/addEquiv path. Do not do this for unit-like result types:
-            // Lean keeps exploring those until the dedicated unit_like rule.
-            if (doEmit) emitTrace(lFp, rFp, true, "quick_whnfcore");
-            return true;
-        }
-        if (doTrace) {
-            if (whnfChanged)
-                trace("  whnfCore: " + exprSummary(tn, 3) + " =?= " + exprSummary(sn, 3));
-        }
-
-        // Step 3: Proof irrelevance (before lazy delta, matching Lean 4)
-        {
-            int piResult = proofIrrelevant(tn, sn);
-            if (piResult == 1) {
-                if (doTrace) trace("=> proofIrrel");
-                if (doEmit) emitTrace(lFp, rFp, true, "proof_irrel");
-                if (doStepDiag) stepDiagProofIrrel++;
-                return true;
-            }
-            if (piResult == -1) {
-                if (doTrace) trace("=> proofIrrel FAIL");
-                if (doEmit) emitTrace(lFp, rFp, false, "proof_irrel");
-                if (doStepDiag) stepDiagProofIrrel++;
-                return false;
-            }
-        }
-
-        // Step 4: Lazy delta reduction
-        int deltaResult = lazyDeltaReduction(tn, sn);
-        if (deltaResult == 1) {
-            if (doTrace) trace("=> lazyDelta EQ");
-            if (doEmit) emitTrace(lFp, rFp, true, "lazy_delta");
-            if (doStepDiag) stepDiagLazyDelta++;
-            return true;
-        }
-        if (deltaResult == -1) {
-            if (doTrace) trace("=> lazyDelta NEQ");
-            if (doEmit) emitTrace(lFp, rFp, false, "lazy_delta");
-            if (doStepDiag) stepDiagLazyDelta++;
-            return false;
-        }
-
-        // After lazy delta, tn and sn are stored in deltaHolder
-        tn = deltaHolder[0];
-        sn = deltaHolder[1];
-
-        // Step 5: Same-head constants/fvars check
-        if (tn.tag == sn.tag) {
-            switch (tn.tag) {
-                case Expr.CONST:
-                    if (tn.o0.equals(sn.o0)) {
-                        Object[] tl = Reducer.constLevels(tn);
-                        Object[] sl = Reducer.constLevels(sn);
-                        if (tl.length == sl.length) {
-                            boolean allEq = true;
-                            for (int i = 0; i < tl.length; i++) {
-                                if (!Level.isEquivalent((Level) tl[i], (Level) sl[i])) { allEq = false; break; }
-                            }
-                            if (allEq) {
-                                if (doEmit) emitTrace(lFp, rFp, true, "const_eq");
-                                return true;
-                            }
-                        }
-                    }
-                    break;
-                case Expr.FVAR:
-                    if (tn.longVal == sn.longVal) {
-                        if (doEmit) emitTrace(lFp, rFp, true, "fvar_eq");
-                        return true;
-                    }
-                    break;
-            }
-        }
-
-        // Step 5b: Projection structure check
-        if (tn.tag == Expr.PROJ && sn.tag == Expr.PROJ &&
-            tn.longVal == sn.longVal) {
-            if (lazyDeltaProjReduction((Expr) tn.o1, (Expr) sn.o1, tn.longVal)) {
-                if (doEmit) emitTrace(lFp, rFp, true, "proj_delta");
-                return true;
-            }
-        }
-
-        // Step 6: Second whnf_core pass with full flags
-        {
-            Expr tn2Raw = reducer.whnfCore(tn, false, false);
-            Expr sn2Raw = reducer.whnfCore(sn, false, false);
-            boolean whnf2Changed = !tn2Raw.isEqp(tn) || !sn2Raw.isEqp(sn);
-            Expr tn2 = tn2Raw;
-            Expr sn2 = sn2Raw;
-            if (whnf2Changed) {
-                emitPhasePairStats("step6.whnfcore2.stats", tn2, sn2);
-                emitPhaseTypes("step6.whnfcore2.types", tn2, sn2);
-                boolean r = isDefEqCore(tn2, sn2);
-                if (doEmit) emitTrace(lFp, rFp, r, "whnfcore2");
-                if (doStepDiag) stepDiagWhnfCore2++;
-                return r;
-            }
-        }
-
-        // Step 7: Sort comparison
-        if (tn.tag == Expr.SORT && sn.tag == Expr.SORT) {
-            boolean r = Level.isEquivalent((Level) tn.o0, (Level) sn.o0);
-            if (doEmit) emitTrace(lFp, rFp, r, "sort_eq");
-            if (doStepDiag) stepDiagApp++;  // count in "app" bucket for sorts
-            return r;
-        }
-
-        // Step 8: App congruence
-        if (tn.tag == Expr.APP && sn.tag == Expr.APP) {
-            if (isDefEqApp(tn, sn)) {
-                if (doEmit) emitTrace(lFp, rFp, true, "app");
-                if (doStepDiag) stepDiagApp++;
-                return true;
-            }
-        }
-
-        // Step 9: Lambda/forall congruence
-        if ((tn.tag == Expr.LAM && sn.tag == Expr.LAM) ||
-            (tn.tag == Expr.FORALL && sn.tag == Expr.FORALL)) {
-            boolean r = isDefEqBinding(tn, sn);
-            if (doEmit) emitTrace(lFp, rFp, r, "binding");
-            if (doStepDiag) stepDiagBinding++;
-            return r;
-        }
-
-        // Step 10: Eta expansion
-        if (tryEta(tn, sn)) { if (doEmit) emitTrace(lFp, rFp, true, "eta"); if (doStepDiag) stepDiagEta++; return true; }
-        if (tryEta(sn, tn)) { if (doEmit) emitTrace(lFp, rFp, true, "eta"); if (doStepDiag) stepDiagEta++; return true; }
-
-        // Step 11: Eta struct expansion
-        if (tryEtaStruct(tn, sn)) { if (doEmit) emitTrace(lFp, rFp, true, "eta_struct"); if (doStepDiag) stepDiagEta++; return true; }
-
-        // Step 11b: String literal expansion
-        {
-            int r = tryStringLitExpansion(tn, sn);
-            if (r == 1) { if (doEmit) emitTrace(lFp, rFp, true, "string_lit"); if (doStepDiag) stepDiagApp++; return true; }
-            if (r == -1) { if (doEmit) emitTrace(lFp, rFp, false, "string_lit"); if (doStepDiag) stepDiagFail++; return false; }
-        }
-
-        // Step 12: Unit-like types
-        if (isDefEqUnitLike(tn, sn)) { if (doEmit) emitTrace(lFp, rFp, true, "unit_like"); if (doStepDiag) stepDiagUnit++; return true; }
-
-        // Step 13: Proof irrelevance (after full reduction — extra, not in Lean)
-        {
-            int piResult2 = proofIrrelevant(tn, sn);
-            if (piResult2 == 1) {
-                if (doTrace) trace("=> proofIrrel(late)");
-                if (doEmit) emitTrace(lFp, rFp, true, "proof_irrel2");
-                if (doStepDiag) stepDiagProofIrrel++;
-                return true;
-            }
-            if (piResult2 == -1) {
-                if (doTrace) trace("=> proofIrrel(late) FAIL");
-                if (doEmit) emitTrace(lFp, rFp, false, "proof_irrel2");
-                if (doStepDiag) stepDiagProofIrrel++;
-                return false;
-            }
-        }
-
-        if (doTrace) {
-            trace("=> FAIL d=" + isDefEqDepth + " " + exprSummary(tn, 4) + " =?= " + exprSummary(sn, 4));
-        }
-        if (doEmit) emitTrace(lFp, rFp, false, "fail");
-        if (doStepDiag) stepDiagFail++;
-        return false;
-    }
-
-    // Output of lazyDeltaReduction on an "unknown" (0) result: the pair it reduced to, which
-    // the caller reads immediately. Nested isDefEq calls (from the Nat/Int probes, the quick
-    // check's binder comparison, argument comparison, K) run lazyDeltaReduction themselves and
-    // overwrite this array, so the loop keeps its pair in locals and writes it here only on
-    // return — like Lean's lazy_delta_reduction, which updates the caller's own references.
-    private final Expr[] deltaHolder = new Expr[2];
-
-    private int lazyDeltaUnknown(Expr tn, Expr sn) {
-        deltaHolder[0] = tn;
-        deltaHolder[1] = sn;
-        return 0;
-    }
-
-    /**
-     * Lazy delta reduction. Returns: 1=equal, -1=not equal, 0=unknown; on 0, deltaHolder
-     * holds the reduced pair.
-     */
-    private int lazyDeltaReduction(Expr tn, Expr sn) {
-        for (int iter = 0; iter < 10000; iter++) {
-            emitDeltaTrace("start", tn, sn);
-
-            // Nat offset check
-            int offsetResult = isDefEqOffset(tn, sn);
-            if (offsetResult != 0) {
-                emitDeltaTrace("offset", tn, sn);
-                return offsetResult;
-            }
-
-            // Nat builtin reduction (matching Lean 4's lazy_delta_reduction lines 980-986)
-            // Lean 4 delegates to is_def_eq_core on the reduced result.
-            // In eagerReduce mode, also fire when terms have fvars (Lean 4 line 980)
-            if ((!tn.hasFVar() && !sn.hasFVar()) || eagerReduce) {
-                Expr natTn = reducer.tryReduceNatExpr(tn);
-                if (natTn != null) {
-                    emitDeltaTrace("reduceNat.left", natTn, sn);
-                    return isDefEqCore(natTn, sn) ? 1 : -1;
-                }
-                Expr natSn = reducer.tryReduceNatExpr(sn);
-                if (natSn != null) {
-                    emitDeltaTrace("reduceNat.right", tn, natSn);
-                    return isDefEqCore(tn, natSn) ? 1 : -1;
-                }
-                // Try Int reduction (native optimization)
-                Object[] tnFA0 = Reducer.getAppFnArgs(tn);
-                Expr intTn = reducer.tryReduceInt((Expr) tnFA0[0], (Expr[]) tnFA0[1]);
-                if (intTn != null) {
-                    emitDeltaTrace("reduceInt.left", intTn, sn);
-                    return isDefEqCore(intTn, sn) ? 1 : -1;
-                }
-                Object[] snFA0 = Reducer.getAppFnArgs(sn);
-                Expr intSn = reducer.tryReduceInt((Expr) snFA0[0], (Expr[]) snFA0[1]);
-                if (intSn != null) {
-                    emitDeltaTrace("reduceInt.right", tn, intSn);
-                    return isDefEqCore(tn, intSn) ? 1 : -1;
-                }
-            }
-
-            Object[] tnFA = Reducer.getAppFnArgs(tn);
-            Object[] snFA = Reducer.getAppFnArgs(sn);
-            Expr tnHead = (Expr) tnFA[0];
-            Expr snHead = (Expr) snFA[0];
-
-            // Is either side a delta (unfoldable definition)?
-            ConstantInfo dtInfo = deltaInfo(tnHead);
-            ConstantInfo dsInfo = deltaInfo(snHead);
-            boolean dtHasDelta = dtInfo != null;
-            boolean dsHasDelta = dsInfo != null;
-
-            if (!dtHasDelta && !dsHasDelta) {
-                emitDeltaTrace("unknown.noDelta", tn, sn);
-                return lazyDeltaUnknown(tn, sn); // Neither side can be unfolded
-            }
-
-            if (dtHasDelta && !dsHasDelta) {
-                // Only left side is a definition — but first try to unfold projection app on right
-                // (Lean 4 lines 900-904: try_unfold_proj_app optimization)
-                Expr snNew = tryUnfoldProjApp(sn);
-                if (snNew != null) {
-                    sn = snNew;
-                    emitDeltaTrace("proj.right", tn, sn);
-                } else {
-                    Expr unfolded = reducer.tryUnfoldDef(tnHead);
-                    if (unfolded == null) return lazyDeltaUnknown(tn, sn);
-                    tn = reducer.whnfCore(Reducer.mkApps(unfolded, (Expr[]) tnFA[1]), false, true);
-                    emitDeltaTrace("unfold.left", tn, sn);
-                }
-            } else if (!dtHasDelta && dsHasDelta) {
-                // Only right side is a definition — but first try to unfold projection app on left
-                // (Lean 4 lines 907-911: try_unfold_proj_app optimization)
-                Expr tnNew = tryUnfoldProjApp(tn);
-                if (tnNew != null) {
-                    tn = tnNew;
-                    emitDeltaTrace("proj.left", tn, sn);
-                } else {
-                    Expr unfolded = reducer.tryUnfoldDef(snHead);
-                    if (unfolded == null) return lazyDeltaUnknown(tn, sn);
-                    sn = reducer.whnfCore(Reducer.mkApps(unfolded, (Expr[]) snFA[1]), false, true);
-                    emitDeltaTrace("unfold.right", tn, sn);
-                }
-            } else {
-                // Both sides are definitions — use hints to decide
-                long tHints = dtInfo.getHintsCode();
-                long sHints = dsInfo.getHintsCode();
-                int cmp = compareHints(tHints, sHints);
-
-                if (cmp < 0) {
-                    // Unfold left (higher height / more complex)
-                    Expr unfolded = reducer.tryUnfoldDef(tnHead);
-                    if (unfolded == null) return lazyDeltaUnknown(tn, sn);
-                    tn = reducer.whnfCore(Reducer.mkApps(unfolded, (Expr[]) tnFA[1]), false, true);
-                    emitDeltaTrace("unfold.left", tn, sn);
-                } else if (cmp > 0) {
-                    // Unfold right
-                    Expr unfolded = reducer.tryUnfoldDef(snHead);
-                    if (unfolded == null) return lazyDeltaUnknown(tn, sn);
-                    sn = reducer.whnfCore(Reducer.mkApps(unfolded, (Expr[]) snFA[1]), false, true);
-                    emitDeltaTrace("unfold.right", tn, sn);
-                } else {
-                    // Same hint level — Lean takes this shortcut when is_delta
-                    // resolves both sides to the same declaration object, even if
-                    // the head constants carry syntactically different levels.
-                    if (tn.tag == Expr.APP && sn.tag == Expr.APP &&
-                        sameDeclaration(dtInfo, dsInfo) && tHints >= 0) {
-                        emitPhase("lazyDelta.sameDefArgs");
-                        // Same definition with Regular hints — identity-based failure cache
-                        if (!failedBefore(tn, sn)) {
-                            emitPhaseTypes("lazyDelta.sameDefArgs.types", tn, sn);
-                            // Try comparing arguments
-                            Object[] tLvls = Reducer.constLevels(tnHead);
-                            Object[] sLvls = Reducer.constLevels(snHead);
-                            if (levelsEq(tLvls, sLvls) && isDefEqArgs(tn, sn)) {
-                                return 1; // Equal via argument comparison
-                            }
-                            cacheFailure(tn, sn);
-                        }
-                    }
-                    emitPhase("lazyDelta.unfoldBoth");
-                    // Unfold both
-                    Expr unfoldedT = reducer.tryUnfoldDef(tnHead);
-                    Expr unfoldedS = reducer.tryUnfoldDef(snHead);
-                    if (unfoldedT == null && unfoldedS == null) return lazyDeltaUnknown(tn, sn);
-                    if (unfoldedT != null) {
-                        tn = reducer.whnfCore(Reducer.mkApps(unfoldedT, (Expr[]) tnFA[1]), false, true);
-                    }
-                    if (unfoldedS != null) {
-                        sn = reducer.whnfCore(Reducer.mkApps(unfoldedS, (Expr[]) snFA[1]), false, true);
-                    }
-                    emitDeltaTrace("unfold.both", tn, sn);
-                    emitPhasePairStats("lazyDelta.unfoldBoth.stats", tn, sn);
-                }
-            }
-
-            // Quick check after update (Lean 4 line 996: quick_is_def_eq, use_hash=false default)
-            {
-                int q = quickIsDefEq(tn, sn, false);
-                if (q != 0) emitPhase("lazyDelta.postQuick.hit");
-                else emitPhase("lazyDelta.postQuick.miss");
-                emitPhasePairStats("lazyDelta.postQuick.stats", tn, sn);
-                emitDeltaTrace(q == 1 ? "quick.eq" : (q == -1 ? "quick.diff" : "quick.unknown"), tn, sn);
-                if (q == 1) return 1;   // DefEqual
-                if (q == -1) return -1; // DefDiff
-            }
-        }
-
-        return lazyDeltaUnknown(tn, sn); // Iteration limit
-    }
-
-    /**
-     * Nat offset check matching Lean 4's is_def_eq_offset (type_checker.cpp:963-972).
-     * Lean 4's is_nat_succ treats lit-nat(n) where n>0 as Nat.succ(lit-nat(n-1)).
-     * This allows comparing Nat.succ(OfNat.ofNat...) =?= lit-nat(2) by peeling
-     * one succ from each side and recursively calling isDefEqCore.
-     * Returns: 1=equal, -1=not equal, 0=unknown.
-     */
-    private int isDefEqOffset(Expr t, Expr s) {
-        // Fast path: strip all Nat.succ layers from both sides and check if
-        // both bottom out at lit-nat or Nat.zero (avoids recursive depth cost)
-        int tOffset = 0, sOffset = 0;
-        Expr tInner = t, sInner = s;
-        while (tInner.tag == Expr.APP && ((Expr) tInner.o0).tag == Expr.CONST &&
-               ((Expr) tInner.o0).o0 == Name.NAT_SUCC) {
-            tOffset++;
-            tInner = (Expr) tInner.o1;
-        }
-        while (sInner.tag == Expr.APP && ((Expr) sInner.o0).tag == Expr.CONST &&
-               ((Expr) sInner.o0).o0 == Name.NAT_SUCC) {
-            sOffset++;
-            sInner = (Expr) sInner.o1;
-        }
-        // Both bottomed out at lit-nat — compare total values iteratively
-        if (tInner.tag == Expr.LIT_NAT && sInner.tag == Expr.LIT_NAT) {
-            BigInteger tv = ((BigInteger) tInner.o0).add(BigInteger.valueOf(tOffset));
-            BigInteger sv = ((BigInteger) sInner.o0).add(BigInteger.valueOf(sOffset));
-            return tv.equals(sv) ? 1 : -1;
-        }
-        // Both Nat.zero — compare offsets
-        if (isNatZero(tInner) && isNatZero(sInner)) {
-            return tOffset == sOffset ? 1 : -1;
-        }
-
-        // Lean 4 recursive approach: if both sides have a predecessor
-        // (Nat.succ(x) or lit-nat(n>0)), peel one layer and call isDefEqCore
-        // which triggers full machinery including lazy delta on inner exprs.
-        Expr predT = natPred(t);
-        Expr predS = natPred(s);
-        if (predT != null && predS != null) {
-            return isDefEqCore(predT, predS) ? 1 : -1;
-        }
-
-        // Both are Nat.zero (including lit-nat(0))
-        if (isNatZero(t) && isNatZero(s)) return 1;
-
-        return 0;
-    }
-
-    /** Lean 4's is_nat_succ: extract predecessor of a nat expression.
-     *  - lit-nat(n) where n>0 → lit-nat(n-1)
-     *  - Nat.succ(x) → x
-     *  - otherwise → null
-     */
-    private static Expr natPred(Expr e) {
+    /** Lean's is_nat_succ: the predecessor of a positive literal or of `Nat.succ x`. */
+    private static Expr natSucc(Expr e) {
         if (e.tag == Expr.LIT_NAT) {
-            BigInteger val = (BigInteger) e.o0;
-            if (val.signum() > 0) {
-                return Expr.litNat(val.subtract(BigInteger.ONE));
-            }
-            return null;
+            BigInteger v = (BigInteger) e.o0;
+            return v.signum() > 0 ? Expr.litNat(v.subtract(BigInteger.ONE)) : null;
         }
-        if (e.tag == Expr.APP && ((Expr) e.o0).tag == Expr.CONST &&
-            ((Expr) e.o0).o0 == Name.NAT_SUCC) {
-            return (Expr) e.o1;
-        }
+        if (e.tag == Expr.APP && Reducer.isNatSuccConst((Expr) e.o0)) return (Expr) e.o1;
         return null;
     }
 
-    private static boolean isNatZero(Expr e) {
-        return (e.tag == Expr.CONST && e.o0 == Name.NAT_ZERO) ||
-               (e.tag == Expr.LIT_NAT && ((BigInteger) e.o0).signum() == 0);
+    /** Lean's is_def_eq_offset. */
+    private int isDefEqOffset(Expr t, Expr s) {
+        if (isNatZero(t) && isNatZero(s)) return 1;
+        Expr pt = natSucc(t), ps = natSucc(s);
+        if (pt != null && ps != null) return isDefEqCore(pt, ps) ? 1 : -1;
+        return 0;
     }
 
     /**
-     * String literal expansion matching Lean 4's try_string_lit_expansion.
-     * If one side is a string literal and the other is String.mk/String.ofList applied to a list,
-     * expand the literal to constructor form and compare.
-     * Returns: 1=equal, -1=not equal, 0=unknown.
+     * Lean's lazy_delta_reduction: until a step decides, the Nat offset rule, native Nat
+     * reduction on closed terms, then one lazy unfolding step. The pair is the caller's own
+     * and is updated in place, also when the answer is unknown.
      */
-    private int tryStringLitExpansion(Expr t, Expr s) {
-        int r = tryStringLitExpansionCore(t, s);
-        if (r != 0) return r;
-        return tryStringLitExpansionCore(s, t);
-    }
-
-    private int tryStringLitExpansionCore(Expr t, Expr s) {
-        // If t is a string literal and s is not, expand t to constructor form
-        if (t.tag != Expr.LIT_STR) return 0;
-        if (s.tag == Expr.LIT_STR) return 0; // Both lit-str, already compared structurally
-
-        Expr expanded = stringLitToConstructor(t);
-        return isDefEqCore(expanded, s) ? 1 : -1;
-    }
-
-    /**
-     * Convert string literal to constructor form: String.mk [Char.ofNat c1, ..., Char.ofNat cn]
-     * Matching Lean 4's string_lit_to_constructor (inductive.cpp:1200-1212).
-     */
-    private static Expr stringLitToConstructor(Expr e) {
-        String str = (String) e.o0;
-        // Build List Char from right to left
-        Level zeroLevel = Level.ZERO_LEVEL;
-        Expr charType = Expr.mkConstOwned(Name.CHAR, new Level[0]);
-        Expr listNilChar = Expr.app(
-            Expr.mkConstOwned(Name.LIST_NIL, new Level[]{zeroLevel}),
-            charType);
-        Expr listConsChar = Expr.app(
-            Expr.mkConstOwned(Name.LIST_CONS, new Level[]{zeroLevel}),
-            charType);
-        Expr charOfNat = Expr.mkConstOwned(Name.CHAR_OF_NAT, new Level[0]);
-
-        // UTF-8 decode to codepoints
-        int[] codepoints = str.codePoints().toArray();
-
-        Expr r = listNilChar;
-        for (int i = codepoints.length - 1; i >= 0; i--) {
-            Expr ch = Expr.app(charOfNat, Expr.litNat(BigInteger.valueOf(codepoints[i])));
-            r = Expr.app(Expr.app(listConsChar, ch), r);
+    private int lazyDeltaReduction(Expr[] pair) {
+        while (true) {
+            int r = isDefEqOffset(pair[0], pair[1]);
+            if (r != 0) return r;
+            if ((!pair[0].hasFVar() && !pair[1].hasFVar()) || eagerReduce) {
+                Expr tv = reducer.reduceNat(pair[0]);
+                if (tv != null) return isDefEqCore(tv, pair[1]) ? 1 : -1;
+                Expr sv = reducer.reduceNat(pair[1]);
+                if (sv != null) return isDefEqCore(pair[0], sv) ? 1 : -1;
+            }
+            int step = lazyDeltaReductionStep(pair);
+            if (step != CONTINUE) return step;
         }
-        // Lean 4's g_string_mk is actually String.ofList (despite the variable name)
-        return Expr.app(Expr.mkConstOwned(Name.STRING_OF_LIST, new Level[0]), r);
+    }
+
+    private static final int CONTINUE = 2;   // reduction_status::Continue; 1/-1/0 = equal/diff/unknown
+
+    /** Lean's lazy_delta_proj_reduction for `t.idx =?= s.idx` over the same structure. */
+    private boolean lazyDeltaProjReduction(Expr[] pair, Name sname, long idx) {
+        while (true) {
+            int step = lazyDeltaReductionStep(pair);
+            if (step == 1) return true;
+            if (step != CONTINUE) {
+                Expr t = reducer.reduceProjCore(pair[0], sname, idx);
+                if (t != null) {
+                    Expr s = reducer.reduceProjCore(pair[1], sname, idx);
+                    if (s != null) return isDefEqCore(t, s);
+                }
+                return isDefEqCore(pair[0], pair[1]);
+            }
+        }
     }
 
     /**
-     * Lean 4's try_unfold_proj_app: if e is of the form proj(S, i, ...) args...,
-     * try to reduce it via whnf_core. Returns the reduced expression or null.
-     * This avoids expensive delta-unfolding of the other side when a projection
-     * can be reduced directly.
+     * Lean's lazy_delta_reduction_step: unfold the side with the greater definitional height
+     * (both on a tie; first trying the arguments when both are the same regular definition),
+     * then the quick check. Returns 1/-1/0 (equal, different, unknown) or CONTINUE.
      */
+    private int lazyDeltaReductionStep(Expr[] pair) {
+        Expr tn = pair[0], sn = pair[1];
+        ConstantInfo dt = deltaInfo(tn), ds = deltaInfo(sn);
+        if (dt == null && ds == null) return 0;
+        if (dt != null && ds == null) {
+            Expr s2 = tryUnfoldProjApp(sn);
+            if (s2 != null) sn = s2; else tn = unfoldWhnfCore(tn);
+        } else if (dt == null) {
+            Expr t2 = tryUnfoldProjApp(tn);
+            if (t2 != null) tn = t2; else sn = unfoldWhnfCore(sn);
+        } else {
+            int c = compareHints(dt.getHintsCode(), ds.getHintsCode());
+            if (c < 0) {
+                tn = unfoldWhnfCore(tn);
+            } else if (c > 0) {
+                sn = unfoldWhnfCore(sn);
+            } else {
+                if (tn.tag == Expr.APP && sn.tag == Expr.APP && sameDeclaration(dt, ds) && dt.getHintsCode() >= 0
+                        && !failedBefore(tn, sn)) {
+                    if (levelsDefEq(Reducer.constLevels(Reducer.getAppFn(tn)), Reducer.constLevels(Reducer.getAppFn(sn)))
+                            && isDefEqArgs(tn, sn)) {
+                        return 1;
+                    }
+                    cacheFailure(tn, sn);
+                }
+                tn = unfoldWhnfCore(tn);
+                sn = unfoldWhnfCore(sn);
+            }
+        }
+        pair[0] = tn;
+        pair[1] = sn;
+        int q = quickIsDefEq(tn, sn);
+        return q != 0 ? q : CONTINUE;
+    }
+
+    /** whnf_core(unfold_definition(e), cheap_proj): e's head is a delta candidate. */
+    private Expr unfoldWhnfCore(Expr e) {
+        return reducer.whnfCore(reducer.unfoldDefinition(e), false, true);
+    }
+
+    /** Lean's try_unfold_proj_app: e is `s.i args` and whnf_core changes it. */
     private Expr tryUnfoldProjApp(Expr e) {
-        Object[] fa = Reducer.getAppFnArgs(e);
-        Expr fn = (Expr) fa[0];
-        if (fn.tag != Expr.PROJ) return null;
-        Expr eNew = reducer.whnfCore(e);
-        return !LeanExprKey.exprEquals(eNew, e) ? eNew : null;
+        if (Reducer.getAppFn(e).tag != Expr.PROJ) return null;
+        Expr n = reducer.whnfCore(e);
+        return LeanExprKey.exprEquals(n, e) ? null : n;
     }
 
     /**
-     * Lean's `is_eqp(*d_t, *d_s)`: the two heads resolve to the SAME declaration. Lean's
-     * environment hands out one canonical constant_info per name, so pointer equality is the
-     * faithful test there. Here `env.lookup` re-materializes a declaration whenever its
-     * soft-referenced cache entry was collected, so two lookups of one name are routinely
-     * different objects — and an identity test then silently disables the same-definition
-     * argument shortcut of lazy delta exactly when memory is tight, unfolding both sides
-     * instead. `localCohomology.diagramComp` went from 1.6 s to an exhausted 3 GB heap that way.
+     * Lean's `is_eqp(*d_t, *d_s)`: the two heads resolve to the same declaration. Lean's
+     * environment hands out one constant_info per name; here a lookup can re-materialize a
+     * declaration whose soft-referenced cache entry was collected, so the test is by name.
      */
     private static boolean sameDeclaration(ConstantInfo a, ConstantInfo b) {
-        return a == b || (a != null && b != null && a.name.equals(b.name));
+        return a == b || a.name.equals(b.name);
     }
 
-    /** Return the delta declaration for a head constant, if it is unfoldable. */
-    private ConstantInfo deltaInfo(Expr head) {
+    /** Lean's is_delta: the head is a constant with a value, applied to its universe arity
+     *  (and, in a restricted-transparency checker, one the reducer may unfold). */
+    private ConstantInfo deltaInfo(Expr e) {
+        Expr head = Reducer.getAppFn(e);
         if (head.tag != Expr.CONST) return null;
         ConstantInfo ci = env.lookup((Name) head.o0);
-        // A definition the reducer's transparency does not unfold is no delta candidate, so lazy
-        // delta unfolds the other side instead of giving up (every definition by default).
-        return ci != null && ci.getValue() != null && reducer.canUnfold((Name) head.o0) ? ci : null;
+        if (ci == null || ci.getValue() == null || ci.levelParams.length != Reducer.constLevels(head).length) return null;
+        return reducer.canUnfold((Name) head.o0) ? ci : null;
     }
 
-    /** Check if head constant is a delta (unfoldable definition). */
-    private boolean isDelta(Expr head) {
-        return deltaInfo(head) != null;
-    }
-
-    /** Get exact reducibility hints: -1 opaque, -2 abbrev, UInt32 regular height. */
-    private long getHints(Expr head) {
-        if (head.tag != Expr.CONST) return ConstantInfo.HINTS_OPAQUE;
-        ConstantInfo ci = env.lookup((Name) head.o0);
-        if (ci == null) return ConstantInfo.HINTS_OPAQUE;
-        return ci.getHintsCode();
-    }
-
-    /**
-     * Compare hints for lazy delta. Returns:
-     * < 0: unfold t (t has higher height or should be unfolded first)
-     * > 0: unfold s
-     * = 0: unfold both
-     */
+    /** Lean's compare(hints): < 0 unfold t, > 0 unfold s, 0 both. */
     private static int compareHints(long t, long s) {
         if (t == ConstantInfo.REDUCIBILITY_OPAQUE && s == ConstantInfo.REDUCIBILITY_OPAQUE) return 0;
         if (t == ConstantInfo.REDUCIBILITY_OPAQUE) return 1;
@@ -1819,25 +1202,11 @@ public final class TypeChecker {
         if (t == ConstantInfo.REDUCIBILITY_ABBREV && s >= 0) return -1;
         if (s == ConstantInfo.REDUCIBILITY_ABBREV && t >= 0) return 1;
         if (t == ConstantInfo.REDUCIBILITY_ABBREV && s == ConstantInfo.REDUCIBILITY_ABBREV) return 0;
-        // Both regular: larger unsigned UInt32 height unfolds first.
-        return Long.compare(s, t);
+        return Long.compare(s, t);   // both regular: the greater height unfolds first
     }
 
-    private static boolean levelsEq(Object[] a, Object[] b) {
-        if (a.length != b.length) return false;
-        for (int i = 0; i < a.length; i++) {
-            if (!Level.isEquivalent((Level) a[i], (Level) b[i])) return false;   // Lean: is_def_eq(levels)
-        }
-        return true;
-    }
-
-    /** Lean's `t == s` on expr: is_equal, hash-guarded. */
-    private static boolean structurallyEqual(Expr t, Expr s) {
-        return LeanExprKey.exprEquals(t, s);
-    }
-
-    // type_checker.cpp:986-1022 — the pair is stored hash-ordered, looked up symmetrically on a
-    // hash tie; one ordered pair, never an equivalence class (lean4#14806).
+    // type_checker.cpp: the pair is stored hash-ordered, looked up symmetrically on a hash tie;
+    // one ordered pair, never an equivalence class (lean4#14806).
     private boolean succeededBefore(Expr t, Expr s) {
         int cmp = Integer.compareUnsigned(t.structuralHash(), s.structuralHash());
         if (cmp < 0) return success.contains(t, s);
@@ -1862,185 +1231,18 @@ public final class TypeChecker {
         else failure.add(s, t);
     }
 
-    /**
-     * Lazy delta projection reduction (Lean 4's lazy_delta_proj_reduction).
-     * When both sides are projections with the same index, try lazy delta
-     * on the struct arguments, then fall back to reduce_proj_core.
-     */
-    private boolean lazyDeltaProjReduction(Expr tc, Expr sc, long idx) {
-        // Run lazy delta reduction steps on the struct expressions
-        Expr[] holder = new Expr[]{tc, sc};
-        for (int iter = 0; iter < 10000; iter++) {
-            tc = holder[0];
-            sc = holder[1];
-            int step = lazyDeltaReductionStep(tc, sc, holder);
-            if (step == 1) return true;   // DefEqual
-            if (step == 0 || step == -1) {
-                // DefUnknown or DefDiff — try reducing projections
-                tc = holder[0];
-                sc = holder[1];
-                Expr tProj = reduceProjCore(tc, idx);
-                if (tProj != null) {
-                    Expr sProj = reduceProjCore(sc, idx);
-                    if (sProj != null) {
-                        return isDefEqCore(tProj, sProj);
-                    }
-                }
-                return isDefEqCore(tc, sc);
-            }
-            // step == 2 means Continue — loop
-        }
-        return false;
-    }
-
-    /**
-     * Single step of lazy delta reduction (Lean 4's lazy_delta_reduction_step).
-     * Returns: 1=DefEqual, -1=DefDiff, 0=DefUnknown, 2=Continue.
-     * Updates holder[0] and holder[1] with updated tn, sn.
-     */
-    private int lazyDeltaReductionStep(Expr tn, Expr sn, Expr[] holder) {
-        Object[] tnFA = Reducer.getAppFnArgs(tn);
-        Object[] snFA = Reducer.getAppFnArgs(sn);
-        Expr tnHead = (Expr) tnFA[0];
-        Expr snHead = (Expr) snFA[0];
-
-        ConstantInfo dtInfo = deltaInfo(tnHead);
-        ConstantInfo dsInfo = deltaInfo(snHead);
-        boolean dtHasDelta = dtInfo != null;
-        boolean dsHasDelta = dsInfo != null;
-
-        if (!dtHasDelta && !dsHasDelta) return 0; // DefUnknown
-
-        if (dtHasDelta && !dsHasDelta) {
-            // Lean: try to unfold projection app on the non-delta side first
-            Expr snNew = tryUnfoldProjApp(sn);
-            if (snNew != null) {
-                sn = snNew;
-                holder[1] = sn;
-            } else {
-                Expr unfolded = reducer.tryUnfoldDef(tnHead);
-                if (unfolded == null) return 0;
-                tn = reducer.whnfCore(Reducer.mkApps(unfolded, (Expr[]) tnFA[1]), false, true);
-                holder[0] = tn;
-            }
-        } else if (!dtHasDelta && dsHasDelta) {
-            // Lean: try to unfold projection app on the non-delta side first
-            Expr tnNew = tryUnfoldProjApp(tn);
-            if (tnNew != null) {
-                tn = tnNew;
-                holder[0] = tn;
-            } else {
-                Expr unfolded = reducer.tryUnfoldDef(snHead);
-                if (unfolded == null) return 0;
-                sn = reducer.whnfCore(Reducer.mkApps(unfolded, (Expr[]) snFA[1]), false, true);
-                holder[1] = sn;
-            }
-        } else {
-            // Both delta
-            long tHints = dtInfo.getHintsCode();
-            long sHints = dsInfo.getHintsCode();
-            int cmp = compareHints(tHints, sHints);
-
-            if (cmp < 0) {
-                Expr unfolded = reducer.tryUnfoldDef(tnHead);
-                if (unfolded == null) return 0;
-                tn = reducer.whnfCore(Reducer.mkApps(unfolded, (Expr[]) tnFA[1]), false, true);
-                holder[0] = tn;
-            } else if (cmp > 0) {
-                Expr unfolded = reducer.tryUnfoldDef(snHead);
-                if (unfolded == null) return 0;
-                sn = reducer.whnfCore(Reducer.mkApps(unfolded, (Expr[]) snFA[1]), false, true);
-                holder[1] = sn;
-            } else {
-                // Same hint level — Lean takes this shortcut when is_delta
-                // resolves both sides to the same declaration object, even if
-                // the head constants carry syntactically different levels.
-                Expr[] tnArgs = (Expr[]) tnFA[1];
-                Expr[] snArgs = (Expr[]) snFA[1];
-                if (sameDeclaration(dtInfo, dsInfo)
-                    && tnArgs.length == snArgs.length
-                    && tHints >= 0) { // exact regular height, including zero
-                    if (!failedBefore(tn, sn)) {
-                        if (levelsEq(Reducer.constLevels(tnHead), Reducer.constLevels(snHead))
-                            && isDefEqArgs(tn, sn)) {
-                            holder[0] = tn;
-                            holder[1] = sn;
-                            return 1; // DefEqual via argument comparison
-                        }
-                        cacheFailure(tn, sn);
-                    }
-                }
-                // Unfold both
-                Expr unfoldedT = reducer.tryUnfoldDef(tnHead);
-                Expr unfoldedS = reducer.tryUnfoldDef(snHead);
-                if (unfoldedT == null && unfoldedS == null) return 0;
-                if (unfoldedT != null) {
-                    tn = reducer.whnfCore(Reducer.mkApps(unfoldedT, (Expr[]) tnFA[1]), false, true);
-                    holder[0] = tn;
-                }
-                if (unfoldedS != null) {
-                    sn = reducer.whnfCore(Reducer.mkApps(unfoldedS, (Expr[]) snFA[1]), false, true);
-                    holder[1] = sn;
-                }
-            }
-        }
-        // Quick check after reduction (matching Lean's quick_is_def_eq, use_hash=false default)
-        {
-            int q = quickIsDefEq(tn, sn, false);
-            if (q == 1) return 1;
-            if (q == -1) return -1;
-        }
-        holder[0] = tn;
-        holder[1] = sn;
-        return 2; // Continue
-    }
-
-    /**
-     * Reduce a projection structurally (Lean 4's reduce_proj_core).
-     * Given a constructor application, extract the field at index idx.
-     * Does NOT call whnf — only works if the expression is already a constructor.
-     */
-    private Expr reduceProjCore(Expr c, long idx) {
-        Object[] fa = Reducer.getAppFnArgs(c);
-        Expr head = (Expr) fa[0];
-        Expr[] args = (Expr[]) fa[1];
-        if (head.tag != Expr.CONST) return null;
-
-        ConstantInfo ci = env.lookup((Name) head.o0);
-        if (ci == null || !ci.isCtor()) return null;
-
-        return Reducer.projField(ci, args, idx);
-    }
-
-    /**
-     * Application equality check (Lean 4's is_def_eq_app).
-     * Compares function and arguments of two applications.
-     */
+    /** Lean's is_def_eq_app: equal heads and pointwise equal arguments. */
     private boolean isDefEqApp(Expr t, Expr s) {
-        Object[] tfa = Reducer.getAppFnArgs(t);
-        Object[] sfa = Reducer.getAppFnArgs(s);
-        Expr tFn = (Expr) tfa[0];
-        Expr sFn = (Expr) sfa[0];
-        Expr[] tArgs = (Expr[]) tfa[1];
-        Expr[] sArgs = (Expr[]) sfa[1];
-        if (!isDefEq(tFn, sFn)) return false;
-        if (tArgs.length != sArgs.length) return false;
-        for (int i = 0; i < tArgs.length; i++) {
+        if (t.tag != Expr.APP || s.tag != Expr.APP) return false;
+        Object[] tfa = Reducer.getAppFnArgs(t), sfa = Reducer.getAppFnArgs(s);
+        Expr[] tArgs = (Expr[]) tfa[1], sArgs = (Expr[]) sfa[1];
+        if (!isDefEq((Expr) tfa[0], (Expr) sfa[0]) || tArgs.length != sArgs.length) return false;
+        for (int i = 0; i < tArgs.length; i++)
             if (!isDefEq(tArgs[i], sArgs[i])) return false;
-        }
         return true;
     }
 
-    /**
-     * Check whether two app spines have definitionally equal arguments.
-     *
-     * Lean's `is_def_eq_args` walks the app spine from the outside in, comparing
-     * the current `app_arg` before recursing into `app_fn`. This yields a
-     * right-to-left argument order for left-associated applications:
-     *   (((f a) b) c)  => compare c, then b, then a
-     *
-     * Keeping the same order matters for trace-space fidelity.
-     */
+    /** Lean's is_def_eq_args: arguments from the outermost application inward. */
     private boolean isDefEqArgs(Expr t, Expr s) {
         while (t.tag == Expr.APP && s.tag == Expr.APP) {
             if (!isDefEq((Expr) t.o1, (Expr) s.o1)) return false;
@@ -2050,147 +1252,66 @@ public final class TypeChecker {
         return t.tag != Expr.APP && s.tag != Expr.APP;
     }
 
-    /** Try eta expansion matching Lean's try_eta_expansion_core. */
-    private boolean tryEta(Expr t, Expr s) {
-        if (t.tag == Expr.LAM && s.tag != Expr.LAM) {
-            Expr sType = whnf(inferTypeOnly(s));
-            if (sType.tag != Expr.FORALL) return false;
-            Expr newS = Expr.lam(
-                sType.o0,
-                (Expr) sType.o1,
-                Expr.app(Reducer.lift(s, 1, 0), Expr.bvar(0)),
-                sType.o3);
-            return isDefEq(t, newS);
-        }
-        return false;
+    /** Lean's try_eta_expansion (both directions). */
+    private boolean tryEtaExpansion(Expr t, Expr s) {
+        return tryEtaExpansionCore(t, s) || tryEtaExpansionCore(s, t);
     }
 
-    // ============================================================
-    // Eta struct expansion (Lean 4's try_eta_struct)
-    // ============================================================
-
-    /**
-     * Check if an inductive type is "structure-like":
-     * exactly 1 constructor, 0 indices, not recursive.
-     */
-    private boolean isStructureLike(Name inductName) {
-        ConstantInfo ci = env.lookup(inductName);
-        return ci != null && ci.isInduct() &&
-               ci.ctors != null && ci.ctors.length == 1 &&
-               ci.numIndices == 0 && !ci.isRec;
+    private boolean tryEtaExpansionCore(Expr t, Expr s) {
+        if (t.tag != Expr.LAM || s.tag == Expr.LAM) return false;
+        Expr sType = whnf(inferTypeOnly(s));
+        if (sType.tag != Expr.FORALL) return false;
+        return isDefEq(t, Expr.lam(sType.o0, (Expr) sType.o1, Expr.app(Reducer.lift(s, 1, 0), Expr.bvar(0)), sType.o3));
     }
 
-    /**
-     * Try eta-struct: if s is a fully-applied constructor of a structure type,
-     * check t.proj(i) =?= s.field(i) for each field.
-     */
-    private boolean tryEtaStructCore(Expr t, Expr s) {
-        Object[] sFA = Reducer.getAppFnArgs(s);
-        Expr sFn = (Expr) sFA[0];
-        Expr[] sArgs = (Expr[]) sFA[1];
-        if (sFn.tag != Expr.CONST) return false;
-
-        ConstantInfo ctorCi = env.lookup((Name) sFn.o0);
-        if (ctorCi == null || !ctorCi.isCtor()) return false;
-
-        int nparams = ctorCi.numParams;
-        int nfields = ctorCi.numFields;
-        if (sArgs.length != nparams + nfields) return false;
-        Name inductName = ctorCi.inductName;
-        if (!isStructureLike(inductName)) return false;
-
-        // Types must match (use inferTypeOnly — called from isDefEq)
-        try {
-            Expr tType = inferTypeOnly(t);
-            Expr sType = inferTypeOnly(s);
-            if (!isDefEq(tType, sType)) return false;
-        } catch (KernelAbort abort) {
-            throw abort;
-        } catch (Exception e) {
-            return false;
-        }
-
-        // Each field: t.proj(i) =?= s.args[nparams+i]
-        for (int i = 0; i < nfields; i++) {
-            Expr proj = Expr.proj(inductName, i, t);
-            if (!isDefEq(proj, sArgs[nparams + i])) return false;
-        }
-        return true;
+    /** Lean's is_non_rec_structure: one constructor, no indices, not recursive. */
+    private boolean isNonRecStructure(Name n) {
+        ConstantInfo ci = env.lookup(n);
+        return ci != null && ci.isInduct() && ci.ctors.length == 1 && ci.numIndices == 0 && !ci.isRec;
     }
 
+    /** Lean's try_eta_struct (both directions). */
     private boolean tryEtaStruct(Expr t, Expr s) {
         return tryEtaStructCore(t, s) || tryEtaStructCore(s, t);
     }
 
-    /**
-     * Any two terms of a zero-field structure type (unit-like) are definitionally equal.
-     */
+    /** Lean's try_eta_struct_core: s is `mk ps fs` of a non-recursive structure and t.i =?= fs_i. */
+    private boolean tryEtaStructCore(Expr t, Expr s) {
+        Expr f = Reducer.getAppFn(s);
+        if (f.tag != Expr.CONST) return false;
+        ConstantInfo ctor = env.lookupOrThrow((Name) f.o0);
+        if (!ctor.isCtor()) return false;
+        Expr[] sArgs = (Expr[]) Reducer.getAppFnArgs(s)[1];
+        if (sArgs.length != ctor.numParams + ctor.numFields) return false;
+        if (!isNonRecStructure(ctor.inductName)) return false;
+        if (!isDefEq(inferTypeOnly(t), inferTypeOnly(s))) return false;
+        for (int i = ctor.numParams; i < sArgs.length; i++)
+            if (!isDefEq(Expr.proj(ctor.inductName, i - ctor.numParams, t), sArgs[i])) return false;
+        return true;
+    }
+
+    /** Lean's try_string_lit_expansion: a literal against exactly `String.ofList xs`. */
+    private int tryStringLitExpansion(Expr t, Expr s) {
+        int r = tryStringLitExpansionCore(t, s);
+        return r != 0 ? r : tryStringLitExpansionCore(s, t);
+    }
+
+    private int tryStringLitExpansionCore(Expr t, Expr s) {
+        if (t.tag == Expr.LIT_STR && s.tag == Expr.APP && Reducer.isConst0((Expr) s.o0, Name.STRING_OF_LIST))
+            return isDefEqCore(whnf(Reducer.stringLitToConstructor(t)), s) ? 1 : -1;
+        return 0;
+    }
+
+    /** Lean's is_def_eq_unit_like: both of a non-recursive structure type without fields. */
     private boolean isDefEqUnitLike(Expr t, Expr s) {
-        try {
-            Expr tType = whnf(inferTypeOnly(t));
-            Object[] fa = Reducer.getAppFnArgs(tType);
-            Expr head = (Expr) fa[0];
-            if (head.tag != Expr.CONST) return false;
-
-            Name iName = (Name) head.o0;
-            if (!isStructureLike(iName)) return false;
-
-            ConstantInfo indCi = env.lookup(iName);
-            if (indCi == null) return false;
-            ConstantInfo ctorCi = env.lookup(indCi.ctors[0]);
-            if (ctorCi == null || ctorCi.numFields != 0) return false;
-
-            // Both must have the same type (use inferTypeOnly — called from isDefEq)
-            return isDefEq(tType, inferTypeOnly(s));
-        } catch (KernelAbort abort) {
-            throw abort;
-        } catch (Exception e) {
-            return false;
-        }
+        Expr tType = whnf(inferTypeOnly(t));
+        Expr I = Reducer.getAppFn(tType);
+        if (I.tag != Expr.CONST || !isNonRecStructure((Name) I.o0)) return false;
+        ConstantInfo ctor = env.lookupOrThrow(env.lookupOrThrow((Name) I.o0).ctors[0]);
+        if (ctor.numFields != 0) return false;
+        return isDefEqCore(tType, inferTypeOnly(s));
     }
 
-    private boolean hasZeroFieldStructureType(Expr e) {
-        try {
-            Expr type = whnf(inferTypeOnly(e));
-            Object[] fa = Reducer.getAppFnArgs(type);
-            Expr head = (Expr) fa[0];
-            if (head.tag != Expr.CONST) return false;
-
-            Name iName = (Name) head.o0;
-            if (!isStructureLike(iName)) return false;
-
-            ConstantInfo indCi = env.lookup(iName);
-            if (indCi == null || indCi.ctors.length == 0) return false;
-            ConstantInfo ctorCi = env.lookup(indCi.ctors[0]);
-            return ctorCi != null && ctorCi.numFields == 0;
-        } catch (KernelAbort abort) {
-            throw abort;
-        } catch (Exception e1) {
-            return false;
-        }
-    }
-
-    /**
-     * Check if both terms are proofs of the same Prop.
-     * Returns: 1=equal (both proofs of same Prop), -1=not equal (both Props but different),
-     *          0=unknown (not in Prop).
-     * Matches Lean 4's is_def_eq_proof_irrel which returns lbool.
-     */
-    private int proofIrrelevant(Expr t, Expr s) {
-        try {
-            Expr tt = inferTypeOnly(t);
-            if (!isProp(tt)) return 0; // l_undef — not a Prop
-            Expr ts = inferTypeOnly(s);
-            return isDefEq(tt, ts) ? 1 : -1;
-        } catch (KernelAbort abort) {
-            throw abort;
-        } catch (Exception e) {
-            return 0; // treat inference errors as unknown
-        }
-    }
-
-    // Make tryUnfoldDef accessible for lazy delta
-    private static java.lang.reflect.Method tryUnfoldDefMethod;
 
     // ============================================================
     // Declaration checking
@@ -2713,61 +1834,6 @@ public final class TypeChecker {
             if (!seen.add(lp)) {
                 throw new RuntimeException("Duplicate universe level parameter '" + lp + "' in " + declName);
             }
-        }
-    }
-
-    /**
-     * Deep structural equality for Expr that handles level array comparison.
-     * Standard Expr.equals uses Object.equals for the levels container,
-     * which fails for different array instances with the same contents.
-     */
-    static boolean exprDeepEquals(Expr a, Expr b) {
-        if (a == b) return true;
-        if (a == null || b == null) return false;
-        if (a.tag != b.tag) return false;
-
-        switch (a.tag) {
-            case Expr.BVAR:
-                return a.longVal == b.longVal;
-            case Expr.SORT:
-                return a.o0.equals(b.o0);
-            case Expr.CONST: {
-                if (!a.o0.equals(b.o0)) return false;
-                Object[] la = Reducer.constLevels(a);
-                Object[] lb = Reducer.constLevels(b);
-                if (la.length != lb.length) return false;
-                for (int i = 0; i < la.length; i++) {
-                    if (!la[i].equals(lb[i])) return false;
-                }
-                return true;
-            }
-            case Expr.APP:
-                return exprDeepEquals((Expr) a.o0, (Expr) b.o0)
-                    && exprDeepEquals((Expr) a.o1, (Expr) b.o1);
-            case Expr.LAM:
-            case Expr.FORALL:
-                // Skip binder name (o0) — decorative in CIC (alpha-equivalence).
-                // Lean 4's mk_rec_rules uses fresh hygienic names that differ from
-                // raw constructor names. Binder info (o3) IS semantically relevant.
-                return exprDeepEquals((Expr) a.o1, (Expr) b.o1)
-                    && exprDeepEquals((Expr) a.o2, (Expr) b.o2)
-                    && java.util.Objects.equals(a.o3, b.o3);
-            case Expr.LET:
-                return java.util.Objects.equals(a.o0, b.o0)
-                    && exprDeepEquals((Expr) a.o1, (Expr) b.o1)
-                    && exprDeepEquals((Expr) a.o2, (Expr) b.o2)
-                    && exprDeepEquals((Expr) a.o3, (Expr) b.o3);
-            case Expr.PROJ:
-                return a.o0.equals(b.o0) && a.longVal == b.longVal
-                    && exprDeepEquals((Expr) a.o1, (Expr) b.o1);
-            case Expr.LIT_NAT:
-            case Expr.LIT_STR:
-                return a.o0.equals(b.o0);
-            case Expr.FVAR:
-            case Expr.MVAR:
-                return a.longVal == b.longVal;
-            default:
-                return a.equals(b);
         }
     }
 }

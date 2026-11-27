@@ -510,16 +510,12 @@
 ;; `Nat.pow` (`size(base) * exp` and `exp` must fit 32 bits) and `Nat.shiftLeft`. Exceeding the
 ;; bound is a prompt kernel error.
 ;;
-;; Ours: Reducer.reduceNatBinop (Reducer.java:1095-1131) keeps the PRE-fix `ReducePowMaxExp`
-;; (1<<24) on pow / shiftLeft / shiftRight and returns null past it — a structural fallback that
-;; unfolds Nat.pow through Nat.rec while the literal grows (bounded only by fuel; each step
-;; carries the whole literal). add/sub/mul results are unbounded; literals are unbounded at
-;; inference. The only hard stop is BigInteger's own 2^31-bit magnitude limit
-;; (ArithmeticException), reached after allocating up to hundreds of MB. Not a soundness hole —
-;; a resource-exhaustion divergence.
+;; Ours: Reducer.natBinop/reduceNat follow reduce_nat: byte sizes as lean_nat_size_in_bytes
+;; (a value below 2^63 is one 8-byte word, else its 64-bit limbs), the 32-bit count checked
+;; first, shiftRight unbounded.
 
 (defn- reduce-nat-binop [op a b]
-  (let [m (doto (.getDeclaredMethod Reducer "reduceNatBinop"
+  (let [m (doto (.getDeclaredMethod Reducer "natBinop"
                                     (into-array Class [Name BigInteger BigInteger]))
             (.setAccessible true))]
     (.invoke m nil (object-array [op (biginteger a) (biginteger b)]))))
@@ -532,12 +528,16 @@
     (let [r (reduce-nat-binop Name/NAT_POW 2 pow-max-exp)]
       (is (e/lit-nat? r))
       (is (= (inc pow-max-exp) (.bitLength ^BigInteger (e/lit-nat-val r)))))
-    (let [r (reduce-nat-binop Name/NAT_POW 2 (inc pow-max-exp))]
-      (is (e/lit-nat? r) "past the old 1<<24 exponent cap but a 2 MB result: computed exactly")
-      (is (= (+ 2 pow-max-exp) (.bitLength ^BigInteger (e/lit-nat-val r)))))
+    (let [r (reduce-nat-binop Name/NAT_POW 3 (bit-shift-left 1 22))]
+      (is (e/lit-nat? r) "a 0.8 MB result within Lean's estimate (one 8-byte word per unit of exponent)")
+      (is (= 6647815 (.bitLength ^BigInteger (e/lit-nat-val r)))))
+    (is (thrown? Exception (reduce-nat-binop Name/NAT_POW 2 (inc pow-max-exp)))
+        "Lean's estimate size(base) * exp counts a small base as a machine word: 8 * (2^24 + 1) > 128 MiB")
     (is (e/lit-nat? (reduce-nat-binop Name/NAT_SHIFT_LEFT 1 (inc pow-max-exp))))
-    (is (= 1 (e/lit-nat-val (reduce-nat-binop Name/NAT_POW 1 4294967296))) "base 1 is exact for any exponent")
-    (is (= 0 (e/lit-nat-val (reduce-nat-binop Name/NAT_POW 0 4294967296))) "base 0 is exact for any exponent")))
+    (is (= 1 (e/lit-nat-val (reduce-nat-binop Name/NAT_POW 1 4294967295))) "base 1 is exact for any 32-bit exponent")
+    (is (= 0 (e/lit-nat-val (reduce-nat-binop Name/NAT_POW 0 4294967295))) "base 0 is exact for any 32-bit exponent")
+    (is (thrown? Exception (reduce-nat-binop Name/NAT_POW 1 4294967296))
+        "an exponent past 32 bits is refused whatever the base (Lean's get_count_arg runs first)")))
 
 (deftest pr14849-oversized-numerals-are-rejected-promptly
   (testing "upstream leanprover/lean4#14849 — `2 ^ 4294967296` (exponent does not fit 32 bits) and

@@ -56,9 +56,11 @@
         (is (= (proj i (pair)) (red/whnf (a/env) (proj i (pair)))) (str "index " i))))))
 
 (deftest lazy-defeq-does-not-truncate-the-index
-  ;; field 2^32 truncated to 0 would compare the first components (both 1) and say equal
+  ;; field 2^32 truncated to 0 would compare the first components (both 1) and say equal; as in
+  ;; Lean, is_def_eq_proof_irrel infers the projection first and infer_proj refuses the index
   (let [tc (TypeChecker. (a/env))]
-    (is (false? (.isDefEq tc (proj 4294967296 (pair-of 1 2)) (proj 4294967296 (pair-of 1 3)))))
+    (is (thrown-with-msg? Exception #"invalid projection"
+                          (.isDefEq tc (proj 4294967296 (pair-of 1 2)) (proj 4294967296 (pair-of 1 3)))))
     (is (true? (.isDefEq tc (proj 0 (pair-of 1 2)) (proj 0 (pair-of 1 3)))))))
 
 (deftest a-missing-field-is-refused-at-admission
