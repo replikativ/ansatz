@@ -30,3 +30,20 @@ inductive Q.{u} (α : Sort u) where | a | b
 deriving DecidableEq
 /-- info: @instDecidableEqQ : {α : Sort u_1} → [DecidableEq α] → DecidableEq (Q α) -/
 #guard_msgs in #check @instDecidableEqQ
+
+-- ofNat is a balanced lookup tree (Meta/NatTable.lean); the first letter is capitalized; an
+-- empty type derives the instance but is no enumeration
+inductive Four where | a | b | c | d
+deriving DecidableEq
+example : @Four.ofNat = fun n => bif n.ble 1 then (bif n.ble 0 then Four.a else Four.b)
+                                 else (bif n.ble 2 then Four.c else Four.d) := rfl
+namespace M
+inductive color where | x | y
+deriving DecidableEq
+end M
+/-- info: M.instDecidableEqColor : DecidableEq M.color -/
+#guard_msgs in #check @M.instDecidableEqColor
+inductive Empty2 : Type
+deriving DecidableEq
+/-- error: Unknown constant `Empty2.ofNat` -/
+#guard_msgs in #check @Empty2.ofNat
