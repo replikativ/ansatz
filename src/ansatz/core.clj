@@ -3821,7 +3821,7 @@
                       (catch Throwable t# (compare-and-set! ansatz-env ours# ~before-sym) (throw t#))))])
 
        ;; Lean generates SizeOf for structures too (not for classes).
-       ~@(when-not (:class opts) [`(wf-derive-sizeof! ~(str type-name))])
+         ~@(when-not (:class opts) [`(wf-derive-sizeof! ~(str type-name))])
 
        ;; Lean's class extension is environment-local; ordinary structures are excluded.
          ~@(when (:class opts)
