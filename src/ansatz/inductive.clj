@@ -1,9 +1,9 @@
 ;; Inductive type definitions compatible with Lean 4's kernel.
 ;;
-;; Reference: Lean src/kernel/inductive.cpp (55f80e10a3), mk_rec_infos / mk_rec_rules.
-;;
-;; Generates: inductive type, constructors, recursor, casesOn, recOn,
-;; noConfusionType, noConfusion — matching Lean 4's exact declaration format.
+;; The surface elaborates the header and constructors into Lean's `inductive_decl`; the kernel's
+;; add_inductive (ansatz.kernel.AddInductive, a port of Lean's src/kernel/inductive.cpp) generates
+;; and checks the inductive, constructors and recursors. The auxiliary constructions — casesOn,
+;; recOn, below/brecOn, noConfusionType, noConfusion — are built above the kernel, as in Lean.
 ;;
 ;; Usage:
 ;;   (define-inductive env "Color" [] [['red []] ['green []] ['blue []]])
@@ -16,38 +16,17 @@
             [ansatz.kernel.env :as env]
             [ansatz.kernel.name :as name]
             [ansatz.kernel.level :as lvl]
-            [ansatz.kernel.tc :as tc]
-            [ansatz.kernel.reduce :as red]
             [ansatz.meta.constructions.cases-on :as cases-on]
             [ansatz.meta.constructions.rec-on :as rec-on]
             [ansatz.meta.constructions.brec-on :as brec-on]
             [ansatz.meta.constructions.ctor-idx :as ctor-idx]
             [ansatz.meta.constructions.ctor-elim :as ctor-elim]
             [ansatz.meta.constructions.no-confusion :as no-confusion])
-  (:import [ansatz.kernel ConstantInfo TypeChecker]))
+  (:import [ansatz.kernel ConstantInfo]))
 
-(defn- sref
-  "Reference a symbol in scope at given depth → bvar."
-  [scope depth sym]
-  (let [d (get scope sym)]
-    (when-not d (throw (ex-info (str "Unbound: " sym) {:scope (keys scope) :depth depth})))
-    (e/bvar (- depth d 1))))
-
-(defn- sbind
-  "Add a binding, returning [new-scope new-depth]."
-  [scope depth sym]
-  [(assoc scope sym depth) (inc depth)])
-
-(defn- lift-fields
-  "Insert the recursor's motive/minors between parameters and constructor fields."
-  [ctor n-params base-depth]
-  (mapv (fn [i field]
-          (update field :type e/lift (- base-depth n-params) i))
-        (range) (:fields ctor)))
-
-;; ============================================================
-;; Phase 2: Validation
-;; ============================================================
+(def ^:private kernel-fuel
+  "Fuel for admitting one declaration (the kernel's default per-declaration budget)."
+  5000000)
 
 (defn occurs-in?
   "Check if the inductive name occurs in an expression."
@@ -61,91 +40,6 @@
     (e/lam? expr) (or (occurs-in? (e/lam-type expr) induct-name)
                       (occurs-in? (e/lam-body expr) induct-name))
     :else false))
-
-(defn- container-num-params
-  "Number of parameters of an already-defined inductive `C`, or nil if `C` is
-   not a defined inductive in `env`."
-  [env cname]
-  (let [ci (env/lookup env cname)]
-    (when (and ci (env/induct? ci))
-      (.numParams ^ansatz.kernel.ConstantInfo ci))))
-
-(declare check-positivity!)
-
-(defn- valid-nested-occurrence?
-  "True when `field-type` is `C Ds Is` where `C` is a DEFINED inductive (≠ the
-   one being defined), the being-defined inductive occurs in `C`'s PARAMETERS
-   (`Ds`) but not its indices (`Is`), and occurs strictly-positively there.
-   Mirrors the kernel's `isValidNestedInductiveOccurrence` + recursive
-   positivity (Lean rejects nesting through an index — leanprover/lean4#2125)."
-  [env field-type induct-name ctor-name field-name]
-  (let [[head args] (e/get-app-fn-args field-type)]
-    (boolean
-     (and (e/const? head)
-          (not= (e/const-name head) induct-name)
-          (when-let [np (container-num-params env (e/const-name head))]
-            (and (<= np (count args))
-                 (let [params (take np args)
-                       indices (drop np args)]
-                   (and (not-any? #(occurs-in? % induct-name) indices)
-                        (some #(occurs-in? % induct-name) params)
-                        ;; strict positivity of the occurrence inside each param
-                        (do (doseq [p params]
-                              (when (occurs-in? p induct-name)
-                                (check-positivity! env p induct-name ctor-name field-name)))
-                            true)))))))))
-
-(defn- check-positivity!
-  "Check strict positivity: the inductive must not appear in negative position,
-   and may appear nested inside another inductive's strictly-positive parameters."
-  [env field-type induct-name ctor-name field-name]
-  (cond
-    (not (occurs-in? field-type induct-name)) nil
-
-    (e/forall? field-type)
-    (do (when (occurs-in? (e/forall-type field-type) induct-name)
-          (throw (ex-info (str "Non-positive occurrence in " ctor-name "." field-name
-                               ": inductive appears left of →")
-                          {:ctor ctor-name :field field-name})))
-        (check-positivity! env (e/forall-body field-type) induct-name ctor-name field-name))
-
-    :else
-    (let [[head _] (e/get-app-fn-args field-type)]
-      (cond
-        ;; Direct application I params... — valid recursive reference
-        (and (e/const? head) (= (e/const-name head) induct-name)) nil
-        ;; Nested occurrence inside another inductive's parameters
-        (valid-nested-occurrence? env field-type induct-name ctor-name field-name) nil
-        :else
-        (throw (ex-info (str "Invalid occurrence of inductive in " ctor-name "." field-name)
-                        {:ctor ctor-name :field field-name}))))))
-
-(defn- collect-nested-apps
-  "Collect the distinct nested container applications `C Ds` occurring in
-   `field-type` (structural keys), for counting `num-nested`."
-  [env field-type induct-name acc]
-  (cond
-    (not (occurs-in? field-type induct-name)) acc
-    (e/forall? field-type)
-    (collect-nested-apps env (e/forall-body field-type) induct-name
-                         (collect-nested-apps env (e/forall-type field-type) induct-name acc))
-    :else
-    (let [[head _] (e/get-app-fn-args field-type)]
-      (if (and (e/const? head)
-               (not= (e/const-name head) induct-name)
-               (container-num-params env (e/const-name head)))
-        (conj acc (e/->string field-type))
-        acc))))
-
-(defn- count-nested
-  "Number of distinct nested container applications across all constructor
-   fields — this is `num-nested` (each maps to one auxiliary inductive)."
-  [env ctors induct-name]
-  (count
-   (reduce (fn [acc ctor]
-             (reduce (fn [a field] (collect-nested-apps env (:type field) induct-name a))
-                     acc (:fields ctor)))
-           #{} ctors)))
 
 ;; ============================================================
 ;; Phase 1: Core declarations
@@ -168,31 +62,6 @@
       (if (< i 0) body
           (recur (dec i) (e/forall' (:name (nth params i)) (:compiled-type (nth params i))
                                     body :default))))))
-
-(defn- elim-only-at-universe-zero?
-  ;; Lean src/kernel/inductive.cpp (55f80e10a3), elim_only_at_universe_zero.
-  ;; Data fields must be whole result arguments, not subterms of an index.
-  [env result-level n-params ctor-cis]
-  (and (= result-level lvl/zero)
-       (cond
-         (> (count ctor-cis) 1) true
-         (empty? ctor-cis) false
-         :else
-         (loop [st (tc/mk-tc-state env)
-                type (.type ^ConstantInfo (first ctor-cis))
-                i 0 to-check []]
-           (if (e/forall? type)
-             (let [domain (e/forall-type type)
-                   fv-id (swap! (:next-id st) inc)
-                   fv (e/fvar fv-id)
-                   sort (when (>= i n-params)
-                          (tc/ensure-sort st (tc/infer-type st domain)))
-                   to-check (if (and sort (not= lvl/zero (e/sort-level sort)))
-                              (conj to-check fv) to-check)
-                   st (update st :lctx red/lctx-add-local fv-id (e/forall-name type) domain)]
-               (recur st (e/instantiate1 (e/forall-body type) fv) (inc i) to-check))
-             (let [[_ result-args] (e/get-app-fn-args type)]
-               (boolean (some (fn [arg] (not-any? #(= arg %) result-args)) to-check))))))))
 
 (defn- build-constructor-type
   "Build: ∀ (p1:T1) ... (pn:Tn) (f1:F1) ... (fm:Fm) → I p1...pn idx1...idxk
@@ -223,363 +92,6 @@
         (recur (dec i) (e/forall' (:name (nth fields i))
                                   (:type (nth fields i))
                                   body :default))))))
-
-(defn- is-recursive-field?
-  "Check if a field has a recursive type."
-  [field ind-name]
-  (occurs-in? (:type field) ind-name))
-
-;; ============================================================
-;; Recursor construction
-;; ============================================================
-
-(defn- recursive-field-telescope
-  "Peel a recursive argument's Pi telescope in its destination context."
-  [field field-depth target-depth field-ref n-params n-indices]
-  ;; Lean src/kernel/inductive.cpp, inductive::mk_rec_infos and
-  ;; inductive::mk_rec_rules: peel xs, then use the indices of the codomain.
-  (loop [type (e/lift (:type field) (- target-depth field-depth) 0)
-         binders []]
-    (if (e/forall? type)
-      (recur (e/forall-body type) (conj binders type))
-      (let [[_ args] (e/get-app-fn-args type)
-            n (count binders)]
-        {:binders binders
-         :indices (subvec (vec args) n-params (+ n-params n-indices))
-         :major (reduce e/app (e/lift field-ref n 0)
-                        (map e/bvar (reverse (range n))))}))))
-
-(defn- wrap-recursive-telescope [binders body lambda?]
-  (reduce (fn [body binder]
-            ((if lambda? e/lam e/forall')
-             (e/forall-name binder) (e/forall-type binder) body (e/forall-info binder)))
-          body (reverse binders)))
-
-(defn- build-minor-type
-  "Build the type of a minor premise for one constructor.
-   At depth = base-depth (after params, motive already bound).
-   Returns a forall nesting: ∀ fields, ∀ IH, motive(ctor-indices, ctor params fields).
-   For indexed families, the motive is applied to the constructor's return indices
-   THEN to the constructor application."
-  [env ctor params indices ind-name ind-lvls elim-level
-   base-scope base-depth self-name self-const is-rec]
-  (let [n-params (count params)
-        n-indices (count indices)
-        ;; Lift field types into the minor's inner telescope
-        fields (lift-fields ctor n-params base-depth)
-        n-fields (count fields)
-        ;; Identify recursive fields for IH
-        rec-field-indices (when is-rec
-                            (vec (keep-indexed
-                                  (fn [i f] (when (is-recursive-field? f ind-name) i))
-                                  fields)))
-        n-ih (count (or rec-field-indices []))
-        ;; Build motive application: motive(ctor-return-indices..., ctor params fields)
-        ;; at depth = base-depth + n-fields + n-ih (inside all field + IH binders)
-        body-depth (+ base-depth n-fields n-ih)
-        motive-ref (sref base-scope body-depth 'motive)
-        ;; Build constructor application: Ctor params f1...fn
-        ctor-name (name/from-string (:full-name ctor))
-        ctor-app (reduce (fn [acc i]
-                           (e/app acc (sref base-scope body-depth (:sym (nth params i)))))
-                         (e/const' ctor-name ind-lvls)
-                         (range n-params))
-        ctor-app (reduce (fn [acc i]
-                           (e/app acc (e/bvar (- body-depth (+ base-depth i) 1))))
-                         ctor-app (range n-fields))
-        ;; Apply motive to constructor's return indices first, then ctor application
-        ;; The return indices are compiled at depth n-params + n-fields (scope of params + fields)
-        ;; We need to lift them to body-depth
-        ctor-return-indices (or (:compiled-return-indices ctor) [])
-        lifted-indices (mapv #(-> %
-                                  (e/lift (- base-depth n-params) n-fields)
-                                  (e/lift n-ih 0))
-                             ctor-return-indices)
-        body (reduce (fn [acc idx] (e/app acc idx))
-                     motive-ref (or lifted-indices []))
-        body (e/app body ctor-app)]
-    ;; Wrap IH binders (from right to left)
-    ;; IH for recursive field i: motive(field-indices..., field_i)
-    (let [body (loop [ih-idx (dec n-ih) body body]
-                 (if (< ih-idx 0) body
-                     (let [field-idx (nth rec-field-indices ih-idx)
-                           ih-depth (+ base-depth n-fields ih-idx)
-                           field-ref-ih (e/bvar (- ih-depth (+ base-depth field-idx) 1))
-                           {:keys [binders indices major]}
-                           (recursive-field-telescope (nth fields field-idx)
-                                                      (+ base-depth field-idx) ih-depth
-                                                      field-ref-ih n-params n-indices)
-                           motive-ref-ih (sref base-scope (+ ih-depth (count binders)) 'motive)
-                           ih-type (e/app (reduce e/app motive-ref-ih indices) major)
-                           ih-type (wrap-recursive-telescope binders ih-type false)]
-                       (recur (dec ih-idx) (e/forall' (str "ih_" (:name (nth fields field-idx)))
-                                                      ih-type body :default)))))]
-      ;; Wrap field binders (from right to left)
-      (loop [i (dec n-fields) body body]
-        (if (< i 0)
-          body
-          (recur (dec i) (e/forall' (:name (nth fields i))
-                                    (:type (nth fields i))
-                                    body :default)))))))
-
-(defn- build-recursor-rule-rhs
-  "Build the RHS lambda for a recursor rule.
-   λ params. λ motive. λ minors. λ fields.
-     minor_i(fields, ih1, ..., ihk)
-   For indexed families, recursive calls include field indices:
-     rec params motive minors field-indices recursive-field"
-  [env ctor ctor-idx params indices ctors ind-name ind-lvls
-   rec-name rec-level-params rec-level-levels elim-level is-rec
-   self-name self-const]
-  (let [n-params (count params)
-        n-indices (count indices)
-        n-ctors (count ctors)
-        n-minors n-ctors
-        n-motives 1
-        ;; Total binders before fields: params + motive + minors
-        pre-fields (+ n-params n-motives n-minors)
-        ;; Compile field types at the rule's inner telescope
-        ;; Base scope: params at 0..n-params-1
-        param-scope (reduce (fn [s i] (assoc s (:sym (nth params i)) i))
-                            {} (range n-params))
-        ;; Add motive to scope
-        [scope depth] (sbind param-scope n-params 'motive)
-        ;; Add minors to scope
-        [scope depth] (reduce (fn [[s d] c]
-                                (sbind s d (symbol (str "minor_" (:name c)))))
-                              [scope depth] ctors)
-        ;; Insert the motive and minor binders before the constructor fields
-        fields (lift-fields ctor n-params depth)
-        n-fields (count fields)
-        rec-field-indices (when is-rec
-                            (vec (keep-indexed
-                                  (fn [i f] (when (is-recursive-field? f ind-name) i))
-                                  fields)))
-        n-ih (count (or rec-field-indices []))
-        ;; Body depth: pre-fields + n-fields
-        body-depth (+ pre-fields n-fields)
-        ;; Reference to this ctor's minor: at depth (n-params + 1 + ctor-idx)
-        minor-ref (e/bvar (- body-depth (+ n-params 1 ctor-idx) 1))
-        ;; Build body: minor applied to fields + IH
-        ;; Apply minor to fields
-        body (reduce (fn [acc i]
-                       (e/app acc (e/bvar (- body-depth (+ pre-fields i) 1))))
-                     minor-ref (range n-fields))
-        ;; Apply minor to IH (recursive calls)
-        body (reduce (fn [acc ih-idx]
-                       (let [field-idx (nth rec-field-indices ih-idx)
-                             {:keys [binders indices major]}
-                             (recursive-field-telescope (nth fields field-idx)
-                                                        (+ pre-fields field-idx) body-depth
-                                                        (e/bvar (- body-depth (+ pre-fields field-idx) 1))
-                                                        n-params n-indices)
-                             call-depth (+ body-depth (count binders))
-                             rec-const (e/const' rec-name rec-level-levels)
-                             rc (reduce (fn [t i] (e/app t (e/bvar (- call-depth i 1))))
-                                        rec-const (range pre-fields))
-                             rc (e/app (reduce e/app rc indices) major)
-                             rc (wrap-recursive-telescope binders rc true)]
-                         (e/app acc rc)))
-                     body (range n-ih))]
-    ;; Wrap in lambdas from right to left
-    ;; First: field lambdas
-    (let [body (loop [i (dec n-fields) body body]
-                 (if (< i 0) body
-                     (let [f (nth fields i)]
-                       (recur (dec i) (e/lam (:name f) (:type f) body :default)))))
-          ;; Minor lambdas
-          ;; Need minor types at the right depth — we'll use the types from the recursor
-          ;; For simplicity, use the param types from the earlier computation
-          ;; Build minor types at each depth
-          body (loop [i (dec n-minors) body body]
-                 (if (< i 0) body
-                     (let [minor-depth (+ n-params 1 i)
-                         ;; Use a placeholder type for minor lambdas (kernel doesn't check rule RHS types)
-                           minor-type (e/sort' lvl/zero)]
-                       (recur (dec i) (e/lam (str "minor_" (:name (nth ctors i)))
-                                             minor-type body :default)))))
-          ;; Motive lambda
-          body (let [motive-type (e/sort' lvl/zero)] ; placeholder
-                 (e/lam "motive" motive-type body :default))
-          ;; Param lambdas
-          body (loop [i (dec n-params) body body]
-                 (if (< i 0) body
-                     (recur (dec i) (e/lam (:name (nth params i))
-                                           (:compiled-type (nth params i))
-                                           body :default))))]
-      body)))
-
-(defn- build-recursor
-  "Build the complete recursor ConstantInfo.
-   For indexed families, the motive takes indices + major:
-     motive : ∀ (i1:I1) ... (ik:Ik) (t : I params i1...ik), Sort elim_level
-   And the recursor type has index foralls before the major."
-  [env params indices ctors ind-name ind-lvls rec-name rec-level-params rec-level-levels
-   result-level elim-level is-rec self-const self-name]
-  (let [n-params (count params)
-        n-indices (count indices)
-        n-ctors (count ctors)
-        n-minors n-ctors
-        n-motives 1
-
-        ;; Build recursor type from outside in
-        param-scope (reduce (fn [s i] (assoc s (:sym (nth params i)) i))
-                            {} (range n-params))
-
-        ;; motive : ∀ (i1:I1) ... (ik:Ik) (t : I params i1...ik), Sort elim_level
-        ;; At depth n-params, build motive type
-        motive-depth n-params
-        ;; Build motive type with index foralls
-        ;; Innermost: ∀ (t : I params idx-bvars), Sort elim
-        ;; The indices in the motive are fresh bvars at depth n-params..n-params+n-indices-1
-        motive-inner-depth (+ n-params n-indices) ;; depth after all index binders in motive
-        ind-for-motive-major (reduce (fn [acc i]
-                                       (e/app acc (e/bvar (- motive-inner-depth i 1))))
-                                     (e/const' ind-name ind-lvls)
-                                     (range n-params))
-        ;; Apply index bvars: bvar(n-indices-1), bvar(n-indices-2), ..., bvar(0)
-        ind-for-motive-major (reduce (fn [acc i]
-                                       (e/app acc (e/bvar (- n-indices i 1))))
-                                     ind-for-motive-major
-                                     (range n-indices))
-        motive-type (e/forall' nil ind-for-motive-major (e/sort' elim-level) :default)
-        ;; Wrap index foralls around motive type (right to left)
-        motive-type (loop [i (dec n-indices) body motive-type]
-                      (if (< i 0) body
-                          (let [idx-type (:compiled-type (nth indices i))]
-                            (recur (dec i) (e/forall' (:name (nth indices i))
-                                                      idx-type body :default)))))
-        [motive-scope motive-end-depth] (sbind param-scope motive-depth 'motive)
-
-        ;; Build minor types
-        minor-types (loop [i 0 depth motive-end-depth scope motive-scope acc []]
-                      (if (>= i n-ctors)
-                        acc
-                        (let [ctor (nth ctors i)
-                              mt (build-minor-type env ctor params indices ind-name ind-lvls
-                                                   elim-level scope depth
-                                                   self-name self-const is-rec)
-                              minor-sym (symbol (str "minor_" (:name ctor)))
-                              [scope' depth'] (sbind scope depth minor-sym)]
-                          (recur (inc i) depth' scope' (conj acc {:type mt :sym minor-sym})))))
-
-        minor-end-scope (reduce (fn [s m] (assoc s (:sym m) (get s (:sym m) 0)))
-                                motive-scope
-                                minor-types)
-        minor-end-depth (+ motive-end-depth n-minors)
-
-        ;; Major premise: t : I params at minor-end-depth
-        major-depth minor-end-depth
-        ind-major (reduce (fn [acc i]
-                            (e/app acc (sref (reduce (fn [s [j m]] (assoc s (:sym m) (+ motive-end-depth j)))
-                                                     motive-scope (map-indexed vector minor-types))
-                                             major-depth (:sym (nth params i)))))
-                          (e/const' ind-name ind-lvls)
-                          (range n-params))
-        ;; Actually simpler: just recompute param refs at major-depth
-        ind-major (reduce (fn [acc i]
-                            (e/app acc (e/bvar (- major-depth i 1))))
-                          (e/const' ind-name ind-lvls)
-                          (range n-params))
-
-        ;; Build full scope for body computation
-        full-scope (as-> param-scope s
-                     (assoc s 'motive motive-depth)
-                     (reduce (fn [s [i mt]]
-                               (assoc s (:sym mt) (+ motive-end-depth (- n-minors 1) (- (dec n-minors) i))
-                                      ;; Simpler: minor i is at depth motive-end-depth - n-minors + ... no
-                                      ;; motive is at n-params, minor_0 at n-params+1, minor_1 at n-params+2
-                                      ))
-                             s (map-indexed vector minor-types)))
-
-        ;; Depth layout:
-        ;; 0..n-params-1: params
-        ;; n-params: motive
-        ;; n-params+1..n-params+n-minors: minors
-        ;; n-params+1+n-minors..n-params+n-minors+n-indices: indices
-        ;; n-params+1+n-minors+n-indices: major (t)
-        ;; body at depth n-params+2+n-minors+n-indices
-
-        idx-start (+ n-params 1 n-minors)
-        t-depth (+ idx-start n-indices)
-        body-depth (+ t-depth 1)
-
-        ;; Body: motive idx1...idxk t
-        body (let [m (e/bvar (- body-depth n-params 1))] ;; motive
-               ;; Apply motive to index bvars
-               (let [body (reduce (fn [acc i]
-                                    (e/app acc (e/bvar (- body-depth (+ idx-start i) 1))))
-                                  m (range n-indices))]
-                 ;; Apply motive to major (t)
-                 (e/app body (e/bvar (- body-depth t-depth 1)))))
-
-        ;; Wrap major: ∀ (t : I params idx1...idxk), body
-        t-ind (reduce (fn [acc i]
-                        (e/app acc (e/bvar (- t-depth i 1))))
-                      (e/const' ind-name ind-lvls)
-                      (range n-params))
-        ;; Apply index bvars to I for major type
-        t-ind (reduce (fn [acc i]
-                        (e/app acc (e/bvar (- n-indices i 1))))
-                      t-ind (range n-indices))
-        body (e/forall' "t" t-ind body :default)
-
-        ;; Insert motive/minors before the index telescope, preserving earlier indices.
-        ;; Lean kernel/inductive.cpp declare_recursors abstracts these parameter fvars.
-        body (loop [i (dec n-indices) body body]
-               (if (< i 0) body
-                   (recur (dec i) (e/forall' (:name (nth indices i))
-                                             (e/lift (:compiled-type (nth indices i))
-                                                     (+ n-motives n-minors) i)
-                                             body :default))))
-
-        ;; Wrap minors (right to left)
-        body (loop [i (dec n-minors) body body]
-               (if (< i 0) body
-                   (recur (dec i) (e/forall' (str "h_" (:name (nth ctors i)))
-                                             (:type (nth minor-types i))
-                                             body :default))))
-
-        ;; Wrap motive
-        body (e/forall' "motive" motive-type body :implicit)
-
-        ;; Wrap params (implicit)
-        rec-type (loop [i (dec n-params) body body]
-                   (if (< i 0) body
-                       (recur (dec i) (e/forall' (:name (nth params i))
-                                                 (:compiled-type (nth params i))
-                                                 body :implicit))))
-
-        ;; Build recursor rules
-        rules (mapv (fn [i]
-                      (let [ctor (nth ctors i)
-                            rhs (build-recursor-rule-rhs
-                                 env ctor i params indices ctors ind-name ind-lvls
-                                 rec-name rec-level-params rec-level-levels elim-level is-rec
-                                 self-name self-const)]
-                        (env/mk-recursor-rule
-                         (name/from-string (:full-name ctor))
-                         (count (:fields ctor))
-                         rhs)))
-                    (range n-ctors))
-
-        ;; K-axiom: only for Prop with exactly 1 ctor with 0 fields
-        is-k (and (= result-level lvl/zero)
-                  (= n-ctors 1)
-                  (zero? (count (:fields (first ctors)))))]
-
-    (env/mk-recursor rec-name (vec rec-level-params) rec-type
-                     :all [ind-name]
-                     :num-params n-params
-                     :num-indices n-indices
-                     :num-motives n-motives
-                     :num-minors n-minors
-                     :rules rules
-                     :k? is-k)))
-
-;; ============================================================
-;; Public API
-;; ============================================================
 
 (defn- type-level-param [form]
   (when (and (sequential? form) (= 'Type (first form)) (= 2 (count form)))
@@ -646,103 +158,22 @@
         (elab/elab-inductive env ind-name-str param-pairs
                              (vec (partition 2 (or indices []))) ctors-spec
                              result-level self-const)
-        compiled-indices indices
-        n-indices (count indices)
+        ;; Lean's inductive_decl: the header and the constructor types. The kernel derives
+        ;; everything else — metadata, positivity, nesting, the recursor and its rules.
+        decl (env/mk-inductive-decl
+              ind-levels n-params false
+              [[ind-name (build-inductive-type params indices result-level)
+                (mapv (fn [ctor]
+                        [(name/from-string (:full-name ctor))
+                         (build-constructor-type params (:fields ctor) ind-name ind-level-levels
+                                                 (:compiled-return-indices ctor))])
+                      ctors)]])]
 
-        ;; Phase 2: Validation
-        _ (doseq [ctor ctors, field (:fields ctor)]
-            (check-positivity! env (:type field) ind-name (:name ctor) (:name field)))
-        ;; Nested inductives (the type occurs inside another inductive's parameters,
-        ;; e.g. `node : List Tree → Tree`): the KERNEL transforms nested→mutual and
-        ;; generates the recursor with the nested induction hypothesis. We must not
-        ;; supply a Clojure-built (non-nested) recursor for these.
-        num-nested (count-nested env ctors ind-name)
-        nested? (pos? num-nested)
-
-        ;; Compute metadata
-        is-rec (boolean (some (fn [ctor]
-                                (some (fn [f] (is-recursive-field? f ind-name))
-                                      (:fields ctor)))
-                              ctors))
-        is-reflexive (boolean (some (fn [ctor]
-                                      (some (fn [f]
-                                              (and (e/forall? (:type f))
-                                                   (occurs-in? (:type f) ind-name)))
-                                            (:fields ctor)))
-                                    ctors))
-
-        ;; Build inductive and constructor types before checking elimination.
-        ind-type (build-inductive-type params compiled-indices result-level)
-        ind-ci (env/mk-induct ind-name ind-levels ind-type
-                              :num-params n-params :num-indices n-indices
-                              :all [ind-name]
-                              :ctors (mapv #(name/from-string (:full-name %)) ctors)
-                              :num-nested num-nested
-                              :rec? is-rec :reflexive? is-reflexive)
-        ctor-cis (mapv (fn [ctor]
-                         (let [ctor-cname (name/from-string (:full-name ctor))
-                               ctor-type (build-constructor-type params (:fields ctor)
-                                                                 ind-name ind-level-levels
-                                                                 (:compiled-return-indices ctor))
-                               n-fields (count (:fields ctor))]
-                           (env/mk-ctor ctor-cname ind-levels ctor-type
-                                        ind-name (:idx ctor) n-params n-fields)))
-                       ctors)
-        ;; The provisional inductive is needed to infer recursive field types;
-        ;; the complete bundle still goes through kernel admission below.
-        prop-only? (elim-only-at-universe-zero? (env/add-constant env ind-ci)
-                                                result-level n-params ctor-cis)
-        ;; The elim-level param name MUST match the kernel's recursor-rule generator
-        ;; (InductiveChecker.initElimLevel: "u", suffixed "u_<i>" only on collision with the
-        ;; inductive's own level params). The Clojure side previously hardcoded "u_1" while the
-        ;; kernel-generated rules (define-inductive replaces ours with
-        ;; generateExpectedRecursorRules) used "u" — so iota left the rules' levels
-        ;; UNSUBSTITUTED, silently breaking symbolic defeq for every custom inductive
-        ;; (closed evaluation still terminated, masking it).
-        elim-level-param (when-not prop-only?
-                           (loop [nm (name/from-string "u") i 1]
-                             (if (some #(= % nm) ind-levels)
-                               (recur (name/from-string (str "u_" i)) (inc i))
-                               nm)))
-        elim-level (if prop-only? lvl/zero (lvl/param elim-level-param))
-        ;; rec-level-params: Name[] for ConstantInfo factory (elim + inductive levels)
-        ;; rec-level-levels: Level[] for e/const' references
-        rec-level-params (into (if elim-level-param [elim-level-param] [])
-                               ind-levels)
-        rec-level-levels (mapv lvl/param rec-level-params)
-
-        ;; Build recursor
-        rec-name (name/from-string (str ind-name-str ".rec"))
-        kernel-bundle
-        (if nested?
-          ;; Nested: supply NO recursors; the kernel generates them (with the nested
-          ;; induction hypothesis) from the aux mutual block it derives.
-          (env/mk-inductive-bundle ind-levels n-params false [ind-ci] ctor-cis [])
-          (let [rec-ci (build-recursor env params compiled-indices ctors ind-name ind-level-levels
-                                       rec-name rec-level-params rec-level-levels
-                                       result-level elim-level is-rec
-                                       self-const ind-name-str)
-                preliminary-bundle (env/mk-inductive-bundle ind-levels n-params false
-                                                            [ind-ci] ctor-cis [rec-ci])
-                ;; Use the kernel's Lean-shaped generator for local declarations too.
-                ;; This keeps frontend-authored inductives on the same admission path as imports.
-                lean-rules (vec (TypeChecker/generateExpectedRecursorRules env preliminary-bundle 0 1000000))
-                rec-ci (env/mk-recursor (.name ^ConstantInfo rec-ci)
-                                        (vec (.levelParams ^ConstantInfo rec-ci))
-                                        (.type ^ConstantInfo rec-ci)
-                                        :all (vec (.all ^ConstantInfo rec-ci))
-                                        :num-params (.numParams ^ConstantInfo rec-ci)
-                                        :num-indices (.numIndices ^ConstantInfo rec-ci)
-                                        :num-motives (.numMotives ^ConstantInfo rec-ci)
-                                        :num-minors (.numMinors ^ConstantInfo rec-ci)
-                                        :rules lean-rules
-                                        :k? (.isK ^ConstantInfo rec-ci)
-                                        :unsafe? (.isUnsafe ^ConstantInfo rec-ci))]
-            (env/mk-inductive-bundle ind-levels n-params false
-                                     [ind-ci] ctor-cis [rec-ci])))]
-
-    ;; Add core declarations (thread immutable env)
-    (let [env (env/check-inductive-bundle env kernel-bundle)
+    (let [env (try (env/add-inductive env decl kernel-fuel)
+                   (catch RuntimeException ex
+                     (throw (ex-info (str "inductive " ind-name-str " rejected by the kernel: " (.getMessage ex))
+                                     {:inductive ind-name-str} ex))))
+          num-nested (.numNested ^ConstantInfo (env/lookup env ind-name))
           ;; Lean/Elab/MutualInductive.lean mkAuxConstructions (55f80e10).
           ;; Consume the checked recursor, including the kernel's nested motives.
           env (rec-on/mk-rec-on env ind-name-str)
@@ -759,5 +190,5 @@
 
       (println "✓ inductive" ind-name-str "defined:"
                (count ctors) "constructors, recursor"
-               (if nested? (str "(nested, num-nested=" num-nested ")") ", auxiliaries"))
+               (if (pos? num-nested) (str "(nested, num-nested=" num-nested ")") ", auxiliaries"))
       env)))
